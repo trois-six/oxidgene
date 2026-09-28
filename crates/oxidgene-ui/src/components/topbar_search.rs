@@ -1,9 +1,11 @@
 //! Topbar last-name/first-name search bar with a live suggestion panel.
 //!
 //! The two fields still submit to [`Route::SearchResults`], and still take a
-//! SOSA number in place of a surname. What they add is a panel of matching
-//! persons under the fields, so the common case — "I know roughly who I am
-//! looking for" — never needs the full results page.
+//! SOSA number in place of a surname. What they add is a panel under the
+//! fields, in two levels: first the tree's names completing the field being
+//! typed, as the entry forms suggest them, then the matching persons, so the
+//! common case — "I know roughly who I am looking for" — never needs the full
+//! results page.
 //!
 //! Lives in its own component so signal updates on each keystroke only
 //! re-render this small widget, not the whole page.
@@ -11,9 +13,12 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, PersonSearchParams, PersonSearchSort};
+use crate::api::{ApiClient, PersonSearchParams, PersonSearchSort, SuggestionField};
 use crate::components::context_menu::ContextMenuSurface;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
+use crate::components::suggest_input::{
+    picked_text, render_suggest_row, suggest_rows, suggestions_shown, use_value_suggestions,
+};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
@@ -21,6 +26,9 @@ use crate::ui_observability::use_ui_resource;
 /// Suggestions shown at once. Enough to recognise the person, few enough that
 /// the panel stays a glance rather than a page; the footer leads to the rest.
 const SUGGESTION_LIMIT: u32 = 6;
+
+/// Names completing the field being typed, listed above the persons.
+const NAME_SUGGESTION_LIMIT: usize = 5;
 
 /// Keystrokes settle for this long before a request goes out.
 const DEBOUNCE_MS: u32 = 200;
@@ -187,7 +195,57 @@ pub fn TopbarSearch(
         _ => Default::default(),
     };
 
-    let panel_visible = open() && !rows.is_empty();
+    // ── Names ──
+    //
+    // What each field last had typed into it; only the field being typed in
+    // holds any, so only its names are listed. Empty until the user types, so
+    // fields the results page fills in ask for nothing.
+    let mut typed_last = use_signal(String::new);
+    let mut typed_first = use_signal(String::new);
+    let last_values = use_value_suggestions(
+        tid,
+        SuggestionField::FamilyNames,
+        typed_last,
+        NAME_SUGGESTION_LIMIT,
+    );
+    let first_values = use_value_suggestions(
+        tid,
+        SuggestionField::GivenNames,
+        typed_first,
+        NAME_SUGGESTION_LIMIT,
+    );
+    let (name_field, values) = if !typed_last().is_empty() {
+        (SuggestionField::FamilyNames, last_values)
+    } else {
+        (SuggestionField::GivenNames, first_values)
+    };
+    let names = if typed_last().is_empty() && typed_first().is_empty() {
+        Vec::new()
+    } else {
+        // A search criterion no record carries would find nobody.
+        suggestions_shown(values.read().as_deref().unwrap_or_default(), false, true)
+    };
+    let name_rows = suggest_rows(&names, name_field, &i18n);
+    let name_count = name_rows.len();
+
+    // Picking a name completes its field and keeps the panel open, so the
+    // persons below narrow down to it.
+    let pick_name = use_callback(move |index: usize| {
+        let Some(picked) = names.get(index) else {
+            return;
+        };
+        let mut field = match name_field {
+            SuggestionField::FamilyNames => search_last,
+            _ => search_first,
+        };
+        let text = picked_text(name_field, &field(), &picked.value);
+        field.set(text);
+        typed_last.set(String::new());
+        typed_first.set(String::new());
+        highlight.set(None);
+    });
+
+    let panel_visible = open() && name_count + rows.len() > 0;
 
     // ── Navigation ──
     let go_to_person = use_callback({
@@ -274,22 +332,18 @@ pub fn TopbarSearch(
 
     // ── Keyboard ──
     //
-    // Enter on a highlighted suggestion opens that person; Enter with nothing
-    // highlighted keeps the behaviour the bar has always had.
-    let row_count = rows.len();
+    // The names and the persons are one list for the arrows, names first.
+    // Enter on a highlighted name completes its field, on a highlighted person
+    // opens that person; Enter with nothing highlighted keeps the behaviour
+    // the bar has always had.
+    let row_count = name_count + rows.len();
+    let row_ids: Vec<Uuid> = rows.iter().map(PersonSearchSummary::person_id).collect();
     let on_key = use_callback(move |e: Event<KeyboardData>| match e.key() {
-        Key::Enter => {
-            let highlighted = highlight()
-                .filter(|_| open())
-                .and_then(|index| match &*suggestions.read() {
-                    Some(Some((rows, _, _))) => rows.get(index).map(PersonSearchSummary::person_id),
-                    _ => None,
-                });
-            match highlighted {
-                Some(id) => go_to_person.call(id),
-                None => show_all.call(()),
-            }
-        }
+        Key::Enter => match highlight().filter(|&index| open() && index < row_count) {
+            Some(index) if index < name_count => pick_name.call(index),
+            Some(index) => go_to_person.call(row_ids[index - name_count]),
+            None => show_all.call(()),
+        },
         Key::Escape => {
             open.set(false);
             highlight.set(None);
@@ -336,10 +390,14 @@ pub fn TopbarSearch(
                 value: "{search_last}",
                 oninput: move |e: Event<FormData>| {
                     search_last.set(e.value());
+                    typed_last.set(e.value());
+                    typed_first.set(String::new());
                     open.set(true);
                     highlight.set(None);
                     remeasure.call(());
                 },
+                // Names complete the field being typed in, not the one left.
+                onfocus: move |_| typed_first.set(String::new()),
                 onkeydown: move |e| on_key.call(e),
             }
             input {
@@ -349,10 +407,13 @@ pub fn TopbarSearch(
                 value: "{search_first}",
                 oninput: move |e: Event<FormData>| {
                     search_first.set(e.value());
+                    typed_first.set(e.value());
+                    typed_last.set(String::new());
                     open.set(true);
                     highlight.set(None);
                     remeasure.call(());
                 },
+                onfocus: move |_| typed_last.set(String::new()),
                 onkeydown: move |e| on_key.call(e),
             }
             button {
@@ -380,7 +441,27 @@ pub fn TopbarSearch(
                         open.set(false);
                         highlight.set(None);
                     },
-                    for (index, row) in rows.iter().enumerate() {
+                    if name_count > 0 {
+                        div { class: "td-suggest-names",
+                            for (index, row) in name_rows.iter().enumerate() {
+                                button {
+                                    key: "{index}",
+                                    r#type: "button",
+                                    class: if highlight() == Some(index) {
+                                        "context-menu-item td-suggest-row is-active"
+                                    } else {
+                                        "context-menu-item td-suggest-row"
+                                    },
+                                    // Keep the focus in the field, to go on typing.
+                                    onmousedown: move |e: Event<MouseData>| e.prevent_default(),
+                                    onclick: move |_| pick_name.call(index),
+                                    onmouseenter: move |_| highlight.set(Some(index)),
+                                    {render_suggest_row(row, &i18n)}
+                                }
+                            }
+                        }
+                    }
+                    for (index, row) in rows.iter().enumerate().map(|(i, row)| (name_count + i, row)) {
                         button {
                             key: "{row.person_id()}",
                             class: if highlight() == Some(index) {

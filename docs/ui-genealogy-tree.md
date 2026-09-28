@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T08:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
 ---
 
 
@@ -384,9 +384,16 @@ Fixed height, spans the full width above the canvas. Uses the shared `td-topbar`
 
 Two independent fields in the topbar, aligned to the right: **Last name(s)** and **First name(s)**. Either field can be used alone, or both combined. The **Last name(s)** field can be used to search a name or a SOSA number, if the element searched is a number it is a SOSA number. A magnifying glass button triggers the search.
 
-**While typing**, a suggestion panel opens beneath the fields:
+**While typing**, a suggestion panel opens beneath the fields, in two levels:
 
-- At most six matching persons, ranked by relevance, each drawn with the
+- First, at most five of the tree's names completing the field being typed —
+  surnames for **Last name(s)**, the given name being typed for
+  **First name(s)** — each with the number of persons carrying it, as the
+  entry forms suggest them ([Common UI](ui-common.md) §4.4). Picking one
+  completes the field and keeps the panel open, so the persons narrow down to
+  it. The list follows the field being typed in, and a tree whose entry
+  suggestions are off lists none
+- Then at most six matching persons, ranked by relevance, each drawn with the
   shared result row from [Search Results](ui-search-results.md) §7 — portrait,
   name, years, and the relation line that tells two people of the same name
   apart
@@ -397,8 +404,10 @@ Two independent fields in the topbar, aligned to the right: **Last name(s)** and
 - Requests are debounced, and input shorter than two characters across both
   fields queries nothing. Fields filled in by the page rather than typed — the
   results page pre-fills them — query nothing until the panel opens
-- **Down** / **Up** move the highlight, wrapping at either end; **Enter** opens
-  the highlighted person; **Escape** or a click outside closes the panel
+- **Down** / **Up** move the highlight through the names then the persons,
+  wrapping at either end; **Enter** completes the field with the highlighted
+  name or opens the highlighted person; **Escape** or a click outside closes
+  the panel
 
 The panel is a fixed overlay, because the topbar clips its overflow. It reuses
 the shared contextual-surface component, whose backdrop also handles dismissal

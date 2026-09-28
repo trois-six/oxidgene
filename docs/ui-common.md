@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -364,6 +364,11 @@ the [value suggestions](api.md) endpoint:
   [Search Results](ui-search-results.md), the relatives' included, use the
   same field but list only the tree's values: a term no record carries
   would find nobody.
+- **Topbar search.** The [tree view](ui-genealogy-tree.md) search fields
+  list the same surnames and given names, the tree's only, as the first level
+  of their suggestion panel, above the matching persons. The panel is a fixed
+  overlay, since the topbar clips its overflow, but its name rows are drawn
+  and picked as here.
 
 Canonical display is comma-separated from the most specific to the least
 specific unit, ending with the country, but the number of levels varies by

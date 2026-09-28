@@ -1196,6 +1196,16 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
     }
 
+    /* The names completing the field being typed, above the persons. */
+    .td-suggest-names {
+        padding: 4px 0;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .td-suggest-names .td-suggest-row {
+        padding: 5px 10px;
+    }
+
     .td-suggest-sosa {
         flex-shrink: 0;
         align-self: center;

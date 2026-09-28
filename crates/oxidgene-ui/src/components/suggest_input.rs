@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, SuggestionField, ValueSuggestion};
 use crate::components::tree_cache::use_tree_cache;
-use crate::i18n::use_i18n;
+use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 use crate::utils::sleep_ms;
 
@@ -150,22 +150,101 @@ pub(crate) fn SuggestInput(
                             },
                             onmouseenter: move |_| highlight.set(Some(index)),
                             onclick: move |_| pick(index),
-                            span { class: "suggest-input-name", "{row.name}" }
-                            if !row.detail.is_empty() {
-                                span { class: "suggest-input-detail", " {row.detail}" }
-                            }
-                            if row.sheet {
-                                span {
-                                    class: "suggest-input-sheet",
-                                    title: i18n.t("suggest_input.sheet_title"),
-                                    {i18n.t("suggest_input.sheet")}
-                                }
-                            }
+                            {render_suggest_row(row, &i18n)}
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/// The inside of one suggestion row, shared with the topbar search panel.
+pub(crate) fn render_suggest_row(row: &SuggestRow, i18n: &I18n) -> Element {
+    rsx! {
+        span { class: "suggest-input-name", "{row.name}" }
+        if !row.detail.is_empty() {
+            span { class: "suggest-input-detail", " {row.detail}" }
+        }
+        if row.sheet {
+            span {
+                class: "suggest-input-sheet",
+                title: i18n.t("suggest_input.sheet_title"),
+                {i18n.t("suggest_input.sheet")}
+            }
+        }
+    }
+}
+
+/// What `field` suggests for `typed`, asked once the keystrokes settle: at
+/// most `limit` values, nothing for empty text or a tree whose entry
+/// suggestions are off. Given names follow the word being typed.
+pub(crate) fn use_value_suggestions(
+    tree_id: Option<Uuid>,
+    field: SuggestionField,
+    typed: Signal<String>,
+    limit: usize,
+) -> Resource<Vec<ValueSuggestion>> {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let mut debounced = use_signal(String::new);
+    let _debounce = use_ui_resource("value_input_debounce", move || {
+        let text = typed();
+        async move {
+            sleep_ms(DEBOUNCE_MS).await;
+            debounced.set(text);
+        }
+    });
+    use_ui_resource("value_input_suggest", move || {
+        let api = api.clone();
+        let text = debounced();
+        let lang = i18n.0.code();
+        let enabled = tree_cache.entry_suggestions();
+        async move {
+            let query = match field {
+                SuggestionField::GivenNames => last_word(&text).1,
+                _ => text.trim(),
+            };
+            let Some(tree_id) = tree_id.filter(|_| enabled && !query.is_empty()) else {
+                return Vec::new();
+            };
+            api.value_suggestions(tree_id, field, lang, query, limit)
+                .await
+                .unwrap_or_default()
+        }
+    })
+}
+
+/// The rows listing `suggestions`: each value, then how many persons carry
+/// it (citations for a source).
+pub(crate) fn suggest_rows(
+    suggestions: &[ValueSuggestion],
+    field: SuggestionField,
+    i18n: &I18n,
+) -> Vec<SuggestRow> {
+    suggestions
+        .iter()
+        .map(|s| SuggestRow {
+            name: s.value.clone(),
+            detail: match (s.count, field) {
+                (0, _) => String::new(),
+                (count, SuggestionField::Sources) => {
+                    i18n.t_plural("dictionary.citation_count", count as usize)
+                }
+                (count, _) => i18n.t_plural("dictionary.person_count", count as usize),
+            },
+            sheet: s.reference,
+        })
+        .collect()
+}
+
+/// The field's text once `picked` is picked: the value itself, or for given
+/// names, the text with its last word replaced.
+pub(crate) fn picked_text(field: SuggestionField, current: &str, picked: &str) -> String {
+    match field {
+        SuggestionField::GivenNames => format!("{}{picked}", last_word(current).0),
+        _ => picked.to_owned(),
     }
 }
 
@@ -189,58 +268,18 @@ pub fn ValueInput(
     #[props(default)] on_change: Option<EventHandler<()>>,
 ) -> Element {
     let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
     let mut value = value;
     // What the user typed last; empty until they type, so a form opening
     // with a filled field asks for nothing.
     let mut typed = use_signal(String::new);
-    let mut debounced = use_signal(String::new);
-    let _debounce = use_ui_resource("value_input_debounce", move || {
-        let text = typed();
-        async move {
-            sleep_ms(DEBOUNCE_MS).await;
-            debounced.set(text);
-        }
-    });
-    let found = use_ui_resource("value_input_suggest", move || {
-        let api = api.clone();
-        let text = debounced();
-        let lang = i18n.0.code();
-        let enabled = tree_cache.entry_suggestions();
-        async move {
-            let query = match field {
-                SuggestionField::GivenNames => last_word(&text).1,
-                _ => text.trim(),
-            };
-            if query.is_empty() || !enabled {
-                return Vec::new();
-            }
-            api.value_suggestions(tree_id, field, lang, query, value_suggestions(field))
-                .await
-                .unwrap_or_default()
-        }
-    });
+    let found = use_value_suggestions(Some(tree_id), field, typed, value_suggestions(field));
 
     let suggestions = suggestions_shown(
         found.read().as_deref().unwrap_or_default(),
         uppercase,
         tree_only,
     );
-    let rows: Vec<SuggestRow> = suggestions
-        .iter()
-        .map(|s| SuggestRow {
-            name: s.value.clone(),
-            detail: match (s.count, field) {
-                (0, _) => String::new(),
-                (count, SuggestionField::Sources) => {
-                    i18n.t_plural("dictionary.citation_count", count as usize)
-                }
-                (count, _) => i18n.t_plural("dictionary.person_count", count as usize),
-            },
-            sheet: s.reference,
-        })
-        .collect();
+    let rows = suggest_rows(&suggestions, field, &i18n);
 
     let changed = move || {
         if let Some(handler) = on_change {
@@ -263,13 +302,7 @@ pub fn ValueInput(
                 let Some(picked) = suggestions.get(index) else {
                     return;
                 };
-                let text = match field {
-                    SuggestionField::GivenNames => {
-                        let current = value();
-                        format!("{}{}", last_word(&current).0, picked.value)
-                    }
-                    _ => picked.value.clone(),
-                };
+                let text = picked_text(field, &value(), &picked.value);
                 typed.set(String::new());
                 value.set(text);
                 changed();
@@ -280,7 +313,7 @@ pub fn ValueInput(
 
 /// The suggestions a field lists: capitalized for a field in capitals, and
 /// each spelling once, its counts summed; only the tree's for `tree_only`.
-fn suggestions_shown(
+pub(crate) fn suggestions_shown(
     found: &[ValueSuggestion],
     uppercase: bool,
     tree_only: bool,
@@ -336,6 +369,18 @@ mod tests {
         assert_eq!(last_word("Ma"), ("", "Ma"));
         assert_eq!(last_word("Jean "), ("Jean ", ""));
         assert_eq!(last_word("Élise Zoé"), ("Élise ", "Zoé"));
+    }
+
+    #[test]
+    fn picking_a_given_name_replaces_the_word_being_typed_only() {
+        let given = SuggestionField::GivenNames;
+        assert_eq!(
+            picked_text(given, "Given_a Gi", "Given_b"),
+            "Given_a Given_b"
+        );
+        assert_eq!(picked_text(given, "Gi", "Given_b"), "Given_b");
+        let surname = SuggestionField::FamilyNames;
+        assert_eq!(picked_text(surname, "NAME NA", "NAME_B"), "NAME_B");
     }
 
     #[test]
