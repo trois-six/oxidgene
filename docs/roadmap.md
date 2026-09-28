@@ -65,8 +65,10 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 - [ ] Replace the tree action picker's placeholder "Merge with…" with the
   three-step wizard, writing the chosen values before calling the merge
   operation.
-- [ ] Add the potential duplicates tab of [Tools](ui-tools.md), with "Not
-  duplicates" recording a distinct-person confirmation.
+- [x] Add the potential duplicates tab of [Tools](ui-tools.md), with "Two
+  different people" recording a distinct-person confirmation and merges
+  through the homonym picker after a side-by-side comparison.
+- [ ] Let the Tools comparison open the wizard at Step 2 once it exists.
 - [ ] Decide whether a merge should reconcile events recorded twice (two
   births, say) or keep leaving that to the user.
 
@@ -106,7 +108,8 @@ growth of the tree over the days it was worked on) is delivered. Remaining:
 
 The [Tools](ui-tools.md) page, one tab per tool, holds the anomalies with
 the catalogue of their rules, the places the statistics cannot locate, the
-ancestry completeness from the SOSA root and the date converter.
+ancestry completeness from the SOSA root, the potential duplicates and the
+date converter.
 Remaining tabs:
 
 - [ ] The proposed anomaly rules of [Tools §3.3](ui-tools.md): a unique event
@@ -117,7 +120,6 @@ Remaining tabs:
   name, place spellings that differ only in form, and distant places on one
   day.
 - [ ] Decide whether the anomaly thresholds should become tree settings.
-- [ ] Potential duplicates, merged through the existing merge operation.
 - [ ] Dates written out in words in every interface language and in Latin,
   and the reverse: a written date read back into a date.
 

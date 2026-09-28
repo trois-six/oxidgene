@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
-description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, and a converter of dates between calendars."
+description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, and a converter of dates between calendars."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T18:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:00:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -30,7 +30,7 @@ layout with no sidebar of its own.
 +----------------------------------------------------------------------+
 | [logo] tree / Tools                                                   |
 +----------------------------------------------------------------------+
-| Anomalies | Places not located | Ancestry completeness | Date converter  |
+| Anomalies | Places | Ancestry | Duplicates | Date converter            |
 +----------------------------------------------------------------------+
 |  Tool title                                                           |
 |  What the tool does, in a sentence or two                             |
@@ -46,7 +46,8 @@ screen together:
 | Anomalies | Impossible or unlikely dates, filiations, unions, witnesses and records, by rule (§3) |
 | Places not located | The places the statistics cannot locate, with their uses and a way to correct them (§4) |
 | Ancestry completeness | Generation by generation from the SOSA root, who is known and which key facts are recorded (§5) |
-| Date converter | A date in one calendar, read in every other (§6) |
+| Potential duplicates | Pairs of records that may be one person, to merge or keep apart (§6) |
+| Date converter | A date in one calendar, read in every other (§7) |
 
 The tabs are the [Statistics](ui-statistics.md) strip: at phone width
 (640px and below) they scroll sideways instead of shrinking. The tab shown
@@ -261,7 +262,67 @@ The data comes from `GET /trees/{id}/ancestry-completeness` or the
 `ancestryCompleteness` query ([API](api.md)), computed from the person
 projections on each request.
 
-## 6. Date converter
+## 6. Potential duplicates
+
+Pairs of records of the tree that may be one person, best first
+(`GET /trees/{id}/duplicates`, `potentialDuplicates`, [API](api.md)),
+computed from the person projections on each request.
+
+### 6.1 Finding the pairs
+
+- Only persons with both a surname and a given name are compared, as for
+  [homonyms](api.md). Two records are compared when their surnames and their
+  first given names **sound alike**: folded (case and accents aside), letters
+  only, `y` read as `i` and `ph` as `f`, doubled letters single, and a final
+  `s`, `x`, `z`, `t` or `d` dropped from a word longer than four letters —
+  `Martins` meets `Martin`, `Dupond` meets `Dupont`.
+- A pair is ruled out when the two are of different known sexes, when their
+  births (or baptisms) or their deaths (or burials) are more than 5 years
+  apart, when one died before the other's birth year, when one is the
+  other's spouse, parent or child (the merge refuses them anyway), when both
+  are children of one family born on known different days (the second named
+  after the first), or when they have been recorded as different people.
+- The **score**, out of 100, adds what the two share:
+
+  | Clue | Points |
+  |---|---|
+  | The same surname and given names (folded) | 30 |
+  | Only a similar name (same sound key) | 15 |
+  | The same complete birth date | 30 |
+  | Otherwise the same birth year | 20 |
+  | Otherwise births at most 5 years apart | 5 |
+  | The same birthplace (folded) | 10 |
+  | The same death year | 15 |
+  | Children of the same family | 20 |
+  | Otherwise a father, a mother of the same name | 10 each |
+  | A spouse of the same name | 10 |
+
+- A pair is listed from **40 points**: a name alone, however common, is not
+  enough; a second clue is. From 70 it reads as *very likely*, from 55
+  *likely*, below *possible*. At most 500 pairs are listed, with how many
+  there are.
+
+### 6.2 Settling a pair
+
+- Each pair shows both records as the search rows do (name, dates, relatives,
+  birthplace), each a link to the profile, with its confidence, its score
+  and what the two share.
+- **Two different people** records that the two differ, through the same
+  distinct-person confirmation as the homonym check of the
+  [Person Edit Modal](ui-person-edit-modal.md) §13; the pair leaves the list
+  for good.
+- **Compare** opens the two records side by side, field by field (surname,
+  given names, sex, birth, birthplace, death, father, mother, spouses,
+  children), the fields that differ highlighted, with a choice of the record
+  kept (the first by default). Under it, the shared homonym picker settles
+  the pair: choosing the kept record **merges** the other into it through
+  the existing merge operation ([Person Merge](ui-merge.md) §6, [Data
+  Model](data-model.md#person-merge)), in one transaction that refreshes the
+  projections and records the history; "a different person" records them as
+  different, and "decide later" closes the comparison.
+- After either answer the list is computed again.
+
+## 7. Date converter
 
 A date entered in any calendar the application records dates in, read in
 all of them: Gregorian, Julian, Hebrew and French Republican.
@@ -284,7 +345,7 @@ all of them: Gregorian, Julian, Hebrew and French Republican.
 - Everything is computed in the browser from the calendar arithmetic of
   `oxidgene-core`; nothing is sent to the server, and nothing is stored.
 
-## 7. i18n and accessibility
+## 8. i18n and accessibility
 
 Every title, explanation, label and message goes through i18n in every
 interface language. The tabs are a `tablist` whose buttons say which is

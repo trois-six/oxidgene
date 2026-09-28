@@ -807,6 +807,21 @@ impl QueryRoot {
         .await?)
     }
 
+    /// The pairs of records of the tree that may be one person, best first.
+    async fn potential_duplicates(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<super::types::GqlPotentialDuplicates> {
+        Ok(crate::service::duplicates::load_potential_duplicates(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+        )
+        .await?
+        .into())
+    }
+
     /// The places of the tree the statistics cannot locate, with their
     /// usage, most used first.
     async fn unlocated_places(

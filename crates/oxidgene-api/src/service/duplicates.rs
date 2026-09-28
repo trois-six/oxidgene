@@ -1,11 +1,18 @@
-//! Same-named persons: recording that two records are different people, and
-//! merging two records that turn out to be one.
+//! Same-named persons: recording that two records are different people,
+//! merging two records that turn out to be one, and finding the pairs of
+//! records that may be one person.
 //!
-//! Finding the candidates is a read of the search projection
-//! ([`ProfileService::homonyms`]). What lives here are the two answers a user
-//! can give about them, shared by REST and GraphQL.
+//! The homonyms of one person are a read of the search projection
+//! ([`ProfileService::homonyms`]); the potential duplicates of a whole tree
+//! are computed here from the person projections. The two answers a user
+//! can give about either, shared by REST and GraphQL, live here too.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+use chrono::Datelike;
+use oxidgene_core::projection::{PersonProfile, ProfileEvent, SearchEntry};
+use oxidgene_core::search::normalize_for_search;
+use serde::Serialize;
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
@@ -17,6 +24,7 @@ use oxidgene_db::repo::{
 use sea_orm::ConnectionTrait;
 use uuid::Uuid;
 
+use crate::profile::builder::build_search_entry;
 use crate::profile::invalidation;
 use crate::profile::service::{ProfileService, SEARCH_MAX_LIMIT};
 use crate::service::history::Change;
@@ -169,3 +177,327 @@ pub async fn merge_persons(
 
     PersonRepo::get(conn, kept).await
 }
+
+// ── Potential duplicates ─────────────────────────────────────────────────
+
+/// The fewest points a pair needs to be listed: the same name alone (30)
+/// is not enough, a tree holds many namesakes; a second clue is needed.
+pub const MIN_DUPLICATE_SCORE: i64 = 40;
+/// The most pairs one answer lists, best first; `count` says how many
+/// there are.
+pub const MAX_DUPLICATE_PAIRS: usize = 500;
+/// Births or deaths further apart than this rule a pair out.
+const MAX_YEAR_GAP: i32 = 5;
+
+/// Two records of a tree that may be one person.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DuplicatePair {
+    /// From 0 to 100, how alike the two records are (`docs/ui-tools.md` §6).
+    pub score: i64,
+    /// What they share, strongest first: `same_name`, `similar_name`,
+    /// `same_birth_date`, `same_birth_year`, `close_birth`,
+    /// `same_birth_place`, `same_death_year`, `same_parents`, `same_father`,
+    /// `same_mother`, `same_spouse`.
+    pub reasons: Vec<String>,
+    /// Both records as the search rows show them.
+    pub first: SearchEntry,
+    pub second: SearchEntry,
+}
+
+/// A tree's potential duplicates.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PotentialDuplicates {
+    /// Every pair found, of which `pairs` lists at most
+    /// [`MAX_DUPLICATE_PAIRS`].
+    pub count: i64,
+    pub pairs: Vec<DuplicatePair>,
+}
+
+/// Loads a tree's projections and its distinct-person confirmations, and
+/// finds the pairs of records that may be one person.
+pub async fn load_potential_duplicates(
+    db: &sea_orm::DatabaseConnection,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+) -> Result<PotentialDuplicates, OxidGeneError> {
+    oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
+    let persons = profiles.get_all_persons(db, tree_id).await?;
+    let distinct = PersonDistinctRepo::pairs_in_tree(db, tree_id).await?;
+    tokio::task::spawn_blocking(move || potential_duplicates(&persons, &distinct))
+        .await
+        .map_err(|e| OxidGeneError::Internal(e.to_string()))
+}
+
+/// A name folded so that spellings that sound alike meet: lowercase and
+/// accents aside, letters only, `y` read as `i` and `ph` as `f`, doubled
+/// letters single, and a final `s`, `x`, `z`, `t` or `d` dropped from a word
+/// longer than four letters (`Martins` meets `Martin`, `Dupond` `Dupont`).
+pub fn sound_key(name: &str) -> String {
+    normalize_for_search(name)
+        .split(|c: char| !c.is_alphabetic())
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let word = word.replace("ph", "f").replace('y', "i");
+            let mut folded = String::with_capacity(word.len());
+            for c in word.chars() {
+                if !folded.ends_with(c) {
+                    folded.push(c);
+                }
+            }
+            if folded.chars().count() > 4 && folded.ends_with(['s', 'x', 'z', 't', 'd']) {
+                folded.pop();
+            }
+            folded
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// What a pair of records is compared on.
+struct Record<'a> {
+    profile: &'a PersonProfile,
+    surname: String,
+    given: String,
+    /// The block the record is compared within: its surname and first given
+    /// name, by sound.
+    key: (String, String),
+    birth: Option<&'a ProfileEvent>,
+    death: Option<&'a ProfileEvent>,
+}
+
+impl<'a> Record<'a> {
+    fn new(profile: &'a PersonProfile) -> Option<Self> {
+        let name = profile.primary_name.as_ref()?;
+        let surname = name.surname.as_deref().unwrap_or("").trim();
+        let given = name.given_names.as_deref().unwrap_or("").trim();
+        // Half a name says too little, as for homonyms.
+        if surname.is_empty() || given.is_empty() {
+            return None;
+        }
+        let first_given = given.split_whitespace().next().unwrap_or(given);
+        Some(Self {
+            profile,
+            surname: normalize_for_search(surname),
+            given: normalize_for_search(given),
+            key: (sound_key(surname), sound_key(first_given)),
+            birth: profile.birth_or_baptism(),
+            death: profile.death_or_burial(),
+        })
+    }
+
+    fn year(event: Option<&ProfileEvent>) -> Option<i32> {
+        event.and_then(|e| e.date_sort).map(|d| d.year())
+    }
+
+    fn parents(&self) -> (Option<Uuid>, Option<Uuid>) {
+        self.profile
+            .family_as_child
+            .as_ref()
+            .map_or((None, None), |l| (l.father_id, l.mother_id))
+    }
+}
+
+/// How alike two records are, with why, or `None` when something rules the
+/// pair out: another sex, births or deaths years apart, one dead before the
+/// other was born, or a family link between the two.
+fn compare(
+    a: &Record<'_>,
+    b: &Record<'_>,
+    names: &HashMap<Uuid, String>,
+) -> Option<(i64, Vec<&'static str>)> {
+    use oxidgene_core::Sex;
+    let (x, y) = (a.profile.sex, b.profile.sex);
+    if x != Sex::Unknown && y != Sex::Unknown && x != y {
+        return None;
+    }
+    // A spouse, a parent or a child of the other is somebody else, and the
+    // merge refuses them anyway.
+    let (a_id, b_id) = (a.profile.person_id, b.profile.person_id);
+    let related = |x: &Record<'_>, other: Uuid| {
+        x.profile
+            .families_as_spouse
+            .iter()
+            .any(|l| l.spouse_id == Some(other))
+            || [x.parents().0, x.parents().1].contains(&Some(other))
+    };
+    if related(a, b_id) || related(b, a_id) {
+        return None;
+    }
+    let dead_before_born = |x: &Record<'_>, y: &Record<'_>| {
+        matches!(
+            (x.death.and_then(|e| e.date_sort), Record::year(y.birth)),
+            (Some(died), Some(born)) if died.year() < born
+        )
+    };
+    if dead_before_born(a, b) || dead_before_born(b, a) {
+        return None;
+    }
+
+    let mut score = 0;
+    let mut reasons = Vec::new();
+    if a.surname == b.surname && a.given == b.given {
+        score += 30;
+        reasons.push("same_name");
+    } else {
+        score += 15;
+        reasons.push("similar_name");
+    }
+
+    match (Record::year(a.birth), Record::year(b.birth)) {
+        (Some(x), Some(y)) if (x - y).abs() > MAX_YEAR_GAP => return None,
+        (Some(x), Some(y)) => {
+            let same_day = a.birth.and_then(|e| e.date_sort) == b.birth.and_then(|e| e.date_sort)
+                && [a.birth, b.birth].iter().all(|e| {
+                    e.and_then(|e| e.date_value.as_deref())
+                        .is_some_and(|v| v.split_whitespace().count() >= 3)
+                });
+            if same_day {
+                score += 30;
+                reasons.push("same_birth_date");
+            } else if x == y {
+                score += 20;
+                reasons.push("same_birth_year");
+            } else {
+                score += 5;
+                reasons.push("close_birth");
+            }
+        }
+        _ => {}
+    }
+    let place = |r: &Record<'_>| {
+        r.birth
+            .and_then(|e| e.place_name.as_deref())
+            .map(normalize_for_search)
+            .filter(|p| !p.trim().is_empty())
+    };
+    if let (Some(x), Some(y)) = (place(a), place(b))
+        && x == y
+    {
+        score += 10;
+        reasons.push("same_birth_place");
+    }
+    match (Record::year(a.death), Record::year(b.death)) {
+        (Some(x), Some(y)) if (x - y).abs() > MAX_YEAR_GAP => return None,
+        (Some(x), Some(y)) if x == y => {
+            score += 15;
+            reasons.push("same_death_year");
+        }
+        _ => {}
+    }
+
+    // Parents: the same family, else parents of the same names.
+    let family = |r: &Record<'_>| r.profile.family_as_child.as_ref().map(|l| l.family_id);
+    if family(a).is_some() && family(a) == family(b) {
+        // Siblings of one name, both born on a known different day, are
+        // two children: the second named after the first.
+        let days = |r: &Record<'_>| {
+            r.birth
+                .filter(|e| {
+                    e.date_value
+                        .as_deref()
+                        .is_some_and(|v| v.split_whitespace().count() >= 3)
+                })
+                .and_then(|e| e.date_sort)
+        };
+        if let (Some(x), Some(y)) = (days(a), days(b))
+            && x != y
+        {
+            return None;
+        }
+        score += 20;
+        reasons.push("same_parents");
+    } else {
+        let name = |id: Option<Uuid>| id.and_then(|id| names.get(&id)).filter(|n| !n.is_empty());
+        let (a_father, a_mother) = a.parents();
+        let (b_father, b_mother) = b.parents();
+        if let (Some(x), Some(y)) = (name(a_father), name(b_father))
+            && x == y
+        {
+            score += 10;
+            reasons.push("same_father");
+        }
+        if let (Some(x), Some(y)) = (name(a_mother), name(b_mother))
+            && x == y
+        {
+            score += 10;
+            reasons.push("same_mother");
+        }
+    }
+    let spouses = |r: &Record<'_>| -> HashSet<&String> {
+        r.profile
+            .families_as_spouse
+            .iter()
+            .filter_map(|l| l.spouse_id)
+            .filter_map(|id| names.get(&id))
+            .filter(|n| !n.is_empty())
+            .collect()
+    };
+    if !spouses(a).is_disjoint(&spouses(b)) {
+        score += 10;
+        reasons.push("same_spouse");
+    }
+    Some((score.min(100), reasons))
+}
+
+/// The pairs of records that may be one person, best first, leaving out the
+/// pairs already confirmed to be different people (`distinct`, lower id
+/// first).
+pub fn potential_duplicates(
+    profiles: &[PersonProfile],
+    distinct: &HashSet<(Uuid, Uuid)>,
+) -> PotentialDuplicates {
+    let names: HashMap<Uuid, String> = profiles
+        .iter()
+        .map(|p| {
+            let name = p
+                .primary_name
+                .as_ref()
+                .map(|n| normalize_for_search(&n.display_name))
+                .unwrap_or_default();
+            (p.person_id, name)
+        })
+        .collect();
+    let mut blocks: HashMap<(String, String), Vec<Record<'_>>> = HashMap::new();
+    for profile in profiles {
+        if let Some(record) = Record::new(profile) {
+            blocks.entry(record.key.clone()).or_default().push(record);
+        }
+    }
+    let mut found = Vec::new();
+    for records in blocks.values_mut() {
+        records.sort_by_key(|r| r.profile.person_id);
+        for (i, a) in records.iter().enumerate() {
+            for b in &records[i + 1..] {
+                let pair = (a.profile.person_id, b.profile.person_id);
+                if distinct.contains(&pair) {
+                    continue;
+                }
+                if let Some((score, reasons)) = compare(a, b, &names)
+                    && score >= MIN_DUPLICATE_SCORE
+                {
+                    found.push((score, reasons, a.profile, b.profile));
+                }
+            }
+        }
+    }
+    found.sort_by(|x, y| {
+        y.0.cmp(&x.0)
+            .then_with(|| x.2.person_id.cmp(&y.2.person_id))
+            .then_with(|| x.3.person_id.cmp(&y.3.person_id))
+    });
+    let count = found.len() as i64;
+    let pairs = found
+        .into_iter()
+        .take(MAX_DUPLICATE_PAIRS)
+        .map(|(score, reasons, a, b)| DuplicatePair {
+            score,
+            reasons: reasons.into_iter().map(str::to_string).collect(),
+            first: build_search_entry(a),
+            second: build_search_entry(b),
+        })
+        .collect();
+    PotentialDuplicates { count, pairs }
+}
+
+#[cfg(test)]
+mod tests;

@@ -4060,3 +4060,54 @@ async fn anomalies_and_unlocated_places_match_rest() {
         );
     }
 }
+
+/// The same pairs as REST, gone once confirmed distinct, the same errors.
+#[tokio::test]
+async fn potential_duplicates_match_rest() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let first = gql_named_person(&app, &tree_id, "FEMALE", "Anna", "BRANCH_A").await;
+    let second = gql_named_person(&app, &tree_id, "FEMALE", "Anna", "BRANCH_A").await;
+    for person in [&first, &second] {
+        gql_event(
+            &app,
+            &tree_id,
+            &format!(r#"personId: "{person}""#),
+            "BIRTH",
+            "1850",
+        )
+        .await;
+    }
+    let query = format!(
+        r#"{{ potentialDuplicates(treeId: "{tree_id}") {{ count pairs {{ score reasons
+            first {{ personId surname birthYear }} second {{ personId }} }} }} }}"#
+    );
+    let resp = graphql(app.clone(), &query, None).await;
+    let found = &data(&resp)["potentialDuplicates"];
+    assert_eq!(found["count"], 1);
+    assert_eq!(found["pairs"][0]["score"], 50);
+    assert_eq!(
+        found["pairs"][0]["reasons"],
+        json!(["same_name", "same_birth_year"])
+    );
+    assert_eq!(found["pairs"][0]["first"]["birthYear"], "1850");
+
+    let resp = gql_mark_distinct(&app, &tree_id, &first, &[&second]).await;
+    data(&resp);
+    let resp = graphql(app.clone(), &query, None).await;
+    assert_eq!(data(&resp)["potentialDuplicates"]["count"], 0);
+
+    let resp = graphql(
+        app,
+        &format!(
+            r#"{{ potentialDuplicates(treeId: "{}") {{ count }} }}"#,
+            uuid::Uuid::now_v7()
+        ),
+        None,
+    )
+    .await;
+    assert!(
+        resp["errors"].as_array().is_some_and(|e| !e.is_empty()),
+        "an unknown tree should be rejected, as REST answers 404: {resp}"
+    );
+}

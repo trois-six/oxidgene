@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
 description: "Three-step wizard to select a duplicate person, compare both records side by side, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:00:00Z }
 ---
 
 
@@ -21,13 +21,15 @@ The merge flow allows combining two person records that represent the same indiv
 The merge flow can be triggered from:
 
 - The [Tree View](ui-genealogy-tree.md) **action picker**: "Merge with…" on a selected person
-- The [Tools](ui-tools.md) page's **Potential duplicates** tab: "Merge" button on a detected pair
 
-Two lighter flows merge without this wizard, straight through the merge
-operation of §6: the homonym check that follows every save of the [Person
-Edit Modal](ui-person-edit-modal.md) §13, and the receipt of a Geneanet
-import ([Import](ui-import.md) §9.7), for people identified outside the tree
-who bear the name of somebody in it. Both keep the pre-existing person.
+Three lighter flows merge without this wizard, straight through the merge
+operation of §6 and the shared homonym picker: the homonym check that
+follows every save of the [Person Edit Modal](ui-person-edit-modal.md) §13,
+the receipt of a Geneanet import ([Import](ui-import.md) §9.7), for people
+identified outside the tree who bear the name of somebody in it, and the
+potential duplicates of the [Tools](ui-tools.md) page §6, whose side-by-side
+comparison chooses the record kept. The first two keep the pre-existing
+person.
 
 ---
 
@@ -83,7 +85,9 @@ The source person is already selected (the person on which "Merge with…" was c
 
 ### When triggered from Potential Duplicates
 
-Both persons are pre-selected (source and target). Step 1 is skipped — the wizard opens directly at Step 2.
+Once the wizard exists, the [Tools](ui-tools.md) comparison could open it at
+Step 2 with both persons pre-selected (source and target); today it merges
+through the homonym picker (§1).
 
 ---
 

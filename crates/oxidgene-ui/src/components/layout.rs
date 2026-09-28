@@ -6766,7 +6766,80 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 4px;
     }
 
+    .tools-pairs { display: grid; gap: 12px; }
+
+    .tools-pair-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 8px;
+        font-size: 0.8rem;
+    }
+
+    .tools-confidence {
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-weight: 600;
+        border: 1px solid currentColor;
+    }
+
+    .tools-confidence-very_likely { color: var(--red); }
+    .tools-confidence-likely { color: var(--orange); }
+    .tools-confidence-possible { color: var(--text-secondary); }
+
+    .tools-reasons { display: flex; flex-wrap: wrap; gap: 4px; }
+
+    .tools-reason {
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: var(--bg-deep);
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+    }
+
+    .tools-pair-persons {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .tools-pair-person {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text-primary);
+        text-decoration: none;
+    }
+
+    .tools-pair-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    .modal-card.tools-compare {
+        width: 100%;
+        min-width: 0;
+        max-width: min(720px, calc(100vw - 32px));
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .tools-compare-table th { width: 30%; }
+    .tools-compare-table tr.tools-differs td { color: var(--orange); }
+    .tools-compare-table td { overflow-wrap: anywhere; }
+
+    .tools-keep {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+    }
+
     @media (max-width: 640px) {
+        .tools-pair-persons { grid-template-columns: minmax(0, 1fr); }
         /* The person and the detail of an anomaly one above the other. */
         .tools-rule .stats-table td { display: block; border-bottom: none; }
         .tools-rule .stats-table tr { display: block; border-bottom: 1px solid var(--border); }

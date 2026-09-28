@@ -445,6 +445,23 @@ pub struct StatPlace {
     pub longitude: Option<f64>,
 }
 
+/// A tree's potential duplicates (`docs/ui-tools.md`): every pair found,
+/// and the best of them.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PotentialDuplicates {
+    pub count: i64,
+    pub pairs: Vec<DuplicatePair>,
+}
+
+/// Two records that may be one person, how alike (0 to 100) and why.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DuplicatePair {
+    pub score: i64,
+    pub reasons: Vec<String>,
+    pub first: SearchEntry,
+    pub second: SearchEntry,
+}
+
 /// A tree's anomalies (`docs/ui-tools.md`), the rules that found something
 /// in catalogue order.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -4633,6 +4650,15 @@ impl ApiClient {
     /// How many persons a tree held over the days it was worked on.
     pub async fn tree_growth(&self, tree_id: Uuid) -> Result<TreeGrowth, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/statistics/growth"))
+            .await
+    }
+
+    /// The pairs of a tree's records that may be one person, best first.
+    pub async fn potential_duplicates(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<PotentialDuplicates, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/duplicates"))
             .await
     }
 

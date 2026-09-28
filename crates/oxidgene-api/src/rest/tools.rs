@@ -10,6 +10,7 @@ use super::error::ApiError;
 use super::state::AppState;
 use crate::service::ancestry::{self, AncestryCompleteness};
 use crate::service::anomalies::{self, TreeAnomalies};
+use crate::service::duplicates::{self, PotentialDuplicates};
 use crate::service::statistics::PlaceUsage;
 
 #[derive(Debug, Deserialize)]
@@ -24,6 +25,17 @@ pub async fn tree_anomalies(
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<TreeAnomalies>, ApiError> {
     anomalies::load(&state.db, &state.profiles, tree_id)
+        .await
+        .map(Json)
+        .map_err(ApiError)
+}
+
+/// GET /api/v1/trees/:tree_id/duplicates
+pub async fn potential_duplicates(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<PotentialDuplicates>, ApiError> {
+    duplicates::load_potential_duplicates(&state.db, &state.profiles, tree_id)
         .await
         .map(Json)
         .map_err(ApiError)

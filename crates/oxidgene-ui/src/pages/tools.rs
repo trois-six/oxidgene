@@ -6,16 +6,19 @@
 
 use dioxus::prelude::*;
 use oxidgene_core::calendar::to_jdn;
-use oxidgene_core::enums::{Calendar, DateQualifier};
+use oxidgene_core::enums::{Calendar, DateQualifier, Sex};
+use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
 use crate::api::{
-    AncestorFacts, AncestryGeneration, Anomaly, AnomalyRule, ApiClient, StatPersonRef, StatPlace,
-    UpdatePlaceBody,
+    AncestorFacts, AncestryGeneration, Anomaly, AnomalyRule, ApiClient, DuplicatePair,
+    StatPersonRef, StatPlace, UpdatePlaceBody,
 };
 use crate::components::date_input::{DateInput, DateParts};
+use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
+use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
@@ -36,14 +39,16 @@ enum ToolsTab {
     Anomalies,
     Places,
     Ancestry,
+    Duplicates,
     Converter,
 }
 
 impl ToolsTab {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Anomalies,
         Self::Places,
         Self::Ancestry,
+        Self::Duplicates,
         Self::Converter,
     ];
 
@@ -53,6 +58,7 @@ impl ToolsTab {
             Self::Anomalies => "anomalies",
             Self::Places => "places",
             Self::Ancestry => "ancestry",
+            Self::Duplicates => "duplicates",
             Self::Converter => "converter",
         }
     }
@@ -193,6 +199,9 @@ pub fn Tools(tree_id: String) -> Element {
                         },
                         (Some(ToolsTab::Ancestry), Some(tid)) => rsx! {
                             Ancestry { tree_id: tid, tree_route: tree_id.clone() }
+                        },
+                        (Some(ToolsTab::Duplicates), Some(tid)) => rsx! {
+                            Duplicates { tree_id: tid, tree_route: tree_id.clone() }
                         },
                         (Some(ToolsTab::Converter), _) => rsx! { DateConverter {} },
                         _ => rsx! {},
@@ -824,6 +833,293 @@ fn render_generation(
             if row.implied_missing > 0 {
                 p { class: "stats-note",
                     {i18n.t_plural("tools.ancestry.implied", row.implied_missing as usize)}
+                }
+            }
+        }
+    }
+}
+
+// ── Potential duplicates ────────────────────────────────────────────────
+
+/// How sure a pair's score makes it (`docs/ui-tools.md` §6).
+fn confidence(score: i64) -> &'static str {
+    match score {
+        s if s >= 70 => "very_likely",
+        s if s >= 55 => "likely",
+        _ => "possible",
+    }
+}
+
+/// The pairs of records of the tree that may be one person, each compared
+/// and settled through the homonym picker: merged, or recorded as two
+/// people (`docs/ui-tools.md` §6).
+#[component]
+fn Duplicates(tree_id: Uuid, tree_route: String) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let api_pairs = api.clone();
+    let mut duplicates = use_ui_resource("tools_duplicates", move || {
+        let api = api_pairs.clone();
+        async move { api.potential_duplicates(tree_id).await }
+    });
+    let mut comparing = use_signal(|| None::<DuplicatePair>);
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+
+    // Settled pairs leave the list; a merge also changes the tree.
+    let mut settled = move |merged: bool| {
+        comparing.set(None);
+        if merged {
+            tree_cache.invalidate();
+        }
+        duplicates.restart();
+    };
+    let keep_apart = move |pair: DuplicatePair| {
+        let api = api.clone();
+        spawn(async move {
+            busy.set(true);
+            error.set(None);
+            match api
+                .mark_persons_distinct(tree_id, pair.first.person_id, &[pair.second.person_id])
+                .await
+            {
+                Ok(()) => settled(false),
+                Err(_) => error.set(Some(i18n.t("homonym.distinct_failed"))),
+            }
+            busy.set(false);
+        });
+    };
+
+    let body = match &*duplicates.read() {
+        None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
+        Some(Err(_)) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
+        Some(Ok(result)) if result.pairs.is_empty() => rsx! {
+            p { class: "stats-empty", {i18n.t("tools.duplicates.none")} }
+        },
+        Some(Ok(result)) => rsx! {
+            p { class: "stats-note", {i18n.t_plural("tools.duplicates.count", result.count as usize)} }
+            if let Some(message) = error() {
+                div { class: "error-msg", "{message}" }
+            }
+            div { class: "tools-pairs",
+                for pair in result.pairs.iter().cloned() {
+                    div { key: "{pair.first.person_id}-{pair.second.person_id}", class: "stats-card tools-pair",
+                        div { class: "tools-pair-head",
+                            span { class: "tools-confidence tools-confidence-{confidence(pair.score)}",
+                                {i18n.t(&format!("tools.duplicates.confidence.{}", confidence(pair.score)))}
+                            }
+                            span { class: "text-muted", "{pair.score}" }
+                            span { class: "tools-reasons",
+                                for reason in pair.reasons.iter() {
+                                    span { key: "{reason}", class: "tools-reason",
+                                        {i18n.t(&format!("tools.duplicates.reason.{reason}"))}
+                                    }
+                                }
+                            }
+                        }
+                        div { class: "tools-pair-persons",
+                            for entry in [&pair.first, &pair.second] {
+                                Link {
+                                    key: "{entry.person_id}",
+                                    to: Route::PersonDetail {
+                                        tree_id: tree_route.clone(),
+                                        person_id: entry.person_id.to_string(),
+                                    },
+                                    class: "search-person-result tools-pair-person",
+                                    {render_person_search_summary(&PersonSearchSummary::from(entry), None, &i18n)}
+                                }
+                            }
+                        }
+                        div { class: "tools-pair-actions",
+                            button {
+                                class: "btn btn-outline btn-sm",
+                                disabled: busy(),
+                                onclick: {
+                                    let pair = pair.clone();
+                                    let keep_apart = keep_apart.clone();
+                                    move |_| keep_apart(pair.clone())
+                                },
+                                {i18n.t("tools.duplicates.not_duplicates")}
+                            }
+                            button {
+                                class: "btn btn-primary btn-sm",
+                                disabled: busy(),
+                                onclick: {
+                                    let pair = pair.clone();
+                                    move |_| comparing.set(Some(pair.clone()))
+                                },
+                                {i18n.t("tools.duplicates.compare")}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    };
+
+    rsx! {
+        section { class: "stats-section",
+            {heading(&i18n, "duplicates")}
+            {body}
+        }
+        if let Some(pair) = comparing() {
+            CompareDialog {
+                tree_id,
+                pair,
+                on_close: move |_| comparing.set(None),
+                on_decided: move |decision: HomonymDecision| {
+                    settled(matches!(decision, HomonymDecision::Merged(_)));
+                },
+            }
+        }
+    }
+}
+
+/// Two records side by side, field by field, and the homonym picker that
+/// merges one into the other or keeps them apart.
+#[component]
+fn CompareDialog(
+    tree_id: Uuid,
+    pair: DuplicatePair,
+    on_close: EventHandler<()>,
+    on_decided: EventHandler<HomonymDecision>,
+) -> Element {
+    let i18n = use_i18n();
+    // The record kept: the first by default, the one the picker merges the
+    // other into.
+    let mut kept_first = use_signal(|| true);
+    let (kept, absorbed) = if kept_first() {
+        (&pair.first, &pair.second)
+    } else {
+        (&pair.second, &pair.first)
+    };
+    let year = |year: &Option<String>, qualifier: DateQualifier| {
+        year.as_deref()
+            .and_then(|y| y.parse::<i32>().ok())
+            .map(|y| QualifiedYear::new(y, qualifier).to_string())
+            .unwrap_or_default()
+    };
+    let sex = |s: Sex| {
+        i18n.t(match s {
+            Sex::Male => "sex.male",
+            Sex::Female => "sex.female",
+            Sex::Unknown => "sex.unknown",
+        })
+    };
+    let rows: Vec<(String, String, String)> = vec![
+        (
+            i18n.t("tools.duplicates.field.surname"),
+            pair.first.surname.clone(),
+            pair.second.surname.clone(),
+        ),
+        (
+            i18n.t("tools.duplicates.field.given_names"),
+            pair.first.given_names.clone(),
+            pair.second.given_names.clone(),
+        ),
+        (
+            i18n.t("tools.duplicates.field.sex"),
+            sex(pair.first.sex),
+            sex(pair.second.sex),
+        ),
+        (
+            i18n.t("tools.ancestry.fact.birth"),
+            year(&pair.first.birth_year, pair.first.birth_qualifier),
+            year(&pair.second.birth_year, pair.second.birth_qualifier),
+        ),
+        (
+            i18n.t("tools.duplicates.field.birth_place"),
+            pair.first.birth_place.clone().unwrap_or_default(),
+            pair.second.birth_place.clone().unwrap_or_default(),
+        ),
+        (
+            i18n.t("tools.ancestry.fact.death"),
+            year(&pair.first.death_year, pair.first.death_qualifier),
+            year(&pair.second.death_year, pair.second.death_qualifier),
+        ),
+        (
+            i18n.t("tools.duplicates.field.father"),
+            pair.first.father_name.clone().unwrap_or_default(),
+            pair.second.father_name.clone().unwrap_or_default(),
+        ),
+        (
+            i18n.t("tools.duplicates.field.mother"),
+            pair.first.mother_name.clone().unwrap_or_default(),
+            pair.second.mother_name.clone().unwrap_or_default(),
+        ),
+        (
+            i18n.t("tools.duplicates.field.spouses"),
+            pair.first.spouse_names.join(", "),
+            pair.second.spouse_names.join(", "),
+        ),
+        (
+            i18n.t("tools.duplicates.field.children"),
+            pair.first.children_count.to_string(),
+            pair.second.children_count.to_string(),
+        ),
+    ];
+
+    rsx! {
+        div { class: "modal-backdrop",
+            onclick: move |_| on_close.call(()),
+            div {
+                class: "modal-card tools-compare",
+                role: "dialog",
+                "aria-modal": "true",
+                onclick: move |e| e.stop_propagation(),
+                h3 { {i18n.t("tools.duplicates.compare_title")} }
+                table { class: "stats-table tools-compare-table",
+                    thead {
+                        tr {
+                            th {}
+                            th { {i18n.t("tools.duplicates.record_a")} }
+                            th { {i18n.t("tools.duplicates.record_b")} }
+                        }
+                    }
+                    tbody {
+                        for (k, (label, a, b)) in rows.into_iter().enumerate() {
+                            tr { key: "{k}", class: if a != b { "tools-differs" } else { "" },
+                                th { "{label}" }
+                                td { "{a}" }
+                                td { "{b}" }
+                            }
+                        }
+                        tr {
+                            th { {i18n.t("tools.duplicates.keep")} }
+                            td {
+                                label { class: "tools-keep",
+                                    input {
+                                        r#type: "radio",
+                                        name: "tools-keep",
+                                        checked: kept_first(),
+                                        onchange: move |_| kept_first.set(true),
+                                    }
+                                    {i18n.t("tools.duplicates.keep_this")}
+                                }
+                            }
+                            td {
+                                label { class: "tools-keep",
+                                    input {
+                                        r#type: "radio",
+                                        name: "tools-keep",
+                                        checked: !kept_first(),
+                                        onchange: move |_| kept_first.set(false),
+                                    }
+                                    {i18n.t("tools.duplicates.keep_this")}
+                                }
+                            }
+                        }
+                    }
+                }
+                p { class: "tools-intro", {i18n.t_args("tools.duplicates.kept_hint", &[("name", &kept.display_name)])} }
+                HomonymPicker {
+                    key: "{kept.person_id}",
+                    tree_id,
+                    person_id: absorbed.person_id,
+                    homonyms: vec![kept.clone()],
+                    on_later: move |_| on_close.call(()),
+                    on_decided: move |decision| on_decided.call(decision),
                 }
             }
         }

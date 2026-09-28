@@ -3896,3 +3896,64 @@ async fn anomalies_and_unlocated_places_are_listed() {
         assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
     }
 }
+
+/// Two records sharing a name and a birth year are a pair until confirmed
+/// to be two people.
+#[tokio::test]
+async fn potential_duplicates_are_listed_until_confirmed_distinct() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let first = create_named_person_via_api(&app, &tree_id, "female", "Anna", "BRANCH_A").await;
+    let second = create_named_person_via_api(&app, &tree_id, "female", "Anna", "BRANCH_A").await;
+    for person in [&first, &second] {
+        add_event_via_api(&app, &tree_id, ("person_id", person), "birth", "1850").await;
+    }
+    let list = |app: axum::Router| {
+        let tree_id = tree_id.clone();
+        async move {
+            let (status, body) = send_request(
+                app,
+                Method::GET,
+                &format!("/api/v1/trees/{tree_id}/duplicates"),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            body
+        }
+    };
+    let body = list(app.clone()).await;
+    assert_eq!(body["count"], 1);
+    let pair = &body["pairs"][0];
+    assert_eq!(pair["score"], 50);
+    assert_eq!(
+        pair["reasons"],
+        serde_json::json!(["same_name", "same_birth_year"])
+    );
+    let ids = [
+        pair["first"]["person_id"].as_str().unwrap(),
+        pair["second"]["person_id"].as_str().unwrap(),
+    ];
+    assert!(ids.contains(&first.as_str()) && ids.contains(&second.as_str()));
+    assert_eq!(pair["first"]["surname"], "BRANCH_A");
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
+        Some(serde_json::json!({ "person_ids": [second] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let body = list(app.clone()).await;
+    assert_eq!(body["count"], 0);
+
+    let (status, _) = send_request(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/duplicates", uuid::Uuid::now_v7()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

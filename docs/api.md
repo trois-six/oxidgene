@@ -697,6 +697,7 @@ from the person projections; nothing is stored.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/anomalies` | The tree's anomalies by rule; 404 for an unknown tree |
+| `GET` | `/trees/{tree_id}/duplicates` | The pairs of records that may be one person, best first; 404 for an unknown tree |
 | `GET` | `/trees/{tree_id}/unlocated-places` | The used places the statistics cannot locate, most used first; 404 for an unknown tree |
 | `GET` | `/trees/{tree_id}/ancestry-completeness?generations=8` | Generation by generation from the tree's SOSA root, the ancestors found and missing and their key facts; `generations` counts the root's, 8 by default, from 1 to 15 (400 otherwise); 404 for an unknown tree |
 
@@ -713,6 +714,15 @@ ages and gaps in years and in days for `siblings_too_close` and
 `repeated_union`); the event concerned, an `EventType` in snake_case; and
 the recorded text for `unreadable_date` (the date as typed) and
 `godparent_sex` (the relation).
+
+**Potential duplicates** returns `{count, pairs}`: every pair found and at
+most 500 of them, best first, each `{score, reasons, first, second}` — the
+score out of 100, the reasons (`same_name`, `similar_name`,
+`same_birth_date`, `same_birth_year`, `close_birth`, `same_birth_place`,
+`same_death_year`, `same_parents`, `same_father`, `same_mother`,
+`same_spouse`) and both records as `SearchEntry` rows. Pairs confirmed
+distinct are left out. A pair is settled with the existing `distinct` and
+`merge` operations; the rules are those of [Tools §6](ui-tools.md).
 
 **Unlocated places** returns `[{place_id, name, count, latitude,
 longitude}]`, the coordinates always `null`: the places the statistics count
@@ -1083,6 +1093,7 @@ type Query {
   ancestryCompleteness(treeId: ID!, generations: Int): AncestryCompleteness!
   treeAnomalies(treeId: ID!): TreeAnomalies!
   unlocatedPlaces(treeId: ID!): [PlaceUsage!]!
+  potentialDuplicates(treeId: ID!): PotentialDuplicates!   # { count, pairs { score reasons first second } }
   basemap: [BasemapCountry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!

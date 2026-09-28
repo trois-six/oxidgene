@@ -85,6 +85,22 @@ impl PersonDistinctRepo {
             .collect())
     }
 
+    /// Every pair of a tree confirmed to be different people, lower id first.
+    pub async fn pairs_in_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<HashSet<(Uuid, Uuid)>, OxidGeneError> {
+        let rows = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|row| ordered(row.person_id, row.other_person_id))
+            .collect())
+    }
+
     /// Hand every confirmation `duplicate` holds over to `kept`.
     ///
     /// Used when `duplicate` turns out to be `kept`: whoever the one was known

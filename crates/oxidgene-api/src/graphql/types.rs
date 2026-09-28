@@ -2315,6 +2315,42 @@ pub struct GqlSearchEntry {
     pub children_count: i32,
 }
 
+/// Two records of a tree that may be one person.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlDuplicatePair {
+    /// From 0 to 100, how alike the two records are.
+    pub score: i64,
+    /// What they share, strongest first.
+    pub reasons: Vec<String>,
+    pub first: GqlSearchEntry,
+    pub second: GqlSearchEntry,
+}
+
+/// A tree's potential duplicates: every pair found, and the best listed.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPotentialDuplicates {
+    pub count: i64,
+    pub pairs: Vec<GqlDuplicatePair>,
+}
+
+impl From<crate::service::duplicates::PotentialDuplicates> for GqlPotentialDuplicates {
+    fn from(found: crate::service::duplicates::PotentialDuplicates) -> Self {
+        Self {
+            count: found.count,
+            pairs: found
+                .pairs
+                .into_iter()
+                .map(|pair| GqlDuplicatePair {
+                    score: pair.score,
+                    reasons: pair.reasons,
+                    first: pair.first.into(),
+                    second: pair.second.into(),
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Paginated search results.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlSearchResult {
