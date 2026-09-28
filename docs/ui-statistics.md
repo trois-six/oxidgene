@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:23:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:44:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -136,8 +136,8 @@ Three rows of tiles, each a figure with what it counts:
 
 Beside the map, the ten places with the most usages, each with its count and
 a number repeated as a marker on the map. A place that could not be located
-is still listed, without a marker. Below the list, the number of places that
-could not be located.
+is still listed, without a marker. At the bottom of the column, level with
+the bottom of the map, the number of places that could not be located.
 
 Clicking a numbered marker, or a located place of the list, centres the map
 on that place and zooms in to its region (about three degrees wide) unless

@@ -6380,6 +6380,16 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .stats-top-places li::marker { color: var(--text-muted); }
+    /* The list column is as tall as the map; the note of the places that
+       could not be located sits at its bottom, level with the map's. */
+    .stats-top-places {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .stats-top-places .stats-note { margin: auto 0 0; padding-top: 8px; }
+
 
     .stats-top-place-name {
         overflow: hidden;
