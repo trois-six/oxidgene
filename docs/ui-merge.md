@@ -3,14 +3,14 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
 description: "Three-step wizard to select a duplicate person, compare both records side by side, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
 ---
 
 
 # Visual & Functional Specifications — Person Merge
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Tree View](ui-genealogy-tree.md) (action picker "Merge with…") · [Person Edit Modal](ui-person-edit-modal.md) · [Settings](ui-settings.md) (potential duplicates tool) · [Data Model](data-model.md) (Person, PersonName, Event, Family)
+> See also: [Tree View](ui-genealogy-tree.md) (action picker "Merge with…") · [Person Edit Modal](ui-person-edit-modal.md) · [Tools](ui-tools.md) (potential duplicates) · [Data Model](data-model.md) (Person, PersonName, Event, Family)
 
 ---
 
@@ -21,7 +21,7 @@ The merge flow allows combining two person records that represent the same indiv
 The merge flow can be triggered from:
 
 - The [Tree View](ui-genealogy-tree.md) **action picker**: "Merge with…" on a selected person
-- The [Settings](ui-settings.md) **Potential Duplicates** tool: "Merge" button on a detected pair
+- The [Tools](ui-tools.md) page's **Potential duplicates** tab: "Merge" button on a detected pair
 
 Two lighter flows merge without this wizard, straight through the merge
 operation of §6: the homonym check that follows every save of the [Person

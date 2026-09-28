@@ -6,6 +6,7 @@
 use dioxus::prelude::*;
 
 use crate::pages::statistics::Statistics;
+use crate::pages::tools::Tools;
 use crate::pages::{
     app_settings::AppSettings, couple_detail::CoupleDetail, dictionary::Dictionary, home::Home,
     kinship::Kinship, not_found::NotFound, person_detail::PersonDetail,
@@ -79,6 +80,11 @@ pub enum Route {
     /// notable records.
     #[route("/trees/:tree_id/statistics")]
     Statistics { tree_id: String },
+
+    /// Tools page for a tree: anomalies, ancestry completeness, potential
+    /// duplicates and date tools, one tab each.
+    #[route("/trees/:tree_id/tools")]
+    Tools { tree_id: String },
 
     /// Settings page for a tree.
     #[route("/trees/:tree_id/settings")]

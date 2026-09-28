@@ -41,6 +41,7 @@ pub fn TreeIconSidebar(
     let route = use_route::<Route>();
     let statistics_tree = tree_of(&route).map(str::to_string);
     let on_statistics_page = matches!(route, Route::Statistics { .. });
+    let on_tools_page = matches!(route, Route::Tools { .. });
 
     let profile_class = if active_view == TreeSidebarView::Profile {
         "isb-btn isb-btn-active"
@@ -187,6 +188,26 @@ pub fn TreeIconSidebar(
                 }
             }
 
+            // Found from the route like the statistics button.
+            if let Some(tree_id) = statistics_tree.clone() {
+                button {
+                    class: if on_tools_page { "isb-btn isb-btn-active" } else { "isb-btn" },
+                    title: "{i18n.t(\"tools.breadcrumb\")}",
+                    onclick: move |_| {
+                        nav.push(Route::Tools { tree_id: tree_id.clone() });
+                    },
+                    svg {
+                        width: "16",
+                        height: "16",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "2",
+                        path { d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" }
+                    }
+                }
+            }
+
             if show_settings {
                 button {
                     class: "isb-btn",
@@ -216,6 +237,7 @@ fn tree_of(route: &Route) -> Option<&str> {
         | Route::CoupleDetail { tree_id, .. }
         | Route::Dictionary { tree_id }
         | Route::Statistics { tree_id }
+        | Route::Tools { tree_id }
         | Route::Settings { tree_id }
         | Route::SearchResults { tree_id, .. } => Some(tree_id),
         _ => None,

@@ -11,4 +11,5 @@ pub mod person_history;
 pub mod search_results;
 pub mod settings;
 pub mod statistics;
+pub mod tools;
 pub mod tree_detail;

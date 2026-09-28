@@ -185,16 +185,43 @@ impl DateParts {
     /// what the user wrote and let [`DateParts::validate`] have its say than to
     /// replace it with a date we made up.
     pub fn in_calendar(&self, to: Calendar) -> Self {
+        self.renumbered(to, |year, month, day| (year, month, day))
+    }
+
+    /// The same date in another calendar, or `None` when any date it holds
+    /// cannot be expressed there — the date converter's question, where
+    /// showing the typed date back under another calendar's name would be a
+    /// wrong answer rather than a harmless one.
+    pub fn expressed_in(&self, to: Calendar) -> Option<Self> {
+        let mut failed = false;
+        let date = self.renumbered(to, |year, month, day| {
+            failed |= year.is_some();
+            (year, month, day)
+        });
+        (!failed).then_some(date)
+    }
+
+    /// Every date renumbered in `to`; `unconvertible` decides what a date
+    /// the target calendar cannot express becomes.
+    fn renumbered(
+        &self,
+        to: Calendar,
+        mut unconvertible: impl FnMut(
+            Option<i32>,
+            Option<u8>,
+            Option<u8>,
+        ) -> (Option<i32>, Option<u8>, Option<u8>),
+    ) -> Self {
         if to == self.calendar {
             return *self;
         }
-        let renumber = |year: Option<i32>, month: Option<u8>, day: Option<u8>| {
+        let mut renumber = |year: Option<i32>, month: Option<u8>, day: Option<u8>| {
             let Some(y) = year else {
                 return (year, month, day);
             };
             match convert_components(self.calendar, to, y, month, day) {
                 Some((y, m, d)) => (Some(y), m, d),
-                None => (year, month, day),
+                None => unconvertible(year, month, day),
             }
         };
         let (year, month, day) = renumber(self.year, self.month, self.day);
@@ -1296,6 +1323,44 @@ mod tests {
         .in_calendar(Calendar::FrenchRepublican);
         assert_eq!((p.year, p.month, p.day), (Some(1750), Some(3), Some(11)));
         assert_eq!(p.calendar, Calendar::FrenchRepublican);
+    }
+
+    /// The converter asks whether a date exists in a calendar at all: a
+    /// date before the Republic has no Republican form, and a range is only
+    /// expressed when both its ends are.
+    #[test]
+    fn a_date_is_expressed_in_a_calendar_only_when_every_end_converts() {
+        let before_the_republic = DateParts {
+            year: Some(1750),
+            month: Some(3),
+            day: Some(11),
+            ..Default::default()
+        };
+        assert!(
+            before_the_republic
+                .expressed_in(Calendar::FrenchRepublican)
+                .is_none()
+        );
+        let julian = before_the_republic
+            .expressed_in(Calendar::Julian)
+            .expect("every Gregorian date has a Julian form");
+        assert_eq!(
+            (julian.year, julian.month, julian.day),
+            (Some(1750), Some(2), Some(28))
+        );
+
+        let straddling = DateParts {
+            qualifier: DateQualifier::Between,
+            year: Some(1750),
+            year2: Some(1800),
+            ..Default::default()
+        };
+        assert!(
+            straddling
+                .expressed_in(Calendar::FrenchRepublican)
+                .is_none()
+        );
+        assert!(straddling.expressed_in(Calendar::Hebrew).is_some());
     }
 
     /// A year on its own is a period, not a day: it converts to the year it

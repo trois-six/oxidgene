@@ -23,6 +23,7 @@ use crate::components::history_diff::format_timestamp;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, Language, use_i18n};
+use crate::prefs::{store, stored};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 use crate::utils::event_type_label_key;
@@ -95,22 +96,6 @@ enum ListTab {
     OldestAlive,
     LongestLives,
     LargestFamilies,
-}
-
-/// Reads a value this page keeps in the browser, when it keeps one.
-async fn stored(key: &str) -> Option<String> {
-    document::eval(&format!(
-        "try {{ return localStorage.getItem('{key}'); }} catch (e) {{ return null; }}"
-    ))
-    .await
-    .ok()
-    .and_then(|v| v.as_str().map(str::to_string))
-}
-
-fn store(key: &str, value: &str) {
-    document::eval(&format!(
-        "try {{ localStorage.setItem('{key}', '{value}'); }} catch (e) {{}}"
-    ));
 }
 
 #[component]

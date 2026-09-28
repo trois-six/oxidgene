@@ -65,8 +65,8 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 - [ ] Replace the tree action picker's placeholder "Merge with…" with the
   three-step wizard, writing the chosen values before calling the merge
   operation.
-- [ ] Add the Potential Duplicates tool of [Settings](ui-settings.md) §15,
-  with "Not duplicates" recording a distinct-person confirmation.
+- [ ] Add the potential duplicates tab of [Tools](ui-tools.md), with "Not
+  duplicates" recording a distinct-person confirmation.
 - [ ] Decide whether a merge should reconcile events recorded twice (two
   births, say) or keep leaving that to the user.
 
@@ -89,7 +89,9 @@ Remaining:
 - [ ] Decide whether Northern Ireland townlands and French lieux-dits justify
   a separately downloaded database.
 
-## 6. Statistics
+## 6. Statistics and tools
+
+### Statistics
 
 The [Statistics](ui-statistics.md) page (key figures, heat map of places
 over an offline basemap with births by area, names, charts per period under
@@ -99,6 +101,18 @@ growth of the tree over the days it was worked on) is delivered. Remaining:
 - [ ] PDF export of the statistics ([General §3.9](general.md)).
 - [ ] Try the heat map and the charts on large trees (tens of thousands of
   persons) for load time and legibility.
+
+### Tools
+
+The [Tools](ui-tools.md) page, one tab per tool, holds the date converter.
+Remaining tabs:
+
+- [ ] Anomalies: impossible or unlikely dates, filiations and unions, and the
+  places the statistics cannot locate.
+- [ ] Ancestry completeness, generation by generation from the SOSA root.
+- [ ] Potential duplicates, merged through the existing merge operation.
+- [ ] Dates written out in words in every interface language and in Latin,
+  and the reverse: a written date read back into a date.
 
 ## 7. Planned: dictionary descent
 

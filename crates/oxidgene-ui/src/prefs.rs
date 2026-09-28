@@ -11,6 +11,27 @@ use crate::components::pedigree_theme::PedigreeThemeId;
 
 pub const MAX_PEDIGREE_LEVELS: usize = 10;
 
+/// Reads a value a page keeps in the browser under `key`, when it keeps one:
+/// a page's own per-viewer choices, such as the tab it was last left on.
+/// Storage that is unavailable or refused reads as nothing stored.
+pub async fn stored(key: &str) -> Option<String> {
+    document::eval(&format!(
+        "try {{ return localStorage.getItem('{key}'); }} catch (e) {{ return null; }}"
+    ))
+    .await
+    .ok()
+    .and_then(|v| v.as_str().map(str::to_string))
+}
+
+/// Keeps `value` under `key` for [`stored`]; a refusal is ignored, the
+/// choice then lasting only for the visit. Both are plain identifiers the
+/// page itself chose, never user text.
+pub fn store(key: &str, value: &str) {
+    document::eval(&format!(
+        "try {{ localStorage.setItem('{key}', '{value}'); }} catch (e) {{}}"
+    ));
+}
+
 /// Default pedigree window for trees that have no saved view state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PedigreeDefaults {

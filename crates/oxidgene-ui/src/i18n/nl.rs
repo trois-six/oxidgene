@@ -685,8 +685,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("settings.date_display", "Datumweergave"),
         ("settings.entry_options", "Invoeropties"),
         ("settings.history", "Geschiedenis"),
-        ("settings.anomalies", "Afwijkingen"),
-        ("settings.duplicates", "Mogelijke dubbelen"),
         ("settings.export_tree", "Stamboom exporteren"),
         ("settings.global_preferences", "Algemene voorkeuren"),
         ("settings.tools", "Hulpmiddelen"),
@@ -1553,6 +1551,13 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("stats.records.longest_lives", "Langste levens"),
         ("stats.age_one", "{count} jaar"),
         ("stats.age_other", "{count} jaar"),
+        ("tools.breadcrumb", "Hulpmiddelen"),
+        ("tools.tab.converter", "Datumomrekenaar"),
+        ("tools.converter.title", "Een datum tussen kalenders omrekenen"),
+        ("tools.converter.intro", "Voer een datum in een willekeurige kalender in om hem te lezen in elke kalender waarin hier datums worden vastgelegd. Een onvolledige datum behoudt zijn nauwkeurigheid, en een kalender die de datum niet kan uitdrukken, zoals de republikeinse vóór 1792, meldt dat."),
+        ("tools.converter.unexpressible", "Niet uit te drukken in deze kalender"),
+        ("tools.converter.entered", "Zoals ingevoerd"),
+        ("tools.converter.weekday", "Dag van de week: {day}"),
     ]
     .map(|(k, v)| (k.to_string(), v.to_string())))
 });

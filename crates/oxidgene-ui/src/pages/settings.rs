@@ -371,16 +371,6 @@ pub fn Settings(tree_id: String) -> Element {
                             onclick: move |_| active_section.set("history".to_string()),
                             {i18n.t("settings.history")}
                         }
-                        button {
-                            class: if sec == "anomalies" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("anomalies".to_string()),
-                            {i18n.t("settings.anomalies")}
-                        }
-                        button {
-                            class: if sec == "duplicates" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("duplicates".to_string()),
-                            {i18n.t("settings.duplicates")}
-                        }
                     }
                     div { class: "settings-nav-group",
                         div { class: "settings-nav-group-label", {i18n.t("common.export")} }
@@ -1238,16 +1228,10 @@ fn PlaceholderSection(section_name: String) -> Element {
     let display_name = match section_name.as_str() {
         "privacy" => i18n.t("settings.privacy"),
         "date-display" => i18n.t("settings.date_display"),
-        "anomalies" => i18n.t("settings.anomalies"),
-        "duplicates" => i18n.t("settings.duplicates"),
         _ => section_name.clone(),
     };
 
-    let group = match section_name.as_str() {
-        "privacy" | "date-display" => i18n.t("settings.breadcrumb"),
-        "anomalies" | "duplicates" => i18n.t("settings.tools"),
-        _ => i18n.t("settings.breadcrumb"),
-    };
+    let group = i18n.t("settings.breadcrumb");
 
     rsx! {
         div { class: "settings-section",

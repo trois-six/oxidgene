@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
 ---
 
 
@@ -16,7 +16,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 
 ## 1. Overview
 
-The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, display preferences, data entry options, diagnostic tools, and export. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
+The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, display preferences, data entry options, the change history, and export. The tools that check a tree or work on it are on the [Tools](ui-tools.md) page. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
 
 ---
 
@@ -44,8 +44,6 @@ Uses the standard `sub-page` layout pattern (see [General](general.md) section 8
 |   |                  |                                              | |
 |   | Tools            |                                              | |
 |   | - History        |                                              | |
-|   | - Anomalies      |                                              | |
-|   | ...              |                                              | |
 |   |                  |                                              | |
 |   | Export           |                                              | |
 |   | - Export tree    |                                              | |
@@ -95,11 +93,10 @@ Each group has an uppercase orange label. Each item is a text button. The active
 | Item | Section ID |
 |---|---|
 | History | `historique` |
-| Anomalies | `anomalies` |
-| Research Tracking | `recherches` |
-| Missing Ancestors | `ancetres` |
-| Potential Duplicates | `doublons` |
-| Date Conversion | `conversion` |
+
+Anomalies, ancestry completeness, potential duplicates and date conversion
+are tabs of the [Tools](ui-tools.md) page, reached from the sidebar's wrench
+icon, not sections of this page.
 
 ### Group 3 — Export
 | Item | Section ID |
@@ -332,81 +329,6 @@ previous version**, confirmed through a `ConfirmDialog`: the record is put back
 as that version had it, which undoes this write for that record. A person's
 change also links to their full history. After a restore the log reloads, the
 restore at its top.
-
----
-
-## 12. Section: Anomalies
-
-A list of detected data inconsistencies: impossible death dates, marriages before birth, deaths before parent's birth, overly vague place names, probable duplicates.
-
-Each anomaly shows:
-- Warning icon
-- Anomaly title (bold)
-- Concerned person(s) in orange
-- Detailed description
-
-Clicking an anomaly navigates to the relevant person in the tree view.
-
-Read-only.
-
----
-
-## 13. Section: Research Tracking
-
-A filterable list of incomplete events in the ancestry of the SOSA 1 person.
-
-**Filters:**
-- Generation range (All / G1-G3 / G4-G6 / G7+)
-- Event type (All / Missing birth / Missing death / Missing marriage)
-
-Each row shows:
-- Generation badge (e.g. G5)
-- Person name
-- Missing event detail
-- Event type tag
-
-Read-only.
-
----
-
-## 14. Section: Missing Ancestors
-
-A generation-by-generation completeness report for the ascendance of the SOSA 1 person.
-
-Each generation row shows:
-- Generation number and label (e.g. G3 — Great-grandparents)
-- Count: found / total possible
-- Percentage with a color-coded progress bar:
-  - Green (> 70%)
-  - Orange (40-70%)
-  - Red (< 40%)
-
-Read-only.
-
----
-
-## 15. Section: Potential Duplicates
-
-Pairs of persons with similar names, dates, or places that may represent the same individual.
-
-Each pair shows:
-- Person A details (name, birth date, place)
-- Confidence label (Very likely / Likely / Possible) in orange
-- Person B details
-
-Actions per pair:
-- **Merge** — opens a merge confirmation flow
-- **Not duplicates** — dismisses the pair from the list
-
----
-
-## 16. Section: Date Conversion
-
-An interactive converter between calendar systems.
-
-**Input:** text field for a date in the source calendar + a calendar selector (Republican / Gregorian / Julian / Hebrew).
-
-**Output:** four read-only result tiles, one per calendar system, updating live as the user types.
 
 ---
 

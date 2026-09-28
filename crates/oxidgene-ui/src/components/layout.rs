@@ -6584,4 +6584,31 @@ pub const LAYOUT_STYLES: &str = r#"
         .stats-donut-svg { align-self: center; }
     }
 
+    /* ── Tools page ─────────────────────────────────────────────────
+       Tabs, titled sections, tiles and tables are the statistics page's;
+       what follows is only what a tool adds (docs/ui-tools.md). */
+
+    .tools-intro {
+        margin: -4px 0 14px;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        max-width: 72ch;
+    }
+
+    .tools-converter-input { margin-bottom: 12px; }
+
+    .tools-converter-result.active { border-color: var(--orange); }
+
+    .tools-converter-date {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        overflow-wrap: anywhere;
+    }
+
+    .tools-converter-weekday {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
 "#;

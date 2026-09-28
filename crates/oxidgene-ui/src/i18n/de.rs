@@ -685,8 +685,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("settings.date_display", "Datumsanzeige"),
         ("settings.entry_options", "Eingabeoptionen"),
         ("settings.history", "Verlauf"),
-        ("settings.anomalies", "Unstimmigkeiten"),
-        ("settings.duplicates", "Mögliche Duplikate"),
         ("settings.export_tree", "Stammbaum exportieren"),
         ("settings.global_preferences", "Globale Präferenzen"),
         ("settings.tools", "Werkzeuge"),
@@ -1553,6 +1551,13 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("stats.records.longest_lives", "Längste Leben"),
         ("stats.age_one", "{count} Jahr"),
         ("stats.age_other", "{count} Jahre"),
+        ("tools.breadcrumb", "Werkzeuge"),
+        ("tools.tab.converter", "Datumsumrechner"),
+        ("tools.converter.title", "Ein Datum zwischen Kalendern umrechnen"),
+        ("tools.converter.intro", "Geben Sie ein Datum in einem beliebigen Kalender ein, um es in jedem Kalender zu lesen, in dem hier Daten erfasst werden. Ein unvollständiges Datum behält seine Genauigkeit, und ein Kalender, der das Datum nicht ausdrücken kann, etwa der republikanische vor 1792, weist darauf hin."),
+        ("tools.converter.unexpressible", "In diesem Kalender nicht darstellbar"),
+        ("tools.converter.entered", "Wie eingegeben"),
+        ("tools.converter.weekday", "Wochentag: {day}"),
     ]
     .map(|(k, v)| (k.to_string(), v.to_string())))
 });
