@@ -4,6 +4,9 @@
 //! the tree already holds and the reference sheets' terms. Place fields feed
 //! it their own way (see `place_input.rs`). See `docs/ui-common.md` §4.4.
 
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 use uuid::Uuid;
 
@@ -15,8 +18,15 @@ use crate::utils::sleep_ms;
 
 /// Keystrokes settle for this long before the backend is asked.
 pub(crate) const DEBOUNCE_MS: u32 = 300;
-/// Values a field shows at once.
-const VALUE_SUGGESTIONS: usize = 10;
+/// Values a field lists at once. A tree's source titles often share a long
+/// head ("Parish register, …"), so they list as many as the API returns and
+/// the list scrolls.
+fn value_suggestions(field: SuggestionField) -> usize {
+    match field {
+        SuggestionField::Sources => 50,
+        _ => 10,
+    }
+}
 
 /// One row of the list: a name, then muted details.
 #[derive(Clone, PartialEq)]
@@ -43,8 +53,26 @@ pub(crate) fn SuggestInput(
     let i18n = use_i18n();
     let mut open = use_signal(|| false);
     let mut highlight = use_signal(|| None::<usize>);
+    // The rows as mounted, so the keyboard can scroll the one it reaches
+    // into view.
+    let mut mounted = use_signal(HashMap::<usize, Rc<MountedData>>::new);
     let count = rows.len();
     let list_visible = open() && count > 0;
+
+    let mut move_to = move |index: usize| {
+        highlight.set(Some(index));
+        if let Some(row) = mounted.peek().get(&index).cloned() {
+            spawn(async move {
+                let _ = row
+                    .scroll_to_with_options(ScrollToOptions {
+                        behavior: ScrollBehavior::Instant,
+                        vertical: ScrollLogicalPosition::Nearest,
+                        horizontal: ScrollLogicalPosition::Nearest,
+                    })
+                    .await;
+            });
+        }
+    };
 
     let mut pick = move |index: usize| {
         open.set(false);
@@ -56,14 +84,12 @@ pub(crate) fn SuggestInput(
         Key::ArrowDown if count > 0 => {
             e.prevent_default();
             open.set(true);
-            highlight.set(Some(highlight().map_or(0, |i| (i + 1) % count)));
+            move_to(highlight().map_or(0, |i| (i + 1) % count));
         }
         Key::ArrowUp if count > 0 => {
             e.prevent_default();
             open.set(true);
-            highlight.set(Some(
-                highlight().map_or(count - 1, |i| (i + count - 1) % count),
-            ));
+            move_to(highlight().map_or(count - 1, |i| (i + count - 1) % count));
         }
         Key::Enter => {
             if let Some(index) = highlight().filter(|&i| open() && i < count) {
@@ -118,6 +144,9 @@ pub(crate) fn SuggestInput(
                                 "context-menu-item td-suggest-row is-active"
                             } else {
                                 "context-menu-item td-suggest-row"
+                            },
+                            onmounted: move |e: MountedEvent| {
+                                mounted.write().insert(index, e.data());
                             },
                             onmouseenter: move |_| highlight.set(Some(index)),
                             onclick: move |_| pick(index),
@@ -187,7 +216,7 @@ pub fn ValueInput(
             if query.is_empty() || !enabled {
                 return Vec::new();
             }
-            api.value_suggestions(tree_id, field, lang, query, VALUE_SUGGESTIONS)
+            api.value_suggestions(tree_id, field, lang, query, value_suggestions(field))
                 .await
                 .unwrap_or_default()
         }

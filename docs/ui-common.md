@@ -302,8 +302,9 @@ Every free-text field that suggests values is drawn by the one shared
 never restrictive: free text is always accepted.
 
 - **List.** The list opens under the field while it has the focus and there
-  is something to suggest. Each row reads a name, then muted details. Arrow
-  keys move through the list, Enter picks, Escape closes it.
+  is something to suggest. Each row reads a name, then muted details. It
+  scrolls past half the window's height. Arrow keys move through the list,
+  keeping the highlighted row in view, Enter picks, Escape closes it.
 - **Matching.** A value is suggested when one of its words starts with the
   typed text, ignoring case, accents and punctuation. The backend is asked
   after a 300 ms pause, and only about what the user typed: a form opening
@@ -346,7 +347,7 @@ the [value suggestions](api.md) endpoint:
 | Surnames: birth name, a name's surname, a surname information | The tree's surnames |
 | Given names: birth given names, a name's given names, a given-name information | The tree's given names, then the given-name sheets' names |
 | Occupations: a profession, an occupation event's description | The tree's occupations, then the occupation sheets' terms |
-| Sources of the person, of an event, of a union event | The tree's source titles |
+| Sources of the person, of an event, of a union event | The tree's source titles, up to 50: titles often share a long head, so the list shows as many as the API returns |
 
 - **Rows.** The tree's values come first, those starting with the text, then
   the most used, each with the number of persons carrying it (citations for
