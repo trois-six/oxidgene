@@ -427,6 +427,11 @@ pub fn Settings(tree_id: String) -> Element {
                             tree_id: tree_id.clone(),
                             tree_resource: tree_resource,
                         }
+                    } else if sec == "entry-options" {
+                        EntryOptionsSection {
+                            tree_id: tree_id.clone(),
+                            tree_resource: tree_resource,
+                        }
                     } else if sec == "export" {
                         ExportSection {
                             on_export: on_export,
@@ -679,6 +684,7 @@ fn TreeRootsSection(
             if let Some(tid) = tree_id_parsed {
                 let body = UpdateTreeBody {
                     default_privacy: None,
+                    entry_suggestions: None,
                     name: None,
                     description: None,
                     sosa_root_person_id: Some(Some(person_id)),
@@ -708,6 +714,7 @@ fn TreeRootsSection(
             if let Some(tid) = tree_id_parsed {
                 let body = UpdateTreeBody {
                     default_privacy: None,
+                    entry_suggestions: None,
                     name: None,
                     description: None,
                     sosa_root_person_id: Some(None),
@@ -1031,6 +1038,73 @@ fn PrivacySection(
 }
 
 #[component]
+fn EntryOptionsSection(
+    tree_id: String,
+    tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let tree_id_parsed = tree_id.parse::<Uuid>().ok();
+
+    let mut save_error = use_signal(|| None::<String>);
+    // Local override so the control answers the click, not the refetch.
+    let mut local_override = use_signal(|| None::<bool>);
+
+    let current = local_override().unwrap_or_else(|| match &*tree_resource.read() {
+        Some(Some(Ok(tree))) => tree.entry_suggestions,
+        _ => true,
+    });
+
+    rsx! {
+        div { class: "settings-section",
+            div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
+            h2 { class: "settings-section-title", {i18n.t("settings.entry_options")} }
+
+            div { class: "card", style: "margin-top: 16px;",
+                h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
+                    {i18n.t("settings.entry_suggestions")}
+                }
+                p { class: "settings-section-subtitle",
+                    {i18n.t("settings.entry_suggestions_desc")}
+                }
+                div { class: "pf-gender-group", style: "margin-top: 12px;",
+                    for (value , label) in [(true, i18n.t("common.yes")), (false, i18n.t("common.no"))] {
+                        button {
+                            key: "{value}",
+                            class: if current == value { "pf-gender-btn active" } else { "pf-gender-btn" },
+                            r#type: "button",
+                            onclick: {
+                                let api = api.clone();
+                                move |_| {
+                                    let api = api.clone();
+                                    local_override.set(Some(value));
+                                    spawn(async move {
+                                        let Some(tid) = tree_id_parsed else { return };
+                                        let body = UpdateTreeBody {
+                                            entry_suggestions: Some(value),
+                                            ..Default::default()
+                                        };
+                                        match api.update_tree(tid, &body).await {
+                                            Ok(_) => tree_cache.invalidate(),
+                                            Err(e) => save_error.set(Some(e.to_string())),
+                                        }
+                                    });
+                                }
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                if let Some(err) = &save_error() {
+                    div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
 fn ExportSection(
     on_export: EventHandler<MouseEvent>,
     loading: bool,
@@ -1164,14 +1238,13 @@ fn PlaceholderSection(section_name: String) -> Element {
     let display_name = match section_name.as_str() {
         "privacy" => i18n.t("settings.privacy"),
         "date-display" => i18n.t("settings.date_display"),
-        "entry-options" => i18n.t("settings.entry_options"),
         "anomalies" => i18n.t("settings.anomalies"),
         "duplicates" => i18n.t("settings.duplicates"),
         _ => section_name.clone(),
     };
 
     let group = match section_name.as_str() {
-        "privacy" | "date-display" | "entry-options" => i18n.t("settings.breadcrumb"),
+        "privacy" | "date-display" => i18n.t("settings.breadcrumb"),
         "anomalies" | "duplicates" => i18n.t("settings.tools"),
         _ => i18n.t("settings.breadcrumb"),
     };

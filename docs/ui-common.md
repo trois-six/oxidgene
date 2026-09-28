@@ -311,6 +311,8 @@ never restrictive: free text is always accepted.
 - **Layout.** The list opens in place under the field, not as a
   context-menu layer: these fields live in dialogs, which sit above those
   layers.
+- **Setting.** A tree whose [Entry suggestions](ui-settings.md) are off
+  suggests nothing, and its fields ask the backend for nothing.
 
 #### Place fields
 

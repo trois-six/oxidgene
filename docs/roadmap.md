@@ -84,7 +84,7 @@ Remaining:
 - [x] Suggest the tree's surnames, given names, occupations and source titles
   in the entry forms and the search filters, followed by the reference
   sheets' given names and occupations.
-- [ ] Let a tree turn entry suggestions off (the Entry options of
+- [x] Let a tree turn entry suggestions off (the Entry options of
   [Settings](ui-settings.md)).
 - [ ] Decide whether Northern Ireland townlands and French lieux-dits justify
   a separately downloaded database.

@@ -15,6 +15,8 @@ pub struct Model {
     pub self_person_id: Option<Uuid>,
     /// What `Privacy::Default` means for everything in this tree.
     pub default_privacy: TreeDefaultPrivacy,
+    /// Whether entry fields suggest values as the user types.
+    pub entry_suggestions: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

@@ -105,6 +105,7 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "m20260927_000001_file_couple_media",
             "m20260927_000002_person_distinct",
             "m20260927_000003_history",
+            "m20260928_000001_tree_entry_suggestions",
         ]
     );
 
@@ -117,7 +118,7 @@ async fn assert_current_schema(db: &DatabaseConnection) {
     for (table, columns) in [
         (
             "tree",
-            "sosa_root_person_id, self_person_id, default_privacy",
+            "sosa_root_person_id, self_person_id, default_privacy, entry_suggestions",
         ),
         ("person", "privacy, portrait_media_id, portrait_vignette_id"),
         ("person_name", "surname_prefix, sort_order"),

@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, SuggestionField, ValueSuggestion};
+use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::sleep_ms;
@@ -160,6 +161,7 @@ pub fn ValueInput(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
     let mut value = value;
     // What the user typed last; empty until they type, so a form opening
     // with a filled field asks for nothing.
@@ -176,12 +178,13 @@ pub fn ValueInput(
         let api = api.clone();
         let text = debounced();
         let lang = i18n.0.code();
+        let enabled = tree_cache.entry_suggestions();
         async move {
             let query = match field {
                 SuggestionField::GivenNames => last_word(&text).1,
                 _ => text.trim(),
             };
-            if query.is_empty() {
+            if query.is_empty() || !enabled {
                 return Vec::new();
             }
             api.value_suggestions(tree_id, field, lang, query, VALUE_SUGGESTIONS)

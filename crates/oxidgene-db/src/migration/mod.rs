@@ -6,6 +6,7 @@ pub mod m20260926_000001_drop_redundant_indexes;
 pub mod m20260927_000001_file_couple_media;
 pub mod m20260927_000002_person_distinct;
 pub mod m20260927_000003_history;
+pub mod m20260928_000001_tree_entry_suggestions;
 
 use sea_orm_migration::prelude::*;
 
@@ -21,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260927_000001_file_couple_media::Migration),
             Box::new(m20260927_000002_person_distinct::Migration),
             Box::new(m20260927_000003_history::Migration),
+            Box::new(m20260928_000001_tree_entry_suggestions::Migration),
         ]
     }
 }

@@ -89,6 +89,16 @@ impl TreeCache {
         generation.set(next);
     }
 
+    /// Whether the tree held lets its entry fields suggest values: on until a
+    /// loaded tree says otherwise. Entry fields only live on a tree's pages,
+    /// so the tree held is theirs.
+    pub fn entry_suggestions(&self) -> bool {
+        self.tree
+            .read()
+            .as_ref()
+            .is_none_or(|tree| tree.entry_suggestions)
+    }
+
     /// Current generation — include this in `use_resource` dependencies
     /// so the resource re-runs after [`invalidate`].
     pub fn generation(&self) -> u64 {

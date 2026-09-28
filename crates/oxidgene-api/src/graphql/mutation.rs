@@ -13,8 +13,8 @@ use oxidgene_db::repo::{
     BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventRepo,
     EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo,
     MediaTagRepo, NewBackgroundJob, NoteRepo, PersonNamePieces, PersonNamePiecesPatch,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput,
-    VignettePatch, VignetteRepo,
+    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeChanges, TreeRepo, UploadedMedia,
+    VignetteInput, VignettePatch, VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -179,11 +179,14 @@ impl MutationRoot {
         let tree = TreeRepo::update(
             &txn,
             uuid,
-            input.name,
-            patch(input.description),
-            sosa_root,
-            self_person,
-            input.default_privacy.map(Into::into),
+            TreeChanges {
+                name: input.name,
+                description: patch(input.description),
+                sosa_root_person_id: sosa_root,
+                self_person_id: self_person,
+                default_privacy: input.default_privacy.map(Into::into),
+                entry_suggestions: input.entry_suggestions,
+            },
         )
         .await?;
         Change::update(uuid, AuditEntity::Tree, uuid)

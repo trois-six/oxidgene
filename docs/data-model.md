@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 ---
 
 
@@ -34,6 +34,7 @@ schema reset (see §4.1).
 | `name` | String | Required |
 | `description` | String? | Optional |
 | `default_privacy` | TreeDefaultPrivacy | Stored tree-wide intent (`Private` by default); not enforced in the current MVP |
+| `entry_suggestions` | bool | Whether entry fields suggest values as the user types ([Common UI §4.4](ui-common.md)); `true` by default, set in [Settings](ui-settings.md) §10 |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
 | `self_person_id` | UUID v7? | FK → Person — person representing the current user, used only for the blue pedigree badge, set in [Settings](ui-settings.md) §7 |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |

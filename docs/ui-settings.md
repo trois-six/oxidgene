@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 ---
 
 
@@ -270,7 +270,7 @@ Dates entered in another calendar are automatically converted for display.
 
 | Toggle | Description |
 |---|---|
-| Place name autocomplete | Suggests tree places and the built-in place dictionary. See [Common UI §4.4](ui-common.md) |
+| Entry suggestions | Yes (default) / No. Place, surname, given-name, occupation and source fields, the search filters' included, suggest what the tree holds and the built-in dictionaries. Stored as `tree.entry_suggestions`. See [Common UI §4.4](ui-common.md) |
 | Automatic uppercase for surnames | Surname field is auto-uppercased on input |
 | Suggest existing persons | When adding a parent or partner, suggests persons already in the tree |
 

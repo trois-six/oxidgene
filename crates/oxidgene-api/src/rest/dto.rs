@@ -102,6 +102,8 @@ pub struct UpdateTreeRequest {
     pub self_person_id: Option<Option<uuid::Uuid>>,
     /// What `privacy: "default"` resolves to for everything in this tree.
     pub default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
+    /// Whether entry fields suggest values as the user types.
+    pub entry_suggestions: Option<bool>,
 }
 
 /// Request body for duplicating a tree.

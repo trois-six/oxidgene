@@ -444,6 +444,8 @@ pub struct TreeSnapshot {
     pub name: String,
     pub description: Option<String>,
     pub default_privacy: TreeDefaultPrivacy,
+    #[serde(default = "crate::types::enabled")]
+    pub entry_suggestions: bool,
     pub sosa_root_person_id: Option<Uuid>,
     pub self_person_id: Option<Uuid>,
 }

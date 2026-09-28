@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, CreatePlaceBody, PlaceSuggestion};
 use crate::components::suggest_input::{DEBOUNCE_MS, SuggestInput, SuggestRow};
+use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 use crate::utils::sleep_ms;
@@ -58,6 +59,7 @@ pub fn PlaceInput(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
     let mut value = value;
 
     // What the person typed; empty while the field holds a picked place.
@@ -84,8 +86,9 @@ pub fn PlaceInput(
         let api = api.clone();
         let text = debounced();
         let lang = i18n.0.code();
+        let enabled = tree_cache.entry_suggestions();
         async move {
-            if text.chars().count() < MIN_QUERY_CHARS {
+            if !enabled || text.chars().count() < MIN_QUERY_CHARS {
                 return Vec::new();
             }
             api.place_suggestions(lang, &text, DICTIONARY_SUGGESTIONS)
@@ -105,7 +108,7 @@ pub fn PlaceInput(
     };
 
     let key = fold(&typed());
-    let mut choices: Vec<Choice> = if key.is_empty() {
+    let mut choices: Vec<Choice> = if key.is_empty() || !tree_cache.entry_suggestions() {
         Vec::new()
     } else {
         options

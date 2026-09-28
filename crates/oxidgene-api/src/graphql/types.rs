@@ -737,6 +737,8 @@ pub struct GqlTree {
     pub self_person_id: Option<ID>,
     /// What `Default` privacy resolves to for everything in this tree.
     pub default_privacy: GqlTreeDefaultPrivacy,
+    /// Whether entry fields suggest values as the user types.
+    pub entry_suggestions: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -777,6 +779,7 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             sosa_root_person_id: t.sosa_root_person_id.map(|id| ID(id.to_string())),
             self_person_id: t.self_person_id.map(|id| ID(id.to_string())),
             default_privacy: t.default_privacy.into(),
+            entry_suggestions: t.entry_suggestions,
             created_at: t.created_at,
             updated_at: t.updated_at,
         }

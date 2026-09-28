@@ -656,6 +656,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("settings.breadcrumb", "Impostazioni"),
         ("settings.default_privacy", "Privacy predefinita"),
         ("settings.default_privacy_desc", "Che cosa significa “segue l'albero” per ogni persona, coppia e documento qui. Ognuno di essi può comunque stabilire diversamente."),
+        ("settings.entry_suggestions", "Suggerimenti di inserimento"),
+        ("settings.entry_suggestions_desc", "I campi di luogo, cognome, nome, mestiere e fonte suggeriscono durante la digitazione ciò che questo albero contiene già e i dizionari integrati. Il testo libero è sempre accettato."),
         ("settings.tree_roots", "Albero e radice"),
         ("settings.privacy", "Privacy"),
         (
@@ -926,6 +928,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("history.field.abbreviation", "Abbreviazione"),
         ("history.field.repository", "Archivio"),
         ("history.field.default_privacy", "Riservatezza predefinita"),
+        ("history.field.entry_suggestions", "Suggerimenti di inserimento"),
         ("history.field.sosa_root", "Persona radice (SOSA 1)"),
         ("history.field.self_person", "Chi sono"),
         ("history.role.husband", "marito"),

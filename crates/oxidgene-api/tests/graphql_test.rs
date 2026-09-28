@@ -457,6 +457,25 @@ async fn test_tree_update_and_delete() {
     assert_eq!(updated["name"], "New Name");
     assert_eq!(updated["description"], "Updated");
 
+    // Entry suggestions start on, and the tree can turn them off.
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"{{ tree(id: "{tree_id}") {{ entrySuggestions }} }}"#),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["tree"]["entrySuggestions"], true);
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateTree(id: "{tree_id}", input: {{ entrySuggestions: false }}) {{ name entrySuggestions }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(data(&resp)["updateTree"]["entrySuggestions"], false);
+    assert_eq!(data(&resp)["updateTree"]["name"], "New Name");
+
     // Delete
     let resp = graphql(
         app.clone(),

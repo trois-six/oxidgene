@@ -69,5 +69,5 @@ pub use person_search::{
 pub use place::PlaceRepo;
 pub use snapshot::{BuiltSnapshot, SnapshotRepo, SnapshotScope, display_names};
 pub use source::SourceRepo;
-pub use tree::TreeRepo;
+pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};

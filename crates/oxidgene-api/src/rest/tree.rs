@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeRepo};
+use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeChanges, TreeRepo};
 use uuid::Uuid;
 
 use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
@@ -120,11 +120,14 @@ pub async fn update_tree(
     let tree = TreeRepo::update(
         &txn,
         tree_id,
-        body.name,
-        body.description,
-        body.sosa_root_person_id,
-        body.self_person_id,
-        body.default_privacy,
+        TreeChanges {
+            name: body.name,
+            description: body.description,
+            sosa_root_person_id: body.sosa_root_person_id,
+            self_person_id: body.self_person_id,
+            default_privacy: body.default_privacy,
+            entry_suggestions: body.entry_suggestions,
+        },
     )
     .await
     .map_err(ApiError::from)?;

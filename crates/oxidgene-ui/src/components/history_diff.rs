@@ -654,6 +654,12 @@ fn tree_section(
         before.map(|t| privacy(t.default_privacy)),
         Some(privacy(after.default_privacy)),
     );
+    let on_off = |on: bool| i18n.t(if on { "common.yes" } else { "common.no" });
+    group.row(
+        i18n.t("history.field.entry_suggestions"),
+        before.map(|t| on_off(t.entry_suggestions)),
+        Some(on_off(after.entry_suggestions)),
+    );
     group.reference_row(
         i18n.t("history.field.sosa_root"),
         before

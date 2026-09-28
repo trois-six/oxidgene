@@ -34,3 +34,4 @@ pub use surname::{
     surname_sort_key,
 };
 pub use tree::Tree;
+pub(crate) use tree::enabled;

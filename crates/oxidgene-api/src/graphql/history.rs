@@ -408,6 +408,7 @@ pub struct GqlTreeSnapshot {
     pub name: String,
     pub description: Option<String>,
     pub default_privacy: GqlTreeDefaultPrivacy,
+    pub entry_suggestions: bool,
     pub sosa_root_person_id: Option<ID>,
     pub self_person_id: Option<ID>,
 }
@@ -418,6 +419,7 @@ impl From<TreeSnapshot> for GqlTreeSnapshot {
             name: t.name,
             description: t.description,
             default_privacy: t.default_privacy.into(),
+            entry_suggestions: t.entry_suggestions,
             sosa_root_person_id: t.sosa_root_person_id.map(id),
             self_person_id: t.self_person_id.map(id),
         }

@@ -400,7 +400,9 @@ GraphQL use the same domain and repository validation, including attribution-onl
 updates.
 
 `PUT /trees/{id}` accepts `default_privacy` (`"public" | "private"`) — what
-`"default"` resolves to for everything in that tree. **Privacy** is accepted on
+`"default"` resolves to for everything in that tree — and `entry_suggestions`
+(a boolean, `updateTree`'s `entrySuggestions` in GraphQL), which turns the
+entry fields' suggestions off or on for the tree. **Privacy** is accepted on
 all three of `PUT .../persons/{id}`,
 `PUT .../families/{id}` and `PUT .../media/{id}` as `"default" | "public" |
 "private"`. The family route's body is optional — it long predates this field as

@@ -17,7 +17,16 @@ pub struct Tree {
     /// document in this tree. Enforced by nothing yet — see the roadmap.
     #[serde(default)]
     pub default_privacy: TreeDefaultPrivacy,
+    /// Whether entry fields suggest values as the user types.
+    #[serde(default = "enabled")]
+    pub entry_suggestions: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
+}
+
+/// A tree setting that starts on, including in payloads written before it
+/// existed.
+pub(crate) fn enabled() -> bool {
+    true
 }

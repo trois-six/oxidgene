@@ -32,6 +32,8 @@ pub struct CreateTreeInput {
 pub struct UpdateTreeInput {
     /// What `Default` privacy resolves to for everything in this tree.
     pub default_privacy: Option<GqlTreeDefaultPrivacy>,
+    /// Whether entry fields suggest values as the user types.
+    pub entry_suggestions: Option<bool>,
     pub name: Option<String>,
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,

@@ -492,6 +492,7 @@ impl SnapshotRepo {
                 name: row.name,
                 description: row.description,
                 default_privacy: row.default_privacy.into(),
+                entry_suggestions: row.entry_suggestions,
                 sosa_root_person_id: row.sosa_root_person_id,
                 self_person_id: row.self_person_id,
             }),
@@ -701,6 +702,7 @@ impl SnapshotRepo {
         active.name = Set(snapshot.name.clone());
         active.description = Set(snapshot.description.clone());
         active.default_privacy = Set(snapshot.default_privacy.into());
+        active.entry_suggestions = Set(snapshot.entry_suggestions);
         active.sosa_root_person_id =
             Set(snapshot.sosa_root_person_id.filter(|id| live.contains(id)));
         active.self_person_id = Set(snapshot.self_person_id.filter(|id| live.contains(id)));

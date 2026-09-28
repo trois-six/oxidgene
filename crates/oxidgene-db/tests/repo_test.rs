@@ -12,7 +12,7 @@ use oxidgene_db::repo::{
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo,
     NewBackgroundJob, NoteRepo, PaginationParams, PersonDistinctRepo, PersonMergeRepo,
     PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
-    TreeRepo, UploadedMedia, UploadedMediaMetadata, connect, run_migrations,
+    TreeChanges, TreeRepo, UploadedMedia, UploadedMediaMetadata, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
 use std::sync::{Arc, Mutex};
@@ -337,16 +337,30 @@ async fn tree_crud() {
     assert_eq!(fetched.id, id);
 
     // Update
-    let updated = TreeRepo::update(&db, id, Some("Renamed".into()), None, None, None, None)
-        .await
-        .unwrap();
+    let updated = TreeRepo::update(
+        &db,
+        id,
+        TreeChanges {
+            name: Some("Renamed".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(updated.name, "Renamed");
     assert_eq!(updated.description.as_deref(), Some("desc")); // unchanged
 
     // Update description to None
-    let updated2 = TreeRepo::update(&db, id, None, Some(None), None, None, None)
-        .await
-        .unwrap();
+    let updated2 = TreeRepo::update(
+        &db,
+        id,
+        TreeChanges {
+            description: Some(None),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     assert!(updated2.description.is_none());
 
     // Delete — the flag alone is enough to hide the tree
@@ -1160,11 +1174,11 @@ async fn merging_re_points_what_the_duplicate_carried() {
     TreeRepo::update(
         &db,
         tree_id,
-        None,
-        None,
-        Some(Some(duplicate)),
-        Some(Some(duplicate)),
-        None,
+        TreeChanges {
+            sosa_root_person_id: Some(Some(duplicate)),
+            self_person_id: Some(Some(duplicate)),
+            ..Default::default()
+        },
     )
     .await
     .unwrap();

@@ -464,6 +464,9 @@ pub struct UpdateTreeBody {
     /// What `Privacy::Default` resolves to for everything in this tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_privacy: Option<TreeDefaultPrivacy>,
+    /// Whether entry fields suggest values as the user types.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_suggestions: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]

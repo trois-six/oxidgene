@@ -20,6 +20,18 @@ use crate::repo::pagination::{PaginationParams, paginate};
 /// Repository for tree CRUD operations.
 pub struct TreeRepo;
 
+/// What [`TreeRepo::update`] changes; `None` keeps a field. A doubled
+/// `Option` clears the field with `Some(None)`.
+#[derive(Debug, Default)]
+pub struct TreeChanges {
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub sosa_root_person_id: Option<Option<Uuid>>,
+    pub self_person_id: Option<Option<Uuid>>,
+    pub default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
+    pub entry_suggestions: Option<bool>,
+}
+
 impl TreeRepo {
     /// List trees with cursor-based pagination (excludes soft-deleted).
     pub async fn list(
@@ -56,6 +68,7 @@ impl TreeRepo {
             sosa_root_person_id: Set(None),
             self_person_id: Set(None),
             default_privacy: Set(oxidgene_core::enums::TreeDefaultPrivacy::default().into()),
+            entry_suggestions: Set(true),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -67,15 +80,11 @@ impl TreeRepo {
         Ok(into_domain(result))
     }
 
-    /// Update an existing tree.
+    /// Update an existing tree: every field of `changes` left `None` is kept.
     pub async fn update(
         db: &impl ConnectionTrait,
         id: Uuid,
-        name: Option<String>,
-        description: Option<Option<String>>,
-        sosa_root_person_id: Option<Option<Uuid>>,
-        self_person_id: Option<Option<Uuid>>,
-        default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
+        changes: TreeChanges,
     ) -> Result<Tree, OxidGeneError> {
         let existing = Entity::find_by_id(id)
             .filter(Column::DeletedAt.is_null())
@@ -85,20 +94,23 @@ impl TreeRepo {
             .ok_or(OxidGeneError::NotFound { entity: "Tree", id })?;
 
         let mut active: ActiveModel = existing.into_active_model();
-        if let Some(name) = name {
+        if let Some(name) = changes.name {
             active.name = Set(name);
         }
-        if let Some(description) = description {
+        if let Some(description) = changes.description {
             active.description = Set(description);
         }
-        if let Some(sosa_root) = sosa_root_person_id {
+        if let Some(sosa_root) = changes.sosa_root_person_id {
             active.sosa_root_person_id = Set(sosa_root);
         }
-        if let Some(self_person) = self_person_id {
+        if let Some(self_person) = changes.self_person_id {
             active.self_person_id = Set(self_person);
         }
-        if let Some(default_privacy) = default_privacy {
+        if let Some(default_privacy) = changes.default_privacy {
             active.default_privacy = Set(default_privacy.into());
+        }
+        if let Some(entry_suggestions) = changes.entry_suggestions {
+            active.entry_suggestions = Set(entry_suggestions);
         }
         active.updated_at = Set(Utc::now());
 
@@ -172,6 +184,7 @@ fn into_domain(m: tree::Model) -> Tree {
         sosa_root_person_id: m.sosa_root_person_id,
         self_person_id: m.self_person_id,
         default_privacy: m.default_privacy.into(),
+        entry_suggestions: m.entry_suggestions,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

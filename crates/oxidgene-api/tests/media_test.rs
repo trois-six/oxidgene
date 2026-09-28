@@ -2755,6 +2755,34 @@ async fn a_tree_says_what_default_privacy_means_and_starts_by_withholding() {
 }
 
 #[tokio::test]
+async fn a_tree_suggests_while_typing_until_told_not_to() {
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+
+    let (_, tree) = json_request(&h.app, Method::GET, &base, None).await;
+    assert_eq!(tree["entry_suggestions"], true);
+
+    let (status, updated) = json_request(
+        &h.app,
+        Method::PUT,
+        &base,
+        Some(json!({"entry_suggestions": false})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["entry_suggestions"], false);
+    // Another setting's update leaves it alone.
+    let (_, updated) = json_request(
+        &h.app,
+        Method::PUT,
+        &base,
+        Some(json!({"default_privacy": "public"})),
+    )
+    .await;
+    assert_eq!(updated["entry_suggestions"], false);
+}
+
+#[tokio::test]
 async fn a_person_who_chose_no_portrait_still_shows_one_of_their_photographs() {
     let h = setup().await;
     let person_id = person(&h).await;
