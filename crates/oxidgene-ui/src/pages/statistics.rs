@@ -28,6 +28,14 @@ const DEFAULT_INTERVAL: i32 = 25;
 const INTERVAL_STORAGE_KEY: &str = "oxidgene-stats-interval";
 const APPROXIMATE_STORAGE_KEY: &str = "oxidgene-stats-approximate";
 const DAYS_PER_YEAR: f64 = 365.2425;
+/// A period's average, share or ratio is shown only when it rests on at
+/// least this many values: fewer make noise, not a trend.
+const MIN_VALUES: i64 = 10;
+/// The first view of the period charts starts at the first span of this
+/// many years that holds at least `DENSE_SHARE` of the tree's dated events,
+/// so a few early records do not stretch the axis over empty centuries.
+const DENSE_SPAN: i32 = 25;
+const DENSE_SHARE: f64 = 0.01;
 const DAYS_PER_MONTH: f64 = 30.436875;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -571,7 +579,8 @@ impl Periods {
             .collect()
     }
 
-    /// Each period's average; `None` where it has no value.
+    /// Each period's average; `None` where it has fewer than
+    /// [`MIN_VALUES`] values.
     fn averages(&self, years: &[StatYearSum]) -> Vec<Option<f64>> {
         let mut totals = vec![(0.0, 0_i64); self.len()];
         for year in years {
@@ -582,7 +591,7 @@ impl Periods {
         }
         totals
             .into_iter()
-            .map(|(sum, count)| (count > 0).then(|| round1(sum / count as f64)))
+            .map(|(sum, count)| (count >= MIN_VALUES).then(|| round1(sum / count as f64)))
             .collect()
     }
 
@@ -615,7 +624,7 @@ impl Periods {
     }
 
     /// Per category, each period's share of the counts, in percent; `None`
-    /// where the period has no count.
+    /// where the period has fewer than [`MIN_VALUES`] counts.
     fn shares(&self, years: &[StatYearCounts], categories: usize) -> Vec<Vec<Option<f64>>> {
         let totals = self.totals(years, categories);
         (0..categories)
@@ -625,7 +634,7 @@ impl Periods {
                     .map(|period| {
                         let counts = period.as_ref()?;
                         let all: i64 = counts.iter().sum();
-                        (all > 0).then(|| round1(counts[k] as f64 * 100.0 / all as f64))
+                        (all >= MIN_VALUES).then(|| round1(counts[k] as f64 * 100.0 / all as f64))
                     })
                     .collect()
             })
@@ -633,7 +642,7 @@ impl Periods {
     }
 
     /// Each period's count of category `part` per `per` of category `of`;
-    /// `None` where `of` has none.
+    /// `None` where `of` counts fewer than [`MIN_VALUES`].
     fn ratio(
         &self,
         years: &[StatYearCounts],
@@ -646,7 +655,8 @@ impl Periods {
             .into_iter()
             .map(|period| {
                 let counts = period?;
-                (counts[of] > 0).then(|| round1(counts[part] as f64 * per / counts[of] as f64))
+                (counts[of] >= MIN_VALUES)
+                    .then(|| round1(counts[part] as f64 * per / counts[of] as f64))
             })
             .collect()
     }
@@ -692,6 +702,28 @@ fn year_bounds(stats: &TreeStatistics) -> Option<(i32, i32)> {
             None => Some((year, year)),
             Some((first, last)) => Some((first.min(year), last.max(year))),
         })
+}
+
+/// Where the first view of the period charts starts: the first year
+/// opening a [`DENSE_SPAN`] that holds at least [`DENSE_SHARE`] of the
+/// dated events, else the first year with any.
+fn dense_start(events: &[StatYearCounts]) -> Option<i32> {
+    let total: i64 = events.iter().flat_map(|y| &y.counts).sum();
+    let needed = (total as f64 * DENSE_SHARE).max(1.0);
+    let count = |y: &StatYearCounts| y.counts.iter().sum::<i64>();
+    let mut end = 0;
+    let mut window = 0;
+    for (start, year) in events.iter().enumerate() {
+        while end < events.len() && events[end].year < year.year + DENSE_SPAN {
+            window += count(&events[end]);
+            end += 1;
+        }
+        if window as f64 >= needed {
+            return Some(year.year);
+        }
+        window -= count(&events[start]);
+    }
+    events.first().map(|y| y.year)
 }
 
 fn series(label: String, color: &'static str, values: Vec<Option<f64>>) -> ChartSeries {
@@ -789,12 +821,12 @@ fn PeriodCharts(stats: Resource<Option<TreeStatistics>>, interval: Signal<i32>) 
     let bounds = year_bounds(stats);
     let (first, last) = bounds.unwrap_or((0, -1));
     let (from, to) = match chosen() {
-        Some((from, to)) => {
-            let from = from.clamp(first, last.max(first));
-            (from, to.clamp(from, last.max(from)))
-        }
-        None => (first, last),
+        Some((from, to)) => (from, to),
+        None => (dense_start(&stats.events_by_year).unwrap_or(first), last),
     };
+    let from = from.clamp(first, last.max(first));
+    let to = to.clamp(from, last.max(from));
+    let whole = (from, to) == (first, last);
     let periods = Periods {
         from,
         to,
@@ -816,14 +848,12 @@ fn PeriodCharts(stats: Resource<Option<TreeStatistics>>, interval: Signal<i32>) 
                         interval: interval(),
                         from_label: i18n.t("stats.years_from"),
                         to_label: i18n.t("stats.years_to"),
-                        on_change: move |range: (i32, i32)| {
-                            chosen.set((range != (first, last)).then_some(range));
-                        },
+                        on_change: move |range: (i32, i32)| chosen.set(Some(range)),
                     }
                     button {
                         class: "btn btn-outline btn-sm",
-                        disabled: chosen().is_none(),
-                        onclick: move |_| chosen.set(None),
+                        disabled: whole,
+                        onclick: move |_| chosen.set(Some((first, last))),
                         {i18n.t("stats.years_all")}
                     }
                 }
@@ -1208,9 +1238,51 @@ mod tests {
             to: 1849,
             interval: 25,
         };
-        // 1810: two values summing to 100; 1820: one of 70; 1850 is outside.
-        let years = [sum(1810, 100.0, 2), sum(1820, 70.0, 1), sum(1850, 10.0, 1)];
+        // 1810: eight values summing to 400; 1820: four summing to 280;
+        // 1850 is outside.
+        let years = [
+            sum(1810, 400.0, 8),
+            sum(1820, 280.0, 4),
+            sum(1850, 10.0, 20),
+        ];
         assert_eq!(periods.averages(&years), vec![Some(56.7), None]);
+    }
+
+    #[test]
+    fn too_few_values_make_no_point() {
+        let periods = Periods {
+            from: 1800,
+            to: 1849,
+            interval: 25,
+        };
+        let years = [sum(1810, 90.0, 9), sum(1830, 100.0, 10)];
+        assert_eq!(periods.averages(&years), vec![None, Some(10.0)]);
+        let few = [StatYearCounts {
+            year: 1810,
+            counts: vec![5, 4],
+        }];
+        assert_eq!(periods.shares(&few, 2), vec![vec![None, None]; 2]);
+    }
+
+    #[test]
+    fn the_first_view_skips_a_sparse_beginning() {
+        let year = |year: i32, n: i64| StatYearCounts {
+            year,
+            counts: vec![n, 0, 0, 0, 0],
+        };
+        // Three early records, then a dense tree from 1650.
+        let events = [
+            year(800, 1),
+            year(1200, 1),
+            year(1500, 1),
+            year(1650, 40),
+            year(1660, 60),
+            year(1700, 100),
+        ];
+        assert_eq!(dense_start(&events), Some(1650));
+        // A tree dense from its start keeps it.
+        assert_eq!(dense_start(&events[3..]), Some(1650));
+        assert_eq!(dense_start(&[]), None);
     }
 
     #[test]
@@ -1223,11 +1295,11 @@ mod tests {
         let years = [
             StatYearCounts {
                 year: 1901,
-                counts: vec![1, 0],
+                counts: vec![5, 0],
             },
             StatYearCounts {
                 year: 1905,
-                counts: vec![1, 2],
+                counts: vec![5, 10],
             },
         ];
         assert_eq!(
@@ -1257,28 +1329,29 @@ mod tests {
         let years = [
             StatYearCounts {
                 year: 1901,
-                counts: vec![3, 1],
+                counts: vec![6, 2],
             },
             StatYearCounts {
                 year: 1909,
-                counts: vec![2, 4],
+                counts: vec![5, 8],
             },
             StatYearCounts {
                 year: 1925,
                 counts: vec![1, 0],
             },
         ];
+        // Counts are shown however few they are.
         assert_eq!(
             periods.sums(&years, 2),
             vec![
-                vec![Some(5.0), None, Some(1.0)],
-                vec![Some(5.0), None, Some(0.0)]
+                vec![Some(11.0), None, Some(1.0)],
+                vec![Some(10.0), None, Some(0.0)]
             ]
         );
-        // Men per 100 women; none where no woman was born.
+        // Boys per 100 girls; none where fewer than ten girls were born.
         assert_eq!(
             periods.ratio(&years, 2, 0, 1, 100.0),
-            vec![Some(100.0), None, None]
+            vec![Some(110.0), None, None]
         );
     }
 

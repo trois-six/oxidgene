@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:47:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:59:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -79,8 +79,11 @@ first and the last year their period charts cover. It spans the years any
 of those charts has a value for; two handles move to the year, by pointer
 or by the arrow keys, and never cross. Its ticks mark the multiples of the
 interval, labelled so that no more than twelve labels show. The chosen
-years are printed beside it and **All years** restores the whole span. The
-ruler stays pinned at the top while those two sections scroll by. The
+years are printed beside it. The first view starts at the first 25-year
+span holding at least 1% of the tree's dated events and runs to the last
+year, so a few early records (a medieval line of ancestors) do not stretch
+the axis over sparse centuries; **All years** widens it to the whole span.
+The ruler stays pinned at the top while those two sections scroll by. The
 range lasts for the visit; it is not stored. The overview, the map, the
 donuts, the records and the lists do not depend on it.
 
@@ -181,7 +184,9 @@ number of children.
 
 Donuts show a legend with each value and its count. Line charts share one
 x-axis of periods, skip periods without data rather than drawing them as
-zero, and show the value of a point on hover. Their value axis runs from
+zero, and show the value of a point on hover. Their lines are smooth
+monotone curves, which never overshoot their points, and a chart of at most
+four series is filled beneath them. Their value axis runs from
 zero in at most four round steps (1, 2, 2.5 or 5 times a power of ten), and
 a chart with a single line has no legend: its title names it. Series colors come from the
 theme (men and women use the pedigree's male and female colors; months and
@@ -212,6 +217,10 @@ weekdays the chart palette).
 - **Averages over a period** weigh every value alike: the period's sum over
   its count, whichever years they come from. **Shares** are each category's
   part of all the period's counts.
+- **Enough values**: a period's average, share or ratio is drawn only when
+  it rests on at least 10 values (10 unions for their weekdays, 10 girls
+  born for the sex ratio, 10 births for mortality); fewer make noise, not a
+  trend. Counts are drawn whatever they are.
 - **Union** is a family with at least one spouse; its date is the marriage,
   or the first dated family event. Its duration runs to the first death of
   a spouse or to a divorce or annulment, whichever comes first.

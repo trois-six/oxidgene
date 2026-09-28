@@ -6318,6 +6318,11 @@ pub const LAYOUT_STYLES: &str = r#"
         stroke-linejoin: round;
     }
 
+    .stats-area {
+        fill-opacity: 0.18;
+        stroke: none;
+    }
+
     .stats-point { cursor: pointer; }
 
     .stats-hover {

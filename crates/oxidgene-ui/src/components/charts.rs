@@ -141,26 +141,45 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
     };
     let y = |v: f64| TOP + (HEIGHT - TOP - BOTTOM) * (1.0 - v / top);
     let label_every = (count / 8).max(1);
-    let lines: Vec<(String, &'static str)> = series
+    let filled = series.len() <= FILLED_SERIES;
+    // Each series as its runs of consecutive values: a period without a
+    // value breaks the curve rather than being drawn as zero.
+    let lines: Vec<(String, String, &'static str)> = series
         .iter()
         .map(|s| {
-            let mut d = String::new();
-            let mut pen_down = false;
+            let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+            let mut open = false;
             for (i, value) in s.values.iter().enumerate() {
                 match value {
                     Some(v) => {
-                        d.push_str(&format!(
-                            "{}{:.1} {:.1} ",
-                            if pen_down { "L" } else { "M" },
-                            x(i),
-                            y(*v)
-                        ));
-                        pen_down = true;
+                        if !open {
+                            runs.push(Vec::new());
+                            open = true;
+                        }
+                        if let Some(run) = runs.last_mut() {
+                            run.push((x(i), y(*v)));
+                        }
                     }
-                    None => pen_down = false,
+                    None => open = false,
                 }
             }
-            (d, s.color)
+            let runs: Vec<&Vec<(f64, f64)>> = runs.iter().filter(|run| run.len() > 1).collect();
+            let stroke: String = runs.iter().map(|run| curve(run)).collect();
+            let area: String = if filled {
+                let base = y(0.0);
+                runs.iter()
+                    .map(|run| {
+                        let (first, last) = (run[0].0, run[run.len() - 1].0);
+                        format!(
+                            "{}L{last:.1} {base:.1} L{first:.1} {base:.1} Z ",
+                            curve(run)
+                        )
+                    })
+                    .collect()
+            } else {
+                String::new()
+            };
+            (stroke, area, s.color)
         })
         .collect();
     let hover_text = hovered().and_then(|(s, i)| {
@@ -206,7 +225,12 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
                         }
                     }
                 }
-                for (s, (d, color)) in lines.iter().enumerate() {
+                for (s, (_, area, color)) in lines.iter().enumerate() {
+                    if !area.is_empty() {
+                        path { key: "a{s}", class: "stats-area", d: "{area}", style: "fill: {color}" }
+                    }
+                }
+                for (s, (d, _, color)) in lines.iter().enumerate() {
                     path { key: "l{s}", class: "stats-line", d: "{d}", style: "stroke: {color}" }
                 }
                 for (s, line) in series.iter().enumerate() {
@@ -241,6 +265,61 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
     }
 }
 
+/// Charts with at most this many series are filled under their curves;
+/// more would only cover one another.
+const FILLED_SERIES: usize = 4;
+
+/// A smooth curve through points ordered by x, as an SVG path: a monotone
+/// cubic (Fritsch and Carlson), which never overshoots its points, so a
+/// curve neither dips below zero nor invents a peak between two periods.
+fn curve(points: &[(f64, f64)]) -> String {
+    let n = points.len();
+    let Some(&(x0, y0)) = points.first() else {
+        return String::new();
+    };
+    let mut d = format!("M{x0:.1} {y0:.1} ");
+    if n < 2 {
+        return d;
+    }
+    let slopes: Vec<f64> = points
+        .windows(2)
+        .map(|w| (w[1].1 - w[0].1) / (w[1].0 - w[0].0))
+        .collect();
+    let mut tangents: Vec<f64> = (0..n)
+        .map(|i| match i {
+            0 => slopes[0],
+            i if i == n - 1 => slopes[n - 2],
+            i if slopes[i - 1] * slopes[i] <= 0.0 => 0.0,
+            i => (slopes[i - 1] + slopes[i]) / 2.0,
+        })
+        .collect();
+    for (i, slope) in slopes.iter().enumerate() {
+        if *slope == 0.0 {
+            tangents[i] = 0.0;
+            tangents[i + 1] = 0.0;
+            continue;
+        }
+        let (a, b) = (tangents[i] / slope, tangents[i + 1] / slope);
+        let norm = a.hypot(b);
+        if norm > 3.0 {
+            tangents[i] = 3.0 / norm * a * slope;
+            tangents[i + 1] = 3.0 / norm * b * slope;
+        }
+    }
+    for i in 0..n - 1 {
+        let ((xa, ya), (xb, yb)) = (points[i], points[i + 1]);
+        let h = (xb - xa) / 3.0;
+        d.push_str(&format!(
+            "C{:.1} {:.1} {:.1} {:.1} {xb:.1} {yb:.1} ",
+            xa + h,
+            ya + tangents[i] * h,
+            xb - h,
+            yb - tangents[i + 1] * h,
+        ));
+    }
+    d
+}
+
 /// The ticks of a value axis, from 0 to at least `max` in at most four
 /// round steps: 1, 2, 2.5 or 5 times a power of ten.
 fn axis_ticks(max: f64) -> Vec<f64> {
@@ -255,11 +334,15 @@ fn axis_ticks(max: f64) -> Vec<f64> {
     (0..=count).map(|k| step * f64::from(k)).collect()
 }
 
+/// A value with as few decimals as it needs, two at most: an axis step of
+/// 0.25 must not read 0.2.
 fn format_value(value: f64) -> String {
-    if (value - value.round()).abs() < 0.05 {
+    if (value - value.round()).abs() < 0.005 {
         format!("{value:.0}")
-    } else {
+    } else if (value * 10.0 - (value * 10.0).round()).abs() < 0.05 {
         format!("{value:.1}")
+    } else {
+        format!("{value:.2}")
     }
 }
 
@@ -643,6 +726,42 @@ mod tests {
         assert_eq!(axis_ticks(82.0), [0.0, 25.0, 50.0, 75.0, 100.0]);
         assert_eq!(axis_ticks(3.3), [0.0, 1.0, 2.0, 3.0, 4.0]);
         assert_eq!(axis_ticks(40.0), [0.0, 10.0, 20.0, 30.0, 40.0]);
+    }
+
+    #[test]
+    fn axis_values_keep_the_decimals_they_need() {
+        assert_eq!(format_value(0.25), "0.25");
+        assert_eq!(format_value(0.5), "0.5");
+        assert_eq!(format_value(40.0), "40");
+    }
+
+    /// The control points of each cubic of a path, as (x, y) pairs.
+    fn controls(path: &str) -> Vec<(f64, f64)> {
+        path.split('C')
+            .skip(1)
+            .flat_map(|segment| {
+                let n: Vec<f64> = segment
+                    .split_whitespace()
+                    .filter_map(|v| v.parse().ok())
+                    .collect();
+                [(n[0], n[1]), (n[2], n[3])]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_curve_never_overshoots_its_points() {
+        // A plateau then a rise: the curve stays flat on the plateau and
+        // within the values around each step.
+        let points = [(0.0, 50.0), (10.0, 50.0), (20.0, 10.0), (30.0, 12.0)];
+        let path = curve(&points);
+        assert!(path.starts_with("M0.0 50.0 C"));
+        for (_, y) in controls(&path) {
+            assert!((10.0..=50.0).contains(&y), "{y} overshoots");
+        }
+        // Flat between the two equal points.
+        assert_eq!(controls(&path)[0].1, 50.0);
+        assert_eq!(controls(&path)[1].1, 50.0);
     }
 
     #[test]
