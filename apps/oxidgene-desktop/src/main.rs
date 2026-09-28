@@ -321,9 +321,6 @@ fn main() {
             // Decompressing and indexing them takes tens of milliseconds;
             // left lazy, that cost lands on the first tooltip lookup.
             let reference_warmup = tokio::task::spawn_blocking(oxidgene_api::reference::preheat);
-            // The place dictionary and the basemap take longer: loaded in
-            // the background, not awaited, so the window does not wait.
-            tokio::task::spawn_blocking(oxidgene_api::reference::preheat_places);
 
             // Connect to SQLite
             let db = connect(&database_url).await.unwrap_or_else(|_| {

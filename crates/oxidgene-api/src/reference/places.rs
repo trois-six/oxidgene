@@ -2,12 +2,9 @@
 //! `just places` into `assets/places/places.csv.br` (see
 //! `docs/place-dictionary.md`), searched to suggest place names.
 //!
-//! The file holds about 285,000 rows: decompressing and indexing them takes
-//! about half a second in a release build. The binaries start that in the
-//! background once the server is up ([`preload`], through
-//! `reference::preheat_places`), without waiting for it, so neither startup
-//! nor the first place search or statistics page pays for it; a request
-//! arriving before it is done waits only for the rest.
+//! The file is decompressed and indexed on the first search, not at startup:
+//! it holds about 275,000 rows, and a session that never edits a place never pays
+//! for them.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -136,11 +133,6 @@ fn kind_rank(kind: PlaceKind) -> u8 {
         PlaceKind::Settlement | PlaceKind::Parish => 1,
         PlaceKind::FormerCommune | PlaceKind::FormerName => 2,
     }
-}
-
-/// Decompresses and indexes the dictionary now, if nothing has yet.
-pub fn preload() {
-    dictionary();
 }
 
 fn dictionary() -> &'static Dictionary {

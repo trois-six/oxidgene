@@ -55,9 +55,6 @@ async fn main() {
     // lazily it lands on whichever worker serves the first tooltip lookup
     // and blocks it; here it overlaps with connecting to the database.
     let reference_warmup = tokio::task::spawn_blocking(oxidgene_api::reference::preheat);
-    // The place dictionary and the basemap take longer: loaded in the
-    // background, not awaited, so the server starts without them.
-    tokio::task::spawn_blocking(oxidgene_api::reference::preheat_places);
 
     // ── Connect to database ──────────────────────────────────────────
     let db = connect(&cfg.database_url).await.unwrap_or_else(|_| {

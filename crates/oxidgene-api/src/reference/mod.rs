@@ -27,16 +27,6 @@ pub use places::{
 
 pub const MAX_REFERENCE_TERMS: usize = 128;
 
-/// Loads the place dictionary and the basemap, the statistics page's and
-/// the place suggestions' data. Heavier than [`preheat`] (about half a
-/// second in a release build, more in a debug one), so the binaries run it
-/// in the background at startup and do not wait for it: the first request
-/// needing them finds them ready, or waits only for the rest.
-pub fn preheat_places() {
-    places::preload();
-    basemap();
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct GivenNameMatch {
     pub term: String,
