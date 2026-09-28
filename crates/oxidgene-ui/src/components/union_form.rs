@@ -731,7 +731,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                         }
                                     }
                                 }
-                                {render_notes_source_fields(&i18n, new_union_notes, new_union_source, || {})}
+                                {render_notes_source_fields(&i18n, tid, new_union_notes, new_union_source, || {})}
                                 button {
                                     class: "pf-confirm-btn",
                                     r#type: "button",

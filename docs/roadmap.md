@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -70,16 +70,22 @@ Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
 - [ ] Decide whether a merge should reconcile events recorded twice (two
   births, say) or keep leaving that to the user.
 
-## 5. Planned: place autocomplete
+## 5. Entry suggestions
 
 The [place dictionary](place-dictionary.md) of twelve countries
-is generated. Remaining:
+is generated, and entry fields suggest values ([Common UI §4.4](ui-common.md)).
+Remaining:
 
 - [x] Ship the dictionary with the application, compressed, and search it
   through REST and GraphQL alike.
 - [x] Give every place field the shared `PlaceInput` of
   [Common UI §4.4](ui-common.md): suggestions from the tree's places and the
   dictionary, free text always accepted.
+- [x] Suggest the tree's surnames, given names, occupations and source titles
+  in the entry forms and the search filters, followed by the reference
+  sheets' given names and occupations.
+- [ ] Let a tree turn entry suggestions off (the Entry options of
+  [Settings](ui-settings.md)).
 - [ ] Decide whether Northern Ireland townlands and French lieux-dits justify
   a separately downloaded database.
 

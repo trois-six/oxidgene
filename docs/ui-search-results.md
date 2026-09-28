@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 ---
 
 
@@ -99,16 +99,16 @@ The expanded panel reuses the person form's visual and interaction patterns:
 
 | Filter | Type | Options / Format |
 |---|---|---|
-| **Surname / given names** | Text inputs | Case- and accent-insensitive partial matching |
+| **Surname / given names** | Text inputs suggesting the tree's values ([Common UI §4.4](ui-common.md)) | Case- and accent-insensitive partial matching |
 | **Gender** | Dropdown | All (default) / Male / Female / Unknown |
-| **Occupation** | Text input | Matches occupation-event descriptions |
+| **Occupation** | Text input suggesting the tree's occupations | Matches occupation-event descriptions |
 | **Born between** | Two year inputs | Inclusive start and end years |
 | **Died between** | Two year inputs | Inclusive start and end years |
 | **Place** | Text input | Matches any individual or family event place |
 | **Event type** | Dropdown | All (default) / Birth / Death / Baptism / Burial / Marriage / Residence / Occupation / Census |
 | **Event between** | Two year inputs | Inclusive start and end years for matching events |
-| **Spouse** | Surname and given-name inputs | Matches another spouse in the same family |
-| **Father / mother** | Surname and given-name inputs | Matches the corresponding parent through family links |
+| **Spouse** | Surname and given-name inputs, suggesting like the person's | Matches another spouse in the same family |
+| **Father / mother** | Surname and given-name inputs, suggesting like the person's | Matches the corresponding parent through family links |
 | **Has media** | Toggle | When enabled, only shows persons with at least one attached media |
 
 A **"Clear filters"** link resets all filters to their default state.

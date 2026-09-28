@@ -11,10 +11,11 @@ use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort};
+use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField};
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
+use crate::components::suggest_input::ValueInput;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -122,6 +123,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let load_trace = use_ui_load_trace(UiPage::SearchResults);
 
     let tree_id = Uuid::parse_str(&props.tree_id).ok();
+    // A tree id that does not parse names no tree, and the nil id's
+    // suggestions are empty.
+    let suggest_tree_id = tree_id.unwrap_or_default();
     let tree_cache = use_tree_cache();
     let api_tree = api.clone();
     let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
@@ -503,26 +507,26 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                             div { class: "sr-filter-grid sr-filter-grid-person",
                             div { class: "sr-filter-group",
                                 label { {i18n.t("search.surname")} }
-                                input {
-                                    r#type: "text",
-                                    value: "{search_last}",
-                                    oninput: move |e: Event<FormData>| {
-                                        let value = e.value();
-                                        search_last.set(value.clone());
-                                        committed_last.set(value);
+                                ValueInput {
+                                    value: search_last,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::FamilyNames,
+                                    tree_only: true,
+                                    on_change: move |()| {
+                                        committed_last.set(search_last());
                                         current_page.set(1);
                                     },
                                 }
                             }
                             div { class: "sr-filter-group",
                                 label { {i18n.t("search.given_names")} }
-                                input {
-                                    r#type: "text",
-                                    value: "{search_first}",
-                                    oninput: move |e: Event<FormData>| {
-                                        let value = e.value();
-                                        search_first.set(value.clone());
-                                        committed_first.set(value);
+                                ValueInput {
+                                    value: search_first,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::GivenNames,
+                                    tree_only: true,
+                                    on_change: move |()| {
+                                        committed_first.set(search_first());
                                         current_page.set(1);
                                     },
                                 }
@@ -570,13 +574,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                             }
                             div { class: "sr-filter-group",
                                 label { {i18n.t("search.occupation")} }
-                                input {
-                                    r#type: "text",
-                                    value: "{occupation_filter}",
-                                    oninput: move |e: Event<FormData>| {
-                                        occupation_filter.set(e.value());
-                                        current_page.set(1);
-                                    },
+                                ValueInput {
+                                    value: occupation_filter,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::Occupations,
+                                    tree_only: true,
+                                    on_change: move |()| current_page.set(1),
                                 }
                             }
                             div { class: "sr-filter-group",
@@ -708,65 +711,59 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                             div { class: "sr-relations-grid",
                             div { class: "sr-relation-group pf-subform",
                                 div { class: "pf-block-label", {i18n.t("search.spouse")} }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"search.surname\")}",
-                                    value: "{spouse_surname}",
-                                    oninput: move |e: Event<FormData>| {
-                                        spouse_surname.set(e.value());
-                                        current_page.set(1);
-                                    },
+                                ValueInput {
+                                    value: spouse_surname,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::FamilyNames,
+                                    placeholder: i18n.t("search.surname"),
+                                    tree_only: true,
+                                    on_change: move |()| current_page.set(1),
                                 }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"search.given_names\")}",
-                                    value: "{spouse_given_names}",
-                                    oninput: move |e: Event<FormData>| {
-                                        spouse_given_names.set(e.value());
-                                        current_page.set(1);
-                                    },
+                                ValueInput {
+                                    value: spouse_given_names,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::GivenNames,
+                                    placeholder: i18n.t("search.given_names"),
+                                    tree_only: true,
+                                    on_change: move |()| current_page.set(1),
                                 }
                             }
                             div { class: "sr-relation-group pf-subform",
                                 div { class: "pf-block-label", {i18n.t("search.father")} }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"search.surname\")}",
-                                    value: "{father_surname}",
-                                    oninput: move |e: Event<FormData>| {
-                                        father_surname.set(e.value());
-                                        current_page.set(1);
-                                    },
+                                ValueInput {
+                                    value: father_surname,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::FamilyNames,
+                                    placeholder: i18n.t("search.surname"),
+                                    tree_only: true,
+                                    on_change: move |()| current_page.set(1),
                                 }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"search.given_names\")}",
-                                    value: "{father_given_names}",
-                                    oninput: move |e: Event<FormData>| {
-                                        father_given_names.set(e.value());
-                                        current_page.set(1);
-                                    },
+                                ValueInput {
+                                    value: father_given_names,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::GivenNames,
+                                    placeholder: i18n.t("search.given_names"),
+                                    tree_only: true,
+                                    on_change: move |()| current_page.set(1),
                                 }
                             }
                             div { class: "sr-relation-group pf-subform",
                                 div { class: "pf-block-label", {i18n.t("search.mother")} }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"search.surname\")}",
-                                    value: "{mother_surname}",
-                                    oninput: move |e: Event<FormData>| {
-                                        mother_surname.set(e.value());
-                                        current_page.set(1);
-                                    },
+                                ValueInput {
+                                    value: mother_surname,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::FamilyNames,
+                                    placeholder: i18n.t("search.surname"),
+                                    tree_only: true,
+                                    on_change: move |()| current_page.set(1),
                                 }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"search.given_names\")}",
-                                    value: "{mother_given_names}",
-                                    oninput: move |e: Event<FormData>| {
-                                        mother_given_names.set(e.value());
-                                        current_page.set(1);
-                                    },
+                                ValueInput {
+                                    value: mother_given_names,
+                                    tree_id: suggest_tree_id,
+                                    field: SuggestionField::GivenNames,
+                                    placeholder: i18n.t("search.given_names"),
+                                    tree_only: true,
+                                    on_change: move |()| current_page.set(1),
                                 }
                             }
                             }

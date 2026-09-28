@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 ---
 
 
@@ -179,11 +179,15 @@ Displayed as the first block in the scrollable body, with a section divider labe
 
 ### Family Name
 
-Single text input. Automatically converted to uppercase on input.
+Single text input. Automatically converted to uppercase on input. It
+suggests the tree's surnames ([Common UI §4.4](ui-common.md)).
 
 ### First Names
 
 Dynamic list of first name entries. Each entry is a text input with a remove button (`×`). An **"+ Add a first name"** button appends a new entry at the bottom of the list. Order is significant (the first entry is the used first name). Entries can be reordered via drag handle.
+
+The given-names field suggests, word by word, the tree's given names and then
+the given-name sheets' names ([Common UI §4.4](ui-common.md)).
 
 ### Gender
 
@@ -202,6 +206,9 @@ Occupations are stored as **Occupation events** (EventType `Occupation`), each w
 - Each entry has a text input (occupation title), an optional date field, and an optional place field
 - An **"+ Add an occupation"** button appends a new entry
 - Under the hood, each entry creates an Event of type `Occupation` with the title in the `description` field
+- The title suggests the tree's occupations and then the occupation sheets'
+  terms ([Common UI §4.4](ui-common.md)), as does the description of an
+  Occupation event added among the other events
 
 This ensures GEDCOM round-trip fidelity (GEDCOM `OCCU` tag maps to `EventType::Occupation`).
 
@@ -221,7 +228,7 @@ Free-text input, persisted as a `Citation` carrying `person_id`. Saved with the 
 
 **Source fields are text, not pickers.** A source is typed the way it is read off the record — "AD44 — Vigneux-de-Bretagne — N — 1913 — 3E217/46" — and requiring the `Source` row to exist first would put a detour in the middle of entering an event. The typed title is reconciled against the tree's sources on save: a case-insensitive match on the trimmed title reuses that row, anything else creates one. Sources are only touched when the typed title actually changed, so an unrelated save never creates a `Source` row as a side effect, and changing the title repoints the existing citation (`PUT /citations/{id}` with `source_id`) rather than deleting and recreating it. The source it just let go is then collected — `DELETE /sources/{id}?only_if_unused=true` drops it only when no citation, note and media link still names it — so correcting a typo does not leave its `Source` behind, while a source still in use anywhere is kept.
 
-There is deliberately **no completion dropdown**: a `<datalist>` holding every source in the tree had to be re-diffed on each keystroke, which made the field unusable on an imported tree. Completion belongs on a debounced prefix query against `dictionary_sources`, not on a list of everything.
+The field suggests the tree's source titles as the user types ([Common UI §4.4](ui-common.md)), from a debounced query rather than a `<datalist>` of every source: re-diffing thousands of `<option>` nodes on each keystroke made the field unusable on an imported tree.
 
 Notes and sources are stored separately on purpose — a `Citation` always needs a `source_id`, so it cannot hold sourceless notes, and folding the notes into `Citation.text` loses them the moment the source is cleared.
 

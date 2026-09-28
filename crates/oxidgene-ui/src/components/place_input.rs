@@ -11,12 +11,11 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, CreatePlaceBody, PlaceSuggestion};
+use crate::components::suggest_input::{DEBOUNCE_MS, SuggestInput, SuggestRow};
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 use crate::utils::sleep_ms;
 
-/// Keystrokes settle for this long before the dictionary is asked.
-const DEBOUNCE_MS: u32 = 300;
 /// Shortest text worth asking the dictionary about.
 const MIN_QUERY_CHARS: usize = 3;
 /// Tree places shown at once, above the dictionary's.
@@ -60,8 +59,6 @@ pub fn PlaceInput(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut value = value;
-    let mut open = use_signal(|| false);
-    let mut highlight = use_signal(|| None::<usize>);
 
     // What the person typed; empty while the field holds a picked place.
     let typed = use_memo(move || {
@@ -72,9 +69,12 @@ pub fn PlaceInput(
             raw.trim().to_string()
         }
     });
+    // Only what the user types is sent to the dictionary, not the text a
+    // form opens with.
+    let mut asked = use_signal(String::new);
     let mut debounced = use_signal(String::new);
     let _debounce = use_ui_resource("place_input_debounce", move || {
-        let text = typed();
+        let text = asked();
         async move {
             sleep_ms(DEBOUNCE_MS).await;
             debounced.set(text);
@@ -83,10 +83,9 @@ pub fn PlaceInput(
     let dictionary = use_ui_resource("place_input_suggest", move || {
         let api = api.clone();
         let text = debounced();
-        let wanted = open();
         let lang = i18n.0.code();
         async move {
-            if !wanted || text.chars().count() < MIN_QUERY_CHARS {
+            if text.chars().count() < MIN_QUERY_CHARS {
                 return Vec::new();
             }
             api.place_suggestions(lang, &text, DICTIONARY_SUGGESTIONS)
@@ -105,8 +104,7 @@ pub fn PlaceInput(
         None => raw.clone(),
     };
 
-    let text = typed();
-    let key = fold(&text);
+    let key = fold(&typed());
     let mut choices: Vec<Choice> = if key.is_empty() {
         Vec::new()
     } else {
@@ -132,115 +130,44 @@ pub fn PlaceInput(
                 .map(Choice::Dictionary),
         );
     }
-    let list_visible = open() && !choices.is_empty();
+    let rows: Vec<SuggestRow> = choices.iter().map(|c| row(c, &i18n)).collect();
 
-    let mut choose = move |choice: &Choice| {
-        match choice {
-            Choice::Tree { id, .. } => value.set(id.clone()),
-            Choice::Dictionary(place) => value.set(place.label.clone()),
-        }
-        open.set(false);
-        highlight.set(None);
+    let changed = move || {
         if let Some(handler) = on_change {
             handler.call(());
         }
     };
 
-    let count = choices.len();
-    let keyboard_choices = choices.clone();
-    let on_key = move |e: Event<KeyboardData>| match e.key() {
-        Key::ArrowDown if count > 0 => {
-            e.prevent_default();
-            open.set(true);
-            highlight.set(Some(highlight().map_or(0, |i| (i + 1) % count)));
-        }
-        Key::ArrowUp if count > 0 => {
-            e.prevent_default();
-            open.set(true);
-            highlight.set(Some(
-                highlight().map_or(count - 1, |i| (i + count - 1) % count),
-            ));
-        }
-        Key::Enter => {
-            if let Some(choice) = highlight()
-                .filter(|_| open())
-                .and_then(|i| keyboard_choices.get(i))
-            {
-                // Enter picks the place instead of submitting the form.
-                e.prevent_default();
-                choose(choice);
-            }
-        }
-        Key::Escape if open() => {
-            e.stop_propagation();
-            open.set(false);
-            highlight.set(None);
-        }
-        _ => {}
-    };
-
     rsx! {
-        div { class: "place-input",
-            input {
-                r#type: "text",
-                value: "{shown}",
-                placeholder: "{i18n.t(\"place_input.placeholder\")}",
-                autocomplete: "off",
-                "aria-autocomplete": "list",
-                "aria-expanded": "{list_visible}",
-                oninput: move |e: Event<FormData>| {
-                    value.set(e.value());
-                    open.set(true);
-                    highlight.set(None);
-                    if let Some(handler) = on_change {
-                        handler.call(());
-                    }
-                },
-                onfocus: move |_| open.set(true),
-                // The list's buttons keep the focus on the field while they
-                // are pressed, so leaving the field really is leaving it.
-                onblur: move |_| {
-                    open.set(false);
-                    highlight.set(None);
-                },
-                onkeydown: on_key,
-            }
-            if list_visible {
-                div {
-                    class: "place-input-list",
-                    role: "listbox",
-                    onmousedown: move |e: Event<MouseData>| e.prevent_default(),
-                    for (index, choice) in choices.iter().enumerate() {
-                        button {
-                            key: "{index}",
-                            r#type: "button",
-                            role: "option",
-                            class: if highlight() == Some(index) {
-                                "context-menu-item td-suggest-row is-active"
-                            } else {
-                                "context-menu-item td-suggest-row"
-                            },
-                            onmouseenter: move |_| highlight.set(Some(index)),
-                            onclick: {
-                                let choice = choice.clone();
-                                move |_| choose(&choice)
-                            },
-                            {render_choice(choice, &i18n)}
-                        }
-                    }
+        SuggestInput {
+            value: shown,
+            rows,
+            placeholder: i18n.t("place_input.placeholder"),
+            on_input: move |text: String| {
+                asked.set(text.trim().to_string());
+                value.set(text);
+                changed();
+            },
+            on_pick: move |index: usize| {
+                match choices.get(index) {
+                    Some(Choice::Tree { id, .. }) => value.set(id.clone()),
+                    Some(Choice::Dictionary(place)) => value.set(place.label.clone()),
+                    None => return,
                 }
-            }
+                asked.set(String::new());
+                changed();
+            },
         }
     }
 }
 
 /// Tree places and dictionary places read alike: the place's own name,
 /// then the rest of its label.
-fn render_choice(choice: &Choice, i18n: &I18n) -> Element {
-    let (name, detail, until) = match choice {
+fn row(choice: &Choice, i18n: &I18n) -> SuggestRow {
+    let (name, mut detail) = match choice {
         Choice::Tree { name, .. } => match name.split_once(", ") {
-            Some((head, rest)) => (head.to_string(), rest.to_string(), None),
-            None => (name.clone(), String::new(), None),
+            Some((head, rest)) => (head.to_string(), rest.to_string()),
+            None => (name.clone(), String::new()),
         },
         Choice::Dictionary(place) => (
             place.name.clone(),
@@ -249,21 +176,27 @@ fn render_choice(choice: &Choice, i18n: &I18n) -> Element {
                 .strip_prefix(&place.name)
                 .map(|rest| rest.trim_start_matches(", ").to_string())
                 .unwrap_or_default(),
-            place
-                .valid_until
-                .as_deref()
-                .and_then(|date| date.get(..4))
-                .map(|year| i18n.t_args("place_input.until", &[("year", year)])),
         ),
     };
-    rsx! {
-        span { class: "place-input-name", "{name}" }
-        if !detail.is_empty() {
-            span { class: "place-input-detail", " {detail}" }
-        }
-        if let Some(until) = until {
-            span { class: "place-input-detail", " · {until}" }
-        }
+    let until = match choice {
+        Choice::Dictionary(place) => place
+            .valid_until
+            .as_deref()
+            .and_then(|date| date.get(..4))
+            .map(|year| i18n.t_args("place_input.until", &[("year", year)])),
+        Choice::Tree { .. } => None,
+    };
+    if let Some(until) = until {
+        detail = if detail.is_empty() {
+            until
+        } else {
+            format!("{detail} · {until}")
+        };
+    }
+    SuggestRow {
+        name,
+        detail,
+        sheet: false,
     }
 }
 

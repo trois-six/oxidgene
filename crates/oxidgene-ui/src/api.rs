@@ -160,6 +160,40 @@ pub struct PlaceDictionaryEntry {
     pub count: i64,
 }
 
+/// The entry-form field a [`ValueSuggestion`] is for (`docs/api.md`, value
+/// suggestions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuggestionField {
+    FamilyNames,
+    /// One given name: the field completes the word being typed.
+    GivenNames,
+    Occupations,
+    /// Source titles.
+    Sources,
+}
+
+impl SuggestionField {
+    fn path(self) -> &'static str {
+        match self {
+            Self::FamilyNames => "family-names",
+            Self::GivenNames => "given-names",
+            Self::Occupations => "occupations",
+            Self::Sources => "sources",
+        }
+    }
+}
+
+/// A value a field suggests: one the tree holds, or a term a reference sheet
+/// answers to.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ValueSuggestion {
+    pub value: String,
+    /// Persons carrying it, or citations of a source; 0 for a sheet's term.
+    pub count: i64,
+    /// Whether a reference sheet answers to the value itself.
+    pub reference: bool,
+}
+
 /// A place suggested from the place dictionary (`docs/place-dictionary.md`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct PlaceSuggestion {
@@ -4294,6 +4328,27 @@ impl ApiClient {
     /// The country outlines the statistics heat map is drawn over.
     pub async fn basemap(&self) -> Result<Vec<BasemapCountry>, ApiError> {
         self.get("/api/v1/reference/basemap").await
+    }
+
+    /// What `field` suggests for `query`: the tree's values, then the
+    /// reference sheets' terms.
+    pub async fn value_suggestions(
+        &self,
+        tree_id: Uuid,
+        field: SuggestionField,
+        lang: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<ValueSuggestion>, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/suggestions/{}", field.path()),
+            &[
+                ("q", query.to_string()),
+                ("lang", lang.to_string()),
+                ("limit", limit.to_string()),
+            ],
+        )
+        .await
     }
 
     /// Places from the place dictionary matching `query`, best first.

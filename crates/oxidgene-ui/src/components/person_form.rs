@@ -14,13 +14,14 @@ use uuid::Uuid;
 
 use crate::api::{
     AddChildBody, AddSpouseBody, ApiClient, ApiError, CreateCitationBody, CreateEventBody,
-    CreateNoteBody, CreatePersonBody, CreatePersonNameBody, CreateSourceBody, UpdateCitationBody,
-    UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
+    CreateNoteBody, CreatePersonBody, CreatePersonNameBody, CreateSourceBody, SuggestionField,
+    UpdateCitationBody, UpdateEventBody, UpdateNoteBody, UpdatePersonBody, UpdatePersonNameBody,
 };
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::homonym_picker::{HomonymDecision, HomonymDialog};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::suggest_input::ValueInput;
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
@@ -1132,11 +1133,13 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         div { class: "form-row",
                             div { class: "form-group",
                                 label { {i18n.t("name_type.birth")} " *" }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"person_form.surname_placeholder\")}",
-                                    value: "{birth_surname}",
-                                    oninput: move |e: Event<FormData>| { birth_surname.set(e.value().to_uppercase()); has_changes.set(true); },
+                                ValueInput {
+                                    value: birth_surname,
+                                    tree_id: tid,
+                                    field: SuggestionField::FamilyNames,
+                                    placeholder: i18n.t("person_form.surname_placeholder"),
+                                    uppercase: true,
+                                    on_change: move |()| has_changes.set(true),
                                 }
                                 // Surface the split the save path will apply, and
                                 // let the user correct it — detection is a guess.
@@ -1144,11 +1147,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             }
                             div { class: "form-group",
                                 label { {i18n.t("person_form.given_names")} " *" }
-                                input {
-                                    r#type: "text",
-                                    placeholder: "{i18n.t(\"person_form.given_placeholder\")}",
-                                    value: "{birth_given}",
-                                    oninput: move |e: Event<FormData>| { birth_given.set(e.value()); has_changes.set(true); },
+                                ValueInput {
+                                    value: birth_given,
+                                    tree_id: tid,
+                                    field: SuggestionField::GivenNames,
+                                    placeholder: i18n.t("person_form.given_placeholder"),
+                                    on_change: move |()| has_changes.set(true),
                                 }
                             }
                         }
@@ -1185,10 +1189,10 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         }
                                         div { class: "form-group",
                                             label { {i18n.t("person_form.profession")} }
-                                            input {
-                                                r#type: "text",
-                                                value: "{profession_form_label}",
-                                                oninput: move |e: Event<FormData>| profession_form_label.set(e.value()),
+                                            ValueInput {
+                                                value: profession_form_label,
+                                                tree_id: tid,
+                                                field: SuggestionField::Occupations,
                                             }
                                         }
                                         div { class: "form-group",
@@ -1200,7 +1204,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             }
                                         }
                                         {render_place_input(&i18n, profession_form_place_id, &place_options, || {})}
-                                        {render_notes_source_fields(&i18n, profession_form_notes, profession_form_source, || {})}
+                                        {render_notes_source_fields(&i18n, tid, profession_form_notes, profession_form_source, || {})}
                                         button {
                                             class: "pf-confirm-btn",
                                             r#type: "button",
@@ -1286,6 +1290,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             if show_name_form() {
                                 {render_information_form(
                                     &i18n,
+                                    tid,
                                     name_form_error,
                                     name_form_type,
                                     name_form_value,
@@ -1368,11 +1373,11 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                         div { class: "form-row",
                                                             div { class: "form-group",
                                                                 label { {i18n.t("person_form.given_names")} }
-                                                                input { r#type: "text", value: "{edit_name_given}", oninput: move |e: Event<FormData>| edit_name_given.set(e.value()) }
+                                                                ValueInput { value: edit_name_given, tree_id: tid, field: SuggestionField::GivenNames }
                                                             }
                                                             div { class: "form-group",
                                                                 label { {i18n.t("person_form.surname")} }
-                                                                input { r#type: "text", value: "{edit_name_surname}", oninput: move |e: Event<FormData>| edit_name_surname.set(e.value().to_uppercase()) }
+                                                                ValueInput { value: edit_name_surname, tree_id: tid, field: SuggestionField::FamilyNames, uppercase: true }
                                                                 {render_particle_row(&i18n, &edit_name_surname(), edit_name_particle_override)}
                                                             }
                                                         }
@@ -1658,11 +1663,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 // came from; saved with the footer button.
                                 div { class: "form-group pf-subblock",
                                     label { {i18n.t("person_form.source")} }
-                                    input {
-                                        r#type: "text",
-                                        placeholder: "{i18n.t(\"person_form.source_placeholder\")}",
-                                        value: "{person_source}",
-                                        oninput: move |e: Event<FormData>| { person_source.set(e.value()); has_changes.set(true); },
+                                    ValueInput {
+                                        value: person_source,
+                                        tree_id: tid,
+                                        field: SuggestionField::Sources,
+                                        placeholder: i18n.t("person_form.source_placeholder"),
+                                        on_change: move |()| has_changes.set(true),
                                     }
                                 }
                             }
@@ -1680,7 +1686,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             }
                         }
                         {render_place_input(&i18n, birth_place_id, &place_options, move || has_changes.set(true))}
-                        {render_notes_source_fields(&i18n, birth_notes, birth_source, move || has_changes.set(true))}
+                        {render_notes_source_fields(&i18n, tid, birth_notes, birth_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
                             EventWitnesses { tree_id: tid, event_id: birth_event_id() }
@@ -1698,7 +1704,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             }
                         }
                         {render_place_input(&i18n, death_place_id, &place_options, move || has_changes.set(true))}
-                        {render_notes_source_fields(&i18n, death_notes, death_source, move || has_changes.set(true))}
+                        {render_notes_source_fields(&i18n, tid, death_notes, death_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
                             EventWitnesses { tree_id: tid, event_id: death_event_id() }
@@ -1748,10 +1754,18 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 // itself, so it round-trips as such.
                                 div { class: "form-group",
                                     label { {i18n.t("person_form.description")} }
-                                    input {
-                                        r#type: "text",
-                                        value: "{event_form_description}",
-                                        oninput: move |e: Event<FormData>| event_form_description.set(e.value()),
+                                    if event_form_type() == "Occupation" {
+                                        ValueInput {
+                                            value: event_form_description,
+                                            tree_id: tid,
+                                            field: SuggestionField::Occupations,
+                                        }
+                                    } else {
+                                        input {
+                                            r#type: "text",
+                                            value: "{event_form_description}",
+                                            oninput: move |e: Event<FormData>| event_form_description.set(e.value()),
+                                        }
                                     }
                                 }
                                 div { class: "form-group",
@@ -1773,7 +1787,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                         }
                                     }
                                 }
-                                {render_notes_source_fields(&i18n, event_form_notes, event_form_source, || {})}
+                                {render_notes_source_fields(&i18n, tid, event_form_notes, event_form_source, || {})}
                                 button {
                                     class: "pf-confirm-btn",
                                     r#type: "button",
@@ -2779,14 +2793,15 @@ pub(crate) async fn save_notes_source(
 /// an event. The title is reconciled against the tree's `Source` rows on
 /// save.
 ///
-/// Deliberately no `<datalist>` of existing titles: an imported tree has
-/// thousands of sources, and re-diffing that many `<option>` nodes on every
-/// keystroke made the field unusable. Completion belongs on a debounced
-/// prefix query (`dictionary_sources`), not a list of everything.
+/// It suggests the tree's source titles from a debounced query rather than
+/// a `<datalist>` of them all: an imported tree has thousands of sources, and
+/// re-diffing that many `<option>` nodes on every keystroke made the field
+/// unusable.
 pub(crate) fn render_notes_source_fields(
     i18n: &crate::i18n::I18n,
+    tree_id: Uuid,
     mut notes: Signal<String>,
-    mut source_title: Signal<String>,
+    source_title: Signal<String>,
     on_edit: impl FnMut() + Clone + 'static,
 ) -> Element {
     let i18n = *i18n;
@@ -2803,11 +2818,12 @@ pub(crate) fn render_notes_source_fields(
         }
         div { class: "form-group",
             label { {i18n.t("person_form.source")} }
-            input {
-                r#type: "text",
-                placeholder: "{i18n.t(\"person_form.source_placeholder\")}",
-                value: "{source_title}",
-                oninput: move |e: Event<FormData>| { source_title.set(e.value()); on_edit_source(); },
+            ValueInput {
+                value: source_title,
+                tree_id,
+                field: SuggestionField::Sources,
+                placeholder: i18n.t("person_form.source_placeholder"),
+                on_change: move |()| on_edit_source(),
             }
         }
     }
@@ -2839,6 +2855,7 @@ pub fn EventEditor(
     let i18n = use_i18n();
 
     let event_id = event.id;
+    let is_occupation = event.event_type == EventType::Occupation;
 
     let mut description = use_signal(|| event.description.clone().unwrap_or_default());
     let parts = use_signal(|| {
@@ -2937,10 +2954,18 @@ pub fn EventEditor(
             } else {
                 div { class: "form-group",
                     label { "{description_label}" }
-                    input {
-                        r#type: "text",
-                        value: "{description}",
-                        oninput: move |e: Event<FormData>| description.set(e.value()),
+                    if is_occupation {
+                        ValueInput {
+                            value: description,
+                            tree_id,
+                            field: SuggestionField::Occupations,
+                        }
+                    } else {
+                        input {
+                            r#type: "text",
+                            value: "{description}",
+                            oninput: move |e: Event<FormData>| description.set(e.value()),
+                        }
                     }
                 }
                 div { class: "form-group",
@@ -2948,7 +2973,7 @@ pub fn EventEditor(
                     DateInput { parts, i18n, on_change: move |()| {} }
                 }
                 {render_place_input(&i18n, place_id, &place_options, || {})}
-                {render_notes_source_fields(&i18n, notes, source_title, || {})}
+                {render_notes_source_fields(&i18n, tree_id, notes, source_title, || {})}
                 div { class: "pf-ns-actions",
                     button {
                         class: "pf-confirm-btn",
@@ -3207,6 +3232,7 @@ fn build_information_body(
 
 fn render_information_form(
     i18n: &crate::i18n::I18n,
+    tree_id: Uuid,
     error: Signal<Option<String>>,
     mut info_type_sig: Signal<String>,
     mut value_sig: Signal<String>,
@@ -3248,10 +3274,20 @@ fn render_information_form(
                 }
                 div { class: "form-group",
                     label { "{value_label}" }
-                    input {
-                        r#type: "text",
-                        value: "{value_sig}",
-                        oninput: move |e: Event<FormData>| value_sig.set(e.value()),
+                    match piece {
+                        InfoPiece::Given => rsx! {
+                            ValueInput { value: value_sig, tree_id, field: SuggestionField::GivenNames }
+                        },
+                        InfoPiece::Surname => rsx! {
+                            ValueInput { value: value_sig, tree_id, field: SuggestionField::FamilyNames }
+                        },
+                        _ => rsx! {
+                            input {
+                                r#type: "text",
+                                value: "{value_sig}",
+                                oninput: move |e: Event<FormData>| value_sig.set(e.value()),
+                            }
+                        },
                     }
                     if piece == InfoPiece::Surname {
                         {render_particle_row(&i18n, &value_sig(), particle_override)}

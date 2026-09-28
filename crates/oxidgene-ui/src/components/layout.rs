@@ -1262,26 +1262,38 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-muted);
     }
 
-    /* ── Place field ───────────────────────────────────────────────
+    /* ── Field with suggestions ────────────────────────────────────
        Its suggestions open in place for the same reason as the homonym
-       picker's: place fields live in dialogs, above every context-menu layer.
+       picker's: these fields live in dialogs, above every context-menu layer.
        The list shares the picker's drop-down; rows are `.td-suggest-row`s. */
 
-    .place-input {
+    .suggest-input {
         position: relative;
     }
 
-    .place-input-name {
+    .suggest-input-name {
         font-weight: 600;
     }
 
-    .place-input-detail {
+    .suggest-input-detail {
         color: var(--text-muted);
         font-size: 0.78rem;
     }
 
+    .suggest-input-sheet {
+        flex-shrink: 0;
+        align-self: center;
+        margin-left: auto;
+        padding: 0 6px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text-muted);
+        font-size: 0.68rem;
+        cursor: help;
+    }
+
     .homonym-select-list,
-    .place-input-list {
+    .suggest-input-list {
         position: absolute;
         left: 0;
         right: 0;

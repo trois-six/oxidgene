@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -295,31 +295,72 @@ with a localized inline error.
 Display formatting uses the shared date formatter; year-only surfaces use
 `qualified_year()` so precision is not discarded.
 
-### 4.4 PlaceInput
+### 4.4 Fields with suggestions
 
-Every place field is the one shared `PlaceInput` (`components/place_input.rs`):
+Every free-text field that suggests values is drawn by the one shared
+`SuggestInput` (`components/suggest_input.rs`). Suggestions are helpful,
+never restrictive: free text is always accepted.
+
+- **List.** The list opens under the field while it has the focus and there
+  is something to suggest. Each row reads a name, then muted details. Arrow
+  keys move through the list, Enter picks, Escape closes it.
+- **Matching.** A value is suggested when one of its words starts with the
+  typed text, ignoring case, accents and punctuation. The backend is asked
+  after a 300 ms pause, and only about what the user typed: a form opening
+  on a filled field asks for nothing.
+- **Layout.** The list opens in place under the field, not as a
+  context-menu layer: these fields live in dialogs, which sit above those
+  layers.
+
+#### Place fields
+
+Every place field is the shared `PlaceInput` (`components/place_input.rs`):
 event places in the person and couple forms, and document and media places.
-Autocomplete is helpful, never restrictive: free text is always accepted.
 
-- **Suggestions.** One list, with no groups: as the user types, the tree's
-  places with a word starting with the text come first; from three
-  characters and after a 300 ms pause, the built-in
+- **Suggestions.** One list, with no groups: the tree's places with a word
+  starting with the text come first; from three characters, the built-in
   [place dictionary](place-dictionary.md) follows, best match first. Every
   row reads alike: the place's name, then the rest of its label (code,
   département or county, region, country), and for the dictionary the year
   a former commune or name ended. Every filing of a place is offered, today's
   and former ones (a region before 2016, a former département name); a
   dictionary label the tree already holds is offered once, as the tree's
-  place. Matching ignores case, accents and punctuation.
+  place.
 - **Picking.** Picking a tree place links the field to it; picking a
   dictionary place fills in its label. Editing the text afterwards drops a
-  link. Arrow keys move through the list, Enter picks, Escape closes it.
+  link.
 - **Saving.** Nothing is written while the form is open. On save, a linked
   place is used as is; text becomes the tree's place of the same name,
   ignoring case, and that place is created when the tree has none. A place
   created from a dictionary label takes the dictionary's coordinates.
-- **Layout.** The list opens in place under the field, not as a context-menu
-  layer: place fields live in dialogs, which sit above those layers.
+
+#### Name, occupation and source fields
+
+The shared `ValueInput` suggests what a field holds across the tree, from
+the [value suggestions](api.md) endpoint:
+
+| Field | Suggests |
+|---|---|
+| Surnames: birth name, a name's surname, a surname information | The tree's surnames |
+| Given names: birth given names, a name's given names, a given-name information | The tree's given names, then the given-name sheets' names |
+| Occupations: a profession, an occupation event's description | The tree's occupations, then the occupation sheets' terms |
+| Sources of the person, of an event, of a union event | The tree's source titles |
+
+- **Rows.** The tree's values come first, those starting with the text, then
+  the most used, each with the number of persons carrying it (citations for
+  a source). The terms of the [reference sheets](api.md)
+  follow, in any language's spelling, the interface language's first. A
+  row a sheet explains, from the tree or not, carries an `info` badge.
+- **Given names** are completed word by word: in `Jean Ma`, the list
+  suggests for `Ma`, and picking replaces that word only.
+- **Picking** fills in the value as the tree or the sheet writes it, never a
+  sheet's label: an occupation is entered as the record names it. A surname
+  field writing in capitals capitalizes what it picks, and lists each
+  spelling once.
+- **Search filters.** The surname, given-name and occupation criteria of
+  [Search Results](ui-search-results.md), the relatives' included, use the
+  same field but list only the tree's values: a term no record carries
+  would find nobody.
 
 Canonical display is comma-separated from the most specific to the least
 specific unit, ending with the country, but the number of levels varies by

@@ -21,6 +21,7 @@ pub mod person_profile;
 pub mod place_input;
 pub mod reference_tooltip;
 pub mod search_person;
+pub mod suggest_input;
 pub mod topbar_search;
 pub mod tree_cache;
 pub mod tree_icon_sidebar;

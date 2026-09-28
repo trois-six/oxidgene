@@ -322,6 +322,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person_form.place", "Lugar"),
         ("place_input.placeholder", "Ciudad, pueblo, parroquia…"),
         ("place_input.until", "hasta {year}"),
+        ("suggest_input.sheet", "info"),
+        ("suggest_input.sheet_title", "Una ficha de referencia explica este término"),
         ("person_form.type", "Tipo"),
         ("person_form.note_required", "El texto de la nota es obligatorio"),
         ("person_form.note_placeholder", "Escriba el texto de la nota..."),
