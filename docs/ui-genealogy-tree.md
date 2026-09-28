@@ -439,7 +439,7 @@ displayed. All icons use a consistent style: `stroke: currentColor`,
 | Chart | Axes with a rising line | Opens [Statistics](ui-statistics.md) for this tree; shown on every tree page, found from the page's route |
 | Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](ui-settings.md) for this tree |
 
-This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view.
+This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view. Its profile and pedigree buttons act on the person being shown: the selected card, the open profile or couple. On pages about the tree as a whole (Settings, Dictionary, Statistics, search results) that is the person last shown in this tree during the session, or the SOSA root when none has been, so leaving a profile for the settings and pressing the profile button comes back to the same person.
 
 **Depth selector — hover panel**:
 

@@ -68,6 +68,7 @@ pub fn AppShell() -> Element {
     use_init_textarea_resize_clamp();
     let _tree_cache = tree_cache::use_init_tree_cache();
     let _view_cache = tree_cache::use_init_view_state_cache();
+    let _current_person = tree_cache::use_init_current_person();
 
     // The palette is a block of custom properties, so it can be recomputed
     // and swapped on its own: the stylesheet below never changes, and

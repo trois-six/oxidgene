@@ -10,7 +10,7 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
-use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
+use crate::components::tree_cache::{fetch_tree_cached, use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
@@ -30,6 +30,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     if parsed != *ids.peek() {
         ids.set(parsed);
     }
+    use_track_current_person(parsed.0, parsed.1);
 
     let mut refresh = use_signal(|| 0u32);
     // Pages loaded after the first, and where the next one starts.

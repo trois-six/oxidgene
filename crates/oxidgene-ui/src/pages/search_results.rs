@@ -16,7 +16,7 @@ use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::topbar_search::TopbarSearch;
-use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
+use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
@@ -139,12 +139,17 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             .map(|tree| tree.name)
             .unwrap_or_default(),
     };
-    let selected_person_id = match &*tree_resource.read() {
+    // The person last shown in this tree, else its SOSA root.
+    let current_person = use_current_person();
+    let sosa_root = match &*tree_resource.read() {
         Some(Some(Ok(tree))) => tree.sosa_root_person_id,
         _ => tree_id
             .and_then(|tree_id| tree_cache.tree(tree_id))
             .and_then(|tree| tree.sosa_root_person_id),
     };
+    let selected_person_id = tree_id
+        .and_then(|tid| current_person.get(tid))
+        .or(sosa_root);
 
     // ── Search query state ──
     let mut search_last = use_signal(|| props.last.clone());

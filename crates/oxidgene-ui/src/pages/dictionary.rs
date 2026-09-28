@@ -13,7 +13,7 @@ use crate::api::{
     SourceDictionaryEntry, SourceGroupEntry,
 };
 use crate::components::pedigree_chart::format_lifespan;
-use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
+use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
 use crate::prefs::{SortParticles, use_sort_particles};
@@ -303,12 +303,17 @@ pub fn Dictionary(tree_id: String) -> Element {
             .map(|tree| tree.name)
             .unwrap_or_default(),
     };
-    let selected_person_id = match &*tree_resource.read() {
+    // The person last shown in this tree, else its SOSA root.
+    let current_person = use_current_person();
+    let sosa_root = match &*tree_resource.read() {
         Some(Some(Ok(tree))) => tree.sosa_root_person_id,
         _ => tree_id_parsed()
             .and_then(|tid| tree_cache.tree(tid))
             .and_then(|tree| tree.sosa_root_person_id),
     };
+    let selected_person_id = tree_id_parsed()
+        .and_then(|tid| current_person.get(tid))
+        .or(sosa_root);
 
     // ── Render ──
     rsx! {

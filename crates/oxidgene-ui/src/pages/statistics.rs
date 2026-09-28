@@ -9,7 +9,7 @@ use crate::components::charts::{
     ChartCard, ChartSeries, DonutChart, HeatMap, LineChart, PALETTE, Pyramid, basemap_paths,
 };
 use crate::components::date_input::format_date;
-use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
+use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
@@ -69,6 +69,14 @@ pub fn Statistics(tree_id: String) -> Element {
         let api = api_tree.clone();
         let _gen = tree_cache.generation();
         async move { fetch_tree_cached(&api, &tree_cache, tid?).await.ok() }
+    });
+    // The person last shown in this tree, else its SOSA root.
+    let current_person = use_current_person();
+    let selected_person_id = tid.and_then(|tid| current_person.get(tid)).or_else(|| {
+        tree.read()
+            .as_ref()
+            .and_then(|tree| tree.as_ref())
+            .and_then(|tree| tree.sosa_root_person_id)
     });
     let api_stats = api.clone();
     let stats = use_traced_resource(load_trace.clone(), "statistics", move || {
@@ -141,10 +149,20 @@ pub fn Statistics(tree_id: String) -> Element {
             div { class: "pd-page-shell",
                 TreeIconSidebar {
                     active_view: TreeSidebarView::None,
-                    selected_person_id: None,
+                    selected_person_id,
                     show_middle_separator: false,
                     show_add_person: false,
-                    on_profile_view: move |_| {},
+                    on_profile_view: {
+                        let tree_id = tree_id.clone();
+                        move |pid: Option<Uuid>| {
+                            if let Some(pid) = pid {
+                                nav.push(Route::PersonDetail {
+                                    tree_id: tree_id.clone(),
+                                    person_id: pid.to_string(),
+                                });
+                            }
+                        }
+                    },
                     on_pedigree_view: {
                         let tree_id = tree_id.clone();
                         move |pid: Option<Uuid>| {

@@ -209,6 +209,58 @@ pub fn use_view_state_cache() -> ViewStateCache {
     use_context::<ViewStateCache>()
 }
 
+// ─── Current person ─────────────────────────────────────────────────
+
+/// The person last shown in each tree: the profile open, the pedigree's
+/// selected card, the couple or history viewed. Pages that are about the
+/// tree rather than a person (settings, dictionary, statistics, search)
+/// hand it to their sidebar, so its profile and pedigree buttons lead back
+/// to that person instead of the tree's root.
+#[derive(Clone, Copy)]
+pub struct CurrentPerson {
+    state: Signal<Option<(Uuid, Uuid)>>,
+}
+
+impl CurrentPerson {
+    /// The person last shown in `tree_id`, if any.
+    pub fn get(&self, tree_id: Uuid) -> Option<Uuid> {
+        self.state
+            .read()
+            .and_then(|(tid, pid)| (tid == tree_id).then_some(pid))
+    }
+
+    /// Record `person_id` as the one shown in `tree_id`.
+    pub fn set(&self, tree_id: Uuid, person_id: Uuid) {
+        if *self.state.peek() != Some((tree_id, person_id)) {
+            let mut state = self.state;
+            state.set(Some((tree_id, person_id)));
+        }
+    }
+}
+
+/// Call once in the application shell.
+pub fn use_init_current_person() -> CurrentPerson {
+    let current = CurrentPerson {
+        state: use_signal(|| None),
+    };
+    use_context_provider(|| current)
+}
+
+/// Consume from any child component.
+pub fn use_current_person() -> CurrentPerson {
+    use_context::<CurrentPerson>()
+}
+
+/// Keep [`CurrentPerson`] on the person a page shows, whenever it changes.
+pub fn use_track_current_person(tree_id: Option<Uuid>, person_id: Option<Uuid>) {
+    let current = use_current_person();
+    use_effect(use_reactive!(|(tree_id, person_id)| {
+        if let (Some(tree_id), Some(person_id)) = (tree_id, person_id) {
+            current.set(tree_id, person_id);
+        }
+    }));
+}
+
 // ─── Fetch helpers ──────────────────────────────────────────────────
 
 /// Fetch the tree, using the cache when possible.

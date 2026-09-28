@@ -20,7 +20,7 @@ use crate::components::person_profile::{
     use_ancestor_pedigree, use_mini_pedigree, use_sosa_ancestors, use_tree_resource,
 };
 use crate::components::topbar_search::TopbarSearch;
-use crate::components::tree_cache::use_tree_cache;
+use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::components::union_form::UnionForm;
 use crate::i18n::{I18n, use_i18n};
@@ -257,6 +257,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         media_revision,
     });
     let selected_person_id = left_id().or(right_id());
+    use_track_current_person(tree_id_parsed(), selected_person_id);
     let photo_of = |person_id: Uuid| {
         photos_resource
             .read()

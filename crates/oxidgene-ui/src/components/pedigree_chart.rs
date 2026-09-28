@@ -25,7 +25,9 @@ use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
 };
 use crate::components::person_profile::{sort_unions_chronologically, union_sort_date};
-use crate::components::tree_cache::{PedigreeViewState, ViewStateCache, use_view_state_cache};
+use crate::components::tree_cache::{
+    PedigreeViewState, ViewStateCache, use_track_current_person, use_view_state_cache,
+};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 
 use oxidgene_core::projection::{Pedigree, ProfileEvent};
@@ -4264,6 +4266,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
 
     // ── Selected person (drives event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
+    use_track_current_person(tid_parsed, Some(selected_person_id()));
 
     let mut last_viewport_width = use_signal(|| VIEWPORT_DEFAULT_W);
 

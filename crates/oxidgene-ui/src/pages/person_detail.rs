@@ -16,7 +16,7 @@ use crate::components::person_profile::{
     use_mini_pedigree, use_sosa_ancestors, use_tree_resource,
 };
 use crate::components::topbar_search::TopbarSearch;
-use crate::components::tree_cache::use_tree_cache;
+use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
@@ -46,6 +46,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     if new_pid != *person_id_parsed.peek() {
         *person_id_parsed.write() = new_pid;
     }
+    use_track_current_person(new_tid, new_pid);
 
     // The router reuses this component instance across navigations (e.g.
     // clicking a relative in the mini pedigree or family section), so the
