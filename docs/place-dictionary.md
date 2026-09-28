@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:44:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:12:00Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
@@ -163,10 +163,14 @@ The CSV is about 28 MB and 284,000 rows, 2.9 MB compressed.
 ### 2.1 Use
 
 The backend searches the dictionary for place suggestions
-([API reference content](api.md)). It decompresses and indexes it on the
-first search: every string in one buffer and the few hundred subdivisions,
-regions and countries stored once, a few tens of megabytes in memory, loaded
-in about 0.4 s and searched in under 10 ms by a scan in a release build.
+([API reference content](api.md)) and locates the places of the
+[statistics](ui-statistics.md) with it. It decompresses and indexes it in
+the background as soon as the server starts, without delaying startup:
+every string in one buffer and the few hundred subdivisions, regions and
+countries stored once, a few tens of megabytes in memory, loaded in about
+0.5 s and searched in under 10 ms by a scan in a release build. A request
+arriving before the load is done waits for the rest of it; the basemap is
+loaded the same way.
 
 ## 3. France
 
