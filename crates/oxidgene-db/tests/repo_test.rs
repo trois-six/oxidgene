@@ -2280,6 +2280,38 @@ async fn dictionary_set_family_name_particle_is_idempotent_and_can_narrow() {
 }
 
 #[tokio::test]
+async fn dictionary_family_name_usage_matches_the_full_surname_not_a_detected_cut() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    // Cut by hand where detection would not: detection reads "de la" + "Cruz".
+    let narrowed = create_person(&db, tree_id).await;
+    create_split_name(&db, narrowed, Some("de"), "la Cruz").await;
+    // Detection's own cut, and an unrelated name sharing the root.
+    let detected = create_person(&db, tree_id).await;
+    create_split_name(&db, detected, Some("de la"), "Cruz").await;
+    let bare = create_person(&db, tree_id).await;
+    create_split_name(&db, bare, None, "Cruz").await;
+    // A cut after an apostrophe, and a whole name with no particle at all.
+    let elided = create_person(&db, tree_id).await;
+    create_split_name(&db, elided, Some("d'"), "Aubigné").await;
+
+    let mut both = vec![narrowed, detected];
+    both.sort();
+    let ids = DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "de la Cruz")
+        .await
+        .unwrap();
+    assert_eq!(ids, both);
+    let ids = DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "Cruz")
+        .await
+        .unwrap();
+    assert_eq!(ids, [bare]);
+    let ids = DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "d'Aubigné")
+        .await
+        .unwrap();
+    assert_eq!(ids, [elided]);
+}
+
+#[tokio::test]
 async fn dictionary_set_family_name_particle_refuses_a_particle_that_is_not_there() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;

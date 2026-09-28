@@ -13,10 +13,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::{
     enums::{DateQualifier, EventType},
-    types::{
-        Place, Source, join_surname_particle, split_surname_at_head, split_surname_particle,
-        year_from_date,
-    },
+    types::{Place, Source, join_surname_particle, split_surname_at_head, year_from_date},
 };
 use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
@@ -507,16 +504,18 @@ impl DictionaryRepo {
         value: &str,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
         // `value` comes from `family_names`, which reports full surnames, so
-        // it may carry a particle while the column holds only the root. Match
-        // on the root and re-check the particle in memory, so that "Cruz" and
-        // "de la Cruz" resolve to their own people rather than to each other's.
-        let (particle, root) = split_surname_particle(value);
-
+        // it may carry a particle while the column holds only the root. Where
+        // the name is cut is not re-detected — a cut corrected by hand differs
+        // from detection, which is what the correction was for. Every cut the
+        // value allows is a candidate root instead, and the full surname is
+        // re-checked in memory, so that "Cruz" and "de la Cruz" resolve to
+        // their own people rather than to each other's.
+        let value = value.trim();
         let names = person_name::Entity::find()
             .join(JoinType::InnerJoin, person_name::Relation::Person.def())
             .filter(person::Column::TreeId.eq(tree_id))
             .filter(person::Column::DeletedAt.is_null())
-            .filter(person_name::Column::Surname.eq(root.as_str()))
+            .filter(person_name::Column::Surname.is_in(root_candidates(value)))
             .all(db)
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
@@ -524,9 +523,7 @@ impl DictionaryRepo {
         Ok(dedup(
             names
                 .into_iter()
-                .filter(|n| {
-                    trimmed(n.surname_prefix.as_deref()) == particle.as_ref().map(|p| p.to_string())
-                })
+                .filter(|n| is_spelled(n, value))
                 .map(|n| n.person_id)
                 .collect(),
         ))
@@ -721,6 +718,35 @@ fn trimmed(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+/// A name row's full surname, particle included — the dictionary entry it
+/// belongs to — and its root. `None` for a row without a surname.
+fn full_surname(prefix: Option<&str>, surname: Option<&str>) -> Option<(String, String)> {
+    let root = trimmed(surname)?;
+    Some((join_surname_particle(prefix, &root), root))
+}
+
+/// Whether a name row belongs to the dictionary entry spelled `value`.
+fn is_spelled(n: &person_name::Model, value: &str) -> bool {
+    full_surname(n.surname_prefix.as_deref(), n.surname.as_deref())
+        .is_some_and(|(full, _)| full == value)
+}
+
+/// Every root a row listed as `value` can store: the whole value, or what
+/// follows a space or an apostrophe — where a particle can end.
+fn root_candidates(value: &str) -> Vec<String> {
+    let mut roots = vec![value.to_string()];
+    for (at, c) in value.char_indices() {
+        if c.is_whitespace() || c == '\'' || c == '\u{2019}' {
+            let rest = value[at + c.len_utf8()..].trim_start();
+            if !rest.is_empty() {
+                roots.push(rest.to_string());
+            }
+        }
+    }
+    roots.dedup();
+    roots
 }
 
 /// Sorted entries whose filing key is just the value itself — correct for

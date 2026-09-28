@@ -506,7 +506,7 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/dictionary/family-names` | Distinct surnames + person counts |
-| `GET` | `/trees/{tree_id}/dictionary/family-names/usage?value=...` | Persons carrying a surname |
+| `GET` | `/trees/{tree_id}/dictionary/family-names/usage?value=...` | Persons carrying a surname. `value` is matched exactly against the full surname as listed, particle included, however its rows are cut between particle and root |
 | `PATCH` | `/trees/{tree_id}/dictionary/family-names/particle` | Bulk-edit — body `{ "value": "...", "particle": "..." }` re-cuts every `PersonName` carrying surname `value` at `particle` (empty = no particle). `particle` must already be at the head of `value`; rows already cut that way are skipped. Triggers a full projection rebuild when anything changed |
 | `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
 | `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
