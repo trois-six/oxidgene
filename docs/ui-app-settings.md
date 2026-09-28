@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
 ---
 
 
@@ -355,6 +355,7 @@ Additional sections may be added in future EPICs:
 
 | Section | Description |
 |---|---|
+| AI | Providers and keys each user brings for the AI features on media — see [AI Features](ai.md) §4 |
 | Account | User profile, email, password (EPIC G) |
 | Notifications | Notification preferences (EPIC G) |
 | Data & Privacy | Data export, account deletion (EPIC G) |

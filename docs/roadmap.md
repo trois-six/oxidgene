@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:47:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -170,7 +170,23 @@ Later phases, in order:
   two persons are related.
 - [ ] Output schemas, once the result types carry JSON Schema derives.
 
-## 10. Post-MVP: asynchronous processing
+## 10. Planned: AI features (bring your own LLM)
+
+Specified in [AI Features](ai.md). Each user connects their own providers and
+keys; the host pays for no model.
+
+- [ ] Phase 1: provider registry, OpenAI-compatible and Anthropic protocols,
+  the App Settings **AI** section with client-side key storage and consent,
+  the backend relay with its outbound protection, `/ai/test`, `/ai/status`,
+  and the **AI transcript** button in the media viewer.
+- [ ] Phase 2: record and photo analysis with the review panel.
+- [ ] Phase 3: derived media, then enhance and colorize.
+- [ ] Phase 4: Gemini native, Bedrock, streaming.
+
+Deferred: photo animation, per-account key storage (EPIC G), local model
+runtimes, sending tree context with an analysis.
+
+## 11. Post-MVP: asynchronous processing
 
 - [ ] Define queue and worker architecture without a second source of truth.
 - [ ] Add chunked and resumable media uploads.
@@ -178,7 +194,7 @@ Later phases, in order:
 - [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
 
-## 11. Definition of done
+## 12. Definition of done
 
 An item is complete only when implementation and specifications agree; i18n
 keys have English/French parity; examples and artifacts are anonymized; REST

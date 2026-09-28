@@ -11,6 +11,7 @@ okf_version: "0.2"
 * [Data Model](data-model.md) - Canonical domain entities, enums, and relationship model used by OxidGene services and UI.
 * [API Contract](api.md) - REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions.
 * [Assistant Access (MCP)](mcp.md) - Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL.
+* [AI Features (Bring Your Own LLM)](ai.md) - Planned AI features on media — transcript, record and photo analysis, enhancement, colorization — run with LLM providers and keys each user brings, never the host's: provider presets and protocols, where keys live, the backend relay, privacy and consent, API contract, and delivery phases.
 * [Roadmap](roadmap.md) - Current delivery status, active priorities, and future milestones for OxidGene.
 * [Geneanet Media Import](geneanet-media-import.md) - Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching.
 * [Place Dictionary](place-dictionary.md) - The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne.
