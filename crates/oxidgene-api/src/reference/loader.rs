@@ -614,8 +614,28 @@ mod tests {
 
     #[test]
     fn a_sheet_missing_from_a_language_reads_in_english() {
-        let entry = lookup_occupation(ReferenceLang::It, "Kmieć").expect("english fallback");
-        assert_eq!(entry.label, "Kmieć (full-holding peasant)");
+        // Every embedded sheet is translated today, so the fallback is shown
+        // on a table of its own: a sheet only English holds.
+        let sheet = |label: &str| OccupationEntry {
+            label: label.to_string(),
+            summary: String::new(),
+            text: String::new(),
+            aliases: Vec::new(),
+        };
+        let mut tables: Vec<HashMap<String, OccupationEntry>> =
+            ReferenceLang::ALL.iter().map(|_| HashMap::new()).collect();
+        tables[ReferenceLang::En.slot()].insert("sheet_a".into(), sheet("Sheet A"));
+        tables[ReferenceLang::Fr.slot()].insert("sheet_b".into(), sheet("Fiche B"));
+        tables[ReferenceLang::En.slot()].insert("sheet_b".into(), sheet("Sheet B"));
+        let reference = Reference {
+            tables,
+            indexes: Vec::new(),
+            terms: Vec::new(),
+        };
+        let label = |lang, key| reference.entry(lang, key).map(|e| e.label.as_str());
+        assert_eq!(label(ReferenceLang::It, "sheet_a"), Some("Sheet A"));
+        assert_eq!(label(ReferenceLang::Fr, "sheet_b"), Some("Fiche B"));
+        assert_eq!(label(ReferenceLang::It, "sheet_c"), None);
     }
 
     #[test]
