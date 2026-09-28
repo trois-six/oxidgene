@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
 ---
 
 
@@ -792,8 +792,10 @@ first, then names starting with it, then names with a later word starting
 with it. Each part after a comma must start a word of the code, subdivision,
 region or country, so `q=saint, finist` narrows to one département. Among
 equal matches, a place filed under today's subdivision comes first, then
-current places before former ones, then shorter names. A blank name returns
-`[]`. Each suggestion is:
+current places before former ones, then shorter names. Rows with the same
+label and end date — a British locality and the civil parish of that name —
+are offered once, the first of them. A blank name returns `[]`. Each
+suggestion is:
 
 ```json
 {

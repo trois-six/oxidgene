@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
@@ -141,12 +141,17 @@ format reads these files unchanged.
 - **Dates.** An empty *valid from* means the name predates the source's
   horizon (1943 for INSEE, 1848 for the BFS) or is unknown.
 - **One row per filing.** A place appears once for each département and region
-  (or county) it is filed under (§3, §4). Rows repeating the first five
-  columns and the kind are dropped; the ONS lists a place once per boundary it
-  straddles.
+  (or county) it is filed under (§3, §4). A row reading like another in the
+  first five columns once case, accents and punctuation are set aside, with
+  the same kind, dates and successor, is dropped: the ONS lists a place once
+  per boundary it straddles and spells some names two ways ("St George",
+  "St. George"). Rows that differ in their dates or successor are two eras
+  of a name, or two homonyms absorbed by different communes, and are both
+  kept. The generator reports how many rows it dropped, and a backend test
+  checks the embedded file holds no repeated row.
 - **Current.** Of the filings of one place, today's is marked, so a search
   can offer it first. Of two rows that would read the same, the current one
-  is kept.
+  is kept, then the first spelling.
 - **Order.** Country, region, subdivision, code, then name, so that two runs
   over the same sources produce the same file.
 

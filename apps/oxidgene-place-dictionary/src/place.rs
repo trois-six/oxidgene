@@ -210,12 +210,15 @@ fn nation_name(nation: Nation) -> &'static str {
 }
 
 /// Sorts the places, drops duplicate rows and renders the dictionary as CSV.
-/// Returns the text and its number of rows.
+/// Returns the text, its number of rows and the number of rows dropped.
 ///
-/// Two rows are duplicates when they would read the same in the first five
-/// columns and have the same kind: the ONS lists a place once per boundary it
-/// straddles, which differs only in its coordinates.
-pub fn render(places: &mut [Place]) -> (String, usize) {
+/// Two rows are duplicates when they would read the same once folded (case,
+/// accents and punctuation aside) in the first five columns, with the same
+/// kind, dates and successor: the ONS lists a place once per boundary it
+/// straddles, which differs only in its coordinates, and spells some names
+/// two ways ("St George", "St. George"). Rows that differ in their dates are
+/// two eras of a name and are both kept.
+pub fn render(places: &mut [Place]) -> (String, usize, usize) {
     places.sort_by_cached_key(|p| {
         (
             p.country,
@@ -223,16 +226,17 @@ pub fn render(places: &mut [Place]) -> (String, usize) {
             p.subdivision.clone(),
             p.code.clone(),
             fold(&p.name),
-            p.name.clone(),
             p.kind,
-            // Of two rows that read the same, the current one is kept.
-            !p.current,
-            // The rest only makes the order total, so that two runs over the
-            // same sources write the same file whatever order the sources
-            // listed their rows in.
             p.valid_from.clone(),
             p.valid_until.clone(),
             p.successor.clone(),
+            // Of two rows that read the same, the current one is kept, then
+            // the first spelling.
+            !p.current,
+            p.name.clone(),
+            // The rest only makes the order total, so that two runs over the
+            // same sources write the same file whatever order the sources
+            // listed their rows in.
             p.coordinates
                 .map(|c| (c.latitude.to_bits(), c.longitude.to_bits())),
         )
@@ -240,19 +244,24 @@ pub fn render(places: &mut [Place]) -> (String, usize) {
     let mut seen = HashSet::new();
     let mut out = String::new();
     let mut rows = 0;
+    let mut dropped = 0;
     for place in places.iter() {
         let region = match &place.region {
             Region::Named(name) => name.as_str(),
             Region::Nation(nation) => nation_name(*nation),
         };
         if !seen.insert((
-            &place.name,
+            fold(&place.name),
             &place.code,
             &place.subdivision,
             region,
             place.country,
             place.kind,
+            &place.valid_from,
+            &place.valid_until,
+            &place.successor,
         )) {
+            dropped += 1;
             continue;
         }
         let (latitude, longitude) = place
@@ -283,7 +292,7 @@ pub fn render(places: &mut [Place]) -> (String, usize) {
         out.push('\n');
         rows += 1;
     }
-    (out, rows)
+    (out, rows, dropped)
 }
 
 /// Lowercase, without accents or punctuation: what two sources spelling the
@@ -344,8 +353,8 @@ mod tests {
             place("Village A", Kind::Parish, 52.0),
         ];
 
-        let (text, rows) = render(&mut places);
-        assert_eq!(rows, 3);
+        let (text, rows, dropped) = render(&mut places);
+        assert_eq!((rows, dropped), (3, 1));
 
         let first = text.lines().next().unwrap();
         assert_eq!(
@@ -354,5 +363,30 @@ mod tests {
         );
         assert!(text.lines().nth(1).unwrap().contains("\"parish\""));
         assert!(text.lines().nth(2).unwrap().starts_with("\"Village B\""));
+    }
+
+    #[test]
+    fn a_name_spelled_two_ways_is_one_row() {
+        let mut places = vec![
+            place("St. Village", Kind::Settlement, 52.0),
+            place("St Village", Kind::Settlement, 52.0),
+            place("Village-on-Sea", Kind::Settlement, 52.0),
+            place("Village on sea", Kind::Settlement, 52.0),
+        ];
+        let (text, rows, dropped) = render(&mut places);
+        assert_eq!((rows, dropped), (2, 2));
+        assert!(text.contains("\"St Village\""));
+        assert!(text.contains("\"Village on sea\""));
+    }
+
+    #[test]
+    fn two_eras_of_a_name_are_two_rows() {
+        let era = |until: &str| Place {
+            valid_until: Some(until.to_string()),
+            ..place("Village A", Kind::Settlement, 52.0)
+        };
+        let mut places = vec![era("1900-01-01"), era("1950-01-01"), era("1950-01-01")];
+        let (_, rows, dropped) = render(&mut places);
+        assert_eq!((rows, dropped), (2, 1));
     }
 }

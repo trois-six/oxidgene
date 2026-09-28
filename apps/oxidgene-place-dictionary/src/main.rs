@@ -111,7 +111,8 @@ async fn main() -> Result<()> {
     places.extend(belgium::places(&fetcher).await?);
     places.extend(luxembourg::places(&fetcher).await?);
     places.extend(netherlands::places(&fetcher).await?);
-    let (csv, rows) = place::render(&mut places);
+    let (csv, rows, dropped) = place::render(&mut places);
+    eprintln!("{dropped} duplicate rows dropped");
 
     if let Some(path) = &args.csv {
         std::fs::write(path, &csv).with_context(|| format!("cannot write {}", path.display()))?;

@@ -6,7 +6,7 @@
 //! it holds about 275,000 rows, and a session that never edits a place never pays
 //! for them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use serde::Serialize;
@@ -26,7 +26,7 @@ pub const MAX_PLACE_SUGGESTIONS: usize = 50;
 
 /// What a dictionary row is. The order is the order suggestions are
 /// ranked in when their names match equally well.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlaceKind {
     Commune,
@@ -562,10 +562,14 @@ impl Dictionary {
             };
             key(rank_a, a).cmp(&key(rank_b, b))
         });
+        // A British locality and the civil parish of the same name read
+        // alike and fill the field alike: the list offers them once.
+        let mut shown = HashSet::new();
         matches
             .into_iter()
-            .take(limit)
             .map(|(_, entry)| self.suggestion(entry, lang))
+            .filter(|s| shown.insert((s.label.clone(), s.valid_until.clone())))
+            .take(limit)
             .collect()
     }
 
@@ -796,5 +800,50 @@ mod tests {
     fn the_embedded_dictionary_loads() {
         // Every row must parse; a malformed one panics while loading.
         assert!(dictionary().entries.len() > 100_000);
+    }
+
+    /// The generator drops a row reading like another once folded, with the
+    /// same kind, dates and successor (docs/place-dictionary.md §2).
+    #[test]
+    fn the_embedded_dictionary_holds_each_row_once() {
+        let dictionary = dictionary();
+        let mut seen = HashSet::new();
+        let repeated: Vec<&str> = dictionary
+            .entries
+            .iter()
+            .filter(|e| {
+                !seen.insert((
+                    dictionary.get(e.folded),
+                    dictionary.get(e.code),
+                    e.subdivision,
+                    e.region,
+                    e.country,
+                    e.kind,
+                    e.valid_from,
+                    e.valid_until,
+                    dictionary.get(e.successor),
+                ))
+            })
+            .map(|e| dictionary.get(e.name))
+            .collect();
+        assert!(
+            repeated.is_empty(),
+            "{} repeated rows: {:?}",
+            repeated.len(),
+            &repeated[..repeated.len().min(20)]
+        );
+    }
+
+    #[test]
+    fn rows_reading_alike_are_suggested_once() {
+        let dictionary = Dictionary::parse(concat!(
+            "\"Village A\",\"\",\"Shire A\",\"Pays de Galles\",\"Royaume-Uni\",\"settlement\",\"\",\"\",\"\",\"\",\"\",\"\"\n",
+            "\"Village A\",\"\",\"Shire A\",\"Pays de Galles\",\"Royaume-Uni\",\"parish\",\"\",\"\",\"\",\"\",\"\",\"\"\n",
+            "\"Village A\",\"\",\"Shire A\",\"Pays de Galles\",\"Royaume-Uni\",\"former_name\",\"\",\"1974-04-01\",\"\",\"\",\"\",\"\"\n",
+        ));
+        let found = dictionary.search(ReferenceLang::En, "village a", 10);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].kind, PlaceKind::Settlement);
+        assert_eq!(found[1].valid_until.as_deref(), Some("1974-04-01"));
     }
 }
