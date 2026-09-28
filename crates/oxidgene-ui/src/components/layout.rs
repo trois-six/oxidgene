@@ -1177,10 +1177,14 @@ pub const LAYOUT_STYLES: &str = r#"
        A fixed overlay rather than a panel inside `.td-search-group`:
        `.td-topbar` clips its overflow, so anything positioned within it would
        be cut off. The surface chrome (background, shadow, border, radius,
-       z-index) comes from `.context-menu`; only the sizing is here. */
+       z-index) comes from `.context-menu`; only the sizing is here.
+       One width whatever it lists, so the panel does not jump as the names
+       and persons change under the typing; rows truncate their long lines.
+       Doubled class to override `.context-menu`'s `max-content`, declared
+       further down. */
 
-    .td-suggest {
-        width: min(340px, calc(100vw - 32px));
+    .context-menu.td-suggest {
+        width: min(520px, calc(100vw - 32px));
         max-height: 60vh;
         overflow-y: auto;
         padding: 0;

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:30:00Z }
 ---
 
 
@@ -409,7 +409,9 @@ Two independent fields in the topbar, aligned to the right: **Last name(s)** and
   name or opens the highlighted person; **Escape** or a click outside closes
   the panel
 
-The panel is a fixed overlay, because the topbar clips its overflow. It reuses
+The panel keeps one width whatever it lists, so it does not jump as the names
+and persons change under the typing; long lines are truncated. It is a fixed
+overlay, because the topbar clips its overflow. It reuses
 the shared contextual-surface component, whose backdrop also handles dismissal
 — a blur handler would close the panel before a click on a row could register.
 
