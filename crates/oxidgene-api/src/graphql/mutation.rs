@@ -3,7 +3,7 @@
 use crate::profile::invalidation;
 use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::history::{self, Change};
-use crate::service::{duplicates, event_date};
+use crate::service::{duplicates, event_date, family_names};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::history::{AuditAction, AuditEntity};
@@ -22,16 +22,17 @@ use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
     CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
-    PersonNameInput, SetFamilyNameParticleInput, UpdateCitationInput, UpdateEventInput,
-    UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput,
-    UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput, UpdateVignetteInput,
-    UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes, geneanet_media_paths,
+    PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput, UpdateCitationInput,
+    UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput,
+    UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput,
+    UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
+    geneanet_media_paths,
 };
 use super::types::{
     GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
-    GqlFamilyNameParticleUpdate, GqlFamilySpouse, GqlGeneanetDepositSize, GqlGeneanetMediaPath,
-    GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink, GqlNote,
-    GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
+    GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
+    GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
+    GqlNote, GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
     GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx, media_from_ctx,
     profiles_from_ctx, purge_from_ctx, require_local_file_access,
 };
@@ -1905,6 +1906,32 @@ impl MutationRoot {
             profiles.rebuild_tree_full(db, tid).await?;
         }
         Ok(update.into())
+    }
+
+    /// Give every person whose primary name carries one surname another one,
+    /// merging into that name when it is already listed. Mirrors
+    /// `PATCH /trees/{id}/dictionary/family-names/rename`.
+    async fn rename_family_name(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: RenameFamilyNameInput,
+    ) -> Result<GqlFamilyNameRename> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let txn = begin_tx(db).await?;
+        let renamed = family_names::rename(
+            &txn,
+            profiles,
+            tid,
+            &input.value,
+            &input.new_value,
+            input.particle.as_deref(),
+        )
+        .await?;
+        commit_tx(txn).await?;
+        Ok(renamed.into())
     }
 
     /// Queue a durable GEDZIP export. The artifact is downloaded through the

@@ -120,6 +120,10 @@ pub struct DictionaryEntry {
     #[serde(default)]
     pub sort_key: String,
     pub count: i64,
+    /// Family names only: how many of `count` carry the value as their
+    /// primary name, i.e. how many a rename would reach.
+    #[serde(default)]
+    pub primary_count: Option<i64>,
 }
 
 /// A source paired with its citation count.
@@ -517,6 +521,29 @@ pub struct FamilyNameParticleUpdate {
     pub surname: String,
     pub names_updated: usize,
     pub persons_updated: usize,
+}
+
+/// Body of the dictionary's family-name rename.
+#[derive(Debug, Serialize)]
+struct RenameFamilyNameBody {
+    value: String,
+    new_value: String,
+    /// Absent: keep the split `new_value` already has, or detect it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    particle: Option<String>,
+}
+
+/// Outcome of a family-name rename.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FamilyNameRename {
+    pub value: String,
+    pub new_value: String,
+    pub surname_prefix: Option<String>,
+    pub surname: String,
+    pub names_updated: usize,
+    pub persons_updated: usize,
+    /// `new_value` was already listed: the renamed names joined it.
+    pub merged: bool,
 }
 
 // ── Reference content — occupation sheets, given-name meanings ──────
@@ -3146,6 +3173,31 @@ impl ApiClient {
                 &SetFamilyNameParticleBody {
                     value: value.to_string(),
                     particle: particle.to_string(),
+                },
+            )
+            .await?;
+        self.invalidate_tree(tree_id);
+        Ok(result)
+    }
+
+    /// Give every person whose primary name carries family name `value` the
+    /// name `new_value`, merging into it when it is already listed.
+    /// `particle` chooses where `new_value` splits; `None` keeps the split it
+    /// already has in the tree, or detects one.
+    pub async fn rename_family_name(
+        &self,
+        tree_id: Uuid,
+        value: &str,
+        new_value: &str,
+        particle: Option<&str>,
+    ) -> Result<FamilyNameRename, ApiError> {
+        let result = self
+            .patch(
+                &format!("/api/v1/trees/{tree_id}/dictionary/family-names/rename"),
+                &RenameFamilyNameBody {
+                    value: value.to_string(),
+                    new_value: new_value.to_string(),
+                    particle: particle.map(str::to_string),
                 },
             )
             .await?;

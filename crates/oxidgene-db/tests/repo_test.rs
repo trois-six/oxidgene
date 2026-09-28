@@ -2311,6 +2311,216 @@ async fn dictionary_family_name_usage_matches_the_full_surname_not_a_detected_cu
     assert_eq!(ids, [elided]);
 }
 
+/// Helper: give `person_id` a secondary (alias) name carrying a surname.
+async fn create_alias_name(db: &DatabaseConnection, person_id: Uuid, surname: &str) {
+    PersonNameRepo::create(
+        db,
+        Uuid::now_v7(),
+        person_id,
+        NameType::AlsoKnownAs,
+        PersonNamePieces {
+            surname: Some(surname.into()),
+            ..Default::default()
+        },
+        false,
+        1,
+    )
+    .await
+    .expect("create alias name");
+}
+
+/// Helper: a dictionary entry by its exact value.
+async fn family_name_entry(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    value: &str,
+) -> Option<oxidgene_db::repo::DictionaryValueEntry> {
+    DictionaryRepo::family_names(db, tree_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|e| e.value == value)
+}
+
+#[tokio::test]
+async fn dictionary_rename_family_name_renames_primary_names_only() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let a = create_person(&db, tree_id).await;
+    create_split_name(&db, a, None, "Thornby").await;
+    let b = create_person(&db, tree_id).await;
+    create_split_name(&db, b, None, "Thornby").await;
+    // Carries the name only as an alias: keeps it.
+    let alias = create_person(&db, tree_id).await;
+    create_split_name(&db, alias, None, "Ashcombe").await;
+    create_alias_name(&db, alias, "Thornby").await;
+    // Another spelling is another name, and is left alone.
+    let upper = create_person(&db, tree_id).await;
+    create_split_name(&db, upper, None, "THORNBY").await;
+
+    let before = family_name_entry(&db, tree_id, "Thornby").await.unwrap();
+    assert_eq!(before.count, 3);
+    assert_eq!(before.primary_count, Some(2));
+
+    let out = DictionaryRepo::rename_family_name(&db, tree_id, "Thornby", "WESTLEY", None)
+        .await
+        .unwrap();
+    assert_eq!(out.value, "Thornby");
+    assert_eq!(out.new_value, "WESTLEY");
+    assert_eq!(out.surname_prefix, None);
+    assert_eq!(out.surname, "WESTLEY");
+    assert_eq!(out.names_updated, 2);
+    assert_eq!(out.persons_updated, 2);
+    assert!(!out.merged);
+    let mut renamed = vec![a, b];
+    renamed.sort();
+    assert_eq!(out.person_ids, renamed);
+
+    let westley = family_name_entry(&db, tree_id, "WESTLEY").await.unwrap();
+    assert_eq!((westley.count, westley.primary_count), (2, Some(2)));
+    let left = family_name_entry(&db, tree_id, "Thornby").await.unwrap();
+    assert_eq!((left.count, left.primary_count), (1, Some(0)));
+    let ids = DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "Thornby")
+        .await
+        .unwrap();
+    assert_eq!(ids, [alias]);
+    assert_eq!(
+        family_name_entry(&db, tree_id, "THORNBY")
+            .await
+            .unwrap()
+            .count,
+        1
+    );
+}
+
+#[tokio::test]
+async fn dictionary_rename_family_name_merges_into_the_existing_cut() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let renamed = create_person(&db, tree_id).await;
+    create_split_name(&db, renamed, None, "Cruz de la").await;
+    // The target is cut by hand where detection would not cut it.
+    for _ in 0..2 {
+        let p = create_person(&db, tree_id).await;
+        create_split_name(&db, p, Some("de"), "la Cruz").await;
+    }
+    // Same root, different family: untouched.
+    let bare = create_person(&db, tree_id).await;
+    create_split_name(&db, bare, None, "Cruz").await;
+
+    let out = DictionaryRepo::rename_family_name(&db, tree_id, "Cruz de la", "de la Cruz", None)
+        .await
+        .unwrap();
+    assert!(out.merged);
+    assert_eq!(out.surname_prefix.as_deref(), Some("de"));
+    assert_eq!(out.surname, "la Cruz");
+    assert_eq!(out.person_ids, [renamed]);
+
+    let merged = family_name_entry(&db, tree_id, "de la Cruz").await.unwrap();
+    assert_eq!(merged.count, 3);
+    // One cut for the whole entry: it still files under "la Cruz".
+    assert_eq!(merged.sort_key, "la cruz");
+    assert!(
+        family_name_entry(&db, tree_id, "Cruz de la")
+            .await
+            .is_none()
+    );
+    assert_eq!(
+        family_name_entry(&db, tree_id, "Cruz").await.unwrap().count,
+        1
+    );
+    let ids = DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "Cruz")
+        .await
+        .unwrap();
+    assert_eq!(ids, [bare]);
+}
+
+#[tokio::test]
+async fn dictionary_rename_family_name_with_a_particle_recuts_the_whole_entry() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let renamed = create_person(&db, tree_id).await;
+    create_split_name(&db, renamed, None, "Vanbrook").await;
+    let existing = create_person(&db, tree_id).await;
+    create_split_name(&db, existing, None, "VAN BROOK").await;
+
+    let out =
+        DictionaryRepo::rename_family_name(&db, tree_id, "Vanbrook", "VAN BROOK", Some("VAN"))
+            .await
+            .unwrap();
+    assert!(out.merged);
+    assert_eq!(out.surname_prefix.as_deref(), Some("VAN"));
+    assert_eq!(out.surname, "BROOK");
+    // The rows already carrying the name take the explicit cut too.
+    assert_eq!(out.names_updated, 2);
+    let mut both = vec![renamed, existing];
+    both.sort();
+    assert_eq!(out.person_ids, both);
+    let entry = family_name_entry(&db, tree_id, "VAN BROOK").await.unwrap();
+    assert_eq!((entry.count, entry.sort_key.as_str()), (2, "brook"));
+}
+
+#[tokio::test]
+async fn dictionary_rename_family_name_detects_a_new_names_particle() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let p = create_person(&db, tree_id).await;
+    create_split_name(&db, p, None, "Delmarsh").await;
+
+    let out = DictionaryRepo::rename_family_name(&db, tree_id, "Delmarsh", "DE LA MARSH", None)
+        .await
+        .unwrap();
+    assert!(!out.merged);
+    assert_eq!(out.surname_prefix.as_deref(), Some("DE LA"));
+    assert_eq!(out.surname, "MARSH");
+    // An explicit empty particle keeps the whole name as the root.
+    let out =
+        DictionaryRepo::rename_family_name(&db, tree_id, "DE LA MARSH", "DE LAMARSH", Some(""))
+            .await
+            .unwrap();
+    assert_eq!(out.surname_prefix, None);
+    assert_eq!(out.surname, "DE LAMARSH");
+}
+
+#[tokio::test]
+async fn dictionary_rename_family_name_validates_and_matches_exactly() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let p = create_person(&db, tree_id).await;
+    create_split_name(&db, p, None, "Thornby").await;
+
+    for (value, new_value, particle) in [
+        ("Thornby", "   ", None),
+        ("", "WESTLEY", None),
+        // Not at the head of the new name.
+        ("Thornby", "WESTLEY", Some("VON")),
+    ] {
+        let err = DictionaryRepo::rename_family_name(&db, tree_id, value, new_value, particle)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, OxidGeneError::Validation(_)), "got {err:?}");
+    }
+
+    // Case is part of the name: "thornby" is nobody's.
+    let out = DictionaryRepo::rename_family_name(&db, tree_id, "thornby", "WESTLEY", None)
+        .await
+        .unwrap();
+    assert_eq!(out.names_updated, 0);
+    // Renaming a name to itself is a no-op.
+    let out = DictionaryRepo::rename_family_name(&db, tree_id, "Thornby", " Thornby ", None)
+        .await
+        .unwrap();
+    assert_eq!((out.names_updated, out.merged), (0, false));
+    assert!(out.person_ids.is_empty());
+    assert_eq!(
+        family_name_entry(&db, tree_id, "Thornby")
+            .await
+            .unwrap()
+            .count,
+        1
+    );
+}
+
 #[tokio::test]
 async fn dictionary_set_family_name_particle_refuses_a_particle_that_is_not_there() {
     let db = setup_db().await;

@@ -201,6 +201,10 @@ pub struct AuditDetails {
     /// Display name of the other person of a merge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub other_label: Option<String>,
+    /// The name a family-name rename gave; the entry's label keeps the old
+    /// one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_label: Option<String>,
 }
 
 impl AuditDetails {

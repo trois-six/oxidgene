@@ -29,9 +29,18 @@ pub async fn affected_persons(
     db: &impl ConnectionTrait,
     person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
+    affected_persons_of_all(db, &[person_id]).await
+}
+
+/// [`affected_persons`] for several persons at once — a bulk edit such as a
+/// family-name rename — in the same four queries whatever their number.
+pub async fn affected_persons_of_all(
+    db: &impl ConnectionTrait,
+    person_ids: &[Uuid],
+) -> Result<Vec<Uuid>, OxidGeneError> {
     let (as_spouse, as_child) = tokio::try_join!(
-        FamilySpouseRepo::list_by_person(db, person_id),
-        FamilyChildRepo::list_by_person(db, person_id),
+        FamilySpouseRepo::list_by_persons(db, person_ids),
+        FamilyChildRepo::list_by_persons(db, person_ids),
     )?;
     let spouse_families: Vec<Uuid> = as_spouse.iter().map(|s| s.family_id).collect();
     let mut families = spouse_families.clone();
@@ -42,7 +51,7 @@ pub async fn affected_persons(
         FamilyChildRepo::list_by_families(db, &spouse_families),
     )?;
 
-    let mut affected = vec![person_id];
+    let mut affected = person_ids.to_vec();
     affected.extend(spouses.iter().map(|s| s.person_id));
     affected.extend(children.iter().map(|c| c.person_id));
     affected.sort();

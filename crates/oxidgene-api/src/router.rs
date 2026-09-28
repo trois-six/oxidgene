@@ -346,6 +346,10 @@ pub fn build_router(state: AppState) -> Router {
             patch(dictionary::set_family_name_particle),
         )
         .route(
+            "/{tree_id}/dictionary/family-names/rename",
+            patch(dictionary::rename_family_name),
+        )
+        .route(
             "/{tree_id}/dictionary/occupations",
             get(dictionary::occupations),
         )

@@ -2387,6 +2387,9 @@ pub struct GqlDictionaryEntry {
     pub value: String,
     pub sort_key: String,
     pub count: i64,
+    /// Family names only: how many of `count` carry the value as their
+    /// primary name, i.e. how many a rename would reach.
+    pub primary_count: Option<i64>,
 }
 
 impl From<oxidgene_db::repo::DictionaryValueEntry> for GqlDictionaryEntry {
@@ -2395,6 +2398,7 @@ impl From<oxidgene_db::repo::DictionaryValueEntry> for GqlDictionaryEntry {
             value: entry.value,
             sort_key: entry.sort_key,
             count: entry.count,
+            primary_count: entry.primary_count,
         }
     }
 }
@@ -2929,6 +2933,33 @@ impl From<oxidgene_db::repo::FamilyNameParticleUpdate> for GqlFamilyNameParticle
             surname: u.surname,
             names_updated: u.names_updated as i32,
             persons_updated: u.persons_updated as i32,
+        }
+    }
+}
+
+/// Result of the dictionary's family-name rename.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlFamilyNameRename {
+    pub value: String,
+    pub new_value: String,
+    pub surname_prefix: Option<String>,
+    pub surname: String,
+    pub names_updated: i32,
+    pub persons_updated: i32,
+    /// `newValue` was already listed: the renamed names joined it.
+    pub merged: bool,
+}
+
+impl From<oxidgene_db::repo::FamilyNameRename> for GqlFamilyNameRename {
+    fn from(r: oxidgene_db::repo::FamilyNameRename) -> Self {
+        Self {
+            value: r.value,
+            new_value: r.new_value,
+            surname_prefix: r.surname_prefix,
+            surname: r.surname,
+            names_updated: r.names_updated as i32,
+            persons_updated: r.persons_updated as i32,
+            merged: r.merged,
         }
     }
 }

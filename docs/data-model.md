@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:40:00Z }
 ---
 
 
@@ -864,13 +864,13 @@ leaves no entry, and no entry describes a write that did not happen.
 | `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `media`, `tree` |
 | `subject_id` | UUID? | That record |
 | `label` | String? | The subject's display name at the time — it outlives a later rename or deletion |
-| `details` | JSON? | `AuditDetails`: `format`, `file_name`, `count`, `event_type`, `version`, `other_label` — only what applies |
+| `details` | JSON? | `AuditDetails`: `format`, `file_name`, `count`, `event_type`, `version`, `other_label`, `new_label` (the name a family-name rename gave) — only what applies |
 
 What is recorded:
 
 | Category | Writes |
 |---|---|
-| `data` | Persons, names, distinct-person confirmations, merges, families, spouse and child links, events, witnesses, places, sources, citations, notes, surname particle re-cuts |
+| `data` | Persons, names, distinct-person confirmations, merges, families, spouse and child links, events, witnesses, places, sources, citations, notes, surname particle re-cuts and family-name renames |
 | `settings` | Creating, updating and deleting the tree itself |
 | `media` | Documents, pages, uploads, metadata, tags, page order, vignettes, media links, portraits, and notes about a media |
 | `import` | Completed GEDCOM, GEDZIP, GeneWeb and Geneanet imports, and the tree a duplication creates (`format: duplicate`) |

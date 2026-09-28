@@ -3,6 +3,7 @@
 pub mod background_job;
 pub mod duplicates;
 pub mod event_date;
+pub mod family_names;
 pub mod gallery;
 pub mod gedcom;
 pub mod geneanet;

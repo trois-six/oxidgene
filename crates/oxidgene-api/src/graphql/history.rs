@@ -82,6 +82,7 @@ pub struct GqlAuditDetails {
     pub event_type: Option<GqlEventType>,
     pub version: Option<i32>,
     pub other_label: Option<String>,
+    pub new_label: Option<String>,
 }
 
 impl From<AuditDetails> for GqlAuditDetails {
@@ -93,6 +94,7 @@ impl From<AuditDetails> for GqlAuditDetails {
             event_type: d.event_type.map(Into::into),
             version: d.version,
             other_label: d.other_label,
+            new_label: d.new_label,
         }
     }
 }

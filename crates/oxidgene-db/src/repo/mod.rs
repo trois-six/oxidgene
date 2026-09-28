@@ -42,8 +42,8 @@ pub use background_job::{
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{connect, refresh_statistics, rollback_migrations, run_migrations};
 pub use dictionary::{
-    DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, PersonUsageEntry,
-    SOURCE_DRILL_THRESHOLD,
+    DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, FamilyNameRename,
+    PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
 };
 pub use event::{EventFilter, EventRepo};
 pub use event_witness::EventWitnessRepo;

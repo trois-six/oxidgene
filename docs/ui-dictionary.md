@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
-description: "Read-only index of family names, sources, places, and occupations with usage counts."
+description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:40:00Z }
 ---
 
 
@@ -18,8 +18,10 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
 
 The Dictionary page (`/trees/{id}/dictionary`) is a dedicated full-page view for browsing the distinct values entered across a tree for four fields: **family names**, **sources**, **places**, and **occupations**. Each value is shown once alongside a usage count, so recurring or inconsistent entries (a surname spelled two ways, a source cited from a dozen places, a place name entered slightly differently each time) are easy to spot.
 
-The page is read-only except for surname-particle correction. It surfaces
-inconsistent values without offering a general merge or rename operation.
+The page is read-only except for the family-name editor (§7.1), which renames
+a family name across the persons carrying it and corrects where it splits
+between particle and root. The other tabs surface inconsistent values without
+offering a merge or rename operation.
 
 It is reached via the **Book/index icon** in the shared left icon sidebar (`TreeIconSidebar`), which makes it accessible identically from the [Genealogy Tree](ui-genealogy-tree.md) (pedigree canvas) and from the [Person Profile](ui-person-profile.md) page — the same component renders that icon in both places.
 
@@ -77,7 +79,7 @@ Four tabs, text-labeled (icons alone are ambiguous at four items), styled as a s
 
 | Tab | Source field | Default active |
 |---|---|---|
-| Family Names | `PersonName.surname` (normalized) | Yes |
+| Family Names | `PersonName.surname_prefix` + `PersonName.surname`, exact spelling | Yes |
 | Sources | `Source.title` | |
 | Places | `Place.name` | |
 | Occupations | `Event.description` where `event_type = Occupation` | |
@@ -108,33 +110,38 @@ The toolbar shows the **Page size selector** with the "Per page" label above the
 
 ## 7. Family Names Tab
 
-Grouped by first letter of the normalized surname, with a sticky letter header (`A ──`) per group. Each row:
+Grouped by the first letter each surname files under (see below), with a sticky letter header (`A ──`) per group. Each row:
 
-- Surname, in its most common original casing
-- Usage count badge: number of persons carrying that surname (as primary or any `PersonName`)
-- A pencil — opens the [particle editor](#71-surname-particle-editor)
-- A chevron — clicking the row expands it inline, listing the persons carrying that surname in a smaller nested list. Each person is clickable and opens the [Genealogy Tree](ui-genealogy-tree.md) focused on that person.
+- The surname exactly as spelled. A row is one full surname — particle and root joined — compared character for character, so "Cruz" and "de la Cruz" are two rows, and so are "Martin" and "MARTIN". The list does not fold spellings together; the [family-name editor](#71-family-name-editor)'s rename is how the user unifies them.
+- Usage count badge: number of persons carrying that surname on any `PersonName`, primary or not
+- A pencil — opens the [family-name editor](#71-family-name-editor)
+- A chevron — clicking the row expands it inline, listing the persons carrying that surname in a smaller nested list. The list matches the same full surname as the row, however each name is cut between particle and root, so a name whose particle was corrected by hand is listed like any other. Each person is clickable and opens the [Genealogy Tree](ui-genealogy-tree.md) focused on that person.
 
-Which letter a surname files under depends on the viewer's "sort particles" preference. With particles included, "d'Aubigné" files under D and reads as written. With particles ignored it files under A, and the row then reads **root first, particle parenthesised** — `Aubigné (d')` — so the A group is scannable by the word it was actually sorted on. The boundary is taken from the entry's `sort_key` (the root the backend filed it under), never re-detected client-side, so a particle the user corrected by hand still displays where they put it.
+Which letter a surname files under depends on the viewer's "sort particles" preference. With particles included, "d'Aubigné" files under D and reads as written. With particles ignored it files under A, and the row then reads **root first, particle parenthesised** — `Aubigné (d')` — so the A group is scannable by the word it was actually sorted on. The boundary is taken from the entry's `sort_key` (the root the backend filed it under), never re-detected client-side, so a particle the user corrected by hand still displays where they put it. When the rows of one surname are cut in more than one way, the entry files under the cut most of them have.
 
-### 7.1 Surname Particle Editor
+### 7.1 Family-Name Editor
 
-Particle detection at import is a guess (see `oxidgene-core`'s `split_surname_particle`), and a wrong guess lands on every person carrying the name at once — a tree full of Breton "Le …" surnames wrongly filed under their root is the motivating case. Fixing that person by person through the [person edit modal](ui-person-edit-modal.md) does not scale, so the Family Names tab offers the repair at the level the mistake was made: the name.
+The pencil on a row opens the **Edit family name** modal. It does two things at the level of the name rather than person by person through the [person edit modal](ui-person-edit-modal.md): renaming the surname of everyone who carries it, and correcting where it splits between particle and root. Particle detection at import is a guess (see `oxidgene-core`'s `split_surname_particle`), and a wrong guess lands on every person carrying the name at once — a tree full of Breton "Le …" surnames wrongly filed under their root is the motivating case for the second.
 
-The pencil on a row opens a small modal:
+The modal holds:
 
-- States which surname is being cut, and how many persons the change will touch.
-- One **Particle** field, pre-filled with the particle currently stored. Emptying it means "this name has no particle".
+- A **Name** field, pre-filled with the surname as listed. It is the shared `ValueInput` with family-name suggestions, like the person form's surname field, and like it writes in capitals: the first keystroke turns the whole field to upper case.
+- A **Particle** field, pre-filled with the particle currently stored. Emptying it means "this name has no particle". While the name is unchanged it shows the name's current cut; once the name changes it follows the new name — detected, or the existing cut of the name it merges into — until the user types in it, and changing the name again drops what was typed.
 - A live preview of the resulting particle, surname root, and the letter the name will file under.
-- **Apply to all** writes the new cut to every `PersonName` row carrying that surname, via `PATCH /trees/{id}/dictionary/family-names/particle`.
+- A scope line, and the button that applies the edit.
 
-Two rules keep the operation safe, both enforced server-side rather than only in the dialog:
+What the button does depends on the Name field:
 
-- **The particle must already be at the head of the surname.** A particle that is absent is rejected instead of being prepended — otherwise the edit would inject a word the tree never contained, and clearing the particle afterwards could not take it back out (it would have become part of the surname by then).
-- **The displayed surname never changes**, only the boundary inside it.
-  Re-cutting moves where a name files; it is not a rename.
+- **Name unchanged — particle re-cut.** The scope reads "Applies to all N persons carrying this name"; **Apply to all** writes the new cut to every `PersonName` row carrying the surname, primary or not, via `PATCH /trees/{id}/dictionary/family-names/particle`.
+- **Name changed — rename.** The scope reads "Renames N persons carrying it as their main name", N being the entry's `primary_count`. Only primary names are renamed: when some persons carry the name only as an alias, a married name or another secondary name, a note says so and that they keep it, and the name then stays in the dictionary for them. **Rename** calls `PATCH /trees/{id}/dictionary/family-names/rename`; it is disabled when no person carries the name as their main one.
+- **Name changed to one already listed — merge.** A warning reads "« Y » already exists (M persons): the two will be merged". The renamed names join Y and take Y's existing cut, so one entry never holds two cuts: the Particle field is then read-only and says so. To change Y's cut, the user edits Y's own row.
 
-Rows already cut the requested way are skipped, so re-applying the same cut is a no-op rather than a pointless `updated_at` bump. Because a surname reaches every projection that embeds a display name, a change triggers a full projection rebuild for the tree.
+Rules, all enforced server-side rather than only in the dialog:
+
+- **The particle must already be at the head of the surname.** A particle that is absent is rejected instead of being prepended — otherwise the edit would inject a word the tree never contained, and clearing the particle afterwards could not take it back out.
+- **A re-cut never changes the displayed surname**, only the boundary inside it, and rows already cut the requested way are skipped, so re-applying the same cut is a no-op rather than a pointless `updated_at` bump. Because a surname reaches every projection that embeds a display name, a re-cut triggers a full projection rebuild for the tree.
+- **A rename matches exactly** — case and particle included — and stores the new name as sent; the capitals come from the Name field, as on the person form. A blank name is rejected, and renaming a name to itself changes nothing. The renamed persons' projections and search rows, and those of their spouses, children and parents, whose family links and relative filters show the name, are refreshed in the rename's own transaction.
+- **Undo is per person.** A rename is recorded as one `family_name` entry in the audit log, reading "X · N persons · renamed to Y", and gives each renamed person a new version; there is no bulk undo, and a person is put back through their own [history](ui-person-history.md).
 
 ---
 
@@ -413,7 +420,7 @@ None of the following aggregations exist yet; they must be added before this pag
 
 | Tab | Aggregation needed |
 |---|---|
-| Family Names | `GROUP BY surname, COUNT(*)` over indexed `person_search_fts`; see [Data Model §4.3](data-model.md) |
+| Family Names | Distinct full surnames (`surname_prefix` + `surname`, exact spelling) over the `person_name` rows of live persons, counted per person, with the count of persons carrying each as their primary name (`DictionaryRepo::family_names`) |
 | Sources | `COUNT(Citation)` per `source_id`, joined onto the existing `SourceRepo::list` |
 | Places | `COUNT(Event) + COUNT(Media)` per `place_id`, joined onto the existing `PlaceRepo::list` |
 | Occupations | `GROUP BY description, COUNT(*)` over `Event` where `event_type = Occupation` — new aggregation, no existing index |

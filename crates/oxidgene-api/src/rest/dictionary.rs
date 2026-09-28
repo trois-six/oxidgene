@@ -1,16 +1,17 @@
 //! REST handlers for the Dictionary page: distinct-value aggregations
 //! (family names, sources, places, occupations) and usage drill-downs.
 
-use crate::service::history;
+use crate::service::{family_names, history};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
 use uuid::Uuid;
 
 use super::dto::{
-    DictionaryEntryDto, DictionaryUsageQuery, FamilyNameParticleUpdateDto, PersonUsageEntryDto,
-    PlaceDictionaryEntry, SetFamilyNameParticleRequest, SourceDictionaryEntry, SourceDrillResponse,
-    SourceGroupDto, SourcePrefixQuery,
+    DictionaryEntryDto, DictionaryUsageQuery, FamilyNameParticleUpdateDto, FamilyNameRenameDto,
+    PersonUsageEntryDto, PlaceDictionaryEntry, RenameFamilyNameRequest,
+    SetFamilyNameParticleRequest, SourceDictionaryEntry, SourceDrillResponse, SourceGroupDto,
+    SourcePrefixQuery,
 };
 use super::error::ApiError;
 use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
@@ -199,6 +200,30 @@ pub async fn set_family_name_particle(
             .map_err(ApiError)?;
     }
     Ok(Json(update.into()))
+}
+
+/// PATCH /api/v1/trees/:tree_id/dictionary/family-names/rename
+///
+/// Gives every person whose primary name carries one surname another one,
+/// merging into that name when it is already listed.
+pub async fn rename_family_name(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<RenameFamilyNameRequest>,
+) -> Result<Json<FamilyNameRenameDto>, ApiError> {
+    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let renamed = family_names::rename(
+        &txn,
+        &state.profiles,
+        tree_id,
+        &body.value,
+        &body.new_value,
+        body.particle.as_deref(),
+    )
+    .await
+    .map_err(ApiError::from)?;
+    commit_tx(txn).await.map_err(ApiError)?;
+    Ok(Json(renamed.into()))
 }
 
 /// Shared tail of the four usage handlers: resolve raw person IDs into

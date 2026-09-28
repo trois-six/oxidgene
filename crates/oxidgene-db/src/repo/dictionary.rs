@@ -3,23 +3,29 @@
 //! with how many persons/events reference them, plus drill-down lookups
 //! resolving a value back to the persons that carry it.
 //!
-//! Plus the one bulk edit the page offers — [`DictionaryRepo::set_family_name_particle`],
-//! which re-cuts every occurrence of one surname at once. It lives here rather
-//! than in `PersonNameRepo` because "which rows are this dictionary entry" is
-//! defined by [`DictionaryRepo::family_names`] right above it, and the two must
-//! agree on the answer.
+//! Plus the page's two bulk family-name edits:
+//! [`DictionaryRepo::set_family_name_particle`], which re-cuts every
+//! occurrence of one surname at once, and [`DictionaryRepo::rename_family_name`],
+//! which gives every person carrying it as their main name another one. They
+//! live here rather than in `PersonNameRepo` because "which rows are this
+//! dictionary entry" is defined by [`DictionaryRepo::family_names`] right above
+//! them, and all of them must agree on the answer: a row belongs to the entry
+//! spelled exactly like its full surname, particle included.
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::{
     enums::{DateQualifier, EventType},
-    types::{Place, Source, join_surname_particle, split_surname_at_head, year_from_date},
+    types::{
+        Place, Source, join_surname_particle, split_surname_at_head, split_surname_particle,
+        year_from_date,
+    },
 };
 use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue::Set, Condition, JoinType, QuerySelect, Unchanged};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::entities::{citation, event, media, person, person_name, place, sea_enums, source};
@@ -40,6 +46,11 @@ pub struct DictionaryValueEntry {
     /// arrive sorted by `value`, i.e. particles included.
     pub sort_key: String,
     pub count: i64,
+    /// For family names only: how many of those persons carry the value as
+    /// their primary name — the ones a rename would reach, since it leaves
+    /// alias, married and other names alone. `None` for every other
+    /// dictionary.
+    pub primary_count: Option<i64>,
 }
 
 /// A person's name (split given/surname) plus birth/death years, resolved in
@@ -77,6 +88,27 @@ pub struct FamilyNameParticleUpdate {
     pub person_ids: Vec<Uuid>,
 }
 
+/// Outcome of [`DictionaryRepo::rename_family_name`].
+#[derive(Debug, Clone)]
+pub struct FamilyNameRename {
+    /// The surname renamed, as it was listed.
+    pub value: String,
+    /// The surname its carriers now bear, as it will be listed.
+    pub new_value: String,
+    /// The particle the renamed rows now store, `None` for none.
+    pub surname_prefix: Option<String>,
+    /// The root the renamed rows now store, i.e. what the name files under.
+    pub surname: String,
+    /// `person_name` rows rewritten.
+    pub names_updated: usize,
+    /// Distinct persons behind `names_updated`.
+    pub persons_updated: usize,
+    /// `new_value` was already in the dictionary: the renamed rows joined it.
+    pub merged: bool,
+    /// The persons rewritten, for whoever records and refreshes what changed.
+    pub person_ids: Vec<Uuid>,
+}
+
 /// Above this many sources matching a prefix, the Sources tab's smart
 /// drill-down (see `DictionaryRepo::resolve_source_drill_down` and
 /// ui-dictionary.md §8) shows further branch choices instead of the final
@@ -108,13 +140,14 @@ impl DictionaryRepo {
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
-        // Only the three columns the count needs: this reads one row per name
-        // in the tree.
-        let names: Vec<(Uuid, Option<String>, Option<String>)> = person_name::Entity::find()
+        // Only the columns the count needs: this reads one row per name in
+        // the tree.
+        let names: Vec<(Uuid, Option<String>, Option<String>, bool)> = person_name::Entity::find()
             .select_only()
             .column(person_name::Column::PersonId)
             .column(person_name::Column::Surname)
             .column(person_name::Column::SurnamePrefix)
+            .column(person_name::Column::IsPrimary)
             .join(JoinType::InnerJoin, person_name::Relation::Person.def())
             .filter(person::Column::TreeId.eq(tree_id))
             .filter(person::Column::DeletedAt.is_null())
@@ -127,26 +160,41 @@ impl DictionaryRepo {
         // Group by person, not by row: a person with two `PersonName` entries
         // sharing the same surname (e.g. birth + nickname) must count once.
         //
-        // Keyed on the full surname, particle included: "de la Cruz" and
-        // "Cruz" are two different families and must stay two entries. The
-        // particle only affects where each one *files*, which is what
-        // `sort_key` carries.
+        // Keyed on the full surname exactly as spelled, particle included:
+        // "de la Cruz" and "Cruz" are two different families and stay two
+        // entries, and so do "Martin" and "MARTIN" — unifying spellings is
+        // the rename's job, not the listing's. The particle only affects
+        // where each one *files*, which is what `sort_key` carries.
         let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
-        let mut roots: HashMap<String, String> = HashMap::new();
-        for (person_id, surname, surname_prefix) in names {
-            let Some(root) = trimmed(surname.as_deref()) else {
+        let mut primary: HashMap<String, HashSet<Uuid>> = HashMap::new();
+        let mut roots: HashMap<String, BTreeMap<String, usize>> = HashMap::new();
+        for (person_id, surname, surname_prefix, is_primary) in names {
+            let Some((full, root)) = full_surname(surname_prefix.as_deref(), surname.as_deref())
+            else {
                 continue;
             };
-            let full = join_surname_particle(surname_prefix.as_deref(), &root);
-            roots.insert(full.clone(), root.to_lowercase());
+            *roots
+                .entry(full.clone())
+                .or_default()
+                .entry(root)
+                .or_default() += 1;
+            if is_primary {
+                primary.entry(full.clone()).or_default().insert(person_id);
+            }
             per_value.entry(full).or_default().insert(person_id);
         }
-        Ok(sorted_entries_with(per_value, |value| {
+        let mut entries = sorted_entries_with(per_value, |value| {
+            // Rows of one entry may be cut differently; file it where most
+            // are, the same cut a rename into this entry adopts.
             roots
                 .get(value)
-                .cloned()
-                .unwrap_or_else(|| value.to_lowercase())
-        }))
+                .and_then(dominant)
+                .map_or_else(|| value.to_lowercase(), |root| root.to_lowercase())
+        });
+        for entry in &mut entries {
+            entry.primary_count = Some(primary.get(&entry.value).map_or(0, |ids| ids.len() as i64));
+        }
+        Ok(entries)
     }
 
     /// Distinct given names across a tree, one per word of the given-names
@@ -571,47 +619,114 @@ impl DictionaryRepo {
             )));
         };
 
-        let mut updated_persons: HashSet<Uuid> = HashSet::new();
-        let mut names_updated = 0usize;
-
-        for n in tree_names(db, tree_id).await? {
-            let Some(root) = trimmed(n.surname.as_deref()) else {
-                continue;
-            };
-            if join_surname_particle(n.surname_prefix.as_deref(), &root) != value {
-                continue;
-            }
-            if trimmed(n.surname_prefix.as_deref()) == new_prefix && root == new_surname {
-                continue;
-            }
-
-            let person_id = n.person_id;
-            person_name::ActiveModel {
-                id: Unchanged(n.id),
-                surname: Set(Some(new_surname.clone())),
-                surname_prefix: Set(new_prefix.clone()),
-                updated_at: Set(Utc::now()),
-                ..Default::default()
-            }
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-
-            updated_persons.insert(person_id);
-            names_updated += 1;
-        }
+        let rows: Vec<person_name::Model> = tree_names(db, tree_id)
+            .await?
+            .into_iter()
+            .filter(|n| is_spelled(n, value))
+            .collect();
+        let (names_updated, person_ids) =
+            rewrite_surnames(db, &rows, new_prefix.as_deref(), &new_surname).await?;
 
         Ok(FamilyNameParticleUpdate {
             value: value.to_string(),
             surname_prefix: new_prefix,
             surname: new_surname,
             names_updated,
-            persons_updated: updated_persons.len(),
-            person_ids: {
-                let mut ids: Vec<Uuid> = updated_persons.into_iter().collect();
-                ids.sort();
-                ids
-            },
+            persons_updated: person_ids.len(),
+            person_ids,
+        })
+    }
+
+    /// Give every person whose primary name carries surname `value` the
+    /// surname `new_value` instead.
+    ///
+    /// `value` is a surname as listed by [`Self::family_names`], matched
+    /// exactly — particle included and case included, so "Martin" and
+    /// "MARTIN" are two names, and renaming one is how they are unified.
+    /// Only primary names are rewritten: an alias, a married name or any other
+    /// name carrying `value` keeps it, so `value` may stay listed for them.
+    ///
+    /// `new_value` is stored as given. Where it splits between particle and
+    /// root comes from, in order:
+    ///
+    /// 1. `particle`, when given — empty meaning none. It must be at the head
+    ///    of `new_value`, as for [`Self::set_family_name_particle`], and it
+    ///    then also re-cuts every row already carrying `new_value`, so the
+    ///    entry never holds two cuts at once;
+    /// 2. the cut `new_value` already has in the tree, when it is listed —
+    ///    the renamed rows then merge into that entry as it stands;
+    /// 3. particle detection otherwise.
+    ///
+    /// Renaming a name to itself changes nothing and reports zero rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OxidGeneError::Validation`] if `value` or `new_value` is
+    /// blank or `particle` is not at the head of `new_value`, and
+    /// [`OxidGeneError::Database`] on query failure.
+    pub async fn rename_family_name(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        value: &str,
+        new_value: &str,
+        particle: Option<&str>,
+    ) -> Result<FamilyNameRename, OxidGeneError> {
+        let value = value.trim();
+        let new_value = new_value.trim();
+        if value.is_empty() || new_value.is_empty() {
+            return Err(OxidGeneError::Validation(
+                "a family name is required".to_string(),
+            ));
+        }
+        let explicit = match particle {
+            Some(particle) => {
+                Some(split_surname_at_head(new_value, particle).ok_or_else(|| {
+                    OxidGeneError::Validation(format!(
+                        "particle \"{particle}\" is not at the head of surname \"{new_value}\""
+                    ))
+                })?)
+            }
+            None => None,
+        };
+
+        let mut carriers: Vec<person_name::Model> = Vec::new();
+        let mut target: Vec<person_name::Model> = Vec::new();
+        for n in tree_names(db, tree_id).await? {
+            if is_spelled(&n, new_value) {
+                target.push(n.clone());
+            }
+            if n.is_primary && is_spelled(&n, value) {
+                carriers.push(n);
+            }
+        }
+
+        let explicit_cut = explicit.is_some();
+        let (new_prefix, new_surname) = match explicit {
+            Some(cut) => cut,
+            None => existing_cut(&target).unwrap_or_else(|| split_surname_particle(new_value)),
+        };
+        let unchanged = value == new_value;
+        let merged = !unchanged && !target.is_empty();
+
+        let (names_updated, person_ids) = if unchanged {
+            (0, Vec::new())
+        } else {
+            let mut rows = carriers;
+            if explicit_cut {
+                rows.extend(target);
+            }
+            rewrite_surnames(db, &rows, new_prefix.as_deref(), &new_surname).await?
+        };
+
+        Ok(FamilyNameRename {
+            value: value.to_string(),
+            new_value: new_value.to_string(),
+            surname_prefix: new_prefix,
+            surname: new_surname,
+            names_updated,
+            persons_updated: person_ids.len(),
+            merged,
+            person_ids,
         })
     }
 
@@ -749,6 +864,66 @@ fn root_candidates(value: &str) -> Vec<String> {
     roots
 }
 
+/// The key counted most often; the greatest of those on a tie, so the answer
+/// does not depend on the order rows were read in.
+fn dominant(counts: &BTreeMap<String, usize>) -> Option<&String> {
+    counts
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .map(|(key, _)| key)
+}
+
+/// How rows of one dictionary entry are cut, as `(particle, root)` — the cut
+/// most of them have, see [`dominant`]. `None` without rows.
+fn existing_cut(rows: &[person_name::Model]) -> Option<(Option<String>, String)> {
+    let mut roots: BTreeMap<String, usize> = BTreeMap::new();
+    for n in rows {
+        if let Some(root) = trimmed(n.surname.as_deref()) {
+            *roots.entry(root).or_default() += 1;
+        }
+    }
+    let root = dominant(&roots)?;
+    let n = rows
+        .iter()
+        .find(|n| trimmed(n.surname.as_deref()).as_ref() == Some(root))?;
+    Some((trimmed(n.surname_prefix.as_deref()), root.clone()))
+}
+
+/// Write `prefix` + `root` into every row of `rows`, skipping rows already
+/// written that way — a repeated edit is then a no-op, not an `updated_at`
+/// bump. Returns the number of rows written and their persons, sorted.
+async fn rewrite_surnames(
+    db: &impl ConnectionTrait,
+    rows: &[person_name::Model],
+    prefix: Option<&str>,
+    root: &str,
+) -> Result<(usize, Vec<Uuid>), OxidGeneError> {
+    let mut persons: HashSet<Uuid> = HashSet::new();
+    let mut names_updated = 0usize;
+    for n in rows {
+        if trimmed(n.surname_prefix.as_deref()).as_deref() == prefix
+            && trimmed(n.surname.as_deref()).as_deref() == Some(root)
+        {
+            continue;
+        }
+        person_name::ActiveModel {
+            id: Unchanged(n.id),
+            surname: Set(Some(root.to_string())),
+            surname_prefix: Set(prefix.map(str::to_string)),
+            updated_at: Set(Utc::now()),
+            ..Default::default()
+        }
+        .update(db)
+        .await
+        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        persons.insert(n.person_id);
+        names_updated += 1;
+    }
+    let mut persons: Vec<Uuid> = persons.into_iter().collect();
+    persons.sort();
+    Ok((names_updated, persons))
+}
+
 /// Sorted entries whose filing key is just the value itself — correct for
 /// every dictionary except family names, which file under the surname root.
 fn sorted_entries(per_value: HashMap<String, HashSet<Uuid>>) -> Vec<DictionaryValueEntry> {
@@ -765,6 +940,7 @@ fn sorted_entries_with(
             sort_key: sort_key(&value),
             value,
             count: ids.len() as i64,
+            primary_count: None,
         })
         .collect();
     out.sort_by_cached_key(|a| a.value.to_lowercase());

@@ -505,15 +505,46 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/dictionary/family-names` | Distinct surnames + person counts |
+| `GET` | `/trees/{tree_id}/dictionary/family-names` | Distinct surnames + person counts. One entry per full surname (particle + root) as spelled, case included; `primary_count` is how many of the `count` persons carry it as their primary name |
 | `GET` | `/trees/{tree_id}/dictionary/family-names/usage?value=...` | Persons carrying a surname. `value` is matched exactly against the full surname as listed, particle included, however its rows are cut between particle and root |
 | `PATCH` | `/trees/{tree_id}/dictionary/family-names/particle` | Bulk-edit — body `{ "value": "...", "particle": "..." }` re-cuts every `PersonName` carrying surname `value` at `particle` (empty = no particle). `particle` must already be at the head of `value`; rows already cut that way are skipped. Triggers a full projection rebuild when anything changed |
+| `PATCH` | `/trees/{tree_id}/dictionary/family-names/rename` | Bulk rename — see below |
 | `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
 | `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
 | `GET` | `/trees/{tree_id}/dictionary/sources` | Sources + citation counts |
 | `GET` | `/trees/{tree_id}/dictionary/sources/{source_id}/usage` | Persons citing a source |
 | `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
 | `GET` | `/trees/{tree_id}/dictionary/places/{place_id}/usage` | Persons referencing a place |
+
+The family-names entry is `{ value, sort_key, count, primary_count }`;
+`primary_count` is absent from the other dictionaries.
+
+`PATCH /trees/{tree_id}/dictionary/family-names/rename` gives every person
+whose **primary** name carries surname `value` the surname `new_value`. Body
+`{ "value": "X", "new_value": "Y", "particle": "de" }`:
+
+- `value` is matched exactly against the full surname as listed, particle and
+  case included. Alias, married and other secondary names carrying it are left
+  unchanged, so `value` may remain listed for them.
+- `new_value` is stored as sent; clients that want capitals, as the UI's name
+  fields do, send capitals.
+- `particle` is optional. Absent, the renamed rows take the cut `new_value`
+  already has in the tree, or the detected one when it is not listed yet;
+  `""` means no particle. When given it must be at the head of `new_value`,
+  and it is then also applied to the rows already carrying `new_value`, so an
+  entry never holds two cuts.
+- A blank `value` or `new_value`, or a `particle` that is not at the head of
+  `new_value`, is refused with `400`. Renaming a name to itself changes nothing.
+
+The response is `{ value, new_value, surname_prefix, surname, names_updated,
+persons_updated, merged }`: the cut stored, the rows and distinct persons
+rewritten, and whether `new_value` was already listed so that the renamed rows
+merged into it. The renamed persons' projections and search rows, and those of
+their spouses, children and parents, are refreshed in the same transaction.
+When anything changed, one audit entry is recorded (`entity: "family_name"`,
+`action: "update"`, `label` the old name, `details.count` the persons renamed,
+`details.new_label` the new name) and each renamed person gets a version; a
+person is restored individually through `POST …/history/person/{id}/revert`.
 
 ### Value suggestions
 
@@ -577,7 +608,9 @@ entity_id, subject, subject_id, label, details, version_count }`. `action` is
 `family`, `place`, `source`, `media`, `tree`). `label` is the subject's display
 name when the write happened. `details` carries only what applies: `format`,
 `file_name` and `count` for imports and exports, `event_type` for event writes,
-`version` for a restore, `other_label` for the person a merge absorbed.
+`version` for a restore, `other_label` for the person a merge absorbed,
+`new_label` for the name a family-name rename gave (the entry's `label`
+keeping the old one).
 
 A `RecordVersion` is `{ id, tree_id, record_type, record_id, version, deleted,
 created_at, entry, snapshot, labels }`. `snapshot` is tagged by `type` and
@@ -1150,8 +1183,11 @@ type Mutation {
   updatePersonName(treeId: ID!, personId: ID!, nameId: ID!, input: PersonNameInput!): PersonName!
   deletePersonName(treeId: ID!, personId: ID!, nameId: ID!): Boolean!
 
-  # Dictionary — bulk surname-particle edit (mirrors the REST PATCH route)
+  # Dictionary — bulk family-name edits (mirror the REST PATCH routes)
   setFamilyNameParticle(treeId: ID!, input: SetFamilyNameParticleInput!): GqlFamilyNameParticleUpdate!
+  renameFamilyName(treeId: ID!, input: RenameFamilyNameInput!): GqlFamilyNameRename!
+    # input { value, newValue, particle }; result { value, newValue, surnamePrefix,
+    # surname, namesUpdated, personsUpdated, merged }
 
   # Families
   createFamily(treeId: ID!, input: CreateFamilyInput!): Family!
@@ -1421,7 +1457,7 @@ type GqlAuditEntry {
   subject: GqlAuditSubject      # TREE, PERSON, FAMILY, PLACE, SOURCE, MEDIA
   subjectId: ID
   label: String
-  details: GqlAuditDetails!     # format, fileName, count, eventType, version, otherLabel
+  details: GqlAuditDetails!     # format, fileName, count, eventType, version, otherLabel, newLabel
   versionCount: Int!
 }
 

@@ -458,6 +458,19 @@ pub struct SetFamilyNameParticleInput {
     pub particle: String,
 }
 
+/// Input for the dictionary's family-name rename.
+///
+/// Every person whose primary name carries surname `value` (as listed, matched
+/// exactly) gets `new_value`, stored as sent. `particle` chooses where
+/// `new_value` splits and must be at its head; absent, the split `new_value`
+/// already has in the tree is kept, or detected when it is new.
+#[derive(Debug, InputObject)]
+pub struct RenameFamilyNameInput {
+    pub value: String,
+    pub new_value: String,
+    pub particle: Option<String>,
+}
+
 /// Where a held picture lives, as an input. Mirrors `ImageSource`: `kind`
 /// selects which of the payload fields is meaningful.
 #[derive(async_graphql::InputObject)]

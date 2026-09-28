@@ -1,18 +1,21 @@
-//! Dictionary page: read-only index of family names, sources, places, and
-//! occupations across a tree, each paired with a usage count. See
+//! Dictionary page: index of family names, sources, places, and
+//! occupations across a tree, each paired with a usage count, plus the
+//! family-name editor (rename, merge, particle re-cut). See
 //! `docs/ui-dictionary.md`.
 
 use std::collections::HashSet;
 
 use dioxus::prelude::*;
-use oxidgene_core::types::split_surname_at_head;
+use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
 use uuid::Uuid;
 
+use crate::api::SuggestionField;
 use crate::api::{
     ApiClient, ApiError, DictionaryEntry, PersonUsageEntry, PlaceDictionaryEntry,
     SourceDictionaryEntry, SourceGroupEntry,
 };
 use crate::components::pedigree_chart::format_lifespan;
+use crate::components::suggest_input::ValueInput;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
@@ -67,33 +70,31 @@ impl PageSize {
     }
 }
 
-/// The family name whose particle is being re-cut, and the state of that edit.
+/// The family name the editor is open on (see [`FamilyNameEditor`]).
 ///
 /// `value` is the surname as listed, particle included — the only stable
 /// identity of a dictionary entry, and what the API matches rows on.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ParticleEdit {
+struct FamilyNameEdit {
     value: String,
-    /// Persons carrying the name, so the dialog can say what it is about to
-    /// touch before it touches it.
+    /// Persons carrying the name on any of their names, so the dialog can say
+    /// what a re-cut is about to touch before it touches it.
     count: i64,
-    /// The particle as typed; empty means "this name has no particle".
-    particle: String,
-    /// Set when the last apply failed, cleared on the next keystroke.
-    error: Option<String>,
-    saving: bool,
+    /// Those carrying it as their primary name: the ones a rename reaches.
+    primary_count: i64,
+    /// Where the name is cut today; empty when it has no particle.
+    current_particle: String,
 }
 
-impl ParticleEdit {
+impl FamilyNameEdit {
     fn new(entry: &DictionaryEntry) -> Self {
         Self {
             value: entry.value.clone(),
             count: entry.count,
-            particle: entry_particle_split(entry)
+            primary_count: entry.primary_count.unwrap_or(entry.count),
+            current_particle: entry_particle_split(entry)
                 .map(|(particle, _)| particle)
                 .unwrap_or_default(),
-            error: None,
-            saving: false,
         }
     }
 }
@@ -170,7 +171,7 @@ pub fn Dictionary(tree_id: String) -> Element {
 
     let api_fn = api.clone();
     let sort_particles = use_sort_particles();
-    let particle_edit = use_signal(|| None::<ParticleEdit>);
+    let mut family_name_edit = use_signal(|| None::<FamilyNameEdit>);
 
     let mut family_names_resource =
         use_traced_resource(load_trace.clone(), "family_names", move || {
@@ -417,7 +418,7 @@ pub fn Dictionary(tree_id: String) -> Element {
                         expanded,
                         usage_resource,
                         sort_particles,
-                        Some(particle_edit),
+                        Some(family_name_edit),
                         filed_family_names,
                     ),
                     DictTab::Occupations => render_value_tab(
@@ -459,33 +460,118 @@ pub fn Dictionary(tree_id: String) -> Element {
                     ),
                 }
 
-                {render_particle_modal(i18n, api.clone(), tree_id_parsed(), particle_edit, family_names_resource)}
+                if let (Some(edit), Some(tid)) = (family_name_edit(), tree_id_parsed()) {
+                    FamilyNameEditor {
+                        key: "{edit.value}",
+                        tree_id: tid,
+                        edit,
+                        known: filed_family_names,
+                        on_close: move |()| family_name_edit.set(None),
+                        on_saved: move |()| {
+                            family_name_edit.set(None);
+                            family_names_resource.restart();
+                        },
+                    }
+                }
             }
             }
         }
     }
 }
 
-/// The bulk particle editor: re-cuts every occurrence of one surname at once.
+/// The family-name editor: renames a surname across the persons whose main
+/// name carries it, or re-cuts it between particle and root when the name is
+/// left as it is. See ui-dictionary.md §7.1.
 ///
-/// Shows what the cut will produce before applying it, because the operation
-/// touches every person carrying the name and is not individually undoable.
-fn render_particle_modal(
-    i18n: I18n,
-    api: ApiClient,
-    tree_id: Option<Uuid>,
-    mut edit: Signal<Option<ParticleEdit>>,
-    mut family_names: Resource<Result<Vec<DictionaryEntry>, ApiError>>,
+/// Shows what the edit will produce before applying it, because it touches
+/// every person carrying the name at once.
+#[component]
+fn FamilyNameEditor(
+    tree_id: Uuid,
+    edit: FamilyNameEdit,
+    /// Every listed family name, to tell a rename from a merge.
+    known: Memo<FiledEntries<DictionaryEntry>>,
+    on_close: EventHandler<()>,
+    on_saved: EventHandler<()>,
 ) -> Element {
-    let Some(current) = edit() else {
-        return rsx! {};
-    };
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let name = use_signal(|| edit.value.clone());
+    // What the user typed in the particle field; `None` while it follows the
+    // name. Changing the name drops it, since a particle only fits the name it
+    // was typed for.
+    let mut typed_particle = use_signal(|| None::<String>);
+    let mut error = use_signal(|| None::<String>);
+    let mut saving = use_signal(|| false);
 
-    // The particle must already sit at the head of the surname — this edit
-    // only moves the cut, so anything else is rejected before it is sent.
-    let preview = split_surname_at_head(&current.value, &current.particle);
-    let is_valid = preview.is_some();
-    let can_apply = is_valid && !current.saving && tree_id.is_some();
+    let new_value = name().trim().to_string();
+    let renaming = new_value != edit.value;
+    // Renaming into a listed name merges into it, with the cut it already has.
+    let target: Option<DictionaryEntry> = renaming
+        .then(|| {
+            known
+                .read()
+                .entries
+                .iter()
+                .find(|e| e.value == new_value)
+                .cloned()
+        })
+        .flatten();
+    let particle = match (&target, typed_particle()) {
+        (Some(target), _) => entry_particle_split(target)
+            .map(|(particle, _)| particle)
+            .unwrap_or_default(),
+        (None, Some(typed)) => typed,
+        (None, None) if renaming => split_surname_particle(&new_value).0.unwrap_or_default(),
+        (None, None) => edit.current_particle.clone(),
+    };
+    // The particle must already sit at the head of the name: the edit only
+    // chooses where to cut, so anything else is rejected before it is sent.
+    let preview = split_surname_at_head(&new_value, &particle).filter(|_| !new_value.is_empty());
+    let others = (edit.count - edit.primary_count).max(0) as usize;
+    let can_apply = preview.is_some() && !saving() && (!renaming || edit.primary_count > 0);
+
+    let apply = {
+        let edit = edit.clone();
+        let new_value = new_value.clone();
+        let particle = particle.clone();
+        // Sent only when typed: otherwise the server picks the very cut the
+        // preview shows — the merged name's, or the detected one.
+        let sent_particle = if target.is_some() {
+            None
+        } else {
+            typed_particle()
+        };
+        move |_| {
+            let api = api.clone();
+            let (value, new_value, particle, sent_particle) = (
+                edit.value.clone(),
+                new_value.clone(),
+                particle.clone(),
+                sent_particle.clone(),
+            );
+            saving.set(true);
+            error.set(None);
+            spawn(async move {
+                let result = if renaming {
+                    api.rename_family_name(tree_id, &value, &new_value, sent_particle.as_deref())
+                        .await
+                        .map(|_| ())
+                } else {
+                    api.set_family_name_particle(tree_id, &value, &particle)
+                        .await
+                        .map(|_| ())
+                };
+                match result {
+                    Ok(()) => on_saved.call(()),
+                    Err(e) => {
+                        saving.set(false);
+                        error.set(Some(e.to_string()));
+                    }
+                }
+            });
+        }
+    };
 
     rsx! {
         div {
@@ -493,43 +579,81 @@ fn render_particle_modal(
             // Dismiss on press, not click: a click fires on the common ancestor
             // of mousedown/mouseup, so selecting text then releasing outside
             // would close the dialog.
-            onmousedown: move |_| edit.set(None),
+            onmousedown: move |_| on_close.call(()),
             div {
                 class: "dict-particle-modal",
                 onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
 
                 div { class: "dict-particle-header",
-                    h2 { {i18n.t("dictionary.particle.title")} }
+                    h2 { {i18n.t("dictionary.family_name.title")} }
                     button {
                         class: "person-form-close",
-                        onclick: move |_| edit.set(None),
+                        onclick: move |_| on_close.call(()),
                         "✕"
                     }
                 }
 
                 div { class: "dict-particle-body",
                     p { class: "dict-particle-intro",
-                        {i18n.t_args("dictionary.particle.intro", &[("name", &current.value)])}
+                        {i18n.t_args("dictionary.family_name.intro", &[("name", &edit.value)])}
                     }
-                    p { class: "dict-particle-scope",
-                        {i18n.t_plural("dictionary.particle.scope", current.count as usize)}
+
+                    div { class: "form-group",
+                        label { {i18n.t("dictionary.family_name.name_label")} }
+                        ValueInput {
+                            value: name,
+                            tree_id,
+                            field: SuggestionField::FamilyNames,
+                            uppercase: true,
+                            on_change: move |()| {
+                                typed_particle.set(None);
+                                error.set(None);
+                            },
+                        }
+                    }
+
+                    if renaming {
+                        p { class: "dict-particle-scope",
+                            {i18n.t_plural("dictionary.family_name.rename_scope", edit.primary_count as usize)}
+                        }
+                        if others > 0 {
+                            p { class: "dict-particle-hint",
+                                {i18n.t_plural("dictionary.family_name.others_keep", others)}
+                            }
+                        }
+                        if let Some(target) = &target {
+                            p { class: "field-hint field-hint-warn",
+                                {i18n.t_args(
+                                    &i18n.plural_key("dictionary.family_name.merge", target.count as usize),
+                                    &[("name", &target.value), ("count", &target.count.to_string())],
+                                )}
+                            }
+                        }
+                    } else {
+                        p { class: "dict-particle-scope",
+                            {i18n.t_plural("dictionary.particle.scope", edit.count as usize)}
+                        }
                     }
 
                     div { class: "form-group",
                         label { {i18n.t("dictionary.particle.label")} }
                         input {
                             r#type: "text",
-                            value: "{current.particle}",
+                            value: "{particle}",
+                            disabled: target.is_some(),
                             placeholder: "{i18n.t(\"dictionary.particle.placeholder\")}",
                             oninput: move |e: Event<FormData>| {
-                                if let Some(mut c) = edit() {
-                                    c.particle = e.value();
-                                    c.error = None;
-                                    edit.set(Some(c));
-                                }
+                                typed_particle.set(Some(e.value()));
+                                error.set(None);
                             },
                         }
-                        p { class: "dict-particle-hint", {i18n.t("dictionary.particle.hint")} }
+                        if target.is_some() {
+                            p { class: "dict-particle-hint",
+                                {i18n.t_args("dictionary.family_name.merge_particle", &[("name", &new_value)])}
+                            }
+                        } else if !renaming {
+                            p { class: "dict-particle-hint", {i18n.t("dictionary.particle.hint")} }
+                        }
                     }
 
                     match &preview {
@@ -553,14 +677,15 @@ fn render_particle_modal(
                                 }
                             }
                         },
+                        None if new_value.is_empty() => rsx! {},
                         None => rsx! {
                             div { class: "error-msg",
-                                {i18n.t_args("dictionary.particle.not_at_head", &[("name", &current.value)])}
+                                {i18n.t_args("dictionary.particle.not_at_head", &[("name", &new_value)])}
                             }
                         },
                     }
 
-                    if let Some(err) = current.error.clone() {
+                    if let Some(err) = error() {
                         div { class: "error-msg", "{err}" }
                     }
                 }
@@ -568,38 +693,17 @@ fn render_particle_modal(
                 div { class: "modal-actions",
                     button {
                         class: "td-btn",
-                        onclick: move |_| edit.set(None),
+                        onclick: move |_| on_close.call(()),
                         {i18n.t("common.cancel")}
                     }
                     button {
                         class: "td-btn td-btn-primary",
                         disabled: !can_apply,
-                        onclick: move |_| {
-                            let api = api.clone();
-                            let Some(tid) = tree_id else { return };
-                            let Some(mut current) = edit() else { return };
-                            current.saving = true;
-                            current.error = None;
-                            let (value, particle) = (current.value.clone(), current.particle.clone());
-                            edit.set(Some(current));
-                            spawn(async move {
-                                match api.set_family_name_particle(tid, &value, &particle).await {
-                                    Ok(_) => {
-                                        edit.set(None);
-                                        family_names.restart();
-                                    }
-                                    Err(e) => {
-                                        if let Some(mut c) = edit() {
-                                            c.saving = false;
-                                            c.error = Some(e.to_string());
-                                            edit.set(Some(c));
-                                        }
-                                    }
-                                }
-                            });
-                        },
-                        if current.saving {
+                        onclick: apply,
+                        if saving() {
                             {i18n.t("common.saving")}
+                        } else if renaming {
+                            {i18n.t("dictionary.family_name.rename")}
                         } else {
                             {i18n.t("dictionary.particle.apply")}
                         }
@@ -1031,8 +1135,8 @@ fn render_value_tab(
     mut expanded: Signal<Option<UsageKey>>,
     usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
     sort_particles: SortParticles,
-    // `Some` only on the Family Names tab: occupations have no particle to cut.
-    particle_edit: Option<Signal<Option<ParticleEdit>>>,
+    // `Some` only on the Family Names tab: occupations are not edited here.
+    family_name_edit: Option<Signal<Option<FamilyNameEdit>>>,
     filed: Memo<FiledEntries<DictionaryEntry>>,
 ) -> Element {
     let file_by_root = !sort_particles.0;
@@ -1099,10 +1203,10 @@ fn render_value_tab(
                                         span { class: "dict-row-value", "{label}" }
                                     }
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.person_count", entry.count as usize)} }
-                                    if let Some(mut particle_edit) = particle_edit {
+                                    if let Some(mut family_name_edit) = family_name_edit {
                                         button {
                                             class: "dict-row-action",
-                                            title: "{i18n.t(\"dictionary.particle.edit\")}",
+                                            title: "{i18n.t(\"dictionary.family_name.edit\")}",
                                             onclick: {
                                                 let entry = (*entry).clone();
                                                 move |e: Event<MouseData>| {
@@ -1110,7 +1214,7 @@ fn render_value_tab(
                                                     // handler would also toggle the
                                                     // usage accordion underneath.
                                                     e.stop_propagation();
-                                                    particle_edit.set(Some(ParticleEdit::new(&entry)));
+                                                    family_name_edit.set(Some(FamilyNameEdit::new(&entry)));
                                                 }
                                             },
                                             "\u{270E}"
@@ -1525,7 +1629,22 @@ mod tests {
             value: value.to_string(),
             sort_key: sort_key.to_string(),
             count: 1,
+            primary_count: None,
         }
+    }
+
+    #[test]
+    fn the_editor_opens_on_the_names_current_cut_and_primary_carriers() {
+        let mut e = entry("de la Cruz", "la cruz");
+        e.count = 3;
+        e.primary_count = Some(2);
+        let edit = FamilyNameEdit::new(&e);
+        assert_eq!(edit.current_particle, "de");
+        assert_eq!((edit.count, edit.primary_count), (3, 2));
+        // A server that does not report primary carriers: assume all are.
+        let edit = FamilyNameEdit::new(&entry("Thornby", "thornby"));
+        assert_eq!(edit.current_particle, "");
+        assert_eq!(edit.primary_count, 1);
     }
 
     #[test]

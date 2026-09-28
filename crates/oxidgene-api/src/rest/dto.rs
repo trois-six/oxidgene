@@ -873,6 +873,10 @@ pub struct DictionaryEntryDto {
     /// user prefers the other convention re-sorts on this without refetching.
     pub sort_key: String,
     pub count: i64,
+    /// Family names only: how many of `count` carry the value as their
+    /// primary name, i.e. how many a rename would reach.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_count: Option<i64>,
 }
 
 impl From<oxidgene_db::repo::DictionaryValueEntry> for DictionaryEntryDto {
@@ -881,6 +885,7 @@ impl From<oxidgene_db::repo::DictionaryValueEntry> for DictionaryEntryDto {
             value: e.value,
             sort_key: e.sort_key,
             count: e.count,
+            primary_count: e.primary_count,
         }
     }
 }
@@ -917,6 +922,47 @@ impl From<oxidgene_db::repo::FamilyNameParticleUpdate> for FamilyNameParticleUpd
             surname: u.surname,
             names_updated: u.names_updated,
             persons_updated: u.persons_updated,
+        }
+    }
+}
+
+/// Body of the dictionary's family-name rename.
+///
+/// Every person whose primary name carries surname `value` (as listed, matched
+/// exactly) gets `new_value`, stored as sent. `particle` chooses where
+/// `new_value` splits and must be at its head; absent, the split `new_value`
+/// already has in the tree is kept, or detected when it is new.
+#[derive(Debug, Deserialize)]
+pub struct RenameFamilyNameRequest {
+    pub value: String,
+    pub new_value: String,
+    #[serde(default)]
+    pub particle: Option<String>,
+}
+
+/// Outcome of a family-name rename.
+#[derive(Debug, Serialize)]
+pub struct FamilyNameRenameDto {
+    pub value: String,
+    pub new_value: String,
+    pub surname_prefix: Option<String>,
+    pub surname: String,
+    pub names_updated: usize,
+    pub persons_updated: usize,
+    /// `new_value` was already listed: the renamed names joined it.
+    pub merged: bool,
+}
+
+impl From<oxidgene_db::repo::FamilyNameRename> for FamilyNameRenameDto {
+    fn from(r: oxidgene_db::repo::FamilyNameRename) -> Self {
+        Self {
+            value: r.value,
+            new_value: r.new_value,
+            surname_prefix: r.surname_prefix,
+            surname: r.surname,
+            names_updated: r.names_updated,
+            persons_updated: r.persons_updated,
+            merged: r.merged,
         }
     }
 }

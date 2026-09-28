@@ -808,6 +808,9 @@ pub fn entry_details(i18n: &I18n, entry: &AuditEntry) -> Option<String> {
     if let Some(other) = &details.other_label {
         parts.push(i18n.t_args("history.merged_with", &[("name", other)]));
     }
+    if let Some(new_name) = &details.new_label {
+        parts.push(i18n.t_args("history.renamed_to", &[("name", new_name)]));
+    }
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 

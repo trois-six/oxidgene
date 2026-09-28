@@ -27,8 +27,8 @@ use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::types::Note;
 use oxidgene_db::entities::{event, family_spouse, media, place, source, tree};
 use oxidgene_db::repo::{
-    FamilyNameParticleUpdate, HistoryRepo, NewRecordVersion, SnapshotRepo, SnapshotScope, TreeRepo,
-    display_names,
+    FamilyNameParticleUpdate, FamilyNameRename, HistoryRepo, NewRecordVersion, SnapshotRepo,
+    SnapshotScope, TreeRepo, display_names,
 };
 use oxidgene_db::sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect,
@@ -371,6 +371,19 @@ pub fn family_name_change(tree_id: Uuid, update: &FamilyNameParticleUpdate) -> C
         .label(update.value.clone())
         .details(AuditDetails {
             count: Some(update.persons_updated as u64),
+            ..AuditDetails::default()
+        })
+}
+
+/// The change a family-name rename makes: every person renamed, filed under
+/// the old name, with the new one beside it.
+pub fn family_name_rename_change(tree_id: Uuid, rename: &FamilyNameRename) -> Change {
+    Change::new(tree_id, AuditAction::Update, AuditEntity::FamilyName, None)
+        .persons(rename.person_ids.iter().copied())
+        .label(rename.value.clone())
+        .details(AuditDetails {
+            count: Some(rename.persons_updated as u64),
+            new_label: Some(rename.new_value.clone()),
             ..AuditDetails::default()
         })
 }
