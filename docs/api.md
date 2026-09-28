@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T19:55:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:45:00Z }
 ---
 
 
@@ -638,6 +638,24 @@ The response carries:
 
 The rules each figure follows are in [Statistics §7](ui-statistics.md).
 
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/statistics/growth` | How many persons the tree held over the days it was worked on, for the Growth tab ([Statistics §10](ui-statistics.md)). 404 for an unknown tree |
+
+The response is `{ days, imports }`:
+
+- `days`: `[{ date, added, removed }]`, each UTC day (`YYYY-MM-DD`) the
+  number of persons changed, oldest first. `added` counts the persons
+  created, imported or restored that day, `removed` those deleted or merged
+  into another; the running total of `added - removed` is the number of
+  persons at the end of each day, and its last value the tree's persons now.
+  Computed from the persons' creation and deletion times, deleted persons
+  included, and from the person versions of a restore, which clears a
+  deletion time; the history baseline adds nobody.
+- `imports`: `[{ occurred_at, format, file_name, persons }]`, the tree's
+  import entries of the audit log, oldest first (`format: duplicate` for a
+  duplication), with the persons each brought.
+
 `GET /reference/basemap` serves the country outlines the heat map is drawn
 over, with the places it names: `[{iso, name, rings, cities}]`, each ring a
 flat list of longitude and latitude pairs in tenths of a degree, and each
@@ -987,6 +1005,7 @@ type Query {
   dictionarySourceDrill(treeId: ID!, prefix: String): SourceDictionaryDrill!
   dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
   treeStatistics(treeId: ID!, approximate: Boolean, language: String): TreeStatistics!
+  treeGrowth(treeId: ID!): TreeGrowth!
   basemap: [BasemapCountry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!

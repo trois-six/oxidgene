@@ -237,6 +237,46 @@ impl PersonRepo {
         Ok(())
     }
 
+    /// How many of a tree's persons were created at each instant, deleted
+    /// ones included, in no particular order.
+    ///
+    /// Grouped in SQL: an import stamps everyone it brings with the same
+    /// time, so it comes back as one row however many persons it holds.
+    pub async fn count_by_creation(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(chrono::DateTime<Utc>, i64)>, OxidGeneError> {
+        Entity::find()
+            .select_only()
+            .column(Column::CreatedAt)
+            .column_as(Column::Id.count(), "count")
+            .filter(Column::TreeId.eq(tree_id))
+            .group_by(Column::CreatedAt)
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))
+    }
+
+    /// How many of a tree's persons were soft-deleted at each instant (a
+    /// deletion or a merge), in no particular order.
+    pub async fn count_by_deletion(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(chrono::DateTime<Utc>, i64)>, OxidGeneError> {
+        Entity::find()
+            .select_only()
+            .column(Column::DeletedAt)
+            .column_as(Column::Id.count(), "count")
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_not_null())
+            .group_by(Column::DeletedAt)
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))
+    }
+
     /// Every person's portrait in a tree, with enough to draw it.
     ///
     /// `has_thumbnail` says whether we hold rasterised bytes for the media, so

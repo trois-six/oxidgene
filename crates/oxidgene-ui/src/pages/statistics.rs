@@ -1,20 +1,25 @@
 //! Statistics page: an overview of the tree, where its events happened, its
-//! names, demographic charts per period, its records and notable lists.
+//! names, demographic charts per period, its records and notable lists, and
+//! how many persons it held over the days it was worked on.
 //! See `docs/ui-statistics.md`.
 
+use std::collections::BTreeMap;
+
+use chrono::{Datelike, Months, NaiveDate, Utc};
 use dioxus::prelude::*;
 use oxidgene_core::EventType;
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, StatCount, StatDate, StatPerson, StatPersonRef, StatRecord, StatSummary,
-    StatYearCounts, StatYearSum, TreeStatistics,
+    ApiClient, GrowthDay, StatCount, StatDate, StatPerson, StatPersonRef, StatRecord, StatSummary,
+    StatYearCounts, StatYearSum, TreeGrowth, TreeStatistics,
 };
 use crate::components::charts::{
-    BarChart, ChartCard, ChartSeries, DonutChart, HeatMap, LineChart, MapCity, MapFocus, PALETTE,
-    Pyramid, YearRuler, basemap_cities, basemap_paths,
+    BarChart, ChartCard, ChartMarker, ChartSeries, DonutChart, HeatMap, LineChart, MapCity,
+    MapFocus, PALETTE, Pyramid, YearRuler, basemap_cities, basemap_paths,
 };
 use crate::components::date_input::format_date;
+use crate::components::history_diff::format_timestamp;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, Language, use_i18n};
@@ -49,16 +54,18 @@ enum StatsTab {
     Places,
     Names,
     Records,
+    Growth,
 }
 
 impl StatsTab {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Overview,
         Self::Population,
         Self::Families,
         Self::Places,
         Self::Names,
         Self::Records,
+        Self::Growth,
     ];
 
     /// The tab's name in storage and in its label's i18n key.
@@ -70,6 +77,7 @@ impl StatsTab {
             Self::Places => "places",
             Self::Names => "names",
             Self::Records => "records",
+            Self::Growth => "growth",
         }
     }
 
@@ -123,16 +131,31 @@ pub fn Statistics(tree_id: String) -> Element {
     // Unknown until the browser answers, so the statistics are asked once,
     // with the viewer's own choice.
     let mut approximate = use_signal(|| None::<bool>);
+    // Which of the two requests the tabs shown so far need: the Growth tab
+    // has its own, every other tab shares the statistics. Each is asked the
+    // first time a tab needs it, never before.
+    let statistics_wanted = use_signal(|| false);
+    let growth_wanted = use_signal(|| false);
+    let want = move |value: StatsTab| {
+        let mut wanted = if value == StatsTab::Growth {
+            growth_wanted
+        } else {
+            statistics_wanted
+        };
+        if !*wanted.peek() {
+            wanted.set(true);
+        }
+    };
     use_effect(move || {
         let mut interval = interval;
         spawn(async move {
-            if let Some(stored_tab) = stored(TAB_STORAGE_KEY)
+            let stored_tab = stored(TAB_STORAGE_KEY)
                 .await
                 .as_deref()
                 .and_then(StatsTab::parse)
-            {
-                tab.set(stored_tab);
-            }
+                .unwrap_or(StatsTab::Overview);
+            tab.set(stored_tab);
+            want(stored_tab);
             if let Some(value) = stored(INTERVAL_STORAGE_KEY)
                 .await
                 .and_then(|s| s.parse::<i32>().ok())
@@ -146,6 +169,7 @@ pub fn Statistics(tree_id: String) -> Element {
     });
     let mut choose_tab = move |value: StatsTab| {
         tab.set(value);
+        want(value);
         store(TAB_STORAGE_KEY, value.key());
     };
     let mut choose_approximate = move |value: bool| {
@@ -177,7 +201,24 @@ pub fn Statistics(tree_id: String) -> Element {
         let api = api_stats.clone();
         let approximate = approximate();
         let lang = language().code();
-        async move { api.tree_statistics(tid?, approximate?, lang).await.ok() }
+        let wanted = statistics_wanted();
+        async move {
+            if !wanted {
+                return None;
+            }
+            api.tree_statistics(tid?, approximate?, lang).await.ok()
+        }
+    });
+    let api_growth = api.clone();
+    let growth = use_traced_resource(load_trace.clone(), "growth", move || {
+        let api = api_growth.clone();
+        let wanted = growth_wanted();
+        async move {
+            if !wanted {
+                return None;
+            }
+            api.tree_growth(tid?).await.ok()
+        }
     });
     let api_map = api.clone();
     let basemap = use_traced_resource(load_trace, "basemap", move || {
@@ -206,6 +247,8 @@ pub fn Statistics(tree_id: String) -> Element {
         .unwrap_or_default();
     let stats_read = stats.read();
     let stats_value = stats_read.as_ref().and_then(Option::as_ref);
+    let growth_read = growth.read();
+    let growth_value = growth_read.as_ref().and_then(Option::as_ref);
 
     rsx! {
         div { class: "sub-page stats-page",
@@ -283,22 +326,29 @@ pub fn Statistics(tree_id: String) -> Element {
                 }
 
                 div { class: "sub-page-content stats-content",
-                    match stats_value {
-                        None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-                        Some(value) => rsx! {
-                            div { class: "dict-tabs stats-tabs", role: "tablist",
-                                for choice in StatsTab::ALL {
-                                    button {
-                                        key: "{choice.key()}",
-                                        role: "tab",
-                                        "aria-selected": tab() == choice,
-                                        class: if tab() == choice { "dict-tab active" } else { "dict-tab" },
-                                        onclick: move |_| choose_tab(choice),
-                                        {i18n.t(&format!("stats.tab.{}", choice.key()))}
-                                    }
+                    // The tabs show once the viewer's stored tab is known.
+                    if approximate().is_some() {
+                        div { class: "dict-tabs stats-tabs", role: "tablist",
+                            for choice in StatsTab::ALL {
+                                button {
+                                    key: "{choice.key()}",
+                                    role: "tab",
+                                    "aria-selected": tab() == choice,
+                                    class: if tab() == choice { "dict-tab active" } else { "dict-tab" },
+                                    onclick: move |_| choose_tab(choice),
+                                    {i18n.t(&format!("stats.tab.{}", choice.key()))}
                                 }
                             }
-                            match tab() {
+                        }
+                    }
+                    match (tab(), stats_value) {
+                        (StatsTab::Growth, _) => match growth_value {
+                            None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
+                            Some(value) => render_growth(value, Utc::now().date_naive(), &i18n),
+                        },
+                        (_, None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
+                        (current, Some(value)) => rsx! {
+                            match current {
                                 StatsTab::Overview => render_overview(value, &i18n),
                                 StatsTab::Population => rsx! {
                                     PeriodCharts { stats, interval, range, view: PeriodView::Population }
@@ -312,6 +362,7 @@ pub fn Statistics(tree_id: String) -> Element {
                                     {render_extremes(value, &tree_id, &i18n)}
                                     {render_lists(value, &tree_id, list, &i18n)}
                                 },
+                                StatsTab::Growth => rsx! {},
                             }
                         },
                     }
@@ -893,7 +944,11 @@ fn line_card(
             hint: i18n.t(&format!("stats.hint.{key}")),
             empty: no_data(&series),
             i18n,
-            LineChart { periods: periods.to_vec(), series, unit: i18n.t(unit) }
+            LineChart {
+                periods: periods.iter().map(i32::to_string).collect::<Vec<_>>(),
+                series,
+                unit: i18n.t(unit),
+            }
         }
     }
 }
@@ -1139,6 +1194,253 @@ fn render_families(stats: &TreeStatistics, periods: &Periods, i18n: &I18n) -> El
             }
         })}
     }
+}
+
+// ── Growth ──────────────────────────────────────────────────────────────
+
+/// How wide the Growth tab's periods are, chosen from the days the tree
+/// was worked on (`docs/ui-statistics.md` §10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Granularity {
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+impl Granularity {
+    /// Days up to a month, weeks up to half a year, months up to five
+    /// years, years beyond: from a few dozen points to about sixty.
+    fn for_span(days: i64) -> Self {
+        match days {
+            i64::MIN..=31 => Self::Day,
+            32..=182 => Self::Week,
+            183..=1826 => Self::Month,
+            _ => Self::Year,
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Day => "day",
+            Self::Week => "week",
+            Self::Month => "month",
+            Self::Year => "year",
+        }
+    }
+
+    /// The first day of the period holding `date`; weeks start on Monday.
+    fn start(self, date: NaiveDate) -> NaiveDate {
+        match self {
+            Self::Day => date,
+            Self::Week => {
+                date - chrono::Days::new(u64::from(date.weekday().num_days_from_monday()))
+            }
+            Self::Month => date.with_day(1).unwrap_or(date),
+            Self::Year => NaiveDate::from_ymd_opt(date.year(), 1, 1).unwrap_or(date),
+        }
+    }
+
+    /// The first day of the period after the one starting on `start`.
+    fn next(self, start: NaiveDate) -> NaiveDate {
+        let next = match self {
+            Self::Day => start.succ_opt(),
+            Self::Week => start.checked_add_days(chrono::Days::new(7)),
+            Self::Month => start.checked_add_months(Months::new(1)),
+            Self::Year => start.checked_add_months(Months::new(12)),
+        };
+        next.unwrap_or(NaiveDate::MAX)
+    }
+
+    /// A period's x-axis label: its first day and month for days and weeks,
+    /// its month and year, or its year.
+    fn label(self, i18n: &I18n, start: NaiveDate) -> String {
+        let month = || i18n.t(&format!("date.month.{}", start.month()));
+        match self {
+            Self::Day | Self::Week => format!("{} {}", start.day(), month()),
+            Self::Month => format!("{} {}", month(), start.year()),
+            Self::Year => start.year().to_string(),
+        }
+    }
+}
+
+/// One period of the Growth tab: the persons at its end, and those added
+/// and removed during it.
+#[derive(Debug, Clone, PartialEq)]
+struct GrowthPeriod {
+    start: NaiveDate,
+    persons: i64,
+    added: i64,
+    removed: i64,
+}
+
+/// The periods from the first day the person count changed to `today`,
+/// every one of them, those without a change keeping the count; `None`
+/// when no person was ever added.
+fn growth_periods(
+    days: &[GrowthDay],
+    today: NaiveDate,
+) -> Option<(Granularity, Vec<GrowthPeriod>)> {
+    let first = days.first()?.date;
+    let last = days.last().map_or(today, |day| day.date.max(today));
+    let granularity = Granularity::for_span((last - first).num_days());
+    let mut periods = Vec::new();
+    let mut start = granularity.start(first);
+    let (mut persons, mut next_day) = (0, 0);
+    while start <= last {
+        let end = granularity.next(start);
+        let (mut added, mut removed) = (0, 0);
+        while let Some(day) = days.get(next_day).filter(|day| day.date < end) {
+            added += day.added;
+            removed += day.removed;
+            next_day += 1;
+        }
+        persons += added - removed;
+        periods.push(GrowthPeriod {
+            start,
+            persons,
+            added,
+            removed,
+        });
+        start = end;
+    }
+    Some((granularity, periods))
+}
+
+/// The index of the period holding `date`, if the periods cover it.
+fn period_index(
+    periods: &[GrowthPeriod],
+    date: NaiveDate,
+    granularity: Granularity,
+) -> Option<usize> {
+    let index = periods
+        .partition_point(|p| p.start <= date)
+        .checked_sub(1)?;
+    (date < granularity.next(periods[index].start)).then_some(index)
+}
+
+fn render_growth(growth: &TreeGrowth, today: NaiveDate, i18n: &I18n) -> Element {
+    let i18n = *i18n;
+    let Some((granularity, periods)) = growth_periods(&growth.days, today) else {
+        return block(
+            &i18n,
+            "growth",
+            rsx! {
+                p { class: "stats-empty", {i18n.t("stats.growth.empty")} }
+            },
+        );
+    };
+    let labels: Vec<String> = periods
+        .iter()
+        .map(|p| granularity.label(&i18n, p.start))
+        .collect();
+    // One numbered badge per period holding an import; each import is
+    // listed under the chart with its badge's number.
+    let mut by_period: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (k, import) in growth.imports.iter().enumerate() {
+        if let Some(index) = period_index(&periods, import.occurred_at.date_naive(), granularity) {
+            by_period.entry(index).or_default().push(k);
+        }
+    }
+    let import_label = |k: usize| {
+        i18n.t_plural(
+            "stats.growth.import",
+            growth.imports[k].persons.max(0) as usize,
+        )
+    };
+    let mut numbers: BTreeMap<usize, usize> = BTreeMap::new();
+    let markers: Vec<ChartMarker> = by_period
+        .iter()
+        .enumerate()
+        .map(|(n, (index, imports))| {
+            for k in imports {
+                numbers.insert(*k, n + 1);
+            }
+            ChartMarker {
+                index: *index,
+                number: n + 1,
+                label: imports
+                    .iter()
+                    .map(|k| import_label(*k))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            }
+        })
+        .collect();
+    let persons = vec![series(
+        i18n.t("stats.series.persons"),
+        PALETTE[0],
+        periods.iter().map(|p| Some(p.persons as f64)).collect(),
+    )];
+    let changes = vec![
+        series(
+            i18n.t("stats.series.added"),
+            "var(--green)",
+            periods.iter().map(|p| Some(p.added as f64)).collect(),
+        ),
+        series(
+            i18n.t("stats.series.removed"),
+            "var(--red)",
+            periods.iter().map(|p| Some(p.removed as f64)).collect(),
+        ),
+    ];
+    let last_day = growth.days.last().map_or(today, |day| day.date.max(today));
+    let span = i18n.t_args(
+        &format!("stats.growth.per.{}", granularity.key()),
+        &[
+            ("from", &format_day(&i18n, growth.days[0].date)),
+            ("to", &format_day(&i18n, last_day)),
+        ],
+    );
+    let unit = i18n.t("stats.unit.persons");
+    rsx! {
+        {block(&i18n, "growth", rsx! {
+            p { class: "stats-note", "{span}" }
+            div { class: "stats-grid",
+                ChartCard {
+                    title: i18n.t("stats.chart.growth_persons"),
+                    hint: i18n.t("stats.hint.growth_persons"),
+                    empty: false,
+                    i18n,
+                    LineChart { periods: labels.clone(), series: persons, unit: unit.clone(), markers }
+                    if !growth.imports.is_empty() {
+                        ul { class: "stats-markers",
+                            for (k, import) in growth.imports.iter().enumerate() {
+                                li { key: "{k}",
+                                    if let Some(number) = numbers.get(&k) {
+                                        span { class: "stats-markers-number", "{number}" }
+                                    }
+                                    span { {format_timestamp(&i18n, import.occurred_at)} }
+                                    span { "· {import_label(k)}" }
+                                    if let Some(file) = import.file_name.as_ref() {
+                                        span { class: "stats-markers-file", "{file}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ChartCard {
+                    title: i18n.t("stats.chart.growth_changes"),
+                    hint: i18n.t("stats.hint.growth_changes"),
+                    empty: false,
+                    i18n,
+                    LineChart { periods: labels, series: changes, unit }
+                }
+            }
+        })}
+    }
+}
+
+/// A calendar day as the app writes dates: `28 Sep 2026`.
+fn format_day(i18n: &I18n, day: NaiveDate) -> String {
+    format_date(
+        i18n,
+        oxidgene_core::Calendar::Gregorian,
+        oxidgene_core::DateQualifier::Exact,
+        Some(&day.format("%d %b %Y").to_string().to_uppercase()),
+        None,
+    )
 }
 
 // ── Records ─────────────────────────────────────────────────────────────
@@ -1479,5 +1781,96 @@ mod tests {
         assert_eq!(duration(&i18n, 1.0), "1 day");
         assert_eq!(duration(&i18n, 61.0), "2 months");
         assert_eq!(duration(&i18n, 25567.0), "70 years");
+    }
+
+    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    }
+
+    fn change(date: NaiveDate, added: i64, removed: i64) -> GrowthDay {
+        GrowthDay {
+            date,
+            added,
+            removed,
+        }
+    }
+
+    #[test]
+    fn the_growth_granularity_follows_the_span() {
+        assert_eq!(Granularity::for_span(0), Granularity::Day);
+        assert_eq!(Granularity::for_span(31), Granularity::Day);
+        assert_eq!(Granularity::for_span(32), Granularity::Week);
+        assert_eq!(Granularity::for_span(182), Granularity::Week);
+        assert_eq!(Granularity::for_span(183), Granularity::Month);
+        assert_eq!(Granularity::for_span(1826), Granularity::Month);
+        assert_eq!(Granularity::for_span(1827), Granularity::Year);
+        // Weeks start on Monday; months and years on their first day.
+        assert_eq!(Granularity::Week.start(day(2026, 9, 27)), day(2026, 9, 21));
+        assert_eq!(Granularity::Month.next(day(2026, 12, 1)), day(2027, 1, 1));
+        assert_eq!(Granularity::Year.start(day(2026, 9, 27)), day(2026, 1, 1));
+    }
+
+    #[test]
+    fn a_tree_without_persons_has_no_growth() {
+        assert_eq!(growth_periods(&[], day(2026, 9, 28)), None);
+    }
+
+    #[test]
+    fn a_tree_filled_today_is_one_point() {
+        let (granularity, periods) =
+            growth_periods(&[change(day(2026, 9, 28), 1200, 0)], day(2026, 9, 28)).unwrap();
+        assert_eq!(granularity, Granularity::Day);
+        assert_eq!(
+            periods,
+            [GrowthPeriod {
+                start: day(2026, 9, 28),
+                persons: 1200,
+                added: 1200,
+                removed: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn growth_periods_run_to_today_keeping_the_count() {
+        // An import in January, work in March, a deletion in May; seen in
+        // September: eight months, one point each.
+        let days = [
+            change(day(2026, 1, 15), 500, 0),
+            change(day(2026, 3, 2), 3, 0),
+            change(day(2026, 3, 20), 2, 1),
+            change(day(2026, 5, 9), 0, 4),
+        ];
+        let (granularity, periods) = growth_periods(&days, day(2026, 9, 28)).unwrap();
+        assert_eq!(granularity, Granularity::Month);
+        let counts: Vec<(i64, i64, i64)> = periods
+            .iter()
+            .map(|p| (p.persons, p.added, p.removed))
+            .collect();
+        assert_eq!(
+            counts,
+            [
+                (500, 500, 0),
+                (500, 0, 0),
+                (504, 5, 1),
+                (504, 0, 0),
+                (500, 0, 4),
+                (500, 0, 0),
+                (500, 0, 0),
+                (500, 0, 0),
+                (500, 0, 0),
+            ]
+        );
+        assert_eq!(periods[0].start, day(2026, 1, 1));
+        let i18n = I18n(Language::En);
+        assert_eq!(granularity.label(&i18n, periods[2].start), "Mar 2026");
+        assert_eq!(Granularity::Day.label(&i18n, day(2026, 3, 2)), "2 Mar");
+        // An import is marked in the period that holds it.
+        assert_eq!(
+            period_index(&periods, day(2026, 3, 31), granularity),
+            Some(2)
+        );
+        assert_eq!(period_index(&periods, day(2025, 12, 31), granularity), None);
+        assert_eq!(period_index(&periods, day(2026, 10, 1), granularity), None);
     }
 }

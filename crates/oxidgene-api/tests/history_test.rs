@@ -772,3 +772,152 @@ async fn recently_modified_persons_follow_the_history() {
     let (_, json) = send(&app, Method::POST, "/graphql", Some(body)).await;
     assert!(json.get("errors").is_some(), "{json}");
 }
+
+/// The totals of a growth response: persons added, persons removed, and its
+/// imports as `(format, persons)`.
+fn growth_totals(growth: &Value) -> (i64, i64, Vec<(String, i64)>) {
+    let days = growth["days"].as_array().unwrap();
+    let sum = |field: &str| -> i64 { days.iter().map(|d| d[field].as_i64().unwrap()).sum() };
+    let imports = growth["imports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| {
+            (
+                i["format"].as_str().unwrap().to_string(),
+                i["persons"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    (sum("added"), sum("removed"), imports)
+}
+
+/// The Growth tab's data: persons created, imported, deleted, merged and
+/// restored, filed by day, with the imports to mark — over REST and GraphQL
+/// alike. A baseline creates nobody.
+#[tokio::test]
+async fn growth_counts_the_persons_over_time() {
+    let (db, app) = setup().await;
+    let tree = create_tree(&app).await;
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
+                  0 @I1@ INDI\n1 NAME Iota /Fixture/\n1 SEX F\n\
+                  0 @I2@ INDI\n1 NAME Kappa /Fixture/\n1 SEX M\n\
+                  0 @I3@ INDI\n1 NAME Lambda /Fixture/\n1 SEX M\n0 TRLR\n";
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/gedcom/import"),
+        Some(json!({ "gedcom": gedcom })),
+    )
+    .await;
+    // Three by hand: one merged into another, one deleted then restored.
+    let kept = create_person(&app, &tree, "Nu", "Fixture").await;
+    let duplicate = create_person(&app, &tree, "Nu", "Fixture").await;
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/persons/{kept}/merge"),
+        Some(json!({ "duplicate_id": duplicate })),
+    )
+    .await;
+    let restored = create_person(&app, &tree, "Pi", "Fixture").await;
+    let before = versions(&app, &tree, "person", &restored).await[0]["version"].clone();
+    ok(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree}/persons/{restored}"),
+        None,
+    )
+    .await;
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/history/person/{restored}/revert"),
+        Some(json!({ "version": before })),
+    )
+    .await;
+
+    let rest = ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/statistics/growth"),
+        None,
+    )
+    .await;
+    // Added: three imported, three created, one restored. Removed: the
+    // merged duplicate and the deletion the restore undid. Five remain.
+    assert_eq!(
+        growth_totals(&rest),
+        (7, 2, vec![("gedcom".to_string(), 3)])
+    );
+    // Days are dates, oldest first.
+    let dates: Vec<&str> = rest["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["date"].as_str().unwrap())
+        .collect();
+    assert!(dates.windows(2).all(|w| w[0] < w[1]), "{dates:?}");
+    assert_eq!(dates[0].len(), "2026-01-01".len());
+
+    let data = graphql(
+        &app,
+        "query($t: ID!) {
+            treeGrowth(treeId: $t) {
+                days { date added removed }
+                imports { occurredAt format fileName persons }
+            }
+        }",
+        json!({ "t": tree }),
+    )
+    .await;
+    let growth = &data["treeGrowth"];
+    assert_eq!(growth_totals(growth), growth_totals(&rest));
+    assert_eq!(growth["days"], rest["days"]);
+
+    // Data from before history: the baseline versions the person without
+    // counting them twice or marking an import.
+    let legacy = Uuid::now_v7();
+    TreeRepo::create(&db, legacy, "Legacy Fixture".into(), None)
+        .await
+        .unwrap();
+    PersonRepo::create(&db, Uuid::now_v7(), legacy, oxidgene_core::Sex::Male)
+        .await
+        .unwrap();
+    record_baselines(&db).await.unwrap();
+    let rest = ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{legacy}/statistics/growth"),
+        None,
+    )
+    .await;
+    assert_eq!(growth_totals(&rest), (1, 0, Vec::new()));
+
+    // An empty tree has no day; an unknown one is not found, on both
+    // surfaces.
+    let empty = create_tree(&app).await;
+    let rest = ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{empty}/statistics/growth"),
+        None,
+    )
+    .await;
+    assert_eq!(rest, json!({ "days": [], "imports": [] }));
+    let missing = Uuid::now_v7();
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{missing}/statistics/growth"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let body = json!({
+        "query": "query($t: ID!) { treeGrowth(treeId: $t) { days { date } } }",
+        "variables": { "t": missing.to_string() },
+    });
+    let (_, json) = send(&app, Method::POST, "/graphql", Some(body)).await;
+    assert!(json.get("errors").is_some(), "{json}");
+}

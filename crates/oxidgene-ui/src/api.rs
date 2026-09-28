@@ -216,6 +216,36 @@ pub struct PlaceSuggestion {
     pub longitude: Option<f64>,
 }
 
+/// How many persons a tree held over the days it was worked on
+/// (`docs/ui-statistics.md` §10): each day (UTC) the count changed, oldest
+/// first, and the imports to mark.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TreeGrowth {
+    pub days: Vec<GrowthDay>,
+    pub imports: Vec<GrowthImport>,
+}
+
+/// One day's changes to the number of persons.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GrowthDay {
+    pub date: chrono::NaiveDate,
+    /// Persons created, imported or restored that day.
+    pub added: i64,
+    /// Persons deleted or merged into another that day.
+    pub removed: i64,
+}
+
+/// A completed import.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GrowthImport {
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    pub persons: i64,
+}
+
 /// A tree's statistics (`docs/ui-statistics.md`), as the backend computes
 /// them. Time series are filed by year, oldest first; the page groups them
 /// into periods.
@@ -4471,6 +4501,12 @@ impl ApiClient {
             ],
         )
         .await
+    }
+
+    /// How many persons a tree held over the days it was worked on.
+    pub async fn tree_growth(&self, tree_id: Uuid) -> Result<TreeGrowth, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/statistics/growth"))
+            .await
     }
 
     /// The country outlines the statistics heat map is drawn over.

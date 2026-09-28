@@ -6340,6 +6340,55 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .stats-point { cursor: pointer; }
 
+    /* A marked moment of a line chart (an import): a dashed line under a
+       numbered badge, drawn like the map's numbered markers. */
+    .stats-marker {
+        stroke: var(--text-muted);
+        stroke-width: 1;
+        stroke-dasharray: 3 3;
+    }
+
+    .stats-marker-badge { cursor: pointer; }
+
+    .stats-marker-badge circle {
+        fill: var(--bg-card);
+        stroke: var(--text-primary);
+        stroke-width: 1;
+    }
+
+    .stats-marker-text {
+        fill: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 9px;
+        font-weight: 700;
+        dominant-baseline: central;
+    }
+
+    .stats-markers {
+        list-style: none;
+        margin: 4px 0 0;
+        padding: 0;
+        display: grid;
+        gap: 3px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .stats-markers li {
+        display: flex;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .stats-markers-number { font-weight: 700; color: var(--text-primary); flex-shrink: 0; }
+
+    .stats-markers-file {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-muted);
+    }
+
     .stats-hover {
         min-height: 1.2em;
         margin: 2px 0 4px;
@@ -6527,6 +6576,8 @@ pub const LAYOUT_STYLES: &str = r#"
         /* A chart is drawn at about half its size here: its axis text is
            drawn larger to stay legible, with half the labels to keep room. */
         .stats-axis { font-size: 15px; }
+        .stats-marker-badge circle { r: 10px; }
+        .stats-marker-text { font-size: 13px; }
         .stats-axis-alt,
         .stats-ruler-label-alt { display: none; }
         .stats-donut { flex-direction: column; align-items: stretch; }

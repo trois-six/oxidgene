@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use super::error::ApiError;
 use super::state::AppState;
+use crate::service::statistics::growth::TreeGrowth;
 use crate::service::statistics::{self, TreeStatistics};
 
 #[derive(Debug, Deserialize)]
@@ -27,6 +28,17 @@ pub async fn statistics(
 ) -> Result<Json<TreeStatistics>, ApiError> {
     let lang = statistics::language(query.lang.as_deref()).map_err(ApiError)?;
     statistics::load(&state.db, &state.profiles, tree_id, query.approximate, lang)
+        .await
+        .map(Json)
+        .map_err(ApiError)
+}
+
+/// GET /api/v1/trees/:tree_id/statistics/growth
+pub async fn growth(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<TreeGrowth>, ApiError> {
+    statistics::growth::load(&state.db, tree_id)
         .await
         .map(Json)
         .map_err(ApiError)

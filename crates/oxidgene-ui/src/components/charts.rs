@@ -114,6 +114,16 @@ pub struct ChartSeries {
     pub values: Vec<Option<f64>>,
 }
 
+/// A labelled moment of a [`LineChart`]: a dashed line across the chart at
+/// a period, with a numbered badge on top.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChartMarker {
+    pub index: usize,
+    pub number: usize,
+    /// What the badge stands for, shown on hover.
+    pub label: String,
+}
+
 const WIDTH: f64 = 520.0;
 const HEIGHT: f64 = 240.0;
 const LEFT: f64 = 46.0;
@@ -122,10 +132,17 @@ const TOP: f64 = 12.0;
 const BOTTOM: f64 = 26.0;
 
 /// Values over periods, one line per series, gaps where a period has none.
-/// `unit` follows each value on the axis and in the hover label.
+/// `periods` label the x-axis; `unit` follows each value on the axis and in
+/// the hover label; `markers` flag moments at some periods.
 #[component]
-pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> Element {
+pub fn LineChart(
+    periods: Vec<String>,
+    series: Vec<ChartSeries>,
+    unit: String,
+    #[props(default)] markers: Vec<ChartMarker>,
+) -> Element {
     let mut hovered = use_signal(|| None::<(usize, usize)>);
+    let mut hovered_marker = use_signal(|| None::<usize>);
     let max = series
         .iter()
         .flat_map(|s| s.values.iter().flatten())
@@ -141,7 +158,14 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
             LEFT + (WIDTH - LEFT - RIGHT) * i as f64 / (count - 1) as f64
         }
     };
-    let y = |v: f64| TOP + (HEIGHT - TOP - BOTTOM) * (1.0 - v / top);
+    // Marker badges sit in a band of their own above the plot, clear of
+    // the value axis labels.
+    let plot_top = if markers.is_empty() {
+        TOP
+    } else {
+        TOP + MARKER_BAND
+    };
+    let y = |v: f64| plot_top + (HEIGHT - plot_top - BOTTOM) * (1.0 - v / top);
     let label_every = (count / 8).max(1);
     let filled = series.len() <= FILLED_SERIES;
     // Each series as its runs of consecutive values: a period without a
@@ -184,15 +208,24 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
             (stroke, area, s.color)
         })
         .collect();
-    let hover_text = hovered().and_then(|(s, i)| {
-        let value = series.get(s)?.values.get(i).copied().flatten()?;
-        Some(format!(
-            "{} · {}: {} {}",
-            periods.get(i)?,
-            series[s].label,
-            format_value(value),
-            unit
-        ))
+    let marker_text = hovered_marker().and_then(|k| markers.get(k)).map(|marker| {
+        format!(
+            "{} · {}",
+            periods.get(marker.index).cloned().unwrap_or_default(),
+            marker.label
+        )
+    });
+    let hover_text = marker_text.or_else(|| {
+        hovered().and_then(|(s, i)| {
+            let value = series.get(s)?.values.get(i).copied().flatten()?;
+            Some(format!(
+                "{} · {}: {} {}",
+                periods.get(i)?,
+                series[s].label,
+                format_value(value),
+                unit
+            ))
+        })
     });
     rsx! {
         div { class: "stats-lines",
@@ -200,7 +233,10 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
                 "viewBox": "0 0 {WIDTH} {HEIGHT}",
                 class: "stats-lines-svg",
                 role: "img",
-                onmouseleave: move |_| hovered.set(None),
+                onmouseleave: move |_| {
+                    hovered.set(None);
+                    hovered_marker.set(None);
+                },
                 for (k, tick) in ticks.iter().enumerate() {
                     g { key: "t{k}",
                         line {
@@ -234,8 +270,38 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
                         path { key: "a{s}", class: "stats-area", d: "{area}", style: "fill: {color}" }
                     }
                 }
+                for (k, marker) in markers.iter().enumerate() {
+                    line {
+                        key: "m{k}",
+                        class: "stats-marker",
+                        x1: "{x(marker.index)}",
+                        x2: "{x(marker.index)}",
+                        y1: "{TOP + MARKER_RADIUS}",
+                        y2: "{HEIGHT - BOTTOM}",
+                    }
+                }
                 for (s, (d, _, color)) in lines.iter().enumerate() {
                     path { key: "l{s}", class: "stats-line", d: "{d}", style: "stroke: {color}" }
+                }
+                for (k, marker) in markers.iter().enumerate() {
+                    g {
+                        key: "b{k}",
+                        class: "stats-marker-badge",
+                        onmouseenter: move |_| hovered_marker.set(Some(k)),
+                        onmouseleave: move |_| hovered_marker.set(None),
+                        circle {
+                            cx: "{x(marker.index)}",
+                            cy: "{TOP}",
+                            r: "{MARKER_RADIUS}",
+                        }
+                        text {
+                            class: "stats-marker-text",
+                            x: "{x(marker.index)}",
+                            y: "{TOP}",
+                            "text-anchor": "middle",
+                            "{marker.number}"
+                        }
+                    }
                 }
                 for (s, line) in series.iter().enumerate() {
                     for (i, value) in line.values.iter().enumerate() {
@@ -268,6 +334,11 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
         }
     }
 }
+
+/// The radius of a [`ChartMarker`]'s badge, in chart units.
+const MARKER_RADIUS: f64 = 7.0;
+/// The height of the band above the plot that holds the marker badges.
+const MARKER_BAND: f64 = 20.0;
 
 /// Charts with at most this many series are filled under their curves;
 /// more would only cover one another.

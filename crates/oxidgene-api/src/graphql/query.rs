@@ -759,6 +759,20 @@ impl QueryRoot {
         .await?)
     }
 
+    /// How many persons a tree held over the days it was worked on, day by
+    /// day, with its imports.
+    async fn tree_growth(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<crate::service::statistics::growth::TreeGrowth> {
+        Ok(crate::service::statistics::growth::load(
+            db_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+        )
+        .await?)
+    }
+
     /// Places with their event and media usage count.
     async fn dictionary_places(
         &self,

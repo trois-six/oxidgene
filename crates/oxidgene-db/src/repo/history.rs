@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
-    AuditAction, AuditCategory, AuditDetails, AuditEntry, RecordLabel, RecordSnapshot, RecordType,
-    RecordVersion, VersionChange,
+    AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, RecordLabel, RecordSnapshot,
+    RecordType, RecordVersion, VersionChange,
 };
 use oxidgene_core::types::{Connection, Edge, PageInfo};
 use sea_orm::entity::prelude::*;
@@ -222,6 +222,90 @@ impl HistoryRepo {
             .await
             .map_err(db_err)?;
         Ok(found.is_some())
+    }
+
+    /// When each of a tree's completed imports happened, with its details
+    /// (format, file name, persons brought), oldest first. A duplication is
+    /// the new tree's import.
+    pub async fn imports(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(chrono::DateTime<chrono::Utc>, AuditDetails)>, OxidGeneError> {
+        let rows: Vec<(chrono::DateTime<chrono::Utc>, Option<String>)> =
+            audit_entry::Entity::find()
+                .select_only()
+                .column(audit_entry::Column::OccurredAt)
+                .column(audit_entry::Column::Details)
+                .filter(audit_entry::Column::TreeId.eq(tree_id))
+                .filter(audit_entry::Column::Category.eq(AuditCategory::Import.as_str()))
+                .filter(audit_entry::Column::Action.eq(AuditAction::Import.as_str()))
+                .order_by(audit_entry::Column::Id, Order::Asc)
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)?;
+        rows.into_iter()
+            .map(|(occurred_at, details)| {
+                let details = match details.as_deref() {
+                    Some(json) => serde_json::from_str(json)
+                        .map_err(|e| OxidGeneError::Internal(e.to_string()))?,
+                    None => AuditDetails::default(),
+                };
+                Ok((occurred_at, details))
+            })
+            .collect()
+    }
+
+    /// The spells a tree's persons spent deleted before a restore brought
+    /// them back, as `(deleted, restored)` times.
+    ///
+    /// A restore clears `person.deleted_at`, so the person table alone would
+    /// read as if a restored person had never been deleted. Only a person
+    /// restore can bring a deleted person back, so the read starts from the
+    /// tree's `revert` entries on persons — few — and reads those persons'
+    /// version flags and times, never their snapshots: each deleted version
+    /// followed by a live one is such a spell.
+    pub async fn person_restores(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>, OxidGeneError>
+    {
+        let mut restored: Vec<Uuid> = audit_entry::Entity::find()
+            .select_only()
+            .column(audit_entry::Column::EntityId)
+            .filter(audit_entry::Column::TreeId.eq(tree_id))
+            .filter(audit_entry::Column::Category.eq(AuditCategory::History.as_str()))
+            .filter(audit_entry::Column::Action.eq(AuditAction::Revert.as_str()))
+            .filter(audit_entry::Column::Entity.eq(AuditEntity::Person.as_str()))
+            .filter(audit_entry::Column::EntityId.is_not_null())
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        restored.sort();
+        restored.dedup();
+        let mut rows: Vec<(Uuid, i32, bool, chrono::DateTime<chrono::Utc>)> =
+            in_chunks(&restored, |chunk| async move {
+                record_version::Entity::find()
+                    .select_only()
+                    .column(record_version::Column::RecordId)
+                    .column(record_version::Column::Version)
+                    .column(record_version::Column::Deleted)
+                    .column(record_version::Column::CreatedAt)
+                    .filter(record_version::Column::RecordType.eq(RecordType::Person.as_str()))
+                    .filter(record_version::Column::RecordId.is_in(chunk))
+                    .into_tuple()
+                    .all(db)
+                    .await
+                    .map_err(db_err)
+            })
+            .await?;
+        rows.sort_by_key(|(record_id, version, _, _)| (*record_id, *version));
+        Ok(rows
+            .windows(2)
+            .filter(|pair| pair[0].0 == pair[1].0 && pair[0].2 && !pair[1].2)
+            .map(|pair| (pair[0].3, pair[1].3))
+            .collect())
     }
 
     /// One audit entry of a tree.

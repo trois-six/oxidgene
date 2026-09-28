@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:16:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:45:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -93,8 +93,8 @@ Remaining:
 
 The [Statistics](ui-statistics.md) page (key figures, heat map of places
 over an offline basemap with births by area, names, charts per period under
-a year ruler, records, notable lists, optional approximate dates) is
-delivered. Remaining:
+a year ruler, records, notable lists, optional approximate dates, and the
+growth of the tree over the days it was worked on) is delivered. Remaining:
 
 - [ ] PDF export of the statistics ([General §3.9](general.md)).
 - [ ] Try the heat map and the charts on large trees (tens of thousands of

@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
-description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
+description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:46:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:45:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -19,7 +19,9 @@ The Statistics page (`/trees/{id}/statistics`) shows what a tree says as a
 whole: how complete it is, where its people lived, how they were named, what
 they did, how long they lived, when they married and how many children they
 had, century after century, and the records worth a look (the extremes of
-the tree, the latest events, the longest lives, the largest families).
+the tree, the latest events, the longest lives, the largest families). It
+also shows how the tree itself grew: how many persons it held on each day
+it was worked on.
 
 It is reached from the **chart icon** of the shared left icon sidebar
 (`TreeIconSidebar`), between the Book/index and Gear buttons, so it opens the
@@ -27,12 +29,15 @@ same way from the pedigree canvas and from a person or couple profile. Like
 the [Dictionary](ui-dictionary.md), it uses the `sub-page` layout with no
 sidebar of its own, and it is read-only.
 
-Everything is computed by the backend from the tree's person projections and
-place usages on each visit ([API](api.md)); nothing is stored. The page asks
-once per visit: the time series come filed by year, and the page itself
-groups them into periods, so changing the interval or the years shown needs
-no new request. Only switching approximate dates on or off, or the interface
-language (which names the countries), asks again.
+Everything is computed by the backend on each visit ([API](api.md));
+nothing is stored. Two requests feed the tabs, each asked the first time a
+tab shown needs it: the statistics, from the tree's person projections and
+place usages, for every tab but Growth, and the growth (§10) for the Growth
+tab alone. The statistics are asked once per visit: the time series come
+filed by year, and the page itself groups them into periods, so changing the
+interval or the years shown needs no new request. Only switching approximate
+dates on or off, or the interface language (which names the countries),
+asks again.
 
 ## 2. Layout
 
@@ -40,7 +45,7 @@ language (which names the countries), asks again.
 +----------------------------------------------------------------------+
 | [logo] tree / Statistics                        [x] Approximate dates |
 +----------------------------------------------------------------------+
-| Overview | Population | Families | Places | Names and occ. | Records |
+| Overview | Population | Families | Places | Names | Records | Growth |
 +----------------------------------------------------------------------+
 |  (Population and Families tabs only)                                  |
 |  Years 1600–2026 |--750--[=====1600=====1800====]--| Interval [25 v] [All] |
@@ -63,6 +68,7 @@ titled blocks:
 | Places | Map of the places (§4.1, §4.2), Births by area (§4.3) |
 | Names and occupations | Family names and occupations; Given names (§5) |
 | Records and lists | Records (§8), Notable records (§9) |
+| Growth | Persons over time: the persons in the tree, and those added and removed, per period of calendar time (§10) |
 
 The tab shown is kept per viewer in local storage; the first visit opens
 the Overview. Charts sit two per row on wide screens and one per row below
@@ -72,8 +78,9 @@ At phone width (640px and below) the page stays within the screen: the tabs
 scroll sideways instead of shrinking, the counts sit two per row, a donut's
 legend goes under its ring, and the period bar puts the years and the
 "all years" button on one line, the interval on the next, then the ruler.
-Charts are drawn at about half their size there, so their axis text is drawn
-larger and the charts and the ruler label every other period only. A legend
+Charts are drawn at about half their size there, so their axis text and
+marker badges (§10) are drawn larger and the charts and the ruler label
+every other period only. A legend
 truncates a long value rather than push its count out of the card.
 
 The **approximate dates** box, in the topbar, lets ages and averages also
@@ -215,8 +222,10 @@ monotone curves, which never overshoot their points, and a chart of at most
 four series is filled beneath them. Their value axis runs from
 zero in at most four round steps (1, 2, 2.5 or 5 times a power of ten), and
 a chart with a single line has no legend: its title names it. Series colors come from the
-theme (men and women use the pedigree's male and female colors; months and
-weekdays the chart palette).
+theme (men and women use the pedigree's male and female colors; persons
+added and removed the theme's green and red; months and weekdays the chart
+palette). A chart with markers (§10) keeps a band above its plot for their
+numbered badges.
 
 ## 7. Rules
 
@@ -293,7 +302,50 @@ profile), the date and the place:
 - **Largest families**: the unions with the most children, with both
   spouses, the union date and the number of children.
 
-## 10. States
+## 10. Growth
+
+The Growth tab follows the tree itself rather than its ancestors: how many
+persons it held over the calendar days it was worked on, from the day the
+first person was added to today.
+
+| Chart | Kind |
+|-------|------|
+| Persons in the tree at the end of each period, imports marked | Line |
+| Persons added (created, imported or restored) and removed (deleted or merged into another) per period | Lines (2) |
+
+- **Source.** The person table, not the change history: every person keeps
+  the time it was created, and a deletion or a merge only stamps the time
+  it was deleted ([soft deletion](data-model.md)), so the count at any
+  instant is exact, deleted persons included, for trees older than the
+  change history as well. An import stamps everyone it brings with one
+  time, so it is one step of the curve on the import's day; a tree
+  duplication is the new tree's import. The history baseline
+  ([Data Model §5.2](data-model.md)) only versions the persons a tree
+  already held and adds nobody.
+- **Restores.** Restoring a deleted person clears their deletion time, so
+  the spell they spent deleted is read back from their versions: the
+  deleted version and the restore that followed it count as a removal and
+  an addition on their days.
+- **Days** are UTC days; a period holds the days from its first to the day
+  before the next one's.
+- **Granularity** follows the span from the first day to today: one point
+  per day up to 31 days, per week (from Monday) up to 182 days, per month
+  up to five years (1,826 days), and per year beyond, so a chart has from
+  one to about sixty points. A note above the charts names it with the
+  first day and today. Every period is drawn, those without a change
+  keeping the count, and the axis labels a day or a week by its first day
+  and month, a month by its month and year, a year by itself.
+- **Imports** recorded in the [audit log](data-model.md) are marked on the
+  persons chart: a dashed line at the period holding the import under a
+  numbered badge, which names on hover the persons each import brought.
+  Under the chart, the imports are listed with their badge number, time,
+  persons and file name (or source tree name). An import made before the
+  change history existed has no entry, so no marker, but still its step.
+- A tree created and filled today is a single point; a tree without any
+  person, ever, shows "No person has been added to this tree yet" instead
+  of the charts.
+
+## 11. States
 
 - While loading, the charts show the shared loading placeholder.
 - A chart without any data shows "Not enough dated records" instead of an
@@ -301,7 +353,7 @@ profile), the date and the place:
 - A tree without any located place shows the map empty with the reason.
 - A tree without any record shows no Records section.
 
-## 11. i18n and accessibility
+## 12. i18n and accessibility
 
 Every title, hint, legend, axis label, month and weekday name goes through
 i18n in every interface language. Charts carry an accessible title and a

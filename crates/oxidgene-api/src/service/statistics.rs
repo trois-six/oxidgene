@@ -10,6 +10,7 @@
 //! them into periods of any width over any range of years without asking
 //! again.
 
+pub mod growth;
 mod records;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
