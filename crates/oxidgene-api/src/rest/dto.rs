@@ -136,6 +136,14 @@ pub struct PersonSearchQuery {
     pub sort: oxidgene_db::repo::PersonSearchSort,
 }
 
+/// Query parameters for GET /api/v1/trees/:tree_id/persons/recently-modified.
+#[derive(Debug, Deserialize)]
+pub struct RecentlyModifiedQuery {
+    /// Maximum persons to return (default and ceiling: see
+    /// [`crate::service::history::RECENT_PERSONS_DEFAULT_LIMIT`]).
+    pub limit: Option<usize>,
+}
+
 /// Response for GET /api/v1/trees/:tree_id/persons/:person_id.
 /// Wraps the core `Person` with the server-computed SOSA number.
 #[derive(Debug, Serialize)]

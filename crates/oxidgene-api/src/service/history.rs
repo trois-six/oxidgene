@@ -23,10 +23,11 @@ use oxidgene_core::history::{
     AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, AuditSubject,
     RecordSnapshot, RecordType,
 };
+use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::types::Note;
 use oxidgene_db::entities::{event, family_spouse, media, place, source, tree};
 use oxidgene_db::repo::{
-    FamilyNameParticleUpdate, HistoryRepo, NewRecordVersion, SnapshotRepo, SnapshotScope,
+    FamilyNameParticleUpdate, HistoryRepo, NewRecordVersion, SnapshotRepo, SnapshotScope, TreeRepo,
     display_names,
 };
 use oxidgene_db::sea_orm::{
@@ -553,6 +554,34 @@ pub async fn record_baselines_at_startup(db: &DatabaseConnection) {
             "Failed to record the history baseline"
         );
     }
+}
+
+/// How many recently modified persons a read returns when not told.
+pub const RECENT_PERSONS_DEFAULT_LIMIT: usize = 5;
+
+/// The most recently modified persons a single read may return.
+pub const RECENT_PERSONS_MAX_LIMIT: usize = 50;
+
+/// The persons of a tree modified most recently, newest first, as search rows.
+///
+/// "Modified" is what the history says: a person is modified when a write
+/// stored a new version of them. Imports and baselines are left out, and so
+/// are persons deleted since; see [`HistoryRepo::recently_modified_persons`].
+/// `limit` is capped at [`RECENT_PERSONS_MAX_LIMIT`].
+pub async fn recently_modified_persons(
+    db: &impl ConnectionTrait,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    limit: usize,
+) -> Result<Vec<SearchEntry>, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    let person_ids = HistoryRepo::recently_modified_persons(
+        db,
+        tree_id,
+        limit.min(RECENT_PERSONS_MAX_LIMIT) as u64,
+    )
+    .await?;
+    profiles.search_entries(tree_id, &person_ids).await
 }
 
 /// Put a record back as one of its versions had it.

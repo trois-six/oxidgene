@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
-    AuditCategory, AuditDetails, AuditEntry, RecordLabel, RecordSnapshot, RecordType,
+    AuditAction, AuditCategory, AuditDetails, AuditEntry, RecordLabel, RecordSnapshot, RecordType,
     RecordVersion, VersionChange,
 };
 use oxidgene_core::types::{Connection, Edge, PageInfo};
@@ -159,6 +159,53 @@ impl HistoryRepo {
                 ))
             })
             .collect()
+    }
+
+    /// The persons of a tree whose record changed most recently, newest first.
+    ///
+    /// A person counts as modified when a write stored a new version of them
+    /// — which a change to their names, events, notes, citations or unions
+    /// does, and which renaming a relative or touching a media does not. The
+    /// versions an import or a baseline stores are left out: they record
+    /// every person at once, so the latest of them would name arbitrary
+    /// persons rather than the ones somebody worked on. Persons deleted since
+    /// are left out too.
+    ///
+    /// Driven from the tree's audit entries, so a large import's versions are
+    /// never read: they hang off an entry the action filter has already
+    /// discarded. The live-person lookup is also what keeps only person
+    /// versions — IDs are unique across tables. Filtering on `record_type`
+    /// instead would hand SQLite the `(record_type, record_id)` index, and
+    /// with it every person version of every tree, imports included.
+    pub async fn recently_modified_persons(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        limit: u64,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        record_version::Entity::find()
+            .select_only()
+            .column(record_version::Column::RecordId)
+            .inner_join(audit_entry::Entity)
+            .filter(audit_entry::Column::TreeId.eq(tree_id))
+            .filter(
+                audit_entry::Column::Action
+                    .is_not_in([AuditAction::Import.as_str(), AuditAction::Baseline.as_str()]),
+            )
+            .filter(Expr::cust(
+                "EXISTS (SELECT 1 FROM person \
+                 WHERE person.id = record_version.record_id \
+                 AND person.deleted_at IS NULL)",
+            ))
+            .group_by(record_version::Column::RecordId)
+            // A version's `created_at` is its entry's `occurred_at`. Persons
+            // one write versioned together tie on it; the newest record wins.
+            .order_by(record_version::Column::CreatedAt.max(), Order::Desc)
+            .order_by(record_version::Column::RecordId, Order::Desc)
+            .limit(limit)
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)
     }
 
     /// Whether anything was ever recorded for the tree.

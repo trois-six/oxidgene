@@ -146,6 +146,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("home.import_in_progress", "Importazione in corso"),
         ("home.badge_recent", "Recente"),
         ("home.tree_actions", "Azioni sull'albero"),
+        ("home.recent_persons", "Persone modificate di recente"),
+        ("home.no_recent_persons", "Nessuna persona modificata finora"),
         ("home.modified_today", "Modificato oggi"),
         ("home.modified_1day", "Modificato 1 giorno fa"),
         ("home.modified_days", "Modificato {count} giorni fa"),

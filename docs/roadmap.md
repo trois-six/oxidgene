@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T19:55:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -34,7 +34,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Post-MVP | [Architecture](architecture.md), [API](api.md) |
 | I | Assistant access through MCP | First delivery complete; later phases planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
-| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; entries record no author until EPIC G | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#11-section-history) |
+| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; home tree cards list the persons modified most recently; entries record no author until EPIC G | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#11-section-history), [Homepage](ui-home.md) |
 
 ## 3. Active: media completion
 

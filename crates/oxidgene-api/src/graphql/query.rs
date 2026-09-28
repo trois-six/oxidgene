@@ -1627,6 +1627,23 @@ impl QueryRoot {
         Ok(homonyms.into_iter().map(Into::into).collect())
     }
 
+    /// The persons of the tree modified most recently, newest first.
+    /// Mirrors `GET /trees/{treeId}/persons/recently-modified`.
+    async fn recently_modified_persons(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        #[graphql(default_with = "crate::service::history::RECENT_PERSONS_DEFAULT_LIMIT")]
+        limit: usize,
+    ) -> Result<Vec<GqlSearchEntry>> {
+        let db = db_from_ctx(ctx);
+        let profiles = profiles_from_ctx(ctx);
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        let persons =
+            crate::service::history::recently_modified_persons(db, profiles, tid, limit).await?;
+        Ok(persons.into_iter().map(Into::into).collect())
+    }
+
     /// Every way found to go from a person to another: their blood
     /// relationships, or the shortest paths through unions when they share
     /// no ancestor.

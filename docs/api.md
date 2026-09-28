@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-526-09-28T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T19:55:00Z }
 ---
 
 
@@ -151,6 +151,7 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 | `GET` | `/trees/{tree_id}/persons` | List persons (cursor-paginated, filterable) |
 | `POST` | `/trees/{tree_id}/persons` | Create a person |
 | `GET` | `/trees/{tree_id}/persons/search` | Server-side person search with structured filters, sorting, and offset pagination (see below) |
+| `GET` | `/trees/{tree_id}/persons/recently-modified?limit=` | The persons modified most recently, newest first, as `SearchEntry` rows (see below) |
 | `GET` | `/trees/{tree_id}/persons/sosa/{number}` | Resolve a SOSA number to a person (relative to `Tree.sosa_root_person_id`) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}` | Get a person (with names, events, families) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile |
@@ -190,6 +191,16 @@ are symmetric pairs, recording one twice is a no-op, and a request naming the
 person themselves, no one, more than 100 persons, or a person of another tree
 is rejected (`validation_error`, `not_found`).
 
+**Recently modified.** A person is modified when a write stores a new version
+of them in the [change history](data-model.md#5-change-history): a change to
+their names, events, notes, citations or unions, a merge, a restore. The
+versions an import or the history baseline stores are left out — they version
+every person at once — and so are persons deleted since. Each person appears
+once, at their latest such write; persons one write versioned together are
+ordered newest record first. `limit` defaults to 5 and is capped at 50. A tree
+that does not exist is `not_found`. GraphQL: `recentlyModifiedPersons(treeId,
+limit)`.
+
 **Merge.** `POST …/{person_id}/merge` keeps `person_id` and soft-deletes
 `duplicate_id` after moving everything the duplicate carried onto the kept
 person, following the rules of [Data Model §1 Person merge](data-model.md#person-merge).
@@ -222,7 +233,7 @@ Relation-label requests accept at most 1,024 combined person and family IDs.
 Clients split larger logical sets into consecutive requests. Results are
 strictly scoped to active people and families in the requested tree.
 
-Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Modal](ui-person-edit-modal.md) (edit/delete) · [Kinship](ui-kinship.md)
+Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Modal](ui-person-edit-modal.md) (edit/delete) · [Kinship](ui-kinship.md) · [Homepage](ui-home.md) (recently modified persons)
 
 ### Person Names
 
@@ -962,6 +973,7 @@ type Query {
   relationLabels(treeId: ID!, personIds: [ID!]!, familyIds: [ID!]!): RelationLabels!
   personBySosa(treeId: ID!, number: Int!): Person
   personHomonyms(treeId: ID!, personId: ID!): [SearchEntry!]!
+  recentlyModifiedPersons(treeId: ID!, limit: Int = 5): [SearchEntry!]!
   ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   descendants(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   kinship(treeId: ID!, personId: ID!, otherPersonId: ID!): Kinship!

@@ -1,16 +1,16 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
-description: "Tree dashboard with tree cards, search and sort, and the create and delete modals."
+description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-09-14T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T19:55:00Z }
 ---
 
 
 # Visual & Functional Specifications — Homepage
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) · [App Settings](ui-app-settings.md) · [Data Model](data-model.md) (Tree entity) · [API Contract](api.md) (Trees endpoints)
+> See also: [Tree View](ui-genealogy-tree.md) · [Settings](ui-settings.md) · [App Settings](ui-app-settings.md) · [Data Model](data-model.md) (Tree entity, change history) · [API Contract](api.md) (Trees and Persons endpoints)
 
 ---
 
@@ -87,13 +87,14 @@ Cards are displayed in a responsive grid (`minmax(280px, 1fr)`). The last card i
 
 ### Anatomy (top to bottom)
 
-**Mini tree visual** — a decorative SVG illustration of a tree silhouette with colored dots, displayed in a rounded-top container with a subtle background (`var(--tree-visual-bg)`). Provides visual identity to each card.
+The card opens straight on its padded body; there is no illustration above it.
 
-**Card body** (padded):
+1. **Header row** — tree name (Cinzel, bold, uppercase) on the left; three-dot menu button (vertical dots) on the right. It is the top of the card.
+2. **Description** — one line, truncated, when the tree has one.
+3. **Recently modified people** — a small uppercase muted label, then the five persons of the tree modified most recently, newest first, each drawn as the shared quick-search row: portrait (or the sex silhouette), name, dates, relatives and birth place, exactly as the [search results](ui-search-results.md) draw them. The rows are static: no hover wash — the card is what reacts to hover — only the hovered row's name turns orange. A tree with nobody to list shows the label and "No person modified yet"; nothing is shown while the list loads or when it cannot be read.
+4. **Footer row** — "Modified X ago" date on the left, followed by an optional "Recent" badge (shown for trees modified within the last 24 hours); the Open link on the right. The list above grows, so the footer sits at the bottom of a card stretched to a taller neighbour's height.
 
-1. **Header row** — tree name (Cinzel, bold, uppercase) on the left; three-dot menu button (vertical dots) on the right.
-2. **Stats row** — person count and max generation depth with small icons, in muted text.
-3. **Footer row** — "Modified X ago" date on the left; optional "Recent" badge on the right (shown for trees modified within the last 24 hours).
+"Modified" for a person is what the [change history](data-model.md#5-change-history) records: a write that stored a new version of them — a change to their names, events, notes, citations or unions. Imports and the history baseline version every person at once and are left out, so a tree nobody has edited since its import lists nobody. Deleted persons are left out. The list is one `GET /trees/{id}/persons/recently-modified?limit=5` per card, then one portrait request for its rows (see [API Contract](api.md#persons)).
 
 ### Card interactions
 
@@ -101,6 +102,7 @@ Cards are displayed in a responsive grid (`minmax(280px, 1fr)`). The last card i
 |---|---|
 | Click anywhere on card | Navigates to the tree view (`/trees/{id}`) |
 | Click the Open link | Same destination; it is the keyboard-reachable control for it |
+| Click a recently modified person | Navigates to the tree view centred on that person (`/trees/{id}?person={person_id}`); the click does not reach the card |
 | Click three-dot menu | Opens the card menu (see below), does not propagate |
 | Click a menu entry or outside an open menu | Runs that entry, or dismisses the menu; never also opens the tree |
 
@@ -115,8 +117,9 @@ An importing card takes no clicks at all.
 | New (< 24h) | Green "Recent" badge in footer |
 | Importing | Full-card translucent overlay, activity indicator, and localized “Import in progress” status |
 
-An importing card is inert: it renders neither the Open link nor the three-dot
-menu, including for keyboard navigation. The state comes from the backend's
+An importing card is inert: it renders neither the Open link, nor the three-dot
+menu, nor the recently modified persons, including for keyboard navigation; the
+persons are read once the import is over. The state comes from the backend's
 active job registry through `GET /trees`, so reloading the page cannot expose a
 tree between database persistence and projection completion. While at least one
 card is importing, the home page refreshes the tree list once per second; it
@@ -179,7 +182,7 @@ When the user has no trees at all (first login), a different empty state encoura
 - Below 640px: padding reduces to `2rem 1rem 4rem`; the search field takes the
     first toolbar row, while the full-width sort selector and compact icon-only
     new-tree action share the second row
-- Below 640px: cards use one shrinkable column and never exceed the available width
+- Below 640px: cards use one shrinkable column and never exceed the available width; a person row truncates its name and relatives rather than widening the card
 - Topbar navigation collapses (future, post-MVP)
 
 ---

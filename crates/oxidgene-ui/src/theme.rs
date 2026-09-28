@@ -203,10 +203,6 @@ theme_tokens! {
     // ── Structure ───────────────────────────────────────────────────────
     /// Pedigree connectors.
     connector => "connector",
-    /// Background of the miniature tree on home cards.
-    tree_visual_bg => "tree-visual-bg",
-    /// Branches of the miniature tree on home cards.
-    tree_visual_branch => "tree-visual-branch",
 
     // ── Depth ───────────────────────────────────────────────────────────
     /// Base shadow colour, tinted per use.

@@ -2,16 +2,21 @@
 
 use chrono::Utc;
 use dioxus::prelude::*;
+use oxidgene_core::Sex;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::ContextMenuSurface;
 use crate::components::import_modal::ImportModal;
+use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace, use_ui_resource};
+
+/// How many recently modified persons a tree card lists.
+const RECENT_PERSONS: usize = 5;
 
 /// Dashboard shown at `/`.
 #[component]
@@ -674,35 +679,6 @@ fn TreeCard(
                     nav.push(card_route.clone());
                 }
             },
-            // ── Visual header ──────────────────────────────────────
-            div { class: "tree-card-visual",
-                svg {
-                    "viewBox": "0 0 300 140",
-                    xmlns: "http://www.w3.org/2000/svg",
-                    width: "100%",
-                    height: "100%",
-                    rect { class: "tv-bg", width: "300", height: "140" }
-                    rect {
-                        x: "90", y: "10", width: "120", height: "120", rx: "60",
-                        fill: "var(--orange)", "fillOpacity": "0.07"
-                    }
-                    rect { class: "tv-branch", x: "147", y: "90", width: "6", height: "35", rx: "3" }
-                    line { class: "tv-branch-line", x1: "150", y1: "90", x2: "100", y2: "60", "strokeWidth": "2.5" }
-                    line { class: "tv-branch-line", x1: "150", y1: "90", x2: "200", y2: "60", "strokeWidth": "2.5" }
-                    line { class: "tv-branch-line", x1: "100", y1: "60", x2: "75",  y2: "40", "strokeWidth": "1.5" }
-                    line { class: "tv-branch-line", x1: "100", y1: "60", x2: "120", y2: "38", "strokeWidth": "1.5" }
-                    line { class: "tv-branch-line", x1: "200", y1: "60", x2: "225", y2: "40", "strokeWidth": "1.5" }
-                    line { class: "tv-branch-line", x1: "200", y1: "60", x2: "180", y2: "38", "strokeWidth": "1.5" }
-                    circle { cx: "150", cy: "93", r: "7",  fill: "var(--orange)", "fillOpacity": "0.9" }
-                    circle { cx: "100", cy: "60", r: "6",  fill: "var(--orange)", "fillOpacity": "0.8" }
-                    circle { cx: "200", cy: "60", r: "6",  fill: "var(--orange)", "fillOpacity": "0.8" }
-                    circle { cx: "75",  cy: "40", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
-                    circle { cx: "120", cy: "38", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
-                    circle { cx: "225", cy: "40", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
-                    circle { cx: "180", cy: "38", r: "5",  fill: "var(--green-accent)", "fillOpacity": "0.9" }
-                }
-            }
-
             // ── Card body ──────────────────────────────────────────
             div { class: "tree-card-body",
                 div { class: "tree-card-header",
@@ -791,6 +767,11 @@ fn TreeCard(
                 if !description.is_empty() {
                     div { class: "tree-card-desc", "{description}" }
                 }
+                // An importing tree is still being written: its persons are
+                // read once the import is over, when this block mounts.
+                if let (false, Ok(id)) = (importing, Uuid::parse_str(&tree_id)) {
+                    RecentPersons { tree_id: id }
+                }
                 div { class: "tree-card-footer",
                     div { class: "tree-card-footer-left",
                         span { class: "tree-last-update", "{time_ago}" }
@@ -817,6 +798,75 @@ fn TreeCard(
                     div { class: "tree-card-import-title", {i18n.t("home.import_in_progress")} }
                 }
             }
+        }
+    }
+}
+
+/// The persons of a tree card's tree modified most recently.
+///
+/// Each is the shared search row, drawn statically — the card, not the row,
+/// reacts to hover — and opens the tree view centred on that person instead
+/// of letting the click reach the card, which opens it on the root.
+#[component]
+fn RecentPersons(tree_id: Uuid) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+
+    let api_rows = api.clone();
+    let rows = use_ui_resource("home_recent_persons", move || {
+        let api = api_rows.clone();
+        async move { api.recently_modified_persons(tree_id, RECENT_PERSONS).await }
+    });
+    // Pictures follow the rows rather than holding them back.
+    let portraits = use_ui_resource("home_recent_portraits", move || {
+        let api = api.clone();
+        let person_ids: Vec<Uuid> = rows
+            .read()
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .map(|entries| entries.iter().map(|entry| entry.person_id).collect())
+            .unwrap_or_default();
+        async move { api.portrait_map_for_ids(tree_id, &person_ids).await }
+    });
+
+    // Nothing while loading or when the read failed: the card works without.
+    let entries = match &*rows.read() {
+        Some(Ok(entries)) => entries.clone(),
+        _ => return rsx! {},
+    };
+    let portraits = portraits.read().clone().unwrap_or_default();
+    let tree_id = tree_id.to_string();
+
+    rsx! {
+        div { class: "tree-card-persons",
+            div { class: "tree-card-persons-title", {i18n.t("home.recent_persons")} }
+            if entries.is_empty() {
+                div { class: "tree-card-persons-empty", {i18n.t("home.no_recent_persons")} }
+            }
+            for entry in entries.iter() {{
+                let summary = PersonSearchSummary::from(entry);
+                let sex_class = match summary.sex() {
+                    Sex::Male => "male",
+                    Sex::Female => "female",
+                    Sex::Unknown => "",
+                };
+                rsx! {
+                    Link {
+                        key: "{entry.person_id}",
+                        to: Route::TreeDetail {
+                            tree_id: tree_id.clone(),
+                            person: Some(entry.person_id.to_string()),
+                        },
+                        class: "search-person-result tree-card-person {sex_class}",
+                        onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                        {render_person_search_summary(
+                            &summary,
+                            portraits.get(&entry.person_id).cloned(),
+                            &i18n,
+                        )}
+                    }
+                }
+            }}
         }
     }
 }
@@ -1042,6 +1092,8 @@ const HOME_STYLES: &str = r#"
         cursor: pointer;
         transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.25s;
         position: relative;
+        display: flex;
+        flex-direction: column;
     }
 
     .tree-card:hover {
@@ -1096,27 +1148,12 @@ const HOME_STYLES: &str = r#"
         to { transform: rotate(360deg); }
     }
 
-    .tree-card-visual {
-        height: 140px;
-        position: relative;
-        overflow: hidden;
-        border-radius: 16px 16px 0 0;
-        background: var(--tree-visual-bg);
-    }
-
-    .tree-card-visual svg {
-        display: block;
-        width: 100%;
-        height: 100%;
-    }
-
-    /* SVG tree illustration — theme-aware fills via CSS */
-    .tv-bg { fill: var(--tree-visual-bg); }
-    .tv-branch { fill: var(--tree-visual-branch); }
-    .tv-branch-line { stroke: var(--tree-visual-branch); }
-
     .tree-card-body {
         padding: 1.25rem 1.4rem 1.4rem;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
     }
 
     .tree-card-header {
@@ -1174,6 +1211,40 @@ const HOME_STYLES: &str = r#"
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    /* ── Recently modified persons ─────────────────────────────────
+       The shared search rows, static: the card is what reacts to hover,
+       and a row only says it leads somewhere by lighting its name. */
+
+    /* Grows, so the footer sits at the bottom of a card stretched to the
+       height of a neighbour listing more persons. */
+    .tree-card-persons {
+        flex: 1;
+        min-width: 0;
+        margin-top: 0.5rem;
+    }
+
+    .tree-card-persons-title {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+        margin-bottom: 0.35rem;
+    }
+
+    .tree-card-persons-empty {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .search-person-result.tree-card-person:hover {
+        background: none;
+    }
+
+    .tree-card-person:hover .sp-surname,
+    .tree-card-person:hover .sp-given {
+        color: var(--orange);
     }
 
     .tree-card-footer {

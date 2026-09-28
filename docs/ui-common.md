@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-526-09-28T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T19:55:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -180,8 +180,6 @@ files rather than being repeated here.
 | `--danger` | `#e05252` | `#e05252` | Destructive fills |
 | `--danger-text` | `#dc2626` | `#f87171` | Destructive text |
 | `--connector` | `#a0937f` | `#2e4a6a` | Pedigree connectors |
-| `--tree-visual-bg` | `#e8e0d4` | `#0d1018` | Home card tree background |
-| `--tree-visual-branch` | `#b0a898` | `#3a4458` | Home card tree branches |
 | `--shadow` | `#000000` | `#000000` | Base shadow colour |
 | `--shadow-weak` | `#00000014` | `#00000059` | Resting elevation |
 | `--shadow-strong` | `#0000001f` | `#0000008c` | Raised elevation |

@@ -2468,6 +2468,18 @@ impl ApiClient {
         .await
     }
 
+    /// The persons of the tree modified most recently, newest first.
+    pub async fn recently_modified_persons(
+        &self,
+        tree_id: Uuid,
+        limit: usize,
+    ) -> Result<Vec<SearchEntry>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/persons/recently-modified?limit={limit}"
+        ))
+        .await
+    }
+
     /// Record that `person_id` is a different person from each of `others`.
     pub async fn mark_persons_distinct(
         &self,

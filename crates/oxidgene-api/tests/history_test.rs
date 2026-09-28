@@ -665,3 +665,110 @@ async fn graphql_mirrors_the_history_surface() {
     .await;
     assert_eq!(person_now["sex"], "unknown");
 }
+
+async fn recently_modified(app: &axum::Router, tree: &str, query: &str) -> Vec<Value> {
+    ok(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/persons/recently-modified{query}"),
+        None,
+    )
+    .await
+    .as_array()
+    .unwrap()
+    .clone()
+}
+
+/// The home page's list: the persons a write versioned, newest first, less
+/// those an import brought in and those deleted since — over REST and GraphQL
+/// alike.
+#[tokio::test]
+async fn recently_modified_persons_follow_the_history() {
+    let (_, app) = setup().await;
+    let tree = create_tree(&app).await;
+    // An import versions everyone it brings; nobody worked on them.
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
+                  0 @I1@ INDI\n1 NAME Iota /Fixture/\n1 SEX F\n0 TRLR\n";
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/gedcom/import"),
+        Some(json!({ "gedcom": gedcom })),
+    )
+    .await;
+    assert!(recently_modified(&app, &tree, "").await.is_empty());
+
+    let first = create_person(&app, &tree, "Nu", "Fixture").await;
+    let second = create_person(&app, &tree, "Xi", "Fixture").await;
+    let third = create_person(&app, &tree, "Omicron", "Fixture").await;
+    // An event is a change to its person: the first comes back on top.
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/events"),
+        Some(json!({
+            "event_type": "birth",
+            "date_value": "1 JAN 1900",
+            "person_id": first,
+        })),
+    )
+    .await;
+    ok(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree}/persons/{third}"),
+        None,
+    )
+    .await;
+
+    let rows = recently_modified(&app, &tree, "").await;
+    let ids: Vec<&str> = rows
+        .iter()
+        .map(|row| row["person_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, [first.as_str(), second.as_str()]);
+    // Rows are search entries, with what the search row draws.
+    assert_eq!(rows[0]["given_names"], "Nu");
+    assert_eq!(rows[0]["surname"], "Fixture");
+    assert_eq!(rows[0]["birth_year"], "1900");
+
+    let limited = recently_modified(&app, &tree, "?limit=1").await;
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0]["person_id"], first.as_str());
+
+    let data = graphql(
+        &app,
+        "query($t: ID!) {
+            all: recentlyModifiedPersons(treeId: $t) { personId givenNames }
+            one: recentlyModifiedPersons(treeId: $t, limit: 1) { personId }
+        }",
+        json!({ "t": tree }),
+    )
+    .await;
+    let gql_ids: Vec<&str> = data["all"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["personId"].as_str().unwrap())
+        .collect();
+    assert_eq!(gql_ids, [first.as_str(), second.as_str()]);
+    assert_eq!(data["all"][0]["givenNames"], "Nu");
+    assert_eq!(data["one"].as_array().unwrap().len(), 1);
+
+    // A tree that does not exist is not found, on both surfaces.
+    let missing = Uuid::now_v7();
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{missing}/persons/recently-modified"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let body = json!({
+        "query": "query($t: ID!) { recentlyModifiedPersons(treeId: $t) { personId } }",
+        "variables": { "t": missing.to_string() },
+    });
+    let (_, json) = send(&app, Method::POST, "/graphql", Some(body)).await;
+    assert!(json.get("errors").is_some(), "{json}");
+}

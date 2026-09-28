@@ -3,7 +3,7 @@
 use crate::profile::invalidation;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use crate::service::duplicates;
-use crate::service::history::Change;
+use crate::service::history::{self, Change};
 use crate::service::kinship;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -21,7 +21,7 @@ use uuid::Uuid;
 use super::dto::{
     AncestryQuery, CreatePersonRequest, MarkPersonsDistinctRequest, MergePersonRequest,
     PaginationQuery, PersonDetailResponse, PersonSearchQuery, PortraitImagesRequest,
-    UpdatePersonRequest,
+    RecentlyModifiedQuery, UpdatePersonRequest,
 };
 use super::error::ApiError;
 use super::state::{AppState, begin_tx, commit_tx};
@@ -343,6 +343,25 @@ pub async fn search_persons(
         .await
         .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(results).unwrap()))
+}
+
+/// GET /api/v1/trees/:tree_id/persons/recently-modified
+///
+/// The persons modified most recently, newest first, as search entries.
+pub async fn list_recently_modified(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Query(query): Query<RecentlyModifiedQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let persons = history::recently_modified_persons(
+        &state.db,
+        &state.profiles,
+        tree_id,
+        query.limit.unwrap_or(history::RECENT_PERSONS_DEFAULT_LIMIT),
+    )
+    .await
+    .map_err(ApiError)?;
+    Ok(Json(serde_json::to_value(persons).unwrap()))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/sosa/:number

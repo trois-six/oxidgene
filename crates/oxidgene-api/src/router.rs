@@ -90,6 +90,10 @@ pub fn build_router(state: AppState) -> Router {
             get(person::list_persons).post(person::create_person),
         )
         .route("/{tree_id}/persons/search", get(person::search_persons))
+        .route(
+            "/{tree_id}/persons/recently-modified",
+            get(person::list_recently_modified),
+        )
         .route("/{tree_id}/portraits", get(person::list_portraits))
         .route(
             "/{tree_id}/portrait-images",
