@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:47:00Z }
 ---
 
 
@@ -574,28 +574,51 @@ request from the person projections and place usages; nothing is stored.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/statistics` | The tree's statistics, time series filed by year; 404 for an unknown tree |
+| `GET` | `/trees/{tree_id}/statistics?approximate=false&lang=en` | The tree's statistics, time series filed by year; `approximate=true` lets ages and averages use dates about, calculated or estimated; `lang` (an interface language, `en` by default) names the places' countries, regions and subdivisions. 400 for another language, 404 for an unknown tree |
 
-The response carries the counts (`persons`, `men`, `women`, `unions`,
-`places`), the top ten family names, given names and occupations
-(`{label, count}`), the time series filed by year, oldest first, only the
-years with a value appearing (the client groups them into periods of any
-width over any range of years, [Statistics §5](ui-statistics.md)):
-averages as `{year, sum, count}` (`age_at_death`, `parents_age`,
-`age_at_first_union` split by sex or parent; `union_duration`,
-`children_per_union`, `birth_spacing`, `first_last_child_gap`,
-`spouse_age_gap`), distributions as `{year, counts}` (`births_by_month` and
-`unions_by_month` with twelve counts, `unions_by_weekday` with seven, Monday
-first), the age `pyramid` in five-year bands, the notable
-lists (`recent_births`, `recent_deaths`, `recent_unions`,
-`oldest_possibly_alive`, `longest_lives`, up to 100 each, dates as recorded
-with their qualifier and calendar), and the places: `located_places` for the
-heat map, `top_places` (ten, located or not) and `unlocated_places`. A place
-without coordinates is located through the
-[place dictionary](place-dictionary.md) by its label at each request, a bare
-homonym being read in the countries the tree uses most
-([Statistics §3.1](ui-statistics.md)). The rules each figure follows are in
-[Statistics §5](ui-statistics.md).
+The response carries:
+
+- **Counts**: `persons`, `men`, `women`, `unknown_sex`, `unions`, `places`,
+  `sources`, `first_year` and `last_year` of the dated events,
+  `dated_births`, `dated_deaths`, `without_parents`, `without_children`,
+  `without_union`, and the distinct `surnames` and `given_names`.
+- **Summaries** `{count, mean, median, std_dev, min, max}`, each figure
+  `null` without a value: `lifespan` and `first_union_age` (`{all, men,
+  women}`), `generation_interval` and `family_size`.
+- **Rankings** `{label, count}`: the top ten `top_surnames`,
+  `top_given_names_men`, `top_given_names_women`, `top_occupations`, and
+  every `event_types` entry (the label an `EventType` in snake_case), most
+  first; `rare_given_names_men` and `rare_given_names_women`, the first
+  given names carried once; `children_histogram`, the unions by number of
+  children.
+- **Time series** filed by year, oldest first, only the years with a value
+  appearing (the client groups them into periods of any width over any
+  range of years, [Statistics §7](ui-statistics.md)): averages as
+  `{year, sum, count}` (`age_at_death` by year of death and
+  `life_expectancy` by year of birth, both by sex; `parents_age` at the
+  first, last and every child; `age_at_first_union` by sex;
+  `union_duration`, `children_per_union`, `birth_spacing`,
+  `first_last_child_gap`, `spouse_age_gap`), and counts as
+  `{year, counts}`: `events_by_year` (births, baptisms, unions, deaths,
+  burials), `births_by_sex` (men, women), `mortality` (births, deaths
+  before one, deaths before five, by year of birth), `births_by_month` and
+  `unions_by_month` (twelve), `unions_by_weekday` (seven, Monday first).
+- The age `pyramid` in five-year bands, and the `records`
+  `{kind, persons, value, value2, date}`: `value` in days for an age or a
+  duration and a number for a count ([Statistics §8](ui-statistics.md)).
+- The notable lists (`recent_births`, `recent_deaths`, `recent_unions`,
+  `oldest_possibly_alive`, `longest_lives`, `largest_families`, up to 100
+  each, dates as recorded with their qualifier and calendar).
+- The places: `located_places` for the heat map, `top_places` (ten, located
+  or not), `unlocated_places`, the distinct `countries`, `regions` and
+  `subdivisions` of the used places, and `births_by_country`,
+  `births_by_region` and `births_by_subdivision` (top ten each). A place
+  without coordinates is located through the
+  [place dictionary](place-dictionary.md) by its label at each request, a
+  bare homonym being read in the countries the tree uses most
+  ([Statistics §4.1](ui-statistics.md)).
+
+The rules each figure follows are in [Statistics §7](ui-statistics.md).
 
 `GET /reference/basemap` serves the country outlines the heat map is drawn
 over: `[{iso, name, rings}]`, each ring a flat list of longitude and latitude
@@ -940,7 +963,7 @@ type Query {
   dictionarySources(treeId: ID!, prefix: String): [SourceDictionaryEntry!]!
   dictionarySourceDrill(treeId: ID!, prefix: String): SourceDictionaryDrill!
   dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
-  treeStatistics(treeId: ID!): TreeStatistics!
+  treeStatistics(treeId: ID!, approximate: Boolean, language: String): TreeStatistics!
   basemap: [BasemapCountry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!

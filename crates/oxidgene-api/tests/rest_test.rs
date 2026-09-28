@@ -3640,6 +3640,29 @@ async fn statistics_count_the_tree_and_its_ages() {
     assert_eq!(body["births_by_month"][0]["year"], 1820);
     assert_eq!(body["births_by_month"][0]["counts"][2], 1);
     assert_eq!(body["longest_lives"][0]["age"], 70);
+    assert_eq!(body["lifespan"]["men"]["mean"], 70.0);
+    assert_eq!(body["event_types"][0]["count"], 1);
+    assert_eq!(body["records"][0]["kind"], "longest_life_man");
+    assert_eq!(body["records"][0]["persons"][0]["name"], "Jean BRANCH_A");
+
+    // The options are checked and passed on.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/statistics?approximate=true&lang=fr"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["persons"], 1);
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/statistics?lang=xx"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (status, _) = send_request(
         app.clone(),

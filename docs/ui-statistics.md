@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
-description: "Tree statistics page: a heat map of where the tree's events happened with its ten most used places, demographic charts per period, and the notable lists of births, unions, deaths and long lives."
+description: "Tree statistics page: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:47:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -16,9 +16,10 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:20:00Z }
 ## 1. Overview
 
 The Statistics page (`/trees/{id}/statistics`) shows what a tree says as a
-whole: where its people lived, how they were named, what they did, how long
-they lived, when they married and how many children they had, century after
-century, and the records worth a look (the latest events, the longest lives).
+whole: how complete it is, where its people lived, how they were named, what
+they did, how long they lived, when they married and how many children they
+had, century after century, and the records worth a look (the extremes of
+the tree, the latest events, the longest lives, the largest families).
 
 It is reached from the **chart icon** of the shared left icon sidebar
 (`TreeIconSidebar`), between the Book/index and Gear buttons, so it opens the
@@ -30,37 +31,48 @@ Everything is computed by the backend from the tree's person projections and
 place usages on each visit ([API](api.md)); nothing is stored. The page asks
 once per visit: the time series come filed by year, and the page itself
 groups them into periods, so changing the interval or the years shown needs
-no new request.
+no new request. Only switching approximate dates on or off, or the interface
+language (which names the countries), asks again.
 
 ## 2. Layout
 
 ```
 +----------------------------------------------------------------------+
 | NAVBAR                                                                |
-| [logo] tree_name / Statistics                 Interval: [25 years v] |
+| [logo] tree / Statistics   [x] Approximate dates  Interval: [25 v]  |
 +----------------------------------------------------------------------+
-| 1 234 persons · 612 women · 598 men · 431 unions · 287 places        |
+|  Overview       [persons] [unions] [places] [sources] [years] ...    |
+|                 [% dated births] [% dated deaths] [% no parent] ...  |
+|                 [age at death] [first union] [generation] [children] |
 +----------------------------------------------------------------------+
 |  Places                                                               |
 |  +---------------------------------------+  1. Place A          412  |
 |  |   heat map over country borders       |  2. Place B          201  |
 |  |   (numbered markers for the top 10)   |  ...                       |
 |  +---------------------------------------+  38 places not located     |
+|  [births by country] [births by region] [births by subdivision]      |
++----------------------------------------------------------------------+
+|  Names and occupations  [donut] [donut] [donut] [donut] [rare names] |
 +----------------------------------------------------------------------+
 |  Years 1712–1850  |--1700---[====1750=====1800====]--1850--| [All]  |
-|  Persons            [donut] [donut] [line] [donut] [lines] [lines]   |
+|  Persons            [lines] [line] [lines] [lines] [lines] ...       |
 |  Families           [lines] [lines] [lines] [line] [line] ...        |
-|  Notable records    tabs: latest births · unions · deaths ·           |
-|                     oldest possibly alive · longest lives · pyramid  |
++----------------------------------------------------------------------+
+|  Events and families    [event types donut] [children per union]     |
+|  Records                [card] [card] [card] ...                     |
+|  Notable records    tabs: latest births · unions · deaths · oldest   |
+|        possibly alive · longest lives · largest families · pyramid   |
 +----------------------------------------------------------------------+
 ```
 
 Charts sit two per row on wide screens and one per row below 900px. Each has
-a title and a `?` hint explaining how it is computed (§5).
+a title and a `?` hint explaining how it is computed (§7).
 
 The **interval** selector (10, 25, 50 or 100 years; 25 by default) sets the
-width of the periods every time chart groups its values by. The choice is
-kept per viewer in local storage.
+width of the periods every time chart groups its values by. The
+**approximate dates** box lets ages and averages also use dates about,
+calculated or estimated (§7); it is off by default. Both choices are kept
+per viewer in local storage.
 
 The **year ruler**, above the Persons and Families sections, chooses the
 first and the last year their period charts cover. It spans the years any
@@ -69,12 +81,28 @@ or by the arrow keys, and never cross. Its ticks mark the multiples of the
 interval, labelled so that no more than twelve labels show. The chosen
 years are printed beside it and **All years** restores the whole span. The
 ruler stays pinned at the top while those two sections scroll by. The
-range lasts for the visit; it is not stored. The donuts, the map, the
-records and the pyramid do not depend on it.
+range lasts for the visit; it is not stored. The overview, the map, the
+donuts, the records and the lists do not depend on it.
 
-## 3. Places
+## 3. Key figures
 
-### 3.1 Heat map
+Three rows of tiles, each a figure with what it counts:
+
+- **Counts**: persons (with men, women and unknown sex), unions, places,
+  sources, the years covered (the first and the last year of any dated
+  event), and the distinct family names and first given names.
+- **Completeness**, as a share of all persons: with a dated birth (or
+  baptism), with a dated death (or burial), without a known parent, without
+  children (parent of no one, through a family or a union with children),
+  and never in a union.
+- **Averages**, each with its median, standard deviation and range: the age
+  at death and the age at the first union (both also for men and for
+  women), the generation interval (the parents' age at the birth of each of
+  their children) and the children per union.
+
+## 4. Places
+
+### 4.1 Heat map
 
 - The background is an offline map: the country borders of the
   [basemap](api.md), drawn as SVG in a Mercator projection. No tile server
@@ -98,23 +126,45 @@ records and the pyramid do not depend on it.
   name found in none of the tree's countries stays unlocated. The lookup
   happens at each visit and changes nothing in the tree.
 
-### 3.2 Top ten
+### 4.2 Top ten
 
 Beside the map, the ten places with the most usages, each with its count and
 a number repeated as a marker on the map. A place that could not be located
 is still listed, without a marker. Below the list, the number of places that
 could not be located.
 
-## 4. Charts
+### 4.3 Births by area
+
+Three donuts count the births (or baptisms) by the country, the region and
+the subdivision (département, county, district…) the
+[place dictionary](place-dictionary.md) puts their place in, the way §4.1
+locates it, the ten largest each. A bare homonym read in the tree's main
+country has its country, and its region and subdivision when all its
+candidates there share them. Countries are named in the interface language.
+Under each donut, how many distinct countries, regions or subdivisions the
+tree's used places span.
+
+## 5. Names and occupations
+
+Donuts of the ten most common family names, occupations, men's first given
+names and women's first given names, then the **given names carried once**:
+the first given names only one person carries, for men and for women, with
+how many there are.
+
+## 6. Charts
+
+The period charts sit under the year ruler (§2):
 
 | Section | Chart | Kind |
 |---------|-------|------|
-| Persons | 10 most common family names | Donut |
-| Persons | 10 most common given names (first given name) | Donut |
+| Persons | Births, baptisms, unions, deaths and burials per period | Lines (5) |
+| Persons | Sex ratio at birth: boys born per 100 girls born | Line |
 | Persons | Average age at death, men and women, per period of death | Lines |
-| Persons | 10 most common occupations | Donut |
+| Persons | Average age at death, men and women, per period of birth (by generation) | Lines |
+| Persons | Infant and child mortality: share of the births followed by a death before one and before five years | Lines (2) |
 | Persons | Births by month, share of each month per period | Lines (12) |
 | Persons | Parents' average age at the first and at the last child, per period of that birth | Lines (4) |
+| Persons | Fathers' and mothers' average age at each child's birth, per period of that birth | Lines (2) |
 | Families | Average age at the first union, men and women, per period of the union | Lines |
 | Families | Unions by weekday, share per period | Lines (7) |
 | Families | Unions by month, share per period | Lines (12) |
@@ -124,6 +174,11 @@ could not be located.
 | Families | Average gap between the first and the last child, in months | Line |
 | Families | Average age difference between spouses, in months | Line |
 
+Below them, **Events and families** holds a donut of the ten most frequent
+event types (each event counted once, a family event once however many
+spouses carry it, with the total under it) and a bar chart of the unions by
+number of children.
+
 Donuts show a legend with each value and its count. Line charts share one
 x-axis of periods, skip periods without data rather than drawing them as
 zero, and show the value of a point on hover. Their value axis runs from
@@ -132,16 +187,23 @@ a chart with a single line has no legend: its title names it. Series colors come
 theme (men and women use the pedigree's male and female colors; months and
 weekdays the chart palette).
 
-## 5. Rules
+## 7. Rules
 
 - **Birth and death** fall back to baptism and burial when those carry the
   only date, as everywhere else ([Architecture invariants](architecture.md)).
 - **Ages** need both dates with at least a year; an age is the difference
-  of the two dates, in years or months. Dates with a qualifier other than
-  exact, and ranges, are left out of ages and averages.
+  of the two dates, in years or months. Only exact dates count, and also
+  dates about, calculated or estimated when approximate dates are switched
+  on; before, after, perhaps and ranges never do.
+- **Counts of events** per period (the events chart, the sex ratio) take
+  every dated event whatever its qualifier, in the year of its date.
+- **Mortality** counts, among the persons whose birth is dated by the
+  rule above, those whose death is too and comes before their first or
+  their fifth birthday. A person without a recorded death counts as
+  surviving.
 - **Months and weekdays** need a date precise to the month (for months) or
-  the day (for weekdays), exact, whatever its calendar: the date is read in
-  its Gregorian equivalent.
+  the day (for weekdays), by the same rule, whatever its calendar: the date
+  is read in its Gregorian equivalent.
 - **Periods** are aligned on multiples of the interval (1700–1724,
   1725–1749…) and a value is counted in the period of the event it depends on.
   Only the years the ruler shows count: the first and the last period are
@@ -157,28 +219,56 @@ weekdays the chart palette).
 - **Possibly alive**: no death or burial recorded and born fewer than 120
   years ago.
 - **Given name** is the first word of the primary name's given names;
-  **occupation** every occupation of a person counted once.
+  **occupation** every occupation of a person counted once. Names are
+  compared case aside and shown in their most frequent spelling.
 
-## 6. Notable records
+## 8. Records
+
+Cards, one per record the tree has, each with its holder (links to their
+profiles), its value and the date it is about. Ages and durations follow
+§7 and read in days under a month, in months under a year, else in years.
+Ties go to the first found.
+
+| Record | Holder | Value |
+|--------|--------|-------|
+| Longest-lived man, longest-lived woman | The person | Age at death |
+| Earliest birth, latest birth | The person | The birth date, any qualifier |
+| Youngest and oldest at a union | The spouse | Age at the union |
+| Longest union | The couple | Duration (§7) |
+| Most unions (more than one) | The person | Unions |
+| First and last recorded union | The couple | The union date, any qualifier |
+| Most children | The parent | Children, and the unions with children they had them in |
+| Oldest and youngest at a first child | The parent | Age at the first child's birth |
+| Youngest death | The person | Age at death |
+| Largest age gap between spouses | The couple | Gap between their births |
+| Most places | The person | Distinct places of their events and their unions' events |
+| Longest widowhood | The survivor, then the spouse they outlived | From the first death to the second, for a dated union before the first death that no divorce or annulment ended first |
+| Largest gap between siblings | The eldest and the youngest of one family | Gap between their births |
+| Most generations of descendants | The person | Generations below them, children counting one |
+
+## 9. Notable records
 
 Tabs, each a list of up to 100 persons with their name (a link to their
 profile), the date and the place:
 
 - **Latest births**, **latest unions** (both spouses) and **latest deaths**,
   most recent first.
-- **Oldest possibly alive**: the persons of §5, oldest first, with their age.
+- **Oldest possibly alive**: the persons of §7, oldest first, with their age.
 - **Longest lives**: the greatest ages at death, with birth and death dates.
+- **Largest families**: the unions with the most children, with both
+  spouses, the union date and the number of children.
 - **Age pyramid**: persons by age at death in five-year bands, men to the
   left and women to the right.
 
-## 7. States
+## 10. States
 
 - While loading, the charts show the shared loading placeholder.
 - A chart without any data shows "Not enough dated records" instead of an
   empty frame.
 - A tree without any located place shows the map empty with the reason.
+- A tree without any record shows no Records section.
 
-## 8. i18n and accessibility
+## 11. i18n and accessibility
 
 Every title, hint, legend, axis label, month and weekday name goes through
 i18n in every interface language. Charts carry an accessible title and a

@@ -2,7 +2,7 @@
 //! periods, an age pyramid, and the heat map of places over a basemap.
 //!
 //! Colors come from the theme through the `--chart-*` variables the page
-//! defines from theme tokens (`docs/ui-statistics.md` §4).
+//! defines from theme tokens (`docs/ui-statistics.md` §6).
 
 use std::f64::consts::PI;
 
@@ -260,6 +260,28 @@ fn format_value(value: f64) -> String {
         format!("{value:.0}")
     } else {
         format!("{value:.1}")
+    }
+}
+
+/// Labelled counts as horizontal bars, in the order given.
+#[component]
+pub fn BarChart(items: Vec<(String, i64)>) -> Element {
+    let max = items.iter().map(|(_, n)| *n).max().unwrap_or(1).max(1) as f64;
+    rsx! {
+        div { class: "stats-bars",
+            for (index, (label, count)) in items.iter().enumerate() {
+                div { key: "{index}", class: "stats-bar-row",
+                    span { class: "stats-bar-label", "{label}" }
+                    span { class: "stats-bar-track",
+                        span {
+                            class: "stats-bar",
+                            style: "width: {*count as f64 / max * 100.0}%",
+                        }
+                    }
+                    span { class: "stats-legend-count", "{count}" }
+                }
+            }
+        }
     }
 }
 

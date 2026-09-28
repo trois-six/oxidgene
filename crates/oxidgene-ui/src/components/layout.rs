@@ -5939,7 +5939,7 @@ pub const LAYOUT_STYLES: &str = r#"
     /* ── Statistics page ───────────────────────────────────────────────
        Charts draw with the theme's own tokens: the palette below maps the
        series onto accents every theme defines, so no chart color is a
-       literal (docs/ui-statistics.md §4). */
+       literal (docs/ui-statistics.md §6). */
 
     .stats-page {
         --chart-1: var(--orange);
@@ -6089,19 +6089,121 @@ pub const LAYOUT_STYLES: &str = r#"
     .stats-ruler-input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--text-primary); }
     .stats-ruler-input:focus-visible::-moz-range-thumb { outline: 2px solid var(--text-primary); }
 
-    .stats-summary {
+    .stats-option {
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px 20px;
-        margin-bottom: 20px;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .stats-option + .stats-interval { margin-left: 16px; }
+
+    .stats-tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    .stats-tile {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        padding: 10px 12px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+
+    .stats-tile-value {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .stats-tile-label { font-size: 0.8rem; color: var(--text-secondary); }
+    .stats-tile-detail { font-size: 0.72rem; color: var(--text-muted); }
+
+    .stats-grid + .stats-card { margin-top: 16px; }
+
+    .stats-grid-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 16px;
+    }
+
+    .stats-rare {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+    }
+
+    .stats-rare-title {
+        margin: 0 0 4px;
+        font-size: 0.8rem;
         color: var(--text-secondary);
     }
 
-    .stats-summary b { color: var(--text-primary); }
+    .stats-rare-names {
+        margin: 0;
+        max-height: 160px;
+        overflow-y: auto;
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+
+    .stats-bars { display: grid; gap: 3px; font-size: 0.75rem; }
+
+    .stats-bar-row {
+        display: grid;
+        grid-template-columns: 2.5em minmax(0, 1fr) 4em;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .stats-bar-label { text-align: right; color: var(--text-muted); }
+    .stats-bar-track { display: block; height: 12px; }
+
+    .stats-bar {
+        display: block;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--chart-1);
+    }
+
+    .stats-feats {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 10px;
+    }
+
+    .stats-feat {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+        padding: 10px 12px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 0.8rem;
+    }
+
+    .stats-feat-title { font-weight: 600; font-size: 0.75rem; color: var(--text-secondary); }
+    .stats-feat-who a { color: var(--text-primary); }
+    .stats-feat-value { color: var(--orange); font-weight: 600; }
+    .stats-feat-date { color: var(--text-muted); font-size: 0.72rem; }
 
     .stats-section { margin-bottom: 28px; }
 
     .stats-section-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         font-family: var(--font-heading);
         font-size: 1.05rem;
         margin: 0 0 12px;
@@ -6345,6 +6447,8 @@ pub const LAYOUT_STYLES: &str = r#"
 
     @media (max-width: 900px) {
         .stats-grid,
+        .stats-grid-3,
+        .stats-rare,
         .stats-places { grid-template-columns: minmax(0, 1fr); }
         .stats-timeline { grid-template-columns: auto minmax(0, 1fr) auto; }
         .stats-timeline-title { display: none; }

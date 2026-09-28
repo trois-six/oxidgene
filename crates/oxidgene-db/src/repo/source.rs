@@ -28,6 +28,19 @@ impl SourceRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
+    /// How many live sources a tree has.
+    pub async fn count_in_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<u64, OxidGeneError> {
+        Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .count(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))
+    }
+
     /// List all sources in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
         db: &impl ConnectionTrait,

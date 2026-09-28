@@ -216,12 +216,40 @@ pub struct TreeStatistics {
     pub persons: i64,
     pub men: i64,
     pub women: i64,
+    pub unknown_sex: i64,
     pub unions: i64,
     pub places: i64,
+    pub sources: i64,
+    pub first_year: Option<i32>,
+    pub last_year: Option<i32>,
+    pub dated_births: i64,
+    pub dated_deaths: i64,
+    pub without_parents: i64,
+    pub without_children: i64,
+    pub without_union: i64,
+    pub surnames: i64,
+    pub given_names: i64,
+    pub lifespan: StatSexSummary,
+    pub first_union_age: StatSexSummary,
+    pub generation_interval: StatSummary,
+    pub family_size: StatSummary,
     pub top_surnames: Vec<StatCount>,
-    pub top_given_names: Vec<StatCount>,
+    pub top_given_names_men: Vec<StatCount>,
+    pub top_given_names_women: Vec<StatCount>,
     pub top_occupations: Vec<StatCount>,
+    pub rare_given_names_men: Vec<String>,
+    pub rare_given_names_women: Vec<String>,
+    /// Labels are `EventType`s in their snake_case form.
+    pub event_types: Vec<StatCount>,
+    pub children_histogram: Vec<i64>,
+    /// Births, baptisms, unions, deaths and burials per year.
+    pub events_by_year: Vec<StatYearCounts>,
+    /// Births of men and of women per year.
+    pub births_by_sex: Vec<StatYearCounts>,
+    /// Per year of birth: births, deaths before one and before five.
+    pub mortality: Vec<StatYearCounts>,
     pub age_at_death: StatSexSeries,
+    pub life_expectancy: StatSexSeries,
     pub births_by_month: Vec<StatYearCounts>,
     pub parents_age: StatParentAges,
     pub age_at_first_union: StatSexSeries,
@@ -233,14 +261,22 @@ pub struct TreeStatistics {
     pub first_last_child_gap: Vec<StatYearSum>,
     pub spouse_age_gap: Vec<StatYearSum>,
     pub pyramid: Vec<StatPyramidBand>,
+    pub records: Vec<StatRecord>,
     pub recent_births: Vec<StatPerson>,
     pub recent_deaths: Vec<StatPerson>,
     pub recent_unions: Vec<StatUnion>,
     pub oldest_possibly_alive: Vec<StatPerson>,
     pub longest_lives: Vec<StatPerson>,
+    pub largest_families: Vec<StatFamily>,
     pub located_places: Vec<StatPlace>,
     pub top_places: Vec<StatPlace>,
     pub unlocated_places: i64,
+    pub countries: i64,
+    pub regions: i64,
+    pub subdivisions: i64,
+    pub births_by_country: Vec<StatCount>,
+    pub births_by_region: Vec<StatCount>,
+    pub births_by_subdivision: Vec<StatCount>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -258,7 +294,7 @@ pub struct StatYearSum {
     pub count: i64,
 }
 
-/// One year's counts per category (month or weekday).
+/// One year's counts per category.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct StatYearCounts {
     pub year: i32,
@@ -277,6 +313,26 @@ pub struct StatParentAges {
     pub mother_first_child: Vec<StatYearSum>,
     pub father_last_child: Vec<StatYearSum>,
     pub mother_last_child: Vec<StatYearSum>,
+    pub father_every_child: Vec<StatYearSum>,
+    pub mother_every_child: Vec<StatYearSum>,
+}
+
+/// A set of values in brief; every figure is absent without a value.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatSummary {
+    pub count: i64,
+    pub mean: Option<f64>,
+    pub median: Option<f64>,
+    pub std_dev: Option<f64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatSexSummary {
+    pub all: StatSummary,
+    pub men: StatSummary,
+    pub women: StatSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -310,15 +366,34 @@ pub struct StatPerson {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct StatUnion {
     pub family_id: Uuid,
-    pub spouses: Vec<StatSpouse>,
+    pub spouses: Vec<StatPersonRef>,
     pub date: StatDate,
     pub place: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct StatSpouse {
+pub struct StatFamily {
+    pub family_id: Uuid,
+    pub spouses: Vec<StatPersonRef>,
+    pub children: i64,
+    pub date: Option<StatDate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatPersonRef {
     pub person_id: Uuid,
     pub name: String,
+}
+
+/// One of the tree's records: who holds it, with a value in days (ages
+/// and durations) or a count, and the event it is about.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatRecord {
+    pub kind: String,
+    pub persons: Vec<StatPersonRef>,
+    pub value: Option<f64>,
+    pub value2: Option<i64>,
+    pub date: Option<StatDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -4340,10 +4415,23 @@ impl ApiClient {
         .await
     }
 
-    /// A tree's statistics, time series filed by year.
-    pub async fn tree_statistics(&self, tree_id: Uuid) -> Result<TreeStatistics, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/statistics"))
-            .await
+    /// A tree's statistics, time series filed by year; `approximate` lets
+    /// ages and averages use approximate dates, and places are named in
+    /// `lang`.
+    pub async fn tree_statistics(
+        &self,
+        tree_id: Uuid,
+        approximate: bool,
+        lang: &str,
+    ) -> Result<TreeStatistics, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/statistics"),
+            &[
+                ("approximate", approximate.to_string()),
+                ("lang", lang.to_string()),
+            ],
+        )
+        .await
     }
 
     /// The country outlines the statistics heat map is drawn over.

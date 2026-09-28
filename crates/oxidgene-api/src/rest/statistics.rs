@@ -1,19 +1,32 @@
 //! REST handler for a tree's statistics (`docs/ui-statistics.md`).
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::statistics::{self, TreeStatistics};
 
-/// GET /api/v1/trees/:tree_id/statistics
+#[derive(Debug, Deserialize)]
+pub struct StatisticsQuery {
+    /// Let ages and averages use dates about, calculated or estimated.
+    #[serde(default)]
+    pub approximate: bool,
+    /// The language places' countries, regions and subdivisions are named
+    /// in; English when omitted.
+    pub lang: Option<String>,
+}
+
+/// GET /api/v1/trees/:tree_id/statistics?approximate=false&lang=en
 pub async fn statistics(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
+    Query(query): Query<StatisticsQuery>,
 ) -> Result<Json<TreeStatistics>, ApiError> {
-    statistics::load(&state.db, &state.profiles, tree_id)
+    let lang = statistics::language(query.lang.as_deref()).map_err(ApiError)?;
+    statistics::load(&state.db, &state.profiles, tree_id, query.approximate, lang)
         .await
         .map(Json)
         .map_err(ApiError)

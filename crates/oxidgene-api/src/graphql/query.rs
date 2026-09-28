@@ -737,16 +737,24 @@ impl QueryRoot {
         crate::reference::basemap().to_vec()
     }
 
-    /// A tree's statistics, time series filed by year.
+    /// A tree's statistics, time series filed by year. `approximate` lets
+    /// ages and averages use dates about, calculated or estimated;
+    /// `language` names places' countries, regions and subdivisions
+    /// (English when omitted).
     async fn tree_statistics(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
+        approximate: Option<bool>,
+        language: Option<String>,
     ) -> Result<crate::service::statistics::TreeStatistics> {
+        let lang = crate::service::statistics::language(language.as_deref())?;
         Ok(crate::service::statistics::load(
             db_from_ctx(ctx),
             profiles_from_ctx(ctx),
             Uuid::parse_str(tree_id.as_str())?,
+            approximate.unwrap_or(false),
+            lang,
         )
         .await?)
     }

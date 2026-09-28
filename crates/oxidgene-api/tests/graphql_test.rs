@@ -3800,8 +3800,13 @@ async fn tree_statistics_match_rest() {
     let response = graphql(
         app.clone(),
         &format!(
-            r#"{{ treeStatistics(treeId: "{tree_id}") {{
-                persons topSurnames {{ label count }}
+            r#"{{ treeStatistics(treeId: "{tree_id}", approximate: true, language: "fr") {{
+                persons unknownSex sources firstYear topSurnames {{ label count }}
+                topGivenNamesMen {{ label }} rareGivenNamesWomen eventTypes {{ label count }}
+                lifespan {{ all {{ count mean median stdDev min max }} men {{ mean }} }}
+                generationInterval {{ mean }} childrenHistogram mortality {{ year counts }}
+                records {{ kind persons {{ name }} value value2 }}
+                largestFamilies {{ children }} birthsByCountry {{ label count }} countries
                 ageAtDeath {{ men {{ year sum count }} women {{ year sum count }} }}
                 birthsByMonth {{ year counts }} unionDuration {{ year sum count }}
                 recentUnions {{ familyId }} locatedPlaces {{ name }} unlocatedPlaces
@@ -3814,6 +3819,22 @@ async fn tree_statistics_match_rest() {
     assert_eq!(stats["persons"], 0);
     assert_eq!(stats["ageAtDeath"]["men"], serde_json::json!([]));
     assert_eq!(stats["birthsByMonth"], serde_json::json!([]));
+    assert_eq!(stats["lifespan"]["all"]["count"], 0);
+    assert_eq!(stats["lifespan"]["all"]["mean"], serde_json::Value::Null);
+    assert_eq!(stats["records"], serde_json::json!([]));
+    assert_eq!(stats["firstYear"], serde_json::Value::Null);
+
+    // An unknown language is refused, as REST answers 400.
+    let response = graphql(
+        app.clone(),
+        &format!(r#"{{ treeStatistics(treeId: "{tree_id}", language: "xx") {{ persons }} }}"#),
+        None,
+    )
+    .await;
+    assert!(
+        response["errors"].as_array().is_some_and(|e| !e.is_empty()),
+        "an unknown language should be rejected: {response}"
+    );
 
     let response = graphql(
         app,

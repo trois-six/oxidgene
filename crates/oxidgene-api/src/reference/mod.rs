@@ -21,8 +21,8 @@ pub use loader::{
     lookup_given_name, lookup_occupation, normalize_key, preheat, starts_a_word, suggest_terms,
 };
 pub use places::{
-    DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceSuggestion, locate_places,
-    search_places,
+    DEFAULT_PLACE_SUGGESTIONS, MAX_PLACE_SUGGESTIONS, PlaceKind, PlaceLocation, PlaceSuggestion,
+    locate_places, search_places,
 };
 
 pub const MAX_REFERENCE_TERMS: usize = 128;
