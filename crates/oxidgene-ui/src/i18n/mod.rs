@@ -226,7 +226,7 @@ pub fn use_i18n() -> I18n {
     I18n(lang())
 }
 
-/// Hook: initialise the language context (call once in `Layout` or `App`).
+/// Hook: initialise the language context (call once in `AppShell`).
 ///
 /// On first use — no persisted choice yet — the language follows the
 /// languages configured in the browser or OS, which the webview reports

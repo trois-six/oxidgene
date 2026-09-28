@@ -1,7 +1,8 @@
-//! Application layout with navigation bar.
+//! Application shell and layout.
 //!
-//! Wraps all routed pages with a consistent header/nav and renders the
-//! active route via [`Outlet`].
+//! [`AppShell`] holds the state and styles shared by the whole application
+//! above the router; [`Layout`] wraps all routed pages with a consistent
+//! header/nav and renders the active route via [`Outlet`].
 
 use dioxus::prelude::*;
 
@@ -48,12 +49,17 @@ pub fn use_init_textarea_resize_clamp() {
     });
 }
 
-/// Shared layout rendered around every page.
+/// Everything the whole application shares, rendered once above the router.
 ///
-/// Contains a navigation bar (shown only on Home / AppSettings) and an
-/// [`Outlet`] for the matched child route.
+/// The router draws each route's layout from that route's own template, so
+/// [`Layout`] is torn down and mounted again on every navigation between
+/// routes. State provided there started over each time: the language fell
+/// back to English until it was detected again, the theme to the default
+/// one, and the tree and pedigree view caches emptied, so the pedigree came
+/// back on the tree's root. Held here, it lives as long as the window, and
+/// the stylesheet is parsed once instead of on every navigation.
 #[component]
-pub fn Layout() -> Element {
+pub fn AppShell() -> Element {
     let _lang_signal = i18n::use_init_language();
     let _sort_particles = crate::prefs::use_init_sort_particles();
     let _pedigree_defaults = crate::prefs::use_init_pedigree_defaults();
@@ -63,9 +69,6 @@ pub fn Layout() -> Element {
     let _tree_cache = tree_cache::use_init_tree_cache();
     let _view_cache = tree_cache::use_init_view_state_cache();
 
-    let route = use_route::<Route>();
-    let show_nav = matches!(route, Route::Home {} | Route::AppSettings {});
-
     // The palette is a block of custom properties, so it can be recomputed
     // and swapped on its own: the stylesheet below never changes, and
     // switching theme repaints without reparsing five thousand rules.
@@ -74,7 +77,21 @@ pub fn Layout() -> Element {
     rsx! {
         style { {palette()} }
         style { {LAYOUT_STYLES} }
+        Router::<Route> {}
+    }
+}
 
+/// Shared layout rendered around every page.
+///
+/// Contains a navigation bar (shown only on Home / AppSettings) and an
+/// [`Outlet`] for the matched child route. It is remounted on every
+/// navigation between routes, so it holds no state: see [`AppShell`].
+#[component]
+pub fn Layout() -> Element {
+    let route = use_route::<Route>();
+    let show_nav = matches!(route, Route::Home {} | Route::AppSettings {});
+
+    rsx! {
         if show_nav {
             nav { class: "app-nav",
                 Link { to: Route::Home {}, class: "nav-logo",

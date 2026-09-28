@@ -603,7 +603,7 @@ impl ThemeState {
     }
 }
 
-/// Hook: initialise the theme (call once in `Layout`).
+/// Hook: initialise the theme (call once in `AppShell`).
 ///
 /// There is deliberately no `prefers-color-scheme` branch. The application
 /// starts light and stays light until someone picks otherwise: a theme list

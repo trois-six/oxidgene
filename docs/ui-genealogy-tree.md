@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T08:00:00Z }
 ---
 
 
@@ -21,7 +21,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
 The canvas displays a **mixed tree**: the focus person is at the vertical center, ancestors go upward, descendants go downward. Each generation occupies a **strict horizontal row**. All cards in the same generation are aligned on the same Y axis.
 
 The number of generations displayed is fixed at any given time, but can be changed via the depth selector. The maximum is **10 ascending generations + 10 descending generations**.
-The global pedigree preferences initialize the window to **4 ascending generations + 3 descending generations** by default. They are editable from both [App Settings](ui-app-settings.md) and the global-preferences group in [Tree Settings](ui-settings.md). A saved per-tree view state supplies its own depths instead.
+The global pedigree preferences initialize the window to **4 ascending generations + 3 descending generations** by default. They are editable from both [App Settings](ui-app-settings.md) and the global-preferences group in [Tree Settings](ui-settings.md). A saved per-tree view state supplies its own depths instead. That view state (root person, depths, pan and zoom) lasts as long as the window: leaving the tree for any other page, the home page and the application settings included, and coming back reopens it on the same root and framing.
 
 ### Always a Connected Tree
 

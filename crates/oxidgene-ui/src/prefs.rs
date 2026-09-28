@@ -55,7 +55,7 @@ const SORT_PARTICLES_STORAGE_KEY: &str = "oxidgene-sort-particles";
 const PEDIGREE_DEFAULTS_STORAGE_KEY: &str = "oxidgene-pedigree-defaults";
 const PEDIGREE_THEME_STORAGE_KEY: &str = "oxidgene-pedigree-theme";
 
-/// Hook: initialise the pedigree theme (call once in `Layout`).
+/// Hook: initialise the pedigree theme (call once in `AppShell`).
 ///
 /// Unlike the depth defaults, this resolves to a usable value immediately
 /// rather than staying `None` until storage answers: the theme changes card
@@ -102,7 +102,7 @@ pub fn set_pedigree_theme(mut pref: Signal<PedigreeThemeId>, id: PedigreeThemeId
     }
 }
 
-/// Hook: initialise the surname-sorting preference (call once in `Layout`).
+/// Hook: initialise the surname-sorting preference (call once in `AppShell`).
 pub fn use_init_sort_particles() -> Signal<SortParticles> {
     let mut pref = use_context_provider(|| Signal::new(SortParticles::default()));
 

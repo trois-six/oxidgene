@@ -25,11 +25,12 @@ use dioxus::prelude::*;
 
 /// Top-level application component.
 ///
-/// Renders the [`router::Route`] router.  The caller must provide an
+/// Renders the [`router::Route`] router inside the application shell, which
+/// holds the state every page shares.  The caller must provide an
 /// [`api::ApiClient`] in the Dioxus context *before* launching.
 #[component]
 pub fn App() -> Element {
     rsx! {
-        Router::<router::Route> {}
+        components::layout::AppShell {}
     }
 }

@@ -1,6 +1,6 @@
 //! Global tree cache — survives navigation between sibling routes.
 //!
-//! Provided once via [`use_init_tree_cache`] in the Layout component.
+//! Provided once via [`use_init_tree_cache`] in the application shell.
 //! Consumed in child pages via [`use_tree_cache`].
 //!
 //! Only tree metadata is held here. Pedigree and search use the API read models.
@@ -98,7 +98,7 @@ impl TreeCache {
 
 // ─── Hooks ──────────────────────────────────────────────────────────
 
-/// Call once in the root Layout to provide the cache context.
+/// Call once in the application shell to provide the cache context.
 pub fn use_init_tree_cache() -> TreeCache {
     let cache = TreeCache {
         tree_tid: use_context_provider(|| Signal::new(None)),
@@ -194,7 +194,7 @@ impl ViewStateCache {
     }
 }
 
-/// Call once in the root Layout.
+/// Call once in the application shell.
 pub fn use_init_view_state_cache() -> ViewStateCache {
     let cache = ViewStateCache {
         state: use_context_provider(|| Signal::new(None)),
