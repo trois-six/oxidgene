@@ -58,16 +58,17 @@ impl From<OccupationReference> for FicheContent {
 /// all of them in one batch. Each label with a fiche gets its own hover
 /// target; the others stay plain text.
 #[component]
-pub fn OccupationsHover(titles: Vec<String>) -> Element {
+pub fn OccupationsHover(titles: ReadSignal<Vec<String>>) -> Element {
     let api = use_context::<ApiClient>();
-    // Read inside the resource so it refetches when the language changes:
-    // it starts as English and is only resolved after the first render.
+    // The language and the titles are read inside the resource so it
+    // refetches when either changes: the language starts as English and is
+    // only resolved after the first render, and moving from one profile to
+    // another keeps this component and hands it the next person's titles.
     let language = use_context::<Signal<Language>>();
-    let terms_for_fetch = titles.clone();
     let references = use_ui_resource("occupation_reference_bundle", move || {
         let api = api.clone();
         let lang_code = language().code();
-        let terms = terms_for_fetch.clone();
+        let terms = titles();
         async move {
             api.reference_occupations(lang_code, &terms)
                 .await
@@ -86,7 +87,7 @@ pub fn OccupationsHover(titles: Vec<String>) -> Element {
         })
         .unwrap_or_default();
     rsx! {
-        for (i , title) in titles.into_iter().enumerate() {
+        for (i , title) in titles().into_iter().enumerate() {
             span { key: "occ-{title}",
                 if i > 0 {
                     ", "
@@ -178,20 +179,18 @@ fn split_given_name_tokens(given: &str) -> Vec<(String, String)> {
 /// resolving all individual names in one batch. Each resolved token gets its
 /// own hover target, and original spacing/hyphenation is preserved.
 #[component]
-pub fn GivenNamesHover(given_names: String) -> Element {
-    let tokens = split_given_name_tokens(&given_names);
-    let terms_for_fetch = tokens
-        .iter()
-        .map(|(word, _)| word.clone())
-        .collect::<Vec<_>>();
+pub fn GivenNamesHover(given_names: ReadSignal<String>) -> Element {
+    let tokens = split_given_name_tokens(&given_names.read());
     let api = use_context::<ApiClient>();
-    // Read inside the resource so it refetches when the language changes:
-    // it starts as English and is only resolved after the first render.
+    // Both read inside the resource, as in `OccupationsHover`.
     let language = use_context::<Signal<Language>>();
     let references = use_ui_resource("given_name_reference_bundle", move || {
         let api = api.clone();
         let lang_code = language().code();
-        let terms = terms_for_fetch.clone();
+        let terms = split_given_name_tokens(&given_names.read())
+            .into_iter()
+            .map(|(word, _)| word)
+            .collect::<Vec<_>>();
         async move {
             api.reference_given_names(lang_code, &terms)
                 .await
