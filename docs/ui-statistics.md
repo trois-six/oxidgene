@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:44:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -67,6 +67,14 @@ titled blocks:
 The tab shown is kept per viewer in local storage; the first visit opens
 the Overview. Charts sit two per row on wide screens and one per row below
 900px. Each has a title and a `?` hint explaining how it is computed (§7).
+
+At phone width (640px and below) the page stays within the screen: the tabs
+scroll sideways instead of shrinking, the counts sit two per row, a donut's
+legend goes under its ring, and the period bar puts the years and the
+"all years" button on one line, the interval on the next, then the ruler.
+Charts are drawn at about half their size there, so their axis text is drawn
+larger and the charts and the ruler label every other period only. A legend
+truncates a long value rather than push its count out of the card.
 
 The **approximate dates** box, in the topbar, lets ages and averages also
 use dates about, calculated or estimated (§7); it is off by default and

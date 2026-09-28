@@ -219,7 +219,9 @@ pub fn LineChart(periods: Vec<i32>, series: Vec<ChartSeries>, unit: String) -> E
                     if i % label_every == 0 {
                         text {
                             key: "p{i}",
-                            class: "stats-axis",
+                            // Every other label gives way on a phone, where
+                            // the axis text is drawn larger (see the CSS).
+                            class: if (i / label_every) % 2 == 1 { "stats-axis stats-axis-alt" } else { "stats-axis" },
                             x: "{x(i)}",
                             y: "{HEIGHT - 8.0}",
                             "text-anchor": "middle",
@@ -413,6 +415,12 @@ pub fn YearRuler(
     // and stay on the same years whatever the range.
     let every = (ticks.len() as i32 + RULER_LABELS - 1) / RULER_LABELS;
     let labelled = move |year: i32| year.div_euclid(interval).rem_euclid(every.max(1)) == 0;
+    let alternate = move |year: i32| {
+        year.div_euclid(interval)
+            .div_euclid(every.max(1))
+            .rem_euclid(2)
+            == 1
+    };
     // The start handle goes on top once it nears the end, so both handles
     // stay reachable when they meet there.
     let from_on_top = from > min + (max - min) / 2;
@@ -429,7 +437,11 @@ pub fn YearRuler(
                     class: if labelled(year) { "stats-ruler-tick major" } else { "stats-ruler-tick" },
                     style: "left: {place(at(year))}",
                     if labelled(year) {
-                        span { class: "stats-ruler-label", "{year}" }
+                        span {
+                            // Every other label gives way on a phone.
+                            class: if alternate(year) { "stats-ruler-label stats-ruler-label-alt" } else { "stats-ruler-label" },
+                            "{year}"
+                        }
                     }
                 }
             }

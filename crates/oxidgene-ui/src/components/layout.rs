@@ -1152,7 +1152,11 @@ pub const LAYOUT_STYLES: &str = r#"
         min-width: 0;
     }
 
-    .td-search-input {
+    /* Scoped with the element so it outranks the app-wide
+       `input:not(…):not(…)` field rule (0-2-1), declared earlier: without it
+       the fields took a form field's full width and padding, and pushed the
+       button out of a phone's topbar. */
+    .td-search-group input.td-search-input {
         padding: 4px 8px;
         font-size: 0.8rem;
         border: 1px solid var(--border);
@@ -5143,7 +5147,7 @@ pub const LAYOUT_STYLES: &str = r#"
         .td-bc { gap: 4px; }
         .td-bc-link { max-width: clamp(36px, 22vw, 140px); }
         .td-bc-current { max-width: clamp(76px, 24vw, 96px); }
-        .td-search-input { width: clamp(72px, 22vw, 110px); }
+        .td-search-group input.td-search-input { width: clamp(72px, 22vw, 110px); }
         .page-header {
             padding: 14px;
             margin-bottom: 16px;
@@ -5222,12 +5226,15 @@ pub const LAYOUT_STYLES: &str = r#"
         }
         .pd-family-card .pd-children { padding-left: 0; }
         .pd-family-card .pd-children li { padding-left: 12px; }
+        /* Tabs that do not fit scroll sideways rather than squeeze into
+           each other's labels. */
         .dict-tabs {
             gap: 0;
+            overflow-x: auto;
+            scrollbar-width: none;
         }
         .dict-tab {
-            flex: 1 1 auto;
-            min-width: 0;
+            flex: 1 0 auto;
             padding: 8px 5px;
             font-size: 0.78rem;
             white-space: nowrap;
@@ -6258,11 +6265,14 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .stats-donut-svg { width: 150px; height: 150px; flex-shrink: 0; }
 
+    /* The column may shrink below its rows' content, so long labels are
+       truncated instead of pushing the counts out of the card. */
     .stats-legend {
         list-style: none;
         margin: 0;
         padding: 0;
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: 3px;
         font-size: 0.75rem;
         min-width: 0;
@@ -6495,6 +6505,23 @@ pub const LAYOUT_STYLES: &str = r#"
         .stats-timeline { grid-template-columns: minmax(0, 1fr) auto auto; }
         .stats-timeline-title { display: none; }
         .stats-timeline .stats-ruler { grid-column: 1 / -1; grid-row: 2; }
+    }
+
+    @media (max-width: 640px) {
+        /* Two tiles a row. */
+        .stats-tiles { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+        /* The years and the button, then the interval, then the ruler, whose
+           labels hang into the bar's bottom padding. */
+        .stats-timeline { grid-template-columns: minmax(0, 1fr) auto; }
+        .stats-timeline .stats-interval { grid-column: 1 / -1; grid-row: 2; }
+        .stats-timeline .stats-ruler { grid-row: 3; }
+        /* A chart is drawn at about half its size here: its axis text is
+           drawn larger to stay legible, with half the labels to keep room. */
+        .stats-axis { font-size: 15px; }
+        .stats-axis-alt,
+        .stats-ruler-label-alt { display: none; }
+        .stats-donut { flex-direction: column; align-items: stretch; }
+        .stats-donut-svg { align-self: center; }
     }
 
 "#;

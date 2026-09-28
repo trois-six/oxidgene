@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Read-only index of family names, sources, places, and occupations with usage counts."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-08-29T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
 ---
 
 
@@ -83,6 +83,8 @@ Four tabs, text-labeled (icons alone are ambiguous at four items), styled as a s
 | Occupations | `Event.description` where `event_type = Occupation` | |
 
 Switching tabs resets the alphabet filter, quick filter, and page to their defaults (page 1, letter "All").
+
+At phone width the tabs share the row; when they do not fit, as on the [Statistics](ui-statistics.md) page, the strip scrolls sideways rather than squeezing their labels into each other.
 
 ---
 
