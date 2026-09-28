@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
 ---
 
 
@@ -88,7 +88,8 @@ and render a local `data:`/`blob:` resource; they never emit `/api/v1`,
 `/graphql`, or an API origin in user-visible links, image sources, form actions,
 redirects, or new-window targets. The one exception is the API section of
 [App Settings](ui-app-settings.md), whose purpose is to show the endpoints: it
-links the OpenAPI document and the GraphiQL page, which carry no tree data.
+links the OpenAPI document and, in the web build, the GraphiQL page, which
+carry no tree data.
 
 ### Errors and consistency
 
@@ -111,20 +112,20 @@ paths, HTTP methods, operation identifiers, and path parameters track the
 compiled REST surface. The document also defines the shared error envelope.
 
 GraphQL uses its executable schema and standard introspection instead of a
-separate OpenAPI description. GraphiQL is served at `GET /graphql`. Both the
-standalone server and the desktop's embedded server compile the API with its
-`graphql` feature, so both serve REST and GraphQL; only the background worker,
-which serves no HTTP, leaves it out.
+separate OpenAPI description. GraphiQL is served at `GET /graphql` when the
+`graphql` feature is enabled: the standalone server enables it; the desktop's
+embedded server and the background worker do not, so the desktop serves REST
+only.
 
 ### Connecting a client
 
 | Build | Base URL | Credential |
 |---|---|---|
 | Standalone server | The deployment's API origin (`OXIDGENE_HOST`/`OXIDGENE_PORT`, loopback `127.0.0.1:8080` by default) | None. A request whose `Origin` is present and not the frontend's cannot write (`403 forbidden`); `curl` and scripts send none. |
-| Desktop | `http://127.0.0.1:<port>`, a port the operating system picks at each launch; loopback only | `Authorization: Bearer <token>`, a token generated at each launch, on every request except `GET /api/v1/openapi.json` and `GET /graphql` (GraphiQL); otherwise `401 unauthenticated`. |
+| Desktop (REST only) | `http://127.0.0.1:<port>`, a port the operating system picks at each launch; loopback only | `Authorization: Bearer <token>`, a token generated at each launch, on every request except `/api/v1/openapi.json`; otherwise `401 unauthenticated`. |
 
 [App Settings §8](ui-app-settings.md) shows the current build's URLs, the
-desktop token, and `curl` examples for both surfaces.
+desktop token, and `curl` examples for the surfaces that build serves.
 
 ## 2. REST API
 

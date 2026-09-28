@@ -486,9 +486,10 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
 /// The API section: where each endpoint is, and how an external client
 /// connects to it (`docs/ui-app-settings.md` §8).
 ///
-/// Both builds serve REST and GraphQL side by side, so both entries are always
-/// shown. Only the desktop's embedded backend requires a bearer token; the
-/// client knows it, and its absence means the backend asks for none.
+/// Both builds serve REST. Only the web server serves GraphQL: the desktop
+/// compiles the API without it, so its entries show in the web build alone.
+/// Only the desktop's embedded backend requires a bearer token; the client
+/// knows it, and its absence means the backend asks for none.
 #[component]
 fn ApiSection() -> Element {
     let i18n = use_i18n();
@@ -498,7 +499,8 @@ fn ApiSection() -> Element {
     let graphql_url = api.graphql_url();
     let token = api.auth_token();
     let rest_example = openapi_curl_example(&openapi_url);
-    let graphql_example = graphql_curl_example(&graphql_url, token.as_deref());
+    let graphql_example = graphql_curl_example(&graphql_url);
+    let graphql = cfg!(target_arch = "wasm32");
 
     rsx! {
         div { class: "settings-section",
@@ -513,11 +515,13 @@ fn ApiSection() -> Element {
                     hint: i18n.t("app_settings.openapi_hint"),
                     title: i18n.t("app_settings.openapi_open"),
                 }
-                ApiEndpointLink {
-                    href: graphql_url.clone(),
-                    label: i18n.t("app_settings.graphql_label"),
-                    hint: i18n.t("app_settings.graphql_hint"),
-                    title: i18n.t("app_settings.graphql_open"),
+                if graphql {
+                    ApiEndpointLink {
+                        href: graphql_url.clone(),
+                        label: i18n.t("app_settings.graphql_label"),
+                        hint: i18n.t("app_settings.graphql_hint"),
+                        title: i18n.t("app_settings.graphql_open"),
+                    }
                 }
             }
 
@@ -545,15 +549,17 @@ fn ApiSection() -> Element {
                     value: rest_example,
                     multiline: false,
                 }
-                CopyField {
-                    label: i18n.t("app_settings.graphql_endpoint_label"),
-                    value: graphql_url,
-                    multiline: false,
-                }
-                CopyField {
-                    label: i18n.t("app_settings.graphql_example_label"),
-                    value: graphql_example,
-                    multiline: true,
+                if graphql {
+                    CopyField {
+                        label: i18n.t("app_settings.graphql_endpoint_label"),
+                        value: graphql_url,
+                        multiline: false,
+                    }
+                    CopyField {
+                        label: i18n.t("app_settings.graphql_example_label"),
+                        value: graphql_example,
+                        multiline: true,
+                    }
                 }
             }
 
@@ -603,22 +609,19 @@ fn openapi_curl_example(openapi_url: &str) -> String {
     format!("curl '{openapi_url}'")
 }
 
-/// A `curl` command posting [`GRAPHQL_EXAMPLE_QUERY`] to `graphql_url`, with
-/// the bearer header when the backend requires `token`.
+/// A `curl` command posting [`GRAPHQL_EXAMPLE_QUERY`] to `graphql_url`. Only
+/// the web server serves GraphQL, and it asks for no token.
 ///
 /// POSIX shell quoting: the body is single-quoted JSON, so the query must hold
 /// no single quote, which [`GRAPHQL_EXAMPLE_QUERY`] does not.
-fn graphql_curl_example(graphql_url: &str, token: Option<&str>) -> String {
+fn graphql_curl_example(graphql_url: &str) -> String {
     let body = serde_json::json!({ "query": GRAPHQL_EXAMPLE_QUERY });
-    let mut lines = vec![
+    [
         format!("curl -X POST '{graphql_url}'"),
         "  -H 'Content-Type: application/json'".to_string(),
-    ];
-    if let Some(token) = token {
-        lines.push(format!("  -H 'Authorization: Bearer {token}'"));
-    }
-    lines.push(format!("  -d '{body}'"));
-    lines.join(" \\\n")
+        format!("  -d '{body}'"),
+    ]
+    .join(" \\\n")
 }
 
 // ── AI assistant (MCP) ──────────────────────────────────────────────────────
@@ -1397,20 +1400,13 @@ mod tests {
 
     #[test]
     fn the_graphql_example_posts_the_query_as_json() {
-        let example = graphql_curl_example("http://127.0.0.1:8080/graphql", None);
+        let example = graphql_curl_example("http://127.0.0.1:8080/graphql");
         assert_eq!(
             example,
             "curl -X POST 'http://127.0.0.1:8080/graphql' \\\n  \
              -H 'Content-Type: application/json' \\\n  \
              -d '{\"query\":\"{ trees(first: 1) { edges { node { id name } } } }\"}'"
         );
-        assert!(!example.contains("Authorization"));
-    }
-
-    #[test]
-    fn the_graphql_example_carries_the_token_when_there_is_one() {
-        let example = graphql_curl_example("http://127.0.0.1:1/graphql", Some("s3cret"));
-        assert!(example.contains("\n  -H 'Authorization: Bearer s3cret' \\\n"));
         assert!(!GRAPHQL_EXAMPLE_QUERY.contains('\''));
     }
 }

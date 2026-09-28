@@ -83,51 +83,6 @@ async fn the_embedded_backend_answers_only_its_own_client() {
     assert_eq!(status, StatusCode::OK);
 }
 
-/// GraphiQL is opened in the system browser like the OpenAPI document, but
-/// only the page is public: the operations it sends need the token.
-#[cfg(feature = "graphql")]
-#[tokio::test]
-async fn the_embedded_graphiql_page_is_public_but_its_operations_are_not() {
-    let token = LocalToken::generate();
-    let app = require_local_token(router().await, token.clone());
-    let bearer = format!("Bearer {}", token.as_str());
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method(Method::GET)
-                .uri("/graphql")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let query = r#"{"query":"{ trees(first: 1) { edges { node { id name } } } }"}"#;
-    let post = |authorization: Option<&str>| {
-        let mut request = Request::builder()
-            .method(Method::POST)
-            .uri("/graphql")
-            .header(header::CONTENT_TYPE, "application/json");
-        if let Some(value) = authorization {
-            request = request.header(header::AUTHORIZATION, value);
-        }
-        request.body(Body::from(query)).unwrap()
-    };
-
-    let response = app.clone().oneshot(post(None)).await.unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-    let response = app.clone().oneshot(post(Some(&bearer))).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(body["errors"].is_null(), "{body}");
-    assert!(body["data"]["trees"]["edges"].is_array());
-}
-
 #[tokio::test]
 async fn only_the_frontend_origin_may_write() {
     let frontend = "https://genealogy.example";

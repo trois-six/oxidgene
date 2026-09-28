@@ -27,12 +27,10 @@ use uuid::Uuid;
 
 use crate::rest::error::ErrorBody;
 
-/// Paths every caller may *read* without the token: the OpenAPI description
-/// and the GraphiQL page hold no tree data, and App Settings opens them in the
-/// system browser, which has no way to present a credential. Only `GET` and
-/// `HEAD` are exempt — `POST /graphql` runs queries and still needs the token,
-/// which the user enters in GraphiQL's headers editor.
-const PUBLIC_PATHS: &[&str] = &["/api/v1/openapi.json", "/graphql"];
+/// Paths every caller may read without the token: the API description holds
+/// no tree data, and App Settings opens it in the system browser, which has no
+/// way to present a credential.
+const PUBLIC_PATHS: &[&str] = &["/api/v1/openapi.json"];
 
 /// A per-launch secret the embedded backend requires as a bearer token.
 #[derive(Clone)]
@@ -59,7 +57,7 @@ impl std::fmt::Debug for LocalToken {
 }
 
 /// Refuse every request to `router` that does not present `token` as
-/// `Authorization: Bearer <token>`, except reads of the [`PUBLIC_PATHS`].
+/// `Authorization: Bearer <token>`, except the [`PUBLIC_PATHS`].
 pub fn require_local_token(router: Router, token: LocalToken) -> Router {
     router.layer(middleware::from_fn_with_state(token, check_local_token))
 }
@@ -69,9 +67,7 @@ async fn check_local_token(
     request: Request,
     next: Next,
 ) -> Response {
-    let public_read = matches!(*request.method(), Method::GET | Method::HEAD)
-        && PUBLIC_PATHS.contains(&request.uri().path());
-    if public_read || presents(request.headers(), &token) {
+    if PUBLIC_PATHS.contains(&request.uri().path()) || presents(request.headers(), &token) {
         return next.run(request).await;
     }
     refusal(

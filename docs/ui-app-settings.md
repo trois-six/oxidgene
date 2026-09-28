@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
-description: "Application-level preferences page for appearance, language, pedigree, names, REST and GraphQL connection details, and the AI assistant connection."
+description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
 ---
 
 
@@ -80,7 +80,7 @@ Items:
 | Language | Language selection |
 | Pedigree | Initial ancestor and descendant depths |
 | Names | Surname-particle sorting |
-| API | REST and GraphQL endpoints with how to connect a client; AI assistant (MCP) connection in the desktop build |
+| API | REST endpoints with how to connect a client, and GraphQL in the web build; AI assistant (MCP) connection in the desktop build |
 
 Active item: primary text, bold weight, and the neutral selection background
 (`var(--sel-bg)`), matching Tree Settings.
@@ -239,8 +239,9 @@ defaults.
 
 ## 8. Section: API
 
-Both builds serve REST and GraphQL side by side, so the section always presents
-both. Every URL is absolute and derived from the frontend client's own API base
+Both builds serve REST; only the web build serves GraphQL, the desktop
+compiling the API crate without its optional `graphql` feature. The section
+presents what the current build serves. Every URL is absolute and derived from the frontend client's own API base
 URL: in the web build, the address the deployment gives the frontend; on
 desktop, the embedded server's `http://127.0.0.1:<port>`, whose port the
 operating system picks at each launch.
@@ -250,7 +251,7 @@ operating system picks at each launch.
 |  OpenAPI specification                          [↗] |
 |  http://127.0.0.1:8080/api/v1/openapi.json          |
 |-----------------------------------------------------|
-|  GraphQL explorer (GraphiQL)                    [↗] |
+|  GraphQL explorer (GraphiQL)                    [↗] |   (web only)
 |  http://127.0.0.1:8080/graphql                      |
 +-----------------------------------------------------+
 +-----------------------------------------------------+
@@ -260,29 +261,28 @@ operating system picks at each launch.
 |  Send it as Authorization: Bearer <token> …         |
 |  REST base URL       [ …/api/v1             ] [Copy]|
 |  Example (GET)       [ curl '…/openapi.json'] [Copy]|
-|  GraphQL endpoint    [ …/graphql            ] [Copy]|
-|  Example (POST)      [ curl -X POST … \      ] [Copy]|
+|  GraphQL endpoint    [ …/graphql            ] [Copy]|  (web only)
+|  Example (POST)      [ curl -X POST … \      ] [Copy]|  (web only)
 +-----------------------------------------------------+
 ```
 
 - The endpoint list opens each entry in the system browser:
-  `GET /api/v1/openapi.json`, the generated OpenAPI 3.1 document, and
-  `GET /graphql`, GraphiQL.
+  `GET /api/v1/openapi.json`, the generated OpenAPI 3.1 document, and, in the
+  web build, `GET /graphql`, GraphiQL.
 - The **Connect a client** card states, as read-only fields with a copy button,
   the REST base URL (`/api/v1`, every HTTP method the contract uses), a `curl`
-  `GET` of the OpenAPI document, the GraphQL endpoint (`POST` with a JSON
-  body), and a `curl` `POST` of a minimal query against the executable schema:
-  `{ trees(first: 1) { edges { node { id name } } } }`. The examples use POSIX
+  `GET` of the OpenAPI document and, in the web build, the GraphQL endpoint
+  (`POST` with a JSON body) and a `curl` `POST` of a minimal query against the
+  executable schema: `{ trees(first: 1) { edges { node { id name } } } }`. The examples use POSIX
   shell quoting.
 - **Desktop.** The embedded server listens on loopback only and answers only
   requests carrying the bearer token generated at launch
   ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
   The card shows that token above the fields, behind an always-visible warning
   that whoever holds it can read and change every tree while the application
-  runs, and the GraphQL example carries the `Authorization: Bearer` header.
-  A hint says the token goes with every request except the OpenAPI document
-  and the GraphiQL page — in GraphiQL, through its headers editor — and that
-  the address and the token change at every launch. Nothing is saved:
+  runs. A hint says the token goes, as `Authorization: Bearer`, with every
+  request except the OpenAPI document, and that the address and the token
+  change at every launch. Nothing is saved:
   handing the token to another program is the consent, and quitting the
   application revokes it.
 - **Web.** The frontend's client carries no token, so neither the warning nor

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
 ---
 
 # Assistant Access (MCP)
@@ -284,7 +284,8 @@ Clients that use an `mcpServers` JSON file:
   `PersonSearchSort` in `oxidgene-db`), which `mcp` enables. Together they add
   twelve crates to the desktop build, eight of them compile-time only.
 - Only `oxidgene-desktop` enables the feature. The standalone server, the
-  worker, and the WASM frontend do not compile it.
+  worker, and the WASM frontend do not compile it, just as the desktop does
+  not compile `graphql`.
 - The MCP handlers live in `oxidgene-api/src/mcp/` and call the existing
   services and repositories. They contain no business logic.
 - Logs go to standard error through `oxidgene_observability::init_to_stderr`,
