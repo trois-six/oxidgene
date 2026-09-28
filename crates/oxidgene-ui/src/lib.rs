@@ -11,6 +11,7 @@
 pub mod api;
 pub mod assistant;
 pub mod components;
+pub mod date_words;
 pub mod geneanet;
 pub mod i18n;
 pub mod image_host;

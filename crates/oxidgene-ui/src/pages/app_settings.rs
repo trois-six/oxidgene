@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 
 use crate::api::ApiClient;
 use crate::assistant::{AssistantLauncher, use_assistant_launcher};
+use crate::components::copy_field::CopyField;
 use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
 use crate::i18n::{self, Language, use_i18n};
 use crate::prefs::{
@@ -12,7 +13,6 @@ use crate::prefs::{
 use crate::router::Route;
 use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
 use crate::ui_observability::{UiPage, use_ui_load_trace};
-use crate::utils::sleep_ms;
 
 /// Sidebar sections.
 #[derive(Clone, Copy, PartialEq)]
@@ -683,92 +683,6 @@ fn AssistantLauncherPanel(launcher: AssistantLauncher) -> Element {
     }
 }
 
-/// A read-only field with a copy button, shared by the API connection details
-/// and the assistant command: a URL, a command line, and a JSON configuration
-/// are the same interaction, one line versus several.
-///
-/// Nothing here is saved anywhere — copying changes no setting, so the field
-/// carries no `oninput` and no state beyond the brief "Copied" feedback.
-#[component]
-fn CopyField(label: String, value: String, multiline: bool) -> Element {
-    let i18n = use_i18n();
-    let mut copied = use_signal(|| false);
-    let copy_value = value.clone();
-    // Tall enough for the whole value, so a short example is not padded out
-    // and a long configuration still leaves room for the rest of the page.
-    let rows = value.lines().count().clamp(2, 12);
-
-    let onclick = move |_| {
-        let value = copy_value.clone();
-        spawn(async move {
-            if copy_to_clipboard(&value).await {
-                copied.set(true);
-                sleep_ms(1500).await;
-                copied.set(false);
-            }
-        });
-    };
-
-    rsx! {
-        div { class: "copy-field",
-            span { class: "app-settings-option-label", "{label}" }
-            div { class: "copy-field-row",
-                if multiline {
-                    textarea {
-                        class: "copy-field-value",
-                        readonly: true,
-                        rows: "{rows}",
-                        "aria-label": "{label}",
-                        value: "{value}",
-                    }
-                } else {
-                    input {
-                        class: "copy-field-value",
-                        r#type: "text",
-                        readonly: true,
-                        "aria-label": "{label}",
-                        value: "{value}",
-                    }
-                }
-                button {
-                    class: "btn btn-outline btn-sm copy-field-btn",
-                    r#type: "button",
-                    onclick,
-                    {if *copied.read() { i18n.t("common.copied") } else { i18n.t("common.copy") }}
-                }
-            }
-        }
-    }
-}
-
-/// Writes `text` to the system clipboard through `navigator.clipboard`, the
-/// one clipboard API available in both the browser build and the desktop
-/// WebView.
-///
-/// Returns whether the write reported success, so the caller shows "Copied"
-/// only when it actually happened rather than after a write an insecure
-/// context or a denied permission silently dropped.
-async fn copy_to_clipboard(text: &str) -> bool {
-    let Ok(js_text) = serde_json::to_string(text) else {
-        return false;
-    };
-    let script = format!(
-        r#"
-        try {{
-            await navigator.clipboard.writeText({js_text});
-            return true;
-        }} catch (e) {{
-            return false;
-        }}
-        "#
-    );
-    document::eval(&script)
-        .await
-        .ok()
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
-}
-
 // ── Styles ──────────────────────────────────────────────────────────────────
 
 /// Shared settings layout and application-preference widget styles.
@@ -1345,45 +1259,6 @@ const APP_SETTINGS_STYLES: &str = r#"
         gap: 0.9rem;
     }
 
-    .copy-field {
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-    }
-
-    .copy-field-row {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.6rem;
-    }
-
-    .copy-field-value {
-        flex: 1;
-        min-width: 0;
-        font-family: monospace;
-        font-size: 0.8rem;
-        resize: none;
-        background: var(--bg-deep);
-        color: var(--text-secondary);
-    }
-
-    textarea.copy-field-value {
-        line-height: 1.4;
-    }
-
-    .copy-field-btn {
-        flex: none;
-        /* Lines up with the first row of a multi-line field instead of
-           stretching or centering across its full height. */
-        align-self: flex-start;
-    }
-
-    @media (max-width: 640px) {
-        .copy-field-row {
-            flex-direction: column;
-            align-items: stretch;
-        }
-    }
 "#;
 
 #[cfg(test)]

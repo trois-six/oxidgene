@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
-description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, and a converter of dates between calendars."
+description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T22:00:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -30,7 +30,7 @@ layout with no sidebar of its own.
 +----------------------------------------------------------------------+
 | [logo] tree / Tools                                                   |
 +----------------------------------------------------------------------+
-| Anomalies | Places | Ancestry | Duplicates | Date converter            |
+| Anomalies | Places | Ancestry | Duplicates | Converter | In words     |
 +----------------------------------------------------------------------+
 |  Tool title                                                           |
 |  What the tool does, in a sentence or two                             |
@@ -48,6 +48,7 @@ screen together:
 | Ancestry completeness | Generation by generation from the SOSA root, who is known and which key facts are recorded (§5) |
 | Potential duplicates | Pairs of records that may be one person, to merge or keep apart (§6) |
 | Date converter | A date in one calendar, read in every other (§7) |
+| Date in words | A date written out in every language and in Latin, and a written date read back (§8) |
 
 The tabs are the [Statistics](ui-statistics.md) strip: at phone width
 (640px and below) they scroll sideways instead of shrinking. The tab shown
@@ -345,8 +346,94 @@ all of them: Gregorian, Julian, Hebrew and French Republican.
 - Everything is computed in the browser from the calendar arithmetic of
   `oxidgene-core`; nothing is sent to the server, and nothing is stored.
 
-## 8. i18n and accessibility
+## 8. Date in words
+
+A date written out as registers and deeds wrote it, in every interface
+language and in Latin, and the reverse: a written date read back into
+numbers. Everything is computed in the browser (`date_words.rs` of
+`oxidgene-ui`, pure Rust shared by the web and desktop builds); nothing is
+sent to the server, and nothing is stored.
+
+### 8.1 Writing
+
+- The date is entered with the shared date input. A Gregorian or Julian date
+  is written in its own calendar; a Hebrew or Republican one from the same
+  day in the Gregorian calendar, which the page says. The qualifier and the
+  second date of a range are left out; a year alone or a month and a year
+  are written as such. Years run from 1 to 3999, as far as Roman numerals go.
+- **Form**: *all in words* (the default) or *figures and month name*.
+- **Year starts on** *1 January* (the default) or *25 March*, the
+  Annunciation style many registers kept: a date from 1 January to 24 March
+  then bears the previous year's number, in every output.
+- One row per language, each with the shared copy button: English, French,
+  German, Spanish, Italian, Dutch, Polish and Portuguese, with their own
+  number words, ordinals and month cases — for 2 February 1650, *the second
+  of February, one thousand six hundred and fifty*; *le deux février mille
+  six cent cinquante*; *am zweiten Februar sechzehnhundertfünfzig*; *dos de
+  febrero de mil seiscientos cincuenta*; *due febbraio
+  milleseicentocinquanta*; *de tweede februari zestienhonderdvijftig*;
+  *drugiego lutego tysiąc sześćset pięćdziesiątego roku*; *dois de fevereiro
+  de mil seiscentos e cinquenta*. Day 1 is an ordinal where the language
+  says so (*le premier*, *primero de*, *primo*, *primeiro de*).
+- **Latin**, the same whatever the interface language:
+  - all in words: *die secunda mensis Februarii anno Domini millesimo
+    sexcentesimo quinquagesimo* — the day a feminine ordinal, the month in
+    the genitive, the year a masculine ordinal, every part of it (*bis
+    millesimo* for 2000); days and years from 13 to 19 read *decima
+    tertia*, *decimo octavo*;
+  - figures and month name: *II Februarius MDCL*, day and year in Roman
+    numerals;
+  - the **Roman reckoning** of a complete date, counted inclusively to the
+    next Kalends (the 1st), Nones (the 5th, the 7th in March, May, July and
+    October) or Ides (eight days after the Nones): *ante diem IV Nonas
+    Februarii*, *pridie Idus Martii*, *Kalendis Martii*; in a leap
+    February the 24th is *ante diem bis VI Kalendas Martii*. The month is
+    named in the genitive, as in the documents this tool was modelled on.
+  - **part by part**: the day (2 = *secunda* = II), the month (2 =
+    *Februarii* = II), the year (1650 = *millesimo sexcentesimo
+    quinquagesimo* = MDCL) and the calendar, with the year style.
+
+### 8.2 Reading
+
+A pasted text fills the date input, or says why it cannot: nothing to read,
+no year found, or a day the month does not have.
+
+- Numbers in words in any of the eight languages or in Latin, cardinal or
+  ordinal, in any case the tables know (*zweiten*, *zweiter*; *secunda*,
+  *secundo*, *quartum*), compounds included (*sechzehnhundertfünfzig*,
+  *milleseicentocinquanta*, *tweeëntwintig*, *quatre-vingt-dix*); in
+  figures, with *1er*, *2nd* or *2.*; in Roman numerals written in capitals,
+  or anywhere in a Roman-reckoning text.
+- Month names in every language, the Polish genitives and the Latin
+  nominative, genitive, and the forms agreeing with Kalendas and Kalendis
+  (*Februarias*, *Februariis*), and GEDCOM's abbreviations (*FEB*).
+- The day before or after the month, the year after it; figures alone, day
+  first (*2/2/1650*) or year first (*1650-02-02*); a year alone.
+- The Roman reckoning: *ante diem IV Nonas Februarias MDCL*, *a.d. IV Non.
+  Feb. 1650*, *pridie Idus Martias 1650*, *Kalendis Martii*, the doubled
+  leap day; the count before the Kalends of a month is a day of the month
+  before, the year being the date's own.
+- A text read is taken as Gregorian; the date input then converts it to
+  another calendar if one is chosen there.
+
+### 8.3 Options
+
+| Option | Status |
+|---|---|
+| All in words, or figures and month name | implemented |
+| Year from 1 January, or from 25 March (Annunciation style) | implemented |
+| Latin long and short forms, Roman reckoning, part-by-part breakdown | implemented |
+| Reading text in the eight languages and in Latin | implemented |
+| Copy of each output | implemented (the shared copy field) |
+| Double dating (*1649/50*) for the Annunciation style | proposed |
+| Other old styles (25 December, Easter) | proposed |
+| The liturgical feast of the day, from a calendar of saints | proposed |
+| The classical subtractive forms (*duodevicesima*) and Hebrew and Republican dates written out | proposed |
+
+## 9. i18n and accessibility
 
 Every title, explanation, label and message goes through i18n in every
-interface language. The tabs are a `tablist` whose buttons say which is
+interface language. The dates written out (§8) are the tool's own output,
+not interface text: each language's row is in that language, and Latin in
+Latin, whatever the interface language. The tabs are a `tablist` whose buttons say which is
 selected.

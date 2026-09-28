@@ -14,6 +14,7 @@ use crate::api::{
     AncestorFacts, AncestryGeneration, Anomaly, AnomalyRule, ApiClient, DuplicatePair,
     StatPersonRef, StatPlace, UpdatePlaceBody,
 };
+use crate::components::copy_field::CopyField;
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
 use crate::components::pedigree_chart::format_lifespan;
@@ -21,7 +22,8 @@ use crate::components::place_input::PlaceInput;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
-use crate::i18n::{I18n, use_i18n};
+use crate::date_words::{self, Form, YearStart, Ymd};
+use crate::i18n::{I18n, Language, use_i18n};
 use crate::pages::statistics::{date_text, event_type_label, percent};
 use crate::prefs::{store, stored};
 use crate::router::Route;
@@ -41,15 +43,17 @@ enum ToolsTab {
     Ancestry,
     Duplicates,
     Converter,
+    Words,
 }
 
 impl ToolsTab {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Anomalies,
         Self::Places,
         Self::Ancestry,
         Self::Duplicates,
         Self::Converter,
+        Self::Words,
     ];
 
     /// The tab's name in storage and in its label's i18n key.
@@ -60,6 +64,7 @@ impl ToolsTab {
             Self::Ancestry => "ancestry",
             Self::Duplicates => "duplicates",
             Self::Converter => "converter",
+            Self::Words => "words",
         }
     }
 
@@ -204,6 +209,7 @@ pub fn Tools(tree_id: String) -> Element {
                             Duplicates { tree_id: tid, tree_route: tree_id.clone() }
                         },
                         (Some(ToolsTab::Converter), _) => rsx! { DateConverter {} },
+                        (Some(ToolsTab::Words), _) => rsx! { DateWords {} },
                         _ => rsx! {},
                     }
                 }
@@ -1202,6 +1208,191 @@ fn DateConverter() -> Element {
     }
 }
 
+// ── Date in words ───────────────────────────────────────────────────────
+
+/// The date a text is written from: the first date entered, in the
+/// Gregorian or Julian calendar it was entered in, any other calendar's
+/// date read in the Gregorian one. `None` while the entry is not a date.
+fn words_date(parts: &DateParts) -> Option<(Ymd, Calendar)> {
+    if parts.is_empty() || parts.validate().is_some() {
+        return None;
+    }
+    let parts = parts.resolved();
+    let parts = match parts.calendar {
+        Calendar::Gregorian | Calendar::Julian => parts,
+        _ => parts.expressed_in(Calendar::Gregorian)?,
+    };
+    Some((
+        Ymd {
+            year: parts.year?,
+            month: parts.month,
+            day: parts.day.filter(|_| parts.month.is_some()),
+        },
+        parts.calendar,
+    ))
+}
+
+/// A date written out in every interface language and in Latin, and a
+/// written date read back into the date input (`docs/ui-tools.md` §8).
+#[component]
+fn DateWords() -> Element {
+    let i18n = use_i18n();
+    let mut parts = use_signal(DateParts::default);
+    let mut form = use_signal(|| Form::Long);
+    let mut start = use_signal(|| YearStart::January);
+    let mut text = use_signal(String::new);
+    let mut read_error = use_signal(|| None::<&'static str>);
+
+    let entered = parts();
+    let date = words_date(&entered);
+    let styled = date.map(|(ymd, calendar)| (ymd.in_style(start()), calendar));
+    let calendar_note = match (entered.calendar, date) {
+        (Calendar::Hebrew | Calendar::FrenchRepublican, Some(_)) => {
+            Some(i18n.t("tools.words.read_as_gregorian"))
+        }
+        _ => None,
+    };
+
+    let mut read = move || match date_words::read(&text()) {
+        Ok(found) => {
+            parts.set(DateParts {
+                year: Some(found.year),
+                month: found.month,
+                day: found.day,
+                ..DateParts::default()
+            });
+            read_error.set(None);
+        }
+        Err(error) => read_error.set(Some(error.key())),
+    };
+
+    let outputs = match styled {
+        None if entered.is_empty() => {
+            rsx! { p { class: "stats-empty", {i18n.t("tools.words.enter")} } }
+        }
+        None => rsx! { p { class: "stats-empty", {i18n.t("tools.words.out_of_range")} } },
+        Some((ymd, calendar)) => match date_words::latin_parts(ymd) {
+            None => rsx! { p { class: "stats-empty", {i18n.t("tools.words.out_of_range")} } },
+            Some(latin) => rsx! {
+                div { class: "stats-card copy-card tools-words",
+                    for language in Language::ALL {
+                        CopyField {
+                            key: "{language.code()}",
+                            label: language.native_name().to_string(),
+                            value: date_words::written(language, ymd, form()).unwrap_or_default(),
+                            multiline: false,
+                        }
+                    }
+                    CopyField {
+                        label: i18n.t("tools.words.latin"),
+                        value: date_words::latin(ymd, form()).unwrap_or_default(),
+                        multiline: false,
+                    }
+                    if let Some(reckoning) = date_words::latin_roman_reckoning(calendar, ymd) {
+                        CopyField {
+                            label: i18n.t("tools.words.roman_reckoning"),
+                            value: reckoning,
+                            multiline: false,
+                        }
+                    }
+                }
+                table { class: "stats-table tools-words-parts",
+                    caption { {i18n.t("tools.words.parts")} }
+                    tbody {
+                        if let Some((day, word, numeral)) = &latin.day {
+                            tr {
+                                th { {i18n.t("tools.words.part.day")} }
+                                td { "{day} = {word} = {numeral}" }
+                            }
+                        }
+                        if let (Some((word, numeral)), Some(month)) = (&latin.month, ymd.month) {
+                            tr {
+                                th { {i18n.t("tools.words.part.month")} }
+                                td { "{month} = {word} = {numeral}" }
+                            }
+                        }
+                        tr {
+                            th { {i18n.t("tools.words.part.year")} }
+                            td { "{ymd.year} = {latin.year.0} = {latin.year.1}" }
+                        }
+                        tr {
+                            th { {i18n.t("tools.words.part.calendar")} }
+                            td {
+                                {i18n.t(if calendar == Calendar::Julian { "calendar.julian" } else { "calendar.gregorian" })}
+                                if start() == YearStart::Annunciation {
+                                    " · "
+                                    {i18n.t("tools.words.style.annunciation")}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        },
+    };
+
+    rsx! {
+        section { class: "stats-section",
+            {heading(&i18n, "words")}
+            div { class: "stats-card tools-converter-input",
+                DateInput { parts, i18n, on_change: move |_| read_error.set(None) }
+            }
+            div { class: "tools-controls",
+                label { class: "stats-interval",
+                    {i18n.t("tools.words.form")}
+                    select {
+                        value: if form() == Form::Long { "long" } else { "short" },
+                        onchange: move |e| form.set(if e.value() == "short" { Form::Short } else { Form::Long }),
+                        option { value: "long", {i18n.t("tools.words.form.long")} }
+                        option { value: "short", {i18n.t("tools.words.form.short")} }
+                    }
+                }
+                label { class: "stats-interval",
+                    {i18n.t("tools.words.style")}
+                    select {
+                        value: if start() == YearStart::January { "january" } else { "annunciation" },
+                        onchange: move |e| start.set(if e.value() == "annunciation" { YearStart::Annunciation } else { YearStart::January }),
+                        option { value: "january", {i18n.t("tools.words.style.january")} }
+                        option { value: "annunciation", {i18n.t("tools.words.style.annunciation")} }
+                    }
+                }
+            }
+            if let Some(note) = calendar_note {
+                p { class: "stats-note", "{note}" }
+            }
+            {outputs}
+            h3 { class: "stats-card-title tools-words-read-title", {i18n.t("tools.words.read_title")} }
+            p { class: "tools-intro", {i18n.t("tools.words.read_intro")} }
+            div { class: "tools-words-read",
+                input {
+                    r#type: "text",
+                    value: "{text}",
+                    placeholder: i18n.t("tools.words.read_placeholder"),
+                    "aria-label": i18n.t("tools.words.read_title"),
+                    oninput: move |e| {
+                        text.set(e.value());
+                        read_error.set(None);
+                    },
+                    onkeydown: move |e: Event<KeyboardData>| {
+                        if e.key() == Key::Enter {
+                            read();
+                        }
+                    },
+                }
+                button {
+                    class: "btn btn-primary btn-sm",
+                    disabled: text().trim().is_empty(),
+                    onclick: move |_| read(),
+                    {i18n.t("tools.words.read")}
+                }
+            }
+            if let Some(key) = read_error() {
+                div { class: "error-msg", {i18n.t(key)} }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1225,6 +1416,37 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(weekday(&republican), Some(7));
+    }
+
+    #[test]
+    fn a_date_is_written_from_its_gregorian_or_julian_form() {
+        let republican = DateParts {
+            calendar: Calendar::FrenchRepublican,
+            year: Some(2),
+            month: Some(10),
+            day: Some(25),
+            ..Default::default()
+        };
+        assert_eq!(
+            words_date(&republican),
+            Some((
+                Ymd {
+                    year: 1794,
+                    month: Some(7),
+                    day: Some(13)
+                },
+                Calendar::Gregorian
+            ))
+        );
+        let julian = DateParts {
+            calendar: Calendar::Julian,
+            year: Some(1650),
+            month: Some(2),
+            day: Some(2),
+            ..Default::default()
+        };
+        assert_eq!(words_date(&julian).map(|(_, c)| c), Some(Calendar::Julian));
+        assert_eq!(words_date(&DateParts::default()), None);
     }
 
     #[test]

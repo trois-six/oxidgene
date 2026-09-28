@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T22:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -108,8 +108,8 @@ growth of the tree over the days it was worked on) is delivered. Remaining:
 
 The [Tools](ui-tools.md) page, one tab per tool, holds the anomalies with
 the catalogue of their rules, the places the statistics cannot locate, the
-ancestry completeness from the SOSA root, the potential duplicates and the
-date converter.
+ancestry completeness from the SOSA root, the potential duplicates, the
+date converter and the dates in words.
 Remaining tabs:
 
 - [ ] The proposed anomaly rules of [Tools §3.3](ui-tools.md): a unique event
@@ -120,8 +120,10 @@ Remaining tabs:
   name, place spellings that differ only in form, and distant places on one
   day.
 - [ ] Decide whether the anomaly thresholds should become tree settings.
-- [ ] Dates written out in words in every interface language and in Latin,
-  and the reverse: a written date read back into a date.
+- [ ] Dates in words ([Tools §8.3](ui-tools.md)): double dating for the
+  Annunciation style, other old styles, the liturgical feast of the day,
+  the classical subtractive Latin forms, Hebrew and Republican dates
+  written out.
 
 ## 7. Planned: dictionary descent
 

@@ -6584,6 +6584,48 @@ pub const LAYOUT_STYLES: &str = r#"
         .stats-donut-svg { align-self: center; }
     }
 
+    /* ── Copy field (components/copy_field.rs) ───────────────────── */
+
+    .copy-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .copy-field-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+    }
+
+    .copy-field-value {
+        flex: 1;
+        min-width: 0;
+        font-family: monospace;
+        font-size: 0.8rem;
+        resize: none;
+        background: var(--bg-deep);
+        color: var(--text-secondary);
+    }
+
+    textarea.copy-field-value {
+        line-height: 1.4;
+    }
+
+    .copy-field-btn {
+        flex: none;
+        /* Lines up with the first row of a multi-line field instead of
+           stretching or centering across its full height. */
+        align-self: flex-start;
+    }
+
+    @media (max-width: 640px) {
+        .copy-field-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+    }
+
     /* ── Tools page ─────────────────────────────────────────────────
        Tabs, titled sections, tiles and tables are the statistics page's;
        what follows is only what a tool adds (docs/ui-tools.md). */
@@ -6845,6 +6887,34 @@ pub const LAYOUT_STYLES: &str = r#"
         .tools-rule .stats-table tr { display: block; border-bottom: 1px solid var(--border); }
         .tools-person { white-space: normal; }
     }
+
+    .tools-words {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .tools-words-parts caption {
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.85rem;
+        padding-bottom: 4px;
+    }
+
+    .tools-words-parts th { width: 1%; white-space: nowrap; }
+    .tools-words-parts td { overflow-wrap: anywhere; }
+
+    .tools-words-read-title { margin-top: 20px; }
+
+    .tools-words-read {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .tools-words-read input { flex: 1 1 240px; min-width: 0; }
 
     .tools-converter-input { margin-bottom: 12px; }
 

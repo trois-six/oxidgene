@@ -4,6 +4,7 @@ pub mod audit_log;
 pub mod charts;
 pub mod confirm_dialog;
 pub mod context_menu;
+pub mod copy_field;
 pub mod cropped_image;
 pub mod date_input;
 pub mod document_form;
