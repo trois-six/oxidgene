@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:44:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:46:00Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
@@ -167,6 +167,13 @@ The backend searches the dictionary for place suggestions
 first search: every string in one buffer and the few hundred subdivisions,
 regions and countries stored once, a few tens of megabytes in memory, loaded
 in about 0.4 s and searched in under 10 ms by a scan in a release build.
+
+The [statistics](ui-statistics.md) locate a tree's places with that index
+when a search has built it. Otherwise they do not build it: they read the
+decompressed file once for the rows named like the tree's places (a few
+thousand), locate the places among them exactly as the whole index would,
+and drop them, in about a quarter of a second in a release build, so a
+session that only opens the statistics keeps no dictionary in memory.
 
 ## 3. France
 

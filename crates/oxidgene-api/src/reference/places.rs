@@ -3,8 +3,11 @@
 //! `docs/place-dictionary.md`), searched to suggest place names.
 //!
 //! The file is decompressed and indexed on the first search, not at startup:
-//! it holds about 275,000 rows, and a session that never edits a place never pays
-//! for them.
+//! it holds about 285,000 rows, and a session that never edits a place never pays
+//! for them. Locating a tree's places for the statistics reuses that index
+//! when a search has built it, and otherwise reads the file once for the
+//! rows named like the tree's places, keeping nothing afterwards
+//! ([`locate_places`]).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -97,10 +100,19 @@ pub struct PlaceLocation {
 }
 
 /// Locates the places of a tree, with how often the tree uses each, in the
-/// place dictionary (see `Dictionary::locate_all`). Loads the dictionary on
-/// first use.
+/// place dictionary (see `Dictionary::locate_all`).
+///
+/// The index place searches build is reused when it is in memory. Otherwise
+/// the dictionary is decompressed and read once for the rows named like
+/// the tree's places (a few thousand of 285,000), and dropped with them:
+/// about a quarter of a second in a release build, and nothing held in
+/// memory afterwards, where building the whole index would take three
+/// times as long and keep a few tens of megabytes for the session.
 pub fn locate_places(lang: ReferenceLang, labels: &[(&str, i64)]) -> Vec<PlaceLocation> {
-    dictionary().locate_all(labels, lang)
+    match DICTIONARY.get() {
+        Some(dictionary) => dictionary.locate_all(labels, lang),
+        None => Dictionary::for_labels(&decompressed(), labels).locate_all(labels, lang),
+    }
 }
 
 /// A label read against the dictionary.
@@ -135,13 +147,16 @@ fn kind_rank(kind: PlaceKind) -> u8 {
     }
 }
 
+/// The whole dictionary, indexed for place searches on first use and kept.
+static DICTIONARY: OnceLock<Dictionary> = OnceLock::new();
+
 fn dictionary() -> &'static Dictionary {
-    static DICTIONARY: OnceLock<Dictionary> = OnceLock::new();
-    DICTIONARY.get_or_init(|| {
-        let text = String::from_utf8(embedded::decompress(PLACES))
-            .expect("the embedded place dictionary must be UTF-8");
-        Dictionary::parse(&text)
-    })
+    DICTIONARY.get_or_init(|| Dictionary::parse(&decompressed()))
+}
+
+fn decompressed() -> String {
+    String::from_utf8(embedded::decompress(PLACES))
+        .expect("the embedded place dictionary must be UTF-8")
 }
 
 /// The country and British nation names, written in French in the file, in
@@ -363,6 +378,23 @@ struct Dictionary {
 
 impl Dictionary {
     fn parse(csv: &str) -> Self {
+        Self::parse_keeping(csv, |_| true)
+    }
+
+    /// The dictionary of the rows sharing a name with one of `labels`: every
+    /// candidate [`Self::locate_all`] may weigh for them, homonyms included,
+    /// so it locates them as the whole dictionary would.
+    fn for_labels(csv: &str, labels: &[(&str, i64)]) -> Self {
+        let wanted: HashSet<String> = labels
+            .iter()
+            .filter_map(|(label, _)| label.split(',').map(normalize_key).find(|p| !p.is_empty()))
+            .collect();
+        Self::parse_keeping(csv, |folded| wanted.contains(folded))
+    }
+
+    /// The rows whose folded name `keep` accepts. A row it refuses is not
+    /// split: only its name is read.
+    fn parse_keeping(csv: &str, keep: impl Fn(&str) -> bool) -> Self {
         let mut text = String::new();
         let mut store = |value: &str| {
             let span = Span {
@@ -382,6 +414,10 @@ impl Dictionary {
         };
         let mut entries = Vec::new();
         for line in csv.lines().filter(|l| !l.is_empty()) {
+            let folded = normalize_key(&first_field(line));
+            if !keep(&folded) {
+                continue;
+            }
             let fields = split_quoted(line);
             let [
                 name,
@@ -405,7 +441,7 @@ impl Dictionary {
             let coordinate = |value: &str| value.parse().unwrap_or(f32::NAN);
             entries.push(Entry {
                 name: store(name),
-                folded: store(&normalize_key(name)),
+                folded: store(&folded),
                 code: store(code),
                 successor: store(successor),
                 subdivision: intern(subdivision),
@@ -661,6 +697,21 @@ fn name_rank(name: &str, query: &str) -> Option<u8> {
 }
 
 /// Splits a row of quoted fields, as the generator writes them.
+/// The first field of a CSV row, read without splitting the rest.
+fn first_field(line: &str) -> std::borrow::Cow<'_, str> {
+    match line.strip_prefix('"') {
+        Some(rest) => match rest.find('"') {
+            // A doubled quote inside the name: the careful way.
+            Some(end) if rest[end + 1..].starts_with('"') => {
+                split_quoted(line).swap_remove(0).into()
+            }
+            Some(end) => rest[..end].into(),
+            None => rest.into(),
+        },
+        None => line.split(',').next().unwrap_or_default().into(),
+    }
+}
+
 fn split_quoted(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut field = String::new();
@@ -840,6 +891,46 @@ mod tests {
         let found = dictionary.locate_all(&[("Ville-A", 1), ("Ville-B", 3)], ReferenceLang::En);
         assert_eq!(found[0].country.as_deref(), Some("France"));
         assert_eq!(found[0].subdivision.as_deref(), Some("Département A"));
+    }
+
+    #[test]
+    fn the_rows_of_a_trees_names_locate_them_as_the_whole_dictionary() {
+        let csv = format!(
+            "{ROWS}{}",
+            r#""Ville-A","99001","Département A","Région A","France","commune","","","","48.0","-4.0","1"
+"Ville-A","01001","Kreis A","Land A","Allemagne","commune","","","","53.0","9.0","1"
+"Ville ""B""","99004","Département A","Région A","France","commune","","","","47.5","-1.5","1"
+"#
+        );
+        let labels = [
+            ("Bourg-A, 99001, Département A", 2),
+            ("Ville-A", 1),
+            ("Ville \"B\"", 1),
+            ("hamlet a, England", 3),
+            ("Nowhere A", 1),
+        ];
+        let whole = Dictionary::parse(&csv);
+        let kept = Dictionary::for_labels(&csv, &labels);
+        // Only the rows named like the labels, every homonym included.
+        assert_eq!(kept.entries.len(), 6);
+        assert_eq!(
+            kept.locate_all(&labels, ReferenceLang::Fr),
+            whole.locate_all(&labels, ReferenceLang::Fr)
+        );
+        // A bare homonym is still read in the country the tree uses most.
+        assert_eq!(
+            kept.locate_all(&labels, ReferenceLang::Fr)[1]
+                .country
+                .as_deref(),
+            Some("France")
+        );
+    }
+
+    #[test]
+    fn a_first_field_is_read_whole() {
+        assert_eq!(first_field(r#""Bourg-A","99001""#), "Bourg-A");
+        assert_eq!(first_field(r#""Ville ""B""","99004""#), r#"Ville "B""#);
+        assert_eq!(first_field("Plain,99001"), "Plain");
     }
 
     #[test]

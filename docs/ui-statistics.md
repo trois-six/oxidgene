@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:46:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -147,7 +147,8 @@ Three rows of tiles, each a figure with what it counts:
   preferring a living commune to a settlement and a settlement to a former
   name: "Brest" in a mostly French tree is the city in Finistère. A bare
   name found in none of the tree's countries stays unlocated. The lookup
-  happens at each visit and changes nothing in the tree.
+  happens at each visit and changes nothing in the tree; it keeps no
+  dictionary in memory ([Place dictionary §2.1](place-dictionary.md)).
 
 ### 4.2 Top ten
 
