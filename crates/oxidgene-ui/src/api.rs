@@ -445,6 +445,49 @@ pub struct StatPlace {
     pub longitude: Option<f64>,
 }
 
+/// Which ancestors of a tree's SOSA root are known, generation by
+/// generation (`docs/ui-tools.md`); no root and no generations when the
+/// tree has no SOSA root.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AncestryCompleteness {
+    pub root: Option<StatPersonRef>,
+    pub generations: Vec<AncestryGeneration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AncestryGeneration {
+    pub generation: i32,
+    pub expected: i64,
+    pub found: i64,
+    pub with_birth: i64,
+    pub with_death: i64,
+    pub with_union: i64,
+    pub living: i64,
+    /// Missing ancestors whose child is missing too, not listed.
+    pub implied_missing: i64,
+    pub entries: Vec<AncestryEntry>,
+}
+
+/// One SOSA number: the ancestor there, or `None` when missing.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AncestryEntry {
+    pub sosa: i64,
+    pub person: Option<AncestorFacts>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AncestorFacts {
+    pub person_id: Uuid,
+    pub name: String,
+    pub sex: Sex,
+    pub birth: Option<StatDate>,
+    pub death: Option<StatDate>,
+    pub has_birth: bool,
+    pub has_death: bool,
+    pub has_union: bool,
+    pub living: bool,
+}
+
 /// One country's outline for the statistics heat map: outer rings as flat
 /// `longitude, latitude` pairs in tenths of a degree, and its populated
 /// places.
@@ -4559,6 +4602,20 @@ impl ApiClient {
     pub async fn tree_growth(&self, tree_id: Uuid) -> Result<TreeGrowth, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/statistics/growth"))
             .await
+    }
+
+    /// A tree's ancestry completeness from its SOSA root over `generations`
+    /// generations, the root's included.
+    pub async fn ancestry_completeness(
+        &self,
+        tree_id: Uuid,
+        generations: u32,
+    ) -> Result<AncestryCompleteness, ApiError> {
+        self.get_with_query(
+            &format!("/api/v1/trees/{tree_id}/ancestry-completeness"),
+            &[("generations", generations.to_string())],
+        )
+        .await
     }
 
     /// The country outlines the statistics heat map is drawn over.

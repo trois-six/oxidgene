@@ -104,12 +104,12 @@ growth of the tree over the days it was worked on) is delivered. Remaining:
 
 ### Tools
 
-The [Tools](ui-tools.md) page, one tab per tool, holds the date converter.
+The [Tools](ui-tools.md) page, one tab per tool, holds the ancestry
+completeness from the SOSA root and the date converter.
 Remaining tabs:
 
 - [ ] Anomalies: impossible or unlikely dates, filiations and unions, and the
   places the statistics cannot locate.
-- [ ] Ancestry completeness, generation by generation from the SOSA root.
 - [ ] Potential duplicates, merged through the existing merge operation.
 - [ ] Dates written out in words in every interface language and in Latin,
   and the reverse: a written date read back into a date.

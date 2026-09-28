@@ -3718,3 +3718,106 @@ async fn statistics_count_the_tree_and_its_ages() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+// ───────────────────────── Tools ─────────────────────────
+
+async fn add_event_via_api(
+    app: &axum::Router,
+    tree_id: &str,
+    owner: (&str, &str),
+    kind: &str,
+    date: &str,
+) {
+    let (key, id) = owner;
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({ "event_type": kind, "date_value": date, key: id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+}
+
+/// Generation by generation from the SOSA root: found ancestors with their
+/// facts, missing parents listed, their own parents implied.
+#[tokio::test]
+async fn ancestry_completeness_walks_up_from_the_sosa_root() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    // Without a root there is nothing to walk.
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/ancestry-completeness"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["root"].is_null());
+    assert_eq!(body["generations"], serde_json::json!([]));
+
+    let root = create_named_person_via_api(&app, &tree_id, "female", "Child", "BRANCH_A").await;
+    let father = create_named_person_via_api(&app, &tree_id, "male", "Parent", "BRANCH_A").await;
+    let family = create_family_via_api(&app, &tree_id, &[(&father, "husband")], &[&root]).await;
+    add_event_via_api(&app, &tree_id, ("person_id", &father), "birth", "1900").await;
+    add_event_via_api(&app, &tree_id, ("family_id", &family), "marriage", "1925").await;
+    let (status, _) = send_request(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}"),
+        Some(serde_json::json!({ "sosa_root_person_id": root })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/ancestry-completeness?generations=3"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["root"]["person_id"], root.as_str());
+    let generations = body["generations"].as_array().unwrap();
+    assert_eq!(generations.len(), 3);
+    let parents = &generations[1];
+    assert_eq!(parents["expected"], 2);
+    assert_eq!(parents["found"], 1);
+    assert_eq!(parents["with_birth"], 1);
+    assert_eq!(parents["with_union"], 1);
+    assert_eq!(parents["entries"][0]["sosa"], 2);
+    assert_eq!(
+        parents["entries"][0]["person"]["person_id"],
+        father.as_str()
+    );
+    assert_eq!(parents["entries"][0]["person"]["birth"]["value"], "1900");
+    assert!(parents["entries"][1]["person"].is_null());
+    let grandparents = &generations[2];
+    assert_eq!(grandparents["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(grandparents["implied_missing"], 2);
+
+    for bad in ["0", "16"] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/ancestry-completeness?generations={bad}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "generations={bad}");
+    }
+    let (status, _) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/ancestry-completeness",
+            uuid::Uuid::now_v7()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

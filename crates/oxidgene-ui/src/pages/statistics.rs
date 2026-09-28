@@ -363,7 +363,7 @@ fn tenth(value: f64) -> String {
     format!("{value:.1}")
 }
 
-fn percent(i18n: &I18n, part: i64, whole: i64) -> String {
+pub(crate) fn percent(i18n: &I18n, part: i64, whole: i64) -> String {
     let share = if whole > 0 {
         part as f64 * 100.0 / whole as f64
     } else {
@@ -384,7 +384,7 @@ fn duration(i18n: &I18n, days: f64) -> String {
     }
 }
 
-fn date_text(i18n: &I18n, date: Option<&StatDate>) -> String {
+pub(crate) fn date_text(i18n: &I18n, date: Option<&StatDate>) -> String {
     date.map(|d| {
         format_date(
             i18n,
@@ -1453,7 +1453,7 @@ fn record_value(i18n: &I18n, record: &StatRecord) -> Option<String> {
     })
 }
 
-fn person_links(tree_id: &str, persons: &[StatPersonRef], separator: &str) -> Element {
+pub(crate) fn person_links(tree_id: &str, persons: &[StatPersonRef], separator: &str) -> Element {
     rsx! {
         for (k, person) in persons.iter().enumerate() {
             span { key: "{k}",

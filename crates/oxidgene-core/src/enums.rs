@@ -675,6 +675,29 @@ pub enum EventType {
     Other,
 }
 
+impl EventType {
+    /// Whether the event attests a union between the spouses of its family:
+    /// a marriage or a civil union, what prepares one (banns, contract,
+    /// licence, settlement), or what only a union can end (separation,
+    /// divorce, annulment). An engagement promises a union but does not
+    /// attest one.
+    pub fn attests_union(self) -> bool {
+        matches!(
+            self,
+            Self::Marriage
+                | Self::CivilUnion
+                | Self::MarriageBann
+                | Self::MarriageContract
+                | Self::MarriageLicense
+                | Self::MarriageSettlement
+                | Self::Separation
+                | Self::DivorceFiled
+                | Self::Divorce
+                | Self::Annulment
+        )
+    }
+}
+
 impl std::fmt::Display for EventType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

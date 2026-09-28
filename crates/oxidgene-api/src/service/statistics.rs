@@ -31,6 +31,17 @@ const LIST: usize = 100;
 /// A person with no recorded death, born fewer years ago than this, may be
 /// alive.
 const POSSIBLY_ALIVE_YEARS: i32 = 120;
+
+/// Whether a person may be alive on `today`: no death or burial recorded,
+/// and a birth (or baptism) dated fewer than [`POSSIBLY_ALIVE_YEARS`] ago.
+pub(crate) fn possibly_alive(profile: &PersonProfile, today: NaiveDate) -> bool {
+    profile.death.is_none()
+        && profile.burial.is_none()
+        && profile
+            .birth_or_baptism()
+            .and_then(|e| e.date_sort)
+            .is_some_and(|born| born.year() > today.year() - POSSIBLY_ALIVE_YEARS && born <= today)
+}
 const PYRAMID_BAND: i64 = 5;
 
 /// Everything the Statistics page draws.
@@ -440,7 +451,7 @@ impl BySex {
     }
 }
 
-fn record_date(event: &ProfileEvent) -> RecordDate {
+pub(crate) fn record_date(event: &ProfileEvent) -> RecordDate {
     RecordDate {
         value: event.date_value.clone(),
         value2: event.date_value2.clone(),
@@ -458,7 +469,7 @@ fn display_name(profile: &PersonProfile) -> String {
         .unwrap_or_default()
 }
 
-fn person_ref(profile: &PersonProfile) -> PersonRef {
+pub(crate) fn person_ref(profile: &PersonProfile) -> PersonRef {
     PersonRef {
         person_id: profile.person_id.to_string(),
         name: display_name(profile),
@@ -985,16 +996,14 @@ pub fn compute(
     let recent_births = latest(PersonProfile::birth_or_baptism);
     let recent_deaths = latest(PersonProfile::death_or_burial);
 
-    let horizon = today.year() - POSSIBLY_ALIVE_YEARS;
     let mut alive: Vec<(&PersonProfile, NaiveDate)> = profiles
         .iter()
-        .filter(|p| p.death.is_none() && p.burial.is_none())
+        .filter(|p| possibly_alive(p, today))
         .filter_map(|p| {
             p.birth_or_baptism()
                 .and_then(|e| e.date_sort)
                 .map(|d| (p, d))
         })
-        .filter(|(_, born)| born.year() > horizon && *born <= today)
         .collect();
     alive.sort_by_key(|(p, born)| (*born, p.person_id));
     let oldest_possibly_alive = alive

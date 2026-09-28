@@ -773,6 +773,25 @@ impl QueryRoot {
         .await?)
     }
 
+    /// Which ancestors of the tree's SOSA root are known, generation by
+    /// generation, and which of their key facts are recorded; `generations`
+    /// counts the root's (8 when omitted, at most 15).
+    async fn ancestry_completeness(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        generations: Option<i64>,
+    ) -> Result<crate::service::ancestry::AncestryCompleteness> {
+        let generations = crate::service::ancestry::generations(generations)?;
+        Ok(crate::service::ancestry::load(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+            generations,
+        )
+        .await?)
+    }
+
     /// Places with their event and media usage count.
     async fn dictionary_places(
         &self,

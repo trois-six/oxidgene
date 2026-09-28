@@ -689,6 +689,27 @@ The response is `{ days, imports }`:
   import entries of the audit log, oldest first (`format: duplicate` for a
   duplication), with the persons each brought.
 
+### Tools
+
+Read models backing the [Tools](ui-tools.md) page, computed on each request
+from the person projections; nothing is stored.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/ancestry-completeness?generations=8` | Generation by generation from the tree's SOSA root, the ancestors found and missing and their key facts; `generations` counts the root's, 8 by default, from 1 to 15 (400 otherwise); 404 for an unknown tree |
+
+**Ancestry completeness** returns `{root, generations}`: `root` is the SOSA
+root (`{person_id, name}`) or `null` when the tree has none, and then
+`generations` is empty. Each generation carries `generation` (1 for the
+root), `expected` (2^(generation − 1)), `found`, `with_birth`, `with_death`,
+`with_union`, `living`, `implied_missing` (the ancestors missing because
+their child is missing too, not listed) and `entries`: one per found
+ancestor and per missing parent of a found ancestor, `{sosa, person}`,
+`person` being `null` for a missing ancestor or `{person_id, name, sex,
+birth, death, has_birth, has_death, has_union, living}`, the dates as
+recorded with their qualifier and calendar. The rules are those of
+[Tools §3](ui-tools.md).
+
 `GET /reference/basemap` serves the country outlines the heat map is drawn
 over, with the places it names: `[{iso, name, rings, cities}]`, each ring a
 flat list of longitude and latitude pairs in tenths of a degree, and each
@@ -1039,6 +1060,7 @@ type Query {
   dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
   treeStatistics(treeId: ID!, approximate: Boolean, language: String): TreeStatistics!
   treeGrowth(treeId: ID!): TreeGrowth!
+  ancestryCompleteness(treeId: ID!, generations: Int): AncestryCompleteness!
   basemap: [BasemapCountry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!

@@ -380,6 +380,10 @@ pub fn build_router(state: AppState) -> Router {
             get(crate::rest::statistics::growth),
         )
         .route(
+            "/{tree_id}/ancestry-completeness",
+            get(crate::rest::tools::ancestry_completeness),
+        )
+        .route(
             "/{tree_id}/suggestions/{field}",
             get(crate::rest::suggestion::suggest),
         );

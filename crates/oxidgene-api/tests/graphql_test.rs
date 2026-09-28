@@ -3887,3 +3887,89 @@ async fn tree_statistics_match_rest() {
         "an unknown tree should be rejected, as REST answers 404: {response}"
     );
 }
+
+// ───────────────────────── Tools ─────────────────────────
+
+async fn gql_event(app: &axum::Router, tree_id: &str, owner: &str, kind: &str, date: &str) {
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{tree_id}", input: {{ eventType: {kind}, dateValue: "{date}", {owner} }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    data(&resp);
+}
+
+/// The same walk as REST: found ancestors, listed missing parents, implied
+/// branches, the same bounds and the same errors.
+#[tokio::test]
+async fn ancestry_completeness_matches_rest() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let query = |tree_id: &str, generations: &str| {
+        format!(
+            r#"{{ ancestryCompleteness(treeId: "{tree_id}"{generations}) {{
+                root {{ personId name }}
+                generations {{ generation expected found withBirth withDeath withUnion living impliedMissing
+                    entries {{ sosa person {{ personId name sex hasBirth hasDeath hasUnion living birth {{ value qualifier calendar }} }} }} }}
+            }} }}"#
+        )
+    };
+
+    let resp = graphql(app.clone(), &query(&tree_id, ""), None).await;
+    assert!(data(&resp)["ancestryCompleteness"]["root"].is_null());
+
+    let root = gql_named_person(&app, &tree_id, "FEMALE", "Child", "BRANCH_A").await;
+    let father = gql_named_person(&app, &tree_id, "MALE", "Parent", "BRANCH_A").await;
+    let family = gql_family(&app, &tree_id, &[(&father, "HUSBAND")], &[&root]).await;
+    gql_event(
+        &app,
+        &tree_id,
+        &format!(r#"personId: "{father}""#),
+        "BIRTH",
+        "1900",
+    )
+    .await;
+    gql_event(
+        &app,
+        &tree_id,
+        &format!(r#"familyId: "{family}""#),
+        "MARRIAGE",
+        "1925",
+    )
+    .await;
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ updateTree(id: "{tree_id}", input: {{ sosaRootPersonId: "{root}" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    data(&resp);
+
+    let resp = graphql(app.clone(), &query(&tree_id, ", generations: 3"), None).await;
+    let result = &data(&resp)["ancestryCompleteness"];
+    assert_eq!(result["root"]["personId"], root.as_str());
+    let parents = &result["generations"][1];
+    assert_eq!(parents["found"], 1);
+    assert_eq!(parents["withUnion"], 1);
+    assert_eq!(parents["entries"][0]["sosa"], 2);
+    assert_eq!(parents["entries"][0]["person"]["hasBirth"], true);
+    assert_eq!(parents["entries"][0]["person"]["birth"]["value"], "1900");
+    assert!(parents["entries"][1]["person"].is_null());
+    assert_eq!(result["generations"][2]["impliedMissing"], 2);
+
+    let resp = graphql(app.clone(), &query(&tree_id, ", generations: 16"), None).await;
+    assert!(
+        resp["errors"].as_array().is_some_and(|e| !e.is_empty()),
+        "too many generations should be rejected, as REST answers 400: {resp}"
+    );
+    let resp = graphql(app, &query(&uuid::Uuid::now_v7().to_string(), ""), None).await;
+    assert!(
+        resp["errors"].as_array().is_some_and(|e| !e.is_empty()),
+        "an unknown tree should be rejected, as REST answers 404: {resp}"
+    );
+}
