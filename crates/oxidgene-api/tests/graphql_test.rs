@@ -2035,6 +2035,8 @@ async fn test_dictionary_and_reference_over_graphql() {
                 givenNames: valueSuggestions(treeId: "{tree_id}", field: GIVEN_NAMES, language: "fr", query: "mar", limit: 3) {{ value count reference }}
                 occupations: valueSuggestions(treeId: "{tree_id}", field: OCCUPATIONS, language: "fr", query: "agri") {{ value count reference }}
                 sources: valueSuggestions(treeId: "{tree_id}", field: SOURCES, language: "fr", query: "regis") {{ value count reference }}
+                scopedGivenNames: valueSuggestions(treeId: "{tree_id}", field: GIVEN_NAMES, language: "fr", query: "mar", limit: 3, surname: "dur") {{ value count reference }}
+                scopedSurnames: valueSuggestions(treeId: "{tree_id}", field: FAMILY_NAMES, language: "fr", query: "d", givenNames: "nobody") {{ value }}
             }}"#
         ),
         None,
@@ -2058,6 +2060,22 @@ async fn test_dictionary_and_reference_over_graphql() {
     assert_eq!(
         response["sources"],
         serde_json::json!([{ "value": "Lyon register", "count": 1, "reference": false }])
+    );
+    // Scoped, the list holds the persons' own names only: no sheet term.
+    assert_eq!(
+        response["scopedGivenNames"],
+        serde_json::json!([{ "value": "Marie", "count": 1, "reference": true }])
+    );
+    assert_eq!(response["scopedSurnames"], serde_json::json!([]));
+    let scoped_source = format!(
+        r#"{{ valueSuggestions(treeId: "{tree_id}", field: SOURCES, language: "fr", query: "regis", surname: "dur") {{ value }} }}"#
+    );
+    let rejected = graphql(app.clone(), &scoped_source, None).await;
+    assert!(
+        rejected["errors"]
+            .as_array()
+            .is_some_and(|errors| !errors.is_empty()),
+        "a scope only applies to name fields"
     );
     for (language, limit) in [("xx", 10), ("fr", 0), ("fr", 51)] {
         let query = format!(

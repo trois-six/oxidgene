@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:30:00Z }
+generated: { by: claude-code/claude-opus-5-526-09-28T15:00:00Z }
 ---
 
 
@@ -388,8 +388,9 @@ Two independent fields in the topbar, aligned to the right: **Last name(s)** and
 
 - First, at most five of the tree's names completing the field being typed —
   surnames for **Last name(s)**, the given name being typed for
-  **First name(s)** — each with the number of persons carrying it, as the
-  entry forms suggest them ([Common UI](ui-common.md) §4.4). Picking one
+  **First name(s)** — each with the number of persons carrying it among those
+  the other field finds (with a surname typed, a given name counts only the
+  bearers of that surname), as the entry forms suggest them ([Common UI](ui-common.md) §4.4). Picking one
   completes the field and keeps the panel open, so the persons narrow down to
   it. The list follows the field being typed in, and a tree whose entry
   suggestions are off lists none
@@ -404,6 +405,8 @@ Two independent fields in the topbar, aligned to the right: **Last name(s)** and
 - Requests are debounced, and input shorter than two characters across both
   fields queries nothing. Fields filled in by the page rather than typed — the
   results page pre-fills them — query nothing until the panel opens
+- The panel closes when the window is resized, as every anchored overlay
+  does ([Common UI](ui-common.md) §4.8)
 - **Down** / **Up** move the highlight through the names then the persons,
   wrapping at either end; **Enter** completes the field with the highlighted
   name or opens the highlighted person; **Escape** or a click outside closes

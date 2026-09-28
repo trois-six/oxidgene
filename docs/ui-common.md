@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
+generated: { by: claude-code/claude-opus-5-526-09-28T15:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -349,7 +349,8 @@ the [value suggestions](api.md) endpoint:
 | Occupations: a profession, an occupation event's description | The tree's occupations, then the occupation sheets' terms |
 | Sources of the person, of an event, of a union event | The tree's source titles, up to 50: titles often share a long head, so the list shows as many as the API returns |
 
-- **Rows.** The tree's values come first, those starting with the text, then
+- **Rows.** A row reads the value, its count and the sheet badge, spaced
+  apart, the badge at the right edge. The tree's values come first, those starting with the text, then
   the most used, each with the number of persons carrying it (citations for
   a source). The terms of the [reference sheets](api.md)
   follow, in any language's spelling, the interface language's first. A
@@ -366,9 +367,10 @@ the [value suggestions](api.md) endpoint:
   would find nobody.
 - **Topbar search.** The [tree view](ui-genealogy-tree.md) search fields
   list the same surnames and given names, the tree's only, as the first level
-  of their suggestion panel, above the matching persons. The panel is a fixed
-  overlay, since the topbar clips its overflow, but its name rows are drawn
-  and picked as here.
+  of their suggestion panel, above the matching persons. Each counts only the
+  persons the other field also finds, so a count is what the search would
+  then find. The panel is a fixed overlay, since the topbar clips its
+  overflow, but its name rows are drawn and picked as here.
 
 Canonical display is comma-separated from the most specific to the least
 specific unit, ending with the country, but the number of levels varies by
@@ -529,6 +531,12 @@ reuse the empty state.
 One shared context menu implementation serves tree cards, person cards, media,
 and vignettes. It supports keyboard navigation, focus restoration, viewport
 collision handling, disabled actions, separators, and destructive styling.
+
+Its surface (`ContextMenuSurface`) is also the one every anchored overlay uses,
+the topbar search panel included. It closes on a click outside, on a context
+click, and when the window is resized: it is placed at coordinates measured
+when it opened, which a resize moves out from under it, so it closes as a
+native menu does rather than float away from its anchor.
 
 ### 4.9 Theme picker
 

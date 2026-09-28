@@ -10,7 +10,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, SuggestionField, ValueSuggestion};
+use crate::api::{ApiClient, NameScope, SuggestionField, ValueSuggestion};
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
@@ -141,9 +141,9 @@ pub(crate) fn SuggestInput(
                             r#type: "button",
                             role: "option",
                             class: if highlight() == Some(index) {
-                                "context-menu-item td-suggest-row is-active"
+                                "context-menu-item td-suggest-row suggest-input-row is-active"
                             } else {
-                                "context-menu-item td-suggest-row"
+                                "context-menu-item td-suggest-row suggest-input-row"
                             },
                             onmounted: move |e: MountedEvent| {
                                 mounted.write().insert(index, e.data());
@@ -164,7 +164,7 @@ pub(crate) fn render_suggest_row(row: &SuggestRow, i18n: &I18n) -> Element {
     rsx! {
         span { class: "suggest-input-name", "{row.name}" }
         if !row.detail.is_empty() {
-            span { class: "suggest-input-detail", " {row.detail}" }
+            span { class: "suggest-input-detail", "{row.detail}" }
         }
         if row.sheet {
             span {
@@ -178,12 +178,14 @@ pub(crate) fn render_suggest_row(row: &SuggestRow, i18n: &I18n) -> Element {
 
 /// What `field` suggests for `typed`, asked once the keystrokes settle: at
 /// most `limit` values, nothing for empty text or a tree whose entry
-/// suggestions are off. Given names follow the word being typed.
+/// suggestions are off. Given names follow the word being typed. A `scope`
+/// counts only the persons a search on it finds (`NameScope`).
 pub(crate) fn use_value_suggestions(
     tree_id: Option<Uuid>,
     field: SuggestionField,
     typed: Signal<String>,
     limit: usize,
+    scope: Memo<NameScope>,
 ) -> Resource<Vec<ValueSuggestion>> {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
@@ -199,6 +201,7 @@ pub(crate) fn use_value_suggestions(
     use_ui_resource("value_input_suggest", move || {
         let api = api.clone();
         let text = debounced();
+        let scope = scope();
         let lang = i18n.0.code();
         let enabled = tree_cache.entry_suggestions();
         async move {
@@ -209,7 +212,7 @@ pub(crate) fn use_value_suggestions(
             let Some(tree_id) = tree_id.filter(|_| enabled && !query.is_empty()) else {
                 return Vec::new();
             };
-            api.value_suggestions(tree_id, field, lang, query, limit)
+            api.value_suggestions(tree_id, field, lang, query, limit, &scope)
                 .await
                 .unwrap_or_default()
         }
@@ -272,7 +275,14 @@ pub fn ValueInput(
     // What the user typed last; empty until they type, so a form opening
     // with a filled field asks for nothing.
     let mut typed = use_signal(String::new);
-    let found = use_value_suggestions(Some(tree_id), field, typed, value_suggestions(field));
+    let whole_tree = use_memo(NameScope::default);
+    let found = use_value_suggestions(
+        Some(tree_id),
+        field,
+        typed,
+        value_suggestions(field),
+        whole_tree,
+    );
 
     let suggestions = suggestions_shown(
         found.read().as_deref().unwrap_or_default(),

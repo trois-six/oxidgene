@@ -13,7 +13,7 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, PersonSearchParams, PersonSearchSort, SuggestionField};
+use crate::api::{ApiClient, NameScope, PersonSearchParams, PersonSearchSort, SuggestionField};
 use crate::components::context_menu::ContextMenuSurface;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::{
@@ -202,17 +202,29 @@ pub fn TopbarSearch(
     // fields the results page fills in ask for nothing.
     let mut typed_last = use_signal(String::new);
     let mut typed_first = use_signal(String::new);
+    // Each field's names count the persons the other field also finds, so a
+    // name's count is what the persons below would read once it is picked.
+    let with_first = use_memo(move || NameScope {
+        given_names: search_first(),
+        ..NameScope::default()
+    });
+    let with_last = use_memo(move || NameScope {
+        surname: search_last(),
+        ..NameScope::default()
+    });
     let last_values = use_value_suggestions(
         tid,
         SuggestionField::FamilyNames,
         typed_last,
         NAME_SUGGESTION_LIMIT,
+        with_first,
     );
     let first_values = use_value_suggestions(
         tid,
         SuggestionField::GivenNames,
         typed_first,
         NAME_SUGGESTION_LIMIT,
+        with_last,
     );
     let (name_field, values) = if !typed_last().is_empty() {
         (SuggestionField::FamilyNames, last_values)
@@ -448,9 +460,9 @@ pub fn TopbarSearch(
                                     key: "{index}",
                                     r#type: "button",
                                     class: if highlight() == Some(index) {
-                                        "context-menu-item td-suggest-row is-active"
+                                        "context-menu-item td-suggest-row suggest-input-row is-active"
                                     } else {
-                                        "context-menu-item td-suggest-row"
+                                        "context-menu-item td-suggest-row suggest-input-row"
                                     },
                                     // Keep the focus in the field, to go on typing.
                                     onmousedown: move |e: Event<MouseData>| e.prevent_default(),

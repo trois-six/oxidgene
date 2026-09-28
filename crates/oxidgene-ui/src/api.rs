@@ -160,6 +160,14 @@ pub struct PlaceDictionaryEntry {
     pub count: i64,
 }
 
+/// The persons a name suggestion counts, when not the whole tree: those a
+/// search on this surname and these given names finds. Blank is no filter.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NameScope {
+    pub surname: String,
+    pub given_names: String,
+}
+
 /// The entry-form field a [`ValueSuggestion`] is for (`docs/api.md`, value
 /// suggestions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4459,7 +4467,8 @@ impl ApiClient {
     }
 
     /// What `field` suggests for `query`: the tree's values, then the
-    /// reference sheets' terms.
+    /// reference sheets' terms. A name field may be scoped to the persons
+    /// a surname or given-names search filter finds (`docs/api.md`).
     pub async fn value_suggestions(
         &self,
         tree_id: Uuid,
@@ -4467,14 +4476,24 @@ impl ApiClient {
         lang: &str,
         query: &str,
         limit: usize,
+        scope: &NameScope,
     ) -> Result<Vec<ValueSuggestion>, ApiError> {
+        let mut params = vec![
+            ("q", query.to_string()),
+            ("lang", lang.to_string()),
+            ("limit", limit.to_string()),
+        ];
+        for (name, value) in [
+            ("surname", &scope.surname),
+            ("given_names", &scope.given_names),
+        ] {
+            if !value.trim().is_empty() {
+                params.push((name, value.trim().to_string()));
+            }
+        }
         self.get_with_query(
             &format!("/api/v1/trees/{tree_id}/suggestions/{}", field.path()),
-            &[
-                ("q", query.to_string()),
-                ("lang", lang.to_string()),
-                ("limit", limit.to_string()),
-            ],
+            &params,
         )
         .await
     }

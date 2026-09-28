@@ -747,11 +747,38 @@ async fn value_suggestions_come_from_the_tree_then_the_sheets() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, serde_json::json!([]));
 
+    // Scoped by the other name field, a name counts only the persons a
+    // search on both would find, and no sheet term fills the list.
+    create_named_person_via_api(&app, &tree_id, "male", "Jean", "Otherx").await;
+    let (status, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/given-names?q=jea&lang=fr&surname=sampl"
+    ))
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        serde_json::json!([{ "value": "Jean", "count": 1, "reference": true }])
+    );
+    let (_, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/given-names?q=jea&lang=fr&limit=1"
+    ))
+    .await;
+    assert_eq!(body[0]["count"], 2, "unscoped, the whole tree counts");
+    let (_, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/family-names?q=s&lang=fr&given_names=given_a"
+    ))
+    .await;
+    assert_eq!(
+        body,
+        serde_json::json!([{ "value": "Sample", "count": 1, "reference": false }])
+    );
+
     for uri in [
         format!("/api/v1/trees/{tree_id}/suggestions/places?q=a&lang=fr"),
         format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=xx"),
         format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=fr&limit=0"),
         format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=fr&limit=51"),
+        format!("/api/v1/trees/{tree_id}/suggestions/occupations?q=a&lang=fr&surname=sam"),
     ] {
         let (status, _) = get(uri.clone()).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");

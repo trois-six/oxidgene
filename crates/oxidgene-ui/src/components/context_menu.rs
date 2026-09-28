@@ -11,8 +11,9 @@ use crate::i18n::use_i18n;
 
 /// Shared fixed-position surface for contextual action menus.
 ///
-/// It owns the click-outside backdrop and the native context-menu dismissal;
-/// callers supply only their domain-specific actions.
+/// It owns the click-outside backdrop, the native context-menu dismissal and
+/// the dismissal on a window resize; callers supply only their
+/// domain-specific actions.
 #[derive(Props, Clone, PartialEq)]
 pub struct ContextMenuSurfaceProps {
     pub x: f64,
@@ -33,9 +34,27 @@ pub fn ContextMenuSurface(props: ContextMenuSurfaceProps) -> Element {
         format!("context-menu {}", props.menu_class)
     };
 
+    // The size the window had when the menu opened. The menu is placed at
+    // coordinates measured then, which a resize moves out from under it — so
+    // it closes, as a native menu does, rather than float off its anchor.
+    let mut opened_at = use_signal(|| None::<(f64, f64)>);
+
     rsx! {
         div {
             class: "context-menu-backdrop",
+            // The backdrop covers the window, so it resizes with it. The
+            // first report is the size it opened at, not a resize.
+            onresize: move |evt: Event<ResizeData>| {
+                let Ok(size) = evt.get_content_box_size() else {
+                    return;
+                };
+                let size = (size.width, size.height);
+                match opened_at() {
+                    None => opened_at.set(Some(size)),
+                    Some(opened) if opened != size => props.on_close.call(()),
+                    Some(_) => {}
+                }
+            },
             onclick: move |evt: Event<MouseData>| {
                 evt.stop_propagation();
                 props.on_close.call(());

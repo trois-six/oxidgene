@@ -445,6 +445,40 @@ impl PersonSearchRepo {
             .collect()
     }
 
+    /// The primary `(surname, given names)` of each person the `surname` and
+    /// `given_names` filters of [`Self::search_filtered`] find, as written:
+    /// one pair per person, matched exactly as those filters match.
+    pub async fn primary_names(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        surname: Option<&str>,
+        given_names: Option<&str>,
+    ) -> Result<Vec<(String, String)>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let mut values = Vec::new();
+        let mut conditions = vec![format!(
+            "tree_id = {}",
+            push_value(&mut values, backend, tree_id.to_string().into())
+        )];
+        push_name_filters(&mut values, &mut conditions, backend, surname, given_names);
+        let sql = format!(
+            "SELECT surname_display, given_names_display FROM person_search_fts WHERE {}",
+            conditions.join(" AND ")
+        );
+        db.query_all_raw(Statement::from_sql_and_values(backend, sql, values))
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .iter()
+            .map(|row| {
+                let get = |column: &str| {
+                    row.try_get::<String>("", column)
+                        .map_err(|e| OxidGeneError::Database(e.to_string()))
+                };
+                Ok((get("surname_display")?, get("given_names_display")?))
+            })
+            .collect()
+    }
+
     // ── Statement builders ──────────────────────────────────────────────
 
     #[allow(clippy::too_many_arguments)]
@@ -497,19 +531,13 @@ impl PersonSearchRepo {
             let param = push_value(&mut values, backend, sex.to_string().into());
             conditions.push(format!("sex = {param}"));
         }
-        for (column, value) in [
-            ("surname", filters.surname.as_deref()),
-            ("given_names", filters.given_names.as_deref()),
-        ] {
-            if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
-                let param = push_value(
-                    &mut values,
-                    backend,
-                    format!("%{}%", normalize_for_search(value.trim())).into(),
-                );
-                conditions.push(format!("{column} LIKE {param}"));
-            }
-        }
+        push_name_filters(
+            &mut values,
+            &mut conditions,
+            backend,
+            filters.surname.as_deref(),
+            filters.given_names.as_deref(),
+        );
         for (column, operator, year) in [
             ("birth_year", ">=", filters.birth_from),
             ("birth_year", "<=", filters.birth_to),
@@ -775,6 +803,27 @@ impl PersonSearchRepo {
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(0),
         })
+    }
+}
+
+/// The `surname` and `given_names` filters: substrings of the person's own
+/// primary name, case- and accent-insensitive. Blank is no constraint.
+fn push_name_filters(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    surname: Option<&str>,
+    given_names: Option<&str>,
+) {
+    for (column, value) in [("surname", surname), ("given_names", given_names)] {
+        if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+            let param = push_value(
+                values,
+                backend,
+                format!("%{}%", normalize_for_search(value.trim())).into(),
+            );
+            conditions.push(format!("{column} LIKE {param}"));
+        }
     }
 }
 

@@ -2,10 +2,10 @@
 //! tree already holds, then, for occupations and given names, the terms the
 //! reference sheets answer to. See `docs/api.md` (value suggestions).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_db::repo::DictionaryRepo;
+use oxidgene_db::repo::{DictionaryRepo, PersonSearchRepo};
 use sea_orm::ConnectionTrait;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -51,10 +51,32 @@ pub struct ValueSuggestion {
     pub reference: bool,
 }
 
+/// The persons a name suggestion counts, when not the whole tree: those the
+/// person search's `surname` and `given_names` filters find. A search form
+/// passes what its other name field holds, so each suggestion counts the
+/// persons its search would then find.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct NameScope {
+    pub surname: Option<String>,
+    pub given_names: Option<String>,
+}
+
+impl NameScope {
+    fn is_empty(&self) -> bool {
+        [&self.surname, &self.given_names]
+            .iter()
+            .all(|value| value.as_deref().is_none_or(|v| v.trim().is_empty()))
+    }
+}
+
+pub const SCOPE_NAMES_ONLY: &str = "surname and given_names only scope name suggestions";
+
 /// Up to `limit` suggestions with a word starting with `query`, ignoring
 /// case, accents and punctuation: the tree's values first — those starting
 /// with the query, then the most used — then the reference terms the tree
-/// does not hold yet.
+/// does not hold yet. A `scope` counts and lists only the values of the
+/// persons it finds, and adds no reference term.
 pub async fn suggest(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
@@ -62,6 +84,7 @@ pub async fn suggest(
     language: &str,
     query: &str,
     limit: Option<usize>,
+    scope: &NameScope,
 ) -> Result<Vec<ValueSuggestion>, OxidGeneError> {
     let lang = ReferenceLang::from_code(language)
         .ok_or_else(|| OxidGeneError::Validation(UNSUPPORTED_LANGUAGE.to_string()))?;
@@ -71,9 +94,29 @@ pub async fn suggest(
             "limit must be between 1 and {MAX_VALUE_SUGGESTIONS}"
         )));
     }
+    let scoped = !scope.is_empty();
+    if scoped
+        && !matches!(
+            field,
+            SuggestionField::FamilyNames | SuggestionField::GivenNames
+        )
+    {
+        return Err(OxidGeneError::Validation(SCOPE_NAMES_ONLY.to_string()));
+    }
     let key = normalize_key(query);
     if key.is_empty() {
         return Ok(Vec::new());
+    }
+    if scoped {
+        let names = PersonSearchRepo::primary_names(
+            db,
+            tree_id,
+            scope.surname.as_deref(),
+            scope.given_names.as_deref(),
+        )
+        .await?;
+        let values = scoped_values(names, field);
+        return Ok(rank(values, field.reference(), false, lang, &key, limit));
     }
 
     let values: Vec<(String, i64)> = match field {
@@ -94,16 +137,37 @@ pub async fn suggest(
             titles
         }
     };
-    Ok(rank(values, field.reference(), lang, &key, limit))
+    Ok(rank(values, field.reference(), true, lang, &key, limit))
+}
+
+/// Each surname, or each given name, of `names` with the number of persons
+/// carrying it; `names` holds one `(surname, given names)` per person.
+fn scoped_values(names: Vec<(String, String)>, field: SuggestionField) -> Vec<(String, i64)> {
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    for (surname, given_names) in names {
+        let words: HashSet<&str> = match field {
+            SuggestionField::GivenNames => given_names.split_whitespace().collect(),
+            _ => [surname.trim()]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect(),
+        };
+        for word in words {
+            *counts.entry(word.to_string()).or_default() += 1;
+        }
+    }
+    counts.into_iter().collect()
 }
 
 fn entries(entries: Vec<oxidgene_db::repo::DictionaryValueEntry>) -> Vec<(String, i64)> {
     entries.into_iter().map(|e| (e.value, e.count)).collect()
 }
 
+/// `with_terms` fills the rest of the list with the reference terms.
 fn rank(
     values: Vec<(String, i64)>,
     reference: Option<ReferenceKind>,
+    with_terms: bool,
     lang: ReferenceLang,
     key: &str,
     limit: usize,
@@ -130,7 +194,7 @@ fn rank(
             }
         })
         .collect();
-    if let Some(kind) = reference {
+    if let Some(kind) = reference.filter(|_| with_terms) {
         let room = limit - out.len();
         if room > 0 {
             // Asked for more, since some may already be the tree's.
@@ -168,6 +232,7 @@ mod tests {
                 ("DUPONT", 7),
             ]),
             None,
+            true,
             ReferenceLang::Fr,
             "mar",
             10,
@@ -182,6 +247,7 @@ mod tests {
         let found = rank(
             values(&[("Laboureur", 3), ("Labourier de terre", 1)]),
             Some(ReferenceKind::Occupations),
+            true,
             ReferenceLang::Fr,
             &normalize_key("labou"),
             4,
@@ -201,11 +267,42 @@ mod tests {
         let found = rank(
             values(&[("Jean", 3)]),
             Some(ReferenceKind::GivenNames),
+            true,
             ReferenceLang::Fr,
             "jea",
             1,
         );
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].value, "Jean");
+    }
+
+    #[test]
+    fn a_scope_counts_each_name_once_per_person() {
+        let names = vec![
+            ("NAME_A".to_string(), "Given_a Given_b".to_string()),
+            ("NAME_A".to_string(), "Given_a Given_a".to_string()),
+            (String::new(), "Given_b".to_string()),
+        ];
+        let mut given = scoped_values(names.clone(), SuggestionField::GivenNames);
+        given.sort();
+        assert_eq!(given, values(&[("Given_a", 2), ("Given_b", 2)]));
+        assert_eq!(
+            scoped_values(names, SuggestionField::FamilyNames),
+            values(&[("NAME_A", 2)])
+        );
+    }
+
+    #[test]
+    fn a_scoped_list_adds_no_reference_term() {
+        let found = rank(
+            values(&[("Jean", 1)]),
+            Some(ReferenceKind::GivenNames),
+            false,
+            ReferenceLang::Fr,
+            "jea",
+            10,
+        );
+        assert_eq!(found.len(), 1);
+        assert!(found[0].reference);
     }
 }

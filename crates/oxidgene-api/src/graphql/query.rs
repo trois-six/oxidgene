@@ -955,6 +955,9 @@ impl QueryRoot {
     /// Values an entry-form field suggests: the tree's values with a word
     /// starting with `query`, then, for occupations and given names, the
     /// reference terms the tree does not hold yet. `limit` defaults to 10.
+    /// `surname` and `givenNames` scope a name field to the persons the
+    /// person search's filters of the same names find.
+    #[allow(clippy::too_many_arguments)]
     async fn value_suggestions(
         &self,
         ctx: &Context<'_>,
@@ -963,6 +966,8 @@ impl QueryRoot {
         language: String,
         query: String,
         limit: Option<usize>,
+        surname: Option<String>,
+        given_names: Option<String>,
     ) -> Result<Vec<GqlValueSuggestion>> {
         let db = db_from_ctx(ctx);
         Ok(crate::service::suggestions::suggest(
@@ -972,6 +977,10 @@ impl QueryRoot {
             &language,
             &query,
             limit,
+            &crate::service::suggestions::NameScope {
+                surname,
+                given_names,
+            },
         )
         .await?
         .into_iter()

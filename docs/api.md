@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:44:00Z }
+generated: { by: claude-code/claude-opus-5-526-09-28T15:00:00Z }
 ---
 
 
@@ -511,7 +511,7 @@ What the free-text fields of the entry forms suggest while the user types
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/suggestions/{field}?q=...&lang=...&limit=...` | Values for `field`: `family-names`, `given-names`, `occupations` or `sources` (titles). `lang` is an interface language code; `limit` defaults to 10, 1–50 accepted. An unknown field or language and an out-of-range limit are 400 |
+| `GET` | `/trees/{tree_id}/suggestions/{field}?q=...&lang=...&limit=...&surname=...&given_names=...` | Values for `field`: `family-names`, `given-names`, `occupations` or `sources` (titles). `lang` is an interface language code; `limit` defaults to 10, 1–50 accepted. `surname` and `given_names` scope a name field (below). An unknown field or language, an out-of-range limit and a scope on `occupations` or `sources` are 400 |
 
 The text of `q` is normalized like the reference sheets' terms (case,
 accents and punctuation ignored) and must start a word of the value; a blank
@@ -529,9 +529,18 @@ Each suggestion is:
 
 `count` is the number of persons carrying the value (citations for a
 source), 0 for a term only a sheet knows; `reference` says whether a sheet
-answers to the value itself, not merely to a word inside it. GraphQL's
-`valueSuggestions` takes the same arguments, its `SuggestionField` being
-`FAMILY_NAMES`, `GIVEN_NAMES`, `OCCUPATIONS` or `SOURCES`.
+answers to the value itself, not merely to a word inside it.
+
+**Scope.** A search form's name field suggests what the persons its other
+field finds carry: `surname` and `given_names`, when not blank, keep only the
+persons the person search's filters of the same names find (a substring of
+the primary name, case and accents ignored). The values are then read from
+those persons' primary names, `count` counts them — what the search would find
+once the value is picked — and no reference term fills the list.
+
+GraphQL's `valueSuggestions` takes the same arguments (`surname`,
+`givenNames`), its `SuggestionField` being `FAMILY_NAMES`, `GIVEN_NAMES`,
+`OCCUPATIONS` or `SOURCES`.
 
 ### Audit log and versions
 

@@ -1289,6 +1289,15 @@ pub const LAYOUT_STYLES: &str = r#"
         position: relative;
     }
 
+    /* The name, its count and the sheet badge, spaced on one line; the
+       badge keeps to the right edge. Doubled class to outrank
+       `.context-menu-item`'s `display: block`, declared further down. */
+    .context-menu-item.suggest-input-row {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+    }
+
     .suggest-input-name {
         font-weight: 600;
     }

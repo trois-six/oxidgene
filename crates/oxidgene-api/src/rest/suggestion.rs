@@ -5,7 +5,7 @@ use axum::extract::{Path, Query, State};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::service::suggestions::{self, SuggestionField, ValueSuggestion};
+use crate::service::suggestions::{self, NameScope, SuggestionField, ValueSuggestion};
 
 use super::error::ApiError;
 use super::state::AppState;
@@ -15,9 +15,11 @@ pub struct ValueSuggestionQuery {
     q: String,
     lang: String,
     limit: Option<usize>,
+    #[serde(flatten)]
+    scope: NameScope,
 }
 
-/// GET /api/v1/trees/:tree_id/suggestions/:field?q=...&lang=...&limit=...
+/// GET /api/v1/trees/:tree_id/suggestions/:field?q=...&lang=...&limit=...&surname=...&given_names=...
 pub async fn suggest(
     State(state): State<AppState>,
     Path((tree_id, field)): Path<(Uuid, SuggestionField)>,
@@ -31,6 +33,7 @@ pub async fn suggest(
             &query.lang,
             &query.q,
             query.limit,
+            &query.scope,
         )
         .await?,
     ))
