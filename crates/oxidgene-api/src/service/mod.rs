@@ -18,3 +18,4 @@ pub mod purge;
 pub mod relation_labels;
 pub(crate) mod session_media;
 pub mod statistics;
+pub mod suggestions;

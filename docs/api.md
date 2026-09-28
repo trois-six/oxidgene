@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T22:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
 ---
 
 
@@ -487,6 +487,35 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 | `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
 | `GET` | `/trees/{tree_id}/dictionary/places/{place_id}/usage` | Persons referencing a place |
 
+### Value suggestions
+
+What the free-text fields of the entry forms suggest while the user types
+(see [Common UI §4.4](ui-common.md)).
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/suggestions/{field}?q=...&lang=...&limit=...` | Values for `field`: `family-names`, `given-names`, `occupations` or `sources` (titles). `lang` is an interface language code; `limit` defaults to 10, 1–50 accepted. An unknown field or language and an out-of-range limit are 400 |
+
+The text of `q` is normalized like the reference sheets' terms (case,
+accents and punctuation ignored) and must start a word of the value; a blank
+`q` returns `[]`. The tree's values come first — those starting with `q`,
+then the most used — and, for occupations and given names, the terms a
+reference sheet answers to fill the rest of the list, in any language's
+spelling, `lang`'s own first, never repeating a value the tree already holds.
+Given names are single words: `"Jean Marie"` holds `"Jean"` and `"Marie"`.
+Two sources with the same title are offered once, their citations summed.
+Each suggestion is:
+
+```json
+{ "value": "Laboureur", "count": 3, "reference": true }
+```
+
+`count` is the number of persons carrying the value (citations for a
+source), 0 for a term only a sheet knows; `reference` says whether a sheet
+answers to the value itself, not merely to a word inside it. GraphQL's
+`valueSuggestions` takes the same arguments, its `SuggestionField` being
+`FAMILY_NAMES`, `GIVEN_NAMES`, `OCCUPATIONS` or `SOURCES`.
+
 ### Audit log and versions
 
 Every write to a tree leaves an audit entry, and every write that changes a
@@ -896,6 +925,7 @@ type Query {
   givenNameReference(language: String!, term: String!): GivenNameReference
   givenNameReferences(language: String!, terms: [String!]!): [GivenNameReferenceMatch!]!
   placeSuggestions(language: String!, query: String!, limit: Int): [PlaceSuggestion!]!
+  valueSuggestions(treeId: ID!, field: SuggestionField!, language: String!, query: String!, limit: Int): [ValueSuggestion!]!
 
   # Geneanet import wizard (the archive path operation is desktop-only)
   inspectGeneweb(gwBase64: String!, fileName: String!): GeneanetInspection!

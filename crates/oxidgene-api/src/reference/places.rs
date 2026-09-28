@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 use serde::Serialize;
 
-use super::loader::{ReferenceLang, normalize_key};
+use super::loader::{ReferenceLang, normalize_key, starts_a_word};
 use crate::embedded;
 
 static PLACES: &[u8] = include_bytes!(concat!(
@@ -614,12 +614,6 @@ fn name_rank(name: &str, query: &str) -> Option<u8> {
     } else {
         None
     }
-}
-
-/// Whether `query` appears in `text` at the start of a word.
-fn starts_a_word(text: &str, query: &str) -> bool {
-    text.match_indices(query)
-        .any(|(at, _)| at == 0 || text.as_bytes()[at - 1] == b' ')
 }
 
 /// Splits a row of quoted fields, as the generator writes them.

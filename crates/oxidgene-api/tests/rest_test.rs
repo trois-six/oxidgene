@@ -632,6 +632,114 @@ async fn create_named_person_via_api(
     person_id
 }
 
+/// The entry forms' suggestions: the tree's own values, per word for given
+/// names, then the reference sheets' terms.
+#[tokio::test]
+async fn value_suggestions_come_from_the_tree_then_the_sheets() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let other_tree_id = create_tree_via_api(&app).await;
+    let person_id =
+        create_named_person_via_api(&app, &tree_id, "male", "Jean Given_a", "Sample").await;
+    create_named_person_via_api(&app, &other_tree_id, "male", "Jeannot", "Samplex").await;
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({
+            "event_type": "occupation",
+            "person_id": person_id,
+            "description": "Laboureur"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        Some(serde_json::json!({ "title": "Sample register" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let get = |uri: String| {
+        let app = app.clone();
+        async move { send_request(app, Method::GET, &uri, None).await }
+    };
+
+    let (status, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/family-names?q=sam&lang=en"
+    ))
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        serde_json::json!([{ "value": "Sample", "count": 1, "reference": false }])
+    );
+
+    let (_, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/given-names?q=giv&lang=en"
+    ))
+    .await;
+    assert_eq!(body[0]["value"], "Given_a");
+
+    let (_, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/given-names?q=jea&lang=fr&limit=3"
+    ))
+    .await;
+    assert_eq!(
+        body[0],
+        serde_json::json!({ "value": "Jean", "count": 1, "reference": true })
+    );
+    assert!(
+        body.as_array().unwrap()[1..]
+            .iter()
+            .all(|s| s["count"] == 0 && s["reference"] == true)
+    );
+    assert!(
+        body.as_array()
+            .unwrap()
+            .iter()
+            .all(|s| s["value"] != "Jeannot" || s["count"] == 0)
+    );
+
+    let (_, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/occupations?q=labou&lang=fr"
+    ))
+    .await;
+    assert_eq!(
+        body[0],
+        serde_json::json!({ "value": "Laboureur", "count": 1, "reference": true })
+    );
+
+    let (_, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/sources?q=regis&lang=fr"
+    ))
+    .await;
+    assert_eq!(
+        body,
+        serde_json::json!([{ "value": "Sample register", "count": 0, "reference": false }])
+    );
+
+    let (status, body) = get(format!(
+        "/api/v1/trees/{tree_id}/suggestions/sources?q=%20&lang=fr"
+    ))
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, serde_json::json!([]));
+
+    for uri in [
+        format!("/api/v1/trees/{tree_id}/suggestions/places?q=a&lang=fr"),
+        format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=xx"),
+        format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=fr&limit=0"),
+        format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=fr&limit=51"),
+    ] {
+        let (status, _) = get(uri.clone()).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+    }
+}
+
 /// Reads keyed by a record ID must not answer for a record of another tree,
 /// even when the handler goes through a projection or an aggregate rather than
 /// the record's own table.

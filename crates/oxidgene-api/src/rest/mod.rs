@@ -27,6 +27,7 @@ pub mod reference;
 pub mod source;
 pub mod state;
 pub mod statistics;
+pub mod suggestion;
 pub mod tree;
 pub mod tree_guard;
 pub mod vignette;

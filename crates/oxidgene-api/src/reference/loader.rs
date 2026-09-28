@@ -162,10 +162,24 @@ struct Reference<T> {
     tables: Vec<HashMap<String, T>>,
     /// Per language: each normalized key or alias, and the key it names.
     indexes: Vec<HashMap<String, String>>,
+    /// Every label and alias as some file writes it, for suggestions.
+    terms: Vec<Term>,
+}
+
+/// A term a sheet answers to, spelled as one of the files spells it.
+struct Term {
+    folded: String,
+    written: String,
+    /// The file it comes from, as a [`ReferenceLang::slot`].
+    file: usize,
 }
 
 impl<T: serde::de::DeserializeOwned> Reference<T> {
-    fn load(files: &[&'static [u8]; 8], aliases_of: impl Fn(&T) -> &[String]) -> Self {
+    fn load(
+        files: &[&'static [u8]; 8],
+        label_of: impl Fn(&T) -> &str,
+        aliases_of: impl Fn(&T) -> &[String],
+    ) -> Self {
         let tables: Vec<HashMap<String, T>> =
             files.iter().map(|file| decompress_json(file)).collect();
         let mut keys: Vec<&String> = tables.iter().flat_map(HashMap::keys).collect();
@@ -200,7 +214,30 @@ impl<T: serde::de::DeserializeOwned> Reference<T> {
                 index
             })
             .collect();
-        Self { tables, indexes }
+        let mut terms = Vec::new();
+        for (file, entries) in sorted.iter().enumerate() {
+            for (_, entry) in entries {
+                let written = std::iter::once(without_gloss(label_of(entry)))
+                    .chain(aliases_of(entry).iter().map(String::as_str));
+                for written in written {
+                    let folded = normalize_key(written);
+                    if !folded.is_empty() {
+                        terms.push(Term {
+                            folded,
+                            written: written.trim().to_string(),
+                            file,
+                        });
+                    }
+                }
+            }
+        }
+        terms.sort_by(|a, b| (&a.folded, a.file, &a.written).cmp(&(&b.folded, b.file, &b.written)));
+        terms.dedup_by(|a, b| a.folded == b.folded && a.file == b.file);
+        Self {
+            tables,
+            indexes,
+            terms,
+        }
     }
 
     fn index(&self, lang: ReferenceLang) -> &HashMap<String, String> {
@@ -218,17 +255,79 @@ impl<T: serde::de::DeserializeOwned> Reference<T> {
     fn get(&self, lang: ReferenceLang, term: &str) -> Option<&T> {
         self.entry(lang, self.index(lang).get(term)?)
     }
+
+    /// Up to `limit` terms with a word starting with the normalized `query`,
+    /// each spelled once: terms starting with it first, then the
+    /// language's own spellings, then the shortest.
+    fn suggest(&self, lang: ReferenceLang, query: &str, limit: usize) -> Vec<String> {
+        let index = self.index(lang);
+        let own = lang.slot();
+        let mut found: Vec<&Term> = self
+            .terms
+            .iter()
+            .filter(|term| starts_a_word(&term.folded, query))
+            // A label cut of its gloss may name no sheet in this language.
+            .filter(|term| index.contains_key(&term.folded))
+            .collect();
+        found.sort_by_key(|term| {
+            (
+                !term.folded.starts_with(query),
+                term.file != own,
+                term.folded.len(),
+                &term.folded,
+                term.file,
+            )
+        });
+        let mut seen = std::collections::HashSet::new();
+        found
+            .into_iter()
+            .filter(|term| seen.insert(term.folded.as_str()))
+            .take(limit)
+            .map(|term| term.written.clone())
+            .collect()
+    }
+}
+
+/// A label without the gloss some languages add in parentheses: the sheet
+/// "Kmieć (paysan tenancier)" answers to "Kmieć".
+fn without_gloss(label: &str) -> &str {
+    match label
+        .trim()
+        .strip_suffix(')')
+        .and_then(|l| l.rsplit_once(" ("))
+    {
+        Some((head, _)) => head,
+        None => label,
+    }
+}
+
+/// Whether `query` appears in `text` at the start of a word, both
+/// normalized.
+pub fn starts_a_word(text: &str, query: &str) -> bool {
+    text.match_indices(query)
+        .any(|(at, _)| at == 0 || text.as_bytes()[at - 1] == b' ')
 }
 
 fn occupations() -> &'static Reference<OccupationEntry> {
     static OCCUPATION_TABLES: OnceLock<Reference<OccupationEntry>> = OnceLock::new();
-    OCCUPATION_TABLES
-        .get_or_init(|| Reference::load(&OCCUPATIONS, |e: &OccupationEntry| &e.aliases))
+    OCCUPATION_TABLES.get_or_init(|| {
+        Reference::load(
+            &OCCUPATIONS,
+            |e: &OccupationEntry| &e.label,
+            |e: &OccupationEntry| &e.aliases,
+        )
+    })
 }
 
 fn given_names() -> &'static Reference<GivenNameEntry> {
     static GIVEN_NAME_TABLES: OnceLock<Reference<GivenNameEntry>> = OnceLock::new();
-    GIVEN_NAME_TABLES.get_or_init(|| Reference::load(&GIVEN_NAMES, |e: &GivenNameEntry| &e.aliases))
+    GIVEN_NAME_TABLES.get_or_init(|| {
+        Reference::load(
+            &GIVEN_NAMES,
+            |e: &GivenNameEntry| &e.label,
+            |e: &GivenNameEntry| &e.aliases,
+        )
+    })
 }
 
 /// Builds every reference table up front.
@@ -360,6 +459,41 @@ pub fn lookup_given_name(lang: ReferenceLang, term: &str) -> Option<GivenNameEnt
     }
     let first_token = full.split(' ').next()?;
     given_names.get(lang, first_token).cloned()
+}
+
+/// Which sheets [`suggest_terms`] and [`has_sheet`] read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferenceKind {
+    Occupations,
+    GivenNames,
+}
+
+/// Up to `limit` terms some sheet answers to, with a word starting with
+/// `query`, in any language's spelling, `lang`'s own first. Each term is
+/// spelled as a file writes it, so it can be entered as is.
+pub fn suggest_terms(
+    kind: ReferenceKind,
+    lang: ReferenceLang,
+    query: &str,
+    limit: usize,
+) -> Vec<String> {
+    let query = normalize_key(query);
+    if query.is_empty() {
+        return Vec::new();
+    }
+    match kind {
+        ReferenceKind::Occupations => occupations().suggest(lang, &query, limit),
+        ReferenceKind::GivenNames => given_names().suggest(lang, &query, limit),
+    }
+}
+
+/// Whether `term` itself, not a word inside it, names a sheet.
+pub fn has_sheet(kind: ReferenceKind, lang: ReferenceLang, term: &str) -> bool {
+    let term = normalize_key(term);
+    match kind {
+        ReferenceKind::Occupations => occupations().index(lang).contains_key(&term),
+        ReferenceKind::GivenNames => given_names().index(lang).contains_key(&term),
+    }
 }
 
 #[cfg(test)]
@@ -518,5 +652,60 @@ mod tests {
         assert_eq!(direct.label, "Jean");
 
         assert!(lookup_given_name(ReferenceLang::Fr, "Zorglub").is_none());
+    }
+
+    #[test]
+    fn suggests_terms_starting_with_the_query_in_the_language_first() {
+        let terms = suggest_terms(ReferenceKind::Occupations, ReferenceLang::Fr, "Labou", 5);
+        assert_eq!(terms.first().map(String::as_str), Some("Laboureur"));
+        // Each spelling is offered once.
+        let folded: Vec<String> = terms.iter().map(|t| normalize_key(t)).collect();
+        let mut unique = folded.clone();
+        unique.dedup();
+        assert_eq!(folded, unique);
+
+        let given = suggest_terms(ReferenceKind::GivenNames, ReferenceLang::Fr, "jea", 3);
+        assert_eq!(given.first().map(String::as_str), Some("Jean"));
+
+        assert!(suggest_terms(ReferenceKind::GivenNames, ReferenceLang::Fr, " - ", 3).is_empty());
+    }
+
+    #[test]
+    fn a_label_is_suggested_without_its_gloss() {
+        assert_eq!(without_gloss("Kmieć (paysan tenancier)"), "Kmieć");
+        assert_eq!(without_gloss("Laboureur"), "Laboureur");
+        let terms = suggest_terms(ReferenceKind::Occupations, ReferenceLang::Fr, "kmie", 10);
+        assert!(terms.iter().any(|t| t == "Kmieć"), "{terms:?}");
+        assert!(terms.iter().all(|t| !t.contains('(')), "{terms:?}");
+    }
+
+    #[test]
+    fn has_sheet_matches_the_whole_term_only() {
+        assert!(has_sheet(
+            ReferenceKind::Occupations,
+            ReferenceLang::Fr,
+            "laboureur/euse"
+        ));
+        assert!(has_sheet(
+            ReferenceKind::Occupations,
+            ReferenceLang::De,
+            "Kmieć"
+        ));
+        // The tooltip finds "CTO" inside this, but it is not itself a term.
+        assert!(!has_sheet(
+            ReferenceKind::Occupations,
+            ReferenceLang::Fr,
+            "CTO chez Entreprise Exemple"
+        ));
+        assert!(has_sheet(
+            ReferenceKind::GivenNames,
+            ReferenceLang::Fr,
+            "JEAN"
+        ));
+        assert!(!has_sheet(
+            ReferenceKind::GivenNames,
+            ReferenceLang::Fr,
+            "Zorglub"
+        ));
     }
 }

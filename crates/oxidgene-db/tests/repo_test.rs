@@ -2131,6 +2131,50 @@ async fn dictionary_family_names_groups_by_person_not_by_row() {
     assert_eq!(entries[1].count, 1);
 }
 
+#[tokio::test]
+async fn dictionary_given_names_counts_persons_per_word() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let p1 = create_person(&db, tree_id).await;
+    let p2 = create_person(&db, tree_id).await;
+    let p3 = create_person(&db, tree_id).await;
+    let name = |person_id, name_type, given: &str| {
+        let db = db.clone();
+        let given = given.to_string();
+        async move {
+            PersonNameRepo::create(
+                &db,
+                Uuid::now_v7(),
+                person_id,
+                name_type,
+                PersonNamePieces {
+                    given_names: Some(given),
+                    surname: Some("Name_a".into()),
+                    ..Default::default()
+                },
+                name_type == NameType::Birth,
+                0,
+            )
+            .await
+            .unwrap();
+        }
+    };
+    name(p1, NameType::Birth, "Given_a  Given_b").await;
+    // The same word twice for one person counts once.
+    name(p1, NameType::AlsoKnownAs, "Given_a").await;
+    name(p2, NameType::Birth, "Given_a").await;
+    // A deleted person's names are not counted.
+    name(p3, NameType::Birth, "Given_c").await;
+    PersonRepo::delete(&db, p3).await.unwrap();
+
+    let entries = DictionaryRepo::given_names(&db, tree_id).await.unwrap();
+    let got: Vec<(&str, i64)> = entries
+        .iter()
+        .map(|e| (e.value.as_str(), e.count))
+        .collect();
+    assert_eq!(got, [("Given_a", 2), ("Given_b", 1)]);
+}
+
 /// Helper: give `person_id` a birth name already split into particle + root,
 /// as an import would have stored it.
 async fn create_split_name(

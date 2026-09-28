@@ -152,6 +152,42 @@ impl DictionaryRepo {
         }))
     }
 
+    /// Distinct given names across a tree, one per word of the given-names
+    /// field ("Jean Marie" holds "Jean" and "Marie"), with the number of
+    /// persons carrying each.
+    pub async fn given_names(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<DictionaryValueEntry>, OxidGeneError> {
+        let names: Vec<(Uuid, Option<String>)> = person_name::Entity::find()
+            .select_only()
+            .column(person_name::Column::PersonId)
+            .column(person_name::Column::GivenNames)
+            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
+            .filter(person::Column::TreeId.eq(tree_id))
+            .filter(person::Column::DeletedAt.is_null())
+            .filter(person_name::Column::GivenNames.is_not_null())
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+
+        let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
+        for (person_id, given_names) in names {
+            for word in given_names
+                .as_deref()
+                .unwrap_or_default()
+                .split_whitespace()
+            {
+                per_value
+                    .entry(word.to_string())
+                    .or_default()
+                    .insert(person_id);
+            }
+        }
+        Ok(sorted_entries(per_value))
+    }
+
     /// Distinct occupation labels (`Event.description` for `Occupation`
     /// events) across a tree, with the number of persons holding each.
     pub async fn occupations(

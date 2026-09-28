@@ -366,6 +366,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/statistics",
             get(crate::rest::statistics::statistics),
+        )
+        .route(
+            "/{tree_id}/suggestions/{field}",
+            get(crate::rest::suggestion::suggest),
         );
 
     let profile_routes = Router::new()

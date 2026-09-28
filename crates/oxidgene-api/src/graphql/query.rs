@@ -31,9 +31,9 @@ use super::types::{
     GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry,
     GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchEntry,
     GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
-    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlTree, GqlTreeConnection,
-    GqlTreeMediaLink, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
-    require_local_file_access,
+    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree,
+    GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
+    media_from_ctx, profiles_from_ctx, require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -945,6 +945,33 @@ impl QueryRoot {
         })
         .await?;
         Ok(places.into_iter().map(Into::into).collect())
+    }
+
+    /// Values an entry-form field suggests: the tree's values with a word
+    /// starting with `query`, then, for occupations and given names, the
+    /// reference terms the tree does not hold yet. `limit` defaults to 10.
+    async fn value_suggestions(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        field: GqlSuggestionField,
+        language: String,
+        query: String,
+        limit: Option<usize>,
+    ) -> Result<Vec<GqlValueSuggestion>> {
+        let db = db_from_ctx(ctx);
+        Ok(crate::service::suggestions::suggest(
+            db,
+            Uuid::parse_str(tree_id.as_str())?,
+            field.into(),
+            &language,
+            &query,
+            limit,
+        )
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect())
     }
 
     // ── Media ────────────────────────────────────────────────────────

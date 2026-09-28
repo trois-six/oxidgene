@@ -2396,6 +2396,49 @@ impl From<oxidgene_db::repo::DictionaryValueEntry> for GqlDictionaryEntry {
     }
 }
 
+/// The entry-form field a value suggestion is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlSuggestionField {
+    FamilyNames,
+    /// One given name: the form completes the word being typed.
+    GivenNames,
+    Occupations,
+    /// Source titles.
+    Sources,
+}
+
+impl From<GqlSuggestionField> for crate::service::suggestions::SuggestionField {
+    fn from(field: GqlSuggestionField) -> Self {
+        match field {
+            GqlSuggestionField::FamilyNames => Self::FamilyNames,
+            GqlSuggestionField::GivenNames => Self::GivenNames,
+            GqlSuggestionField::Occupations => Self::Occupations,
+            GqlSuggestionField::Sources => Self::Sources,
+        }
+    }
+}
+
+/// A value an entry-form field suggests.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlValueSuggestion {
+    pub value: String,
+    /// Persons carrying the value, or citations of the source; 0 for a term
+    /// only a reference sheet knows.
+    pub count: i64,
+    /// Whether a reference sheet answers to the value itself.
+    pub reference: bool,
+}
+
+impl From<crate::service::suggestions::ValueSuggestion> for GqlValueSuggestion {
+    fn from(suggestion: crate::service::suggestions::ValueSuggestion) -> Self {
+        Self {
+            value: suggestion.value,
+            count: suggestion.count,
+            reference: suggestion.reference,
+        }
+    }
+}
+
 /// A person reached from a dictionary usage drill-down.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlPersonUsageEntry {

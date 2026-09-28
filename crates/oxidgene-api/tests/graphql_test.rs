@@ -1993,6 +1993,10 @@ async fn test_dictionary_and_reference_over_graphql() {
                 placeUsage(treeId: "{tree_id}", placeId: "{place_id}") {{ personId }}
                 occupationReference(language: "fr", term: "Agriculteur") {{ label }}
                 givenNameReference(language: "fr", term: "Marie") {{ label }}
+                surnames: valueSuggestions(treeId: "{tree_id}", field: FAMILY_NAMES, language: "fr", query: "dur") {{ value count reference }}
+                givenNames: valueSuggestions(treeId: "{tree_id}", field: GIVEN_NAMES, language: "fr", query: "mar", limit: 3) {{ value count reference }}
+                occupations: valueSuggestions(treeId: "{tree_id}", field: OCCUPATIONS, language: "fr", query: "agri") {{ value count reference }}
+                sources: valueSuggestions(treeId: "{tree_id}", field: SOURCES, language: "fr", query: "regis") {{ value count reference }}
             }}"#
         ),
         None,
@@ -2000,6 +2004,35 @@ async fn test_dictionary_and_reference_over_graphql() {
     .await;
     let response = data(&response);
 
+    assert_eq!(
+        response["surnames"],
+        serde_json::json!([{ "value": "Durand", "count": 1, "reference": false }])
+    );
+    assert_eq!(
+        response["givenNames"][0],
+        serde_json::json!({ "value": "Marie", "count": 1, "reference": true })
+    );
+    assert_eq!(response["givenNames"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        response["occupations"][0],
+        serde_json::json!({ "value": "Agriculteur", "count": 1, "reference": true })
+    );
+    assert_eq!(
+        response["sources"],
+        serde_json::json!([{ "value": "Lyon register", "count": 1, "reference": false }])
+    );
+    for (language, limit) in [("xx", 10), ("fr", 0), ("fr", 51)] {
+        let query = format!(
+            r#"{{ valueSuggestions(treeId: "{tree_id}", field: SOURCES, language: "{language}", query: "regis", limit: {limit}) {{ value }} }}"#
+        );
+        let response = graphql(app.clone(), &query, None).await;
+        assert!(
+            response["errors"]
+                .as_array()
+                .is_some_and(|errors| !errors.is_empty()),
+            "should be rejected: {query}"
+        );
+    }
     assert_eq!(response["dictionaryFamilyNames"][0]["value"], "Durand");
     assert_eq!(response["dictionaryOccupations"][0]["value"], "Agriculteur");
     assert_eq!(response["dictionarySources"][0]["source"]["id"], source_id);
