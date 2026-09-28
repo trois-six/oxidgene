@@ -1162,6 +1162,83 @@ struct MediaDeletionStatus {
     can_delete: bool,
 }
 
+/// A document of the tree-wide media list, with how many records it is
+/// attached to. Mirrors the API's `MediaListItem`, media flattened in.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MediaListItem {
+    #[serde(flatten)]
+    pub media: Media,
+    pub usage_count: i64,
+}
+
+/// The media list's filters. Every field is optional; the set ones combine
+/// with AND on the server.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MediaListFilters {
+    pub tag: Option<String>,
+    pub kind: Option<oxidgene_core::MediaFileKind>,
+    pub category: Option<DocumentCategory>,
+    pub name: Option<String>,
+    pub linked_name: Option<String>,
+    pub event_from: Option<i32>,
+    pub event_to: Option<i32>,
+    pub added_from: Option<chrono::NaiveDate>,
+    pub added_to: Option<chrono::NaiveDate>,
+}
+
+impl MediaListFilters {
+    fn query_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut pairs = Vec::new();
+        let mut push = |key, value: Option<String>| {
+            if let Some(value) = value {
+                pairs.push((key, value));
+            }
+        };
+        push("tag", self.tag.clone());
+        push("kind", self.kind.map(|kind| kind.as_str().to_string()));
+        push(
+            "category",
+            self.category.map(|category| category.as_str().to_string()),
+        );
+        push("name", self.name.clone());
+        push("linked_name", self.linked_name.clone());
+        push("event_from", self.event_from.map(|year| year.to_string()));
+        push("event_to", self.event_to.map(|year| year.to_string()));
+        push("added_from", self.added_from.map(|day| day.to_string()));
+        push("added_to", self.added_to.map(|day| day.to_string()));
+        pairs
+    }
+}
+
+/// A tag of the tree and how many documents carry it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MediaTagFacet {
+    pub tag: String,
+    pub count: i64,
+}
+
+/// A file kind and how many documents hold a page of it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MediaKindFacet {
+    pub kind: oxidgene_core::MediaFileKind,
+    pub count: i64,
+}
+
+/// A document category and how many documents are filed under it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MediaCategoryFacet {
+    pub category: DocumentCategory,
+    pub count: i64,
+}
+
+/// The values the media list's filters can take in a tree.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+pub struct MediaFacets {
+    pub tags: Vec<MediaTagFacet>,
+    pub kinds: Vec<MediaKindFacet>,
+    pub categories: Vec<MediaCategoryFacet>,
+}
+
 /// Where a media's bytes actually are.
 ///
 /// Three states, and every view has to tell them apart. A media OxidGene holds
@@ -3892,6 +3969,30 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(media)
+    }
+
+    /// A page of the tree's documents matching `filters`, each with its
+    /// usage count.
+    pub async fn list_media(
+        &self,
+        tree_id: Uuid,
+        first: u64,
+        after: Option<&str>,
+        filters: &MediaListFilters,
+    ) -> Result<PaginatedResponse<MediaListItem>, ApiError> {
+        let mut params = vec![("first", first.to_string())];
+        if let Some(after) = after {
+            params.push(("after", after.to_string()));
+        }
+        params.extend(filters.query_pairs());
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/media"), &params)
+            .await
+    }
+
+    /// The tags, file kinds and categories the tree's documents carry.
+    pub async fn media_facets(&self, tree_id: Uuid) -> Result<MediaFacets, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/media/facets"))
+            .await
     }
 
     /// The pages of a document, in order.

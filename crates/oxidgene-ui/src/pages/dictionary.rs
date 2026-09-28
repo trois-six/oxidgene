@@ -19,6 +19,7 @@ use crate::components::suggest_input::ValueInput;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
+use crate::pages::dictionary_media::DictionaryMedia;
 use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
@@ -53,6 +54,7 @@ enum DictTab {
     Sources,
     Places,
     Occupations,
+    Media,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -402,6 +404,11 @@ pub fn Dictionary(tree_id: String) -> Element {
                         onclick: move |_| active_tab.set(DictTab::Occupations),
                         {i18n.t("dictionary.tab.occupations")}
                     }
+                    button {
+                        class: if active_tab() == DictTab::Media { "dict-tab active" } else { "dict-tab" },
+                        onclick: move |_| active_tab.set(DictTab::Media),
+                        {i18n.t("dictionary.tab.media")}
+                    }
                 }
 
                 match active_tab() {
@@ -458,6 +465,11 @@ pub fn Dictionary(tree_id: String) -> Element {
                         usage_resource,
                         filed_places,
                     ),
+                    // Its own module: server-paginated, with filters of its own.
+                    DictTab::Media => match tree_id_parsed() {
+                        Some(tree_id) => rsx! { DictionaryMedia { tree_id } },
+                        None => rsx! {},
+                    },
                 }
 
                 if let (Some(edit), Some(tid)) = (family_name_edit(), tree_id_parsed()) {

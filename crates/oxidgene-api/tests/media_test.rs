@@ -2966,3 +2966,300 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     assert_eq!(links[0]["media_id"], document_id);
     assert_eq!(links[0]["person_id"], rows[0]["person_id"]);
 }
+
+// ── Media library (Dictionary › Media) ──────────────────────────────
+
+/// Create a person with a primary name and return its id.
+async fn named_person(h: &Harness, given_names: &str, surname: &str) -> String {
+    let id = person(h).await;
+    let (status, name) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/persons/{id}/names", h.tree_id),
+        Some(json!({
+            "name_type": "birth",
+            "given_names": given_names,
+            "surname": surname,
+            "is_primary": true
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{name}");
+    id
+}
+
+async fn add_tag(h: &Harness, media_id: &str, tag: &str) {
+    let (status, body) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
+        Some(json!({ "tag": tag })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+async fn link(h: &Harness, body: Value) {
+    let (status, link) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media-links", h.tree_id),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{link}");
+}
+
+/// The titles of the documents a media-list query returns, in order.
+async fn library_titles(h: &Harness, query: &str) -> Vec<String> {
+    let (status, page) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media?{query}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{query}: {page}");
+    let titles: Vec<String> = page["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|edge| {
+            edge["node"]["title"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(page["total_count"], titles.len(), "{query}: {page}");
+    titles
+}
+
+/// Three documents: a census scan linked to a person, a parish PDF linked to
+/// a dated event of another, and a photograph with a crop identifying that
+/// other person. Returns their ids in that order.
+async fn library_fixture(h: &Harness) -> [String; 3] {
+    let first = named_person(h, "Élodie", "Fictive").await;
+    let second = named_person(h, "Marc", "Exemple").await;
+
+    let census = new_document(&h.app, h.tree_id, Some("Census sheet")).await;
+    let (status, _) = upload(
+        &h.app,
+        h.tree_id,
+        &[
+            ("file", Some("sheet.png"), &png(40, 30)),
+            ("document_id", None, census.as_bytes()),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, body) = json_request(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{census}", h.tree_id),
+        Some(json!({ "document_category": "census" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    add_tag(h, &census, "Village Alpha").await;
+    add_tag(h, &census, "Survey").await;
+    link(h, json!({ "media_id": census, "person_id": first })).await;
+
+    let parish = new_document(&h.app, h.tree_id, Some("Écrits de paroisse")).await;
+    let (status, body) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": parish,
+            "file_name": "register.pdf",
+            "mime_type": "application/pdf",
+            "file_path": "register.pdf",
+            "file_size": 0
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    add_tag(h, &parish, "village alpha").await;
+    let (status, event) = json_request(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/events", h.tree_id),
+        Some(json!({
+            "event_type": "baptism",
+            "person_id": second,
+            "date_value": "12 MAR 1890"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{event}");
+    link(h, json!({ "media_id": parish, "event_id": event["id"] })).await;
+
+    let photo = new_document(&h.app, h.tree_id, Some("Group photo")).await;
+    let (_, page) = upload(
+        &h.app,
+        h.tree_id,
+        &[
+            ("file", Some("garden.png"), &png(80, 60)),
+            ("document_id", None, photo.as_bytes()),
+        ],
+    )
+    .await;
+    add_tag(h, &photo, "Village Alpha").await;
+    let (status, vignette) = json_request(
+        &h.app,
+        Method::POST,
+        &format!(
+            "/api/v1/trees/{}/media/{}/vignettes",
+            h.tree_id,
+            page["id"].as_str().unwrap()
+        ),
+        Some(json!({ "x": 0, "y": 0, "width": 20, "height": 20, "person_id": second })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
+
+    [census, parish, photo]
+}
+
+#[tokio::test]
+async fn the_media_library_narrows_by_every_filter_and_combines_them() {
+    let today = chrono::Utc::now().date_naive();
+    let h = setup().await;
+    let [census, _, _] = library_fixture(&h).await;
+
+    let all = ["Census sheet", "Écrits de paroisse", "Group photo"];
+    assert_eq!(library_titles(&h, "").await, all);
+    assert_eq!(
+        library_titles(&h, "tag=VILLAGE%20ALPHA").await,
+        all,
+        "a tag matches in any case"
+    );
+    assert_eq!(library_titles(&h, "tag=survey").await, ["Census sheet"]);
+    assert_eq!(library_titles(&h, "kind=pdf").await, ["Écrits de paroisse"]);
+    assert_eq!(
+        library_titles(&h, "kind=image").await,
+        ["Census sheet", "Group photo"]
+    );
+    assert_eq!(
+        library_titles(&h, "category=census").await,
+        ["Census sheet"]
+    );
+    assert_eq!(
+        library_titles(&h, "name=ECRITS").await,
+        ["Écrits de paroisse"],
+        "the name is folded"
+    );
+    assert_eq!(
+        library_titles(&h, "name=garden").await,
+        ["Group photo"],
+        "a page's file name names its document"
+    );
+    assert_eq!(
+        library_titles(&h, "linked_name=elodie%20fict").await,
+        ["Census sheet"]
+    );
+    assert_eq!(
+        library_titles(&h, "linked_name=exemple").await,
+        ["Écrits de paroisse", "Group photo"],
+        "through an event of theirs and through a crop"
+    );
+    assert_eq!(
+        library_titles(&h, "event_from=1885&event_to=1895").await,
+        ["Écrits de paroisse"]
+    );
+    assert!(library_titles(&h, "event_from=1891").await.is_empty());
+    assert_eq!(
+        library_titles(&h, &format!("added_from={today}")).await,
+        all
+    );
+    let yesterday = today.pred_opt().unwrap();
+    assert!(
+        library_titles(&h, &format!("added_to={yesterday}"))
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        library_titles(&h, "tag=village%20alpha&kind=image&linked_name=exemple").await,
+        ["Group photo"],
+        "filters combine with AND"
+    );
+
+    let (status, _) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media?event_from=1900&event_to=1800",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "a backwards range");
+
+    // Pagination and usage counts under a filter.
+    let (_, page) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media?first=2&tag=village%20alpha",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(page["total_count"], 3, "{page}");
+    assert_eq!(page["page_info"]["has_next_page"], true, "{page}");
+    assert_eq!(page["edges"][0]["node"]["id"], census.as_str());
+    assert_eq!(page["edges"][0]["node"]["usage_count"], 1);
+    assert_eq!(page["edges"][1]["node"]["usage_count"], 1);
+    let after = page["page_info"]["end_cursor"].as_str().unwrap();
+    let (_, rest) = json_request(
+        &h.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/media?first=2&tag=village%20alpha&after={after}",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(rest["edges"].as_array().unwrap().len(), 1, "{rest}");
+    assert_eq!(rest["edges"][0]["node"]["title"], "Group photo");
+    assert_eq!(
+        rest["edges"][0]["node"]["usage_count"], 0,
+        "a crop is not a link"
+    );
+    assert_eq!(rest["page_info"]["has_next_page"], false);
+}
+
+#[tokio::test]
+async fn the_media_facets_count_what_the_tree_holds() {
+    let h = setup().await;
+    library_fixture(&h).await;
+
+    let (status, facets) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/facets", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{facets}");
+    assert_eq!(
+        facets["tags"],
+        json!([
+            { "tag": "Survey", "count": 1 },
+            { "tag": "Village Alpha", "count": 3 },
+        ]),
+        "one entry per tag whatever its spelling, shown as most documents spell it"
+    );
+    assert_eq!(
+        facets["kinds"],
+        json!([{ "kind": "image", "count": 2 }, { "kind": "pdf", "count": 1 }])
+    );
+    assert_eq!(
+        facets["categories"],
+        json!([{ "category": "census", "count": 1 }])
+    );
+}

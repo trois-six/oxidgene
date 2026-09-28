@@ -18,19 +18,21 @@ use super::history::{
     GqlAuditCategory, GqlAuditEntry, GqlAuditEntryConnection, GqlRecordType, GqlRecordVersion,
     GqlRecordVersionConnection, GqlVersionChangeConnection,
 };
-use super::inputs::{GeneanetPreviewInput, ImageSourceInput, geneanet_deposit_sizes};
+use super::inputs::{
+    GeneanetPreviewInput, ImageSourceInput, MediaListFilterInput, geneanet_deposit_sizes,
+};
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
     GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection, GqlGalleryBundle,
     GqlGeneanetArchiveIndex, GqlGeneanetImportResult, GqlGeneanetIndexedArchive,
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
     GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlKinship, GqlMedia,
-    GqlMediaConnection, GqlMediaDownload, GqlMediaLink, GqlMediaWithLink, GqlNoteConnection,
-    GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson,
-    GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort,
-    GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry,
-    GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchEntry,
-    GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
+    GqlMediaConnection, GqlMediaDownload, GqlMediaFacets, GqlMediaLink, GqlMediaWithLink,
+    GqlNoteConnection, GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree,
+    GqlPedigreeEntry, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
+    GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
+    GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
+    GqlSearchEntry, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
     GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree,
     GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
     media_from_ctx, profiles_from_ctx, require_local_file_access,
@@ -1067,13 +1069,15 @@ impl QueryRoot {
 
     // ── Media ────────────────────────────────────────────────────────
 
-    /// List media in a tree with cursor-based pagination.
+    /// List a tree's documents with cursor-based pagination, narrowed by
+    /// `filter`, each edge carrying the document's usage count.
     async fn media_list(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         first: Option<u64>,
         after: Option<String>,
+        filter: Option<MediaListFilterInput>,
     ) -> Result<GqlMediaConnection> {
         let db = db_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
@@ -1081,8 +1085,23 @@ impl QueryRoot {
             first: first.unwrap_or(25),
             after,
         };
-        let conn = MediaRepo::list(db, tid, &params).await?;
+        let conn = crate::service::media_library::list(
+            db,
+            tid,
+            filter.unwrap_or_default().into(),
+            &params,
+        )
+        .await?;
         Ok(conn.into())
+    }
+
+    /// The tags, file kinds and categories the tree's documents carry, each
+    /// with its document count.
+    async fn media_facets(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlMediaFacets> {
+        let tid = Uuid::parse_str(tree_id.as_str())?;
+        Ok(crate::service::media_library::facets(db_from_ctx(ctx), tid)
+            .await?
+            .into())
     }
 
     /// Get a single media by ID.

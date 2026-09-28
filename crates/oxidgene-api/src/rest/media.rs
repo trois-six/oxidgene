@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::TryStreamExt;
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::Media;
+use oxidgene_core::types::{Connection, Media};
 use oxidgene_db::repo::{
     MediaPatch, MediaRepo, MediaTagRepo, PaginationParams, TreeRepo, UploadedMedia,
 };
@@ -19,11 +19,12 @@ use uuid::Uuid;
 use crate::media::{self, MAX_UPLOAD_BYTES};
 use crate::service::event_date;
 use crate::service::history::Change;
+use crate::service::media_library::{self, MediaListItem};
 use oxidgene_core::history::{AuditAction, AuditEntity};
 
 use super::dto::{
     CreateDocumentRequest, CreateMediaRequest, DeleteMediaQuery, GalleryBundleRequest,
-    MediaDeletionStatusQuery, MediaTagRequest, PaginationQuery, ReorderPagesRequest,
+    MediaDeletionStatusQuery, MediaListQuery, MediaTagRequest, ReorderPagesRequest,
     UpdateMediaRequest,
 };
 use super::error::ApiError;
@@ -69,19 +70,36 @@ pub async fn gallery_bundle(
 }
 
 /// GET /api/v1/trees/:tree_id/media
+///
+/// The tree's documents, narrowed by the query's filters, each with its
+/// usage count.
 pub async fn list_media(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Query(query): Query<PaginationQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+    Query(query): Query<MediaListQuery>,
+) -> Result<Json<Connection<MediaListItem>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
-        after: query.after,
+        after: query.after.clone(),
     };
-    let connection = MediaRepo::list(&state.db, tree_id, &params)
+    let connection = media_library::list(&state.db, tree_id, query.filters(), &params)
         .await
         .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(connection).unwrap()))
+    Ok(Json(connection))
+}
+
+/// GET /api/v1/trees/:tree_id/media/facets
+///
+/// The tags, file kinds and categories the tree's documents carry, each
+/// with its document count.
+pub async fn list_media_facets(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<media_library::MediaFacets>, ApiError> {
+    let facets = media_library::facets(&state.db, tree_id)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(facets))
 }
 
 /// POST /api/v1/trees/:tree_id/media

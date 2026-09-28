@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T21:05:00Z }
 ---
 
 
@@ -315,7 +315,8 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/media` | List media (cursor-paginated) |
+| `GET` | `/trees/{tree_id}/media` | List the tree's documents (cursor-paginated), narrowed by the media library filters, each with its `usage_count` — see **Media library** below |
+| `GET` | `/trees/{tree_id}/media/facets` | The values the media library filters can take: `{tags: [{tag, count}], kinds: [{kind, count}], categories: [{category, count}]}` |
 | `POST` | `/trees/{tree_id}/media` | Add a page that names a file without holding it — an archive's URL, or a path a GEDCOM mentioned. `document_id` is required: bytes and addresses live on pages, and a page belongs to a document. The GraphQL twin is `uploadMedia` |
 | `POST` | `/trees/{tree_id}/media/upload` | Upload a file. `multipart/form-data`: `file` (required), `title`, `description`, `media_id`, `document_id`. `201` for a new record, `200` when `media_id` attaches bytes to an existing one; `document_id` appends the file as the next page of a multi-page document |
 | `POST` | `/trees/{tree_id}/media/document` | Create an empty multi-page document (`{title?}`). Pages are added by uploading with `document_id` |
@@ -336,6 +337,39 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Permanently delete the media, its related rows and unshared stored objects. With `?only_if_unreferenced_elsewhere=true&allowed_link_id={link_id}`, keep it when any reference other than that gallery link remains (`204` deleted, `200` retained) |
 
 GraphQL mirrors the status endpoint with `canDeleteMedia(treeId:, id:, allowedLinkId:)`, returning the same eligibility boolean before `deleteMedia` is called.
+
+**Media library.** `GET .../media` lists documents only — a page is reached
+through its document — in creation order, the cursor being the last id seen.
+Its optional filters combine with AND, and `total_count` is counted under them:
+
+| Parameter | Keeps the documents… |
+|---|---|
+| `tag` | carrying this tag, in any case (matched on the stored normalized key: trimmed and lowercased) |
+| `kind` | with at least one live page of this file kind: `image`, `pdf`, `video`, `audio` or `other`, read from the page's MIME type |
+| `category` | filed under this `document_category` |
+| `name` | whose title or file name, or one of whose pages' file names, contains the text, ignoring case and accents |
+| `linked_name` | connected to a person whose primary given names and surname (in either order) or maiden name contain the text, ignoring case and accents. Connected means a media link, on the document or one of its pages, to the person, to a family they are a spouse in, or to an event of theirs or of such a family — or a crop identifying them |
+| `event_from`, `event_to` | linked, by a media link or a crop, to a live event whose `date_sort` falls within these years, inclusive. An undated event matches no range |
+| `added_from`, `added_to` | created on these UTC days, inclusive (`YYYY-MM-DD`) |
+
+Blank text is no filter. A range that ends before it starts is a `400`; an
+unknown `kind` or `category` is a `400` too. Each node is the document with
+`usage_count` beside its fields: the distinct persons, families, events and
+sources it is attached to by media links on it or its pages — crops and
+portraits are not counted. The counts for a page are one grouped query.
+
+`GET .../media/facets` lists every tag carried by a live document, with its
+document count, displayed in the spelling most of those documents carry (ties
+to the first in code-point order) and sorted alphabetically ignoring case and
+accents; every file kind and category held, with theirs, in their declaration
+order. It always counts the whole library, never a filtered listing.
+
+GraphQL mirrors both: `mediaList(treeId, first, after, filter:
+MediaListFilterInput)` takes the same filters (`tag`, `kind`, `category`,
+`name`, `linkedName`, `eventFrom`, `eventTo`, `addedFrom`, `addedTo`) and puts
+the count on each edge as `usageCount`; a backwards range is a GraphQL error.
+`mediaFacets(treeId)` returns `{tags {tag count} kinds {kind count} categories
+{category count}}`.
 
 **Download capability.** `mediaDownload(treeId: ID!, id: ID!): GqlMediaDownload!`
 and `mediaArchive(treeId: ID!, id: ID!): GqlMediaDownload!` return `{ url }`, a

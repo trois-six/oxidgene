@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T19:55:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T21:05:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -384,7 +384,11 @@ hands the chosen `(file name, bytes)` pairs to its caller; that mode exists for
 `DocumentForm`, which has no document to hang pages off until the user saves.
 The canonical gallery owns tiles, viewer opening, edit actions, document
 paging, portraits, and context menus. Pages do not implement alternate media
-grids.
+grids. A listing of documents that are nobody's gallery — the
+[Dictionary](ui-dictionary.md)'s Media tab — uses the same module's library
+grid: the same tiles, bundle and viewer, the tiles read-only with optional
+footnote lines under the caption. With no attachment to spare, the viewer's
+delete there only ever removes a document nothing references.
 
 The initial grid loads tile thumbnails, the first four document-page previews
 — a generated thumbnail, or a remote page's own image URL — vignette crops, and

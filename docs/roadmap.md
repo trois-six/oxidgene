@@ -45,6 +45,9 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T22:00:00Z }
 - [x] Reduce media entry to one document form, reachable identically from the
   person form, the couple form, and the profile, that writes nothing until it
   is saved and accepts remote addresses alongside uploaded files.
+- [x] Browse the whole media library from the Dictionary, by a tag cloud and
+  server-side filters on name, file type, category, linked person, linked
+  event years, and date added.
 - [ ] Exercise migrations and media workflows against PostgreSQL in CI.
 - [ ] Decide whether PDF page rendering justifies a native rasterizer and its
   cross-platform binary cost.

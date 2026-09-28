@@ -4111,3 +4111,293 @@ async fn potential_duplicates_match_rest() {
         "an unknown tree should be rejected, as REST answers 404: {resp}"
     );
 }
+
+// ── Media library (Dictionary › Media) ───────────────────────────────
+
+/// A document with the given title; returns its id.
+async fn gql_document(app: &axum::Router, tree_id: &str, title: &str) -> String {
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $title: String!) {
+            createMediaDocument(treeId: $tree, title: $title) { id }
+        }"#,
+        Some(json!({ "tree": tree_id, "title": title })),
+    )
+    .await;
+    data(&resp)["createMediaDocument"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Run a mutation for its side effect, failing on any error.
+async fn gql_do(app: &axum::Router, query: &str, variables: Value) {
+    data(&graphql(app.clone(), query, Some(variables)).await);
+}
+
+/// Three documents, as the REST fixture builds them: a census scan linked to
+/// a person, a parish PDF linked to a dated event of another, and a
+/// photograph with a crop identifying that other person.
+async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
+    let first = gql_named_person(app, tree_id, "FEMALE", "Élodie", "Fictive").await;
+    let second = gql_named_person(app, tree_id, "MALE", "Marc", "Exemple").await;
+    let add_tag = r#"mutation($tree: ID!, $id: ID!, $tag: String!) {
+        addMediaTag(treeId: $tree, id: $id, tag: $tag) { id }
+    }"#;
+    let upload = r#"mutation($tree: ID!, $doc: ID!, $name: String!, $content: String!) {
+        uploadMediaFile(treeId: $tree, input: { documentId: $doc, fileName: $name, contentBase64: $content }) { id }
+    }"#;
+
+    let census = gql_document(app, tree_id, "Census sheet").await;
+    gql_do(
+        app,
+        upload,
+        json!({ "tree": tree_id, "doc": census, "name": "sheet.png", "content": png_base64(40, 30) }),
+    )
+    .await;
+    gql_do(
+        app,
+        r#"mutation($tree: ID!, $id: ID!) {
+            updateMedia(treeId: $tree, id: $id, input: { documentCategory: CENSUS }) { id }
+        }"#,
+        json!({ "tree": tree_id, "id": census }),
+    )
+    .await;
+    for tag in ["Village Alpha", "Survey"] {
+        gql_do(
+            app,
+            add_tag,
+            json!({ "tree": tree_id, "id": census, "tag": tag }),
+        )
+        .await;
+    }
+    gql_do(
+        app,
+        r#"mutation($tree: ID!, $media: ID!, $person: ID!) {
+            createMediaLink(treeId: $tree, input: { mediaId: $media, personId: $person }) { id }
+        }"#,
+        json!({ "tree": tree_id, "media": census, "person": first }),
+    )
+    .await;
+
+    let parish = gql_document(app, tree_id, "Écrits de paroisse").await;
+    gql_do(
+        app,
+        r#"mutation($tree: ID!, $doc: ID!) {
+            uploadMedia(treeId: $tree, input: { documentId: $doc, fileName: "register.pdf", mimeType: "application/pdf", filePath: "register.pdf", fileSize: 0 }) { id }
+        }"#,
+        json!({ "tree": tree_id, "doc": parish }),
+    )
+    .await;
+    gql_do(
+        app,
+        add_tag,
+        json!({ "tree": tree_id, "id": parish, "tag": "village alpha" }),
+    )
+    .await;
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $person: ID!) {
+            createEvent(treeId: $tree, input: { eventType: BAPTISM, personId: $person, dateValue: "12 MAR 1890" }) { id }
+        }"#,
+        Some(json!({ "tree": tree_id, "person": second })),
+    )
+    .await;
+    let event = data(&resp)["createEvent"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    gql_do(
+        app,
+        r#"mutation($tree: ID!, $media: ID!, $event: ID!) {
+            createMediaLink(treeId: $tree, input: { mediaId: $media, eventId: $event }) { id }
+        }"#,
+        json!({ "tree": tree_id, "media": parish, "event": event }),
+    )
+    .await;
+
+    let photo = gql_document(app, tree_id, "Group photo").await;
+    let resp = graphql(
+        app.clone(),
+        upload,
+        Some(
+            json!({ "tree": tree_id, "doc": photo, "name": "garden.png", "content": png_base64(80, 60) }),
+        ),
+    )
+    .await;
+    let page = data(&resp)["uploadMediaFile"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    gql_do(
+        app,
+        add_tag,
+        json!({ "tree": tree_id, "id": photo, "tag": "Village Alpha" }),
+    )
+    .await;
+    gql_do(
+        app,
+        r#"mutation($tree: ID!, $page: ID!, $person: ID!) {
+            createVignette(treeId: $tree, input: { mediaId: $page, personId: $person, x: 0, y: 0, width: 20, height: 20 }) { id }
+        }"#,
+        json!({ "tree": tree_id, "page": page, "person": second }),
+    )
+    .await;
+}
+
+/// The titles `mediaList` returns under `filter`, checking `totalCount`.
+async fn gql_library_titles(app: &axum::Router, tree_id: &str, filter: Value) -> Vec<String> {
+    let resp = graphql(
+        app.clone(),
+        r#"query($tree: ID!, $filter: MediaListFilterInput) {
+            mediaList(treeId: $tree, filter: $filter) { totalCount edges { node { title } } }
+        }"#,
+        Some(json!({ "tree": tree_id, "filter": filter })),
+    )
+    .await;
+    let list = &data(&resp)["mediaList"];
+    let titles: Vec<String> = list["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|edge| {
+            edge["node"]["title"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(list["totalCount"], titles.len(), "{filter}: {list}");
+    titles
+}
+
+#[tokio::test]
+async fn the_media_library_narrows_by_every_filter_over_graphql() {
+    let today = chrono::Utc::now().date_naive();
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    gql_library_fixture(&app, &tree_id).await;
+
+    let all = ["Census sheet", "Écrits de paroisse", "Group photo"];
+    let titles = |filter: Value| gql_library_titles(&app, &tree_id, filter);
+    assert_eq!(titles(json!(null)).await, all);
+    assert_eq!(titles(json!({ "tag": "VILLAGE ALPHA" })).await, all);
+    assert_eq!(titles(json!({ "tag": "survey" })).await, ["Census sheet"]);
+    assert_eq!(
+        titles(json!({ "kind": "PDF" })).await,
+        ["Écrits de paroisse"]
+    );
+    assert_eq!(
+        titles(json!({ "kind": "IMAGE" })).await,
+        ["Census sheet", "Group photo"]
+    );
+    assert_eq!(
+        titles(json!({ "category": "CENSUS" })).await,
+        ["Census sheet"]
+    );
+    assert_eq!(
+        titles(json!({ "name": "ECRITS" })).await,
+        ["Écrits de paroisse"]
+    );
+    assert_eq!(titles(json!({ "name": "garden" })).await, ["Group photo"]);
+    assert_eq!(
+        titles(json!({ "linkedName": "elodie fict" })).await,
+        ["Census sheet"]
+    );
+    assert_eq!(
+        titles(json!({ "linkedName": "exemple" })).await,
+        ["Écrits de paroisse", "Group photo"]
+    );
+    assert_eq!(
+        titles(json!({ "eventFrom": 1885, "eventTo": 1895 })).await,
+        ["Écrits de paroisse"]
+    );
+    assert!(titles(json!({ "eventFrom": 1891 })).await.is_empty());
+    assert_eq!(titles(json!({ "addedFrom": today.to_string() })).await, all);
+    assert!(
+        titles(json!({ "addedTo": today.pred_opt().unwrap().to_string() }))
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        titles(json!({ "tag": "village alpha", "kind": "IMAGE", "linkedName": "exemple" })).await,
+        ["Group photo"]
+    );
+
+    let resp = graphql(
+        app.clone(),
+        r#"query($tree: ID!) {
+            mediaList(treeId: $tree, filter: { eventFrom: 1900, eventTo: 1800 }) { totalCount }
+        }"#,
+        Some(json!({ "tree": tree_id })),
+    )
+    .await;
+    assert!(
+        resp["errors"].as_array().is_some_and(|e| !e.is_empty()),
+        "a backwards range is refused, as REST answers 400: {resp}"
+    );
+
+    let page = |after: Option<String>| {
+        let app = app.clone();
+        let tree_id = tree_id.clone();
+        async move {
+            let resp = graphql(
+                app,
+                r#"query($tree: ID!, $after: String) {
+                    mediaList(treeId: $tree, first: 2, after: $after, filter: { tag: "village alpha" }) {
+                        totalCount pageInfo { hasNextPage endCursor }
+                        edges { usageCount node { title } }
+                    }
+                }"#,
+                Some(json!({ "tree": tree_id, "after": after })),
+            )
+            .await;
+            data(&resp)["mediaList"].clone()
+        }
+    };
+    let first = page(None).await;
+    assert_eq!(first["totalCount"], 3, "{first}");
+    assert_eq!(first["pageInfo"]["hasNextPage"], true);
+    assert_eq!(first["edges"][0]["node"]["title"], "Census sheet");
+    assert_eq!(first["edges"][0]["usageCount"], 1);
+    assert_eq!(first["edges"][1]["usageCount"], 1);
+    let rest = page(first["pageInfo"]["endCursor"].as_str().map(String::from)).await;
+    assert_eq!(rest["edges"].as_array().unwrap().len(), 1, "{rest}");
+    assert_eq!(rest["edges"][0]["node"]["title"], "Group photo");
+    assert_eq!(rest["edges"][0]["usageCount"], 0);
+    assert_eq!(rest["pageInfo"]["hasNextPage"], false);
+}
+
+#[tokio::test]
+async fn the_media_facets_over_graphql_match_rest() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    gql_library_fixture(&app, &tree_id).await;
+
+    let resp = graphql(
+        app,
+        r#"query($tree: ID!) {
+            mediaFacets(treeId: $tree) {
+                tags { tag count } kinds { kind count } categories { category count }
+            }
+        }"#,
+        Some(json!({ "tree": tree_id })),
+    )
+    .await;
+    let facets = &data(&resp)["mediaFacets"];
+    assert_eq!(
+        facets["tags"],
+        json!([
+            { "tag": "Survey", "count": 1 },
+            { "tag": "Village Alpha", "count": 3 },
+        ])
+    );
+    assert_eq!(
+        facets["kinds"],
+        json!([{ "kind": "IMAGE", "count": 2 }, { "kind": "PDF", "count": 1 }])
+    );
+    assert_eq!(
+        facets["categories"],
+        json!([{ "category": "CENSUS", "count": 1 }])
+    );
+}

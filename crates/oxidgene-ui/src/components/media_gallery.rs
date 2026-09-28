@@ -651,6 +651,103 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     }
 }
 
+// ── Library grid ────────────────────────────────────────────────────
+
+/// One document of a tree-wide listing, and the lines to write under it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MediaLibraryTile {
+    pub media: oxidgene_core::types::Media,
+    pub footnotes: Vec<String>,
+}
+
+/// A grid of a tree's documents, listed for their own sake rather than as
+/// somebody's — the Dictionary's Media tab.
+///
+/// The same tiles, bundle and viewer as a gallery. Nothing here is attached
+/// to anyone, so the tiles offer what a reader's gallery offers and nothing
+/// that restructures an attachment. The viewer's delete is asked with the
+/// document's own id as the link it may ignore — an id no link has — so it
+/// only ever removes a document nothing references.
+#[component]
+pub fn MediaLibraryGrid(
+    tree_id: Uuid,
+    tiles: Vec<MediaLibraryTile>,
+    on_changed: EventHandler<()>,
+) -> Element {
+    let api = use_context::<ApiClient>();
+    let mut viewing = use_signal(|| None::<MediaWithLink>);
+
+    // Props are not reactive; mirrored so the bundle follows the page shown.
+    let ids: Vec<Uuid> = tiles.iter().map(|tile| tile.media.id).collect();
+    let mut showing = use_signal(|| ids.clone());
+    if *showing.peek() != ids {
+        showing.set(ids);
+    }
+    let gallery_bundle = use_ui_resource("library_bundle", move || {
+        let api = api.clone();
+        let ids = showing();
+        async move { std::sync::Arc::new(api.gallery_bundle(tree_id, &ids, &[]).await) }
+    });
+    let bundle: std::sync::Arc<crate::api::GalleryBundle> = gallery_bundle
+        .read_unchecked()
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
+    let by_id = bundle
+        .media
+        .iter()
+        .map(|item| (item.media_id, item))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    rsx! {
+        div { class: "media-grid",
+            for item in tiles {
+                {
+                    let tile = MediaWithLink {
+                        link_id: item.media.id,
+                        sort_order: 0,
+                        media: item.media,
+                    };
+                    let preview = by_id.get(&tile.media.id).copied();
+                    rsx! {
+                        MediaTile {
+                            key: "{tile.media.id}",
+                            tree_id,
+                            tile: tile.clone(),
+                            show_profile: false,
+                            person_id: None,
+                            is_portrait: false,
+                            read_only: true,
+                            thumbnail_source: preview.and_then(|item| item.source.clone()),
+                            document_previews: preview.map(|item| item.document_previews.clone()).unwrap_or_default(),
+                            media_event_ids: Vec::new(),
+                            profile_event_links: Vec::new(),
+                            is_open: false,
+                            on_edit: move |_| {},
+                            on_crop: move |_| {},
+                            on_view: move |tile| viewing.set(Some(tile)),
+                            on_changed: move |()| on_changed.call(()),
+                            footnotes: item.footnotes,
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(tile) = viewing() {
+            MediaViewer {
+                tree_id,
+                tile,
+                initial_page: 0,
+                events: Vec::new(),
+                read_only: true,
+                on_changed: move |()| on_changed.call(()),
+                on_close: move |_| viewing.set(None),
+            }
+        }
+    }
+}
+
 // ── Tile ────────────────────────────────────────────────────────────
 
 #[component]
@@ -673,6 +770,10 @@ fn MediaTile(
     on_crop: EventHandler<MediaWithLink>,
     on_view: EventHandler<MediaWithLink>,
     on_changed: EventHandler<()>,
+    /// Short lines under the caption, for a listing that says more about a
+    /// file than a gallery does — what kind of record it is, how often used.
+    #[props(default)]
+    footnotes: Vec<String>,
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
@@ -1012,6 +1113,9 @@ fn MediaTile(
                 }
             }
             div { class: "media-caption", title: "{caption}", "{caption}" }
+            for (index, line) in footnotes.iter().enumerate() {
+                div { key: "note-{index}", class: "media-footnote", title: "{line}", "{line}" }
+            }
             for event in linked_events.iter() {
                 div { key: "{event.event_id}", class: "media-event-link",
                     if let Some(date) = &event.date {

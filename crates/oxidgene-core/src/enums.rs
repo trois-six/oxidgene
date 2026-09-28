@@ -534,6 +534,57 @@ impl DocumentCategory {
     }
 }
 
+/// The format of a media's file, read from its MIME type: what a library
+/// filter calls a photo, a PDF or a recording.
+///
+/// A document has no file of its own, so it is of every kind its pages are.
+/// Distinct from [`SourceMediaType`], which is what the *record* physically
+/// was: a photographed register page is a `manuscript` held as an `image`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaFileKind {
+    Image,
+    Pdf,
+    Video,
+    Audio,
+    /// Anything else, including a remote page whose type is unknown.
+    Other,
+}
+
+impl MediaFileKind {
+    /// The snake_case spelling used on the wire.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::Pdf => "pdf",
+            Self::Video => "video",
+            Self::Audio => "audio",
+            Self::Other => "other",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|kind| kind.as_str() == value.trim().to_ascii_lowercase())
+    }
+
+    /// Every variant, in the order a picker should list them.
+    #[must_use]
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Image,
+            Self::Pdf,
+            Self::Video,
+            Self::Audio,
+            Self::Other,
+        ]
+    }
+}
+
 /// Type of genealogical event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

@@ -327,6 +327,41 @@ impl From<GqlDocumentCategory> for oxidgene_core::enums::DocumentCategory {
     }
 }
 
+/// The format of a media's file, read from its MIME type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlMediaFileKind {
+    Image,
+    Pdf,
+    Video,
+    Audio,
+    Other,
+}
+
+impl From<oxidgene_core::enums::MediaFileKind> for GqlMediaFileKind {
+    fn from(kind: oxidgene_core::enums::MediaFileKind) -> Self {
+        use oxidgene_core::enums::MediaFileKind as K;
+        match kind {
+            K::Image => Self::Image,
+            K::Pdf => Self::Pdf,
+            K::Video => Self::Video,
+            K::Audio => Self::Audio,
+            K::Other => Self::Other,
+        }
+    }
+}
+
+impl From<GqlMediaFileKind> for oxidgene_core::enums::MediaFileKind {
+    fn from(kind: GqlMediaFileKind) -> Self {
+        match kind {
+            GqlMediaFileKind::Image => Self::Image,
+            GqlMediaFileKind::Pdf => Self::Pdf,
+            GqlMediaFileKind::Video => Self::Video,
+            GqlMediaFileKind::Audio => Self::Audio,
+            GqlMediaFileKind::Other => Self::Other,
+        }
+    }
+}
+
 /// Date qualifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlDateQualifier {
@@ -1806,6 +1841,9 @@ impl From<oxidgene_core::types::Vignette> for GqlVignette {
 pub struct GqlMediaEdge {
     pub cursor: String,
     pub node: GqlMedia,
+    /// How many records — persons, families, events and sources — the
+    /// document is attached to, through itself or one of its pages.
+    pub usage_count: i64,
 }
 
 #[derive(Debug, Clone, SimpleObject)]
@@ -1815,15 +1853,19 @@ pub struct GqlMediaConnection {
     pub total_count: i64,
 }
 
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Media>> for GqlMediaConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Media>) -> Self {
+type MediaListConnection =
+    oxidgene_core::types::Connection<crate::service::media_library::MediaListItem>;
+
+impl From<MediaListConnection> for GqlMediaConnection {
+    fn from(c: MediaListConnection) -> Self {
         Self {
             edges: c
                 .edges
                 .into_iter()
                 .map(|e| GqlMediaEdge {
                     cursor: e.cursor,
-                    node: e.node.into(),
+                    usage_count: e.node.usage_count,
+                    node: e.node.media.into(),
                 })
                 .collect(),
             page_info: GqlPageInfo {
@@ -1831,6 +1873,69 @@ impl From<oxidgene_core::types::Connection<oxidgene_core::types::Media>> for Gql
                 end_cursor: c.page_info.end_cursor,
             },
             total_count: c.total_count,
+        }
+    }
+}
+
+// ── Media library facets ─────────────────────────────────────────────
+
+/// A tag and how many documents carry it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaTagFacet {
+    /// The spelling most of those documents carry.
+    pub tag: String,
+    pub count: i64,
+}
+
+/// A file kind and how many documents hold a page of it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaKindFacet {
+    pub kind: GqlMediaFileKind,
+    pub count: i64,
+}
+
+/// A document category and how many documents are filed under it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaCategoryFacet {
+    pub category: GqlDocumentCategory,
+    pub count: i64,
+}
+
+/// The values the media list's filters can take in a tree.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlMediaFacets {
+    pub tags: Vec<GqlMediaTagFacet>,
+    pub kinds: Vec<GqlMediaKindFacet>,
+    pub categories: Vec<GqlMediaCategoryFacet>,
+}
+
+impl From<crate::service::media_library::MediaFacets> for GqlMediaFacets {
+    fn from(facets: crate::service::media_library::MediaFacets) -> Self {
+        Self {
+            tags: facets
+                .tags
+                .into_iter()
+                .map(|tag| GqlMediaTagFacet {
+                    tag: tag.tag,
+                    count: tag.count,
+                })
+                .collect(),
+            kinds: facets
+                .kinds
+                .into_iter()
+                .map(|kind| GqlMediaKindFacet {
+                    kind: kind.kind.into(),
+                    count: kind.count,
+                })
+                .collect(),
+            categories: facets
+                .categories
+                .into_iter()
+                .map(|category| GqlMediaCategoryFacet {
+                    category: category.category.into(),
+                    count: category.count,
+                })
+                .collect(),
         }
     }
 }

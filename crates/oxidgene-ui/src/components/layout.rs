@@ -3121,6 +3121,38 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-top: 14px;
     }
 
+    /* The filters in force, each a chip that removes itself. */
+    .sr-active-filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 12px;
+    }
+
+    .sr-active-filters:empty {
+        display: none;
+    }
+
+    .sr-filter-chip {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        padding: 3px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-card);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: 0.78rem;
+        overflow-wrap: anywhere;
+        cursor: pointer;
+    }
+
+    .sr-filter-chip:hover {
+        border-color: var(--orange);
+    }
+
     @media (max-width: 900px) {
         .sr-filter-grid-person,
         .sr-filter-grid-event,
@@ -3638,6 +3670,58 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 12px;
     }
 
+    /* Media tab: the tag cloud. Each tag's size and weight are set inline
+       from its count; a large vocabulary scrolls inside the cloud rather
+       than pushing the grid off the screen. */
+    .dict-media-cloud {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px 10px;
+        max-height: 14rem;
+        overflow-y: auto;
+        margin-bottom: 12px;
+    }
+
+    .dict-media-tag {
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-family: inherit;
+        line-height: 1.3;
+        color: var(--text-primary);
+        overflow-wrap: anywhere;
+        cursor: pointer;
+    }
+
+    .dict-media-tag:hover:not(.active) {
+        background: var(--bg-card-hover);
+    }
+
+    .dict-media-tag.active {
+        background: var(--orange);
+        border-color: var(--orange);
+        color: var(--on-accent);
+    }
+
+    .dict-media-tag-count {
+        margin-left: 4px;
+        font-size: 0.7rem;
+        font-weight: 400;
+        vertical-align: super;
+        color: var(--text-muted);
+    }
+
+    .dict-media-tag.active .dict-media-tag-count {
+        color: inherit;
+    }
+
+    .dict-media-count {
+        margin-left: auto;
+        white-space: nowrap;
+    }
+
     .dict-group-header {
         font-family: var(--font-heading);
         font-size: 0.8rem;
@@ -4062,6 +4146,17 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .media-confirm-actions { display: flex; gap: 6px; }
+
+    /* Under the caption in a listing: what the record is, how often used. */
+    .media-footnote {
+        margin-top: -4px;
+        font-size: 0.68rem;
+        color: var(--text-muted);
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 
     .media-caption {
         font-size: 0.72rem;

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T21:05:00Z }
 ---
 
 
@@ -75,7 +75,7 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. No search fields her
 
 ## 4. Tabs
 
-Four tabs, text-labeled (icons alone are ambiguous at four items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as `.sr-view-btn.active`):
+Five tabs, text-labeled (icons alone are ambiguous at five items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as `.sr-view-btn.active`):
 
 | Tab | Source field | Default active |
 |---|---|---|
@@ -83,6 +83,7 @@ Four tabs, text-labeled (icons alone are ambiguous at four items), styled as a s
 | Sources | `Source.title` | |
 | Places | `Place.name` | |
 | Occupations | `Event.description` where `event_type = Occupation` | |
+| Media | `Media` documents, pages folded into their document ([§18](#18-media-tab)) | |
 
 Switching tabs resets the alphabet filter, quick filter, and page to their defaults (page 1, letter "All").
 
@@ -480,3 +481,168 @@ No schema changes — prefixes are computed on the fly from `source.title` on ev
 
 - On mobile (<640px), breadcrumb becomes scrollable horizontally if too long.
 - Drill-down buttons reuse the same `.dict-letter-btn` styling and responsive wrapping as the alphabet index (section 14), so no separate mobile handling was needed.
+
+---
+
+## 18. Media Tab
+
+### 18.1 Overview
+
+Every media of the tree, shown as the tiles of the shared media gallery (see
+[Common UI §4.5](ui-common.md)), narrowed by a tag cloud, a name filter and a
+filter panel. A multi-page document is one tile, never one per page. Clicking a
+tile opens the shared viewer.
+
+A library can hold thousands of scans, so unlike the other tabs this one does
+not load an aggregation and page through it locally: the list is the API's
+cursor-paginated `GET /trees/{id}/media`, and every filter is sent to the
+server, so it narrows the whole library rather than the page on screen (see
+[API Contract](api.md), Media library). Documents are listed in the order they
+were added.
+
+```
++----------------------------------------------------------------------+
+|  All  Census¹²  Parish register⁴  Survey¹  Village Alpha³⁰  ...      |  <- tag cloud
+|  [ Filter by title or file name... ]          [25 v]   142 media items|
+|  [v Filters]                                                         |
+|  Tag: Village Alpha x   Linked person: exemple x   [Clear all filters]|  <- chips
++----------------------------------------------------------------------+
+|  [tile] [tile] [tile] [tile] [tile] [tile]                           |
+|  Title    Title    ...                                               |
+|  Census   Linked to 2 records                                        |
++----------------------------------------------------------------------+
+|                      <   Page 1 of 6   >                             |
++----------------------------------------------------------------------+
+```
+
+### 18.2 Tag Cloud
+
+Above the grid, every tag carried by at least one document, from
+`GET /trees/{id}/media/facets`, each followed by its document count:
+
+- **Order**: alphabetical, ignoring case and accents.
+- **Spelling**: a tag is one entry whatever its case — it is matched on the
+  normalized key `media_tag` stores (trimmed, lowercased; accents are
+  significant there) — and shown in the spelling most of its documents carry.
+- **Sizing**: font size from 0.78rem to 1.5rem and weight from 400 to 700,
+  scaled on the logarithm of the count between the least and the most used
+  tag, so one tag on every document does not flatten all the others to the
+  minimum. When every tag has the same count they all take the minimum.
+- **Selection**: one tag at a time. Clicking a tag keeps the documents
+  carrying it; clicking it again, or the leading **All** button, clears it.
+  The selected tag is highlighted like an active letter and shown as a chip.
+  Several tags at once would need the cloud to narrow to the tags co-occurring
+  with the selection to stay usable; a single tag combined with the filter
+  panel covers the need without that.
+- **Counts** are the whole library's and do not narrow as filters apply: the
+  cloud is the tree's vocabulary, and hiding a tag because another filter is
+  set would hide the tag the user may want to switch to.
+
+A large vocabulary scrolls inside the cloud (at most 14rem high) rather than
+pushing the grid off the screen.
+
+### 18.3 Name Filter, Page Size and Count
+
+The quick filter becomes the **name** filter: it matches the document's title
+or file name, or one of its pages' file names, ignoring case and accents, on
+the server. Typing is debounced (250 ms) so a word is one request.
+
+The page size selector offers `25 / 50 / 100` — no "All": the API serves at
+most 100 per page, and a grid of thumbnails is where rendering everything at
+once hurts most. The count beside it is the number of documents matching every
+active filter.
+
+There is **no alphabet index** on this tab: titles are often file names or
+scan numbers, whose first letter says little; the tag cloud is this tab's
+index.
+
+### 18.4 Filter Panel
+
+A **Filters** toggle, closed by default, opens a panel in the style of the
+[Search Results](ui-search-results.md) filters (three columns, two below 900px,
+one below 640px):
+
+| Filter | Keeps the documents… |
+|---|---|
+| File type | with a page of that kind — image, PDF, video, audio or other, read from the page's MIME type. Only the kinds the tree holds are offered, with their counts |
+| Category | filed under that document category. Only the categories the tree holds are offered, with their counts |
+| Linked person | connected to a person whose primary name (given names and surname, either order) or maiden name contains the text, ignoring case and accents. Connected means attached to the person, to a family they are a spouse in (not a child of), or to an event of theirs or of such a family — on the document or one of its pages — or identified on it by a crop |
+| Linked event between | linked, by a media link or a crop, to an event dated within the years, inclusive, placed by its sort date as the search's event filter does. An undated event matches no range |
+| Added between | added on those days (UTC), inclusive, with the browser's own date picker — this is a calendar day, not a genealogical date |
+
+All filters — tag, name and panel — combine with AND. A year or date still
+being typed is no constraint until it parses; a range that ends before it
+starts shows "A range ends before it starts." in place of the grid.
+
+Each active filter is also shown as a chip under the toolbar; clicking a chip
+removes that filter, and **Clear all filters** removes them all. Changing any
+filter or the page size returns to the first page.
+
+### 18.5 Grid
+
+The shared library grid of the media gallery module: the same tiles, bundle
+and viewer as a person's gallery, one bundle request per page shown. Under
+each tile's caption (its title, else its file name):
+
+- what the record is — its document category, else its physical medium when
+  that is not "other";
+- how much it is used — "Linked to N records", counting the distinct persons,
+  families, events and sources it is attached to by media links on it or its
+  pages, or "Not linked". Crops and portraits are not counted.
+
+The tiles are read-only: nothing here is somebody's attachment to detach or
+make a portrait. The viewer keeps its metadata and tag editing; any change
+there refreshes the grid and the cloud. Its delete, like the tile's menu, only
+removes a document nothing references.
+
+### 18.6 Pagination
+
+Cursor pagination cannot jump to page 5, so the controls are Previous, "Page
+N of M" and Next; Previous walks back through the cursors already seen.
+
+### 18.7 States
+
+- Loading: "Loading dictionary…", as the other tabs.
+- A tree with no media: "No media in this tree yet."
+- Filters matching nothing: "No media match these filters." with **Clear all
+  filters**.
+- A failed request: the dictionary's error message.
+
+### 18.8 Responsive
+
+Below 640px the cloud, the toolbar and the chips wrap; the filter panel is a
+single column and stays collapsed until opened; the grid uses the gallery's
+narrower 120px tiles.
+
+### 18.9 Internationalization
+
+Tags, titles and file names are user content and are not translated.
+
+| Key | English | French |
+|---|---|---|
+| `dictionary.tab.media` | Media | Médias |
+| `dictionary.media.tags` | Tags | Étiquettes |
+| `dictionary.media.tag` | Tag | Étiquette |
+| `dictionary.media.name` | Name | Nom |
+| `dictionary.media.name_placeholder` | Filter by title or file name… | Filtrer par titre ou nom de fichier… |
+| `dictionary.media.per_page` | Per page | Par page |
+| `dictionary.media.filters` | Filters | Filtres |
+| `dictionary.media.kind` | File type | Type de fichier |
+| `dictionary.media.kind_any` | Any type | Tous les types |
+| `dictionary.media.kind.{image,pdf,video,audio,other}` | Image, PDF, Video, Audio, Other | Image, PDF, Vidéo, Audio, Autre |
+| `dictionary.media.category` | Category | Catégorie |
+| `dictionary.media.category_any` | Any category | Toutes les catégories |
+| `dictionary.media.linked_name` | Linked person | Personne liée |
+| `dictionary.media.linked_name_placeholder` | Name of a linked or identified person | Nom d'une personne liée ou identifiée |
+| `dictionary.media.event_years` | Linked event between | Événement lié entre |
+| `dictionary.media.added` | Added between | Ajouté entre |
+| `dictionary.media.from` / `.to` | From / To | Du / Au |
+| `dictionary.media.clear_all` | Clear all filters | Effacer tous les filtres |
+| `dictionary.media.count_one` / `_other` | {count} media item(s) | {count} média(s) |
+| `dictionary.media.usage_one` / `_other` | Linked to {count} record(s) | Lié à {count} fiche(s) |
+| `dictionary.media.unlinked` | Not linked | Non lié |
+| `dictionary.media.none` | No media in this tree yet. | Aucun média dans cet arbre pour l'instant. |
+| `dictionary.media.no_matches` | No media match these filters. | Aucun média ne correspond à ces filtres. |
+| `dictionary.media.invalid_range` | A range ends before it starts. | Une plage se termine avant de commencer. |
+| `dictionary.media.page` | Page {page} of {pages} | Page {page} sur {pages} |
+| `dictionary.media.previous_page` / `next_page` | Previous page / Next page | Page précédente / Page suivante |

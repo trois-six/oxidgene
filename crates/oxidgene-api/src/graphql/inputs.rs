@@ -14,8 +14,8 @@ use std::collections::HashMap;
 
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
-    GqlGeneanetMediaFidelity, GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole,
-    GqlTreeDefaultPrivacy,
+    GqlGeneanetMediaFidelity, GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex,
+    GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
 };
 
 // ── Tree Inputs ──────────────────────────────────────────────────────
@@ -505,5 +505,46 @@ impl TryFrom<ImageSourceInput> for oxidgene_core::types::ImageSource {
                 )?,
             },
         })
+    }
+}
+
+// ── Media library ────────────────────────────────────────────────────
+
+/// Filters of `mediaList`. Every field is optional and the set ones combine
+/// with AND; blank text is no filter.
+#[derive(Debug, Default, InputObject)]
+pub struct MediaListFilterInput {
+    /// A tag in any spelling, matched case-insensitively.
+    pub tag: Option<String>,
+    /// Documents with at least one page of this file kind.
+    pub kind: Option<GqlMediaFileKind>,
+    pub category: Option<GqlDocumentCategory>,
+    /// Substring of the title or a file name, case- and accent-insensitive.
+    pub name: Option<String>,
+    /// Substring of a connected person's name, case- and accent-insensitive.
+    pub linked_name: Option<String>,
+    /// Earliest year, inclusive, of a linked event.
+    pub event_from: Option<i32>,
+    /// Latest year, inclusive, of a linked event.
+    pub event_to: Option<i32>,
+    /// Earliest day, inclusive and in UTC, the document was added.
+    pub added_from: Option<chrono::NaiveDate>,
+    /// Latest day, inclusive and in UTC, the document was added.
+    pub added_to: Option<chrono::NaiveDate>,
+}
+
+impl From<MediaListFilterInput> for crate::service::media_library::MediaListFilters {
+    fn from(input: MediaListFilterInput) -> Self {
+        Self {
+            tag: input.tag,
+            kind: input.kind.map(Into::into),
+            category: input.category.map(Into::into),
+            name: input.name,
+            linked_name: input.linked_name,
+            event_from: input.event_from,
+            event_to: input.event_to,
+            added_from: input.added_from,
+            added_to: input.added_to,
+        }
     }
 }

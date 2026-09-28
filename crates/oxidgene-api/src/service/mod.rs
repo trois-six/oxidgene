@@ -14,6 +14,7 @@ pub mod history;
 pub mod image_bytes;
 pub mod kinship;
 pub mod media;
+pub mod media_library;
 pub mod pedigrees;
 pub mod person_detail;
 pub mod portrait;

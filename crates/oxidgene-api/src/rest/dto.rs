@@ -516,6 +516,43 @@ pub struct MediaTagRequest {
     pub tag: String,
 }
 
+/// Query parameters of the media list: pagination, then filters that
+/// combine with AND. Spelled out rather than flattened, because a flattened
+/// query string cannot carry the numbers and dates.
+#[derive(Debug, Deserialize)]
+pub struct MediaListQuery {
+    /// Number of items to return (default: 25, max: 100).
+    pub first: Option<u64>,
+    /// Cursor to start after (UUID string).
+    pub after: Option<String>,
+    pub tag: Option<String>,
+    pub kind: Option<oxidgene_core::enums::MediaFileKind>,
+    pub category: Option<oxidgene_core::enums::DocumentCategory>,
+    pub name: Option<String>,
+    pub linked_name: Option<String>,
+    pub event_from: Option<i32>,
+    pub event_to: Option<i32>,
+    pub added_from: Option<chrono::NaiveDate>,
+    pub added_to: Option<chrono::NaiveDate>,
+}
+
+impl MediaListQuery {
+    /// The filter part of the query.
+    pub fn filters(&self) -> crate::service::media_library::MediaListFilters {
+        crate::service::media_library::MediaListFilters {
+            tag: self.tag.clone(),
+            kind: self.kind,
+            category: self.category,
+            name: self.name.clone(),
+            linked_name: self.linked_name.clone(),
+            event_from: self.event_from,
+            event_to: self.event_to,
+            added_from: self.added_from,
+            added_to: self.added_to,
+        }
+    }
+}
+
 /// Request body for updating a couple.
 ///
 /// Only privacy so far — a family's own facts live on its events and its

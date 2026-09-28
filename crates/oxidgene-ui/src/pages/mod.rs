@@ -3,6 +3,7 @@
 pub mod app_settings;
 pub mod couple_detail;
 pub mod dictionary;
+pub mod dictionary_media;
 pub mod home;
 pub mod kinship;
 pub mod not_found;
