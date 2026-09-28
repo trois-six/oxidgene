@@ -1631,6 +1631,12 @@ impl Drop for BrowserDownload {
     }
 }
 
+/// The path a request is logged under: never its query, which can carry
+/// searched names.
+fn log_path(cache_key: &str) -> &str {
+    cache_key.split('?').next().unwrap_or(cache_key)
+}
+
 impl ApiClient {
     async fn read_response_body(response: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
         #[cfg(feature = "telemetry-client")]
@@ -1837,7 +1843,12 @@ impl ApiClient {
         if let Some(cached) = self.cache.get(cache_key)
             && let Ok(val) = Self::deserialize(&cached)
         {
-            tracing::debug!(method = "GET", cached = true, "API request completed");
+            tracing::debug!(
+                method = "GET",
+                path = log_path(cache_key),
+                cached = true,
+                "API request completed"
+            );
             return Ok(val);
         }
         let result = {
@@ -1848,6 +1859,7 @@ impl ApiClient {
             {
                 tracing::debug!(
                     method = "GET",
+                    path = log_path(cache_key),
                     cached = true,
                     coalesced = true,
                     "API request completed"
@@ -1869,16 +1881,17 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         let resp = self.send_request("GET", request).await?;
         let status = resp.status();
+        let path = resp.url().path().to_string();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!(method = "GET", %status, "API request failed");
+            tracing::debug!(method = "GET", path, %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = Self::read_response_body(resp).await?;
-        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API request completed");
+        tracing::debug!(method = "GET", path, %status, bytes = bytes.len(), "API request completed");
         let val: T = Self::deserialize(&bytes)?;
         self.cache.set(cache_key.to_string(), bytes);
         Ok(val)
@@ -1936,7 +1949,7 @@ impl ApiClient {
                     .body(body),
             )
             .await?;
-        tracing::debug!(method = "POST", bytes, "API binary request sent");
+        tracing::debug!(method = "POST", path, bytes, "API binary request sent");
         Self::handle_response("POST", resp).await
     }
 
@@ -1975,13 +1988,13 @@ impl ApiClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!(method = "DELETE", %status, "API request failed");
+            tracing::debug!(method = "DELETE", path, %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
-        tracing::debug!(method = "DELETE", %status, "API request completed");
+        tracing::debug!(method = "DELETE", path, %status, "API request completed");
         Ok(status.as_u16())
     }
 
@@ -2030,16 +2043,17 @@ impl ApiClient {
         resp: reqwest::Response,
     ) -> Result<T, ApiError> {
         let status = resp.status();
+        let path = resp.url().path().to_string();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            tracing::debug!(method, %status, "API request failed");
+            tracing::debug!(method, path, %status, "API request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
             });
         }
         let bytes = Self::read_response_body(resp).await?;
-        tracing::debug!(method, %status, bytes = bytes.len(), "API request completed");
+        tracing::debug!(method, path, %status, bytes = bytes.len(), "API request completed");
         Ok(Self::deserialize(&bytes)?)
     }
 
@@ -3193,9 +3207,10 @@ impl ApiClient {
             .send_request("GET", self.client.get(self.url(path)))
             .await?;
         let status = response.status();
+        let path = response.url().path().to_string();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            tracing::debug!(method = "GET", %status, "API binary request failed");
+            tracing::debug!(method = "GET", path, %status, "API binary request failed");
             return Err(ApiError::Api {
                 status: status.as_u16(),
                 body,
@@ -3208,7 +3223,7 @@ impl ApiClient {
             .unwrap_or("application/octet-stream")
             .to_string();
         let bytes = Self::read_response_body(response).await?;
-        tracing::debug!(method = "GET", %status, bytes = bytes.len(), "API binary request completed");
+        tracing::debug!(method = "GET", path, %status, bytes = bytes.len(), "API binary request completed");
         Ok((bytes, content_type))
     }
 
@@ -4354,6 +4369,15 @@ impl Injector for HeaderInjector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_logged_request_shows_its_path_but_not_its_query() {
+        assert_eq!(
+            log_path(r#"/api/v1/trees/t/persons/search?{"q":"Name A"}"#),
+            "/api/v1/trees/t/persons/search"
+        );
+        assert_eq!(log_path("/api/v1/trees"), "/api/v1/trees");
+    }
 
     #[test]
     fn a_document_is_recognised_by_its_marker_and_never_spelled_out() {
