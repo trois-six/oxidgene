@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:20:00Z }
 ---
 
 
@@ -574,16 +574,19 @@ request from the person projections and place usages; nothing is stored.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/statistics?interval=25` | The tree's statistics with periods `interval` years wide: 10, 25 (default), 50 or 100; 400 otherwise, 404 for an unknown tree |
+| `GET` | `/trees/{tree_id}/statistics` | The tree's statistics, time series filed by year; 404 for an unknown tree |
 
 The response carries the counts (`persons`, `men`, `women`, `unions`,
-`places`), `periods` (the first year of each period), the top ten family
-names, given names and occupations (`{label, count}`), the per-period series
-(`age_at_death`, `parents_age`, `age_at_first_union` split by sex or parent;
-`births_by_month`, `unions_by_weekday`, `unions_by_month` as percent shares,
-empty for a period without data; `union_duration`, `children_per_union`,
-`birth_spacing`, `first_last_child_gap`, `spouse_age_gap`, `null` for a
-period without data), the age `pyramid` in five-year bands, the notable
+`places`), the top ten family names, given names and occupations
+(`{label, count}`), the time series filed by year, oldest first, only the
+years with a value appearing (the client groups them into periods of any
+width over any range of years, [Statistics §5](ui-statistics.md)):
+averages as `{year, sum, count}` (`age_at_death`, `parents_age`,
+`age_at_first_union` split by sex or parent; `union_duration`,
+`children_per_union`, `birth_spacing`, `first_last_child_gap`,
+`spouse_age_gap`), distributions as `{year, counts}` (`births_by_month` and
+`unions_by_month` with twelve counts, `unions_by_weekday` with seven, Monday
+first), the age `pyramid` in five-year bands, the notable
 lists (`recent_births`, `recent_deaths`, `recent_unions`,
 `oldest_possibly_alive`, `longest_lives`, up to 100 each, dates as recorded
 with their qualifier and calendar), and the places: `located_places` for the
@@ -937,7 +940,7 @@ type Query {
   dictionarySources(treeId: ID!, prefix: String): [SourceDictionaryEntry!]!
   dictionarySourceDrill(treeId: ID!, prefix: String): SourceDictionaryDrill!
   dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
-  treeStatistics(treeId: ID!, interval: Int): TreeStatistics!
+  treeStatistics(treeId: ID!): TreeStatistics!
   basemap: [BasemapCountry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!

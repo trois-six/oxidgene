@@ -4,6 +4,10 @@
 //! Nothing here is stored. Every average is over the records whose dates are
 //! good enough for it (§5 of the specification): exact dates only, precise
 //! to the month for month shares and to the day for weekday shares.
+//!
+//! Time series are filed by year, as sums and counts, so the client groups
+//! them into periods of any width over any range of years without asking
+//! again.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -12,11 +16,6 @@ use oxidgene_core::projection::{PersonProfile, ProfileEvent};
 use oxidgene_core::types::Place;
 use oxidgene_core::{DateQualifier, EventType, Sex, SpouseRole};
 use serde::Serialize;
-
-/// The period widths the page offers, in years.
-pub const INTERVALS: [i32; 4] = [10, 25, 50, 100];
-/// The period width used when the caller names none.
-pub const DEFAULT_INTERVAL: i32 = 25;
 
 const TOP: usize = 10;
 const LIST: usize = 100;
@@ -29,36 +28,33 @@ const PYRAMID_BAND: i64 = 5;
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
 pub struct TreeStatistics {
-    pub interval: i32,
     pub persons: i64,
     pub men: i64,
     pub women: i64,
     pub unions: i64,
     /// Places named by at least one event or media.
     pub places: i64,
-    /// The first year of each period the series below are aligned on.
-    pub periods: Vec<i32>,
     pub top_surnames: Vec<CountEntry>,
     pub top_given_names: Vec<CountEntry>,
     pub top_occupations: Vec<CountEntry>,
     pub age_at_death: SexSeries,
-    /// Per period, the share (percent) of births in each month.
-    pub births_by_month: Vec<Shares>,
+    /// Per year, the births in each month.
+    pub births_by_month: Vec<YearCounts>,
     pub parents_age: ParentAgeSeries,
     pub age_at_first_union: SexSeries,
-    /// Per period, the share (percent) of unions on each weekday, Monday first.
-    pub unions_by_weekday: Vec<Shares>,
-    /// Per period, the share (percent) of unions in each month.
-    pub unions_by_month: Vec<Shares>,
-    /// Average union duration, in years.
-    pub union_duration: Vec<Option<f64>>,
-    pub children_per_union: Vec<Option<f64>>,
-    /// Average time between two births in a family, in months.
-    pub birth_spacing: Vec<Option<f64>>,
-    /// Average gap between a family's first and last child, in months.
-    pub first_last_child_gap: Vec<Option<f64>>,
-    /// Average age difference between spouses, in months.
-    pub spouse_age_gap: Vec<Option<f64>>,
+    /// Per year, the unions on each weekday, Monday first.
+    pub unions_by_weekday: Vec<YearCounts>,
+    /// Per year, the unions in each month.
+    pub unions_by_month: Vec<YearCounts>,
+    /// Union durations, in years.
+    pub union_duration: Vec<YearSum>,
+    pub children_per_union: Vec<YearSum>,
+    /// Time between two births in a family, in months.
+    pub birth_spacing: Vec<YearSum>,
+    /// Gap between a family's first and last child, in months.
+    pub first_last_child_gap: Vec<YearSum>,
+    /// Age difference between spouses, in months.
+    pub spouse_age_gap: Vec<YearSum>,
     pub pyramid: Vec<PyramidBand>,
     pub recent_births: Vec<PersonRecord>,
     pub recent_deaths: Vec<PersonRecord>,
@@ -80,28 +76,39 @@ pub struct CountEntry {
     pub count: i64,
 }
 
-/// Values per period for men and for women; `None` where a period has none.
+/// The values one year adds to an average: their sum and how many they
+/// are, so a period's average is its years' sums over their counts.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
+pub struct YearSum {
+    pub year: i32,
+    pub sum: f64,
+    pub count: i64,
+}
+
+/// One year's counts per category (month or weekday).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
+pub struct YearCounts {
+    pub year: i32,
+    pub counts: Vec<i64>,
+}
+
+/// An average for men and for women, by year.
 #[derive(Debug, Clone, Serialize, Default)]
 #[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
 pub struct SexSeries {
-    pub men: Vec<Option<f64>>,
-    pub women: Vec<Option<f64>>,
+    pub men: Vec<YearSum>,
+    pub women: Vec<YearSum>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
 #[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
 pub struct ParentAgeSeries {
-    pub father_first_child: Vec<Option<f64>>,
-    pub mother_first_child: Vec<Option<f64>>,
-    pub father_last_child: Vec<Option<f64>>,
-    pub mother_last_child: Vec<Option<f64>>,
-}
-
-/// One period's distribution; empty when the period has no data.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
-pub struct Shares {
-    pub values: Vec<f64>,
+    pub father_first_child: Vec<YearSum>,
+    pub mother_first_child: Vec<YearSum>,
+    pub father_last_child: Vec<YearSum>,
+    pub mother_last_child: Vec<YearSum>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -204,37 +211,35 @@ fn months_between(from: NaiveDate, to: NaiveDate) -> f64 {
     (to - from).num_days() as f64 / 30.436875
 }
 
-/// Sums and counts per period, for averages.
+/// Sums and counts per year, for averages.
 #[derive(Default)]
-struct Average(BTreeMap<i32, (f64, u32)>);
+struct Average(BTreeMap<i32, (f64, i64)>);
 
 impl Average {
-    fn add(&mut self, period: i32, value: f64) {
-        let slot = self.0.entry(period).or_insert((0.0, 0));
+    fn add(&mut self, date: NaiveDate, value: f64) {
+        let slot = self.0.entry(date.year()).or_insert((0.0, 0));
         slot.0 += value;
         slot.1 += 1;
     }
 
-    fn series(&self, periods: &[i32]) -> Vec<Option<f64>> {
-        periods
-            .iter()
-            .map(|p| {
-                self.0
-                    .get(p)
-                    .map(|(sum, count)| round1(sum / f64::from(*count)))
+    /// The years with values, oldest first. Sums keep three decimals: far
+    /// finer than the tenth the page shows, and a lighter response.
+    fn years(self) -> Vec<YearSum> {
+        self.0
+            .into_iter()
+            .map(|(year, (sum, count))| YearSum {
+                year,
+                sum: (sum * 1000.0).round() / 1000.0,
+                count,
             })
             .collect()
     }
-
-    fn periods(&self) -> impl Iterator<Item = i32> + '_ {
-        self.0.keys().copied()
-    }
 }
 
-/// Counts per period and category, for shares.
+/// Counts per year and category, for shares.
 struct Distribution {
     categories: usize,
-    counts: BTreeMap<i32, Vec<u32>>,
+    counts: BTreeMap<i32, Vec<i64>>,
 }
 
 impl Distribution {
@@ -245,34 +250,18 @@ impl Distribution {
         }
     }
 
-    fn add(&mut self, period: i32, category: usize) {
+    fn add(&mut self, date: NaiveDate, category: usize) {
         self.counts
-            .entry(period)
+            .entry(date.year())
             .or_insert_with(|| vec![0; self.categories])[category] += 1;
     }
 
-    fn series(&self, periods: &[i32]) -> Vec<Shares> {
-        periods
-            .iter()
-            .map(|p| Shares {
-                values: self.counts.get(p).map_or_else(Vec::new, |counts| {
-                    let total: u32 = counts.iter().sum();
-                    counts
-                        .iter()
-                        .map(|c| round1(f64::from(*c) * 100.0 / f64::from(total)))
-                        .collect()
-                }),
-            })
+    fn years(self) -> Vec<YearCounts> {
+        self.counts
+            .into_iter()
+            .map(|(year, counts)| YearCounts { year, counts })
             .collect()
     }
-
-    fn periods(&self) -> impl Iterator<Item = i32> + '_ {
-        self.counts.keys().copied()
-    }
-}
-
-fn round1(value: f64) -> f64 {
-    (value * 10.0).round() / 10.0
 }
 
 fn record_date(event: &ProfileEvent) -> RecordDate {
@@ -375,25 +364,13 @@ pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
     tree_id: uuid::Uuid,
-    interval: i32,
 ) -> Result<TreeStatistics, oxidgene_core::OxidGeneError> {
-    if !INTERVALS.contains(&interval) {
-        return Err(oxidgene_core::OxidGeneError::Validation(format!(
-            "interval must be one of {INTERVALS:?}"
-        )));
-    }
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
     let persons = profiles.get_all_persons(db, tree_id).await?;
     let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
     let today = chrono::Utc::now().date_naive();
     tokio::task::spawn_blocking(move || {
-        compute(
-            &persons,
-            &places,
-            interval,
-            today,
-            crate::reference::locate_places,
-        )
+        compute(&persons, &places, today, crate::reference::locate_places)
     })
     .await
     .map_err(|e| oxidgene_core::OxidGeneError::Internal(e.to_string()))
@@ -406,11 +383,9 @@ pub async fn load(
 pub fn compute(
     profiles: &[PersonProfile],
     places: &[(Place, i64)],
-    interval: i32,
     today: NaiveDate,
     locate: impl FnOnce(&[(&str, i64)]) -> Vec<Option<(f64, f64)>>,
 ) -> TreeStatistics {
-    let period = |date: NaiveDate| date.year().div_euclid(interval) * interval;
     let by_id: HashMap<uuid::Uuid, &PersonProfile> =
         profiles.iter().map(|p| (p.person_id, p)).collect();
     let birth = |p: &PersonProfile| exact(p.birth_or_baptism());
@@ -423,7 +398,7 @@ pub fn compute(
         if let Some((born, precision)) = birth(profile)
             && precision >= Precision::Month
         {
-            births_by_month.add(period(born), born.month0() as usize);
+            births_by_month.add(born, born.month0() as usize);
         }
         let (Some((born, _)), Some((died, _))) = (birth(profile), death(profile)) else {
             continue;
@@ -433,8 +408,8 @@ pub fn compute(
             continue;
         }
         match profile.sex {
-            Sex::Male => age_at_death.0.add(period(died), age),
-            Sex::Female => age_at_death.1.add(period(died), age),
+            Sex::Male => age_at_death.0.add(died, age),
+            Sex::Female => age_at_death.1.add(died, age),
             Sex::Unknown => {}
         }
         let band = (age as i64 / PYRAMID_BAND) * PYRAMID_BAND;
@@ -475,8 +450,8 @@ pub fn compute(
             continue;
         };
         let (first_slot, last_slot) = if *is_father { (0, 2) } else { (1, 3) };
-        parents[first_slot].add(period(*first), years_between(parent_born, *first));
-        parents[last_slot].add(period(*last), years_between(parent_born, *last));
+        parents[first_slot].add(*first, years_between(parent_born, *first));
+        parents[last_slot].add(*last, years_between(parent_born, *last));
     }
 
     let unions = unions(profiles);
@@ -492,18 +467,17 @@ pub fn compute(
     for union in &unions {
         let dated = exact(union.date);
         if let Some((date, precision)) = dated {
-            let p = period(date);
             if precision >= Precision::Month {
-                unions_by_month.add(p, date.month0() as usize);
+                unions_by_month.add(date, date.month0() as usize);
             }
             if precision == Precision::Day {
-                unions_by_weekday.add(p, date.weekday().num_days_from_monday() as usize);
+                unions_by_weekday.add(date, date.weekday().num_days_from_monday() as usize);
             }
             for (spouse, _) in &union.spouses {
                 let slot = earliest.entry(*spouse).or_insert(date);
                 *slot = (*slot).min(date);
             }
-            children_per_union.add(p, union.children.len() as f64);
+            children_per_union.add(date, union.children.len() as f64);
             // Duration: to the first death of a spouse or the divorce.
             let deaths: Option<Vec<NaiveDate>> = union
                 .spouses
@@ -517,7 +491,7 @@ pub fn compute(
                 _ => None,
             };
             if let Some(end) = end.filter(|end| *end >= date) {
-                duration.add(p, years_between(date, end));
+                duration.add(date, years_between(date, end));
             }
             if let [(a, _), (b, _)] = union.spouses.as_slice()
                 && let (Some((born_a, _)), Some((born_b, _))) = (
@@ -525,7 +499,7 @@ pub fn compute(
                     by_id.get(b).and_then(|x| birth(x)),
                 )
             {
-                spouse_gap.add(p, months_between(born_a, born_b).abs());
+                spouse_gap.add(date, months_between(born_a, born_b).abs());
             }
         }
         // The children's births, in order.
@@ -538,12 +512,12 @@ pub fn compute(
             .collect();
         born.sort();
         for pair in born.windows(2) {
-            spacing.add(period(pair[1]), months_between(pair[0], pair[1]));
+            spacing.add(pair[1], months_between(pair[0], pair[1]));
         }
         if let (Some(first), Some(last)) = (born.first(), born.last())
             && born.len() > 1
         {
-            first_last.add(period(*first), months_between(*first, *last));
+            first_last.add(*first, months_between(*first, *last));
         }
     }
     for (person, date) in &earliest {
@@ -558,39 +532,11 @@ pub fn compute(
             continue;
         }
         match profile.sex {
-            Sex::Male => first_union.0.add(period(*date), age),
-            Sex::Female => first_union.1.add(period(*date), age),
+            Sex::Male => first_union.0.add(*date, age),
+            Sex::Female => first_union.1.add(*date, age),
             Sex::Unknown => {}
         }
     }
-
-    // The periods: every period any series has a value for, and the ones
-    // between them, so the x-axis reads as time.
-    let used: Vec<i32> = [
-        &age_at_death.0,
-        &age_at_death.1,
-        &parents[0],
-        &parents[1],
-        &parents[2],
-        &parents[3],
-        &first_union.0,
-        &first_union.1,
-        &duration,
-        &children_per_union,
-        &spacing,
-        &first_last,
-        &spouse_gap,
-    ]
-    .iter()
-    .flat_map(|a| a.periods())
-    .chain(births_by_month.periods())
-    .chain(unions_by_weekday.periods())
-    .chain(unions_by_month.periods())
-    .collect();
-    let periods: Vec<i32> = match (used.iter().min(), used.iter().max()) {
-        (Some(first), Some(last)) => (*first..=*last).step_by(interval as usize).collect(),
-        _ => Vec::new(),
-    };
 
     // Names and occupations.
     let top_surnames = top(profiles
@@ -742,8 +688,8 @@ pub fn compute(
         .collect();
 
     let count_sex = |sex: Sex| profiles.iter().filter(|p| p.sex == sex).count() as i64;
+    let [father_first, mother_first, father_last, mother_last] = parents;
     TreeStatistics {
-        interval,
         persons: profiles.len() as i64,
         men: count_sex(Sex::Male),
         women: count_sex(Sex::Female),
@@ -753,27 +699,27 @@ pub fn compute(
         top_given_names,
         top_occupations,
         age_at_death: SexSeries {
-            men: age_at_death.0.series(&periods),
-            women: age_at_death.1.series(&periods),
+            men: age_at_death.0.years(),
+            women: age_at_death.1.years(),
         },
-        births_by_month: births_by_month.series(&periods),
+        births_by_month: births_by_month.years(),
         parents_age: ParentAgeSeries {
-            father_first_child: parents[0].series(&periods),
-            mother_first_child: parents[1].series(&periods),
-            father_last_child: parents[2].series(&periods),
-            mother_last_child: parents[3].series(&periods),
+            father_first_child: father_first.years(),
+            mother_first_child: mother_first.years(),
+            father_last_child: father_last.years(),
+            mother_last_child: mother_last.years(),
         },
         age_at_first_union: SexSeries {
-            men: first_union.0.series(&periods),
-            women: first_union.1.series(&periods),
+            men: first_union.0.years(),
+            women: first_union.1.years(),
         },
-        unions_by_weekday: unions_by_weekday.series(&periods),
-        unions_by_month: unions_by_month.series(&periods),
-        union_duration: duration.series(&periods),
-        children_per_union: children_per_union.series(&periods),
-        birth_spacing: spacing.series(&periods),
-        first_last_child_gap: first_last.series(&periods),
-        spouse_age_gap: spouse_gap.series(&periods),
+        unions_by_weekday: unions_by_weekday.years(),
+        unions_by_month: unions_by_month.years(),
+        union_duration: duration.years(),
+        children_per_union: children_per_union.years(),
+        birth_spacing: spacing.years(),
+        first_last_child_gap: first_last.years(),
+        spouse_age_gap: spouse_gap.years(),
         pyramid: pyramid
             .into_iter()
             .map(|(from, (men, women))| PyramidBand { from, men, women })
@@ -786,7 +732,6 @@ pub fn compute(
         located_places,
         top_places,
         unlocated_places,
-        periods,
     }
 }
 
@@ -926,21 +871,43 @@ mod tests {
         NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()
     }
 
+    /// A year's average, to the tenth the page shows.
+    fn average(series: &[YearSum], year: i32) -> Option<f64> {
+        series
+            .iter()
+            .find(|y| y.year == year)
+            .map(|y| (y.sum / y.count as f64 * 10.0).round() / 10.0)
+    }
+
+    fn counts(series: &[YearCounts], year: i32) -> Option<&[i64]> {
+        series
+            .iter()
+            .find(|y| y.year == year)
+            .map(|y| y.counts.as_slice())
+    }
+
     #[test]
-    fn averages_are_filed_by_period() {
-        let stats = compute(&family(), &[], 25, today(), |labels| {
-            vec![None; labels.len()]
-        });
-        // The parents' births, precise to the day, open the axis.
-        assert_eq!(stats.periods.first(), Some(&1800));
-        let at = |p: i32| stats.periods.iter().position(|x| *x == p).unwrap();
-        assert_eq!(stats.age_at_death.men[at(1875)], Some(70.0));
-        assert_eq!(stats.age_at_death.women[at(1875)], Some(60.0));
-        assert_eq!(stats.age_at_first_union.men[at(1850)], Some(29.9));
-        assert_eq!(stats.children_per_union[at(1850)], Some(2.0));
-        assert_eq!(stats.birth_spacing[at(1850)], Some(24.0));
-        assert_eq!(stats.union_duration[at(1850)], Some(35.3));
-        assert_eq!(stats.parents_age.father_first_child[at(1850)], Some(31.9));
+    fn averages_are_filed_by_the_year_they_depend_on() {
+        let stats = compute(&family(), &[], today(), |labels| vec![None; labels.len()]);
+        assert_eq!(average(&stats.age_at_death.men, 1890), Some(70.0));
+        assert_eq!(average(&stats.age_at_death.women, 1885), Some(60.0));
+        assert_eq!(average(&stats.age_at_first_union.men, 1850), Some(29.9));
+        assert_eq!(average(&stats.children_per_union, 1850), Some(2.0));
+        // Spacing is filed by the later of the two births.
+        assert_eq!(average(&stats.birth_spacing, 1854), Some(24.0));
+        assert_eq!(average(&stats.birth_spacing, 1852), None);
+        assert_eq!(average(&stats.union_duration, 1850), Some(35.3));
+        assert_eq!(
+            average(&stats.parents_age.father_first_child, 1852),
+            Some(31.9)
+        );
+        assert_eq!(
+            average(&stats.parents_age.mother_last_child, 1854),
+            Some(28.6)
+        );
+        // Years come oldest first, each once.
+        let years: Vec<i32> = stats.age_at_death.men.iter().map(|y| y.year).collect();
+        assert_eq!(years, vec![1890]);
     }
 
     #[test]
@@ -948,18 +915,16 @@ mod tests {
         let mut people = family();
         // A birth known to the year only says nothing of its month.
         people.push(person(Sex::Male, "Paul", "BRANCH_C", Some("1853"), None));
-        let stats = compute(&people, &[], 25, today(), |labels| vec![None; labels.len()]);
-        let at = stats.periods.iter().position(|x| *x == 1850).unwrap();
-        assert_eq!(stats.births_by_month[at].values[0], 100.0);
-        assert_eq!(stats.unions_by_weekday[at].values[0], 100.0);
-        assert_eq!(stats.unions_by_month[at].values[1], 100.0);
+        let stats = compute(&people, &[], today(), |labels| vec![None; labels.len()]);
+        assert_eq!(counts(&stats.births_by_month, 1853), None);
+        assert_eq!(counts(&stats.births_by_month, 1852).unwrap()[0], 1);
+        assert_eq!(counts(&stats.unions_by_weekday, 1850).unwrap()[0], 1);
+        assert_eq!(counts(&stats.unions_by_month, 1850).unwrap()[1], 1);
     }
 
     #[test]
     fn names_are_ranked_by_how_many_persons_carry_them() {
-        let stats = compute(&family(), &[], 25, today(), |labels| {
-            vec![None; labels.len()]
-        });
+        let stats = compute(&family(), &[], today(), |labels| vec![None; labels.len()]);
         assert_eq!(
             stats.top_surnames[0],
             CountEntry {
@@ -1008,7 +973,7 @@ mod tests {
             (place("Place C", None), 1),
             (place("Place D", None), 0),
         ];
-        let stats = compute(&people, &places, 25, today(), |labels| {
+        let stats = compute(&people, &places, today(), |labels| {
             labels
                 .iter()
                 .map(|(name, _)| (*name == "Place B").then_some((48.0, 2.0)))

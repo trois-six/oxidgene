@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page: a heat map of where the tree's events happened with its ten most used places, demographic charts per period, and the notable lists of births, unions, deaths and long lives."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:20:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -27,7 +27,10 @@ the [Dictionary](ui-dictionary.md), it uses the `sub-page` layout with no
 sidebar of its own, and it is read-only.
 
 Everything is computed by the backend from the tree's person projections and
-place usages on each visit ([API](api.md)); nothing is stored.
+place usages on each visit ([API](api.md)); nothing is stored. The page asks
+once per visit: the time series come filed by year, and the page itself
+groups them into periods, so changing the interval or the years shown needs
+no new request.
 
 ## 2. Layout
 
@@ -44,6 +47,7 @@ place usages on each visit ([API](api.md)); nothing is stored.
 |  |   (numbered markers for the top 10)   |  ...                       |
 |  +---------------------------------------+  38 places not located     |
 +----------------------------------------------------------------------+
+|  Years 1712–1850  |--1700---[====1750=====1800====]--1850--| [All]  |
 |  Persons            [donut] [donut] [line] [donut] [lines] [lines]   |
 |  Families           [lines] [lines] [lines] [line] [line] ...        |
 |  Notable records    tabs: latest births · unions · deaths ·           |
@@ -57,6 +61,16 @@ a title and a `?` hint explaining how it is computed (§5).
 The **interval** selector (10, 25, 50 or 100 years; 25 by default) sets the
 width of the periods every time chart groups its values by. The choice is
 kept per viewer in local storage.
+
+The **year ruler**, above the Persons and Families sections, chooses the
+first and the last year their period charts cover. It spans the years any
+of those charts has a value for; two handles move to the year, by pointer
+or by the arrow keys, and never cross. Its ticks mark the multiples of the
+interval, labelled so that no more than twelve labels show. The chosen
+years are printed beside it and **All years** restores the whole span. The
+ruler stays pinned at the top while those two sections scroll by. The
+range lasts for the visit; it is not stored. The donuts, the map, the
+records and the pyramid do not depend on it.
 
 ## 3. Places
 
@@ -130,6 +144,12 @@ weekdays the chart palette).
   its Gregorian equivalent.
 - **Periods** are aligned on multiples of the interval (1700–1724,
   1725–1749…) and a value is counted in the period of the event it depends on.
+  Only the years the ruler shows count: the first and the last period are
+  cut at those years, and the first is labelled by the first year shown
+  (1712, 1725, 1750… for a range from 1712).
+- **Averages over a period** weigh every value alike: the period's sum over
+  its count, whichever years they come from. **Shares** are each category's
+  part of all the period's counts.
 - **Union** is a family with at least one spouse; its date is the marriage,
   or the first dated family event. Its duration runs to the first death of
   a spouse or to a divorce or annulment, whichever comes first.

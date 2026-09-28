@@ -3623,26 +3623,30 @@ async fn statistics_count_the_tree_and_its_ages() {
     let (status, body) = send_request(
         app.clone(),
         Method::GET,
-        &format!("/api/v1/trees/{tree_id}/statistics?interval=50"),
+        &format!("/api/v1/trees/{tree_id}/statistics"),
         None,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["persons"], 1);
     assert_eq!(body["men"], 1);
-    assert_eq!(body["interval"], 50);
     assert_eq!(body["top_surnames"][0]["label"], "BRANCH_A");
-    let periods = body["periods"].as_array().unwrap();
-    let at = periods.iter().position(|p| p == 1850).unwrap();
-    assert_eq!(body["age_at_death"]["men"][at], 70.0);
+    // Filed by the year of death, as a sum and a count.
+    let men = body["age_at_death"]["men"].as_array().unwrap();
+    assert_eq!(men.len(), 1);
+    assert_eq!(men[0]["year"], 1890);
+    assert_eq!(men[0]["count"], 1);
+    assert!((men[0]["sum"].as_f64().unwrap() - 70.0).abs() < 0.01);
+    assert_eq!(body["births_by_month"][0]["year"], 1820);
+    assert_eq!(body["births_by_month"][0]["counts"][2], 1);
     assert_eq!(body["longest_lives"][0]["age"], 70);
 
     let (status, _) = send_request(
         app.clone(),
         Method::GET,
-        &format!("/api/v1/trees/{tree_id}/statistics?interval=30"),
+        &format!("/api/v1/trees/{}/statistics", uuid::Uuid::now_v7()),
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

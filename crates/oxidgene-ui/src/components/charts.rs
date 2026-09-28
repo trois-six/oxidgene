@@ -263,6 +263,89 @@ fn format_value(value: f64) -> String {
     }
 }
 
+/// The most year labels a [`YearRuler`] prints; ticks beyond are unlabelled.
+const RULER_LABELS: i32 = 12;
+
+/// A timeline from `min` to `max` with two handles choosing the first and
+/// the last year shown, to the year. Ticks mark the multiples of `interval`,
+/// where the periods start. `on_change` receives `(from, to)`, never crossed.
+#[component]
+pub fn YearRuler(
+    min: i32,
+    max: i32,
+    from: i32,
+    to: i32,
+    interval: i32,
+    on_change: EventHandler<(i32, i32)>,
+    from_label: String,
+    to_label: String,
+) -> Element {
+    let span = f64::from((max - min).max(1));
+    let at = move |year: i32| f64::from(year - min) / span * 100.0;
+    let first_tick = min.div_euclid(interval) * interval
+        + if min.rem_euclid(interval) == 0 {
+            0
+        } else {
+            interval
+        };
+    let ticks: Vec<i32> = (first_tick..=max).step_by(interval as usize).collect();
+    // Label every n-th multiple of the interval, n chosen so the labels fit
+    // and stay on the same years whatever the range.
+    let every = (ticks.len() as i32 + RULER_LABELS - 1) / RULER_LABELS;
+    let labelled = move |year: i32| year.div_euclid(interval).rem_euclid(every.max(1)) == 0;
+    // The start handle goes on top once it nears the end, so both handles
+    // stay reachable when they meet there.
+    let from_on_top = from > min + (max - min) / 2;
+    rsx! {
+        div { class: "stats-ruler",
+            div { class: "stats-ruler-track" }
+            div {
+                class: "stats-ruler-range",
+                style: "left: {at(from)}%; width: {at(to) - at(from)}%",
+            }
+            for year in ticks {
+                div {
+                    key: "{year}",
+                    class: if labelled(year) { "stats-ruler-tick major" } else { "stats-ruler-tick" },
+                    style: "left: {at(year)}%",
+                    if labelled(year) {
+                        span { class: "stats-ruler-label", "{year}" }
+                    }
+                }
+            }
+            input {
+                r#type: "range",
+                class: "stats-ruler-input",
+                style: if from_on_top { "z-index: 3" } else { "" },
+                min: "{min}",
+                max: "{max}",
+                step: "1",
+                value: "{from}",
+                "aria-label": "{from_label}",
+                oninput: move |e: Event<FormData>| {
+                    if let Ok(year) = e.value().parse::<i32>() {
+                        on_change.call((year.min(to), to));
+                    }
+                },
+            }
+            input {
+                r#type: "range",
+                class: "stats-ruler-input",
+                min: "{min}",
+                max: "{max}",
+                step: "1",
+                value: "{to}",
+                "aria-label": "{to_label}",
+                oninput: move |e: Event<FormData>| {
+                    if let Ok(year) = e.value().parse::<i32>() {
+                        on_change.call((from, year.max(from)));
+                    }
+                },
+            }
+        }
+    }
+}
+
 /// Persons by age at death, men to the left and women to the right.
 #[component]
 pub fn Pyramid(bands: Vec<StatPyramidBand>, men: String, women: String) -> Element {

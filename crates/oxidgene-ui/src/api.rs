@@ -209,30 +209,29 @@ pub struct PlaceSuggestion {
 }
 
 /// A tree's statistics (`docs/ui-statistics.md`), as the backend computes
-/// them. Series are aligned on `periods`; `None` marks a period without data.
+/// them. Time series are filed by year, oldest first; the page groups them
+/// into periods.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct TreeStatistics {
-    pub interval: i32,
     pub persons: i64,
     pub men: i64,
     pub women: i64,
     pub unions: i64,
     pub places: i64,
-    pub periods: Vec<i32>,
     pub top_surnames: Vec<StatCount>,
     pub top_given_names: Vec<StatCount>,
     pub top_occupations: Vec<StatCount>,
     pub age_at_death: StatSexSeries,
-    pub births_by_month: Vec<StatShares>,
+    pub births_by_month: Vec<StatYearCounts>,
     pub parents_age: StatParentAges,
     pub age_at_first_union: StatSexSeries,
-    pub unions_by_weekday: Vec<StatShares>,
-    pub unions_by_month: Vec<StatShares>,
-    pub union_duration: Vec<Option<f64>>,
-    pub children_per_union: Vec<Option<f64>>,
-    pub birth_spacing: Vec<Option<f64>>,
-    pub first_last_child_gap: Vec<Option<f64>>,
-    pub spouse_age_gap: Vec<Option<f64>>,
+    pub unions_by_weekday: Vec<StatYearCounts>,
+    pub unions_by_month: Vec<StatYearCounts>,
+    pub union_duration: Vec<StatYearSum>,
+    pub children_per_union: Vec<StatYearSum>,
+    pub birth_spacing: Vec<StatYearSum>,
+    pub first_last_child_gap: Vec<StatYearSum>,
+    pub spouse_age_gap: Vec<StatYearSum>,
     pub pyramid: Vec<StatPyramidBand>,
     pub recent_births: Vec<StatPerson>,
     pub recent_deaths: Vec<StatPerson>,
@@ -250,24 +249,34 @@ pub struct StatCount {
     pub count: i64,
 }
 
+/// What one year adds to an average: the sum of its values and how many
+/// they are.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatYearSum {
+    pub year: i32,
+    pub sum: f64,
+    pub count: i64,
+}
+
+/// One year's counts per category (month or weekday).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct StatYearCounts {
+    pub year: i32,
+    pub counts: Vec<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct StatSexSeries {
-    pub men: Vec<Option<f64>>,
-    pub women: Vec<Option<f64>>,
+    pub men: Vec<StatYearSum>,
+    pub women: Vec<StatYearSum>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct StatParentAges {
-    pub father_first_child: Vec<Option<f64>>,
-    pub mother_first_child: Vec<Option<f64>>,
-    pub father_last_child: Vec<Option<f64>>,
-    pub mother_last_child: Vec<Option<f64>>,
-}
-
-/// One period's shares, in percent; empty when the period has no data.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct StatShares {
-    pub values: Vec<f64>,
+    pub father_first_child: Vec<StatYearSum>,
+    pub mother_first_child: Vec<StatYearSum>,
+    pub father_last_child: Vec<StatYearSum>,
+    pub mother_last_child: Vec<StatYearSum>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -4331,17 +4340,10 @@ impl ApiClient {
         .await
     }
 
-    /// A tree's statistics, with periods `interval` years wide.
-    pub async fn tree_statistics(
-        &self,
-        tree_id: Uuid,
-        interval: i32,
-    ) -> Result<TreeStatistics, ApiError> {
-        self.get_with_query(
-            &format!("/api/v1/trees/{tree_id}/statistics"),
-            &[("interval", interval.to_string())],
-        )
-        .await
+    /// A tree's statistics, time series filed by year.
+    pub async fn tree_statistics(&self, tree_id: Uuid) -> Result<TreeStatistics, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/statistics"))
+            .await
     }
 
     /// The country outlines the statistics heat map is drawn over.

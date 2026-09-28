@@ -382,31 +382,38 @@ impl DictionaryRepo {
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
         // Places belong to one tree, so the tree's own events and media are
-        // every use there can be; only the place column is read.
+        // every use there can be. The database counts them: one row per
+        // used place comes back, not one per event.
         let mut counts: HashMap<Uuid, i64> = HashMap::new();
         if !places.is_empty() {
-            let event_places: Vec<Option<Uuid>> = event::Entity::find()
+            let event_counts: Vec<(Option<Uuid>, i64)> = event::Entity::find()
                 .select_only()
                 .column(event::Column::PlaceId)
+                .column_as(event::Column::Id.count(), "uses")
                 .filter(event::Column::TreeId.eq(tree_id))
                 .filter(event::Column::PlaceId.is_not_null())
                 .filter(event::Column::DeletedAt.is_null())
+                .group_by(event::Column::PlaceId)
                 .into_tuple()
                 .all(db)
                 .await
                 .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            let media_places: Vec<Option<Uuid>> = media::Entity::find()
+            let media_counts: Vec<(Option<Uuid>, i64)> = media::Entity::find()
                 .select_only()
                 .column(media::Column::PlaceId)
+                .column_as(media::Column::Id.count(), "uses")
                 .filter(media::Column::TreeId.eq(tree_id))
                 .filter(media::Column::PlaceId.is_not_null())
                 .filter(media::Column::DeletedAt.is_null())
+                .group_by(media::Column::PlaceId)
                 .into_tuple()
                 .all(db)
                 .await
                 .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            for pid in event_places.into_iter().chain(media_places).flatten() {
-                *counts.entry(pid).or_insert(0) += 1;
+            for (pid, uses) in event_counts.into_iter().chain(media_counts) {
+                if let Some(pid) = pid {
+                    *counts.entry(pid).or_insert(0) += uses;
+                }
             }
         }
 

@@ -5967,6 +5967,107 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .stats-interval select { width: auto; }
 
+    /* The ruler choosing the years of the period charts stays in view while
+       they scroll by, and leaves with them. */
+    .stats-timeline {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px 14px;
+        margin-bottom: 20px;
+        padding: 10px 14px 22px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .stats-timeline-years {
+        color: var(--text-primary);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .stats-ruler {
+        position: relative;
+        height: 20px;
+        margin: 0 8px;
+    }
+
+    .stats-ruler-track,
+    .stats-ruler-range {
+        position: absolute;
+        top: 8px;
+        height: 4px;
+        border-radius: 2px;
+    }
+
+    .stats-ruler-track { left: 0; right: 0; background: var(--border); }
+    .stats-ruler-range { background: var(--orange); }
+
+    .stats-ruler-tick {
+        position: absolute;
+        top: 14px;
+        width: 1px;
+        height: 4px;
+        background: var(--text-muted);
+    }
+
+    .stats-ruler-tick.major { height: 7px; }
+
+    .stats-ruler-label {
+        position: absolute;
+        top: 8px;
+        transform: translateX(-50%);
+        font-size: 0.65rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+
+    /* Two native sliders share the track: only their thumbs take the
+       pointer, so either handle can be dragged. */
+    .stats-ruler-input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        margin: 0;
+        background: none;
+        pointer-events: none;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    .stats-ruler-input::-webkit-slider-runnable-track { background: none; }
+    .stats-ruler-input::-moz-range-track { background: none; }
+
+    .stats-ruler-input::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--orange);
+        border: 2px solid var(--bg-card);
+        cursor: ew-resize;
+        pointer-events: auto;
+    }
+
+    .stats-ruler-input::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--orange);
+        border: 2px solid var(--bg-card);
+        cursor: ew-resize;
+        pointer-events: auto;
+    }
+
+    .stats-ruler-input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--text-primary); }
+    .stats-ruler-input:focus-visible::-moz-range-thumb { outline: 2px solid var(--text-primary); }
+
     .stats-summary {
         display: flex;
         flex-wrap: wrap;
@@ -6224,6 +6325,8 @@ pub const LAYOUT_STYLES: &str = r#"
     @media (max-width: 900px) {
         .stats-grid,
         .stats-places { grid-template-columns: minmax(0, 1fr); }
+        .stats-timeline { grid-template-columns: auto minmax(0, 1fr) auto; }
+        .stats-timeline-title { display: none; }
     }
 
 "#;

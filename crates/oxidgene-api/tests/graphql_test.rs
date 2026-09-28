@@ -3800,9 +3800,10 @@ async fn tree_statistics_match_rest() {
     let response = graphql(
         app.clone(),
         &format!(
-            r#"{{ treeStatistics(treeId: "{tree_id}", interval: 10) {{
-                interval persons periods topSurnames {{ label count }}
-                ageAtDeath {{ men women }} birthsByMonth {{ values }}
+            r#"{{ treeStatistics(treeId: "{tree_id}") {{
+                persons topSurnames {{ label count }}
+                ageAtDeath {{ men {{ year sum count }} women {{ year sum count }} }}
+                birthsByMonth {{ year counts }} unionDuration {{ year sum count }}
                 recentUnions {{ familyId }} locatedPlaces {{ name }} unlocatedPlaces
             }} }}"#
         ),
@@ -3810,18 +3811,21 @@ async fn tree_statistics_match_rest() {
     )
     .await;
     let stats = &data(&response)["treeStatistics"];
-    assert_eq!(stats["interval"], 10);
     assert_eq!(stats["persons"], 0);
-    assert_eq!(stats["periods"], serde_json::json!([]));
+    assert_eq!(stats["ageAtDeath"]["men"], serde_json::json!([]));
+    assert_eq!(stats["birthsByMonth"], serde_json::json!([]));
 
     let response = graphql(
         app,
-        &format!(r#"{{ treeStatistics(treeId: "{tree_id}", interval: 30) {{ persons }} }}"#),
+        &format!(
+            r#"{{ treeStatistics(treeId: "{}") {{ persons }} }}"#,
+            uuid::Uuid::now_v7()
+        ),
         None,
     )
     .await;
     assert!(
         response["errors"].as_array().is_some_and(|e| !e.is_empty()),
-        "an interval outside the list should be rejected: {response}"
+        "an unknown tree should be rejected, as REST answers 404: {response}"
     );
 }

@@ -737,19 +737,16 @@ impl QueryRoot {
         crate::reference::basemap().to_vec()
     }
 
-    /// A tree's statistics, with periods `interval` years wide (10, 25, 50
-    /// or 100; 25 when omitted).
+    /// A tree's statistics, time series filed by year.
     async fn tree_statistics(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-        interval: Option<i32>,
     ) -> Result<crate::service::statistics::TreeStatistics> {
         Ok(crate::service::statistics::load(
             db_from_ctx(ctx),
             profiles_from_ctx(ctx),
             Uuid::parse_str(tree_id.as_str())?,
-            interval.unwrap_or(crate::service::statistics::DEFAULT_INTERVAL),
         )
         .await?)
     }
