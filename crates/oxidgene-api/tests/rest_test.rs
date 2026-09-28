@@ -3821,3 +3821,78 @@ async fn ancestry_completeness_walks_up_from_the_sosa_root() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+/// Anomalies come grouped by rule with the persons concerned; the places the
+/// statistics cannot locate are listed with their usage.
+#[tokio::test]
+async fn anomalies_and_unlocated_places_are_listed() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person = create_named_person_via_api(&app, &tree_id, "male", "Backwards", "BRANCH_A").await;
+    add_event_via_api(&app, &tree_id, ("person_id", &person), "birth", "1850").await;
+    add_event_via_api(&app, &tree_id, ("person_id", &person), "death", "1840").await;
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/anomalies"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["persons"], 1);
+    let rule = body["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["rule"] == "death_before_birth")
+        .expect("the death before the birth is found");
+    assert_eq!(rule["category"], "dates");
+    assert_eq!(rule["severity"], "error");
+    assert_eq!(rule["count"], 1);
+    assert_eq!(rule["items"][0]["persons"][0]["person_id"], person.as_str());
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/places"),
+        Some(serde_json::json!({ "name": "Qzxv Nowhere Hamlet" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let place_id = body["id"].as_str().unwrap().to_string();
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({
+            "event_type": "residence",
+            "person_id": person,
+            "place_id": place_id,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let (status, body) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/unlocated-places"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body[0]["place_id"], place_id.as_str());
+    assert_eq!(body[0]["name"], "Qzxv Nowhere Hamlet");
+    assert_eq!(body[0]["count"], 1);
+
+    for path in ["anomalies", "unlocated-places"] {
+        let (status, _) = send_request(
+            app.clone(),
+            Method::GET,
+            &format!("/api/v1/trees/{}/{path}", uuid::Uuid::now_v7()),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+}

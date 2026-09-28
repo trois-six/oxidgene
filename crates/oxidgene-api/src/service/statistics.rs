@@ -655,6 +655,41 @@ fn first_given_name(profile: &PersonProfile) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The places a tree's events and media use, located: by their own
+/// coordinates, else by their label in the place dictionary (`locate`, see
+/// [`crate::reference::locate_places`]). Returns the used places, their
+/// dictionary locations in the same order, and their usages with the
+/// coordinates found, most used first. A usage without coordinates is a
+/// place that could not be located: the statistics count them and the
+/// Tools page lists them, by this one rule.
+pub(crate) fn locate_used(
+    places: &[(Place, i64)],
+    locate: impl FnOnce(&[(&str, i64)]) -> Vec<PlaceLocation>,
+) -> (Vec<&(Place, i64)>, Vec<PlaceLocation>, Vec<PlaceUsage>) {
+    let used: Vec<&(Place, i64)> = places.iter().filter(|(_, count)| *count > 0).collect();
+    let labels: Vec<(&str, i64)> = used
+        .iter()
+        .map(|(place, count)| (place.name.as_str(), *count))
+        .collect();
+    let locations = locate(&labels);
+    let mut usages: Vec<PlaceUsage> = used
+        .iter()
+        .zip(&locations)
+        .map(|((place, count), found)| {
+            let coordinates = place.latitude.zip(place.longitude).or(found.spot);
+            PlaceUsage {
+                place_id: place.id.to_string(),
+                name: place.name.clone(),
+                count: *count,
+                latitude: coordinates.map(|c| c.0),
+                longitude: coordinates.map(|c| c.1),
+            }
+        })
+        .collect();
+    usages.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+    (used, locations, usages)
+}
+
 /// The language a statistics request names places in: English when it
 /// names none, an error for a language the interface does not offer.
 pub fn language(code: Option<&str>) -> Result<ReferenceLang, oxidgene_core::OxidGeneError> {
@@ -1071,32 +1106,12 @@ pub fn compute(
         .collect();
 
     // Places.
-    let used: Vec<&(Place, i64)> = places.iter().filter(|(_, count)| *count > 0).collect();
-    let labels: Vec<(&str, i64)> = used
-        .iter()
-        .map(|(place, count)| (place.name.as_str(), *count))
-        .collect();
-    let locations = locate(&labels);
+    let (used, locations, used_places) = locate_used(places, locate);
     let location_of: HashMap<Uuid, &PlaceLocation> = used
         .iter()
         .zip(&locations)
         .map(|((place, _), location)| (place.id, location))
         .collect();
-    let mut used_places: Vec<PlaceUsage> = used
-        .iter()
-        .zip(&locations)
-        .map(|((place, count), found)| {
-            let coordinates = place.latitude.zip(place.longitude).or(found.spot);
-            PlaceUsage {
-                place_id: place.id.to_string(),
-                name: place.name.clone(),
-                count: *count,
-                latitude: coordinates.map(|c| c.0),
-                longitude: coordinates.map(|c| c.1),
-            }
-        })
-        .collect();
-    used_places.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
     let top_places = used_places.iter().take(TOP).cloned().collect();
     let unlocated_places = used_places.iter().filter(|p| p.latitude.is_none()).count() as i64;
     let places_count = used_places.len() as i64;

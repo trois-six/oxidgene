@@ -9,12 +9,17 @@ use oxidgene_core::calendar::to_jdn;
 use oxidgene_core::enums::{Calendar, DateQualifier};
 use uuid::Uuid;
 
-use crate::api::{AncestorFacts, AncestryGeneration, ApiClient};
+use crate::api::{
+    AncestorFacts, AncestryGeneration, Anomaly, AnomalyRule, ApiClient, StatPersonRef, StatPlace,
+    UpdatePlaceBody,
+};
 use crate::components::date_input::{DateInput, DateParts};
+use crate::components::pedigree_chart::format_lifespan;
+use crate::components::place_input::PlaceInput;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, use_i18n};
-use crate::pages::statistics::{date_text, percent};
+use crate::pages::statistics::{date_text, event_type_label, percent};
 use crate::prefs::{store, stored};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace, use_ui_resource};
@@ -28,16 +33,25 @@ const DEFAULT_GENERATIONS: u32 = 8;
 /// The page's tabs, one per tool.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ToolsTab {
+    Anomalies,
+    Places,
     Ancestry,
     Converter,
 }
 
 impl ToolsTab {
-    const ALL: [Self; 2] = [Self::Ancestry, Self::Converter];
+    const ALL: [Self; 4] = [
+        Self::Anomalies,
+        Self::Places,
+        Self::Ancestry,
+        Self::Converter,
+    ];
 
     /// The tab's name in storage and in its label's i18n key.
     fn key(self) -> &'static str {
         match self {
+            Self::Anomalies => "anomalies",
+            Self::Places => "places",
             Self::Ancestry => "ancestry",
             Self::Converter => "converter",
         }
@@ -171,6 +185,12 @@ pub fn Tools(tree_id: String) -> Element {
                         }
                     }
                     match (tab(), tid) {
+                        (Some(ToolsTab::Anomalies), Some(tid)) => rsx! {
+                            Anomalies { tree_id: tid, tree_route: tree_id.clone() }
+                        },
+                        (Some(ToolsTab::Places), Some(tid)) => rsx! {
+                            UnlocatedPlaces { tree_id: tid, tree_route: tree_id.clone() }
+                        },
                         (Some(ToolsTab::Ancestry), Some(tid)) => rsx! {
                             Ancestry { tree_id: tid, tree_route: tree_id.clone() }
                         },
@@ -188,6 +208,404 @@ fn heading(i18n: &I18n, key: &str) -> Element {
     rsx! {
         h2 { class: "stats-section-title", {i18n.t(&format!("tools.{key}.title"))} }
         p { class: "tools-intro", {i18n.t(&format!("tools.{key}.intro"))} }
+    }
+}
+
+// ── Anomalies ───────────────────────────────────────────────────────────
+
+/// The anomaly categories, in the order the catalogue gives them.
+const CATEGORIES: [&str; 5] = ["dates", "filiation", "unions", "witnesses", "data_quality"];
+
+/// A person of an anomaly: their name linked to their profile, and a link
+/// centring the pedigree on them.
+fn anomaly_person(i18n: &I18n, tree_route: &str, person: &StatPersonRef) -> Element {
+    let name = if person.name.trim().is_empty() {
+        i18n.t("tools.anomalies.unnamed")
+    } else {
+        person.name.clone()
+    };
+    let pedigree = i18n.t("tools.anomalies.open_pedigree");
+    rsx! {
+        span { class: "tools-person",
+            Link {
+                to: Route::PersonDetail {
+                    tree_id: tree_route.to_string(),
+                    person_id: person.person_id.to_string(),
+                },
+                "{name}"
+            }
+            Link {
+                to: Route::TreeDetail {
+                    tree_id: tree_route.to_string(),
+                    person: Some(person.person_id.to_string()),
+                },
+                class: "tools-person-pedigree",
+                title: "{pedigree}",
+                "aria-label": "{pedigree}",
+                "\u{2197}"
+            }
+        }
+    }
+}
+
+/// What an anomaly measured, in words: an age, a gap, the event concerned,
+/// the text recorded.
+fn anomaly_detail(i18n: &I18n, rule: &str, anomaly: &Anomaly) -> String {
+    let mut parts = Vec::new();
+    if let Some(n) = anomaly.value {
+        let n = n.max(0) as usize;
+        let years = || i18n.t_plural("stats.age", n);
+        let days = || i18n.t_plural("stats.days", n);
+        let part = match rule {
+            "lived_over_105" | "centenarian_before_1900" => {
+                i18n.t_args("tools.anomalies.detail.died_aged", &[("age", &years())])
+            }
+            "parent_too_young" | "father_too_old" | "mother_too_old" => {
+                i18n.t_args("tools.anomalies.detail.parent_aged", &[("age", &years())])
+            }
+            "union_too_young" | "union_over_100" => {
+                i18n.t_args("tools.anomalies.detail.union_aged", &[("age", &years())])
+            }
+            "spouses_age_gap" | "siblings_far_apart" => {
+                i18n.t_args("tools.anomalies.detail.born_apart", &[("gap", &years())])
+            }
+            "siblings_too_close" => {
+                i18n.t_args("tools.anomalies.detail.born_apart", &[("gap", &days())])
+            }
+            "born_long_after_father_death" => i18n.t_args(
+                "tools.anomalies.detail.after_father_death",
+                &[("gap", &days())],
+            ),
+            "repeated_union" => i18n.t_plural("stats.count.unions", n),
+            _ => n.to_string(),
+        };
+        parts.push(part);
+    }
+    if let Some(event_type) = &anomaly.event_type {
+        parts.push(event_type_label(i18n, event_type));
+    }
+    if let Some(text) = &anomaly.text {
+        parts.push(format!("\u{201C}{text}\u{201D}"));
+    }
+    parts.join(" · ")
+}
+
+/// One rule and what it found, folded under its title.
+fn render_rule(i18n: &I18n, tree_route: &str, rule: &AnomalyRule) -> Element {
+    let severity = i18n.t(&format!("tools.anomalies.severity.{}", rule.severity));
+    let more = rule.count - rule.items.len() as i64;
+    rsx! {
+        details { key: "{rule.rule}", class: "tools-generation tools-rule",
+            summary {
+                span { class: "tools-severity tools-severity-{rule.severity}", "{severity}" }
+                span { class: "tools-rule-title", {i18n.t(&format!("tools.anomalies.rule.{}", rule.rule))} }
+                span { class: "stats-legend-count", "{rule.count}" }
+            }
+            p { class: "tools-intro tools-rule-hint", {i18n.t(&format!("tools.anomalies.hint.{}", rule.rule))} }
+            table { class: "stats-table",
+                tbody {
+                    for (k, anomaly) in rule.items.iter().enumerate() {
+                        tr { key: "{k}",
+                            td { class: "tools-persons",
+                                for (j, person) in anomaly.persons.iter().enumerate() {
+                                    if j > 0 {
+                                        span { class: "text-muted", " · " }
+                                    }
+                                    {anomaly_person(i18n, tree_route, person)}
+                                }
+                                if let Some(family_id) = anomaly.family_id {
+                                    Link {
+                                        to: Route::CoupleDetail {
+                                            tree_id: tree_route.to_string(),
+                                            family_id: family_id.to_string(),
+                                        },
+                                        class: "tools-couple-link",
+                                        {i18n.t("tools.anomalies.open_couple")}
+                                    }
+                                }
+                            }
+                            td { class: "text-muted tools-detail", "{anomaly_detail(i18n, &rule.rule, anomaly)}" }
+                        }
+                    }
+                }
+            }
+            if more > 0 {
+                p { class: "stats-note", {i18n.t_plural("tools.anomalies.more", more as usize)} }
+            }
+        }
+    }
+}
+
+/// The tree's anomalies by category, each rule folded with its count
+/// (`docs/ui-tools.md` §3).
+#[component]
+fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut category = use_signal(|| None::<&'static str>);
+    let anomalies = use_ui_resource("tools_anomalies", move || {
+        let api = api.clone();
+        async move { api.tree_anomalies(tree_id).await }
+    });
+
+    let body = match &*anomalies.read() {
+        None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
+        Some(Err(_)) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
+        Some(Ok(result)) if result.rules.is_empty() => rsx! {
+            p { class: "stats-empty", {i18n.t_plural("tools.anomalies.none", result.persons as usize)} }
+        },
+        Some(Ok(result)) => {
+            let total = |cat: &str| -> i64 {
+                result
+                    .rules
+                    .iter()
+                    .filter(|r| r.category == cat)
+                    .map(|r| r.count)
+                    .sum()
+            };
+            rsx! {
+                div { class: "stats-tiles tools-categories",
+                    for cat in CATEGORIES {
+                        button {
+                            key: "{cat}",
+                            class: if category() == Some(cat) { "stats-tile tools-category active" } else { "stats-tile tools-category" },
+                            "aria-pressed": category() == Some(cat),
+                            onclick: move |_| {
+                                category.set(if category() == Some(cat) { None } else { Some(cat) });
+                            },
+                            span { class: "stats-tile-value", "{total(cat)}" }
+                            span { class: "stats-tile-label", {i18n.t(&format!("tools.anomalies.category.{cat}"))} }
+                        }
+                    }
+                }
+                for cat in CATEGORIES.into_iter().filter(|c| category().is_none_or(|chosen| chosen == *c)) {
+                    if total(cat) > 0 {
+                        section { key: "{cat}", class: "tools-category-section",
+                            h3 { class: "stats-card-title", {i18n.t(&format!("tools.anomalies.category.{cat}"))} }
+                            for rule in result.rules.iter().filter(|r| r.category == cat) {
+                                {render_rule(&i18n, &tree_route, rule)}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    rsx! {
+        section { class: "stats-section",
+            {heading(&i18n, "anomalies")}
+            {body}
+        }
+    }
+}
+
+// ── Places not located ──────────────────────────────────────────────────
+
+/// Shortest place text worth looking up in the dictionary for coordinates.
+const MIN_LOOKUP_CHARS: usize = 3;
+
+/// The places the statistics cannot locate, each with its uses and a way to
+/// correct its name (`docs/ui-tools.md` §4).
+#[component]
+fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let api_places = api.clone();
+    let mut places = use_ui_resource("tools_unlocated_places", move || {
+        let api = api_places.clone();
+        async move { api.unlocated_places(tree_id).await }
+    });
+    let mut opened = use_signal(|| None::<Uuid>);
+    let mut editing = use_signal(|| None::<Uuid>);
+    let edited = use_signal(String::new);
+    let mut saving = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+
+    let api_usage = api.clone();
+    let usage = use_ui_resource("tools_place_usage", move || {
+        let api = api_usage.clone();
+        let place = opened();
+        async move {
+            match place {
+                Some(place) => Some((
+                    place,
+                    api.dictionary_place_usage(tree_id, place)
+                        .await
+                        .unwrap_or_default(),
+                )),
+                None => None,
+            }
+        }
+    });
+
+    let save = move |place: StatPlace| {
+        let api = api.clone();
+        let name = edited().trim().to_string();
+        spawn(async move {
+            if name.is_empty() {
+                return;
+            }
+            saving.set(true);
+            error.set(None);
+            // A dictionary label brings its coordinates, so the place is
+            // located from now on; any other name is saved as typed.
+            let known = if name.chars().count() >= MIN_LOOKUP_CHARS {
+                api.place_suggestions(i18n.0.code(), &name, 8)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|s| s.label == name)
+            } else {
+                None
+            };
+            let body = UpdatePlaceBody {
+                name: Some(name),
+                latitude: known.as_ref().map(|s| s.latitude),
+                longitude: known.as_ref().map(|s| s.longitude),
+            };
+            match api.update_place(tree_id, place.place_id, &body).await {
+                Ok(_) => {
+                    editing.set(None);
+                    places.restart();
+                }
+                Err(_) => error.set(Some(i18n.t("tools.places.save_failed"))),
+            }
+            saving.set(false);
+        });
+    };
+
+    let body = match &*places.read() {
+        None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
+        Some(Err(_)) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
+        Some(Ok(list)) if list.is_empty() => rsx! {
+            p { class: "stats-empty", {i18n.t("tools.places.none")} }
+        },
+        Some(Ok(list)) => rsx! {
+            p { class: "stats-note", {i18n.t_plural("stats.unlocated", list.len())} }
+            table { class: "stats-table tools-places",
+                thead {
+                    tr {
+                        th { {i18n.t("tools.places.place")} }
+                        th { class: "tools-col-fact", {i18n.t("tools.places.uses")} }
+                        th {}
+                    }
+                }
+                tbody {
+                    for place in list.iter().cloned() {
+                        tr { key: "{place.place_id}",
+                            td {
+                                if editing() == Some(place.place_id) {
+                                    div { class: "tools-place-edit",
+                                        PlaceInput { value: edited, options: Vec::new() }
+                                        button {
+                                            class: "btn btn-primary btn-sm",
+                                            disabled: saving() || edited().trim().is_empty(),
+                                            onclick: {
+                                                let place = place.clone();
+                                                let save = save.clone();
+                                                move |_| save(place.clone())
+                                            },
+                                            {i18n.t("common.save")}
+                                        }
+                                        button {
+                                            class: "btn btn-outline btn-sm",
+                                            disabled: saving(),
+                                            onclick: move |_| editing.set(None),
+                                            {i18n.t("common.cancel")}
+                                        }
+                                    }
+                                    if let Some(message) = error() {
+                                        div { class: "error-msg", "{message}" }
+                                    }
+                                } else {
+                                    span { class: "tools-place-name", "{place.name}" }
+                                }
+                                if opened() == Some(place.place_id) {
+                                    {render_place_usage(&i18n, &tree_route, place.place_id, &usage.read())}
+                                }
+                            }
+                            td { class: "tools-col-fact", "{place.count}" }
+                            td { class: "tools-place-actions",
+                                button {
+                                    class: "btn btn-outline btn-sm",
+                                    "aria-expanded": opened() == Some(place.place_id),
+                                    onclick: move |_| {
+                                        opened.set(if opened() == Some(place.place_id) { None } else { Some(place.place_id) });
+                                    },
+                                    {i18n.t("tools.places.show_uses")}
+                                }
+                                if editing() != Some(place.place_id) {
+                                    button {
+                                        class: "btn btn-outline btn-sm",
+                                        onclick: {
+                                            let name = place.name.clone();
+                                            let mut edited = edited;
+                                            move |_| {
+                                                edited.set(name.clone());
+                                                error.set(None);
+                                                editing.set(Some(place.place_id));
+                                            }
+                                        },
+                                        {i18n.t("tools.places.correct")}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    };
+
+    rsx! {
+        section { class: "stats-section",
+            {heading(&i18n, "places")}
+            {body}
+        }
+    }
+}
+
+/// The persons whose events or media name a place, each opening the
+/// pedigree on them, as the dictionary lists them.
+fn render_place_usage(
+    i18n: &I18n,
+    tree_route: &str,
+    place: Uuid,
+    usage: &Option<Option<(Uuid, Vec<crate::api::PersonUsageEntry>)>>,
+) -> Element {
+    match usage {
+        Some(Some((shown, list))) if *shown == place => rsx! {
+            div { class: "dict-accordion",
+                for entry in list.iter() {
+                    Link {
+                        key: "{entry.person_id}",
+                        to: Route::TreeDetail { tree_id: tree_route.to_string(), person: Some(entry.person_id.to_string()) },
+                        class: "dict-accordion-item",
+                        span { class: "dict-accordion-name",
+                            {format!(
+                                "{} {}",
+                                entry.surname.clone().unwrap_or_default(),
+                                entry.given_names.clone().unwrap_or_default()
+                            ).trim().to_string()}
+                        }
+                        {
+                            let (birth, death) = entry.lifespan_years();
+                            let lifespan = format_lifespan(birth, death);
+                            rsx! { span { class: "dict-accordion-dates", "{lifespan}" } }
+                        }
+                    }
+                }
+                if list.is_empty() {
+                    div { class: "dict-accordion-empty", {i18n.t("dictionary.usage_empty")} }
+                }
+            }
+        },
+        _ => rsx! {
+            div { class: "dict-accordion",
+                div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
+            }
+        },
     }
 }
 

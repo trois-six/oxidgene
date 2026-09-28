@@ -57,6 +57,22 @@ impl EventWitnessRepo {
             })
     }
 
+    /// Every witness link of a tree's live events, in one query.
+    pub async fn list_by_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<EventWitness>, OxidGeneError> {
+        use crate::entities::event;
+        let models = Entity::find()
+            .inner_join(event::Entity)
+            .filter(event::Column::TreeId.eq(tree_id))
+            .filter(event::Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Ok(models.into_iter().map(into_domain).collect())
+    }
+
     /// List the events a person witnesses.
     pub async fn list_by_person(
         db: &impl ConnectionTrait,

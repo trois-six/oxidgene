@@ -537,7 +537,7 @@ fn render_overview(stats: &TreeStatistics, i18n: &I18n) -> Element {
     }
 }
 
-fn event_type_label(i18n: &I18n, label: &str) -> String {
+pub(crate) fn event_type_label(i18n: &I18n, label: &str) -> String {
     serde_json::from_value::<EventType>(serde_json::Value::String(label.to_string()))
         .map(|kind| i18n.t(event_type_label_key(kind)))
         .unwrap_or_else(|_| label.to_string())

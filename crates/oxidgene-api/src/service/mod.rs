@@ -1,6 +1,7 @@
 //! Service layer: shared business logic used by both REST and GraphQL handlers.
 
 pub mod ancestry;
+pub mod anomalies;
 pub mod background_job;
 pub mod duplicates;
 pub mod event_date;

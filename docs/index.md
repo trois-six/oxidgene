@@ -34,7 +34,7 @@ okf_version: "0.2"
 * [Kinship](ui-kinship.md) - Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none.
 * [Dictionary](ui-dictionary.md) - Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle).
 * [Statistics](ui-statistics.md) - Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on.
-* [Tools](ui-tools.md) - Tree tools page in tabs, one tool each: the completeness of the ancestry generation by generation from the SOSA root, and a converter of dates between the calendars the application records dates in.
+* [Tools](ui-tools.md) - Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, and a converter of dates between calendars.
 * [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, date display, entry options, tools, and export.
 * [App Settings](ui-app-settings.md) - Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection.
 

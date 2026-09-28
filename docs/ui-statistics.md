@@ -162,7 +162,9 @@ Three rows of tiles, each a figure with what it counts:
 Beside the map, the ten places with the most usages, each with its count and
 a number repeated as a marker on the map. A place that could not be located
 is still listed, without a marker. At the bottom of the column, level with
-the bottom of the map, the number of places that could not be located.
+the bottom of the map, the number of places that could not be located. The
+[Tools](ui-tools.md) page lists those places, by the same rule, with a way
+to correct each (Tools §4).
 
 Clicking a numbered marker, or a located place of the list, centres the map
 on that place and zooms in to its region (about three degrees wide) unless

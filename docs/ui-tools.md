@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
-description: "Tree tools page in tabs, one tool each: the completeness of the ancestry generation by generation from the SOSA root, and a converter of dates between the calendars the application records dates in."
+description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, and a converter of dates between calendars."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T17:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T18:30:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -30,7 +30,7 @@ layout with no sidebar of its own.
 +----------------------------------------------------------------------+
 | [logo] tree / Tools                                                   |
 +----------------------------------------------------------------------+
-| Ancestry completeness | Date converter                                |
+| Anomalies | Places not located | Ancestry completeness | Date converter  |
 +----------------------------------------------------------------------+
 |  Tool title                                                           |
 |  What the tool does, in a sentence or two                             |
@@ -43,8 +43,10 @@ screen together:
 
 | Tab | Tool |
 |-----|------|
-| Ancestry completeness | Generation by generation from the SOSA root, who is known and which key facts are recorded (§3) |
-| Date converter | A date in one calendar, read in every other (§4) |
+| Anomalies | Impossible or unlikely dates, filiations, unions, witnesses and records, by rule (§3) |
+| Places not located | The places the statistics cannot locate, with their uses and a way to correct them (§4) |
+| Ancestry completeness | Generation by generation from the SOSA root, who is known and which key facts are recorded (§5) |
+| Date converter | A date in one calendar, read in every other (§6) |
 
 The tabs are the [Statistics](ui-statistics.md) strip: at phone width
 (640px and below) they scroll sideways instead of shrinking. The tab shown
@@ -58,7 +60,166 @@ no tab is shown.
 
 Each tab opens with the tool's title and a sentence saying what it does.
 
-## 3. Ancestry completeness
+## 3. Anomalies
+
+Dates, filiations, unions, witnesses and records that are impossible
+(**errors**) or unlikely (**warnings**), found by the rules of §3.3 over the
+whole tree in one request (`GET /trees/{id}/anomalies`, `treeAnomalies`,
+[API](api.md)), computed from the person projections and the witness links
+on each request; nothing is stored.
+
+### 3.1 Display
+
+- A row of tiles, one per category — dates, filiation, unions, witnesses and
+  godparents, records — with how many anomalies it holds. A tile filters the
+  list to its category; pressed again, it shows them all.
+- Under each category, one folded block per rule that found something: its
+  severity, its title and its count; opened, a sentence saying what the rule
+  checks, then one row per anomaly.
+- A row names the persons concerned, the subject first, each linked to their
+  profile with a small link centring the pedigree on them; a union's
+  anomalies also link to the couple. Beside them, what the rule measured: an
+  age, a gap, the event concerned, the text recorded.
+- A rule lists at most 500 anomalies and says how many more it found.
+- A tree with none says so, with the number of persons checked.
+
+### 3.2 Reading dates
+
+- The **birth** is the birth, or the baptism when the birth carries no
+  date; the **death** the death, or the burial when the death carries none
+  ([Architecture invariants](architecture.md)).
+- A date stands for every day it may mean: a year alone its whole year, a
+  month its whole month. A date about, calculated or estimated widens by two
+  years each way. Dates before, after, perhaps, or between two dates, say too
+  little to compare and are not used.
+- **A rule fires only when it holds for every day its dates may stand for**:
+  "died before birth" needs the whole death span before the whole birth
+  span, an age "over 70" needs the smallest possible age over 70, an age
+  "under 11" the largest possible age under 11. A vague date therefore never
+  raises an anomaly its vagueness could explain.
+- The parents of a child are those of the child's family, and only for a
+  biological child or one of unknown kind: adoptive, foster and step parents
+  are not held to the age and death rules. A **union** is dated by its first
+  marriage or civil union.
+- Witnesses and godparents are the event witness links of
+  [Data Model](data-model.md) (`event_witness`); a relation is a godfather's
+  or a godmother's when, folded (case and accents aside), it is one of:
+  *godfather, godf, parrain, pate, taufpate, patenonkel, padrino, padrinho,
+  peetvader, peter, ojciec chrzestny, chrzestny* — or *godmother, godm,
+  marraine, patin, taufpatin, patentante, madrina, madrinha, peetmoeder,
+  meter, matka chrzestna, chrzestna*.
+
+### 3.3 Catalogue
+
+Thresholds are constants of `service/anomalies.rs`:
+
+| Constant | Value |
+|---|---|
+| Longest life | 105 years; 100 years for a birth before 1900 |
+| Youngest parent | 11 years |
+| Oldest father, oldest mother | 70 years, 55 years |
+| Child after the father's death | 300 days (about ten months) |
+| Twins, siblings too close | under 11 days; 11 days to 7 months (213 days) |
+| Siblings too far apart | 50 years |
+| Youngest and oldest spouse at the union | 12 years, 100 years |
+| Spouses' birth gap | 50 years |
+| Approximate date slack | 2 years each way |
+
+The **G** column gives the number of the matching rule of Geneanet's
+consistency check, whose whole list the catalogue covers.
+
+| Rule | Category | What it checks | Severity | Status | G |
+|---|---|---|---|---|---|
+| `death_before_birth` | dates | The death (or burial) before the birth (or baptism) | error | implemented | 2 |
+| `burial_before_death` | dates | The burial before the death | error | implemented | |
+| `event_before_birth` | dates | Another own event (baptism included, the event standing for the birth excepted) before the birth | error | implemented | 21 |
+| `baptism_after_death` | dates | The baptism after the death or the burial | warning | implemented | 22 |
+| `event_after_death` | dates | An own event after the death, other than a burial, a cremation, a funeral or a probate | warning | implemented | 24 |
+| `burial_not_last` | dates | An own event after the burial, other than a cremation, a funeral or a probate, and not already after the death | warning | implemented | 23 |
+| `lived_over_105` | dates | Died more than 105 years after the birth | warning | implemented | 5 |
+| `centenarian_before_1900` | dates | Born before 1900 and died more than 100 years old (not over 105) | warning | implemented | 4 |
+| `future_date` | dates | An event after today | error | implemented | |
+| `parent_born_after_child` | filiation | A parent born after their child | error | implemented | 15 |
+| `ancestor_born_after_descendant` | filiation | An ancestor, from the grandparents up, born after a descendant; each ancestor once | error | implemented | 8 |
+| `own_ancestor` | filiation | A person among their own ancestors: each loop once, with its persons | error | implemented | 14 |
+| `parent_too_young` | filiation | A parent under 11 at a child's birth | warning | implemented | 17 |
+| `father_too_old` | filiation | A father over 70 at a child's birth | warning | implemented | 16 |
+| `mother_too_old` | filiation | A mother over 55 at a child's birth | warning | implemented | 16 |
+| `born_after_mother_death` | filiation | A child born after the mother's death | error | implemented | 12 |
+| `born_long_after_father_death` | filiation | A child born more than 300 days after the father's death | error | implemented | 6 |
+| `siblings_too_close` | filiation | Consecutive children of a union born 11 days to 7 months apart | warning | implemented | 3 |
+| `siblings_far_apart` | filiation | Consecutive children of a union born more than 50 years apart | warning | implemented | 7 |
+| `union_before_birth` | unions | A union before a spouse's birth | error | implemented | 11 |
+| `union_too_young` | unions | A spouse under 12 at the union | warning | implemented | 20 |
+| `union_over_100` | unions | A spouse over 100 at the union | warning | implemented | 13 |
+| `union_after_death` | unions | A union after a spouse's death | error | implemented | 10 |
+| `spouses_age_gap` | unions | Spouses (the two parents) born more than 50 years apart | warning | implemented | 1 |
+| `repeated_union` | unions | Two persons spouses of more than one union together | warning | implemented | 25 |
+| `homonymous_spouses` | unions | Several spouses of one person bearing the same name (folded) | warning | implemented | 26 |
+| `union_with_parent_or_child` | unions | A person the spouse of their own father or mother | error | implemented | |
+| `union_many_spouses` | unions | A union with more than two spouses | warning | implemented | |
+| `witness_before_birth` | witnesses | A witness or godparent born after the event | error | implemented | 19 |
+| `witness_after_death` | witnesses | A witness or godparent dead before the event | error | implemented | 18 |
+| `godparent_sex` | witnesses | A godfather who is a woman, a godmother who is a man (§3.2) | warning | implemented | 9 |
+| `spouse_role_sex` | records | A husband (father) who is a woman, a wife (mother) who is a man, adoptive parents included | warning | implemented | 9 |
+| `same_role_spouses` | records | Both spouses of a union husbands, or both wives | warning | implemented | |
+| `unreadable_date` | records | A date that cannot be read as one (no sort date), shown as typed | warning | implemented | |
+| `reversed_range` | records | A date between two dates whose end comes first | warning | implemented | |
+| `no_name` | records | A person with neither surname nor given name | warning | implemented | |
+| `unique_event_twice` | records | Two births, baptisms, deaths or burials for one person | warning | proposed | |
+| `child_of_several_families` | filiation | A biological child of more than one family | warning | proposed | |
+| `qualifier_contradiction` | dates | Qualified dates that contradict each other: born after 1850, baptised before 1840 | warning | proposed | |
+| `alive_too_old` | dates | No death recorded, born more than 110 years ago | warning | proposed | |
+| `union_with_sibling` | unions | Spouses sharing a parent | warning | proposed | |
+| `given_name_sex` | records | A given name the reference sheets give to the other sex only | warning | proposed | |
+| `same_name_living_siblings` | filiation | Two siblings of one given name, the elder not dead before the younger's birth | warning | proposed | |
+| `place_spellings` | places | Places differing only by case, accents, punctuation or a missing part of the label | warning | proposed | |
+| `distant_places_same_day` | places | Two events of a person on one day in places too far apart | warning | proposed | |
+| `unlocated_place` | places | A used place the statistics cannot locate | warning | implemented (§4) | |
+| Civil-record comparison | — | Entries compared with transcriptions of civil records | — | out of scope | 27 |
+
+Where the defaults differ from Geneanet's, it is on purpose:
+
+- **G6** compares years (the father's death year before the birth year less
+  one); `born_long_after_father_death` counts 300 days, which gives the same
+  answer for dates known to the year and a finer one for complete dates.
+- **G8 and G15** are split: the parent rule for a parent, the ancestor rule
+  from the grandparents up, so one wrong date is not reported once per
+  generation.
+- **G9** reads godparents from the witness relations (§3.2); for adoptive
+  parents, whose roles are the union's husband and wife, it is
+  `spouse_role_sex`, which checks every union.
+- **G23 and G24** also let a cremation, a funeral and a probate follow the
+  death, as they do in the records.
+- **G27**, the comparison with online civil-record transcriptions, needs a
+  database of those records the application does not have; it could come
+  later against the user's own sources and transcripts.
+
+The proposed rules need data the projections do not carry (every event of a
+type, every family of a child), the reference sheets, or distances between
+places, and are listed in the [Roadmap](roadmap.md).
+
+## 4. Places not located
+
+The places used in the tree (by an event or a media) that the
+[Statistics](ui-statistics.md) map cannot locate, by the very rule of
+[Statistics §4.1](ui-statistics.md): a place is located by its own
+coordinates, else by its label in the [place dictionary](place-dictionary.md);
+the others are listed here (`GET /trees/{id}/unlocated-places`,
+`unlocatedPlaces`, [API](api.md)), most used first, with their count, the
+same number the statistics report as "N places could not be located".
+
+- **Who uses it** unfolds the persons whose events or media name the place,
+  as the [Dictionary](ui-dictionary.md) lists them, each opening the pedigree
+  on them.
+- **Correct** turns the name into the shared place field of
+  [Common UI §4.4](ui-common.md), with the dictionary's suggestions. Saving
+  renames the place; a dictionary label also brings its coordinates, so the
+  place is located from then on and leaves the list. Its events and media
+  keep it: the place is renamed, not replaced. The rename is an ordinary
+  place update, with its history entry.
+
+## 5. Ancestry completeness
 
 Generation by generation from the tree's SOSA root (set in the
 [Settings](ui-settings.md) §7), which ancestors are known and which of their
@@ -100,7 +261,7 @@ The data comes from `GET /trees/{id}/ancestry-completeness` or the
 `ancestryCompleteness` query ([API](api.md)), computed from the person
 projections on each request.
 
-## 4. Date converter
+## 6. Date converter
 
 A date entered in any calendar the application records dates in, read in
 all of them: Gregorian, Julian, Hebrew and French Republican.
@@ -123,7 +284,7 @@ all of them: Gregorian, Julian, Hebrew and French Republican.
 - Everything is computed in the browser from the calendar arithmetic of
   `oxidgene-core`; nothing is sent to the server, and nothing is stored.
 
-## 5. i18n and accessibility
+## 7. i18n and accessibility
 
 Every title, explanation, label and message goes through i18n in every
 interface language. The tabs are a `tablist` whose buttons say which is

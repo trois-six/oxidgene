@@ -445,6 +445,38 @@ pub struct StatPlace {
     pub longitude: Option<f64>,
 }
 
+/// A tree's anomalies (`docs/ui-tools.md`), the rules that found something
+/// in catalogue order.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct TreeAnomalies {
+    pub persons: i64,
+    pub rules: Vec<AnomalyRule>,
+}
+
+/// What one rule found: `count` in all, `items` listing at most a bounded
+/// number of them.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AnomalyRule {
+    pub rule: String,
+    pub category: String,
+    pub severity: String,
+    pub count: i64,
+    pub items: Vec<Anomaly>,
+}
+
+/// One anomaly: its persons, the subject first, and what the rule measured
+/// (years for ages and gaps in years, days for gaps in days).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Anomaly {
+    pub persons: Vec<StatPersonRef>,
+    pub family_id: Option<Uuid>,
+    pub value: Option<i64>,
+    /// An `EventType` in its snake_case form.
+    pub event_type: Option<String>,
+    /// Recorded text: an unreadable date, a relation.
+    pub text: Option<String>,
+}
+
 /// Which ancestors of a tree's SOSA root are known, generation by
 /// generation (`docs/ui-tools.md`); no root and no generations when the
 /// tree has no SOSA root.
@@ -4601,6 +4633,18 @@ impl ApiClient {
     /// How many persons a tree held over the days it was worked on.
     pub async fn tree_growth(&self, tree_id: Uuid) -> Result<TreeGrowth, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/statistics/growth"))
+            .await
+    }
+
+    /// A tree's anomalies, by rule.
+    pub async fn tree_anomalies(&self, tree_id: Uuid) -> Result<TreeAnomalies, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/anomalies"))
+            .await
+    }
+
+    /// The places of a tree the statistics cannot locate, most used first.
+    pub async fn unlocated_places(&self, tree_id: Uuid) -> Result<Vec<StatPlace>, ApiError> {
+        self.get(&format!("/api/v1/trees/{tree_id}/unlocated-places"))
             .await
     }
 

@@ -9,11 +9,35 @@ use uuid::Uuid;
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::ancestry::{self, AncestryCompleteness};
+use crate::service::anomalies::{self, TreeAnomalies};
+use crate::service::statistics::PlaceUsage;
 
 #[derive(Debug, Deserialize)]
 pub struct AncestryQuery {
     /// Generations to cover, the root's included; 8 when omitted.
     pub generations: Option<i64>,
+}
+
+/// GET /api/v1/trees/:tree_id/anomalies
+pub async fn tree_anomalies(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<TreeAnomalies>, ApiError> {
+    anomalies::load(&state.db, &state.profiles, tree_id)
+        .await
+        .map(Json)
+        .map_err(ApiError)
+}
+
+/// GET /api/v1/trees/:tree_id/unlocated-places
+pub async fn unlocated_places(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<Vec<PlaceUsage>>, ApiError> {
+    anomalies::load_unlocated_places(&state.db, tree_id)
+        .await
+        .map(Json)
+        .map_err(ApiError)
 }
 
 /// GET /api/v1/trees/:tree_id/ancestry-completeness?generations=8

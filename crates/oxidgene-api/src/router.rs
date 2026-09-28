@@ -384,6 +384,14 @@ pub fn build_router(state: AppState) -> Router {
             get(crate::rest::tools::ancestry_completeness),
         )
         .route(
+            "/{tree_id}/anomalies",
+            get(crate::rest::tools::tree_anomalies),
+        )
+        .route(
+            "/{tree_id}/unlocated-places",
+            get(crate::rest::tools::unlocated_places),
+        )
+        .route(
             "/{tree_id}/suggestions/{field}",
             get(crate::rest::suggestion::suggest),
         );

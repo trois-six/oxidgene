@@ -3973,3 +3973,90 @@ async fn ancestry_completeness_matches_rest() {
         "an unknown tree should be rejected, as REST answers 404: {resp}"
     );
 }
+
+/// The same anomalies and unlocated places as REST, with the same errors.
+#[tokio::test]
+async fn anomalies_and_unlocated_places_match_rest() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let person = gql_named_person(&app, &tree_id, "MALE", "Backwards", "BRANCH_A").await;
+    gql_event(
+        &app,
+        &tree_id,
+        &format!(r#"personId: "{person}""#),
+        "BIRTH",
+        "1850",
+    )
+    .await;
+    gql_event(
+        &app,
+        &tree_id,
+        &format!(r#"personId: "{person}""#),
+        "DEATH",
+        "1840",
+    )
+    .await;
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"{{ treeAnomalies(treeId: "{tree_id}") {{ persons rules {{ rule category severity count
+                items {{ persons {{ personId name }} familyId value eventType text }} }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let result = &data(&resp)["treeAnomalies"];
+    assert_eq!(result["persons"], 1);
+    let rule = result["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["rule"] == "death_before_birth")
+        .expect("the death before the birth is found");
+    assert_eq!(rule["severity"], "error");
+    assert_eq!(rule["items"][0]["persons"][0]["personId"], person.as_str());
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPlace(treeId: "{tree_id}", input: {{ name: "Qzxv Nowhere Hamlet" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let place_id = data(&resp)["createPlace"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    gql_event(
+        &app,
+        &tree_id,
+        &format!(r#"personId: "{person}", placeId: "{place_id}""#),
+        "RESIDENCE",
+        "1845",
+    )
+    .await;
+    let resp = graphql(
+        app.clone(),
+        &format!(r#"{{ unlocatedPlaces(treeId: "{tree_id}") {{ placeId name count latitude }} }}"#),
+        None,
+    )
+    .await;
+    let places = &data(&resp)["unlocatedPlaces"];
+    assert_eq!(places[0]["placeId"], place_id.as_str());
+    assert_eq!(places[0]["count"], 1);
+    assert!(places[0]["latitude"].is_null());
+
+    let unknown = uuid::Uuid::now_v7();
+    for query in [
+        format!(r#"{{ treeAnomalies(treeId: "{unknown}") {{ persons }} }}"#),
+        format!(r#"{{ unlocatedPlaces(treeId: "{unknown}") {{ name }} }}"#),
+    ] {
+        let resp = graphql(app.clone(), &query, None).await;
+        assert!(
+            resp["errors"].as_array().is_some_and(|e| !e.is_empty()),
+            "an unknown tree should be rejected, as REST answers 404: {resp}"
+        );
+    }
+}

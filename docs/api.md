@@ -696,7 +696,27 @@ from the person projections; nothing is stored.
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/trees/{tree_id}/anomalies` | The tree's anomalies by rule; 404 for an unknown tree |
+| `GET` | `/trees/{tree_id}/unlocated-places` | The used places the statistics cannot locate, most used first; 404 for an unknown tree |
 | `GET` | `/trees/{tree_id}/ancestry-completeness?generations=8` | Generation by generation from the tree's SOSA root, the ancestors found and missing and their key facts; `generations` counts the root's, 8 by default, from 1 to 15 (400 otherwise); 404 for an unknown tree |
+
+**Anomalies** returns `{persons, rules}`: the number of persons checked, and
+one entry per rule that found something, in the order of the catalogue of
+[Tools §3.3](ui-tools.md): `{rule, category, severity, count, items}`,
+`category` being `dates`, `filiation`, `unions`, `witnesses` or
+`data_quality` (shown as *records*), `severity` `error` or `warning`, and
+`items` at most 500 of the `count` found. An item is `{persons, family_id,
+value, event_type, text}`: the persons concerned as `{person_id, name}`, the
+subject first; the union concerned; the figure measured, in whole years for
+ages and gaps in years and in days for `siblings_too_close` and
+`born_long_after_father_death` (the number of unions for
+`repeated_union`); the event concerned, an `EventType` in snake_case; and
+the recorded text for `unreadable_date` (the date as typed) and
+`godparent_sex` (the relation).
+
+**Unlocated places** returns `[{place_id, name, count, latitude,
+longitude}]`, the coordinates always `null`: the places the statistics count
+as `unlocated_places`, by the same rule.
 
 **Ancestry completeness** returns `{root, generations}`: `root` is the SOSA
 root (`{person_id, name}`) or `null` when the tree has none, and then
@@ -1061,6 +1081,8 @@ type Query {
   treeStatistics(treeId: ID!, approximate: Boolean, language: String): TreeStatistics!
   treeGrowth(treeId: ID!): TreeGrowth!
   ancestryCompleteness(treeId: ID!, generations: Int): AncestryCompleteness!
+  treeAnomalies(treeId: ID!): TreeAnomalies!
+  unlocatedPlaces(treeId: ID!): [PlaceUsage!]!
   basemap: [BasemapCountry!]!
   familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
   occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!

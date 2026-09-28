@@ -104,12 +104,19 @@ growth of the tree over the days it was worked on) is delivered. Remaining:
 
 ### Tools
 
-The [Tools](ui-tools.md) page, one tab per tool, holds the ancestry
-completeness from the SOSA root and the date converter.
+The [Tools](ui-tools.md) page, one tab per tool, holds the anomalies with
+the catalogue of their rules, the places the statistics cannot locate, the
+ancestry completeness from the SOSA root and the date converter.
 Remaining tabs:
 
-- [ ] Anomalies: impossible or unlikely dates, filiations and unions, and the
-  places the statistics cannot locate.
+- [ ] The proposed anomaly rules of [Tools §3.3](ui-tools.md): a unique event
+  recorded twice and a child of several families (they need the events and
+  family links rather than the projections), contradicting qualified dates,
+  no death recorded past 110 years, a union of siblings, a given name of the
+  other sex (from the reference sheets), two living siblings of one given
+  name, place spellings that differ only in form, and distant places on one
+  day.
+- [ ] Decide whether the anomaly thresholds should become tree settings.
 - [ ] Potential duplicates, merged through the existing merge operation.
 - [ ] Dates written out in words in every interface language and in Latin,
   and the reverse: a written date read back into a date.

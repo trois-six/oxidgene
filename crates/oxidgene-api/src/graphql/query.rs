@@ -792,6 +792,35 @@ impl QueryRoot {
         .await?)
     }
 
+    /// The tree's anomalies: dates, filiations, unions, witnesses and
+    /// records that are impossible or unlikely, by rule.
+    async fn tree_anomalies(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<crate::service::anomalies::TreeAnomalies> {
+        Ok(crate::service::anomalies::load(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+        )
+        .await?)
+    }
+
+    /// The places of the tree the statistics cannot locate, with their
+    /// usage, most used first.
+    async fn unlocated_places(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<Vec<crate::service::statistics::PlaceUsage>> {
+        Ok(crate::service::anomalies::load_unlocated_places(
+            db_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+        )
+        .await?)
+    }
+
     /// Places with their event and media usage count.
     async fn dictionary_places(
         &self,

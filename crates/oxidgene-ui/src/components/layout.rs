@@ -6696,6 +6696,83 @@ pub const LAYOUT_STYLES: &str = r#"
     .tools-fact-no { color: var(--red); border-color: var(--red); text-decoration: line-through; }
     .tools-fact-living { color: var(--text-muted); }
 
+    /* A category tile filters the anomalies: a tile that is a button. */
+    .tools-category {
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .tools-category:hover { border-color: var(--text-muted); }
+    .tools-category.active { border-color: var(--orange); }
+
+    .tools-category-section { margin-top: 18px; }
+
+    .tools-rule summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .tools-rule-title { flex: 1; min-width: 0; }
+    .tools-rule-hint { margin: 8px 0 4px; }
+
+    .tools-severity {
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .tools-severity-error { color: var(--red); border: 1px solid var(--red); }
+    .tools-severity-warning { color: var(--orange); border: 1px solid var(--orange); }
+
+    .tools-persons { overflow-wrap: anywhere; }
+
+    .tools-person { white-space: nowrap; }
+
+    .tools-person-pedigree,
+    .tools-couple-link {
+        margin-left: 4px;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .stats-table a.tools-person-pedigree:hover,
+    .stats-table a.tools-couple-link:hover { color: var(--orange); }
+
+    .tools-couple-link { margin-left: 10px; white-space: nowrap; }
+
+    .tools-detail { font-size: 0.8rem; }
+
+    .tools-place-name { overflow-wrap: anywhere; }
+
+    .tools-place-edit {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .tools-place-edit > :first-child { flex: 1 1 220px; min-width: 0; }
+
+    .tools-place-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 4px;
+    }
+
+    @media (max-width: 640px) {
+        /* The person and the detail of an anomaly one above the other. */
+        .tools-rule .stats-table td { display: block; border-bottom: none; }
+        .tools-rule .stats-table tr { display: block; border-bottom: 1px solid var(--border); }
+        .tools-person { white-space: normal; }
+    }
+
     .tools-converter-input { margin-bottom: 12px; }
 
     .tools-converter-result.active { border-color: var(--orange); }
