@@ -126,6 +126,24 @@ async fn occupation_reference_bundle_is_bounded_per_request() {
 }
 
 #[tokio::test]
+async fn the_basemap_names_its_populated_places_by_zoom() {
+    let app = setup_app().await;
+    let (status, body) = send_request(app, Method::GET, "/api/v1/reference/basemap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let france = body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["iso"] == "FR")
+        .expect("France is on the basemap");
+    let cities = france["cities"].as_array().unwrap();
+    assert!(cities.len() > 10);
+    // The first labelled is the capital, from a low zoom.
+    assert!(cities[0]["zoom"].as_i64().unwrap() < 30);
+    assert!(cities[0]["names"].is_array());
+}
+
+#[tokio::test]
 async fn place_suggestions_come_from_the_place_dictionary() {
     let app = setup_app().await;
     let (status, body) = send_request(

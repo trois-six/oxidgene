@@ -535,6 +535,113 @@ pub fn basemap_paths(countries: &[BasemapCountry]) -> Vec<String> {
         .collect()
 }
 
+/// A populated place ready to label: projected, named in the interface
+/// language, with the zoom it is labelled from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapCity {
+    pub x: f64,
+    pub y: f64,
+    pub name: String,
+    pub zoom: f64,
+    pub population: i64,
+}
+
+/// The basemap's populated places named in `lang`, projected once, in the
+/// order labels are placed: from the lowest zoom, then the most populated.
+pub fn basemap_cities(countries: &[BasemapCountry], lang: &str) -> Vec<MapCity> {
+    let mut cities: Vec<MapCity> = countries
+        .iter()
+        .flat_map(|country| &country.cities)
+        .map(|city| {
+            let (x, y) = project(f64::from(city.lon) / 10.0, f64::from(city.lat) / 10.0);
+            let name = city
+                .names
+                .iter()
+                .find(|n| n.lang == lang)
+                .map_or(&city.name, |n| &n.name)
+                .clone();
+            MapCity {
+                x,
+                y,
+                name,
+                zoom: f64::from(city.zoom) / 10.0,
+                population: city.population,
+            }
+        })
+        .collect();
+    cities.sort_by(|a, b| {
+        a.zoom
+            .total_cmp(&b.zoom)
+            .then(b.population.cmp(&a.population))
+    });
+    cities
+}
+
+/// The most place names shown at once.
+const MAX_CITY_LABELS: usize = 20;
+/// Map units across the map's roughly 600 pixels, at web map zoom 0 (a
+/// 256-pixel world 360 degrees wide): `log2(this / width)` is the zoom
+/// level a view stands for.
+const ZOOM_ZERO_WIDTH: f64 = 360.0 * 600.0 / 256.0;
+
+/// The web map zoom level a view stands for.
+fn zoom_level(view: View) -> f64 {
+    (ZOOM_ZERO_WIDTH / view.width).log2()
+}
+
+/// A label's box: left, top, right, bottom in map units.
+type LabelBox = (f64, f64, f64, f64);
+
+fn overlaps(a: LabelBox, b: LabelBox) -> bool {
+    a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3
+}
+
+/// The places to name in a view, as the usual web maps do: those whose zoom
+/// the view has reached, in order of importance, each only where its name
+/// overlaps no name placed before it nor `obstacles` (the numbered
+/// markers), and no more than [`MAX_CITY_LABELS`]. `font` is the label size
+/// in map units; a name is written to the right of its place.
+fn city_labels<'a>(
+    cities: &'a [MapCity],
+    view: View,
+    font: f64,
+    obstacles: &[LabelBox],
+) -> Vec<&'a MapCity> {
+    let zoom = zoom_level(view);
+    let (half_width, half_height) = (view.width / 2.0, view.width * MAP_ASPECT / 2.0);
+    let shown = (
+        view.cx - half_width,
+        view.cy - half_height,
+        view.cx + half_width,
+        view.cy + half_height,
+    );
+    let mut placed: Vec<LabelBox> = obstacles.to_vec();
+    cities
+        .iter()
+        .take_while(|city| city.zoom <= zoom)
+        .filter(|city| {
+            let width = city.name.chars().count() as f64 * font * 0.55;
+            let label = (
+                city.x - font * 0.3,
+                city.y - font * 0.8,
+                city.x + font * 0.6 + width,
+                city.y + font * 0.4,
+            );
+            // Whole within the view, and clear of every name placed.
+            let inside = label.0 >= shown.0
+                && label.1 >= shown.1
+                && label.2 <= shown.2
+                && label.3 <= shown.3;
+            let free = inside && placed.iter().all(|other| !overlaps(label, *other));
+            if free {
+                placed.push(label);
+            }
+            free
+        })
+        .take(MAX_CITY_LABELS)
+        .collect()
+}
+
 /// The part of the map shown: its centre and width, in projected units, at
 /// the map's fixed aspect ratio.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -614,6 +721,7 @@ pub type MapFocus = Option<(Uuid, f64, f64)>;
 #[component]
 pub fn HeatMap(
     paths: ReadSignal<Vec<String>>,
+    cities: ReadSignal<Vec<MapCity>>,
     places: Vec<StatPlace>,
     top: Vec<StatPlace>,
     focus: Signal<MapFocus>,
@@ -653,6 +761,22 @@ pub fn HeatMap(
         })
         .collect();
     let marker_radius = current.width * 0.012;
+    let city_font = current.width * 0.016;
+    let obstacles: Vec<LabelBox> = markers
+        .iter()
+        .map(|(_, x, y, _)| {
+            (
+                x - marker_radius,
+                y - marker_radius,
+                x + marker_radius,
+                y + marker_radius,
+            )
+        })
+        .collect();
+    let labels: Vec<MapCity> = city_labels(&cities.read(), current, city_font, &obstacles)
+        .into_iter()
+        .cloned()
+        .collect();
     rsx! {
         div { class: "stats-map",
             svg {
@@ -702,6 +826,25 @@ pub fn HeatMap(
                         cy: "{y}",
                         r: "{radius(*count)}",
                         fill: "url(#stats-heat)",
+                    }
+                }
+                g { class: "stats-map-cities",
+                    for (index, city) in labels.iter().enumerate() {
+                        g { key: "c{index}",
+                            circle {
+                                class: "stats-map-city-dot",
+                                cx: "{city.x}",
+                                cy: "{city.y}",
+                                r: "{city_font * 0.2}",
+                            }
+                            text {
+                                class: "stats-map-city",
+                                x: "{city.x + city_font * 0.45}",
+                                y: "{city.y + city_font * 0.35}",
+                                "font-size": "{city_font}",
+                                "{city.name}"
+                            }
+                        }
                     }
                 }
                 for (number, x, y, target) in markers.iter().copied() {
@@ -822,6 +965,50 @@ mod tests {
         assert!(focused.cy.abs() < 1e-9);
         let close = View { width: 1.0, ..wide };
         assert_eq!(close.focused(0.0, 10.0).width, 1.0);
+    }
+
+    fn city(name: &str, x: f64, y: f64, zoom: f64) -> MapCity {
+        MapCity {
+            x,
+            y,
+            name: name.to_string(),
+            zoom,
+            population: 0,
+        }
+    }
+
+    #[test]
+    fn places_are_named_from_their_zoom_without_overlapping() {
+        let view = View {
+            cx: 0.0,
+            cy: 0.0,
+            width: 20.0,
+        };
+        // A view 20 units wide stands for zoom 5.4.
+        assert!((zoom_level(view) - 5.4).abs() < 0.1);
+        let cities = [
+            city("City A", 0.0, 0.0, 2.0),
+            // Right under the first label: left out.
+            city("City B", 0.5, 0.1, 4.0),
+            city("City C", 0.0, 3.0, 5.0),
+            // Outside the view, and at its edge, where its name would be cut.
+            city("City D", 30.0, 0.0, 5.0),
+            city("City F", 9.9, 3.0, 5.0),
+            // Not yet: its zoom is closer than the view.
+            city("City E", 0.0, -3.0, 7.0),
+        ];
+        let named: Vec<&str> = city_labels(&cities, view, 0.3, &[])
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(named, ["City A", "City C"]);
+        // A numbered marker keeps its place.
+        let marker = (-0.2, -0.2, 0.2, 0.2);
+        let named: Vec<&str> = city_labels(&cities, view, 0.3, &[marker])
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(named, ["City B", "City C"]);
     }
 
     #[test]

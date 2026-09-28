@@ -404,12 +404,33 @@ pub struct StatPlace {
 }
 
 /// One country's outline for the statistics heat map: outer rings as flat
-/// `longitude, latitude` pairs in tenths of a degree.
+/// `longitude, latitude` pairs in tenths of a degree, and its populated
+/// places.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct BasemapCountry {
     pub iso: String,
     pub name: String,
     pub rings: Vec<Vec<i32>>,
+    pub cities: Vec<BasemapCity>,
+}
+
+/// A populated place, labelled on the map from `zoom` (tenths of a web map
+/// zoom level) on; position in tenths of a degree, population in thousands.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct BasemapCity {
+    pub name: String,
+    pub names: Vec<BasemapName>,
+    pub lon: i32,
+    pub lat: i32,
+    pub zoom: i32,
+    pub population: i64,
+}
+
+/// A place's name in one interface language.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct BasemapName {
+    pub lang: String,
+    pub name: String,
 }
 
 /// A person resolved for a dictionary usage drill-down list: name parts +

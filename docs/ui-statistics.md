@@ -120,6 +120,15 @@ Three rows of tiles, each a figure with what it counts:
   villages.
 - The view fits the located places with a margin, and can be zoomed and
   panned by wheel, drag and the `+`/`-`/fit buttons.
+- **Place names** help the reader find their bearings, as on web maps:
+  each populated place of the basemap is named from the zoom level Natural
+  Earth gives it (a capital from afar, a regional town up close), the view
+  standing for a web map zoom of `log2(843.75 / width)`, its width in
+  projected degrees. The most important come first (lowest zoom, then the
+  most populated); a name is left out where it would overlap one already
+  placed or a numbered marker, or not fit in the view, and no more than 20
+  show at once. Names are in the interface language when Natural Earth
+  has one.
 - A place is located by its own latitude and longitude, or else by its label
   in the [place dictionary](place-dictionary.md). The part before the first
   comma must be a dictionary name (case and accents aside); among its

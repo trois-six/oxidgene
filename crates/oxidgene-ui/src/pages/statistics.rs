@@ -11,8 +11,8 @@ use crate::api::{
     StatYearCounts, StatYearSum, TreeStatistics,
 };
 use crate::components::charts::{
-    BarChart, ChartCard, ChartSeries, DonutChart, HeatMap, LineChart, MapFocus, PALETTE, Pyramid,
-    YearRuler, basemap_paths,
+    BarChart, ChartCard, ChartSeries, DonutChart, HeatMap, LineChart, MapCity, MapFocus, PALETTE,
+    Pyramid, YearRuler, basemap_cities, basemap_paths,
 };
 use crate::components::date_input::format_date;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
@@ -191,6 +191,13 @@ pub fn Statistics(tree_id: String) -> Element {
             .map(|countries| basemap_paths(countries))
             .unwrap_or_default()
     });
+    let cities = use_memo(move || {
+        basemap
+            .read()
+            .as_ref()
+            .map(|countries| basemap_cities(countries, language().code()))
+            .unwrap_or_default()
+    });
 
     let tree_name = tree
         .read()
@@ -299,7 +306,7 @@ pub fn Statistics(tree_id: String) -> Element {
                                 StatsTab::Families => rsx! {
                                     PeriodCharts { stats, interval, range, view: PeriodView::Families }
                                 },
-                                StatsTab::Places => render_places(value, paths, map_focus, &i18n),
+                                StatsTab::Places => render_places(value, paths, cities, map_focus, &i18n),
                                 StatsTab::Names => render_names(value, &i18n),
                                 StatsTab::Records => rsx! {
                                     {render_extremes(value, &tree_id, &i18n)}
@@ -535,6 +542,7 @@ fn donut_card_noted(
 fn render_places(
     stats: &TreeStatistics,
     paths: Memo<Vec<String>>,
+    cities: Memo<Vec<MapCity>>,
     mut focus: Signal<MapFocus>,
     i18n: &I18n,
 ) -> Element {
@@ -556,6 +564,7 @@ fn render_places(
                 } else {
                     HeatMap {
                         paths,
+                        cities,
                         places: stats.located_places.clone(),
                         top: stats.top_places.clone(),
                         focus,

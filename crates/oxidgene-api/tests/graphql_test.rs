@@ -1921,6 +1921,25 @@ async fn test_event_with_place() {
 }
 
 #[tokio::test]
+async fn the_basemap_names_its_populated_places_over_graphql() {
+    let app = setup_app().await;
+    let response = graphql(
+        app,
+        "{ basemap { iso cities { name lon lat zoom population names { lang name } } } }",
+        None,
+    )
+    .await;
+    let countries = data(&response)["basemap"].as_array().unwrap().clone();
+    let france = countries
+        .iter()
+        .find(|c| c["iso"] == "FR")
+        .expect("France is on the basemap");
+    let cities = france["cities"].as_array().unwrap();
+    assert!(cities.len() > 10);
+    assert!(cities[0]["zoom"].as_i64().unwrap() < 30);
+}
+
+#[tokio::test]
 async fn test_dictionary_and_reference_over_graphql() {
     let app = setup_app().await;
     let tree_id = data(

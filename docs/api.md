@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:44:00Z }
 ---
 
 
@@ -619,9 +619,13 @@ The response carries:
 The rules each figure follows are in [Statistics §7](ui-statistics.md).
 
 `GET /reference/basemap` serves the country outlines the heat map is drawn
-over: `[{iso, name, rings}]`, each ring a flat list of longitude and latitude
-pairs in tenths of a degree, from Natural Earth (public domain), embedded and
-Brotli-compressed like the place dictionary.
+over, with the places it names: `[{iso, name, rings, cities}]`, each ring a
+flat list of longitude and latitude pairs in tenths of a degree, and each
+city `{name, names: [{lang, name}], lon, lat, zoom, population}`: its names
+in the interface languages where they differ, its position in tenths of a
+degree, the web map zoom it is named from in tenths, and its population in
+thousands, ordered by zoom then population. From Natural Earth (public
+domain), embedded and Brotli-compressed like the place dictionary.
 
 ### Import / export
 

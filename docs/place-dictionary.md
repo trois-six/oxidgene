@@ -3,7 +3,7 @@ type: "Data Specification"
 title: "Place Dictionary — generated reference places"
 description: "The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne."
 tags: [oxidgene, specification, places, reference-data, france, united-kingdom, germany, italy, spain, switzerland, poland, united-states, portugal, belgium, luxembourg, netherlands]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:44:00Z }
 sources:
   - id: geneanet-dico
     title: "Geneanet geneweb-plugin-api, src/assets/dico_place_fr.csv"
@@ -71,7 +71,10 @@ just places --cached         # reuse the last run's downloads (generator work)
 `assets/places/places.csv.br` ([Architecture §7.1](architecture.md)). The
 same run writes the basemap of the [statistics](ui-statistics.md) heat map,
 `assets/basemap/countries.json.br`: every country's outline from Natural
-Earth's 1:50m admin-0 layer (public domain), snapped to a tenth of a degree. That
+Earth's 1:50m admin-0 layer (public domain), snapped to a tenth of a degree,
+with the country's populated places from Natural Earth's 1:10m layer (their
+names in the interface languages, position, labelling zoom and population),
+joined by the country's `ADM0_A3` code. That
 file is committed and embedded into the backend at build time: a build never
 reaches the network, and the dictionary changes only when someone reruns
 `just places` and commits the result. A run takes about four minutes, spent

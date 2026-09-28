@@ -6344,6 +6344,20 @@ pub const LAYOUT_STYLES: &str = r#"
         vector-effect: non-scaling-stroke;
     }
 
+    /* Place names under the numbered markers, haloed to read over the heat. */
+    .stats-map-cities { pointer-events: none; }
+    .stats-map-city-dot { fill: var(--text-secondary); }
+
+    .stats-map-city {
+        fill: var(--text-secondary);
+        font-family: var(--font-sans);
+        paint-order: stroke;
+        stroke: var(--bg-card);
+        stroke-width: 3px;
+        stroke-linejoin: round;
+        vector-effect: non-scaling-stroke;
+    }
+
     .stats-map-marker {
         fill: var(--bg-card);
         stroke: var(--text-primary);
@@ -6366,6 +6380,16 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 4px;
     }
 
+    /* The list column is as tall as the map; the note of the places that
+       could not be located sits at its bottom, level with the map's. */
+    .stats-top-places {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .stats-top-places .stats-note { margin: auto 0 0; padding-top: 8px; }
+
     .stats-top-places ol {
         margin: 0;
         padding-left: 1.4em;
@@ -6380,16 +6404,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .stats-top-places li::marker { color: var(--text-muted); }
-    /* The list column is as tall as the map; the note of the places that
-       could not be located sits at its bottom, level with the map's. */
-    .stats-top-places {
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-    }
-
-    .stats-top-places .stats-note { margin: auto 0 0; padding-top: 8px; }
-
 
     .stats-top-place-name {
         overflow: hidden;

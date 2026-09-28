@@ -15,7 +15,7 @@ use std::collections::HashSet;
 
 use serde::Serialize;
 
-pub use basemap::{BasemapCountry, basemap};
+pub use basemap::{BasemapCity, BasemapCountry, LocalName, basemap};
 pub use loader::{
     GivenNameEntry, OccupationEntry, ReferenceKind, ReferenceLang, UNSUPPORTED_LANGUAGE, has_sheet,
     lookup_given_name, lookup_occupation, normalize_key, preheat, starts_a_word, suggest_terms,
