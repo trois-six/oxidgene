@@ -6387,6 +6387,22 @@ pub const LAYOUT_STYLES: &str = r#"
         white-space: nowrap;
     }
 
+    /* A located place of the list zooms the map onto it. */
+    .stats-top-place-link {
+        padding: 0;
+        border: none;
+        background: none;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .stats-top-place-link:hover { color: var(--orange); text-decoration: underline; }
+    .stats-top-place-link.active { color: var(--orange); font-weight: 600; }
+
+    .stats-map-marker-group { cursor: pointer; }
+
     .stats-table {
         width: 100%;
         border-collapse: collapse;

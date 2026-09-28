@@ -8,6 +8,8 @@ use std::f64::consts::PI;
 
 use dioxus::prelude::*;
 
+use uuid::Uuid;
+
 use crate::api::{BasemapCountry, StatPlace, StatPyramidBand};
 use crate::i18n::I18n;
 
@@ -543,6 +545,9 @@ struct View {
 }
 
 const MAP_ASPECT: f64 = 0.62;
+/// The widest view a place is focused at, in projected units (about a
+/// degree and a half of longitude either side: the place and its region).
+const FOCUS_WIDTH: f64 = 3.0;
 
 impl View {
     fn view_box(self) -> String {
@@ -580,6 +585,17 @@ impl View {
         }
     }
 
+    /// Centred on a place, zoomed in to its region unless the view is
+    /// already closer.
+    fn focused(self, latitude: f64, longitude: f64) -> Self {
+        let (cx, cy) = project(longitude, latitude);
+        Self {
+            cx,
+            cy,
+            width: self.width.min(FOCUS_WIDTH),
+        }
+    }
+
     fn zoomed(self, factor: f64) -> Self {
         Self {
             width: (self.width * factor).clamp(0.5, 400.0),
@@ -588,15 +604,22 @@ impl View {
     }
 }
 
+/// A place the map is focused on: its id, latitude and longitude.
+pub type MapFocus = Option<(Uuid, f64, f64)>;
+
 /// Where the tree's places are, as heat over the country outlines, with the
-/// ten most used places numbered.
+/// ten most used places numbered. Setting `focus` (from a numbered marker
+/// here, or from the page's list of places) zooms the map onto that place;
+/// the fit button clears it.
 #[component]
 pub fn HeatMap(
     paths: ReadSignal<Vec<String>>,
     places: Vec<StatPlace>,
     top: Vec<StatPlace>,
+    focus: Signal<MapFocus>,
     i18n: I18n,
 ) -> Element {
+    let mut focus = focus;
     let located: Vec<(f64, f64, i64)> = places
         .iter()
         .filter_map(|p| {
@@ -607,17 +630,26 @@ pub fn HeatMap(
     let fit = View::fitting(&located.iter().map(|(x, y, _)| (*x, *y)).collect::<Vec<_>>());
     let mut view = use_signal(|| fit);
     let mut drag = use_signal(|| None::<(f64, f64, View)>);
+    // Follows the focus only: the view is peeked, not read, so panning
+    // and zooming do not bring it back.
+    use_effect(move || {
+        if let Some((_, latitude, longitude)) = focus() {
+            let focused = view.peek().focused(latitude, longitude);
+            view.set(focused);
+        }
+    });
     let current = view();
     let max = located.iter().map(|(_, _, n)| *n).max().unwrap_or(1).max(1) as f64;
     // Spots are sized against the view, so the heat reads the same at any
     // zoom: from 2% to 7% of the width.
     let radius = |count: i64| current.width * (0.02 + 0.05 * (count as f64 / max).sqrt());
-    let markers: Vec<(usize, f64, f64)> = top
+    let markers: Vec<(usize, f64, f64, MapFocus)> = top
         .iter()
         .enumerate()
         .filter_map(|(i, p)| {
-            let (x, y) = project(p.longitude?, p.latitude?);
-            Some((i + 1, x, y))
+            let (latitude, longitude) = (p.latitude?, p.longitude?);
+            let (x, y) = project(longitude, latitude);
+            Some((i + 1, x, y, Some((p.place_id, latitude, longitude))))
         })
         .collect();
     let marker_radius = current.width * 0.012;
@@ -672,8 +704,11 @@ pub fn HeatMap(
                         fill: "url(#stats-heat)",
                     }
                 }
-                for (number, x, y) in markers.iter() {
-                    g { key: "m{number}",
+                for (number, x, y, target) in markers.iter().copied() {
+                    g {
+                        key: "m{number}",
+                        class: "stats-map-marker-group",
+                        onclick: move |_| focus.set(target),
                         circle {
                             class: "stats-map-marker",
                             cx: "{x}",
@@ -707,7 +742,10 @@ pub fn HeatMap(
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"stats.zoom_fit\")}",
-                    onclick: move |_| view.set(fit),
+                    onclick: move |_| {
+                        focus.set(None);
+                        view.set(fit);
+                    },
                     "⤢"
                 }
             }
@@ -770,6 +808,20 @@ mod tests {
         assert_eq!(x, 10.0);
         assert!(y.abs() < 1e-9);
         assert!(project(0.0, 60.0).1 < project(0.0, 30.0).1);
+    }
+
+    #[test]
+    fn focusing_centres_on_the_place_and_never_zooms_out() {
+        let wide = View {
+            cx: 0.0,
+            cy: 0.0,
+            width: 60.0,
+        };
+        let focused = wide.focused(0.0, 10.0);
+        assert_eq!((focused.cx, focused.width), (10.0, FOCUS_WIDTH));
+        assert!(focused.cy.abs() < 1e-9);
+        let close = View { width: 1.0, ..wide };
+        assert_eq!(close.focused(0.0, 10.0).width, 1.0);
     }
 
     #[test]

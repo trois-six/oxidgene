@@ -11,8 +11,8 @@ use crate::api::{
     StatYearCounts, StatYearSum, TreeStatistics,
 };
 use crate::components::charts::{
-    BarChart, ChartCard, ChartSeries, DonutChart, HeatMap, LineChart, PALETTE, Pyramid, YearRuler,
-    basemap_paths,
+    BarChart, ChartCard, ChartSeries, DonutChart, HeatMap, LineChart, MapFocus, PALETTE, Pyramid,
+    YearRuler, basemap_paths,
 };
 use crate::components::date_input::format_date;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
@@ -153,6 +153,7 @@ pub fn Statistics(tree_id: String) -> Element {
         store(APPROXIMATE_STORAGE_KEY, &value.to_string());
     };
     let list = use_signal(|| ListTab::Births);
+    let map_focus = use_signal(|| None);
 
     let api_tree = api.clone();
     let tree = use_traced_resource(load_trace.clone(), "tree", move || {
@@ -298,7 +299,7 @@ pub fn Statistics(tree_id: String) -> Element {
                                 StatsTab::Families => rsx! {
                                     PeriodCharts { stats, interval, range, view: PeriodView::Families }
                                 },
-                                StatsTab::Places => render_places(value, paths, &i18n),
+                                StatsTab::Places => render_places(value, paths, map_focus, &i18n),
                                 StatsTab::Names => render_names(value, &i18n),
                                 StatsTab::Records => rsx! {
                                     {render_extremes(value, &tree_id, &i18n)}
@@ -531,8 +532,14 @@ fn donut_card_noted(
     }
 }
 
-fn render_places(stats: &TreeStatistics, paths: Memo<Vec<String>>, i18n: &I18n) -> Element {
+fn render_places(
+    stats: &TreeStatistics,
+    paths: Memo<Vec<String>>,
+    mut focus: Signal<MapFocus>,
+    i18n: &I18n,
+) -> Element {
     let i18n = *i18n;
+    let focused = focus().map(|(id, _, _)| id);
     let area = |key: &str, entries: &[StatCount], total: i64, noun: &str| {
         donut_card_noted(
             &i18n,
@@ -551,6 +558,7 @@ fn render_places(stats: &TreeStatistics, paths: Memo<Vec<String>>, i18n: &I18n) 
                         paths,
                         places: stats.located_places.clone(),
                         top: stats.top_places.clone(),
+                        focus,
                         i18n,
                     }
                 }
@@ -559,7 +567,19 @@ fn render_places(stats: &TreeStatistics, paths: Memo<Vec<String>>, i18n: &I18n) 
                     ol {
                         for place in stats.top_places.iter() {
                             li { key: "{place.place_id}",
-                                span { class: "stats-top-place-name", "{place.name}" }
+                                if let (Some(latitude), Some(longitude)) = (place.latitude, place.longitude) {
+                                    button {
+                                        class: if focused == Some(place.place_id) { "stats-top-place-name stats-top-place-link active" } else { "stats-top-place-name stats-top-place-link" },
+                                        title: "{i18n.t(\"stats.zoom_place\")}",
+                                        onclick: {
+                                            let id = place.place_id;
+                                            move |_| focus.set(Some((id, latitude, longitude)))
+                                        },
+                                        "{place.name}"
+                                    }
+                                } else {
+                                    span { class: "stats-top-place-name", "{place.name}" }
+                                }
                                 span { class: "stats-legend-count", "{place.count}" }
                             }
                         }

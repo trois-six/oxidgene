@@ -1474,6 +1474,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("stats.zoom_in", "Acercar"),
         ("stats.zoom_out", "Alejar"),
         ("stats.zoom_fit", "Ajustar a los lugares"),
+        ("stats.zoom_place", "Ver en el mapa"),
         ("stats.empty", "No hay suficientes datos fechados"),
         ("stats.series.men", "Hombres"),
         ("stats.series.women", "Mujeres"),
