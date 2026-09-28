@@ -10,7 +10,9 @@ repository.workspace = true
 [features]
 default = []
 postgres = ["oxidgene-db/postgres"]
-# GraphQL endpoint — opt in for the server binary; desktop skips async-graphql entirely.
+# GraphQL endpoint — the server and the desktop binary both opt in, so REST and
+# GraphQL are served side by side wherever the API is (about 4.6 MiB of release
+# desktop binary). The background worker serves no HTTP and leaves it out.
 graphql = ["dep:async-graphql", "dep:async-graphql-axum"]
 # S3-compatible media storage — the standalone server opts in; desktop stays local.
 s3 = ["dep:object_store"]

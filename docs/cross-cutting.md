@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T13:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -402,15 +402,20 @@ must never be exposed directly to an untrusted network:
   token generated at each launch and handed to the application's own client
   (`401 unauthenticated`). A loopback port is reachable by every local account,
   process and browser page — including a page that rebinds its DNS name to
-  `127.0.0.1` to read responses as its own. Only the API description
-  (`/api/v1/openapi.json`) is exempt. The client sends the token, and its trace
-  context, to the backend alone, never to a remote address a download names;
+  `127.0.0.1` to read responses as its own. Only reads of pages that hold no
+  tree data are exempt: the API description (`GET /api/v1/openapi.json`) and
+  GraphiQL (`GET /graphql`), whose operations still need the token. The client
+  sends the token, and its trace context, to the backend alone, never to a
+  remote address a download names. App Settings shows the token so the user
+  can hand it to an external client of their choosing, behind a warning that
+  it grants read and write access to every tree until the application quits;
 - stored files are served with `X-Content-Type-Options: nosniff` and, except
   for PDFs, `Content-Security-Policy: sandbox`, so a file cannot run as a page
   of the origin that serves it; the type of a held file is the one sniffed from
   its bytes and cannot be relabelled;
 - UI markup never places a backend URL in `href`, `src`, `action`, redirects,
-  new-window navigation, or other user-visible navigation targets;
+  new-window navigation, or other user-visible navigation targets, except the
+  App Settings API section's links to the two exempt pages above;
 - media, thumbnails, crops, archives, and exports are fetched through the
   typed client, then exposed to the rendering engine as local `data:` or
   `blob:` resources or written through a platform save dialog;

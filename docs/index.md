@@ -33,7 +33,7 @@ okf_version: "0.2"
 * [Dictionary](ui-dictionary.md) - Read-only index of family names, sources, places, and occupations with usage counts.
 * [Statistics](ui-statistics.md) - Tree statistics page: a heat map of where the tree's events happened with its ten most used places, demographic charts per period, and the notable lists of births, unions, deaths and long lives.
 * [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, date display, entry options, tools, and export.
-* [App Settings](ui-app-settings.md) - Application-level preferences page for appearance, language, pedigree, names, API access, and the AI assistant connection.
+* [App Settings](ui-app-settings.md) - Application-level preferences page for appearance, language, pedigree, names, REST and GraphQL connection details, and the AI assistant connection.
 
 # UI Modals and Flows
 

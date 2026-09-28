@@ -483,12 +483,22 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
 
 // ── API section ─────────────────────────────────────────────────────────────
 
+/// The API section: where each endpoint is, and how an external client
+/// connects to it (`docs/ui-app-settings.md` §8).
+///
+/// Both builds serve REST and GraphQL side by side, so both entries are always
+/// shown. Only the desktop's embedded backend requires a bearer token; the
+/// client knows it, and its absence means the backend asks for none.
 #[component]
 fn ApiSection() -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let rest_url = api.rest_url();
     let openapi_url = api.openapi_url();
     let graphql_url = api.graphql_url();
+    let token = api.auth_token();
+    let rest_example = openapi_curl_example(&openapi_url);
+    let graphql_example = graphql_curl_example(&graphql_url, token.as_deref());
 
     rsx! {
         div { class: "settings-section",
@@ -497,69 +507,118 @@ fn ApiSection() -> Element {
             p { class: "settings-section-subtitle", {i18n.t("app_settings.api_desc")} }
 
             div { class: "app-settings-card api-endpoints",
-                a {
-                    class: "api-endpoint",
-                    href: openapi_url.clone(),
-                    target: "_blank",
-                    rel: "noopener noreferrer",
+                ApiEndpointLink {
+                    href: openapi_url,
+                    label: i18n.t("app_settings.openapi_label"),
+                    hint: i18n.t("app_settings.openapi_hint"),
                     title: i18n.t("app_settings.openapi_open"),
-                    div { class: "api-endpoint-info",
-                        span { class: "app-settings-option-label",
-                            {i18n.t("app_settings.openapi_label")}
-                        }
-                        span { class: "app-settings-option-hint",
-                            {i18n.t("app_settings.openapi_hint")}
-                        }
-                        code { class: "api-endpoint-url", "{openapi_url}" }
-                    }
-                    svg {
-                        class: "api-external-icon",
-                        width: "18",
-                        height: "18",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        path { d: "M15 3h6v6" }
-                        path { d: "M10 14 21 3" }
-                        path { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }
-                    }
                 }
-                if cfg!(target_arch = "wasm32") {
-                    a {
-                        class: "api-endpoint",
-                        href: graphql_url.clone(),
-                        target: "_blank",
-                        rel: "noopener noreferrer",
-                        title: i18n.t("app_settings.graphql_open"),
-                        div { class: "api-endpoint-info",
-                            span { class: "app-settings-option-label",
-                                {i18n.t("app_settings.graphql_label")}
-                            }
-                            span { class: "app-settings-option-hint",
-                                {i18n.t("app_settings.graphql_hint")}
-                            }
-                            code { class: "api-endpoint-url", "{graphql_url}" }
-                        }
-                        svg {
-                            class: "api-external-icon",
-                            width: "18",
-                            height: "18",
-                            fill: "none",
-                            "viewBox": "0 0 24 24",
-                            stroke: "currentColor",
-                            "strokeWidth": "2",
-                            path { d: "M15 3h6v6" }
-                            path { d: "M10 14 21 3" }
-                            path { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }
-                        }
+                ApiEndpointLink {
+                    href: graphql_url.clone(),
+                    label: i18n.t("app_settings.graphql_label"),
+                    hint: i18n.t("app_settings.graphql_hint"),
+                    title: i18n.t("app_settings.graphql_open"),
+                }
+            }
+
+            div { class: "app-settings-card copy-card",
+                span { class: "app-settings-option-label", {i18n.t("app_settings.connect_title")} }
+                span { class: "app-settings-option-hint", {i18n.t("app_settings.connect_hint")} }
+
+                if let Some(token) = token {
+                    div { class: "warning-msg", {i18n.t("app_settings.token_warning")} }
+                    CopyField {
+                        label: i18n.t("app_settings.token_label"),
+                        value: token,
+                        multiline: false,
                     }
+                    span { class: "app-settings-option-hint", {i18n.t("app_settings.token_hint")} }
+                }
+
+                CopyField {
+                    label: i18n.t("app_settings.rest_base_label"),
+                    value: rest_url,
+                    multiline: false,
+                }
+                CopyField {
+                    label: i18n.t("app_settings.rest_example_label"),
+                    value: rest_example,
+                    multiline: false,
+                }
+                CopyField {
+                    label: i18n.t("app_settings.graphql_endpoint_label"),
+                    value: graphql_url,
+                    multiline: false,
+                }
+                CopyField {
+                    label: i18n.t("app_settings.graphql_example_label"),
+                    value: graphql_example,
+                    multiline: true,
                 }
             }
 
             AssistantCard {}
         }
     }
+}
+
+/// One row of the endpoint list: opens `href` in the system browser.
+#[component]
+fn ApiEndpointLink(href: String, label: String, hint: String, title: String) -> Element {
+    rsx! {
+        a {
+            class: "api-endpoint",
+            href: href.clone(),
+            target: "_blank",
+            rel: "noopener noreferrer",
+            title: "{title}",
+            div { class: "api-endpoint-info",
+                span { class: "app-settings-option-label", "{label}" }
+                span { class: "app-settings-option-hint", "{hint}" }
+                code { class: "api-endpoint-url", "{href}" }
+            }
+            svg {
+                class: "api-external-icon",
+                width: "18",
+                height: "18",
+                fill: "none",
+                "viewBox": "0 0 24 24",
+                stroke: "currentColor",
+                "strokeWidth": "2",
+                path { d: "M15 3h6v6" }
+                path { d: "M10 14 21 3" }
+                path { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }
+            }
+        }
+    }
+}
+
+/// The minimal GraphQL operation the connection example sends: the first
+/// tree's identifier and name, valid against the executable schema.
+const GRAPHQL_EXAMPLE_QUERY: &str = "{ trees(first: 1) { edges { node { id name } } } }";
+
+/// A `curl` command fetching the OpenAPI document, which every backend serves
+/// without a token.
+fn openapi_curl_example(openapi_url: &str) -> String {
+    format!("curl '{openapi_url}'")
+}
+
+/// A `curl` command posting [`GRAPHQL_EXAMPLE_QUERY`] to `graphql_url`, with
+/// the bearer header when the backend requires `token`.
+///
+/// POSIX shell quoting: the body is single-quoted JSON, so the query must hold
+/// no single quote, which [`GRAPHQL_EXAMPLE_QUERY`] does not.
+fn graphql_curl_example(graphql_url: &str, token: Option<&str>) -> String {
+    let body = serde_json::json!({ "query": GRAPHQL_EXAMPLE_QUERY });
+    let mut lines = vec![
+        format!("curl -X POST '{graphql_url}'"),
+        "  -H 'Content-Type: application/json'".to_string(),
+    ];
+    if let Some(token) = token {
+        lines.push(format!("  -H 'Authorization: Bearer {token}'"));
+    }
+    lines.push(format!("  -d '{body}'"));
+    lines.join(" \\\n")
 }
 
 // ── AI assistant (MCP) ──────────────────────────────────────────────────────
@@ -578,7 +637,7 @@ fn AssistantCard() -> Element {
     let launcher = use_assistant_launcher();
 
     rsx! {
-        div { class: "app-settings-card assistant-card",
+        div { class: "app-settings-card copy-card",
             span { class: "app-settings-option-label", {i18n.t("app_settings.assistant_title")} }
 
             match launcher {
@@ -608,12 +667,12 @@ fn AssistantLauncherPanel(launcher: AssistantLauncher) -> Element {
     rsx! {
         div { class: "warning-msg", {i18n.t("app_settings.assistant_warning")} }
 
-        AssistantField {
+        CopyField {
             label: i18n.t("app_settings.assistant_command_label"),
             value: launcher.command_line(),
             multiline: false,
         }
-        AssistantField {
+        CopyField {
             label: i18n.t("app_settings.assistant_config_label"),
             value: launcher.client_config_json(),
             multiline: true,
@@ -621,16 +680,20 @@ fn AssistantLauncherPanel(launcher: AssistantLauncher) -> Element {
     }
 }
 
-/// A read-only field with a copy button: the command line and the JSON
-/// configuration are the same interaction, one line versus several.
+/// A read-only field with a copy button, shared by the API connection details
+/// and the assistant command: a URL, a command line, and a JSON configuration
+/// are the same interaction, one line versus several.
 ///
 /// Nothing here is saved anywhere — copying changes no setting, so the field
 /// carries no `oninput` and no state beyond the brief "Copied" feedback.
 #[component]
-fn AssistantField(label: String, value: String, multiline: bool) -> Element {
+fn CopyField(label: String, value: String, multiline: bool) -> Element {
     let i18n = use_i18n();
     let mut copied = use_signal(|| false);
     let copy_value = value.clone();
+    // Tall enough for the whole value, so a short example is not padded out
+    // and a long configuration still leaves room for the rest of the page.
+    let rows = value.lines().count().clamp(2, 12);
 
     let onclick = move |_| {
         let value = copy_value.clone();
@@ -644,20 +707,20 @@ fn AssistantField(label: String, value: String, multiline: bool) -> Element {
     };
 
     rsx! {
-        div { class: "assistant-field",
+        div { class: "copy-field",
             span { class: "app-settings-option-label", "{label}" }
-            div { class: "assistant-field-row",
+            div { class: "copy-field-row",
                 if multiline {
                     textarea {
-                        class: "assistant-field-value",
+                        class: "copy-field-value",
                         readonly: true,
-                        rows: "10",
+                        rows: "{rows}",
                         "aria-label": "{label}",
                         value: "{value}",
                     }
                 } else {
                     input {
-                        class: "assistant-field-value",
+                        class: "copy-field-value",
                         r#type: "text",
                         readonly: true,
                         "aria-label": "{label}",
@@ -665,7 +728,7 @@ fn AssistantField(label: String, value: String, multiline: bool) -> Element {
                     }
                 }
                 button {
-                    class: "btn btn-outline btn-sm assistant-copy-btn",
+                    class: "btn btn-outline btn-sm copy-field-btn",
                     r#type: "button",
                     onclick,
                     {if *copied.read() { i18n.t("common.copied") } else { i18n.t("common.copy") }}
@@ -1267,31 +1330,31 @@ const APP_SETTINGS_STYLES: &str = r#"
         }
     }
 
-    /* ── AI assistant (MCP) ─────────────────────────────────────────
-       A second card below the endpoint list rather than a row inside
-       it: the endpoints are one link each, the assistant entry is a
-       warning plus two whole fields, and folding it into the same
-       list would make the shortest row in the page the tallest one. */
-    .assistant-card {
+    /* ── Connection details and AI assistant (MCP) ─────────────────
+       Cards below the endpoint list rather than rows inside it: the
+       endpoints are one link each, while connecting a client or the
+       assistant takes a warning plus several whole fields, and folding
+       them into the same list would make its shortest rows the tallest. */
+    .copy-card {
         margin-top: 1rem;
         display: flex;
         flex-direction: column;
         gap: 0.9rem;
     }
 
-    .assistant-field {
+    .copy-field {
         display: flex;
         flex-direction: column;
         gap: 0.35rem;
     }
 
-    .assistant-field-row {
+    .copy-field-row {
         display: flex;
         align-items: flex-start;
         gap: 0.6rem;
     }
 
-    .assistant-field-value {
+    .copy-field-value {
         flex: 1;
         min-width: 0;
         font-family: monospace;
@@ -1301,11 +1364,11 @@ const APP_SETTINGS_STYLES: &str = r#"
         color: var(--text-secondary);
     }
 
-    textarea.assistant-field-value {
+    textarea.copy-field-value {
         line-height: 1.4;
     }
 
-    .assistant-copy-btn {
+    .copy-field-btn {
         flex: none;
         /* Lines up with the first row of a multi-line field instead of
            stretching or centering across its full height. */
@@ -1313,9 +1376,41 @@ const APP_SETTINGS_STYLES: &str = r#"
     }
 
     @media (max-width: 640px) {
-        .assistant-field-row {
+        .copy-field-row {
             flex-direction: column;
             align-items: stretch;
         }
     }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_openapi_example_needs_no_token() {
+        assert_eq!(
+            openapi_curl_example("http://127.0.0.1:8080/api/v1/openapi.json"),
+            "curl 'http://127.0.0.1:8080/api/v1/openapi.json'"
+        );
+    }
+
+    #[test]
+    fn the_graphql_example_posts_the_query_as_json() {
+        let example = graphql_curl_example("http://127.0.0.1:8080/graphql", None);
+        assert_eq!(
+            example,
+            "curl -X POST 'http://127.0.0.1:8080/graphql' \\\n  \
+             -H 'Content-Type: application/json' \\\n  \
+             -d '{\"query\":\"{ trees(first: 1) { edges { node { id name } } } }\"}'"
+        );
+        assert!(!example.contains("Authorization"));
+    }
+
+    #[test]
+    fn the_graphql_example_carries_the_token_when_there_is_one() {
+        let example = graphql_curl_example("http://127.0.0.1:1/graphql", Some("s3cret"));
+        assert!(example.contains("\n  -H 'Authorization: Bearer s3cret' \\\n"));
+        assert!(!GRAPHQL_EXAMPLE_QUERY.contains('\''));
+    }
+}

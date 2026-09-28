@@ -1797,12 +1797,28 @@ impl ApiClient {
         format!("{}{}", self.base_url, path)
     }
 
+    /// The REST base every `/api/v1/…` route hangs from.
+    pub fn rest_url(&self) -> String {
+        self.url("/api/v1")
+    }
+
     pub fn openapi_url(&self) -> String {
         self.url("/api/v1/openapi.json")
     }
 
     pub fn graphql_url(&self) -> String {
         self.url("/graphql")
+    }
+
+    /// The bearer token this client presents to its backend, when the backend
+    /// requires one — the desktop's per-launch token. App Settings hands it to
+    /// the user so an external client they choose can reach the same backend.
+    pub fn auth_token(&self) -> Option<String> {
+        self.auth
+            .as_ref()
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::to_owned)
     }
 
     #[cfg(feature = "telemetry-client")]
@@ -4505,6 +4521,14 @@ mod tests {
         let (result, ()) = tokio::join!(api.delete_media_page(tree, document, page), server);
         result.unwrap();
         assert!(api.cache.get(&cache_key).is_none());
+    }
+
+    #[test]
+    fn the_access_token_is_readable_only_when_one_was_given() {
+        let api = ApiClient::new("http://127.0.0.1:1");
+        assert_eq!(api.auth_token(), None);
+        let api = api.with_auth_token("s3cret");
+        assert_eq!(api.auth_token().as_deref(), Some("s3cret"));
     }
 
     #[cfg(not(target_arch = "wasm32"))]
