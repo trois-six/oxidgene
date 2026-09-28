@@ -31,7 +31,7 @@ okf_version: "0.2"
 * [Search Results](ui-search-results.md) - Filterable person search results page.
 * [Kinship](ui-kinship.md) - Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none.
 * [Dictionary](ui-dictionary.md) - Read-only index of family names, sources, places, and occupations with usage counts.
-* [Statistics](ui-statistics.md) - Tree statistics page: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists.
+* [Statistics](ui-statistics.md) - Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists.
 * [Tree Settings](ui-settings.md) - Tree settings page for roots, privacy, date display, entry options, tools, and export.
 * [App Settings](ui-app-settings.md) - Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection.
 

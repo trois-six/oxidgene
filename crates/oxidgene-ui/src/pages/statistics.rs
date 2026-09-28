@@ -38,6 +38,47 @@ const DENSE_SPAN: i32 = 25;
 const DENSE_SHARE: f64 = 0.01;
 const DAYS_PER_MONTH: f64 = 30.436875;
 
+const TAB_STORAGE_KEY: &str = "oxidgene-stats-tab";
+
+/// The page's tabs, one per kind of statistics.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StatsTab {
+    Overview,
+    Population,
+    Families,
+    Places,
+    Names,
+    Records,
+}
+
+impl StatsTab {
+    const ALL: [Self; 6] = [
+        Self::Overview,
+        Self::Population,
+        Self::Families,
+        Self::Places,
+        Self::Names,
+        Self::Records,
+    ];
+
+    /// The tab's name in storage and in its label's i18n key.
+    fn key(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Population => "population",
+            Self::Families => "families",
+            Self::Places => "places",
+            Self::Names => "names",
+            Self::Records => "records",
+        }
+    }
+
+    fn parse(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tab| tab.key() == key)
+    }
+}
+
+/// The notable lists of the Records tab.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ListTab {
     Births,
@@ -46,7 +87,6 @@ enum ListTab {
     OldestAlive,
     LongestLives,
     LargestFamilies,
-    Pyramid,
 }
 
 /// Reads a value this page keeps in the browser, when it keeps one.
@@ -75,12 +115,24 @@ pub fn Statistics(tree_id: String) -> Element {
     let load_trace = use_ui_load_trace(UiPage::Statistics);
     let tid = tree_id.parse::<Uuid>().ok();
 
-    let mut interval = use_signal(|| DEFAULT_INTERVAL);
+    let mut tab = use_signal(|| StatsTab::Overview);
+    let interval = use_signal(|| DEFAULT_INTERVAL);
+    // The years the period charts cover, shared by the two tabs that show
+    // them; `None` until the viewer moves the ruler.
+    let range = use_signal(|| None::<(i32, i32)>);
     // Unknown until the browser answers, so the statistics are asked once,
     // with the viewer's own choice.
     let mut approximate = use_signal(|| None::<bool>);
     use_effect(move || {
+        let mut interval = interval;
         spawn(async move {
+            if let Some(stored_tab) = stored(TAB_STORAGE_KEY)
+                .await
+                .as_deref()
+                .and_then(StatsTab::parse)
+            {
+                tab.set(stored_tab);
+            }
             if let Some(value) = stored(INTERVAL_STORAGE_KEY)
                 .await
                 .and_then(|s| s.parse::<i32>().ok())
@@ -92,15 +144,15 @@ pub fn Statistics(tree_id: String) -> Element {
             approximate.set(Some(chosen));
         });
     });
-    let mut choose_interval = move |value: i32| {
-        interval.set(value);
-        store(INTERVAL_STORAGE_KEY, &value.to_string());
+    let mut choose_tab = move |value: StatsTab| {
+        tab.set(value);
+        store(TAB_STORAGE_KEY, value.key());
     };
     let mut choose_approximate = move |value: bool| {
         approximate.set(Some(value));
         store(APPROXIMATE_STORAGE_KEY, &value.to_string());
     };
-    let tab = use_signal(|| ListTab::Births);
+    let list = use_signal(|| ListTab::Births);
 
     let api_tree = api.clone();
     let tree = use_traced_resource(load_trace.clone(), "tree", move || {
@@ -179,25 +231,6 @@ pub fn Statistics(tree_id: String) -> Element {
                     }
                     {i18n.t("stats.approximate")}
                 }
-                label { class: "stats-interval",
-                    {i18n.t("stats.interval")}
-                    select {
-                        class: "td-select",
-                        onchange: move |e: Event<FormData>| {
-                            if let Ok(value) = e.value().parse::<i32>() {
-                                choose_interval(value);
-                            }
-                        },
-                        for value in INTERVALS {
-                            option {
-                                key: "{value}",
-                                value: "{value}",
-                                selected: interval() == value,
-                                {i18n.t_args("stats.interval_years", &[("n", &value.to_string())])}
-                            }
-                        }
-                    }
-                }
             }
 
             div { class: "pd-page-shell",
@@ -245,13 +278,33 @@ pub fn Statistics(tree_id: String) -> Element {
                     match stats_value {
                         None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
                         Some(value) => rsx! {
-                            {render_overview(value, &i18n)}
-                            {render_places(value, paths, &i18n)}
-                            {render_names(value, &i18n)}
-                            PeriodCharts { stats, interval }
-                            {render_distributions(value, &i18n)}
-                            {render_extremes(value, &tree_id, &i18n)}
-                            {render_lists(value, &tree_id, tab, &i18n)}
+                            div { class: "dict-tabs stats-tabs", role: "tablist",
+                                for choice in StatsTab::ALL {
+                                    button {
+                                        key: "{choice.key()}",
+                                        role: "tab",
+                                        "aria-selected": tab() == choice,
+                                        class: if tab() == choice { "dict-tab active" } else { "dict-tab" },
+                                        onclick: move |_| choose_tab(choice),
+                                        {i18n.t(&format!("stats.tab.{}", choice.key()))}
+                                    }
+                                }
+                            }
+                            match tab() {
+                                StatsTab::Overview => render_overview(value, &i18n),
+                                StatsTab::Population => rsx! {
+                                    PeriodCharts { stats, interval, range, view: PeriodView::Population }
+                                },
+                                StatsTab::Families => rsx! {
+                                    PeriodCharts { stats, interval, range, view: PeriodView::Families }
+                                },
+                                StatsTab::Places => render_places(value, paths, &i18n),
+                                StatsTab::Names => render_names(value, &i18n),
+                                StatsTab::Records => rsx! {
+                                    {render_extremes(value, &tree_id, &i18n)}
+                                    {render_lists(value, &tree_id, list, &i18n)}
+                                },
+                            }
                         },
                     }
                 }
@@ -298,6 +351,16 @@ fn date_text(i18n: &I18n, date: Option<&StatDate>) -> String {
         )
     })
     .unwrap_or_default()
+}
+
+/// A titled block of a tab.
+fn block(i18n: &I18n, key: &str, body: Element) -> Element {
+    rsx! {
+        section { class: "stats-section",
+            h2 { class: "stats-section-title", {i18n.t(&format!("stats.section.{key}"))} }
+            {body}
+        }
+    }
 }
 
 // ── Overview ────────────────────────────────────────────────────────────
@@ -386,9 +449,15 @@ fn render_overview(stats: &TreeStatistics, i18n: &I18n) -> Element {
         ),
         _ => "–".to_string(),
     };
+    let total: i64 = stats.event_types.iter().map(|e| e.count).sum();
+    let types: Vec<(String, i64)> = stats
+        .event_types
+        .iter()
+        .take(10)
+        .map(|e| (event_type_label(i18n, &e.label), e.count))
+        .collect();
     rsx! {
-        section { class: "stats-section",
-            h2 { class: "stats-section-title", {i18n.t("stats.section.overview")} }
+        {block(i18n, "counts", rsx! {
             div { class: "stats-tiles",
                 {tile("stats.persons", stats.persons.to_string(), i18n.t("stats.persons"), sexes)}
                 {count("stats.unions", stats.unions)}
@@ -398,6 +467,8 @@ fn render_overview(stats: &TreeStatistics, i18n: &I18n) -> Element {
                 {count("stats.surnames", stats.surnames)}
                 {count("stats.given_names", stats.given_names)}
             }
+        })}
+        {block(i18n, "completeness", rsx! {
             div { class: "stats-tiles",
                 {share("stats.dated_births", stats.dated_births)}
                 {share("stats.dated_deaths", stats.dated_deaths)}
@@ -405,14 +476,27 @@ fn render_overview(stats: &TreeStatistics, i18n: &I18n) -> Element {
                 {share("stats.without_children", stats.without_children)}
                 {share("stats.without_union", stats.without_union)}
             }
+        })}
+        {block(i18n, "averages", rsx! {
             div { class: "stats-tiles",
                 {summary_tile(i18n, "lifespan", &stats.lifespan.all, "stats.unit.years", by_sex(i18n, &stats.lifespan.men, &stats.lifespan.women))}
                 {summary_tile(i18n, "first_union", &stats.first_union_age.all, "stats.unit.years", by_sex(i18n, &stats.first_union_age.men, &stats.first_union_age.women))}
                 {summary_tile(i18n, "generation", &stats.generation_interval, "stats.unit.years", Vec::new())}
                 {summary_tile(i18n, "family_size", &stats.family_size, "stats.unit.children", Vec::new())}
             }
-        }
+        })}
+        {block(i18n, "event_types", rsx! {
+            div { class: "stats-grid",
+                {donut_card_noted(i18n, "event_types", types, Some(i18n.t_plural("stats.events_total", total as usize)))}
+            }
+        })}
     }
+}
+
+fn event_type_label(i18n: &I18n, label: &str) -> String {
+    serde_json::from_value::<EventType>(serde_json::Value::String(label.to_string()))
+        .map(|kind| i18n.t(event_type_label_key(kind)))
+        .unwrap_or_else(|_| label.to_string())
 }
 
 // ── Places ──────────────────────────────────────────────────────────────
@@ -458,8 +542,7 @@ fn render_places(stats: &TreeStatistics, paths: Memo<Vec<String>>, i18n: &I18n) 
         )
     };
     rsx! {
-        section { class: "stats-section",
-            h2 { class: "stats-section-title", {i18n.t("stats.section.places")} }
+        {block(&i18n, "map", rsx! {
             div { class: "stats-places",
                 if stats.located_places.is_empty() {
                     p { class: "stats-empty", {i18n.t("stats.map_empty")} }
@@ -488,12 +571,14 @@ fn render_places(stats: &TreeStatistics, paths: Memo<Vec<String>>, i18n: &I18n) 
                     }
                 }
             }
+        })}
+        {block(&i18n, "births_by_area", rsx! {
             div { class: "stats-grid stats-grid-3",
                 {area("births_by_country", &stats.births_by_country, stats.countries, "stats.countries")}
                 {area("births_by_region", &stats.births_by_region, stats.regions, "stats.regions")}
                 {area("births_by_subdivision", &stats.births_by_subdivision, stats.subdivisions, "stats.subdivisions")}
             }
-        }
+        })}
     }
 }
 
@@ -515,11 +600,14 @@ fn render_names(stats: &TreeStatistics, i18n: &I18n) -> Element {
     ];
     let no_rare = rare.iter().all(|(_, _, names)| names.is_empty());
     rsx! {
-        section { class: "stats-section",
-            h2 { class: "stats-section-title", {i18n.t("stats.section.names")} }
+        {block(&i18n, "surnames_occupations", rsx! {
             div { class: "stats-grid",
                 {donut_card(&i18n, "surnames", counts(&stats.top_surnames))}
                 {donut_card(&i18n, "occupations", counts(&stats.top_occupations))}
+            }
+        })}
+        {block(&i18n, "given_names", rsx! {
+            div { class: "stats-grid",
                 {donut_card(&i18n, "given_names_men", counts(&stats.top_given_names_men))}
                 {donut_card(&i18n, "given_names_women", counts(&stats.top_given_names_women))}
             }
@@ -537,7 +625,7 @@ fn render_names(stats: &TreeStatistics, i18n: &I18n) -> Element {
                     }
                 }
             }
-        }
+        })}
     }
 }
 
@@ -808,19 +896,33 @@ fn line_card(
     }
 }
 
-/// The period charts, under the ruler choosing the years they cover. The
-/// range is kept here, so moving it redraws these charts only.
+/// Which tab of period charts to draw.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PeriodView {
+    Population,
+    Families,
+}
+
+/// A tab of period charts, under the bar choosing their interval and the
+/// years they cover. The range lives in the page, so both tabs share it,
+/// and is only read here, so moving it redraws these charts alone.
 #[component]
-fn PeriodCharts(stats: Resource<Option<TreeStatistics>>, interval: Signal<i32>) -> Element {
+fn PeriodCharts(
+    stats: Resource<Option<TreeStatistics>>,
+    interval: Signal<i32>,
+    range: Signal<Option<(i32, i32)>>,
+    view: PeriodView,
+) -> Element {
     let i18n = use_i18n();
-    let mut chosen = use_signal(|| None::<(i32, i32)>);
+    let mut interval = interval;
+    let mut range = range;
     let stats_read = stats.read();
     let Some(stats) = stats_read.as_ref().and_then(Option::as_ref) else {
         return rsx! {};
     };
     let bounds = year_bounds(stats);
     let (first, last) = bounds.unwrap_or((0, -1));
-    let (from, to) = match chosen() {
+    let (from, to) = match range() {
         Some((from, to)) => (from, to),
         None => (dense_start(&stats.events_by_year).unwrap_or(first), last),
     };
@@ -834,12 +936,12 @@ fn PeriodCharts(stats: Resource<Option<TreeStatistics>>, interval: Signal<i32>) 
     };
     rsx! {
         div { class: "stats-period-charts",
-            if last > first {
-                div { class: "stats-timeline",
-                    span { class: "stats-timeline-title", {i18n.t("stats.years")} }
-                    span { class: "stats-timeline-years",
-                        {i18n.t_args("stats.years_range", &[("from", &from.to_string()), ("to", &to.to_string())])}
-                    }
+            div { class: "stats-timeline",
+                span { class: "stats-timeline-title", {i18n.t("stats.years")} }
+                span { class: "stats-timeline-years",
+                    {i18n.t_args("stats.years_range", &[("from", &from.to_string()), ("to", &to.to_string())])}
+                }
+                if last > first {
                     YearRuler {
                         min: first,
                         max: last,
@@ -848,24 +950,118 @@ fn PeriodCharts(stats: Resource<Option<TreeStatistics>>, interval: Signal<i32>) 
                         interval: interval(),
                         from_label: i18n.t("stats.years_from"),
                         to_label: i18n.t("stats.years_to"),
-                        on_change: move |range: (i32, i32)| chosen.set(Some(range)),
+                        on_change: move |chosen: (i32, i32)| range.set(Some(chosen)),
                     }
-                    button {
-                        class: "btn btn-outline btn-sm",
-                        disabled: whole,
-                        onclick: move |_| chosen.set(Some((first, last))),
-                        {i18n.t("stats.years_all")}
+                } else {
+                    span {}
+                }
+                label { class: "stats-interval",
+                    {i18n.t("stats.interval")}
+                    select {
+                        class: "td-select",
+                        onchange: move |e: Event<FormData>| {
+                            if let Ok(value) = e.value().parse::<i32>() {
+                                interval.set(value);
+                                store(INTERVAL_STORAGE_KEY, &value.to_string());
+                            }
+                        },
+                        for value in INTERVALS {
+                            option {
+                                key: "{value}",
+                                value: "{value}",
+                                selected: interval() == value,
+                                {i18n.t_args("stats.interval_years", &[("n", &value.to_string())])}
+                            }
+                        }
                     }
                 }
+                button {
+                    class: "btn btn-outline btn-sm",
+                    disabled: whole,
+                    onclick: move |_| range.set(Some((first, last))),
+                    {i18n.t("stats.years_all")}
+                }
             }
-            {render_persons(stats, &periods, &i18n)}
-            {render_families(stats, &periods, &i18n)}
+            match view {
+                PeriodView::Population => render_population(stats, &periods, &i18n),
+                PeriodView::Families => render_families(stats, &periods, &i18n),
+            }
         }
     }
 }
 
-fn render_persons(stats: &TreeStatistics, periods: &Periods, i18n: &I18n) -> Element {
+fn render_population(stats: &TreeStatistics, periods: &Periods, i18n: &I18n) -> Element {
     let p = &periods.labels();
+    let events = category_series(
+        periods.sums(&stats.events_by_year, 5),
+        &labels(
+            i18n,
+            &[
+                "stats.series.births",
+                "stats.series.baptisms",
+                "stats.series.unions",
+                "stats.series.deaths",
+                "stats.series.burials",
+            ],
+        ),
+    );
+    let sex_ratio = vec![series(
+        i18n.t("stats.chart.sex_ratio"),
+        PALETTE[0],
+        periods.ratio(&stats.births_by_sex, 2, 0, 1, 100.0),
+    )];
+    let mortality = vec![
+        series(
+            i18n.t("stats.series.infant"),
+            PALETTE[0],
+            periods.ratio(&stats.mortality, 3, 1, 0, 100.0),
+        ),
+        series(
+            i18n.t("stats.series.under_five"),
+            PALETTE[1],
+            periods.ratio(&stats.mortality, 3, 2, 0, 100.0),
+        ),
+    ];
+    let pyramid = {
+        let i18n = *i18n;
+        rsx! {
+            ChartCard {
+                title: i18n.t("stats.chart.pyramid"),
+                hint: i18n.t("stats.hint.pyramid"),
+                empty: stats.pyramid.is_empty(),
+                i18n,
+                Pyramid {
+                    bands: stats.pyramid.clone(),
+                    men: i18n.t("stats.series.men"),
+                    women: i18n.t("stats.series.women"),
+                }
+            }
+        }
+    };
+    rsx! {
+        {block(i18n, "births_deaths", rsx! {
+            div { class: "stats-grid",
+                {line_card(i18n, "events", p, events, "stats.unit.events")}
+                {line_card(i18n, "sex_ratio", p, sex_ratio, "stats.unit.per_100_women")}
+                {line_card(i18n, "births_by_month", p, category_series(periods.shares(&stats.births_by_month, 12), &months(i18n)), "stats.unit.percent")}
+                {line_card(i18n, "mortality", p, mortality, "stats.unit.percent")}
+            }
+        })}
+        {block(i18n, "lifespan", rsx! {
+            div { class: "stats-grid",
+                {line_card(i18n, "age_at_death", p, sex_series(i18n, periods, &stats.age_at_death.men, &stats.age_at_death.women), "stats.unit.years")}
+                {line_card(i18n, "life_expectancy", p, sex_series(i18n, periods, &stats.life_expectancy.men, &stats.life_expectancy.women), "stats.unit.years")}
+                {pyramid}
+            }
+        })}
+    }
+}
+
+fn render_families(stats: &TreeStatistics, periods: &Periods, i18n: &I18n) -> Element {
+    let p = &periods.labels();
+    let single = |key: &str, years: &[StatYearSum]| {
+        single(i18n.t(&format!("stats.chart.{key}")), periods, years)
+    };
     let parents = &stats.parents_age;
     let parent_series = vec![
         series(
@@ -901,113 +1097,45 @@ fn render_persons(stats: &TreeStatistics, periods: &Periods, i18n: &I18n) -> Ele
             periods.averages(&parents.mother_every_child),
         ),
     ];
-    let events = category_series(
-        periods.sums(&stats.events_by_year, 5),
-        &labels(
-            i18n,
-            &[
-                "stats.series.births",
-                "stats.series.baptisms",
-                "stats.series.unions",
-                "stats.series.deaths",
-                "stats.series.burials",
-            ],
-        ),
-    );
-    let sex_ratio = vec![series(
-        i18n.t("stats.chart.sex_ratio"),
-        PALETTE[0],
-        periods.ratio(&stats.births_by_sex, 2, 0, 1, 100.0),
-    )];
-    let mortality = vec![
-        series(
-            i18n.t("stats.series.infant"),
-            PALETTE[0],
-            periods.ratio(&stats.mortality, 3, 1, 0, 100.0),
-        ),
-        series(
-            i18n.t("stats.series.under_five"),
-            PALETTE[1],
-            periods.ratio(&stats.mortality, 3, 2, 0, 100.0),
-        ),
-    ];
+    let histogram = {
+        let i18n = *i18n;
+        let children: Vec<(String, i64)> = stats
+            .children_histogram
+            .iter()
+            .enumerate()
+            .filter(|(_, unions)| **unions > 0)
+            .map(|(n, unions)| (n.to_string(), *unions))
+            .collect();
+        rsx! {
+            ChartCard {
+                title: i18n.t("stats.chart.children_histogram"),
+                hint: i18n.t("stats.hint.children_histogram"),
+                empty: children.is_empty(),
+                i18n,
+                BarChart { items: children }
+            }
+        }
+    };
     rsx! {
-        section { class: "stats-section",
-            h2 { class: "stats-section-title", {i18n.t("stats.section.persons")} }
+        {block(i18n, "unions", rsx! {
             div { class: "stats-grid",
-                {line_card(i18n, "events", p, events, "stats.unit.events")}
-                {line_card(i18n, "sex_ratio", p, sex_ratio, "stats.unit.per_100_women")}
-                {line_card(i18n, "age_at_death", p, sex_series(i18n, periods, &stats.age_at_death.men, &stats.age_at_death.women), "stats.unit.years")}
-                {line_card(i18n, "life_expectancy", p, sex_series(i18n, periods, &stats.life_expectancy.men, &stats.life_expectancy.women), "stats.unit.years")}
-                {line_card(i18n, "mortality", p, mortality, "stats.unit.percent")}
-                {line_card(i18n, "births_by_month", p, category_series(periods.shares(&stats.births_by_month, 12), &months(i18n)), "stats.unit.percent")}
+                {line_card(i18n, "age_at_first_union", p, sex_series(i18n, periods, &stats.age_at_first_union.men, &stats.age_at_first_union.women), "stats.unit.years")}
+                {line_card(i18n, "union_duration", p, single("union_duration", &stats.union_duration), "stats.unit.years")}
+                {line_card(i18n, "unions_by_weekday", p, category_series(periods.shares(&stats.unions_by_weekday, 7), &weekdays(i18n)), "stats.unit.percent")}
+                {line_card(i18n, "unions_by_month", p, category_series(periods.shares(&stats.unions_by_month, 12), &months(i18n)), "stats.unit.percent")}
+                {line_card(i18n, "spouse_age_gap", p, single("spouse_age_gap", &stats.spouse_age_gap), "stats.unit.months")}
+            }
+        })}
+        {block(i18n, "children", rsx! {
+            div { class: "stats-grid",
+                {line_card(i18n, "children_per_union", p, single("children_per_union", &stats.children_per_union), "stats.unit.children")}
+                {histogram}
+                {line_card(i18n, "birth_spacing", p, single("birth_spacing", &stats.birth_spacing), "stats.unit.months")}
+                {line_card(i18n, "first_last_child_gap", p, single("first_last_child_gap", &stats.first_last_child_gap), "stats.unit.months")}
                 {line_card(i18n, "parents_age", p, parent_series, "stats.unit.years")}
                 {line_card(i18n, "generation_interval", p, generation, "stats.unit.years")}
             }
-        }
-    }
-}
-
-fn render_families(stats: &TreeStatistics, periods: &Periods, i18n: &I18n) -> Element {
-    let p = &periods.labels();
-    let single = |key: &str, years: &[StatYearSum]| {
-        single(i18n.t(&format!("stats.chart.{key}")), periods, years)
-    };
-    rsx! {
-        section { class: "stats-section",
-            h2 { class: "stats-section-title", {i18n.t("stats.section.families")} }
-            div { class: "stats-grid",
-                {line_card(i18n, "age_at_first_union", p, sex_series(i18n, periods, &stats.age_at_first_union.men, &stats.age_at_first_union.women), "stats.unit.years")}
-                {line_card(i18n, "unions_by_weekday", p, category_series(periods.shares(&stats.unions_by_weekday, 7), &weekdays(i18n)), "stats.unit.percent")}
-                {line_card(i18n, "unions_by_month", p, category_series(periods.shares(&stats.unions_by_month, 12), &months(i18n)), "stats.unit.percent")}
-                {line_card(i18n, "union_duration", p, single("union_duration", &stats.union_duration), "stats.unit.years")}
-                {line_card(i18n, "children_per_union", p, single("children_per_union", &stats.children_per_union), "stats.unit.children")}
-                {line_card(i18n, "birth_spacing", p, single("birth_spacing", &stats.birth_spacing), "stats.unit.months")}
-                {line_card(i18n, "first_last_child_gap", p, single("first_last_child_gap", &stats.first_last_child_gap), "stats.unit.months")}
-                {line_card(i18n, "spouse_age_gap", p, single("spouse_age_gap", &stats.spouse_age_gap), "stats.unit.months")}
-            }
-        }
-    }
-}
-
-// ── Distributions ───────────────────────────────────────────────────────
-
-fn event_type_label(i18n: &I18n, label: &str) -> String {
-    serde_json::from_value::<EventType>(serde_json::Value::String(label.to_string()))
-        .map(|kind| i18n.t(event_type_label_key(kind)))
-        .unwrap_or_else(|_| label.to_string())
-}
-
-fn render_distributions(stats: &TreeStatistics, i18n: &I18n) -> Element {
-    let i18n = *i18n;
-    let total: i64 = stats.event_types.iter().map(|e| e.count).sum();
-    let types: Vec<(String, i64)> = stats
-        .event_types
-        .iter()
-        .take(10)
-        .map(|e| (event_type_label(&i18n, &e.label), e.count))
-        .collect();
-    let children: Vec<(String, i64)> = stats
-        .children_histogram
-        .iter()
-        .enumerate()
-        .filter(|(_, unions)| **unions > 0)
-        .map(|(n, unions)| (n.to_string(), *unions))
-        .collect();
-    rsx! {
-        section { class: "stats-section",
-            h2 { class: "stats-section-title", {i18n.t("stats.section.events")} }
-            div { class: "stats-grid",
-                {donut_card_noted(&i18n, "event_types", types, Some(i18n.t_plural("stats.events_total", total as usize)))}
-                ChartCard {
-                    title: i18n.t("stats.chart.children_histogram"),
-                    hint: i18n.t("stats.hint.children_histogram"),
-                    empty: children.is_empty(),
-                    i18n,
-                    BarChart { items: children }
-                }
-            }
-        }
+        })}
     }
 }
 
@@ -1110,24 +1238,12 @@ fn render_lists(
         (ListTab::OldestAlive, "stats.records.oldest_alive"),
         (ListTab::LongestLives, "stats.records.longest_lives"),
         (ListTab::LargestFamilies, "stats.records.largest_families"),
-        (ListTab::Pyramid, "stats.records.pyramid"),
     ];
     let person_link = |p: &StatPerson| Route::PersonDetail {
         tree_id: tree_id.to_string(),
         person_id: p.person_id.to_string(),
     };
     let body = match tab() {
-        ListTab::Pyramid => rsx! {
-            if stats.pyramid.is_empty() {
-                p { class: "stats-empty", {i18n.t("stats.empty")} }
-            } else {
-                Pyramid {
-                    bands: stats.pyramid.clone(),
-                    men: i18n.t("stats.series.men"),
-                    women: i18n.t("stats.series.women"),
-                }
-            }
-        },
         ListTab::Unions => rsx! {
             table { class: "stats-table",
                 tbody {

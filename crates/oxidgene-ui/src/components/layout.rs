@@ -5960,12 +5960,18 @@ pub const LAYOUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         gap: 8px;
-        margin: 0 0 0 auto;
         font-size: 0.8rem;
         color: var(--text-secondary);
     }
 
-    .stats-interval select { width: auto; }
+    /* Compact in the ruler bar: the app-wide form field is sized for forms. */
+    .stats-interval select {
+        width: auto;
+        padding: 3px 8px;
+        font-size: 0.8rem;
+    }
+
+    .stats-tabs { margin-bottom: 20px; }
 
     /* The ruler choosing the years of the period charts stays in view while
        they scroll by, and leaves with them. */
@@ -5974,7 +5980,7 @@ pub const LAYOUT_STYLES: &str = r#"
         top: 0;
         z-index: 5;
         display: grid;
-        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        grid-template-columns: auto auto minmax(0, 1fr) auto auto;
         align-items: center;
         gap: 8px 14px;
         margin-bottom: 20px;
@@ -6098,8 +6104,6 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-secondary);
         cursor: pointer;
     }
-
-    .stats-option + .stats-interval { margin-left: 16px; }
 
     .stats-tiles {
         display: grid;
@@ -6455,8 +6459,11 @@ pub const LAYOUT_STYLES: &str = r#"
         .stats-grid-3,
         .stats-rare,
         .stats-places { grid-template-columns: minmax(0, 1fr); }
-        .stats-timeline { grid-template-columns: auto minmax(0, 1fr) auto; }
+        /* The years, the interval and the button on one line, the ruler
+           on its own below them. */
+        .stats-timeline { grid-template-columns: minmax(0, 1fr) auto auto; }
         .stats-timeline-title { display: none; }
+        .stats-timeline .stats-ruler { grid-column: 1 / -1; grid-row: 2; }
     }
 
 "#;

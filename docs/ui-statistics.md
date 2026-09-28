@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
-description: "Tree statistics page: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
+description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:59:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:18:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -38,54 +38,57 @@ language (which names the countries), asks again.
 
 ```
 +----------------------------------------------------------------------+
-| NAVBAR                                                                |
-| [logo] tree / Statistics   [x] Approximate dates  Interval: [25 v]  |
+| [logo] tree / Statistics                        [x] Approximate dates |
 +----------------------------------------------------------------------+
-|  Overview       [persons] [unions] [places] [sources] [years] ...    |
-|                 [% dated births] [% dated deaths] [% no parent] ...  |
-|                 [age at death] [first union] [generation] [children] |
+| Overview | Population | Families | Places | Names and occ. | Records |
 +----------------------------------------------------------------------+
-|  Places                                                               |
-|  +---------------------------------------+  1. Place A          412  |
-|  |   heat map over country borders       |  2. Place B          201  |
-|  |   (numbered markers for the top 10)   |  ...                       |
-|  +---------------------------------------+  38 places not located     |
-|  [births by country] [births by region] [births by subdivision]      |
+|  (Population and Families tabs only)                                  |
+|  Years 1600–2026 |--750--[=====1600=====1800====]--| Interval [25 v] [All] |
 +----------------------------------------------------------------------+
-|  Names and occupations  [donut] [donut] [donut] [donut] [rare names] |
-+----------------------------------------------------------------------+
-|  Years 1712–1850  |--1700---[====1750=====1800====]--1850--| [All]  |
-|  Persons            [lines] [line] [lines] [lines] [lines] ...       |
-|  Families           [lines] [lines] [lines] [line] [line] ...        |
-+----------------------------------------------------------------------+
-|  Events and families    [event types donut] [children per union]     |
-|  Records                [card] [card] [card] ...                     |
-|  Notable records    tabs: latest births · unions · deaths · oldest   |
-|        possibly alive · longest lives · largest families · pyramid   |
+|  Block title                                                          |
+|  [chart] [chart]                                                      |
+|  Block title                                                          |
+|  [chart] [chart] ...                                                  |
 +----------------------------------------------------------------------+
 ```
 
-Charts sit two per row on wide screens and one per row below 900px. Each has
-a title and a `?` hint explaining how it is computed (§7).
+The page is split into **tabs**, one per kind of statistics, each made of
+titled blocks:
 
-The **interval** selector (10, 25, 50 or 100 years; 25 by default) sets the
-width of the periods every time chart groups its values by. The
-**approximate dates** box lets ages and averages also use dates about,
-calculated or estimated (§7); it is off by default. Both choices are kept
-per viewer in local storage.
+| Tab | Blocks |
+|-----|--------|
+| Overview | Counts, Completeness, Averages (§3), Events (the event types donut) |
+| Population | Births and deaths (events per period, sex ratio at birth, births by month, mortality); Length of life (age at death by period of death and by generation, age pyramid) |
+| Families | Unions (age at the first union, duration, weekdays, months, spouses' age gap); Children (children per union, unions by number of children, birth spacing, first–last child gap, parents' age at the first and last child and at every child) |
+| Places | Map of the places (§4.1, §4.2), Births by area (§4.3) |
+| Names and occupations | Family names and occupations; Given names (§5) |
+| Records and lists | Records (§8), Notable records (§9) |
 
-The **year ruler**, above the Persons and Families sections, chooses the
-first and the last year their period charts cover. It spans the years any
-of those charts has a value for; two handles move to the year, by pointer
-or by the arrow keys, and never cross. Its ticks mark the multiples of the
-interval, labelled so that no more than twelve labels show. The chosen
-years are printed beside it. The first view starts at the first 25-year
-span holding at least 1% of the tree's dated events and runs to the last
-year, so a few early records (a medieval line of ancestors) do not stretch
-the axis over sparse centuries; **All years** widens it to the whole span.
-The ruler stays pinned at the top while those two sections scroll by. The
-range lasts for the visit; it is not stored. The overview, the map, the
-donuts, the records and the lists do not depend on it.
+The tab shown is kept per viewer in local storage; the first visit opens
+the Overview. Charts sit two per row on wide screens and one per row below
+900px. Each has a title and a `?` hint explaining how it is computed (§7).
+
+The **approximate dates** box, in the topbar, lets ages and averages also
+use dates about, calculated or estimated (§7); it is off by default and
+applies to every tab.
+
+The Population and Families tabs open on a bar that governs their period
+charts (§6). Its **interval** selector (10, 25, 50 or 100 years; 25 by
+default) sets the width of the periods the charts group their values by.
+Both choices are kept per viewer in local storage.
+
+The **year ruler**, in the same bar, chooses the first and the last year
+the period charts cover. It spans the years any of those charts has a
+value for; two handles move to the year, by pointer or by the arrow keys,
+and never cross. Its ticks mark the multiples of the interval, labelled so
+that no more than twelve labels show. The chosen years are printed beside
+it. The first view starts at the first 25-year span holding at least 1% of
+the tree's dated events and runs to the last year, so a few early records
+(a medieval line of ancestors) do not stretch the axis over sparse
+centuries; **All years** widens it to the whole span. The bar stays pinned
+at the top while the charts scroll by. The range is shared by the two tabs
+and lasts for the visit; it is not stored. The age pyramid and the unions
+by number of children cover every year and do not depend on it.
 
 ## 3. Key figures
 
@@ -158,29 +161,31 @@ how many there are.
 
 The period charts sit under the year ruler (§2):
 
-| Section | Chart | Kind |
-|---------|-------|------|
-| Persons | Births, baptisms, unions, deaths and burials per period | Lines (5) |
-| Persons | Sex ratio at birth: boys born per 100 girls born | Line |
-| Persons | Average age at death, men and women, per period of death | Lines |
-| Persons | Average age at death, men and women, per period of birth (by generation) | Lines |
-| Persons | Infant and child mortality: share of the births followed by a death before one and before five years | Lines (2) |
-| Persons | Births by month, share of each month per period | Lines (12) |
-| Persons | Parents' average age at the first and at the last child, per period of that birth | Lines (4) |
-| Persons | Fathers' and mothers' average age at each child's birth, per period of that birth | Lines (2) |
-| Families | Average age at the first union, men and women, per period of the union | Lines |
-| Families | Unions by weekday, share per period | Lines (7) |
-| Families | Unions by month, share per period | Lines (12) |
-| Families | Average duration of a union, per period of the union | Line |
-| Families | Average number of children per union, per period of the union | Line |
-| Families | Average time between two births in a family, in months | Line |
-| Families | Average gap between the first and the last child, in months | Line |
-| Families | Average age difference between spouses, in months | Line |
+| Tab | Block | Chart | Kind |
+|-----|-------|-------|------|
+| Population | Births and deaths | Births, baptisms, unions, deaths and burials per period | Lines (5) |
+| Population | Births and deaths | Sex ratio at birth: boys born per 100 girls born | Line |
+| Population | Births and deaths | Births by month, share of each month per period | Lines (12) |
+| Population | Births and deaths | Infant and child mortality: share of the births followed by a death before one and before five years | Lines (2) |
+| Population | Length of life | Average age at death, men and women, per period of death | Lines |
+| Population | Length of life | Average age at death, men and women, per period of birth (by generation) | Lines |
+| Families | Unions | Average age at the first union, men and women, per period of the union | Lines |
+| Families | Unions | Average duration of a union, per period of the union | Line |
+| Families | Unions | Unions by weekday, share per period | Lines (7) |
+| Families | Unions | Unions by month, share per period | Lines (12) |
+| Families | Unions | Average age difference between spouses, in months | Line |
+| Families | Children | Average number of children per union, per period of the union | Line |
+| Families | Children | Average time between two births in a family, in months | Line |
+| Families | Children | Average gap between the first and the last child, in months | Line |
+| Families | Children | Parents' average age at the first and at the last child, per period of that birth | Lines (4) |
+| Families | Children | Fathers' and mothers' average age at each child's birth, per period of that birth | Lines (2) |
 
-Below them, **Events and families** holds a donut of the ten most frequent
-event types (each event counted once, a family event once however many
-spouses carry it, with the total under it) and a bar chart of the unions by
-number of children.
+Beside them, the Population tab holds the **age pyramid** (persons by age
+at death in five-year bands, men to the left and women to the right) and
+the Families tab a bar chart of the unions by
+number of children. The Overview holds a donut of the ten most frequent
+event types, each event counted once (a family event once however many
+spouses carry it), with the total under it.
 
 Donuts show a legend with each value and its count. Line charts share one
 x-axis of periods, skip periods without data rather than drawing them as
@@ -266,8 +271,6 @@ profile), the date and the place:
 - **Longest lives**: the greatest ages at death, with birth and death dates.
 - **Largest families**: the unions with the most children, with both
   spouses, the union date and the number of children.
-- **Age pyramid**: persons by age at death in five-year bands, men to the
-  left and women to the right.
 
 ## 10. States
 
