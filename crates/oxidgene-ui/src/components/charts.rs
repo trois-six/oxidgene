@@ -265,6 +265,19 @@ fn format_value(value: f64) -> String {
 
 /// The most year labels a [`YearRuler`] prints; ticks beyond are unlabelled.
 const RULER_LABELS: i32 = 12;
+/// The width of a [`YearRuler`] handle, in pixels (`.stats-ruler-input`).
+/// A native slider's handle travels from half its width to the width minus
+/// half, so the ticks and the range are laid out on that span.
+const RULER_THUMB: f64 = 16.0;
+
+/// Where a share (0 to 100) of the ruler falls, as a CSS length.
+fn place(percent: f64) -> String {
+    format!(
+        "calc({half}px + (100% - {RULER_THUMB}px) * {share})",
+        half = RULER_THUMB / 2.0,
+        share = percent / 100.0
+    )
+}
 
 /// A timeline from `min` to `max` with two handles choosing the first and
 /// the last year shown, to the year. Ticks mark the multiples of `interval`,
@@ -301,13 +314,13 @@ pub fn YearRuler(
             div { class: "stats-ruler-track" }
             div {
                 class: "stats-ruler-range",
-                style: "left: {at(from)}%; width: {at(to) - at(from)}%",
+                style: "left: {place(at(from))}; width: calc((100% - {RULER_THUMB}px) * {(at(to) - at(from)) / 100.0})",
             }
             for year in ticks {
                 div {
                     key: "{year}",
                     class: if labelled(year) { "stats-ruler-tick major" } else { "stats-ruler-tick" },
-                    style: "left: {at(year)}%",
+                    style: "left: {place(at(year))}",
                     if labelled(year) {
                         span { class: "stats-ruler-label", "{year}" }
                     }

@@ -6001,13 +6001,14 @@ pub const LAYOUT_STYLES: &str = r#"
     .stats-ruler-track,
     .stats-ruler-range {
         position: absolute;
-        top: 8px;
-        height: 4px;
-        border-radius: 2px;
+        top: 7px;
+        height: 6px;
+        border-radius: 3px;
     }
 
-    .stats-ruler-track { left: 0; right: 0; background: var(--border); }
-    .stats-ruler-range { background: var(--orange); }
+    .stats-ruler-track { left: 8px; right: 8px; background: var(--border); }
+    /* The chosen years stand out dark against the rest of the rule. */
+    .stats-ruler-range { background: var(--text-secondary); }
 
     .stats-ruler-tick {
         position: absolute;
@@ -6028,39 +6029,59 @@ pub const LAYOUT_STYLES: &str = r#"
         white-space: nowrap;
     }
 
-    /* Two native sliders share the track: only their thumbs take the
-       pointer, so either handle can be dragged. */
-    .stats-ruler-input {
+    /* Two native sliders share the track: each draws only its handle, and
+       only the handles take the pointer, so either can be dragged. The
+       selector outranks the app-wide `input:not(…):not(…)` rule (0-2-1),
+       whose background and border would otherwise make the upper slider
+       hide the other handle and the chosen range. */
+    .stats-ruler input[type="range"].stats-ruler-input {
         position: absolute;
         inset: 0;
         width: 100%;
+        height: 20px;
         margin: 0;
-        background: none;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
         pointer-events: none;
         -webkit-appearance: none;
         appearance: none;
     }
 
-    .stats-ruler-input::-webkit-slider-runnable-track { background: none; }
-    .stats-ruler-input::-moz-range-track { background: none; }
+    .stats-ruler-input::-webkit-slider-runnable-track {
+        height: 20px;
+        background: transparent;
+        border: none;
+    }
+
+    .stats-ruler-input::-moz-range-track {
+        height: 20px;
+        background: transparent;
+        border: none;
+    }
 
     .stats-ruler-input::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 14px;
-        height: 14px;
+        width: 16px;
+        height: 16px;
+        margin-top: 2px;
         border-radius: 50%;
         background: var(--orange);
         border: 2px solid var(--bg-card);
+        box-shadow: 0 0 0 1px var(--text-secondary);
         cursor: ew-resize;
         pointer-events: auto;
     }
 
     .stats-ruler-input::-moz-range-thumb {
-        width: 14px;
-        height: 14px;
+        width: 16px;
+        height: 16px;
         border-radius: 50%;
         background: var(--orange);
         border: 2px solid var(--bg-card);
+        box-shadow: 0 0 0 1px var(--text-secondary);
         cursor: ew-resize;
         pointer-events: auto;
     }
