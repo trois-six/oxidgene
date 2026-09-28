@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-526-09-28T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T15:00:00Z }
 ---
 
 
