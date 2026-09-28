@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T19:55:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:16:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -186,7 +186,22 @@ keys; the host pays for no model.
 Deferred: photo animation, per-account key storage (EPIC G), local model
 runtimes, sending tree context with an analysis.
 
-## 11. Post-MVP: asynchronous processing
+## 11. Planned: DNA kits
+
+Specified in [DNA Kits](dna.md): consumer raw data attached to persons,
+processed locally only, desktop first.
+
+- [ ] Phase 1: import and attach kits (five chip layouts and Y-STR),
+  encrypted storage, consent, real deletion, export.
+- [ ] Phase 2: Y and mtDNA haplogroups, Y-STR distance.
+- [ ] Phase 3: matching between the tree's kits, cross-checked with kinship;
+  X-DNA; chromosome browser; triangulation.
+- [ ] Phase 4: continental ancestry estimate.
+
+Before phase 2 and 3: confirm the licences of PhyloTree Build 17 and of the
+HapMap genetic map.
+
+## 12. Post-MVP: asynchronous processing
 
 - [ ] Define queue and worker architecture without a second source of truth.
 - [ ] Add chunked and resumable media uploads.
@@ -194,7 +209,7 @@ runtimes, sending tree context with an analysis.
 - [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
 
-## 12. Definition of done
+## 13. Definition of done
 
 An item is complete only when implementation and specifications agree; i18n
 keys have English/French parity; examples and artifacts are anonymized; REST
