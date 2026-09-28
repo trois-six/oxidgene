@@ -146,7 +146,7 @@
       "Ackerbürgerin",
       "Ackerbürgersmann"
     ],
-    "label": "Farming burgher (Ackerbürger)",
+    "label": "Ackerbürger (farming burgher)",
     "summary": "Citizen of a small town who lived mainly from farming the town's fields.",
     "text": "The Ackerbürger holds the citizenship of a town but lives mainly from working fields and meadows in the town's territory, keeping his livestock in town, in barns and stables behind his house. Ackerbürger were especially numerous in the small country towns of central and eastern Germany, the so-called Ackerbürgerstädte, where they often farmed alongside a craft."
   },
@@ -653,7 +653,7 @@
       "Leibzüchter",
       "Altbauer"
     ],
-    "label": "Retired farmer (Altsitzer)",
+    "label": "Altsitzer (retired farmer)",
     "summary": "Retired farmer living on a life annuity (Altenteil) after handing over the farm.",
     "text": "The Altsitzer has handed over his farm, usually to a child, and lives on the Altenteil, a right fixed in the transfer contract to lodging (often in a separate dower house), food, firewood and sometimes some land. The terms vary by region: Altenteiler and Leibzüchter in the north, Auszügler in central Germany, Ausnehmer or Austragler in Bavaria and Austria, Ausgedinger in Bohemia and Silesia. In parish registers the title often marks older persons at death or remarriage."
   },
@@ -1924,7 +1924,7 @@
       "Beiwohner",
       "Pfahlbürger"
     ],
-    "label": "Resident without citizenship (Beisasse)",
+    "label": "Beisasse (resident without citizenship)",
     "summary": "Inhabitant of a town or community without full citizenship, tolerated in return for a protection fee.",
     "text": "The Beisasse lives in a town or village without holding full civic or communal rights; he paid an annual protection fee (Schutzgeld), had no vote and often only limited rights to communal property and to practising a guild trade. The Beisassen included day labourers, servants with their own household and newcomers. The terms Schutzbürger or Schutzverwandter are found in many German towns."
   },
@@ -2199,7 +2199,7 @@
       "Blaufärber",
       "Blaudruckermeister"
     ],
-    "label": "Blueprint dyer (Blaudrucker)",
+    "label": "Blaudrucker (blueprint dyer)",
     "summary": "Dyer who printed cloth with a resist paste and dyed it in indigo, leaving a white pattern on a blue ground.",
     "text": "The Blaudrucker prints a dye-resistant paste (Papp) onto linen or cotton with carved wooden blocks and then dyes the cloth in the indigo vat; once the paste is washed out, the pattern appears white on a blue ground. Blueprint cloth was widespread from the 18th to the 20th century for work and regional costume and for household linen. The craft was recognised by UNESCO in 2018 as intangible cultural heritage of Germany, Austria, Czechia, Slovakia and Hungary."
   },
@@ -2944,7 +2944,7 @@
       "Brinker",
       "Anbauer"
     ],
-    "label": "Edge settler (Brinksitzer)",
+    "label": "Brinksitzer (edge settler)",
     "summary": "Late settler of Lower Saxony and Westphalia who set up on the village edge (Brink) with little land.",
     "text": "The Brinksitzer settled on the Brink, a piece of communal land at the edge of the village, usually only between the 16th and 18th centuries, when the old farmsteads had already been allotted. He owned a small house with a garden and hardly any land and ranked below the Kötter; he often lived from a craft or day labour. Settlers who arrived even later were called Anbauer."
   },
@@ -3130,7 +3130,7 @@
       "Bödner",
       "Büdnereibesitzer"
     ],
-    "label": "Smallholder (Büdner)",
+    "label": "Büdner (smallholder)",
     "summary": "Holder of a Büdnerei, a small holding with a house, garden and some land, in Mecklenburg and Pomerania.",
     "text": "The Büdner owns a Büdnerei, a small property with a dwelling, garden and a plot of arable land usually sufficient for a cow or a few goats. Büdnereien were laid out in Mecklenburg especially from the 18th century; their holders ranked above cottagers and lodgers but below farmers and often worked as day labourers or craftsmen."
   },
@@ -4604,7 +4604,7 @@
       "Vorbeter",
       "Synagogenkantor"
     ],
-    "label": "Cantor (Chasan)",
+    "label": "Chasan (cantor)",
     "summary": "Prayer leader and cantor who led the service in the synagogue.",
     "text": "The Chasan leads the congregation's prayer in the synagogue, chants the liturgical texts and performs the traditional melodies on holy days. In larger communities he was a trained cantor, often with a choir; in small rural communities the prayer leader (Vorbeter) usually held the office together with that of religious teacher and ritual slaughterer."
   },
@@ -7097,7 +7097,7 @@
       "Deputatist",
       "Deputatistin"
     ],
-    "label": "Estate labourer paid in kind (Deputant)",
+    "label": "Deputant (estate labourer paid in kind)",
     "summary": "Estate labourer receiving a large part of his wages in kind (Deputat).",
     "text": "The Deputant works permanently on an estate, above all in the areas east of the Elbe in the 19th and early 20th centuries, and receives besides a small cash wage the Deputat: fixed quantities of grain, potatoes, firewood and milk, as well as a dwelling and often a garden plot. His position resembles that of the Instmann, with greater emphasis on payment in kind."
   },
@@ -7249,7 +7249,7 @@
       "Diakonissenschwester",
       "Probeschwester"
     ],
-    "label": "Deaconess (Diakonisse)",
+    "label": "Diakonisse (deaconess)",
     "summary": "Protestant sister doing nursing and social work within a motherhouse community.",
     "text": "The Diakonisse is an unmarried Protestant woman who joins a deaconess motherhouse, wears its habit and works in nursing, childcare, parish care or teaching; instead of wages she received maintenance and old-age provision from the motherhouse. The first motherhouse was founded in 1836 at Kaiserswerth near Düsseldorf; the movement spread rapidly through the German-speaking lands and beyond."
   },
@@ -7614,7 +7614,7 @@
       "Freigärtner",
       "Angerhäusler"
     ],
-    "label": "Threshing cottager (Dreschgärtner)",
+    "label": "Dreschgärtner (threshing cottager)",
     "summary": "Silesian smallholder (Gärtner) who threshed for the manor in return for a share of the grain.",
     "text": "In Silesia \"Gärtner\" does not denote a gardener but a smallholder with a house and garden. The Dreschgärtner was obliged to thresh the grain on the manorial estate and help with the harvest, receiving in return a fixed share of the threshed corn; the Freigärtner was exempt from such services. Below the Gärtner ranked the Häusler and Angerhäusler."
   },
@@ -8083,7 +8083,7 @@
       "Losmann",
       "Inquilinus"
     ],
-    "label": "Lodger (Einlieger)",
+    "label": "Einlieger (lodger)",
     "summary": "Landless inhabitant living as a lodger in another person's house, without a house of his own.",
     "text": "The Einlieger owns neither house nor land and lives in a room in the house of a farmer or cottager in return for rent or labour; he earns his living as a day labourer. Einlieger formed the lowest layer of the village population. Regionally they were called Inwohner or Inmann (Bavaria, Austria), Hausgenosse, Herberger or, in East Prussia, Losmann; Latin parish registers often use \"inquilinus\"."
   },
@@ -9799,7 +9799,7 @@
     "aliases": [
       "Hoop-wood maker"
     ],
-    "label": "Hoop-wood cutter (feuillardier)",
+    "label": "Feuillardier (hoop-wood cutter)",
     "summary": "Forest craftsman who shapes wooden circles from chestnut wood (hoop-wood) intended for cask binding.",
     "text": "The feuillardier exploits chestnut coppices — especially in Charente, Limousin, and northern Dordogne — to produce hoop-wood: stems split then bent into circles, used by the cooper to bind barrels and baskets. The term appeared only around 1850, though the trade is older; the number of feuillardiers, which reached 1,280 in 1906, later declined with competition from iron hoop-wood."
   },
@@ -9814,7 +9814,7 @@
   },
   "fevre_marechal": {
     "aliases": [],
-    "label": "Smith-farrier (fèvre maréchal)",
+    "label": "Fèvre maréchal (smith-farrier)",
     "summary": "Craftsman combining the skills of blacksmith and farrier, serving a rural community.",
     "text": "The fèvre-maréchal combined general iron work — tools, fittings, various repairs — with farrier work shoeing horses, two activities often distinct in towns but merged in small rural communities where a single craftsman had to answer all metallurgical needs. \"Fèvre\" comes from Latin faber, craftsman."
   },
@@ -9826,13 +9826,13 @@
       "Fiakerfahrer",
       "Fiakerbesitzer"
     ],
-    "label": "Hackney coachman (Fiaker)",
+    "label": "Fiaker (hackney coachman)",
     "summary": "Driver of a two-horse hired carriage in Vienna; also the name of the carriage itself.",
     "text": "The Fiaker drives a licensed two-horse hired carriage in Vienna, carrying passengers for payment; the name, borrowed from the Parisian \"fiacre\", denotes both the carriage and the coachman. Fiaker existed in Vienna from the late 17th century; they formed a well-known occupational group with customs of their own and still survive today as tourist carriages."
   },
   "fidelier": {
     "aliases": [],
-    "label": "Pasta maker (fidelier)",
+    "label": "Fidelier (pasta maker)",
     "summary": "Provençal craftsman who produces food pasta, particularly fidéou (fine vermicelli), from durum wheat.",
     "text": "The fidelier makes food pasta, particularly fidéou or fidés — fine vermicelli — typical of Provençal and more broadly Mediterranean cuisine (the word fideos is found in Catalan and Spanish). This artisanal activity, ancestor of industrial pasta factories, allowed long-term wheat preservation when transformed."
   },
@@ -9865,7 +9865,7 @@
     "aliases": [
       "Figuriste"
     ],
-    "label": "Figurine maker (figuriniste)",
+    "label": "Figuriniste (figurine maker)",
     "summary": "Creator of figurines or miniature costumes, for theatre, cinema or decorative sculpture.",
     "text": "The figuriniste (or figuriste) designs and creates figurines — small sculptures representing characters or scenes — or designs costume designs for spectacles, depending on context. The term covers both ancient art craftsmanship (nativity-figure maker, religious-figure sculptor) and contemporary theatre craft."
   },
@@ -9873,7 +9873,7 @@
     "aliases": [
       "Filandier"
     ],
-    "label": "Hemp/linen spinner (filandière)",
+    "label": "Filandière (hemp/linen spinner)",
     "summary": "Spinner specialized in spinning linen or hemp, a term also at the origin of the expression 'spider-spinner.'",
     "text": "The filandière spins linen or hemp tow with a spindle or spinning wheel, work traditionally female and often practised at home to supplement agricultural income. The word also gave rise to the expression \"araignée filandière\" (spinner spider), naming certain web-spinning spiders, by analogy with the thread produced. \"Filandier\" is its masculine form, rarer."
   },
@@ -9881,13 +9881,13 @@
     "aliases": [
       "Filassière"
     ],
-    "label": "Flax/hemp preparer (filassier)",
+    "label": "Filassier (flax/hemp preparer)",
     "summary": "Textile worker who prepares flax (linen or hemp fibre) by breaking then combing, before spinning.",
     "text": "The filassier transforms retting-treated linen or hemp stems into flax (fibre): he breaks them to separate the textile fibre from the woody part, then combs it with a hackle to untangle and align the strands. The feminine \"filassière\" denoted more specifically the workers responsible for fine combing, the step following before spinning proper."
   },
   "filateur": {
     "aliases": [],
-    "label": "Spinning-mill owner (filateur)",
+    "label": "Filateur (spinning-mill owner)",
     "summary": "Industrialist directing a spinning mill, factory for transforming textile fibres into thread.",
     "text": "The filateur owns or directs a spinning mill, an industrial establishment equipped with spinning machines (mechanized from the late 18th century onward) transforming cotton, wool or linen into thread. The term thus designates rather an industrial entrepreneur than a simple spinner worker."
   },
@@ -9895,19 +9895,19 @@
     "aliases": [
       "Filatière"
     ],
-    "label": "Sayette-thread merchant (filatier)",
+    "label": "Filatier (sayette-thread merchant)",
     "summary": "Amiens merchant who sells sayette thread, supplying sayette weavers with fibre.",
     "text": "The filatier commercializes sayette thread — worsted wool thread mixed with a silk thread — used in sayette-making, a textile industry that developed in Amiens from the 16th century onward thanks to the arrival of reformed artisans. He often distributed carded wool to home spinners before collecting and reselling the thread obtained."
   },
   "filatrice": {
     "aliases": [],
-    "label": "Silk thread-winder (filatrice)",
+    "label": "Filatrice (silk thread-winder)",
     "summary": "Worker who unwinds thread from silk cocoons by immersion in hot water.",
     "text": "The filatrice works in a silk-spinning mill: she plunges cocoons in hot water to soften the gum binding the fibres, then unwinds several strands simultaneously to form a continuous, regular silk thread. This trade, essentially female, supported the rise of sericulture in south-eastern France, notably around Lyon."
   },
   "fileresse": {
     "aliases": [],
-    "label": "Silk spinner (fileresse)",
+    "label": "Fileresse (silk spinner)",
     "summary": "Worker spinner unwinding and spinning silk, named according to the spindle size employed.",
     "text": "The fileresse is a worker spinner unwinding and spinning silk, her designation varying according to the spindle size she employed."
   },
@@ -9915,7 +9915,7 @@
     "aliases": [
       "Silk thread spinner with large and small spindles"
     ],
-    "label": "Silk spinner with various spindle sizes (fileresse de soie à grands et petits fuseaux)",
+    "label": "Fileresse de soie à grands et petits fuseaux (silk spinner with various spindle sizes)",
     "summary": "Silk spinner using different spindle sizes to produce silk threads of varying qualities.",
     "text": "The silk spinner with various spindle sizes adapted her tool to the result sought: the large spindle gave a thicker thread for common uses, the small spindle a finer thread reserved for precious fabrics. \"Fileresse\" is an old feminine form of \"fileur,\" now replaced by \"fileuse.\""
   },
@@ -9924,7 +9924,7 @@
       "Filetière",
       "Filotier"
     ],
-    "label": "Fishing-net maker (filetier)",
+    "label": "Filetier (fishing-net maker)",
     "summary": "Craftsman making fishing nets, by knotting threads according to the mesh suited to each use.",
     "text": "The filetier knots and assembles threads (hemp, then cotton or nylon) to make fishing nets, whose mesh and size vary according to the species sought and the fishing technique employed. This know-how, long transmitted in fisherman families of Breton and Norman ports, has largely disappeared with industrialized net-making."
   },
@@ -9932,7 +9932,7 @@
     "aliases": [
       "Filtoupier"
     ],
-    "label": "Hemp beater (filetoupier)",
+    "label": "Filetoupier (hemp beater)",
     "summary": "Farm worker who beats hemp to separate seeds and prepare stems for retting.",
     "text": "The filetoupier participated in the first stages of hemp work: beating dried stems to detach seeds (hemp seed), before the stems themselves were retting in water to free the textile fibre. The word seems composed of \"fil\" (thread) and \"étoupe\" (coarse fibre residue of hemp or linen)."
   },
@@ -9940,7 +9940,7 @@
     "aliases": [
       "Filoire"
     ],
-    "label": "Rope spinner (fileur)",
+    "label": "Fileur (rope spinner)",
     "summary": "Cordage worker who regularly supplies the rope-works with fibres, controlling thread tension and regularity.",
     "text": "The fileur works in a rope-works: he supplies fibres (most often hemp) to the spinning mechanism, ensuring regular supply to obtain cordage of constant cross-section. This post, exercised walking backward along the rope-works over long distances, gave its name to the elongated \"rope-works\" typical of ports (such as that at Rochefort)."
   },
@@ -10008,31 +10008,31 @@
   },
   "fille_de_confiance": {
     "aliases": [],
-    "label": "Trusted servant (fille de confiance)",
+    "label": "Fille de confiance (trusted servant)",
     "summary": "Domestic servant occupying a privileged position in the household, entrusted with delicate tasks.",
     "text": "The trusted servant enjoyed a privileged position among domestics: her masters entrusted her with sensitive tasks (handling money, supervising children, overseeing other domestics) supposing tested loyalty and discretion, often after many years of service in the same household."
   },
   "fille_de_friture": {
     "aliases": [],
-    "label": "Fish fryer (fille de friture)",
+    "label": "Fille de friture (fish fryer)",
     "summary": "Worker specialized in frying fish, in a cannery or in a popular eating-house.",
     "text": "The fish fryer prepares and fries fish, whether in a small popular-eating establishment or in a cannery, where frying could precede canning. This work was found notably in fishing ports and popular quarters near market halls."
   },
   "fille_de_peine": {
     "aliases": [],
-    "label": "Drudge (fille de peine)",
+    "label": "Fille de peine (drudge)",
     "summary": "Servant assigned to the most taxing domestic work: heavy cleaning, water-carrying, physical labour.",
     "text": "The drudge occupied the lowest rung of the domestic hierarchy: entrusted with the hardest and least valued work — laundry, water-carrying, floor and privy maintenance — as opposed to the chambermaid or trusted servant, closer to household masters."
   },
   "fille_de_quartier": {
     "aliases": [],
-    "label": "Cleaning servant (fille de quartier)",
+    "label": "Fille de quartier (cleaning servant)",
     "summary": "Belgian domestic employee responsible for maintaining an apartment or part of a large dwelling, often temporarily.",
     "text": "The cleaning servant, a term mainly used in Belgium, maintains an apartment or section of a large house, frequently part-time or seasonally, unlike a servant permanently attached to a single household."
   },
   "fille_de_salle": {
     "aliases": [],
-    "label": "Hospital cleaner (fille de salle)",
+    "label": "Fille de salle (hospital cleaner)",
     "summary": "Housemaid and nursing aide in a hospital.",
     "text": "The hospital cleaner ensures housekeeping and assists carers in a hospital ward, an old function at the origin of the nursing aide profession."
   },
@@ -10055,37 +10055,37 @@
   },
   "finisseuse": {
     "aliases": [],
-    "label": "Finisher (finisseuse)",
+    "label": "Finisseuse (finisher)",
     "summary": "Worker responsible for finishing operations on a product, notably in textiles or clothing-making.",
     "text": "The finisher performs final retouches on a product before sale: in textiles and clothing-making in particular, she ensures finishing (hems, buttonholes, quality checks) after main assembly by other workers."
   },
   "fioutier": {
     "aliases": [],
-    "label": "Petty merchant (fioutier)",
+    "label": "Fioutier (petty merchant)",
     "summary": "Small trader or regional artisan selling miscellaneous goods and everyday objects.",
     "text": "The term fioutier, rare and little documented, seems to denote a small trader or itinerant artisan offering miscellaneous goods and everyday objects to a local clientele, as a settled peddler might. Its precise regional origin and exact field of activity remain uncertain due to lack of reliable sources."
   },
   "flaconnier": {
     "aliases": [],
-    "label": "Bottle maker (flaconnier)",
+    "label": "Flaconnier (bottle maker)",
     "summary": "Maker of glass or metal bottles, for goldsmithing or perfume trade.",
     "text": "The flaconnier makes bottles in glass or metal, generally intended for goldsmithing or perfume trade."
   },
   "flanellier": {
     "aliases": [],
-    "label": "Flannel weaver (flanellier)",
+    "label": "Flanellier (flannel weaver)",
     "summary": "Weaver of flannel, a lightweight woollen fabric.",
     "text": "The flannel weaver weaves flannel, a lightweight carded-wool fabric, used for clothing and linen making."
   },
   "fletayeur": {
     "aliases": [],
-    "label": "Ferry operator (flétayeur)",
+    "label": "Flétayeur (ferry operator)",
     "summary": "Ferry operator, named after his boat the flette.",
     "text": "The ferry operator is a ferry operator whose boat, called \"flette,\" gave him his name."
   },
   "fletteur": {
     "aliases": [],
-    "label": "Glass edge finisher (fletteur)",
+    "label": "Fletteur (glass edge finisher)",
     "summary": "Glass worker who smooths glass edges with an abrasive band.",
     "text": "The glass edge finisher is a glassworker who smooths glass edges using an abrasive band, a finishing step in glassmaking."
   },
@@ -10102,13 +10102,13 @@
       "Flotteuse",
       "Raftsman"
     ],
-    "label": "Log driver (flotteur)",
+    "label": "Flotteur (log driver)",
     "summary": "Worker who conveys wood down rivers, from forest to towns or ports.",
     "text": "The log driver conveys wood on waterways, either in assembled log trains guided with poles, or in loose-log floating, to transport logs from distant forests to sawmills, shipyards or wood-consuming cities. The floating of wood for Paris from the Morvan, via the Yonne, is the most famous example, active until mid-19th century."
   },
   "fluqueur": {
     "aliases": [],
-    "label": "Waggon loader (fluqueur)",
+    "label": "Fluqueur (waggon loader)",
     "summary": "In the Amiens region, a waggon hand loading and unloading goods vehicles.",
     "text": "In the Amiens region, the fluqueur is a waggon hand charged with loading and unloading waggons and carts of goods."
   },
@@ -10150,25 +10150,25 @@
   },
   "fondeur_de_suif": {
     "aliases": [],
-    "label": "Tallow melter (fondeur de suif)",
+    "label": "Fondeur de suif (tallow melter)",
     "summary": "Founder of animal fats intended for candles and soap.",
     "text": "The tallow melter melts animal fats used for making candles and soap."
   },
   "fondeur_en_caracteres": {
     "aliases": [],
-    "label": "Type founder (fondeur en caractères)",
+    "label": "Fondeur en caractères (type founder)",
     "summary": "Maker of printing type.",
     "text": "The type founder makes printing type by casting lead in matrices, an occupation essential to printing before mechanical composition."
   },
   "forcat": {
     "aliases": [],
-    "label": "Galley slave (forçat)",
+    "label": "Forçat (galley slave)",
     "summary": "Criminal sentenced to the galleys then to deportation.",
     "text": "The galley slave is a criminal sentenced by justice to serve in the galleys, then later to deportation to a colonial penal colony; he is related to the galley rower and the transported prisoner."
   },
   "forcetier": {
     "aliases": [],
-    "label": "Tool maker (forcetier)",
+    "label": "Forcetier (tool maker)",
     "summary": "Maker of large iron tools, notably shears (forces) for cloth-shearers.",
     "text": "The tool maker fabricates large iron tools, in particular shears (large scissors) used by cloth-shearers."
   },
@@ -10193,13 +10193,13 @@
   },
   "foreur": {
     "aliases": [],
-    "label": "Cannon borer (foreur)",
+    "label": "Foreur (cannon borer)",
     "summary": "Worker in a boring-mill charged with boring cannon barrels from the foundry.",
     "text": "The cannon borer works in a boring-mill where he is charged with boring cannon barrels from the foundry, an operation that could be hand-worked or mechanically powered."
   },
   "foreur_de_bateaux": {
     "aliases": [],
-    "label": "Boat borer (foreur de bateaux)",
+    "label": "Foreur de bateaux (boat borer)",
     "summary": "Shipwright boring holes intended for wooden pegs and dowels.",
     "text": "The boat borer is a shipwright charged with boring, using an auger or hand-drill, holes intended to receive the wooden pegs and dowels assembling the hull."
   },
@@ -10224,25 +10224,25 @@
   },
   "forgeur_de_fiches": {
     "aliases": [],
-    "label": "Hinge maker (forgeur de fiches)",
+    "label": "Forgeur de fiches (hinge maker)",
     "summary": "In 18th-century Loire, maker of window and door hinges.",
     "text": "In 18th-century Loire, the hinge maker fabricates hinges (fiches) for windows and doors."
   },
   "formier": {
     "aliases": [],
-    "label": "Hat-form maker (formier)",
+    "label": "Formier (hat-form maker)",
     "summary": "Craftsman preparing wooden forms used to shape hats.",
     "text": "The hat-form maker prepares wooden forms on which hat-makers shape hats."
   },
   "formiere": {
     "aliases": [],
-    "label": "Mould maker (formière)",
+    "label": "Formière (mould maker)",
     "summary": "Worker who makes moulds (forms), notably in shoemaking or hat-making.",
     "text": "The mould maker shapes forms — wooden or metal moulds that give finished objects their geometry, whether the form of a shoe in shoemaking or of a hat in hat-making. The precise term depends on the context of the document where it appears, as several trades employed \"forms\" as basic tools."
   },
   "forneleur": {
     "aliases": [],
-    "label": "Lime-kiln worker (forneleur)",
+    "label": "Forneleur (lime-kiln worker)",
     "summary": "Worker in a lime-kiln.",
     "text": "The lime-kiln worker works in a lime-kiln, where he ensures the cooking of limestone to extract lime."
   },
@@ -10269,19 +10269,19 @@
     "aliases": [
       "Court fool"
     ],
-    "label": "Royal jester (fou du Roi)",
+    "label": "Fou du Roi (royal jester)",
     "summary": "Official fool at the court of French kings, from Charles V to Louis XIV.",
     "text": "The royal jester is the official fool at the court of French kings, an office attested from Charles V until Louis XIV, who abolished it."
   },
   "fouacier": {
     "aliases": [],
-    "label": "Bread maker (fouacier)",
+    "label": "Fouacier (bread maker)",
     "summary": "Merchant and/or maker of fouaces, dense-dough bread in star shape.",
     "text": "The fouace maker makes and/or sells fouaces, a kind of very dense-dough bread, of long shelf-life, traditionally shaped as a six-pointed star."
   },
   "foubier": {
     "aliases": [],
-    "label": "Regional artisan (foubier)",
+    "label": "Foubier (regional artisan)",
     "summary": "Regional artisan whose exact activity remains uncertain, probably linked to a local craft transmitted orally.",
     "text": "The term foubier is not reliably documented in consulted genealogical and lexicographic sources; it would denote an artisan practising a traditional trade using techniques specific to his region, without the exact nature of this activity being establishable with certainty."
   },
@@ -10289,13 +10289,13 @@
     "aliases": [
       "Foudroyeuse"
     ],
-    "label": "Large-cask maker (foudroyeur)",
+    "label": "Foudroyeur (large-cask maker)",
     "summary": "Cooper specialized in making foudres, large storage and wine-aging casks.",
     "text": "The large-cask maker builds foudres, casks of very large capacity (sometimes exceeding several thousand litres) used for wine or other liquid storage and aging in cellars, a technique close to coopering but adapted to much more massive wood pieces."
   },
   "fouleur": {
     "aliases": [],
-    "label": "Leather soaker (fouleur)",
+    "label": "Fouleur (leather soaker)",
     "summary": "Tawer who spreads and soaks hides in treatment vats.",
     "text": "The leather soaker is a tawer who spreads hides in vats where they undergo treatment, soaking them to arrange and work them thoroughly."
   },
@@ -10328,13 +10328,13 @@
   },
   "fourboutier": {
     "aliases": [],
-    "label": "Vegetable merchant (fourboutier)",
+    "label": "Fourboutier (vegetable merchant)",
     "summary": "Market gardener, vegetable merchant.",
     "text": "The vegetable merchant is a market gardener, vegetable seller whom he sometimes grew himself."
   },
   "fourgonnier": {
     "aliases": [],
-    "label": "Baker (fourgonnier)",
+    "label": "Fourgonnier (baker)",
     "summary": "Baker in charge of the oven and bread baking.",
     "text": "The baker is a baker charged with the oven and bread baking, wielding for this the fourgon, a kind of iron scraper used to rake the embers."
   },
@@ -10342,7 +10342,7 @@
     "aliases": [
       "Fournière"
     ],
-    "label": "Miller/Baker (fournier)",
+    "label": "Fournier (Miller/Baker)",
     "summary": "Baker or oven operator, often a manorial oven where villagers baked their bread.",
     "text": "The miller/baker operated a bread oven, whether his own business or the manorial oven where villagers were obliged, under the Ancien Régime, to bake their dough in exchange for a fee. The word is at the origin of many surnames (Fournier, Fornier) very common in France."
   },
@@ -10357,13 +10357,13 @@
   },
   "fourreux": {
     "aliases": [],
-    "label": "Fur merchant (fourreux)",
+    "label": "Fourreux (fur merchant)",
     "summary": "Fur merchant.",
     "text": "The fur merchant sells furs, to be distinguished from the furrier who works and makes them."
   },
   "foyalier": {
     "aliases": [],
-    "label": "Hearth/chimney artisan (foyalier)",
+    "label": "Foyalier (hearth/chimney artisan)",
     "summary": "Regional artisan linked to the building or upkeep of hearths and chimneys, according to local usage.",
     "text": "The term foyalier, little attested in old occupational dictionaries, would denote an artisan intervening in the building, upkeep or repair of domestic hearths and chimneys using techniques and needs specific to his region; its exact field of activity cannot be established with certainty due to lack of reliable sources."
   },
@@ -10371,7 +10371,7 @@
     "aliases": [
       "Fraizier"
     ],
-    "label": "Butcher (fraisier)",
+    "label": "Fraisier (butcher)",
     "summary": "Butcher, probably specialized in offal (tripe-seller).",
     "text": "The fraisier is a butcher, probably specialized in offal sales, to be linked with the tripe-seller."
   },
@@ -10379,43 +10379,43 @@
     "aliases": [
       "Frangeuse"
     ],
-    "label": "Fringe maker (frangeur)",
+    "label": "Frangeur (fringe maker)",
     "summary": "Craftsman specialized in making fringes, textile ornaments with hanging threads.",
     "text": "The fringe maker weaves or knots fringes — ornamental bands ending in hanging threads — used to border curtains, hangings, uniforms or liturgical ornaments. This trade falls under passementerie, like that of the braid-maker, but differs by the specific production of fringes rather than flat braids."
   },
   "frappeur": {
     "aliases": [],
-    "label": "Hammer-man (frappeur)",
+    "label": "Frappeur (hammer-man)",
     "summary": "Blacksmith who hammers the piece to be forged while another worker holds it.",
     "text": "The hammer-man is a blacksmith worker who hammers the piece to forge with a sledge or hammer at the forge exit, while another worker holds it with tongs."
   },
   "freineur": {
     "aliases": [],
-    "label": "Brake operator (freineur)",
+    "label": "Freineur (brake operator)",
     "summary": "Miner responsible for operating brakes on ore cars on inclined planes.",
     "text": "The brake operator is a miner responsible for operating the brakes on ore cars or wagons on mine inclined planes."
   },
   "fremailler": {
     "aliases": [],
-    "label": "Clasp maker (frémailler)",
+    "label": "Frémailler (clasp maker)",
     "summary": "Maker of fermaux: hooks, brooches, clasps fastening clothing.",
     "text": "The clasp maker makes fermaux (fermails), that is, clasps such as hooks, brooches and clasps, used for fastening clothing."
   },
   "fresquiste": {
     "aliases": [],
-    "label": "Fresco painter (fresquiste)",
+    "label": "Fresquiste (fresco painter)",
     "summary": "Painter of frescoes.",
     "text": "The fresco painter paints frescoes, a technique of mural painting executed on fresh plaster."
   },
   "fretier": {
     "aliases": [],
-    "label": "Barrel-lath cutter (frétier)",
+    "label": "Frétier (barrel-lath cutter)",
     "summary": "Cutter of chestnut laths intended for barrel-making.",
     "text": "The barrel-lath cutter cuts chestnut laths intended for barrel-making, preparatory work for coopering."
   },
   "fretteur": {
     "aliases": [],
-    "label": "Hemp fiber cleaner (fretteur)",
+    "label": "Fretteur (hemp fiber cleaner)",
     "summary": "Worker who clears hemp flax of the woody residue remaining after hackling.",
     "text": "The hemp fiber cleaner cleans hemp flax by beating or shaking it to detach the chènevotte, the brittle woody residues of the stem, to keep only the usable textile fibre for spinning. This step follows hackling and precedes combing with a hackle."
   },
@@ -10432,7 +10432,7 @@
   },
   "friteur": {
     "aliases": [],
-    "label": "Fish fryer (friteur)",
+    "label": "Friteur (fish fryer)",
     "summary": "Person keeping a fry house, selling fried fish and potatoes.",
     "text": "The fish fryer kept a fry house, stand selling fried fish and potatoes, the French equivalent of English \"fish and chips.\""
   },
@@ -10440,7 +10440,7 @@
     "aliases": [
       "Bressouse"
     ],
-    "label": "Fish fryer (friteuse)",
+    "label": "Friteuse (fish fryer)",
     "summary": "Worker in a fish cannery.",
     "text": "The fish fryer worked in a fish cannery, where she was charged with frying fish before canning."
   },
@@ -10448,7 +10448,7 @@
     "aliases": [
       "Fritier"
     ],
-    "label": "Fried fish seller (friturier)",
+    "label": "Friturier (fried fish seller)",
     "summary": "Seller of fried fish.",
     "text": "The fried fish seller sold fried fish, often at markets or seaside."
   },
@@ -10457,7 +10457,7 @@
       "Frocquetier",
       "Froquier"
     ],
-    "label": "Froc fabric weaver (froctier)",
+    "label": "Froctier (froc fabric weaver)",
     "summary": "Weaver or merchant of froc, coarse woollen fabric made notably in the Caux country (Normandy).",
     "text": "The froc fabric weaver (or froquier) worked froc, a coarse woollen fabric made in Bolbec, Gruchet and other Caux localities in Normandy. The term is attested in Seine-Maritime and Eure documents from the 18th century; it should not be confused with froc denoting monastic habit, though both words share the same root evoking rough woollen cloth."
   },
@@ -10475,7 +10475,7 @@
       "Mirror polisher",
       "Glass polisher"
     ],
-    "label": "Spectacle polisher (frotteur de lunettes)",
+    "label": "Frotteur de lunettes (spectacle polisher)",
     "summary": "Optician who smooths and polishes lens surfaces of spectacles and mirrors.",
     "text": "The spectacle polisher is an optician worker charged with smoothing and polishing lens surfaces of spectacles and mirrors."
   },
@@ -10484,13 +10484,13 @@
       "Fruiterer",
       "Fruitière"
     ],
-    "label": "Fruit seller / Cheese coop manager (fruitier)",
+    "label": "Fruitier (fruit seller / Cheese coop manager)",
     "summary": "Fruit merchant, or, in the Alps and Jura, head of a fruitière, collective cheese cooperative.",
     "text": "The fruit seller vends fruits at market or in shop; but in Jura, Alpine and Franche-Comté massifs, the word also denotes one managing a \"fruitière,\" a cooperative where several producers pooled their milk to collectively make large cheese wheels (Comté, Gruyère), a tradition dating to the Middle Ages."
   },
   "fumiste": {
     "aliases": [],
-    "label": "Chimney specialist (fumiste)",
+    "label": "Fumiste (chimney specialist)",
     "summary": "Craftsman who builds and maintains fireplaces, stoves and smoke ducts.",
     "text": "The chimney specialist installed and repaired fireplaces, stoves and smoke-duct outlets, a technical trade essential before the spread of central heating. The modern figurative sense of the word (\"unreliable person\") might come from a joke on itinerant chimney specialists of the 19th century, reputed sometimes unreliable in repair promises."
   },
@@ -10498,19 +10498,19 @@
     "aliases": [
       "Fusetier"
     ],
-    "label": "Spindle maker (fuselier)",
+    "label": "Fuselier (spindle maker)",
     "summary": "Maker of wooden spindles and distaffs from holly and other woods.",
     "text": "The spindle maker made spindles from holly wood and distaffs, tools used by spinners."
   },
   "fustier": {
     "aliases": [],
-    "label": "Wood worker (fustier)",
+    "label": "Fustier (wood worker)",
     "summary": "In the Middle Ages, any person working wood (carpenter, cooper, turner, joiner).",
     "text": "In the Middle Ages, the fustier denotes any wood worker: carpenter, cooper, turner, joiner, etc."
   },
   "futainier": {
     "aliases": [],
-    "label": "Fustian maker (futainier)",
+    "label": "Futainier (fustian maker)",
     "summary": "Maker or merchant of fustian, a thread-and-cotton fabric.",
     "text": "The fustian maker makes or sells fustian, a twilled fabric of linen thread and cotton, used for clothing and linings."
   },
@@ -10518,7 +10518,7 @@
     "aliases": [
       "Fûtière"
     ],
-    "label": "Barrel maker (fûtier)",
+    "label": "Fûtier (barrel maker)",
     "summary": "Cooper specialized in making barrels, wooden containers for liquid storage.",
     "text": "The barrel maker assembled wooden staves bound with hoops to make sealed barrels, intended to store and transport wine, cider, eau-de-vie or other liquids. The term is close to \"cooper,\" of which it often forms a regional synonym or specialization in large-capacity pieces."
   },
@@ -10527,7 +10527,7 @@
       "Bargeman",
       "Gabarière"
     ],
-    "label": "Barge operator (gabarier)",
+    "label": "Gabarier (barge operator)",
     "summary": "Bargeman driving a gabare, flat-bottomed boat used to transport goods on rivers.",
     "text": "The barge operator navigated a gabare, a flat-bottomed boat suited to shallow rivers, to transport goods (wood, wine, stone, salt) between inland and sea ports. This river transport, essential before railway development, marked rivers like the Loire, Dordogne and Charente."
   },
@@ -10552,7 +10552,7 @@
     "aliases": [
       "Customs officer"
     ],
-    "label": "Salt-tax enforcer (gabelou)",
+    "label": "Gabelou (salt-tax enforcer)",
     "summary": "Officer charged with suppressing salt smuggling and collecting gabelle tax, a term now pejorative for 'customs officer.'",
     "text": "The salt-tax enforcer patrolled roads and fiscal borders to track salt smugglers, and levied taxes due on this commodity. Very unpopular under the Ancien Régime, the word survived in modern familiar speech as a pejorative synonym for \"customs officer.\""
   },
@@ -10560,7 +10560,7 @@
     "aliases": [
       "Gapian"
     ],
-    "label": "Provençal tax officer (gabian)",
+    "label": "Gabian (provençal tax officer)",
     "summary": "Provençal slang term designating, derisively, the customs officer or indirect-tax agent (salt tax, tolls).",
     "text": "Gabian (or gapian) is an Provençal slang term designating the customs officer, the salt-tax enforcer or more broadly the employee of indirect tax and toll administration. The word would play on a double origin: derived from \"gabelle,\" it also evokes the gabian, the Provençal name for a gull or gannet, by mocking analogy between the thick-necked bird and the tax agent."
   },
@@ -10582,7 +10582,7 @@
   },
   "gacheur": {
     "aliases": [],
-    "label": "Mortar mixer (gâcheur)",
+    "label": "Gâcheur (mortar mixer)",
     "summary": "Mason charged with preparing mortar.",
     "text": "The mortar mixer is a mason worker charged with preparing mortar (the mixing), related to the mortar worker and mortar maker."
   },
@@ -10598,19 +10598,19 @@
     "aliases": [
       "Gageuse"
     ],
-    "label": "Pawnbroker (gager)",
+    "label": "Gager (pawnbroker)",
     "summary": "Lender who advances money against the deposit of a valuable object as pledge.",
     "text": "The pawnbroker granted loans in exchange for the deposit of a valuable object (jewel, tool, garment) left as pledge, which he returned upon repayment or resold in case of default. This activity, ancestor of the pawn-shop and modern pawnbrokers, was sometimes practised outside official corporations."
   },
   "gagiste": {
     "aliases": [],
-    "label": "Salaried employee (gagiste)",
+    "label": "Gagiste (salaried employee)",
     "summary": "Employee paid a fixed wage, notably in the military or civil administration of the Ancien Régime.",
     "text": "The salaried employee received gages, a fixed remuneration paid by an administration, a noble house or a military institution, as opposed to income derived directly from exploitation of property or trade. The term covers very diverse functions, from simple domestic to certain junior officers."
   },
   "gagne_deniers": {
     "aliases": [],
-    "label": "Day laborer (gagne-deniers)",
+    "label": "Gagne-deniers (day laborer)",
     "summary": "Unskilled worker toiling by the day for modest wages, at the bottom of the social ladder.",
     "text": "The day laborer hired out his labour day-to-day, without particular qualification or job security, for various tasks of loading or heavy work. This term, close to \"labourer\" or \"day-worker,\" designates the most precarious fringe of the Ancien Régime working world."
   },
@@ -10625,7 +10625,7 @@
   },
   "gailloteur": {
     "aliases": [],
-    "label": "Cargo rigger (gailloteur)",
+    "label": "Gailloteur (cargo rigger)",
     "summary": "Port worker responsible for attaching and detaching cargo loads during ship loading and unloading.",
     "text": "The term gailloteur, little documented elsewhere, would denote a dock worker charged with attaching and detaching loads (nets, pulleys) during ship loading and unloading operations, a function close to that of the docker or stevedore."
   },
@@ -10634,7 +10634,7 @@
       "Fourrelier",
       "Gaînière"
     ],
-    "label": "Sheath maker (gaînier)",
+    "label": "Gaînier (sheath maker)",
     "summary": "Craftsman who makes rigid sheaths and cases to protect precious objects, tools or instruments.",
     "text": "The sheath maker shapes sheaths and cases, often of wood covered in leather or shagreen, to protect and display precious objects: jewels, scientific instruments, cutlery, weapons. This fine woodworking and leather-work combined relates to Parisian luxury craftsmanship."
   },
@@ -10660,7 +10660,7 @@
     "aliases": [
       "Supporter"
     ],
-    "label": "Mine boy (galibot)",
+    "label": "Galibot (mine boy)",
     "summary": "Young mine worker, often adolescent, charged with support tasks and underground assistance.",
     "text": "The mine boy is a young miner, sometimes barely twelve years old in the 19th century, employed underground for assistance tasks: setting support timbers, driving ore cars pulled by horses or dogs, before achieving the rank of full underground miner. The term is emblematic of the coal basins of northern France and the Pas-de-Calais."
   },
@@ -10679,13 +10679,13 @@
     "aliases": [
       "Galonnière"
     ],
-    "label": "Braid weaver (galonnier)",
+    "label": "Galonnier (braid weaver)",
     "summary": "Passementerie craftsman specialized in making braids, narrow bands serving as decoration or insignia.",
     "text": "The braid weaver weaves braids — narrow, rigid ribbons, often enhanced with gold, silver or coloured thread — used to ornament military uniforms, servant liveries or ceremonial clothing, and to indicate ranks. This passementerie trade particularly developed with the codification of military uniforms from the 17th century onward."
   },
   "galvacher": {
     "aliases": [],
-    "label": "Teamster (galvacher)",
+    "label": "Galvacher (teamster)",
     "summary": "Morvan or Nivernais peasant who hired out his oxen and cart for seasonal transport work.",
     "text": "The teamster left his Morvan or Nivernais farm with his ox team to hire out his transport services elsewhere in France, notably for wood hauling or earthwork, before returning for agricultural work. This seasonal migration, typical of these poor regions, supplemented meagre income from small-scale farming."
   },
@@ -10730,7 +10730,7 @@
       "Gantière",
       "Glover"
     ],
-    "label": "Glove maker (gantier)",
+    "label": "Gantier (glove maker)",
     "summary": "Craftsman who makes gloves in leather or other materials, for protection or elegance.",
     "text": "The glove maker cuts and sews gloves, in fine leather (kid, lamb) for elegant uses or in sturdier materials for professional and agricultural uses. Grasse, in the Alpes-Maritimes, established itself from the 16th century as a major centre of luxury glove-making, linked to its perfumery tradition (perfumed gloves). \"Ganteur\" is an old variant."
   },
@@ -10746,7 +10746,7 @@
     "aliases": [
       "Carandier"
     ],
-    "label": "Warren keeper (garanier)",
+    "label": "Garanier (warren keeper)",
     "summary": "Keeper of a private game warren.",
     "text": "The warren keeper ensures guard of a private warren, a game-filled reserve enclosed and belonging to a private person or lord."
   },
@@ -10777,7 +10777,7 @@
   },
   "garcon_de_grave": {
     "aliases": [],
-    "label": "Fishing apprentice (garçon de grave)",
+    "label": "Garçon de grave (fishing apprentice)",
     "summary": "Young apprentice sailor aboard a cod ship to learn the cod-fishing trade.",
     "text": "The fishing apprentice (not to be confused with the \"gravier,\" who dries fish on the shore) is a young apprentice sailor aboard a cod ship, performing the simplest tasks aboard to gradually learn deep-sea fishing techniques."
   },
@@ -10785,13 +10785,13 @@
     "aliases": [
       "Laundry worker"
     ],
-    "label": "Washhouse worker (garçon de lavoir)",
+    "label": "Garçon de lavoir (washhouse worker)",
     "summary": "Water carrier supplying a public washhouse with hot water to facilitate laundry work.",
     "text": "The washhouse worker transports the hot water needed for a public washhouse operation, where laundresses came to beat and rinse private laundry. This supplementary work, often entrusted to a young employee, complemented the collective organization of laundry before home washing machines arrived."
   },
   "garcon_serger": {
     "aliases": [],
-    "label": "Weaver's apprentice (garçon serger)",
+    "label": "Garçon serger (weaver's apprentice)",
     "summary": "Apprentice to the serge-weaver trade, learning to weave serge, a twilled woollen fabric.",
     "text": "The weaver's apprentice is a young apprentice placed with a serge-weaver — a weaver specialized in serge, a woollen fabric woven in twilled weave recognizable by its diagonal ribs — to gradually learn the trade's gestures before becoming journeyman then master."
   },
@@ -10807,7 +10807,7 @@
     "aliases": [
       "Gatekeeper"
     ],
-    "label": "Gate keeper (garde-barrière)",
+    "label": "Garde-barrière (gate keeper)",
     "summary": "Railway employee charged with operating barriers at level crossings.",
     "text": "The gate keeper opens and closes a level-crossing barrier as trains pass, a watchpost often occupied by an entire family housed in the nearby gatehouse. This trade, appearing with railway development in the 19th century, gradually automated in the 20th century."
   },
@@ -10815,7 +10815,7 @@
     "aliases": [
       "Garde-ceinture à l'aqueduc"
     ],
-    "label": "Canal guard (garde-ceinture à l'aqueduc)",
+    "label": "Garde-ceinture à l'aqueduc (canal guard)",
     "summary": "Guard charged with surveillance of border canals surrounding dikes in the Poitevin Marshes, Vendée.",
     "text": "The canal guard supervises and maintains a border canal, a hydraulic structure running along a dike or levee to ensure its drainage and stability, as in the dike system of the Poitevin Marshes in Vendée. Landowner societies, such as that of Vix-Maillezais from 1697, employed permanent guards for these water-works surveillance missions."
   },
@@ -10823,7 +10823,7 @@
     "aliases": [
       "Rural policeman"
     ],
-    "label": "Rural constable (garde-champêtre)",
+    "label": "Garde-champêtre (rural constable)",
     "summary": "Municipal official charged with enforcing rural regulations and recording agricultural violations.",
     "text": "The rural constable, officially instituted in 1791, ensures compliance with municipal regulations in rural matters: crop protection, road and water-course protection, and hunting and fishing police at the municipal level. Sworn in, he can issue violation reports, unlike a simple private guard."
   },
@@ -10838,7 +10838,7 @@
   },
   "garde_couches": {
     "aliases": [],
-    "label": "Lying-in attendant (garde-couches)",
+    "label": "Garde-couches (lying-in attendant)",
     "summary": "Woman employed to assist a mother during lying-in and help with initial care of the newborn.",
     "text": "The lying-in attendant assists a woman during her confinement (recuperation period following childbirth), helping with domestic tasks and initial newborn care, complementing or following the midwife proper who performed the delivery."
   },
@@ -10846,7 +10846,7 @@
     "aliases": [
       "Woodward"
     ],
-    "label": "Woodland warden (garde de bois)",
+    "label": "Garde de bois (woodland warden)",
     "summary": "Agent charged with surveying a forest and ensuring compliance with wood-exploitation regulations.",
     "text": "The woodland warden (or forest warden) patrols a wooded area to prevent illegal cutting, poaching and fires, and ensure compliance with exploitation rules set by the owner or the Waters and Forests administration. A function distinct from the woodcutter, it involves surveillance rather than wood work itself."
   },
@@ -10879,31 +10879,31 @@
   },
   "garde_des_cohues": {
     "aliases": [],
-    "label": "Market hall guard (garde des cohues)",
+    "label": "Garde des cohues (market hall guard)",
     "summary": "Municipal agent charged with surveillance of cohues, market halls or rooms hosting markets and assemblies.",
     "text": "The market hall guard maintains order in the cohues — buildings hosting both market halls and sometimes judicial assemblies in certain western French towns (like Rennes or Vannes) — preventing disorder and theft on market days."
   },
   "garde_des_gabelles": {
     "aliases": [],
-    "label": "Salt tax guard (garde des gabelles)",
+    "label": "Garde des gabelles (salt tax guard)",
     "summary": "Officer charged with surveillance and control of salt trade under the salt tax (gabelle).",
     "text": "The salt tax guard enforces regulations on salt trade — exclusive sale in royal granaries, minimum quantities imposed, prohibition on circulation outside authorized roads — and participates in smuggling suppression alongside the gabelou and salt-tax collector."
   },
   "garde_excentrique": {
     "aliases": [],
-    "label": "Railway pointsman (garde-excentrique)",
+    "label": "Garde-excentrique (railway pointsman)",
     "summary": "Belgian railway signalman charged with operating switches to direct trains.",
     "text": "The railway pointsman operates railway switches to direct trains from one track to another, a function attested under this name in Belgian railways of the 19th century, where the \"excentrique\" denotes the switching mechanism control."
   },
   "garde_forge": {
     "aliases": [],
-    "label": "Forge overseer (garde-forge)",
+    "label": "Garde-forge (forge overseer)",
     "summary": "Foreman of a metallurgical workshop charged with supplying and supervising a forge.",
     "text": "The forge overseer directs the daily work of a forge or metallurgical workshop: supplying ore and charcoal, supervising workers, managing production, under the authority of the master ironsmith who owns the establishment."
   },
   "garde_fourneau": {
     "aliases": [],
-    "label": "Furnace keeper (garde-fourneau)",
+    "label": "Garde-fourneau (furnace keeper)",
     "summary": "Iron-works worker assisting the founder in operating the blast furnace and fusion operations.",
     "text": "The furnace keeper constantly monitors furnace operation — temperature, ore supply, charcoal and flux — to assist the master founder in conducting metal fusion, a task requiring continuous presence day and night."
   },
@@ -10917,19 +10917,19 @@
   },
   "garde_ligne": {
     "aliases": [],
-    "label": "Track warden (garde-ligne)",
+    "label": "Garde-ligne (track warden)",
     "summary": "Railway employee charged with surveillance and maintenance of a section of railway track.",
     "text": "The track warden patrols and inspects a section of railway track in his charge, verifying the condition of rails, sleepers and structures to prevent any incident, a function essential to railway operational safety."
   },
   "garde_marteau": {
     "aliases": [],
-    "label": "Forest marking officer (garde-marteau)",
+    "label": "Garde-marteau (forest marking officer)",
     "summary": "Forest agent holding the hammer marking trees authorized for felling in a forest.",
     "text": "The forest marking officer applies the official mark, using an engraved forest hammer, to trees selected for cutting, ensuring only hammer-marked trees are felled. This function, inherited from the Waters and Forests administration, remains practised today in national forest management by the National Forestry Office."
   },
   "garde_messier": {
     "aliases": [],
-    "label": "Harvest field guard (garde-messier)",
+    "label": "Garde-messier (harvest field guard)",
     "summary": "Rural supervisor charged with protecting harvests and ensuring village agricultural regulations are followed.",
     "text": "The harvest field guard (or harvest supervisor) is elected or appointed by the village community to watch crops before harvest and record damage caused by stray cattle or theft, an ancient function prefiguring the rural constable instituted in 1791."
   },
@@ -10941,37 +10941,37 @@
   },
   "garde_note": {
     "aliases": [],
-    "label": "Record keeper (garde-note)",
+    "label": "Garde-note (record keeper)",
     "summary": "Officer charged with preserving notarial records and registers, a function close to that of the notary.",
     "text": "The record keeper (or records keeper) preserves the minutes — originals of documents drawn by a notary — and issues certified copies on request. The term, used in certain provinces (notably the south) as an old synonym for \"notary,\" emphasizes the record-preservation function, essential before modern notarial archive organization."
   },
   "garde_particulier": {
     "aliases": [],
-    "label": "Private game warden (garde-particulier)",
+    "label": "Garde-particulier (private game warden)",
     "summary": "Sworn private guard employed by a property owner to protect his estate against poaching and violations.",
     "text": "The private game warden is commissioned and sworn at a property owner's request to supervise his lands, woods or ponds, with power to record violations (poaching, wood theft) by report, unlike a simple guardian without police power."
   },
   "garde_perles": {
     "aliases": [],
-    "label": "Pearl warden (garde-perles)",
+    "label": "Garde-perles (pearl warden)",
     "summary": "Lorraine officer charged with supervising and regulating freshwater pearl fishing in rivers.",
     "text": "The pearl warden controlled, for the account of the Dukes of Lorraine who had reserved the exclusive right, the fishing of pearls produced by freshwater mussels in rivers like the Vologne, in the Vosges. Fishing was permitted only in June, July and August; the resource eventually disappeared in the 20th century due to overfishing and industrial water pollution."
   },
   "garde_police": {
     "aliases": [],
-    "label": "Peace officer (garde-police)",
+    "label": "Garde-police (peace officer)",
     "summary": "Officer charged with surveillance and maintenance of public order under a police authority.",
     "text": "The peace officer assures surveillance and public order-keeping missions in a town or quarter, under the authority of a commissioner or municipal administration, a function prefiguring modern municipal police corps."
   },
   "garde_pompe": {
     "aliases": [],
-    "label": "Fire pump keeper (garde-pompe)",
+    "label": "Garde-pompe (fire pump keeper)",
     "summary": "Person charged with surveillance and maintenance of fire pumps before professional fire brigades were created.",
     "text": "The fire pump keeper maintained and kept ready the fire pump of a town or quarter, a manual hand-pump device before mechanization, and intervened during fires pending the organization of professional fire brigades in the 19th century."
   },
   "garde_port": {
     "aliases": [],
-    "label": "Harbor warehouseman (garde-port)",
+    "label": "Garde-port (harbor warehouseman)",
     "summary": "Port employee charged with receiving, sorting and supervising goods unloaded.",
     "text": "The harbor warehouseman organizes the reception of goods unloaded in a port, ensures their proper arrangement pending removal and prevents theft and damage on the quays, an administrative and surveillance function essential to good port commerce operation."
   },
@@ -10979,43 +10979,43 @@
     "aliases": [
       "Water bailiff"
     ],
-    "label": "River warden (garde-rivière)",
+    "label": "Garde-rivière (river warden)",
     "summary": "Officer charged with surveillance, maintenance and police of a waterway.",
     "text": "The river warden ensures compliance with regulations on a waterway: fishing, navigation, water drawing, bank maintenance, and can record violations by report. This function exists today in modernized form, attached to fishing federations or water police."
   },
   "garde_salle": {
     "aliases": [],
-    "label": "Hall guard (garde-salle)",
+    "label": "Garde-salle (hall guard)",
     "summary": "Employee charged with surveillance and management of a waiting room, arms room or assembly hall.",
     "text": "The hall guard watches over a public or official hall — arms room, waiting room of an administration, court room — ensuring its opening, cleanliness and order maintenance among its frequenters."
   },
   "garde_scel": {
     "aliases": [],
-    "label": "Seal keeper (garde-scel)",
+    "label": "Garde-scel (seal keeper)",
     "summary": "Royal officer charged with preserving and affixing the official seal on acts of a chancellery or jurisdiction.",
     "text": "The seal keeper has material responsibility for the seal — an engraved matrix serving to authenticate official acts — which he preserves and affixes to documents produced by a royal, seigneurial or judicial chancellery. The most prestigious title issuing from this function, the Keeper of the Seals, remains today France's official title for the Minister of Justice."
   },
   "garde_traversier": {
     "aliases": [],
-    "label": "Forest road warden (garde-traversier)",
+    "label": "Garde-traversier (forest road warden)",
     "summary": "Forest officer charged with maintaining roads and paths crossing a forest.",
     "text": "The forest road warden ensures maintenance of cross-roads and paths allowing forest-area exploitation and surveillance, notably passage of wood-cart traffic, a function attached to the Waters and Forests administration."
   },
   "garde_vente": {
     "aliases": [],
-    "label": "Timber-sale warden (garde-vente)",
+    "label": "Garde-vente (timber-sale warden)",
     "summary": "Forest warden charged with supervising a timber sale, the cutting plot allotted to an operator.",
     "text": "The timber-sale warden supervises a \"sale\" — name given to the forest plot whose cutting has been awarded to an operator — to ensure the operator respects boundaries and conditions set by the owner or forest administration, preventing abusive cutting or damage to neighbouring trees."
   },
   "gardeur_de_forge": {
     "aliases": [],
-    "label": "Metalworks overseer (gardeur de forge)",
+    "label": "Gardeur de forge (metalworks overseer)",
     "summary": "Supervisor of a metallurgical workshop in the 16th-17th centuries, close to the role of forge overseer.",
     "text": "The metalworks overseer ensures, like the forge overseer, daily supervision of a metallurgical workshop — worker surveillance, supply, and proper production flow — a function attested in 16th and 17th century documents before the term gave way to other appellations."
   },
   "gardien_de_caravanserail": {
     "aliases": [],
-    "label": "Caravanserai keeper (gardien de caravansérail)",
+    "label": "Gardien de caravansérail (caravanserai keeper)",
     "summary": "Manager responsible for welcoming and securing travellers and their beasts in a caravanserai.",
     "text": "The caravanserai keeper manages a caravanserai — a vast way-station building along eastern and North African trade routes, offering lodging to travellers and shelter to their beasts of burden — ensuring welcome, security and sometimes collecting a sojourn fee."
   },
@@ -11030,7 +11030,7 @@
   },
   "garenceur": {
     "aliases": [],
-    "label": "Madder dyer (garenceur)",
+    "label": "Garenceur (madder dyer)",
     "summary": "Dyer using madder to dye fabrics red.",
     "text": "The madder dyer is a dyer worker who uses madder, a plant whose root serves to dye fabrics red."
   },
@@ -11042,13 +11042,13 @@
       "Gardien de lapins",
       "Garennière"
     ],
-    "label": "Rabbit-warren keeper (garennier)",
+    "label": "Garennier (rabbit-warren keeper)",
     "summary": "Keeper of a warren, an enclosed or reserved territory for semi-wild rabbit raising.",
     "text": "The rabbit-warren keeper supervises and exploits a warren — an enclosed or reserved territory where rabbits are raised in semi-liberty — protecting animals from poaching and predators, and regulating their population for hunting or sale. \"Garandier\" is an old spelling variant; \"garde-garenne\" and \"rabbit guardian\" designate the same function in a more descriptive form."
   },
   "gargot": {
     "aliases": [],
-    "label": "Pork wholesaler (gargot)",
+    "label": "Gargot (pork wholesaler)",
     "summary": "Wholesale pork merchant, selling to butchers split pork carcasses prepared and halved.",
     "text": "The pork wholesaler bought pigs, had them slaughtered and sold them wholesale, usually halved in two quarters, to retail butchers and pork-dealers — a practice called \"à la cheville,\" common in Ancien Régime slaughterhouses and butcher halls."
   },
@@ -11094,7 +11094,7 @@
     "aliases": [
       "Garnisseuse"
     ],
-    "label": "Upholsterer (garnisseur)",
+    "label": "Garnisseur (upholsterer)",
     "summary": "Craftsman who applies garnishes and ornaments to various objects: furniture, hats, harnesses, weapons.",
     "text": "The upholsterer adds final garnish to an object — padding a seat, lining a hat, ornaments on a harness or scabbard — the last step giving the piece comfort or aesthetic finish. The term, generic, appears in many craft occupations depending on the object garnished."
   },
@@ -11109,19 +11109,19 @@
   },
   "garnisseur_de_necessaires": {
     "aliases": [],
-    "label": "Case maker (garnisseur de nécessaires)",
+    "label": "Garnisseur de nécessaires (case maker)",
     "summary": "Craftsman making and selling travel necessaire kits.",
     "text": "The case maker makes and sells travel necessaires, fitted cases with toilet or writing accessories."
   },
   "gastelier": {
     "aliases": [],
-    "label": "Pastry maker (gastelier)",
+    "label": "Gastelier (pastry maker)",
     "summary": "Merchant or maker of cakes and pastries, a medieval term formed on \"gastel,\" ancestor of the word cake.",
     "text": "The pastry maker makes and sells \"gastels,\" pastries and cakes whose medieval name evolved into \"gâteau.\" This ancient bakery-pastry trade appears in sources dating to the Middle Ages and experiences a resurgence of heritage interest, with contemporary bakers reusing the term for their signs."
   },
   "gaudronneur": {
     "aliases": [],
-    "label": "Rope tarrer (gaudronneur)",
+    "label": "Gaudronneur (rope tarrer)",
     "summary": "Rope-works worker charged with waterproofing cordage by coating it with tar.",
     "text": "The rope tarrer (or coal-tarrer) coats cordage with vegetable tar to protect it from moisture and rot, treatment indispensable for marine cordage exposed constantly to sea water. This step follows rope-twisting in the rope-works manufacturing process."
   },
@@ -11139,7 +11139,7 @@
       "Gauleieur",
       "Gauleyeuse"
     ],
-    "label": "Fruit knocker (gauleyeur)",
+    "label": "Gauleyeur (fruit knocker)",
     "summary": "Agricultural worker who harvests fruits by knocking them down with a pole (gaule).",
     "text": "The fruit knocker beats branches of a fruit tree with a long pole, the gaule, to make fruits fall — walnuts, chestnuts, almonds or olives depending on region — a quick harvest method still practised today for certain tree nuts. The word comes from the verb \"to gaule.\""
   },
@@ -11148,7 +11148,7 @@
       "Gasman",
       "Gazière"
     ],
-    "label": "Gas worker (gazier)",
+    "label": "Gazier (gas worker)",
     "summary": "Worker or employee working in gas production, distribution or installation.",
     "text": "The gas worker worked in the gas industry: production of town gas in 19th-century gasworks, then distribution and hookup to private customers with natural gas generalization in the 20th century. The term commonly designates today the technician who installs and maintains gas installations."
   },
@@ -11156,7 +11156,7 @@
     "aliases": [
       "Gindre"
     ],
-    "label": "Bread kneader (geindre)",
+    "label": "Geindre (bread kneader)",
     "summary": "Bakery worker particularly charged with kneading dough.",
     "text": "The bread kneader is a bakery worker particularly charged with dough-kneading, a physically demanding task before mechanization."
   },
@@ -11191,19 +11191,19 @@
   },
   "genevrier": {
     "aliases": [],
-    "label": "Juniper liqueur maker (génevrier)",
+    "label": "Génevrier (juniper liqueur maker)",
     "summary": "Maker of juniper berry alcohol.",
     "text": "The juniper liqueur maker makes juniper alcohol, an eau-de-vie flavoured with juniper berries."
   },
   "gentiannaire": {
     "aliases": [],
-    "label": "Gentian digger (gentiannaire)",
+    "label": "Gentiannaire (gentian digger)",
     "summary": "In Auvergne, digger of gentian whose dried roots enter into aperitif preparation.",
     "text": "In Auvergne, the gentian digger digs gentian, a plant whose dried roots are used in preparing aperitifs."
   },
   "geographe": {
     "aliases": [],
-    "label": "Cartographer (géographe)",
+    "label": "Géographe (cartographer)",
     "summary": "Person charged with drawing geographical maps.",
     "text": "The cartographer draws geographical maps, a learned craft linked to cartography and exploration."
   },
@@ -11211,7 +11211,7 @@
     "aliases": [
       "Gerlier"
     ],
-    "label": "Bucket maker (gerlaïre)",
+    "label": "Gerlaïre (bucket maker)",
     "summary": "In Auvergne, maker of gerles, large wooden pails for carrying milk from pastures.",
     "text": "In Auvergne, the bucket maker makes gerles, large wooden pails with a cover, used to carry milk from pastures to the farm."
   },
@@ -11234,19 +11234,19 @@
   },
   "gibecier": {
     "aliases": [],
-    "label": "Pouch maker (gibecier)",
+    "label": "Gibecier (pouch maker)",
     "summary": "Maker of gibecière, a flat, wide pouch worn at the belt.",
     "text": "The pouch maker makes the gibecière, a flat, wide pouch once worn at the belt."
   },
   "giboyeur": {
     "aliases": [],
-    "label": "Game hunter (giboyeur)",
+    "label": "Giboyeur (game hunter)",
     "summary": "Foot hunter making a business of passing game, formerly with an arquebus.",
     "text": "The game hunter is a foot hunter making a business of passing game, which he shoots with a rifle; formerly he used an arquebus."
   },
   "giletier": {
     "aliases": [],
-    "label": "Waistcoat maker (giletier)",
+    "label": "Giletier (waistcoat maker)",
     "summary": "Tailor specialized in making waistcoats.",
     "text": "The waistcoat maker is a tailor specialized in making waistcoats."
   },
@@ -11255,13 +11255,13 @@
       "Gipeur",
       "Gissier"
     ],
-    "label": "Plaster decorator (gisseur)",
+    "label": "Gisseur (plaster decorator)",
     "summary": "Craftsman decorating walls and ceilings with plaster motifs.",
     "text": "The plaster decorator (or gypsum-worker) decorates walls and ceilings with plaster motifs; in the 18th century in Franche-Comté, the term designated more precisely the plasterer-stucco worker."
   },
   "glaneuse": {
     "aliases": [],
-    "label": "Gleaner (glaneuse)",
+    "label": "Glaneuse (gleaner)",
     "summary": "Woman recovering wheat ears left in a harvested field.",
     "text": "The gleaner recovers wheat ears forgotten in a field after harvest, an activity of subsistence more than a true trade, regulated by gleaning rights."
   },
@@ -11272,31 +11272,31 @@
       "Glasgraveurin",
       "Glasschneiderin"
     ],
-    "label": "Glass engraver (Glasschneider)",
+    "label": "Glasschneider (glass engraver)",
     "summary": "Craftsman who engraved and cut hollow glassware with the copper wheel.",
     "text": "The Glasschneider engraves goblets, beakers and other hollow glassware with small copper wheels driven by a lathe and abrasives, cutting coats of arms, figures, landscapes and ornaments into the glass. Wheel engraving flourished from the 17th century in Bohemia, Silesia (Hirschberg valley) and Nuremberg and remained an important trade in the Bohemian glassmaking areas into the 20th century."
   },
   "glypticien": {
     "aliases": [],
-    "label": "Seal carver (glypticien)",
+    "label": "Glypticien (seal carver)",
     "summary": "Carver of small stones: ring stones, seals.",
     "text": "The seal carver cuts small-volume stones such as ring-mounted stones, seals and other fine-engraving objects (glyptic)."
   },
   "gobeletier": {
     "aliases": [],
-    "label": "Goblet maker (gobeletier)",
+    "label": "Gobeletier (goblet maker)",
     "summary": "Maker of goblets, carafes, mugs and drinking glasses without stems.",
     "text": "The goblet maker makes goblets, carafes, mugs and drinking glasses without stems, in glass or metal."
   },
   "godivellier": {
     "aliases": [],
-    "label": "Cooper (godivellier)",
+    "label": "Godivellier (cooper)",
     "summary": "In Normandy, cooper.",
     "text": "In Normandy, the godivellier denotes the cooper, maker of bushels and wooden vessels."
   },
   "goemonier": {
     "aliases": [],
-    "label": "Seaweed harvester (goémonier)",
+    "label": "Goémonier (seaweed harvester)",
     "summary": "Gatherer of seaweed used dried as natural fertilizer.",
     "text": "The seaweed harvester gathers seaweed, a marine plant that, once dried, was used as natural fertilizer on coastal lands."
   },
@@ -11328,7 +11328,7 @@
   },
   "gougeard": {
     "aliases": [],
-    "label": "Servant (gougeard)",
+    "label": "Gougeard (servant)",
     "summary": "Servant, in the Middle Ages.",
     "text": "The servant is a servant, a term attested in the Middle Ages."
   },
@@ -11336,13 +11336,13 @@
     "aliases": [
       "Gourdier"
     ],
-    "label": "Fisherman (gourdiec)",
+    "label": "Gourdiec (fisherman)",
     "summary": "At Belle-Île-en-Mer, a fishing sailor or landless day laborer.",
     "text": "At Belle-Île-en-Mer, the fisherman is a fishing sailor or a landless day laborer, living from occasional work."
   },
   "gourmet": {
     "aliases": [],
-    "label": "Wine merchant (gourmet)",
+    "label": "Gourmet (wine merchant)",
     "summary": "Wine merchant.",
     "text": "The wine merchant is a wine merchant, an old term distinct from the modern gastronomic sense."
   },
@@ -11356,7 +11356,7 @@
   },
   "gouverneur_de_bestiaux": {
     "aliases": [],
-    "label": "Cattle drover (gouverneur de bestiaux)",
+    "label": "Gouverneur de bestiaux (cattle drover)",
     "summary": "Driver of cattle herds from raising regions to slaughter sites.",
     "text": "The cattle drover drives cattle herds from breeding regions (Bourbonnais, Berry, Nivernais) toward major slaughter centres (Paris, Lyon)."
   },
@@ -11370,19 +11370,19 @@
   },
   "graissier": {
     "aliases": [],
-    "label": "Grocer (graissier)",
+    "label": "Graissier (grocer)",
     "summary": "In northern France, a grocer.",
     "text": "In northern France, the graissier denotes the grocer."
   },
   "graniteur": {
     "aliases": [],
-    "label": "Granite quarryman (graniteur)",
+    "label": "Graniteur (granite quarryman)",
     "summary": "Quarryman in a granite quarry.",
     "text": "The granite quarryman is a quarryman working in a granite quarry."
   },
   "granitier": {
     "aliases": [],
-    "label": "Stone mason (granitier)",
+    "label": "Granitier (stone mason)",
     "summary": "Stone carver in granite.",
     "text": "The stone mason cuts and shapes granite stone."
   },
@@ -11390,19 +11390,19 @@
     "aliases": [
       "Grapineuse"
     ],
-    "label": "Wax gatherer (grapineur)",
+    "label": "Grapineur (wax gatherer)",
     "summary": "Candle-works worker charged with recovering wax residues for reuse.",
     "text": "The wax gatherer works in a candle workshop to recover drips and wax waste from manufacturing, material then remelted and reused, limiting waste of an expensive raw material."
   },
   "gratteur": {
     "aliases": [],
-    "label": "Ship scraper (gratteur)",
+    "label": "Gratteur (ship scraper)",
     "summary": "On a ship in drydock, worker who scrapes tar from the hull and cleans the hull.",
     "text": "The ship scraper works on a ship in drydock where he scrapes tar from the hull and cleans the hull before relaunching."
   },
   "gravatier": {
     "aliases": [],
-    "label": "Debris contractor (gravatier)",
+    "label": "Gravatier (debris contractor)",
     "summary": "Contractor charged with clearing and removing demolition rubble.",
     "text": "The debris contractor is a contractor charged with clearing and removing debris and waste from demolition."
   },
@@ -11417,19 +11417,19 @@
   },
   "graveur_de_sceaux": {
     "aliases": [],
-    "label": "Seal engraver (graveur de sceaux)",
+    "label": "Graveur de sceaux (seal engraver)",
     "summary": "Maker of seals and signet rings.",
     "text": "The seal engraver makes seals and signet rings used to authenticate documents and correspondence."
   },
   "graveur_en_camee": {
     "aliases": [],
-    "label": "Cameo carver (graveur en camée)",
+    "label": "Graveur en camée (cameo carver)",
     "summary": "Engraver chiselling stone in relief to make jewelry.",
     "text": "The cameo carver chisels stone in relief to create cameos, jewels adorned with a figure sculpted in relief."
   },
   "gravier": {
     "aliases": [],
-    "label": "Drying worker (gravier)",
+    "label": "Gravier (drying worker)",
     "summary": "Young Newfoundland-fishing worker who spreads and dries cod on the graves, pebbled shores.",
     "text": "The drying worker (not to be confused with the mineral) works on the graves — pebbled shores, notably at Saint-Pierre-et-Miquelon — where he washes and spreads caught cod to dry in the sun, before stacking it in heaps like roof tiles. This grueling work, often performed by young boys or women in French ports, left hands damaged by salt and cold."
   },
@@ -11437,7 +11437,7 @@
     "aliases": [
       "Grayeur"
     ],
-    "label": "Ship rigger (gréeur)",
+    "label": "Gréeur (ship rigger)",
     "summary": "Person charged with the rigging of ships: sails, cordage and equipment.",
     "text": "The ship rigger equips ships with their rigging: sails, cordage and other equipment necessary for the sails."
   },
@@ -11452,19 +11452,19 @@
   },
   "greffier_a_la_justice_de_pain": {
     "aliases": [],
-    "label": "Baker juror (greffier à la justice de pain)",
+    "label": "Greffier à la justice de pain (baker juror)",
     "summary": "Master baker juror participating in his corporation's judgements.",
     "text": "The baker juror is a master baker juror who participates in the judgements and deliberations of his corporation, in his town or region."
   },
   "greffier_de_paix": {
     "aliases": [],
-    "label": "Peace clerk (greffier de paix)",
+    "label": "Greffier de paix (peace clerk)",
     "summary": "Clerk of a justice-of-peace court.",
     "text": "The peace clerk is the clerk attached to a justice-of-peace court, charged with keeping registers and acts of this jurisdiction."
   },
   "grelassier": {
     "aliases": [],
-    "label": "Sieve maker (grelassier)",
+    "label": "Grelassier (sieve maker)",
     "summary": "In western France, maker of grêles: sieves, sifters or willow baskets.",
     "text": "In western France, the sieve maker makes grêles: sieves, sifters or willow baskets, a trade related to that of the sieve-maker, sifter or basket-maker."
   },
@@ -11476,7 +11476,7 @@
   },
   "grenailleur": {
     "aliases": [],
-    "label": "Grain separator (grenailleur)",
+    "label": "Grenailleur (grain separator)",
     "summary": "Person who separates flour from bran.",
     "text": "The grain separator separates flour from bran during grain milling, an operation complementary to the miller's work."
   },
@@ -11484,7 +11484,7 @@
     "aliases": [
       "Grenetière"
     ],
-    "label": "Salt warehouse manager (grenetier)",
+    "label": "Grenetier (salt warehouse manager)",
     "summary": "Officer charged with management and surveillance of a salt warehouse under the Ancien Régime.",
     "text": "The salt warehouse manager administers a salt warehouse, royal warehouse where salt had to be purchased by inhabitants under the salt tax (gabelle), keeping sales registers and ensuring quota and tax regulation compliance."
   },
@@ -11493,13 +11493,13 @@
       "Grainier",
       "Grenelier"
     ],
-    "label": "Grain merchant (grenier)",
+    "label": "Grenier (grain merchant)",
     "summary": "Merchant of grain, and also of flowers, shrubs and bulbs.",
     "text": "The grain merchant is, according to old ordinances, a merchant of grain, but also of flowers, shrubs and bulbs."
   },
   "gribanier": {
     "aliases": [],
-    "label": "Somme barge operator (gribanier)",
+    "label": "Gribanier (somme barge operator)",
     "summary": "Bargeman of the Somme transporting goods on a gribane.",
     "text": "The Somme barge operator is a Somme bargeman who transports goods on a gribane, a sailing boat of about fifty tons."
   },
@@ -11515,25 +11515,25 @@
   },
   "grillageuse": {
     "aliases": [],
-    "label": "Wire-grid weaver (grillageuse)",
+    "label": "Grillageuse (wire-grid weaver)",
     "summary": "Worker braiding wire grids mounted in a winnowing machine.",
     "text": "The wire-grid weaver braids wire grids mounted in a winnowing machine, an agricultural device for sorting grain."
   },
   "grillou": {
     "aliases": [],
-    "label": "Tinware peddler (grillou)",
+    "label": "Grillou (tinware peddler)",
     "summary": "Itinerant tinware maker.",
     "text": "The tinware peddler is an itinerant tinware maker, selling and repairing tin objects from village to village."
   },
   "grosseur": {
     "aliases": [],
-    "label": "Comb-teeth cutter (grosseur)",
+    "label": "Grosseur (comb-teeth cutter)",
     "summary": "Comb-maker who cuts coarse teeth after the rough-shaper.",
     "text": "The comb-teeth cutter is a comb-maker who, after the rough-shaper's work, cuts the large teeth of the comb."
   },
   "grueur_d_orge": {
     "aliases": [],
-    "label": "Barley-groat miller (grueur d'orge)",
+    "label": "Grueur d'orge (barley-groat miller)",
     "summary": "Miller making groats from barley grains stripped of their husk.",
     "text": "The barley-groat miller is a miller who makes groats, coarsely ground flour, from barley grains stripped of their thin covering."
   },
@@ -11591,7 +11591,7 @@
     "aliases": [
       "Guestrier"
     ],
-    "label": "Gaiter maker (guêtrier)",
+    "label": "Guêtrier (gaiter maker)",
     "summary": "Maker of gaiters.",
     "text": "The gaiter maker makes gaiters, cloth or leather pieces protecting the lower leg."
   },
@@ -11606,7 +11606,7 @@
   },
   "guimpier": {
     "aliases": [],
-    "label": "Gold-wire maker (guimpier)",
+    "label": "Guimpier (gold-wire maker)",
     "summary": "Gold-wire drawer making the gold thread for the gold-thread spinner.",
     "text": "The gold-wire maker is a gold-wire drawer who makes gold thread, raw material then worked by the gold-thread spinner."
   },
@@ -11625,13 +11625,13 @@
       "Gutsinspektorin",
       "Wirtschafter"
     ],
-    "label": "Estate manager (Gutsinspektor)",
+    "label": "Gutsinspektor (estate manager)",
     "summary": "Salaried manager of the farming operations on a large estate.",
     "text": "The Gutsinspektor runs, on behalf of the owner or tenant, the day-to-day farming of a large estate: allocating the workforce, tilling, harvest, livestock and accounts. The position was widespread above all east of the Elbe and often served young agriculturists as a stepping stone to a tenancy or the purchase of an estate of their own."
   },
   "gypsier": {
     "aliases": [],
-    "label": "Gypsum quarryman (gypsier)",
+    "label": "Gypsier (gypsum quarryman)",
     "summary": "Quarryman operating a gypsum pit.",
     "text": "The gypsum quarryman operates a gypsum quarry, a rock used for making plaster."
   },
@@ -11640,7 +11640,7 @@
       "Dresser",
       "Habilleuse"
     ],
-    "label": "Cod dresser (habilleur)",
+    "label": "Habilleur (cod dresser)",
     "summary": "Fishing sailor who prepares cod on the deck of a cod ship: opening, gutting, removing the backbone.",
     "text": "The cod dresser receives cod already decapitated and gutted by the cleaner, then opens it flat, completes gutting and removes the dorsal bone before passing it to the salter who puts it in brine. This highly specialized post formed part of the fish-processing chain organized aboard Newfoundland ships from the 16th to 20th century. The word also designates, in a wholly different modern context, the theatre professional who helps artists costume."
   },
@@ -11653,7 +11653,7 @@
       "Kleinhäusler",
       "Häuselmann"
     ],
-    "label": "Cottager (Häusler)",
+    "label": "Häusler (cottager)",
     "summary": "Villager owning a small house with little or no land, living from day labour or a craft.",
     "text": "The Häusler owns a small house of his own but little or no farmland, placing him in the lowest layer of village house owners, below farmers and smallholders. He earns his living as a day labourer, domestic weaver or village craftsman. The term is especially common in east-central Germany, Silesia, Bohemia, Bavaria and Austria; the Leerhäusler (\"empty\" Häusler) owned no land at all."
   },
@@ -11675,7 +11675,7 @@
       "Halbmeier",
       "Halbhöfner"
     ],
-    "label": "Half farmer (Halbbauer)",
+    "label": "Halbbauer (half farmer)",
     "summary": "Farmer working half a farm or half a hide of land.",
     "text": "The Halbbauer owns a farm amounting to only half a full farm holding and ranks in the village hierarchy between the full farmer and smallholders such as Kötter or Kossäten. Depending on the region he is called Halbhufner (northern Germany), Halberbe (Westphalia) or Halbmeier (Lower Saxony). This classification determined dues, labour services and rights of use on the common land."
   },
@@ -11683,7 +11683,7 @@
     "aliases": [
       "Haleuse"
     ],
-    "label": "Barge hauler (haleur)",
+    "label": "Haleur (barge hauler)",
     "summary": "Worker pulling a boat upstream by means of a cable from the bank.",
     "text": "The barge hauler pulls, alone or in a team, a loaded boat upstream by pulling a cable from a towpath laid along the bank. Before animal traction then motorization, this exhausting work long ensured the upstream passage of river convoys on rivers like the Seine or Loire."
   },
@@ -11697,7 +11697,7 @@
   },
   "hanouard": {
     "aliases": [],
-    "label": "Paris salt/fish carrier (hanouard)",
+    "label": "Hanouard (paris salt/fish carrier)",
     "summary": "Parisian porter specialized in transporting salt and sea fish, enjoying ancient corporate privileges.",
     "text": "The hanouard carries salt and sea fish through the streets of Paris, an activity organized into a corporation from the Middle Ages onward and endowed with special privileges — notably the right to bear the coffin of the deceased king to the first cross on the road to Saint-Denis. The word would have Celtic origin, linked to Breton or Welsh roots designating the salt merchant."
   },
@@ -11707,7 +11707,7 @@
       "Harenguière",
       "Harengère"
     ],
-    "label": "Herring merchant (harenguier)",
+    "label": "Harenguier (herring merchant)",
     "summary": "Merchant of herrings and other sea fish, sold notably at retail in market halls.",
     "text": "The herring merchant commercializes herring and other sea fish, fresh, smoked or salted according to seasons and available preservation methods. Its feminine form, the \"harengère,\" designated more specifically female market vendors, whose crude and loud speech gave rise to the proverbial expression \"to quarrel like fishwives.\" \"Haranguier\" is a spelling variant."
   },
@@ -11715,7 +11715,7 @@
     "aliases": [
       "Haricotière"
     ],
-    "label": "Small farmer (haricotier)",
+    "label": "Haricotier (small farmer)",
     "summary": "Small peasant owning reduced team animals, between day laborer and ploughman.",
     "text": "The small farmer occupies an intermediate position in the Ancien Régime peasant hierarchy: unlike the ploughman, he owns only an incomplete team (one or two animals) and works a smaller surface. He distinguishes himself from the day laborer or manual worker, who own no draft animals and hire only their labour. The term appears in notarial and parish documents to designate these small-scale farmers of northern and eastern France."
   },
@@ -11734,7 +11734,7 @@
     "aliases": [
       "Harnacheuse"
     ],
-    "label": "Harness maker (harnacheur)",
+    "label": "Harnacheur (harness maker)",
     "summary": "Craftsman making and repairing horse harness and equipment.",
     "text": "The harness maker makes collars, bridles, saddles and other horse-harnessing pieces for draft and riding horses. The trade, close to that of the leather-worker and saddler, is particularly present in garrison towns and horse-breeding regions. It declines with transport motorization in the 20th century."
   },
@@ -11743,13 +11743,13 @@
       "Haubergier",
       "Haulbergeonnier"
     ],
-    "label": "Mail-coat maker (haubergeon)",
+    "label": "Haubergeon (mail-coat maker)",
     "summary": "Craftsman making hauberks (mail coats) or holder of a mail-coat fief.",
     "text": "The term designates both the armourer specialized in making the haubert, the mail coat protecting the torso of medieval combatants, and by extension the holder of a \"haubert fief,\" a feudal tenure requiring its holder to military service on horseback, armed with this haubert. The word thus covers both an artisanal reality and a social-status reality, both attested in old documents."
   },
   "haut_le_pied": {
     "aliases": [],
-    "label": "Light-footed (haut-le-pied)",
+    "label": "Haut-le-pied (light-footed)",
     "summary": "Agent, animal or vehicle moving 'empty', without load or cargo to transport.",
     "text": "The old expression \"haut-le-pied\" literally means \"with foot raised,\" that is, ready to run or escape quickly; by extension it qualifies what moves \"not mounted, not loaded.\" Applied to a person, it designates an agent (military, courier, relay rider) available and without fixed load to transport; the term survives in modern railway vocabulary for a locomotive or train running empty, without passengers or goods."
   },
@@ -11826,13 +11826,13 @@
       "Heimbürger",
       "Heimberger"
     ],
-    "label": "Village official (Heimbürge)",
+    "label": "Heimbürge (village official)",
     "summary": "Village official in Hesse, Franconia, Thuringia and the Rhineland who managed communal affairs.",
     "text": "The Heimbürge is elected or appointed by the community, often annually, and manages the communal treasury, collects dues, oversees roads, wells and common property and represents the village externally; in some places he was the actual village head, elsewhere he served beside the Schultheiß. The office is attested above all in Hesse, Franconia, Thuringia and the Rhineland."
   },
   "herbilleur": {
     "aliases": [],
-    "label": "Weeder (herbilleur)",
+    "label": "Herbilleur (weeder)",
     "summary": "Farm worker charged with manual weeding of crops.",
     "text": "The weeder is employed in hoeing and pulling weeds in cultivated fields, seasonal work often entrusted to women and children in traditional agriculture. The term occasionally appears in civil-status documents to qualify an unskilled agricultural worker."
   },
@@ -11851,7 +11851,7 @@
       "Hiercheur",
       "Hurrier"
     ],
-    "label": "Coal-cart pusher (hercheur)",
+    "label": "Hercheur (coal-cart pusher)",
     "summary": "Miner charged with pushing coal cars through the galleries.",
     "text": "The coal-cart pusher (or herscheur, hiercheur according to regional spellings in the north France-Pas-de-Calais coal basin) ensures transport of coal cut by the coal hewer, pushing or pulling ore cars along galleries to the extraction shaft. Émile Zola makes him a central character in Germinal, where this work is often entrusted to adolescents."
   },
@@ -11859,7 +11859,7 @@
     "aliases": [
       "Hertier"
     ],
-    "label": "Communal shepherd (herdier)",
+    "label": "Herdier (communal shepherd)",
     "summary": "Sheep-raiser practising collective raising with common pasture and winter shelter.",
     "text": "The communal shepherd (or hertier) groups his sheep flock with those of other villagers for common summer grazing and collective winter housing, an organization typical of certain Ancien Régime rural communities. The term is close to that of shepherd, but emphasizes the collective and community dimension of flock-keeping."
   },
@@ -11872,7 +11872,7 @@
       "Häuerling",
       "Heuerlingsfrau"
     ],
-    "label": "Tenant cottager (Heuerling)",
+    "label": "Heuerling (tenant cottager)",
     "summary": "Landless tenant of north-western Germany renting a house and land from a farmer and paying partly in labour.",
     "text": "The Heuerling rents a small tenant house with some land from a farmer and pays the rent largely in labour on the landlord's farm at agreed times. The Heuerling system was widespread around Osnabrück, in the Münsterland, Minden-Ravensberg and the Oldenburg Münsterland; many Heuerlinge supplemented their income with linen weaving or as seasonal workers in Holland (Hollandgänger) and emigrated in large numbers to America in the 19th century."
   },
@@ -11892,7 +11892,7 @@
       "Hintersass",
       "Hintersassin"
     ],
-    "label": "Dependent tenant or non-citizen resident (Hintersasse)",
+    "label": "Hintersasse (dependent tenant or non-citizen resident)",
     "summary": "Peasant dependent on a landlord or, in Switzerland, a resident without communal citizenship.",
     "text": "In older German usage the Hintersasse is a peasant who holds his land from a landlord and owes him dues and services. In Switzerland, until the 19th century, Hintersäss denotes an inhabitant living in a commune without holding its citizenship, and therefore excluded from the citizens' benefits and liable to a residence fee. The exact meaning follows from the region and period of the source."
   },
@@ -11900,7 +11900,7 @@
     "aliases": [
       "Hirudinicultrice"
     ],
-    "label": "Leech breeder (hirudiniculteur)",
+    "label": "Hirudiniculteur (leech breeder)",
     "summary": "Breeder of leeches intended for medical use.",
     "text": "The leech breeder raises leeches in pools or artificial marshes to supply the medical profession, leech-bleeding having enjoyed considerable therapeutic vogue in the 19th century. The profession declines with the waning of this medical practice from the late 19th century onward."
   },
@@ -11915,7 +11915,7 @@
   },
   "hollandeur_de_plumes": {
     "aliases": [],
-    "label": "Quill-feather processor (hollandeur de plumes)",
+    "label": "Hollandeur de plumes (quill-feather processor)",
     "summary": "Worker specialized in treating goose feathers for making writing quills.",
     "text": "The quill-feather processor prepares goose feathers intended for writing — sorting, degreasing, hardening — in writing-quill workshops, a thriving activity before mechanical pen generalization in the 19th century. The name would refer to a Dutch technique or origin of the treatment process."
   },
@@ -11926,7 +11926,7 @@
       "Hollandsgänger",
       "Hollandgeher"
     ],
-    "label": "Seasonal worker in Holland (Hollandgänger)",
+    "label": "Hollandgänger (seasonal worker in Holland)",
     "summary": "Seasonal worker from north-western Germany who went yearly to work in the Netherlands.",
     "text": "The Hollandgänger usually came from Westphalia, the Emsland, the Osnabrück area or Oldenburg and, from the 17th into the 19th century, went every year for a few months to the Netherlands to mow grass, cut peat, help with the harvest or sign on as sailor and whaler. Many Hollandgänger were Heuerlinge or Kötter whose small holdings alone could not feed the family."
   },
@@ -11940,7 +11940,7 @@
   },
   "homme_incombustible": {
     "aliases": [],
-    "label": "Fireproof performer (homme incombustible)",
+    "label": "Homme incombustible (fireproof performer)",
     "summary": "Juggler who protects himself, by artifices, from the action of hot bodies he manipulates.",
     "text": "The fireproof performer is a fairground juggler who, by certain artifices, protects himself from the action of hot bodies he manipulates in performance."
   },
@@ -11963,7 +11963,7 @@
       "Hongreyeur",
       "Hongrieur"
     ],
-    "label": "Animal gelder (hongreur)",
+    "label": "Hongreur (animal gelder)",
     "summary": "Specialist in castrating domestic animals, sometimes practising as an empirical veterinarian.",
     "text": "The animal gelder practices castration of horses, bulls and other farm animals, a technical operation performed before the existence of regulated veterinary profession. Lacking access to a veterinary graduate, he often also provided other empirical animal care in the countryside."
   },
@@ -11971,7 +11971,7 @@
     "aliases": [
       "Hongroyeuse"
     ],
-    "label": "Alum-and-tallow tanner (hongroyeur)",
+    "label": "Hongroyeur (alum-and-tallow tanner)",
     "summary": "Craftsman tanner working leather by the so-called 'Hungarian' technique, with alum and tallow.",
     "text": "The alum-and-tallow tanner tans hides (especially cattle and horse) by a process combining alum and tallow rather than classical vegetable tannin, a method reputed to come from Hungary and yielding supple leather used for straps and soles. This tannery specialty forms a corporation distinct from that of ordinary tanners."
   },
@@ -11995,7 +11995,7 @@
   },
   "horbilleur": {
     "aliases": [],
-    "label": "Timber-frame filler (horbilleur)",
+    "label": "Horbilleur (timber-frame filler)",
     "summary": "Normandy craftsman specialized in creating timber-frame infill with straw and earth.",
     "text": "The timber-frame filler is a Normandy craftsman who fills the timber framing of half-timbered houses with daub made of straw and earth (wattle-and-daub), a traditional Normandy rural building technique. The trade is closely related to that of the daub-maker."
   },
@@ -12013,7 +12013,7 @@
     "aliases": [
       "Horlogère"
     ],
-    "label": "Watchmaker (horloger)",
+    "label": "Horloger (watchmaker)",
     "summary": "Craftsman making, adjusting and repairing watches, clocks and timepieces.",
     "text": "The watchmaker designs, assembles and maintains time-measuring mechanisms, from large building clocks to pocket watches. The trade progressively splits between \"large\" horology (clocks, timepieces) and fine horology (watches), with renowned production centres like Besançon and Franche-Comté in France."
   },
@@ -12021,7 +12021,7 @@
     "aliases": [
       "Hortelaine"
     ],
-    "label": "Vegetable gardener (hortelain)",
+    "label": "Hortelain (vegetable gardener)",
     "summary": "Old dialectal form of 'gardener', cultivator of vegetable gardens.",
     "text": "Hortelain is an old and regional form (northern France, Wallonia) of the word gardener, derived from Latin hortus (the garden). Unlike the floating-garden gardener, specifically linked to the floating vegetable gardens of the Amiens region, the hortelain more generally designates any vegetable gardener, in town or country."
   },
@@ -12029,7 +12029,7 @@
     "aliases": [
       "Hortillonne"
     ],
-    "label": "Floating-garden gardener (hortillon)",
+    "label": "Hortillon (floating-garden gardener)",
     "summary": "Market gardener cultivating the floating gardens (hortillonnages) of the Amiens marshes.",
     "text": "The floating-garden gardener exploits small vegetable plots surrounded by canals in the Somme marshes, around Amiens — the famous \"hortillonnages,\" accessible only by boat. This form of marsh market gardening, attested since the Middle Ages, persists today at reduced scale, partly for tourism."
   },
@@ -12038,7 +12038,7 @@
       "Hospitalière",
       "Hospitaller"
     ],
-    "label": "Hospital worker (hospitalier)",
+    "label": "Hospitalier (hospital worker)",
     "summary": "Person charged with care of the sick and poor within a hospital.",
     "text": "The term hospitalier designates, before modern medicalization of hospitals, a person — often religious or lay affiliated to a confraternity — charged with receiving and caring for sick people, the poor and pilgrims in a hotel-Dieu or hospice. It also refers to members of hospitaller orders, such as the Order of Saint John of Jerusalem, devoted to this same mission."
   },
@@ -12046,7 +12046,7 @@
     "aliases": [
       "Hostelain"
     ],
-    "label": "Innkeeper (hoste)",
+    "label": "Hoste (innkeeper)",
     "summary": "Old spelling of 'host', keeper of an inn or lodging house.",
     "text": "The hoste (old spelling of host) kept an inn or hostelry where he lodged and fed travellers for payment, an activity regulated from the Middle Ages by corporate statutes specific to stage-towns and fair-towns. The term is the direct ancestor of the modern hotelier."
   },
@@ -12065,7 +12065,7 @@
       "Hotteuse",
       "Hottier"
     ],
-    "label": "Basket carrier (hotteur)",
+    "label": "Hotteur (basket carrier)",
     "summary": "Itinerant porter transporting goods or materials in a basket on his back.",
     "text": "The basket carrier (or hottier, hoti, hotlî according to regions) transports on his back, using a basket, various goods — grapes, fish, ore, wood — according to local contexts. The term designates both a small urban itinerant trade and a loading post in vineyards or mines."
   },
@@ -12082,7 +12082,7 @@
       "Collier",
       "Houilleuse"
     ],
-    "label": "Coal miner (houilleur)",
+    "label": "Houilleur (coal miner)",
     "summary": "Miner specialized in coal extraction.",
     "text": "The coal miner works at coal (mineral coal) extraction in mines, a generic term covering several specialized posts like coal hewer or cart-pusher. The word is particularly frequent in records of coal-mining basins of the north, Pas-de-Calais and Loire in the 19th and 20th centuries."
   },
@@ -12090,7 +12090,7 @@
     "aliases": [
       "Houppière"
     ],
-    "label": "Wool preparer (houppier)",
+    "label": "Houppier (wool preparer)",
     "summary": "Worker who 'houppes' wool: washing, carding and degreasing before spinning.",
     "text": "The wool preparer washes, cards and degresses raw wool to prepare it for spinning, a task the Diderot and d'Alembert Encyclopedia places notably in woollen works in Amiens and Abbeville, where the term was sometimes synonymous with comber. Not to be confused with the modern sense of 'houppier,' which today denotes the crown of tree branches in forestry."
   },
@@ -12098,7 +12098,7 @@
     "aliases": [
       "Hourdeuse"
     ],
-    "label": "Daub-maker (hourdeur)",
+    "label": "Hourdeur (daub-maker)",
     "summary": "Mason specialized in daub, filling timber-frame walls.",
     "text": "The daub-maker fills timber framing (the wooden structure of walls) with daub made of various materials — wattle-and-daub, rubble, bricks — traditional building technique widespread before generalization of solid stone or brick walls. The trade is close to that of the mason and Normandy timber-frame filler."
   },
@@ -12117,13 +12117,13 @@
       "Huchet",
       "Huchier"
     ],
-    "label": "Chest maker (hucher)",
+    "label": "Hucher (chest maker)",
     "summary": "Joiner specialized in making chests and storage furniture.",
     "text": "The chest maker makes chests — boxes notably intended for kneading and storing bread — and other wooden storage furniture. This specialized joinery trade is the ancestor of the cabinetmaker and differs from the huchier-crier, a homonym whose name comes from the verb \"hucher\" (shout loudly) and who designates a public crier."
   },
   "huchier_crieur": {
     "aliases": [],
-    "label": "Public crier (huchier-crieur)",
+    "label": "Huchier-crieur (public crier)",
     "summary": "Public crier charged with proclaiming official announcements aloud.",
     "text": "The public crier, whose name comes from the old verb \"hucher\" (to call, shout loud), proclaims in streets and public squares official announcements, sales, notices and municipal bans, at a time when written posting reached a mostly illiterate population. The trade, organized into a sworn corporation in several towns, should not be confused with the hucher, a joiner making chests."
   },
@@ -12137,7 +12137,7 @@
       "Gänsejunge",
       "Hütemädchen"
     ],
-    "label": "Herd boy (Hütejunge)",
+    "label": "Hütejunge (herd boy)",
     "summary": "Child or youth who tended livestock on the pasture.",
     "text": "The Hütejunge tends cows, sheep, pigs or geese on the pasture, often from spring to autumn in return for board, clothing and a small wage. Herding was frequently the first job of children from poor families and a step towards later service as a farmhand or maid."
   },
@@ -12150,7 +12150,7 @@
       "Schmelzer",
       "Hüttenmeister"
     ],
-    "label": "Smelter worker (Hüttenmann)",
+    "label": "Hüttenmann (smelter worker)",
     "summary": "Worker at a smelting works who reduced ores to metal.",
     "text": "The Hüttenmann works in a smelter (Hütte), where silver, lead, copper or iron ores are roasted and smelted into metal in furnaces; as a Schmelzer he tends the furnaces, while other smelter hands supply charcoal and fluxes and tap the furnace. Smelter workers formed an occupational group of their own beside the miners, with their own regulations, for example in the Harz, the Ore Mountains and the Mansfeld area; the Hüttenmeister managed the works."
   },
@@ -12164,7 +12164,7 @@
       "Huber",
       "Mansionarius"
     ],
-    "label": "Full farmer (Hufner)",
+    "label": "Hufner (full farmer)",
     "summary": "Farmer holding a full hide (Hufe) of land and a full member of the village community.",
     "text": "The Hufner (Hüfner) works an entire Hufe, the traditional land unit of a farm, and so belongs to the upper layer of village farmers with full communal rights and a team of draught animals. The term is common in northern Germany, Schleswig-Holstein and eastern Germany; in Hesse and Silesia the form is Hübner, in the south Huber (holder of a Hube). Below him rank the half and quarter Hufner, the Kossäten and the Kätner."
   },
@@ -12183,7 +12183,7 @@
   },
   "huissier": {
     "aliases": [],
-    "label": "Door maker (huissier)",
+    "label": "Huissier (door maker)",
     "summary": "Maker of huis (doors).",
     "text": "The huissier, in its old artisanal sense, is a door maker — a sense distinct from the officer of the same name."
   },
@@ -12191,7 +12191,7 @@
     "aliases": [
       "Huissière à Verge"
     ],
-    "label": "Rod-bearing bailiff (huissier à verge)",
+    "label": "Huissier à verge (rod-bearing bailiff)",
     "summary": "Junior court officer at the Châtelet of Paris, bearing a rod as an authority insignia.",
     "text": "The rod-bearing bailiff is a junior justice officer attached to the Châtelet of Paris, recognizable by the rod (baton) he carries as a mark of his function during service of acts and executions of justice. This type of bailiff constitutes one of the many rungs of Ancien Régime lower justice."
   },
@@ -12199,7 +12199,7 @@
     "aliases": [
       "Huissière au Parlement"
     ],
-    "label": "Parliament bailiff (huissier au parlement)",
+    "label": "Huissier au parlement (parliament bailiff)",
     "summary": "Officer charged with maintaining order and making convocations within an Ancien Régime parliament.",
     "text": "The parliament bailiff ensures order at hearings, introduction of parties and service of decrees within a provincial parliament or the Paris Parliament, the realm's highest court of justice. His office, often venial under the Ancien Régime, was transmitted or purchased like an office."
   },
@@ -12207,7 +12207,7 @@
     "aliases": [
       "Huissière Audiencière"
     ],
-    "label": "Courtroom bailiff (huissier audiencier)",
+    "label": "Huissier audiencier (courtroom bailiff)",
     "summary": "Justice officer charged with calling cases and maintaining order at hearings.",
     "text": "The courtroom bailiff ensures the smooth material running of tribunal hearings: calling of cases, introduction of parties, maintenance of order in the room. This function differs from that of the justice bailiff, charged with service of acts and execution of decisions outside the tribunal."
   },
@@ -12216,7 +12216,7 @@
       "Contrôleur aux Traites Foraines",
       "Huissière aux Traites Foraines"
     ],
-    "label": "Forfeited-trade bailiff (huissier aux traites foraines)",
+    "label": "Huissier aux traites foraines (forfeited-trade bailiff)",
     "summary": "Customs officer charged with collecting rights on goods in transit at provincial borders.",
     "text": "The forfeited-trade bailiff collects \"forfeited trades,\" interior customs duties levied on goods moving between realm provinces before customs unification. This system of internal barriers, progressively abolished at the Revolution, generated abundant local administration of which this office formed a part."
   },
@@ -12225,7 +12225,7 @@
       "Bailiff",
       "Huissière de Justice"
     ],
-    "label": "Bailiff of justice (huissier de justice)",
+    "label": "Huissier de justice (bailiff of justice)",
     "summary": "Ministerial officer charged with serving legal acts and executing justice decisions.",
     "text": "The bailiff of justice serves summonses, judgements and other procedural acts, and carries out seizures and evictions ordered by justice. Holder of a royal office then a regulated ministerial charge, he constitutes one of the essential mechanisms of judicial execution from the Ancien Régime to today (commissioner of justice since 2022)."
   },
@@ -12233,7 +12233,7 @@
     "aliases": [
       "Huissière de la Chaîne"
     ],
-    "label": "Chain-bearing bailiff (huissier de la chaîne)",
+    "label": "Huissier de la chaîne (chain-bearing bailiff)",
     "summary": "Bailiff of the king's council, bearing a gold chain adorned with the royal medal.",
     "text": "The chain-bearing bailiff serves at the king's council and distinguishes himself by wearing a gold chain to which hangs a medal with the sovereign's effigy, insignia of his proximity to royal power. This high-ranking bailiff office illustrates the highly codified internal hierarchy of the Ancien Régime bailiff corps."
   },
@@ -12241,7 +12241,7 @@
     "aliases": [
       "Huissière de la Chancellerie"
     ],
-    "label": "Chancellery bailiff (huissier de la chancellerie)",
+    "label": "Huissier de la chancellerie (chancellery bailiff)",
     "summary": "Bailiff attached to a royal or provincial chancellery.",
     "text": "The chancellery bailiff ensures order and transmission of acts within a chancellery, the administration charged with sealing and registering the official acts of the king or a parliament. His office, like most Ancien Régime bailiff offices, could be purchased and transmitted."
   },
@@ -12249,7 +12249,7 @@
     "aliases": [
       "Huissière de Soirée"
     ],
-    "label": "Evening bailiff (huissier de soirée)",
+    "label": "Huissier de soirée (evening bailiff)",
     "summary": "Bailiff charged with announcing guests at social receptions.",
     "text": "The evening bailiff announces, often by crying out their names and titles, guests arriving at a reception, ball or social evening, a representative function characteristic of great aristocratic and bourgeois households of the 19th and early 20th century. The role is purely ceremonial, unrelated to the judicial functions of other bailiffs."
   },
@@ -12266,13 +12266,13 @@
       "Auctioneer",
       "Huissière-priseuse"
     ],
-    "label": "Auctioneer-bailiff (huissier-priseur)",
+    "label": "Huissier-priseur (auctioneer-bailiff)",
     "summary": "Ministerial officer authorized to appraise and sell moveable goods by auction.",
     "text": "The auctioneer-bailiff inventories, appraises and sells at public auction moveable goods and objects, notably during successions, seizures or liquidations. The function arises from the 1576 edict fusing offices of appraiser-master and bailiff; it survives in towns lacking a judicial appraiser until the 2015 Macron law fusing justice bailiffs and judicial appraisers into a single profession of justice commissioner, effective since 2022."
   },
   "huttier": {
     "aliases": [],
-    "label": "Marsh-dwelling hut dweller (huttier)",
+    "label": "Huttier (marsh-dwelling hut dweller)",
     "summary": "Inhabitant of the Poitevin Marshes traditionally living in a hut beside canals.",
     "text": "The marsh-dwelling hut dweller resides in a hut, traditional dwelling of earth and reeds typical of the Poitevin Marshes, and lives by fishing, waterfowl hunting and cultivating small plots accessible by boat (the \"flat-bottomed boat\"). This amphibious way of life, once common in wet areas of western France, has largely disappeared in the 20th century."
   },
@@ -12280,7 +12280,7 @@
     "aliases": [
       "Illumineuse"
     ],
-    "label": "Manuscript illuminator (illumineur)",
+    "label": "Illumineur (manuscript illuminator)",
     "summary": "Artist specialized in illumination and decoration of manuscripts.",
     "text": "The illuminator (or manuscript illuminator) adorns medieval manuscripts with paintings, illuminated letters and gilding, often working in a workshop serving a monastery scriptorium or a lay bookseller-publisher from the 13th century onward. The trade declines with printing's spread from the late 15th century onward."
   },
@@ -12297,7 +12297,7 @@
     "aliases": [
       "Implanteuse"
     ],
-    "label": "Hair implanter (implanteur)",
+    "label": "Implanteur (hair implanter)",
     "summary": "Postiche worker specialized in implanting hair on wigs.",
     "text": "The hair implanter works in the wig and postiche industry, knotting or implanting lock by lock hair (natural or synthetic) on a tulle or net base. The trade falls within wig-making, a flourishing activity under the Ancien Régime then refocused on theatre, cinema and medical-hair needs."
   },
@@ -12315,7 +12315,7 @@
       "Copperplate Printer",
       "Imprimeuse en Taille-Douce"
     ],
-    "label": "Intaglio printer (imprimeur en taille-douce)",
+    "label": "Imprimeur en taille-douce (intaglio printer)",
     "summary": "Printer specialized in printing engravings from copper plates cut in intaglio.",
     "text": "The intaglio printer pulls prints from copper plates engraved in intaglio (as opposed to wood engraving, in relief), a technique allowing great fineness of line used for portraits, maps and luxury illustrations. The process requires a specific intaglio press, different from the classical typographic press."
   },
@@ -12323,7 +12323,7 @@
     "aliases": [
       "Imprimeuse Lithographe"
     ],
-    "label": "Lithographic printer (imprimeur lithographe)",
+    "label": "Imprimeur lithographe (lithographic printer)",
     "summary": "Printer specialized in reproduction by lithography, drawing on limestone.",
     "text": "The lithographic printer reproduces texts and images through lithography, a process invented by Aloys Senefelder at the late 18th century, based on the repulsion between greasy ink and water applied to a limestone stone engraved with a greasy crayon. The process, less costly than engraving, enjoys great success in the 19th century for posters and illustration."
   },
@@ -12342,7 +12342,7 @@
       "Imprimeur d'Indienne",
       "Indienneuse"
     ],
-    "label": "Cotton-print worker (indienneur)",
+    "label": "Indienneur (cotton-print worker)",
     "summary": "Worker specialized in printing coloured patterns on cotton fabrics called indiennes.",
     "text": "The cotton-print worker prints coloured patterns, often floral, on cotton fabrics called \"indiennes\" because initially imported from India; cotton-print manufacturing established itself in France (Rouen, Mulhouse, Jouy-en-Josas with Oberkampf) from the 18th century despite long protectionist prohibition. The trade declines with mechanization of textile printing in the 19th century."
   },
@@ -12420,7 +12420,7 @@
       "Factory Inspector",
       "Inspectrice des Manufactures"
     ],
-    "label": "Manufactures inspector (inspecteur des manufactures)",
+    "label": "Inspecteur des manufactures (manufactures inspector)",
     "summary": "Royal official charged with controlling the state of arts and manufactures in the provinces.",
     "text": "The manufactures inspector is a royal agent, established notably under Colbert, charged with controlling manufacturing-quality and compliance with corporate regulations in the manufactures of a generalship, within the mercantilist policy of Ancien Régime industrial development."
   },
@@ -12441,7 +12441,7 @@
       "Insthmann",
       "Insthe"
     ],
-    "label": "Estate labourer (Inste)",
+    "label": "Inste (estate labourer)",
     "summary": "Estate labourer engaged by the year with a dwelling and land, in Schleswig-Holstein, Mecklenburg and East Prussia.",
     "text": "The Inste (Instmann) is a farm labourer who binds himself to an estate or large farm for a year and receives as wages a dwelling, a plot of land, pasture for a cow and a share of the harvest. In East Prussia he often had to supply an additional worker (Hofgänger or Scharwerker), usually a family member. The Instleute made up a large part of the rural population north and east of the Elbe in the 18th and 19th centuries."
   },
@@ -12450,7 +12450,7 @@
       "Institutrice",
       "Schoolteacher"
     ],
-    "label": "Primary teacher (instituteur)",
+    "label": "Instituteur (primary teacher)",
     "summary": "Primary-school teacher, particularly in public secular schools.",
     "text": "The primary teacher teaches in primary school, a title that generalizes with the Guizot laws (1833) then Ferry laws (1881-1882) making primary instruction public, free and mandatory. He succeeds the old-regime schoolmaster or master, now with training and status regulated by the State through teacher-training schools."
   },
@@ -12459,7 +12459,7 @@
       "Institutrice Privée",
       "Private School Teacher"
     ],
-    "label": "Private primary teacher (instituteur privé)",
+    "label": "Instituteur privé (private primary teacher)",
     "summary": "Primary teacher working in a private, often religious-affiliated, establishment.",
     "text": "The private primary teacher teaches in a free school, most often run by a religious congregation, in parallel with the public network issuing from the Ferry laws. The coexistence of the two networks, source of recurrent tensions (school disputes), durably structures the French education system."
   },
@@ -12468,7 +12468,7 @@
       "Institutrice Publique",
       "Public School Teacher"
     ],
-    "label": "Public primary teacher (instituteur public)",
+    "label": "Instituteur public (public primary teacher)",
     "summary": "Primary teacher employed by the State in public secular schools.",
     "text": "The public primary teacher teaches in a municipal school funded by the State and municipality, a status consolidated by the Ferry laws of 1881-1882 instituting free, mandatory and secular primary education. He is trained in a departmental teacher-training school."
   },
@@ -12477,13 +12477,13 @@
       "Steward",
       "Homme de Confiance"
     ],
-    "label": "Royal administrator (intendant)",
+    "label": "Intendant (royal administrator)",
     "summary": "High royal official charged with administering a generalship, or manager of a great household.",
     "text": "Under the Ancien Régime, the administrator of justice, police and finances represents royal power in a generalship, combining administrative, judicial and fiscal functions — one of the principal architects of monarchical centralization. The term also designates, in a domestic context, the manager charged with running a great estate or noble house."
   },
   "intendant_de_la_chapelle": {
     "aliases": [],
-    "label": "Chapel administrator (intendant de la chapelle)",
+    "label": "Intendant de la chapelle (chapel administrator)",
     "summary": "Officer charged with administration and operation of a royal or seigneurial chapel.",
     "text": "The chapel administrator manages liturgical materials, personnel and organization of services in a royal, princely or seigneurial chapel, a domestic function close to that of a household manager but applied to private religious service."
   },
@@ -12491,13 +12491,13 @@
     "aliases": [
       "Introducteur des Ambassadeurs"
     ],
-    "label": "Master of ceremonies (introducteur)",
+    "label": "Introducteur (master of ceremonies)",
     "summary": "Officer of the Royal Household charged with presenting foreign ambassadors at royal audiences.",
     "text": "The master of ceremonies is a Royal Household officer charged with protocol for receiving foreign diplomats, presenting them to the sovereign and ensuring proper conduct of official audiences. The office, prestigious, illustrates the importance of ceremony in Ancien Régime diplomacy."
   },
   "islandais": {
     "aliases": [],
-    "label": "Icelandic fisherman (islandais)",
+    "label": "Islandais (icelandic fisherman)",
     "summary": "Fishing sailor embarked for long cod-fishing campaigns on Iceland banks.",
     "text": "The Icelandic fisherman is the sailor who embarked, from around 1850 until the 1930s, aboard schooners, dundees or three-masters for cod-fishing campaigns of six to eight months off Iceland. Dunkerquois long remained the only French to frequent these waters, before Paimpol shipowners sent their own schooners from 1852; Pierre Loti's novel, Icelandic Fisherman, made famous this fishing, distinct from that of the Newfoundland ships exploiting Newfoundland banks."
   },
@@ -12512,13 +12512,13 @@
   },
   "jagot": {
     "aliases": [],
-    "label": "Auvergnat tinker (jagot)",
+    "label": "Jagot (auvergnat tinker)",
     "summary": "Itinerant tinsmith from Auvergne, repairing copper utensils from village to village.",
     "text": "The Auvergnat tinker is an itinerant Auvergnat tinsmith who travels the countryside repairing pots, cauldrons and other copper or tin utensils, seasonal activity typical of temporary labour migration from the Massif Central to other regions. The term is close to that of magnien or maignan, designating the same type of itinerant craftsman."
   },
   "janteleur": {
     "aliases": [],
-    "label": "Wheel-rim maker (janteleur)",
+    "label": "Janteleur (wheel-rim maker)",
     "summary": "Craftsman making metal circles used for binding cart-wheel rims.",
     "text": "The wheel-rim maker makes and fits the iron circles (bandages) that reinforce the wooden rim of cart and wagon wheels, an operation performed hot to ensure perfect tightness upon cooling. The trade is closely linked to those of the wheelwright and farrier."
   },
@@ -12535,7 +12535,7 @@
     "aliases": [
       "Jardinière en Prinvaux"
     ],
-    "label": "Prinvaux gardener (jardinier en prinvaux)",
+    "label": "Jardinier en prinvaux (prinvaux gardener)",
     "summary": "Cultivator of the viticultural and market-garden zone of Prinvaux, near Saint-Dizier.",
     "text": "The Prinvaux gardener works the market-garden and viticultural lands of the Prinvaux quarter, at Saint-Dizier (Haute-Marne), a very localized designation found in documents of this municipality."
   },
@@ -12543,13 +12543,13 @@
     "aliases": [
       "Jarlière"
     ],
-    "label": "Wooden-vessel maker (jarlier)",
+    "label": "Jarlier (wooden-vessel maker)",
     "summary": "Craftsman making jarles and gerles, wooden vessels for wine or laundry.",
     "text": "The wooden-vessel maker makes jarles (or gerles), from Latin gerula, large wooden vats or baskets used for grape harvest, wine storage or laundry. The surname derived from it is notably attested in Haute-Loire, in the Massif Central, a region where this type of rustic cooperage was widespread."
   },
   "jattier": {
     "aliases": [],
-    "label": "Wooden-bowl turner (jattier)",
+    "label": "Jattier (wooden-bowl turner)",
     "summary": "Wood turner specialized in making bowls and wooden dishes.",
     "text": "The wooden-bowl turner turns wood on a pedal or bow-driven lathe to produce bowls, dishes and other common tableware, rural craft activity widespread in forested regions before metal or earthenware tableware generalization."
   },
@@ -12558,7 +12558,7 @@
       "Gauger",
       "Jaugeuse"
     ],
-    "label": "Barrel measurer (jaugeur)",
+    "label": "Jaugeur (barrel measurer)",
     "summary": "Officer charged with measuring and verifying the capacity of barrels and containers.",
     "text": "The barrel measurer measures the capacity (the gauge) of barrels, casks and other containers, notably for wine trade and taxed liquids, an sworn function essential to calculation of Ancien Régime tax rights."
   },
@@ -12574,7 +12574,7 @@
   },
   "jocquier": {
     "aliases": [],
-    "label": "Postillion groom (jocquier)",
+    "label": "Jocquier (postillion groom)",
     "summary": "Domestic driving a carriage while riding one of the horses, as a postillion.",
     "text": "The postillion groom is a domestic who drives a carriage as a postillion, that is, riding one of the team horses rather than seated on a coach seat, to guide and direct the equipage. The term thus designates a horse-driving trade rather than an artisan craft."
   },
@@ -12589,13 +12589,13 @@
       "Joueur d'Instruments",
       "Joueuse d'Instruments"
     ],
-    "label": "Musician (joueur d'instruments)",
+    "label": "Joueur d'instruments (musician)",
     "summary": "Professional musician playing one or several musical instruments.",
     "text": "The musician is a professional musician performing at celebrations, balls, religious or civic ceremonies, a generic term used in old documents without always specifying the instrument (vielle, bagpipe, violin, oboe according to regions)."
   },
   "jouguier": {
     "aliases": [],
-    "label": "Yoke maker (jouguier)",
+    "label": "Jouguier (yoke maker)",
     "summary": "Craftsman making youks, wooden pieces for yoke of draft animals.",
     "text": "The yoke maker shapes youks, wooden pieces placed on the neck of oxen to yoke them in pairs to the plough or cart, rural craft closely linked to animal-traction agriculture."
   },
@@ -12607,7 +12607,7 @@
       "Journayeur",
       "Fougeur de rôtisses"
     ],
-    "label": "Day labourer (journalier)",
+    "label": "Journalier (day labourer)",
     "summary": "Agricultural worker paid by the day, without land or own specialization.",
     "text": "The day labourer hires out his labour day to day, most often in agriculture, without owning land or team animals, which places him at the bottom of the peasant hierarchy, below the small farmer and ploughman. The term, one of the most frequent in parish and civil-status records, knows many regional variants like journayeur, and its feminine form journalière."
   },
@@ -12629,7 +12629,7 @@
   },
   "juge_aux_traites_foraines": {
     "aliases": [],
-    "label": "Forfeited-trade judge (juge aux traites foraines)",
+    "label": "Juge aux traites foraines (forfeited-trade judge)",
     "summary": "Magistrate charged with judging disputes related to interior customs duties.",
     "text": "The forfeited-trade judge resolves disputes related to collection of interior customs duties, those duties levied on goods moving between realm provinces, a fiscal system abolished at the Revolution."
   },
@@ -12803,7 +12803,7 @@
       "Getreidekastner",
       "Kastengegenschreiber"
     ],
-    "label": "Granary official (Kastner)",
+    "label": "Kastner (granary official)",
     "summary": "Official in Bavaria and Austria who managed the lord's granary and dues in kind.",
     "text": "The Kastner heads a Kastenamt and manages the Kasten, the granary of a territorial ruler, monastery or lordship: he receives the land dues paid in grain and other kind, stores them, sells or distributes them and keeps the accounts. The office is attested especially in Bavaria and Austria from the late Middle Ages to the early 19th century; the surname Kastner recalls it."
   },
@@ -12815,7 +12815,7 @@
       "Rußbuttenmann",
       "Rußbuttenträger"
     ],
-    "label": "Lampblack burner (Kienrußbrenner)",
+    "label": "Kienrußbrenner (lampblack burner)",
     "summary": "Forest craftsman who produced lampblack by burning resinous pine wood.",
     "text": "The Kienrußbrenner burns resinous pine and spruce wood (Kien) or resin residues with little air in a soot hut and collects the soot in a chamber. The lampblack was used to make printer's ink, drawing ink, paint and shoe polish and was sold by pedlars in small wooden kegs (Rußbutten). The trade was widespread in the Thuringian Forest, the Black Forest, the Bavarian Forest and the Palatinate."
   },
@@ -12868,7 +12868,7 @@
       "Knappschaftsvorsteher",
       "Knappschaftsdeputierter"
     ],
-    "label": "Miners' fund elder (Knappschaftsältester)",
+    "label": "Knappschaftsältester (miners' fund elder)",
     "summary": "Representative elected by miners in the Knappschaft, their sickness and invalidity fund.",
     "text": "The Knappschaftsältester is elected by the miners of a district and represents them in the Knappschaft, the miners' community and fund existing since the Middle Ages, which provided support in case of sickness, accident, invalidity and death. He visited sick members, examined claims and took part in running the fund; the office carried prestige and was usually given to experienced hewers."
   },
@@ -12887,7 +12887,7 @@
       "Kätener",
       "Katenmann"
     ],
-    "label": "Cottager (Kötter)",
+    "label": "Kötter (cottager)",
     "summary": "Smallholder of north-western Germany working a cottage holding (Kotten) with little land.",
     "text": "The Kötter lives on and works a Kotten, a small holding with little land, ranking below the full and half farmers (Vollerbe, Halberbe) in the rural hierarchy of Westphalia and Lower Saxony. He often supplemented his living with day labour, linen weaving or a craft; older Erbkötter are distinguished from later Markkötter, who settled on the common land. In Schleswig-Holstein and Mecklenburg the corresponding smallholder is called a Kätner."
   },
@@ -12938,7 +12938,7 @@
       "Kossätin",
       "Kossäthe"
     ],
-    "label": "Cottager (Kossät)",
+    "label": "Kossät (cottager)",
     "summary": "Smallholder of Brandenburg, Pomerania and Saxony-Anhalt with a cottage and little land, owing manual services.",
     "text": "The Kossät (from Low German Kotsasse, cottage dweller) holds a small farmstead with little arable land and ranks below the full farmer (Hüfner) who kept a team of draught animals. Towards the manor he usually owed manual labour rather than team services. The term is typical of the Mark Brandenburg, Pomerania and neighbouring areas and appears frequently in parish registers and land-tax rolls."
   },
@@ -12960,7 +12960,7 @@
       "Melkmagd",
       "Kuhdirn"
     ],
-    "label": "Cow maid (Kuhmagd)",
+    "label": "Kuhmagd (cow maid)",
     "summary": "Maidservant who tends the livestock and milks the cows on a farm.",
     "text": "The Kuhmagd is responsible for work in the byre: feeding and watering the cattle, mucking out and above all milking, often also making butter and cheese. On larger farms she ranked below the head maid (Großmagd) in the servants' hierarchy. The term is frequent in parish registers and lists of farm servants."
   },
@@ -12972,7 +12972,7 @@
       "Kunstmeister",
       "Radstubenknecht"
     ],
-    "label": "Pump attendant (Kunstknecht)",
+    "label": "Kunstknecht (pump attendant)",
     "summary": "Miner who operated a mine's water-powered pumping and hoisting machinery (Künste).",
     "text": "In the mines of the Harz and the Ore Mountains the machines driven by water wheels and rod systems for draining the workings were called \"Künste\". The Kunstknecht watches over and greases this machinery, replaces pump parts and reports damage so that the mine does not flood; the Kunststeiger supervises him, while the Kunstmeister designs and builds the installations."
   },
@@ -13163,7 +13163,7 @@
       "Gendarm",
       "Landreiter"
     ],
-    "label": "Rural policeman (Landjäger)",
+    "label": "Landjäger (rural policeman)",
     "summary": "Member of a rural police force, especially in Württemberg and in Swiss cantons.",
     "text": "The Landjäger belongs to a militarily organised corps responsible for public security in the countryside: patrolling roads and markets, pursuing vagrants and thieves, escorting prisoners. The term is attested above all for 19th-century Württemberg, several Swiss cantons and the Prussian Landjägerei from 1920 to 1934; in other states the corresponding force was called gendarmerie or Landreiter."
   },
@@ -13348,7 +13348,7 @@
       "Eigenmann",
       "Erbuntertan"
     ],
-    "label": "Serf (Leibeigener)",
+    "label": "Leibeigener (serf)",
     "summary": "Peasant in personal bondage to a lord, tied to farm and soil.",
     "text": "The Leibeigener is personally dependent on a lord: he could not leave the farm without permission, needed the lord's consent to marry and owed dues such as the heriot (Besthaupt) at death. The forms and severity of serfdom varied greatly by region; in Westphalia one speaks of Eigenbehörige, in eastern Germany of Erbuntertanen. Serfdom was abolished in most German states in the late 18th and early 19th centuries."
   },
@@ -13362,7 +13362,7 @@
       "Totenwäscherin",
       "Seelfrau"
     ],
-    "label": "Layer-out of the dead (Leichenfrau)",
+    "label": "Leichenfrau (layer-out of the dead)",
     "summary": "Woman who washed, dressed and laid out the dead and often announced the death.",
     "text": "The Leichenfrau is called at a death to wash, dress and lay out the deceased; in many places she announced the death in the neighbourhood, invited people to the funeral and kept the wake. The task was usually performed by older women or widows for a small fee, sometimes on behalf of the community or parish, and in Bavaria and Tyrol was also called Seelnonne."
   },
@@ -13848,7 +13848,7 @@
       "Malzmeister",
       "Mälzereiarbeiter"
     ],
-    "label": "Maltster (Mälzer)",
+    "label": "Mälzer (maltster)",
     "summary": "Craftsman who germinated and kiln-dried barley to make malt for brewers and distillers.",
     "text": "The Mälzer steeps barley (more rarely wheat), lets it germinate on the malting floor, turns the sprouting grain regularly and then dries it on the kiln, producing malt, the raw material of beer and grain spirits. Malting was long part of the brewer's trade; with the growth of breweries in the 19th century separate maltings with specialised workers appeared."
   },
@@ -14302,7 +14302,7 @@
       "Kochmamsell",
       "Meierinmamsell"
     ],
-    "label": "Estate housekeeper (Mamsell)",
+    "label": "Mamsell (estate housekeeper)",
     "summary": "Housekeeper on an estate supervising kitchen, dairy, poultry and maids.",
     "text": "The Mamsell (from French \"mademoiselle\") runs the household of an estate, above all in Mecklenburg, Pomerania and East Prussia: kitchen and stores, dairy, poultry, slaughtering and preserving, supervising the maids in the process. The post was usually held by unmarried women and enjoyed considerable standing on the estate."
   },
@@ -15037,7 +15037,7 @@
       "Bergvermesser",
       "Grubenvermesser"
     ],
-    "label": "Mine surveyor (Markscheider)",
+    "label": "Markscheider (mine surveyor)",
     "summary": "Mining surveyor who measured mine workings and drew mine plans.",
     "text": "The Markscheider (from Mark, boundary, and scheiden, to separate) surveys the underground workings and their position relative to the surface, draws the mine plans and fixes the boundaries of the granted mining fields so that neighbouring mines do not break into each other's workings. He was a trained official of the mining authority or of a mine; mine surveying was taught at the mining academies."
   },
@@ -16119,7 +16119,7 @@
     "aliases": [
       "Mule breeder"
     ],
-    "label": "Mulassier (mule breeder)",
+    "label": "Mule breeder (mulassier)",
     "summary": "Breeder specialised in the production of mules.",
     "text": "The \"mulassier\" bred mules, hybrid animals produced by crossing a donkey with a mare, highly sought after as pack and draught animals. Some regions, such as Poitou and the Pyrenees, specialised in this breeding, supplying a trade in mules as far as southern Europe."
   },
@@ -16177,7 +16177,7 @@
       "Stundenrufer",
       "Scharwächter"
     ],
-    "label": "Night watchman (Nachtwächter)",
+    "label": "Nachtwächter (night watchman)",
     "summary": "Watchman appointed by the community who patrols the streets at night, calls the hours and watches for fire.",
     "text": "The Nachtwächter walks the streets of a town or village at night, calls out the hours at fixed times, often with a verse and a horn, and watches for fire, burglary and disturbance of the peace. He was employed by the community and poorly paid; the office was frequently held by older men or day labourers and survived in many places until the late 19th century."
   },
@@ -16785,7 +16785,7 @@
     "aliases": [
       "Mint worker"
     ],
-    "label": "Ouvrier de la monnaie (mint worker)",
+    "label": "Mint worker (ouvrier de la monnaie)",
     "summary": "Mint worker responsible for adjusting and cutting coin blanks.",
     "text": "The mint worker prepared the blanks (metal discs) to be struck, in particular by adjusting their weight and diameter in a mint. He is distinct from the moneyer (monnayeur) proper, who carried out the striking itself."
   },
@@ -17801,7 +17801,7 @@
       "Pflegrichter",
       "Pflegsverweser"
     ],
-    "label": "District governor (Pfleger)",
+    "label": "Pfleger (district governor)",
     "summary": "Head of a Pfleggericht in Bavaria, Salzburg and Austria, both administrator and judge.",
     "text": "The Pfleger heads a Pfleggericht, the ruler's lower administrative and judicial district in Bavaria, the Archbishopric of Salzburg and parts of Austria; he exercises police, lower and often higher jurisdiction, tax and military administration, frequently represented by a Pflegsverwalter or court clerk. The office lasted until the administrative reforms of the early 19th century. In records it must not be confused with the modern meaning of \"Pfleger\" (nurse or carer)."
   },
@@ -20011,7 +20011,7 @@
       "Schweizersöldner",
       "Kriegsläufer"
     ],
-    "label": "Swiss mercenary (Reisläufer)",
+    "label": "Reisläufer (swiss mercenary)",
     "summary": "Swiss mercenary in foreign military service.",
     "text": "The Reisläufer (from Reise, campaign) is a Swiss who enters the service of a foreign ruler as a mercenary, for example France, Spain, Naples, the Netherlands or the Pope, often in regiments raised under treaties (capitulations) between cantons and foreign powers. Mercenary service was an important source of income from the 15th to the 19th century; the federal state banned new capitulations in 1848 and recruitment for foreign service in 1859, except for the Papal Swiss Guard."
   },
@@ -20325,7 +20325,7 @@
       "Gutsbesitzerin",
       "Rittergutspächter"
     ],
-    "label": "Manor owner (Rittergutsbesitzer)",
+    "label": "Rittergutsbesitzer (manor owner)",
     "summary": "Owner of a Rittergut, a landed estate with traditional seigneurial rights.",
     "text": "The Rittergutsbesitzer owns a Rittergut, an originally noble estate to which certain rights were attached: seat and vote in the district and provincial diets, patronage over church and school and, until the 19th century, patrimonial jurisdiction and police powers. In Prussia commoners could also acquire Rittergüter from 1807. The title is very frequent in records of the lands east of the Elbe, Saxony and Mecklenburg."
   },
@@ -20381,7 +20381,7 @@
       "Röhrenleger",
       "Deichelbohrer"
     ],
-    "label": "Water-pipe master (Röhrmeister)",
+    "label": "Röhrmeister (water-pipe master)",
     "summary": "Municipal official maintaining a town's water pipes, piped fountains and pumping works.",
     "text": "The Röhrmeister is responsible for the town's water supply: he lays and repairs the pipes made of bored-out tree trunks (Deicheln), lead or clay, supervises spring catchments, piped fountains and pumping works (Wasserkünste) and ensures the distribution of water to fountains and houses. Pipe labourers (Röhrknechte) worked under him; the office is attested in many German towns from the late Middle Ages to the 19th century."
   },
@@ -20578,7 +20578,7 @@
       "Rübenarbeiter",
       "Rübenarbeiterin"
     ],
-    "label": "Seasonal farm worker (Sachsengänger)",
+    "label": "Sachsengänger (seasonal farm worker)",
     "summary": "Seasonal farm worker from the eastern provinces working in sugar-beet farming in central Germany.",
     "text": "The Sachsengänger came in the late 19th and early 20th centuries from Posen, Silesia, West and East Prussia and from Russian and Austrian Poland and worked from spring to autumn on the large estates of the Province of Saxony and central Germany, above all in labour-intensive sugar-beet farming. The name derives from the Province of Saxony, the first main destination of this migrant work."
   },
@@ -20889,7 +20889,7 @@
       "Schauchet",
       "Schächterin"
     ],
-    "label": "Ritual slaughterer (Schächter)",
+    "label": "Schächter (ritual slaughterer)",
     "summary": "Ritual slaughterer who killed animals according to Jewish religious law.",
     "text": "The Schächter (Hebrew shochet) slaughters cattle, sheep and poultry according to the rules of Jewish religious law and then examines the animals for defects that would make them unfit to eat. He needed a religious qualification to do so. In small rural communities of southern and western Germany one and the same man often held the offices of teacher, prayer leader and Schächter."
   },
@@ -20940,7 +20940,7 @@
       "Zechenschichtmeister",
       "Bergschichtmeister"
     ],
-    "label": "Mine accountant (Schichtmeister)",
+    "label": "Schichtmeister (mine accountant)",
     "summary": "Mining official who kept the accounts, wages and materials of a mine.",
     "text": "The Schichtmeister keeps the accounts of a mine (Zeche) in the mining districts of the Harz, Saxony and Bohemia: he pays the miners their wages, procures and books materials such as timber, iron and powder, collects the contributions of the shareholders (Gewerken) and reports to the mining office. In the hierarchy he stood beside the Steiger, who directed the work underground."
   },
@@ -21004,7 +21004,7 @@
       "Schwabengänger",
       "Hütekind"
     ],
-    "label": "Swabian child worker (Schwabenkind)",
+    "label": "Schwabenkind (swabian child worker)",
     "summary": "Child from the Alpine valleys who went each summer to work on farms in Upper Swabia.",
     "text": "The Schwabenkinder came from Vorarlberg, Tyrol, Graubünden and South Tyrol and travelled in spring, often on foot across the Alpine passes, to Upper Swabia and the Lake Constance area, where they were placed with farmers at child markets such as in Ravensburg. They worked until autumn as herders, farmhands or maids for board, clothing and a small wage. This child migration lasted from the 17th century to the early 20th century."
   },
@@ -21016,7 +21016,7 @@
       "Schwaigbauer",
       "Schwaiglehner"
     ],
-    "label": "Dairy farmer (Schwaiger)",
+    "label": "Schwaiger (dairy farmer)",
     "summary": "Holder of a Schwaige, an Alpine farm devoted to cattle raising and cheese making.",
     "text": "The Schwaiger works a Schwaige (Schwaighof), a farm established by landlords in the Middle Ages at higher altitudes of Bavaria, Tyrol and Austria, geared to cattle and dairy farming and often paying its dues in cheese. The term survives in many farm and family names."
   },
@@ -21029,7 +21029,7 @@
       "Freischweizer",
       "Schweizerin"
     ],
-    "label": "Dairyman (Schweizer)",
+    "label": "Schweizer (dairyman)",
     "summary": "Skilled milker and cattle keeper on larger estates, regardless of his origin.",
     "text": "In Germany, from the 18th and especially the 19th century, the term Schweizer (\"Swiss\") denoted the professional milker and cattle keeper of large estates, because specialists from Switzerland were initially recruited for dairy farming; the name then stuck to the occupation. The Oberschweizer ran the cowshed with Unterschweizer as assistants. In records the term must not be confused with a statement of origin."
   },
@@ -21136,7 +21136,7 @@
       "Seifensteiger",
       "Seifenmeister"
     ],
-    "label": "Placer miner (Seifner)",
+    "label": "Seifner (placer miner)",
     "summary": "Miner who washed tin ore or gold out of stream deposits (Seifen).",
     "text": "The Seifner recovers tinstone, more rarely gold, from Seifen, ore-bearing sand and gravel deposits in valleys and stream beds, by digging up the material and washing it in channels of running water so that the heavy ore stays behind. The tin placers of the Ore Mountains, the Fichtel Mountains and Bohemia were worked from the Middle Ages and left characteristic spoil heaps."
   },
@@ -21576,7 +21576,7 @@
       "Stadtzinkenist",
       "Ratsmusikus"
     ],
-    "label": "Town musician (Stadtmusikus)",
+    "label": "Stadtmusikus (town musician)",
     "summary": "Town musician appointed by the council with the privilege of playing at festivities and weddings.",
     "text": "The Stadtmusikus is a musician employed by the town council who, with his journeymen and apprentices (Stadtpfeifer, Kunstpfeifer), played at civic ceremonies, church services and from the tower. He usually held the privilege of playing in the town at weddings, dances and feasts, and trained musicians. The institution existed from the 16th into the 19th century."
   },
@@ -21642,7 +21642,7 @@
       "Strohhutflechterin",
       "Geflechtmacher"
     ],
-    "label": "Straw plaiter (Strohflechter)",
+    "label": "Strohflechter (straw plaiter)",
     "summary": "Home worker who plaited straw into braids for hat making.",
     "text": "The Strohflechter plaits split or whole straws, mostly of rye or wheat, into braids and plaits that were sewn into straw hats and bags. Straw plaiting was a widespread home industry of women and children in the 18th and 19th centuries, especially in the Black Forest and the Freiamt region of Aargau, where it was organised by merchant-employers."
   },
@@ -21670,7 +21670,7 @@
       "Sülfmeisterin",
       "Sülzbegüterter"
     ],
-    "label": "Salt-works operator (Sülfmeister)",
+    "label": "Sülfmeister (salt-works operator)",
     "summary": "Operator of a boiling house of the Lüneburg saltworks, usually from the town's upper class.",
     "text": "The Sülfmeister operates in Lüneburg one of the boiling houses of the saltworks (the Sülze), in which brine was boiled down to salt in lead pans; the boiling houses mostly belonged to ecclesiastical and lay owners, from whom the Sülfmeister leased them. The Sülfmeister formed an influential association whose members belonged to the town's ruling class and held the council offices."
   },
@@ -22102,7 +22102,7 @@
       "Teersieder",
       "Teerofenmeister"
     ],
-    "label": "Tar burner (Teerschweler)",
+    "label": "Teerschweler (tar burner)",
     "summary": "Forest craftsman who produced wood tar and pitch by smouldering pine wood and roots.",
     "text": "The Teerschweler heats resinous pine wood, especially stumps and roots, without air in a brick tar kiln and collects the wood tar that runs off; by boiling it down he obtains pitch, often with charcoal as a by-product. Tar and pitch were used to caulk ships and barrels, as axle grease and in medicine. Tar kilns were especially common in the pine heaths of Brandenburg, Lusatia and Pomerania."
   },
@@ -22114,7 +22114,7 @@
       "Teichvogt",
       "Teichgräber"
     ],
-    "label": "Pond keeper (Teichwärter)",
+    "label": "Teichwärter (pond keeper)",
     "summary": "Keeper of a lordship's fish ponds, especially in carp farming.",
     "text": "The Teichwärter looks after the fish ponds of a lordship or monastery: he regulates the inflow and outflow of water, maintains the dams and sluice outlets (Mönche), feeds and protects the fish and takes part in the autumn harvesting of the ponds. Carp pond farming was especially important in Bohemia, Upper Lusatia, Silesia and Franconia; the Teichmeister supervised several ponds."
   },
@@ -23028,7 +23028,7 @@
       "Turmbläser",
       "Thürmer"
     ],
-    "label": "Tower watchman (Türmer)",
+    "label": "Türmer (tower watchman)",
     "summary": "Watchman living on a church or town tower who looked out for fire and gave signals.",
     "text": "The Türmer often lives with his family in the watchman's room of a church or town tower, looks out day and night for fires and approaching riders or enemies, reports them by horn, bell or flag and sounds the hours. In many places he was also a musician (Turmbläser) attached to the town musician."
   },
@@ -23141,7 +23141,7 @@
       "Uhrenschildmaler",
       "Uhrenschildmalerin"
     ],
-    "label": "Clock-face painter (Uhrenschildmaler)",
+    "label": "Uhrenschildmaler (clock-face painter)",
     "summary": "Painter who decorated the painted dials (Schilde) of Black Forest clocks.",
     "text": "The Uhrenschildmaler paints the Schilde, the wooden and later also sheet-metal dials of Black Forest clocks, with numerals, flowers, figures and landscapes. The trade flourished in the 18th and 19th centuries in the upper Black Forest around Furtwangen, Neustadt and Triberg, often as home work in which women and whole families took part."
   },
@@ -23153,7 +23153,7 @@
       "Uhrenkrämer",
       "Uhrenmann"
     ],
-    "label": "Clock pedlar (Uhrenträger)",
+    "label": "Uhrenträger (clock pedlar)",
     "summary": "Travelling salesman who carried Black Forest clocks on his back to distant countries and sold them.",
     "text": "The Uhrenträger carried Black Forest wooden clocks on a back frame (Kraxe) and sold them as a pedlar throughout Europe and beyond. In the 18th and 19th centuries the traders joined together in clock-trading companies with permanent branches abroad, for example in England, Russia and North America; many Black Forest families lived apart for years while fathers and sons were away trading."
   },
@@ -23541,7 +23541,7 @@
     "aliases": [
       "Glassmaker"
     ],
-    "label": "Verrier (glassmaker)",
+    "label": "Glassmaker (verrier)",
     "summary": "Craftsman who made all kinds of glass objects.",
     "text": "The glassmaker shaped molten glass to produce a variety of objects — tableware, flasks, window panes — by blowing or moulding, in a glassworks. The trade, which involved working a material brought to very high temperatures, was often concentrated around forests that supplied the wood needed for melting."
   },
@@ -23551,7 +23551,7 @@
       "Voirier",
       "Voirrier"
     ],
-    "label": "Verrier (glass painter)",
+    "label": "Glass painter (verrier)",
     "summary": "Medieval craftsman who designed and painted church stained glass.",
     "text": "The glass painter (also called \"voirier\" in Old French) designed, cut and painted the pieces of coloured glass assembled into stained-glass windows and rose windows for the religious buildings of the Middle Ages. The trade combined technical mastery of glass with genuine pictorial skill, illustrated by the great ensembles of Gothic stained glass."
   },
@@ -23622,7 +23622,7 @@
       "Viertelhöfner",
       "Viertler"
     ],
-    "label": "Quarter farmer (Viertelbauer)",
+    "label": "Viertelbauer (quarter farmer)",
     "summary": "Farmer working a quarter of a full farm holding.",
     "text": "The Viertelbauer works a holding equal to a quarter of a full farm and belongs to the small farmers, who usually kept no full team of their own. The designation follows the classification of farms into whole, half and quarter holdings, as used for example in the Bavarian Hoffuß system or with the northern German Hufen."
   },
@@ -23809,7 +23809,7 @@
   },
   "volontaire_au_service_de_la_republique": {
     "aliases": [],
-    "label": "Volunteer in the service of the Republic (volontaire au service de la République)",
+    "label": "Volontaire au service de la République (volunteer in the service of the Republic)",
     "summary": "Soldier who enlisted voluntarily in the armies of the French Revolution.",
     "text": "This status denotes the men who enlisted voluntarily in the armies of the First Republic, particularly during the great levies of volunteers of 1791-1793 to defend the Revolution against the coalition of monarchies. The mention appears frequently in civil registration records and military registers of the revolutionary period."
   },
@@ -23904,7 +23904,7 @@
       "Waisenhausmutter",
       "Waisenhausverwalter"
     ],
-    "label": "Orphanage master (Waisenvater)",
+    "label": "Waisenvater (orphanage master)",
     "summary": "Head of an orphanage who cared for and brought up the orphans together with his wife.",
     "text": "The Waisenvater runs a municipal or church orphanage, usually together with his wife as Waisenmutter: he provides the children's lodging, food, schooling and religious upbringing, their work in the house and later their placement in an apprenticeship or service. He answered to a supervisory body of the town or foundation, to which he rendered accounts."
   },
@@ -24153,7 +24153,7 @@
       "Zentgrafe",
       "Zentrichter"
     ],
-    "label": "District judge (Zentgraf)",
+    "label": "Zentgraf (district judge)",
     "summary": "Presiding judge of a Zent, a high-court district in Franconia and Hesse.",
     "text": "The Zentgraf presides over the Zent court, which in Franconia, Hesse and neighbouring areas exercised high jurisdiction, especially over serious crimes, for a district of several villages (the Zent). He was appointed by the territorial ruler and judged with lay assessors from the Zent villages; the Zent courts lasted until the early 19th century."
   },

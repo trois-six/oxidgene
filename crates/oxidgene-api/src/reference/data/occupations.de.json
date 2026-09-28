@@ -1972,7 +1972,7 @@
     "aliases": [
       "Schläger"
     ],
-    "label": "Drescher (Schläger)",
+    "label": "Schläger (Drescher)",
     "summary": "Arbeiter, der Schlagarbeiten verrichtet: Getreide, Metalle oder verschiedene Materialien.",
     "text": "Der Batteur verrichtet Schlagarbeiten, meist das Dreschen von Getreide mit dem Flegel vor der Mechanisierung, doch kann der Begriff je nach Zusammenhang der Urkunde auch einen Arbeiter bezeichnen, der Eisen, Gold oder andere Materialien schlägt. Auf dem Land bis zum Aufkommen der Dreschmaschinen im 19. Jahrhundert häufig."
   },
@@ -2445,7 +2445,7 @@
       "Mehlsieber",
       "Beutelknecht"
     ],
-    "label": "Beutler (Mehlsieber)",
+    "label": "Mehlsieber (Beutler)",
     "summary": "Mühlenarbeiter, der das Mehl siebt, um es von der Kleie zu trennen.",
     "text": "Der Beutler siebt das aus der Mühle kommende Mehl, um das feine Mehl mit Hilfe eines Beutelwerks von der Kleie zu trennen. Ein Hilfsgewerbe der Müllerei, unentbehrlich für die Herstellung von Mehlen unterschiedlicher Güte."
   },
@@ -2963,7 +2963,7 @@
   },
   "bournobile": {
     "aliases": [],
-    "label": "Nachtwächter (Bournobile)",
+    "label": "Bournobile (Nachtwächter)",
     "summary": "Nachtwächter, der einen Ort während der Dunkelheit bewacht.",
     "text": "Der Bournobile ist ein Nachtwächter, der die Straßen einer Stadt oder eines Dorfes abgeht, um sie zu überwachen und bei Gefahr (Feuer, Eindringlinge) Alarm zu schlagen. Ein bescheidenes, heute verschwundenes Gemeindeamt."
   },
@@ -2988,7 +2988,7 @@
       "Sielenmacher",
       "Riemerin"
     ],
-    "label": "Sattler (Geschirrmacher)",
+    "label": "Geschirrmacher (Sattler)",
     "summary": "Handwerker, der Geschirre, Kummete und Sattlerwaren für Zugtiere herstellt.",
     "text": "Der Riemer (Geschirrsattler) fertigt und repariert Geschirre, Kummete, Zaumzeug und andere Sattlerwaren für Zugpferde und -ochsen. Ein unentbehrliches Gewerbe, solange die tierische Zugkraft Verkehr und Landarbeit beherrschte, und in ländlichen Urkunden bis ins 20. Jahrhundert sehr häufig."
   },
@@ -3020,7 +3020,7 @@
   },
   "bourriquier": {
     "aliases": [],
-    "label": "Eseltreiber (Bourriquier)",
+    "label": "Bourriquier (Eseltreiber)",
     "summary": "Person, die ein mit Eseln verbundenes Fuhr- oder Handelsgewerbe betreibt.",
     "text": "Der Bourriquier nutzt Esel zum Warentransport oder handelt mit ihnen, eine dem Bourricotier nahestehende Tätigkeit, die je nach Gegend mit einer anderen mundartlichen Wurzel bezeichnet wird."
   },
@@ -3056,7 +3056,7 @@
   },
   "bousqueur": {
     "aliases": [],
-    "label": "Hafenarbeiter (Bousqueur)",
+    "label": "Bousqueur (Hafenarbeiter)",
     "summary": "Hafenarbeiter, der Waren auf den Kais umschlägt.",
     "text": "Der Bousqueur ist ein Hafenarbeiter, der Waren auf den Kais und in den Lagerhäusern umschlägt und Schiffe be- und entlädt. Ein körperlich anstrengendes Gewerbe der Hafengebiete vor der Mechanisierung."
   },
@@ -3860,7 +3860,7 @@
     "aliases": [
       "Schnitter und Drescher"
     ],
-    "label": "Erntearbeiter (Calvanier)",
+    "label": "Calvanier (Erntearbeiter)",
     "summary": "Landarbeiter, der nur für die Dauer von Ernte und Drusch angestellt wird, um Garben aufzusetzen und Weizen zu dreschen.",
     "text": "Der Calvanier ist ein saisonaler Landarbeiter, der nur für die Dauer der Ernte und des Dreschens angeworben wird und die Getreidegarben aufsetzt und den Weizen drischt. Zusätzliche Arbeitskräfte, typisch für die großen Ernten vor der Mechanisierung."
   },
@@ -4267,7 +4267,7 @@
     "aliases": [
       "Sackträger"
     ],
-    "label": "Lastträger (Carruyer)",
+    "label": "Carruyer (Lastträger)",
     "summary": "Träger, der Waren namentlich auf Kais oder in Lagerhäusern be- und entlädt.",
     "text": "Der Carruyer ist ein Träger, ein Arbeiter, der feste Waren auf dem eigenen Rücken be- und entlädt, eine dem Hakenträger oder Ablader in Häfen und Markthallen nahestehende Tätigkeit."
   },
@@ -4609,7 +4609,7 @@
       "Reifaufzieher",
       "Reifenaufzieher"
     ],
-    "label": "Fassbinder (Reifenaufzieher)",
+    "label": "Reifenaufzieher (Fassbinder)",
     "summary": "Böttchereiarbeiter, der Holz- oder Metallreifen auf Fässer aufzieht und anpasst.",
     "text": "Der Cercleur wirkt an der Herstellung von Fässern und Tonnen mit, indem er die Reifen — Bänder aus gespaltenem Holz, später aus Eisen —, die die Dauben zusammenhalten, aufzieht und festtreibt. Er unterscheidet sich vom Reifmacher, der die Reifen selbst formt; Aufziehen und Herstellen sind im Böttcherhandwerk zwei getrennte Arbeitsschritte."
   },
@@ -4774,7 +4774,7 @@
   },
   "chalmandrier": {
     "aliases": [],
-    "label": "Kalmankweber (Chalmandrier)",
+    "label": "Chalmandrier (Kalmankweber)",
     "summary": "Weber, der geglänzte Wollstoffe mit atlasartiger Oberfläche herstellt.",
     "text": "Der Chalmandrier webte „chalmandes“ oder „calmandes“ genannte Wollstoffe, geglänzte Gewebe mit atlasähnlicher Oberfläche, die durch ein besonderes Pressen erzielt wurde, namentlich für Kleidung und Möbelstoffe im 17. und 18. Jahrhundert."
   },
@@ -5234,7 +5234,7 @@
   },
   "chasse_moute": {
     "aliases": [],
-    "label": "Mahlgastholer (Chasse-moute)",
+    "label": "Chasse-moute (Mahlgastholer)",
     "summary": "Müller oder umherziehender Beauftragter, der das Getreide bei den Leuten zur Verarbeitung in der Mühle abholte.",
     "text": "Der Chasse-moute (von „moute“, einer regionalen Variante von „mouture“, Mahlen) zog von Hof zu Hof, um das Getreide der Bauern einzusammeln und zur Mühle zu bringen, ein in manchen ländlichen Gegenden verbreiteter Vermittlungsdienst, bevor jeder selbst dorthin fuhr."
   },
@@ -5268,7 +5268,7 @@
   },
   "chasseron": {
     "aliases": [],
-    "label": "Mühlgehilfe (Chasseron)",
+    "label": "Chasseron (Mühlgehilfe)",
     "summary": "Mitarbeiter des Müllers bei der Verarbeitung des Getreides.",
     "text": "Der Chasseron arbeitete dem Müller bei den verschiedenen Arbeitsgängen der Getreideverarbeitung in der Mühle zu, ein regionaler Begriff aus derselben Familie wie Chasserat, Chasse-moute und Chasse-mulet, die alle mit dem kleinen Personal der ländlichen Mühle verbunden sind."
   },
@@ -5450,7 +5450,7 @@
   },
   "chaussier": {
     "aliases": [],
-    "label": "Schuhmacher (Chaussier)",
+    "label": "Chaussier (Schuhmacher)",
     "summary": "Hersteller von Schuhen, ein Schuhmacherhandwerker.",
     "text": "Der Chaussier fertigt Schuhe, ein dem Cordonnier nahestehendes Gewerbe, das auch mit den regionalen Formen chaussunier oder chaussumier bezeichnet wird."
   },
@@ -5708,7 +5708,7 @@
     "aliases": [
       "Rudersklave"
     ],
-    "label": "Galeerensträfling (Chiourme)",
+    "label": "Chiourme (Galeerensträfling)",
     "summary": "Die Gesamtheit der zu den Galeeren verurteilten Sträflinge, kollektiv bezeichnet.",
     "text": "Die Chiourme bezeichnet gesamthaft die Mannschaft der Sträflinge, die auf einer Galeere ruderten, zu Zwangsarbeit verurteilt und an ihre Bank gekettet. Diese Strafarbeiter wurden vom Comite beaufsichtigt, einem für Disziplin und Rudertakt zuständigen Offizier. Der Begriff findet sich mitunter in Urkunden für eine Person, die zu diesen Galeerensträflingen gehört hatte."
   },
@@ -6032,7 +6032,7 @@
     "aliases": [
       "Hahnenhändler"
     ],
-    "label": "Geflügelhändler (Cocherel)",
+    "label": "Cocherel (Geflügelhändler)",
     "summary": "Händler, der auf Märkten Hähne und Geflügel verkauft.",
     "text": "Der Cocherel verkaufte auf den örtlichen Märkten Hähne und allgemeiner Geflügel, ein kleiner örtlicher Lebensmittelhandel."
   },
@@ -6094,7 +6094,7 @@
       "Kollektor",
       "Collector"
     ],
-    "label": "Steuereinnehmer (Collecteur)",
+    "label": "Collecteur (Steuereinnehmer)",
     "summary": "Person, die Steuern, Abgaben oder verschiedene Umlagen einzieht.",
     "text": "Der Collecteur zieht die dem Staat, dem Grundherrn oder der Kirche (Zehnt) geschuldeten Steuern und Abgaben ein, eine Aufgabe, die im Ancien Régime oft jährlich einem Einwohner der Pfarrei übertragen wurde, der die von seinen Nachbarn geschuldeten Beträge eintreiben musste."
   },
@@ -6140,7 +6140,7 @@
   },
   "colon_partiaire": {
     "aliases": [],
-    "label": "Teilpächter (Colon partiaire)",
+    "label": "Colon partiaire (Teilpächter)",
     "summary": "Teilpächter, der seinen Verpächter in Naturalien mit einem nicht auf die Hälfte festgelegten Ernteanteil bezahlt.",
     "text": "Der Colon partiaire ist ein Teilpächter, der seinen Verpächter in Naturalien mit einem Teil der Ernte bezahlt, ohne dass dieser Anteil wie bei der klassischen Halbpacht notwendigerweise die Hälfte beträgt."
   },
@@ -6388,7 +6388,7 @@
   },
   "comporteur": {
     "aliases": [],
-    "label": "Hausierer (Comporteur)",
+    "label": "Comporteur (Hausierer)",
     "summary": "Alte Form des Wortes colporteur, ein Wanderhändler mit kleinen Waren.",
     "text": "Comporteur ist tatsächlich die ältere Form des Wortes: colporteur ist eine Umbildung von „comporteur“ durch volkstümliche Anlehnung an „porter sur le col“ (auf dem Hals tragen). Der Colporteur/Comporteur verkauft kleine Waren — Kurzwaren, Almanache, Bücher, Heilmittel — von Dorf zu Dorf, oft auf dem Rücken in einem Ranzen oder Korb getragen. Dieses Wandergewerbe spielte bis ins 19. Jahrhundert eine wichtige Rolle bei der Verbreitung von Ideen und Fertigwaren auf dem Land."
   },
@@ -6798,7 +6798,7 @@
     "aliases": [
       "Korbflechter"
     ],
-    "label": "Korbmacher (Corbelier)",
+    "label": "Corbelier (Korbmacher)",
     "summary": "Korbmacher, der auf die Herstellung von Körben spezialisiert ist.",
     "text": "Der Corbelier ist ein Korbmacher, der sich auf die Herstellung von aus Weiden geflochtenen Körben spezialisiert hat."
   },
@@ -6905,7 +6905,7 @@
       "Zurichtermeister",
       "Coriarius"
     ],
-    "label": "Lederzurichter (Corroyeur)",
+    "label": "Corroyeur (Lederzurichter)",
     "summary": "Handwerker, der Leder nach dem Gerben geschmeidig macht und fertigstellt.",
     "text": "Der Corroyeur schließt an die Arbeit des Gerbers an: Er macht gegerbtes Leder geschmeidig, dünnt, glättet und färbt es, damit es von den Lederverarbeitern (Schuhmachern, Sattlern, Handschuhmachern) verwendet werden kann. Das Zurichten umfasst Walken, Entfetten und Glätten, Arbeitsgänge, die die endgültige Güte des Leders bestimmen."
   },
@@ -6953,7 +6953,7 @@
     "aliases": [
       "Wellenmacher"
     ],
-    "label": "Reisigträger (Cotrier)",
+    "label": "Cotrier (Reisigträger)",
     "summary": "Arbeiter, der Cotrets — kleine Holzbündel — vom Schlag zum Waldrand trägt.",
     "text": "Der Cotrier räumt das von den Holzfällern geschlagene Holz und die Reisigbündel (Cotrets) ab und trägt sie an den Waldrand, wo sie aufgeschichtet werden, bevor die Fuhrleute sie zum Transport in die Stadt oder zu den Verkaufsstellen aufladen. Der Name leitet sich von „cotret“ ab, einem kleinen Bündel Brennholz."
   },
@@ -6983,7 +6983,7 @@
     "aliases": [
       "Koster"
     ],
-    "label": "Küster (Coultre)",
+    "label": "Coultre (Küster)",
     "summary": "Mesner, der für den Unterhalt der Kirche und der Sakristei zuständig ist.",
     "text": "Der Coultre oder Coutre ist ein Mesner, der für den Unterhalt des Gotteshauses, die Aufbewahrung der heiligen Gegenstände und die Unterstützung des Priesters bei den Gottesdiensten zuständig ist. Der Begriff leitet sich vom altfranzösischen „costre“ (Wächter, dann Küster) ab, von dem „coltre“/„coultre“ eine belegte Variante ist."
   },
@@ -7031,7 +7031,7 @@
     "aliases": [
       "Weinsensal"
     ],
-    "label": "Weinmakler (Courratier)",
+    "label": "Courratier (Weinmakler)",
     "summary": "Makler, der auf die Vermittlung und den Handel mit Wein spezialisiert ist.",
     "text": "Der Courratier ist ein Weinmakler, ein Mittler zwischen Erzeugern und Händlern, der für Verkosten, Bewerten und Zusammenbringen von Käufern und Verkäufern zuständig ist. Der Begriff, eine regionale Variante von „courtier“, ist besonders im Bordelais belegt, wo das Amt des Weinmaklers bis heute geregelt ist."
   },
@@ -7129,7 +7129,7 @@
   },
   "coussier": {
     "aliases": [],
-    "label": "Hosenmacher (Coussier)",
+    "label": "Coussier (Hosenmacher)",
     "summary": "Handwerker, der Beinlinge herstellt, ein die Beine bedeckendes Kleidungsstück.",
     "text": "Der Coussier fertigt Beinlinge, ein mittelalterliches und frühneuzeitliches Kleidungsstück, das die Beine bedeckte, Vorläufer von Hose und Strumpf, bevor dieser Begriff ab dem 16. Jahrhundert genauer nur den Fuß und Wade bedeckenden Teil bezeichnete."
   },
@@ -7144,7 +7144,7 @@
   },
   "coutal": {
     "aliases": [],
-    "label": "Maultiertreiber (Coutal)",
+    "label": "Coutal (Maultiertreiber)",
     "summary": "Treiber von Maultieren für den Warentransport.",
     "text": "Der Coutal (oder Coutaud) treibt beladene Maultiere für den Warentransport, namentlich in Gebirgs- oder Vorgebirgsgegenden, wo diese Tragtiere auf steilen Wegen besser geeignet waren als Pferde. Der Begriff okzitanischen Ursprungs findet sich vor allem in Südfrankreich."
   },
@@ -7175,7 +7175,7 @@
       "Nähter",
       "Sartrix"
     ],
-    "label": "Näher (Couturier)",
+    "label": "Couturier (Näher)",
     "summary": "Handwerker, der von anderen zugeschnittene Stoff- oder Lederteile zusammennäht.",
     "text": "In der Arbeitsteilung der Zünfte des Ancien Régime näht und fügt der Couturier die zuvor vom Schneider oder Schuhmacher zugeschnittenen Stoff- oder Lederteile zusammen, eine Spezialisierung, die mit der Zeit verblasste und allgemeiner den Kleidermacher bezeichnete. Die alte Schreibweise „cousturier“ ist in alten Urkunden häufig."
   },
@@ -7561,7 +7561,7 @@
     "aliases": [
       "Sieder"
     ],
-    "label": "Brenner (Cuiseur)",
+    "label": "Cuiseur (Brenner)",
     "summary": "Arbeiter, der Stoffe brennt oder kocht: Holzkohle, Metalle oder andere Stoffe.",
     "text": "Der Cuiseur führt Brennvorgänge aus, die eine gesteuerte Wärmebehandlung erfordern: Verkohlen von Holz zu Holzkohle, Erhitzen von Metallen in der Schmiede, Brennen von Kalk oder Ziegeln je nach Zusammenhang."
   },
@@ -7667,7 +7667,7 @@
       "Kurialer",
       "Kurialbeamter"
     ],
-    "label": "Gerichtsschreiber (Curial)",
+    "label": "Curial (Gerichtsschreiber)",
     "summary": "Beamter oder Schreiber, der einem Gericht zugeordnet ist.",
     "text": "Der Curial ist ein einem Gericht oder einer Gerichtsbarkeit zugeordneter Beamter, der Schreib- oder Kanzleiaufgaben wahrnimmt; der Begriff leitet sich vom lateinischen „curia“ (Hof, Gericht) ab."
   },
@@ -7840,7 +7840,7 @@
       "Entlader",
       "Ablader"
     ],
-    "label": "Rückenträger (Entlader)",
+    "label": "Entlader (Rückenträger)",
     "summary": "Träger, der Waren auf dem Rücken trägt, namentlich beim Entladen von Schiffen und Fahrzeugen.",
     "text": "Der Déchargeur à dos trägt Waren direkt auf dem Rücken, eine Trageweise beim Entladen von Schiffen und Fahrzeugen in Häfen und an Kais, bevor der Umschlag mechanisiert wurde."
   },
@@ -7930,7 +7930,7 @@
     "aliases": [
       "Kotkehrer"
     ],
-    "label": "Stiefelputzer (Décrotteur)",
+    "label": "Décrotteur (Stiefelputzer)",
     "summary": "Person, die die Schuhe der Passanten reinigt und poliert oder den Straßenkot kehrt.",
     "text": "Der Décrotteur übt eines von zwei verwandten Gewerben aus: Entweder reinigt und poliert er die Schuhe der Passanten auf der Straße oder an einem festen Stand, oder er kehrt den nach dem Regen auf den Fahrbahnen angesammelten Kot. Die Schuhputzer, oft Jungen, waren im 19. Jahrhundert eine vertraute Gestalt der Straßen der Großstädte."
   },
@@ -8181,7 +8181,7 @@
   },
   "dentateur": {
     "aliases": [],
-    "label": "Zahnbrecher (Dentateur)",
+    "label": "Dentateur (Zahnbrecher)",
     "summary": "Alter Begriff für jemanden, der Zähne zog und behandelte, oft ein Barbier, bevor das Wort Zahnarzt aufkam.",
     "text": "Der Dentateur zieht und behandelt Zähne, ein seit dem 16. Jahrhundert belegter alter Begriff: Ambroise Paré warnt vor „den Barbieren und Dentateurs“, die zu schnell Zähne ziehen. Diese Heilkundigen waren meist Barbiere, die diese Tätigkeit neben ihrem Hauptgewerbe ausübten, bevor die Zahnheilkunde im 18. und 19. Jahrhundert zu einem eigenständigen medizinischen Fach wurde."
   },
@@ -8240,7 +8240,7 @@
     "aliases": [
       "Dispensator"
     ],
-    "label": "Ökonom (Dispensator)",
+    "label": "Dispensator (Ökonom)",
     "summary": "Finanzverwalter einer geistlichen oder seemännischen Einrichtung, dem Verwalter entsprechend.",
     "text": "Der Dépensier verwaltet die Ausgaben und die Versorgung einer Einrichtung — Kloster, Spital, Schiff —, eine dem Verwalter nahe Aufgabe, die Rechnungskenntnisse erfordert."
   },
@@ -8415,7 +8415,7 @@
   },
   "detricheur": {
     "aliases": [],
-    "label": "Wollkrempler (Détricheur)",
+    "label": "Détricheur (Wollkrempler)",
     "summary": "Textilarbeiter, der Wollfasern vor dem Spinnen krempelt.",
     "text": "Der Détricheur krempelt Wolle und andere Textilfasern, indem er die Fasern entwirrt und ausrichtet, um den Stoff für das Spinnen vorzubereiten."
   },
@@ -8423,7 +8423,7 @@
     "aliases": [
       "Fasslader"
     ],
-    "label": "Weinverlader (Dévalleur)",
+    "label": "Dévalleur (Weinverlader)",
     "summary": "Transporteur flüssiger Waren, namentlich ein Schiffer, der Boote aus dem Hafen steuert.",
     "text": "Der Dévalleur befördert flüssige Waren und handhabt Fässer und andere Behälter; der Begriff bezeichnet auch Schiffer, die Boote aus dem Hafen hinaussteuern, eine mit dem Fluss- und Seehandel von Wein, Öl oder anderen Lebensmitteln verbundene Arbeit."
   },
@@ -8640,7 +8640,7 @@
       "Doctor regens",
       "Ordinarius"
     ],
-    "label": "Ordentlicher Professor (Doctor regens)",
+    "label": "Doctor regens (Ordentlicher Professor)",
     "summary": "Professor, der einen Lehrstuhl an einer Universitätsfakultät innehat.",
     "text": "Der Docteur régent ist ein ordentlicher Professor, der an einer Universitätsfakultät des Ancien Régime lehrt, ein Mitglied des ständigen Lehrkörpers im Gegensatz zu den nicht regierenden Doktoren, die nicht lehrten."
   },
@@ -8765,7 +8765,7 @@
   },
   "dorlotier": {
     "aliases": [],
-    "label": "Bandwirker (Dorlotier)",
+    "label": "Dorlotier (Bandwirker)",
     "summary": "Handwerker, der Bänder, Borten und Posamenten herstellt, regionale Variante des Bandwirkers.",
     "text": "Der Dorlotier (oder Dorelotier) fertigt Bänder, Borten und andere Posamentierwaren, ein je nach Herstellungsgebiet dem Rubanier entsprechender regionaler Begriff, namentlich um Saint-Étienne, einem großen französischen Zentrum der Bandweberei."
   },
@@ -9183,13 +9183,13 @@
   },
   "eclancheur": {
     "aliases": [],
-    "label": "Tuchglätter (Éclancheur)",
+    "label": "Éclancheur (Tuchglätter)",
     "summary": "Textilveredler, der Falten und Unregelmäßigkeiten aus Stoffen entfernt.",
     "text": "Der Éclancheur wirkt am Ende der Herstellung mit, um die Stoffe zu glätten und Falten zu entfernen, damit vor dem Verkauf ein gleichmäßiges, ansehnliches Tuch entsteht."
   },
   "eclotier": {
     "aliases": [],
-    "label": "Holzschuhschnitzer (Éclotier)",
+    "label": "Éclotier (Holzschuhschnitzer)",
     "summary": "Handwerker, der Holz zuschneidet und formt, um Holzschuhe herzustellen.",
     "text": "Der Éclotier fertigt Holzschuhe, indem er das Holz zuschneidet und aushöhlt, und stellt so robustes, billiges Schuhwerk für die ländliche und arbeitende Bevölkerung her."
   },
@@ -9423,7 +9423,7 @@
   },
   "eguilletier": {
     "aliases": [],
-    "label": "Nestler (Éguilletier)",
+    "label": "Éguilletier (Nestler)",
     "summary": "Handwerker, der Nesteln herstellt, Schnüre mit Metallspitzen zum Besetzen und Verschließen der Kleidung.",
     "text": "Der Éguilletier fertigt Nesteln: geflochtene Schnüre mit Metallspitzen („ferrets“), die zugleich zum Verschließen und zum Schmücken der Kleidung dienten, ein Kleidungszubehör, das für die aristokratische und militärische Tracht des Ancien Régime kennzeichnend war."
   },
@@ -9587,7 +9587,7 @@
     "aliases": [
       "Steinschärfer"
     ],
-    "label": "Mühlsteinschärfer (Emmoulageur)",
+    "label": "Emmoulageur (Mühlsteinschärfer)",
     "summary": "Variante von „amoulangeur“: Handwerker, der Mühlsteine zuhaut und einpasst.",
     "text": "Der Emmoulageur ist eine Schreibvariante von „amoulangeur“ (oder amoulageur): der Handwerker, der Mühlsteine zuhaut und schärft oder die Holzteile einer Mühle baut, um sie mahlfertig zu machen — je nach Gegend ein Gewerbe des Mühlsteinschärfers oder des Mühlenzimmermanns."
   },
@@ -9626,7 +9626,7 @@
     "aliases": [
       "Ausstopfer"
     ],
-    "label": "Präparator (Ausstopfer)",
+    "label": "Ausstopfer (Präparator)",
     "summary": "Handwerker, der Gegenstände mit Stroh füllt oder tote Tiere durch Präparation erhält.",
     "text": "Der Empailleur hat zwei Bedeutungen: einerseits der Handwerker, der Stühle, Matratzen oder Korbflaschen mit Stroh ausstopft oder beflicht; andererseits übertragen der Tierpräparator, der Tierkörper für Ausstellung oder Studium präpariert und erhält."
   },
@@ -9716,7 +9716,7 @@
       "Kaufmännischer Angestellter",
       "Handlungsangestellter"
     ],
-    "label": "Handlungsgehilfe (Handelsangestellter)",
+    "label": "Handelsangestellter (Handlungsgehilfe)",
     "summary": "Angestellter, der in einem Handelshaus Verkauf oder Buchführung besorgt.",
     "text": "Der Employé de commerce arbeitet in einem Handelshaus oder Laden: Verkauf, Führung der Geschäftsbücher, Geschäftskorrespondenz — eine sehr weite Gruppe der Büro- und Ladenbeschäftigung im 19. und 20. Jahrhundert."
   },
@@ -9849,7 +9849,7 @@
       "Pfandinhaber",
       "Pfandherr"
     ],
-    "label": "Gutsverwalter (Engagiste)",
+    "label": "Engagiste (Gutsverwalter)",
     "summary": "Verwalter, der ein Gut im Auftrag seines Eigentümers bewirtschaftet.",
     "text": "Der Engagiste leitet den gesamten Betrieb eines landwirtschaftlichen Guts im Auftrag eines Eigentümers aufgrund eines Pacht- oder Verpfändungsvertrags — eine dem Gutsverwalter nahe Aufgabe."
   },
@@ -9872,7 +9872,7 @@
   },
   "engraveur": {
     "aliases": [],
-    "label": "Graveur (Engraveur)",
+    "label": "Engraveur (Graveur)",
     "summary": "Handwerker, der Verzierungen und Motive in verschiedene Werkstoffe graviert.",
     "text": "Der Engraveur graviert auf Metall, Holz oder Stein, um Verzierungen, Nachbildungen und Ornamente zu schaffen — eine alte Schreibvariante von „graveur“."
   },
@@ -9948,7 +9948,7 @@
   },
   "entailleur": {
     "aliases": [],
-    "label": "Steinhauer (Entailleur)",
+    "label": "Entailleur (Steinhauer)",
     "summary": "Handwerker, der Stein zu Bauelementen zuhaut.",
     "text": "Der Entailleur ist ein regionales Synonym für Steinmetz: Er haut Stein zu, um architektonische und schmückende Elemente zu schaffen."
   },
@@ -9957,7 +9957,7 @@
       "Beerdiger",
       "Leichenbestatter"
     ],
-    "label": "Totengräber (Beerdiger)",
+    "label": "Beerdiger (Totengräber)",
     "summary": "Arbeiter des Bestattungswesens, der die Verstorbenen beerdigt.",
     "text": "Der Enterreur hebt die Gräber aus und beerdigt die Verstorbenen auf dem Friedhof, eine meist dem Totengräber anvertraute Aufgabe, mit dem der Begriff oft gleichgesetzt wird."
   },
@@ -10049,7 +10049,7 @@
       "Stecknadelmacher",
       "Glufenmacher"
     ],
-    "label": "Nadler (Stecknadelmacher)",
+    "label": "Stecknadelmacher (Nadler)",
     "summary": "Hersteller von Stecknadeln.",
     "text": "Der Stecknadelmacher fertigt Stecknadeln aus Metall, ein seit dem Mittelalter zünftig organisiertes Handwerk, das im 18. Jahrhundert zu einem klassischen Beispiel industrieller Arbeitsteilung wurde (namentlich von Adam Smith beschrieben). Das Gewerbe findet sich unter mehreren alten Schreibweisen: „espingleur“, „espinglier“, „espinguier“."
   },
@@ -10072,7 +10072,7 @@
     "aliases": [
       "Walkknecht"
     ],
-    "label": "Tuchwalker (Épontilleur)",
+    "label": "Épontilleur (Tuchwalker)",
     "summary": "Arbeiter, der Wolltuch walkt, um ihm Dichte und Festigkeit zu geben.",
     "text": "Der Épontilleur (von Tuch), auch Walker genannt, führt Wolltuch durch Walzen, um es zu walken, also zu verdichten und seine Fasern zu festigen, was ihm Dichte und Festigkeit verleiht."
   },
@@ -10097,7 +10097,7 @@
     "aliases": [
       "Rohsteinbrecher"
     ],
-    "label": "Steinbrecher (Épuiseur)",
+    "label": "Épuiseur (Steinbrecher)",
     "summary": "Steinbrucharbeiter, der den Rohstein aus dem Bruch gewinnt.",
     "text": "Der Épuiseur gewinnt Rohstein aus den Steinbrüchen, eine Arbeit des Steinbrechers, die darin besteht, die Blöcke vor dem Zuhauen freizulegen und herauszuholen."
   },
@@ -10161,7 +10161,7 @@
   },
   "escardeur": {
     "aliases": [],
-    "label": "Kardenmacher (Escardeur)",
+    "label": "Escardeur (Kardenmacher)",
     "summary": "Handwerker, der Karden für die Textilindustrie herstellt.",
     "text": "Der Escardeur fertigt Karden, mit Metallzähnen besetzte Werkzeuge, mit denen die Krempler die Textilfasern entwirren und vorbereiten."
   },
@@ -10218,7 +10218,7 @@
   },
   "escordasseur": {
     "aliases": [],
-    "label": "Wollkrempler (Escordasseur)",
+    "label": "Escordasseur (Wollkrempler)",
     "summary": "Arbeiter, der Wolle krempelt, um die Fasern zum Spinnen vorzubereiten.",
     "text": "Der Escordasseur krempelt Wolle, entwirrt und richtet die Fasern aus, um sie für das Spinnen vorzubereiten."
   },
@@ -10293,7 +10293,7 @@
   },
   "esguillier": {
     "aliases": [],
-    "label": "Nadler (Esguillier)",
+    "label": "Esguillier (Nadler)",
     "summary": "Handwerker, der Metallnadeln herstellt, alte Schreibung von „aiguillier“.",
     "text": "Der Esguillier schmiedet und schleift feine, feste Nadeln; es handelt sich um eine alte Schreibung des Nadlergewerbes."
   },
@@ -10317,7 +10317,7 @@
     "aliases": [
       "Schwingknecht"
     ],
-    "label": "Hanfschwinger (Espadeur)",
+    "label": "Espadeur (Hanfschwinger)",
     "summary": "Arbeiter, der Hanf schlägt, um die Textilfaser vom holzigen Teil zu trennen.",
     "text": "Der Espadeur schlägt geröstete Hanfstängel mit der „espade“, einem Holzwerkzeug (Schwingmesser), um das Werg (die Textilfaser) von der „chènevotte“ (dem holzigen Teil) zu trennen."
   },
@@ -10325,13 +10325,13 @@
     "aliases": [
       "Seilschuhmacher"
     ],
-    "label": "Espadrillesmacher (Espadrilleur)",
+    "label": "Espadrilleur (Espadrillesmacher)",
     "summary": "Handwerker, der Espadrilles mit geflochtener Seilsohle herstellt.",
     "text": "Der Espadrilleur flicht das Seil der Sohle und setzt den Stoff der Espadrilles auf, leichter traditioneller Schuhe aus Südwestfrankreich und den Pyrenäen."
   },
   "espilleur": {
     "aliases": [],
-    "label": "Steinhauer (Espilleur)",
+    "label": "Espilleur (Steinhauer)",
     "summary": "Handwerker, der Stein zu Bauelementen zuhaut.",
     "text": "Der Espilleur haut Stein zu architektonischen und schmückenden Elementen zu, ein dem Steinmetz nahestehendes Gewerbe."
   },
@@ -10576,7 +10576,7 @@
   },
   "fabre": {
     "aliases": [],
-    "label": "Schmied (Fabre)",
+    "label": "Fabre (Schmied)",
     "summary": "Schmied, vom lateinischen faber („Handwerker, der Eisen bearbeitet“).",
     "text": "Fabre ist ein alter, namentlich okzitanischer Begriff für den Allround-Schmied, der Eisen für häusliche und landwirtschaftliche Bedürfnisse bearbeitet; er stammt unmittelbar vom lateinischen „faber“ und ergab den in Südfrankreich sehr häufigen Familiennamen (Fabre, Faure, Lefebvre sind je nach Gegend verwandte Formen)."
   },
@@ -10978,7 +10978,7 @@
   },
   "faiseur_de_burat": {
     "aliases": [],
-    "label": "Buratweber (Faiseur de burat)",
+    "label": "Faiseur de burat (Buratweber)",
     "summary": "Weber, der Burat herstellt, einen groben, billigen Wollstoff (mitunter mit Leinen gemischt) für das einfache Volk.",
     "text": "Burat ist ein grober, billiger Stoff aus Wolle oder einem Woll-Leinen-Gemisch, den Bauern und Leute bescheidenen Standes im Ancien Régime trugen. Der Faiseur de burat ist der auf seine Herstellung spezialisierte Weber, zu unterscheiden von den Webern feinen, den Wohlhabenden vorbehaltenen Tuchs. Der Begriff erscheint in Notariats- und Pfarrurkunden mehrerer französischer Regionen, namentlich der Auvergne und Burgunds."
   },
@@ -10986,7 +10986,7 @@
     "aliases": [
       "Sonnenuhrsteinmetz"
     ],
-    "label": "Sonnenuhrmacher (Faiseur de cadrans)",
+    "label": "Faiseur de cadrans (Sonnenuhrmacher)",
     "summary": "Handwerker, der Sonnenuhren herstellt, zwischen Uhrmacherei, Astronomie und gravierter Stein- oder Metallarbeit.",
     "text": "Der Faiseur de cadrans entwirft und graviert Sonnenuhren auf Stein, Metall oder Holz und berechnet die Neigung des Schattenwerfers nach der geographischen Breite des Aufstellungsorts. Dieses Können verbindet astronomische und mathematische Kenntnisse mit sorgfältiger Gravier- oder Bildhauerarbeit. Der Begriff findet sich in alten Urkunden aus der Zeit vor der Verbreitung tragbarer mechanischer Uhren."
   },
@@ -10994,7 +10994,7 @@
     "aliases": [
       "Reifenschneider"
     ],
-    "label": "Reifenmacher (Faiseur de cercles)",
+    "label": "Faiseur de cercles (Reifenmacher)",
     "summary": "Handwerker, der die Reifen (aus gespaltenem Holz oder Eisen) herstellt, die die Fassdauben umschließen und halten.",
     "text": "Der Faiseur de cercles fertigt die Reifen aus gespaltenem Holz (Hasel, Kastanie) oder Eisen, die die Dauben eines Fasses umschließen und seine Dichtigkeit und Festigkeit gewährleisten. Diese Arbeit ergänzt die des eigentlichen Böttchers, der die Dauben zusammensetzt, und überschneidet sich teilweise mit dem Gewerbe des Reifholzschneiders in Gegenden, die Reifholz erzeugen."
   },
@@ -11162,7 +11162,7 @@
   },
   "fargier": {
     "aliases": [],
-    "label": "Schmied (Fargier)",
+    "label": "Fargier (Schmied)",
     "summary": "Schmied, ein mundartlicher Begriff (Okzitanisch, Franche-Comté), abgeleitet von „fargue“/„farga“, der Schmiede.",
     "text": "Fargier ist eine regionale Variante von „forgeron“, namentlich in der Franche-Comté und im okzitanischen Sprachraum belegt, wo das Wort von „farga“ (die Schmiede, okzitanisch und katalanisch) stammt. Es bezeichnet den Handwerker, der Eisen an Feuer und Amboss bearbeitet, um Werkzeuge, Beschläge und landwirtschaftliche Teile herzustellen oder zu reparieren."
   },
@@ -11235,7 +11235,7 @@
   },
   "faure": {
     "aliases": [],
-    "label": "Schmied (Faure)",
+    "label": "Faure (Schmied)",
     "summary": "Schmied, ein okzitanischer Begriff (vom lateinischen „faber“), in den Urkunden Südfrankreichs sehr häufig.",
     "text": "Faure ist die okzitanische Form von „forgeron“ (Schmied), unmittelbar vom lateinischen „faber“ (Handwerker, Schmied) abgeleitet. Als Berufsbezeichnung und später als Familienname in den Gegenden der Langue d'oc äußerst häufig, ergab er viele Familiennamen (Faure, Lefaure, Fabre, Favre je nach Gegend)."
   },
@@ -11252,7 +11252,7 @@
   },
   "fayancier": {
     "aliases": [],
-    "label": "Fayencier (Fayancier)",
+    "label": "Fayancier (Fayencier)",
     "summary": "Hersteller von Fayence, glasurbemalter Töpferware, gebrannt nach Verfahren aus Italien und dann aus Delft.",
     "text": "Der Fayancier fertigt Fayence, eine Keramik mit porösem Scherben und deckender Zinnglasur, die eine dekorative Bemalung erlaubt, eine Technik, die im 16. und 17. Jahrhundert aus Italien (Faenza, das der Fayence ihren Namen gab) nach Frankreich kam und sich dann über die holländischen Delfter Vorbilder verbreitete. Zentren wie Nevers, Rouen, Moustiers oder Quimper machten sie zu einer berühmten regionalen Spezialität."
   },
@@ -11315,7 +11315,7 @@
       "Spalter",
       "Schieferreißer"
     ],
-    "label": "Schieferspalter (Fendeur)",
+    "label": "Fendeur (Schieferspalter)",
     "summary": "Arbeiter im Schieferbruch, der den Schieferblock in dünne, gleichmäßige Dachplatten spaltet.",
     "text": "Der Fendeur arbeitet in einem Schieferbruch: Mit Meißel und Holzhammer teilt er den rohen Schieferblock entlang seiner natürlichen Spaltfläche in dünne, zugeschnittene Platten, ein Arbeitsgang, der eine sehr sichere Hand verlangt, um den Stein nicht zu brechen. Dieses Gewerbe bleibt in Schieferrevieren wie dem Anjou oder den Ardennen zentral."
   },
@@ -11441,13 +11441,13 @@
   },
   "ferratier": {
     "aliases": [],
-    "label": "Alteisenhändler (Ferratier)",
+    "label": "Ferratier (Alteisenhändler)",
     "summary": "Regionaler Begriff für Schrotthändler: Händler, der Eisen und gebrauchte Metallgegenstände birgt und verkauft.",
     "text": "Der Ferratier ist eine regionale Variante des Alteisenhändlers und bezeichnet denjenigen, der Schrott und alte Eisengegenstände zur Wiederverwendung oder zum Wiedereinschmelzen sammelt und verkauft. Das Wort ist auch als Name eines Hufschmiedewerkzeugs belegt, was die Nähe zwischen der Eisenbearbeitung und ihrer Verwertung widerspiegelt."
   },
   "ferreur": {
     "aliases": [],
-    "label": "Hanfbrecher (Ferreur)",
+    "label": "Ferreur (Hanfbrecher)",
     "summary": "Synonym für Hanfschläger: Arbeiter, der Hanfstängel mit Flegel oder Breche bricht.",
     "text": "Der Ferreur, ein regionaler Begriff gleichbedeutend mit „batteur de chanvre“ oder „chanvrier“, trennt die Textilfaser des Hanfs vom holzigen Teil des Stängels (der „chènevotte“) mit Eisenwerkzeugen — daher der Name — wie Breche oder Flegel. Dieser Schritt folgt auf das Rösten der Stängel und geht dem Hecheln des Wergs voraus."
   },
@@ -11483,7 +11483,7 @@
   },
   "ferron": {
     "aliases": [],
-    "label": "Eisenschmied (Ferron)",
+    "label": "Ferron (Eisenschmied)",
     "summary": "Alter Begriff für einen Schmied oder Eisenhändler, Ursprung des Familiennamens Ferron.",
     "text": "„Ferron“ ist ein altes französisches Wort für einen Schmied oder Eisenarbeiter, heute aus dem Alltagsgebrauch verschwunden, aber im in Westfrankreich sehr häufigen Familiennamen Ferron erhalten. Es teilt seine lateinische Wurzel („ferrum“, Eisen) mit „ferronnier“ und „ferrailleur“."
   },
@@ -11676,7 +11676,7 @@
   },
   "fileresse": {
     "aliases": [],
-    "label": "Seidenspinnerin (Fileresse)",
+    "label": "Fileresse (Seidenspinnerin)",
     "summary": "Arbeiterin, die Seide abhaspelt und spinnt, benannt nach der Größe der verwendeten Spindel.",
     "text": "Die Fileresse ist eine Arbeiterin, die Seide abhaspelt und spinnt; ihre Bezeichnung schwankte je nach Größe der Spindel, die sie verwendete."
   },
@@ -11865,7 +11865,7 @@
   },
   "fioutier": {
     "aliases": [],
-    "label": "Kleinkrämer (Fioutier)",
+    "label": "Fioutier (Kleinkrämer)",
     "summary": "Kleiner Händler oder regionaler Handwerker, der verschiedene Waren und Alltagsgegenstände verkauft.",
     "text": "Der seltene und kaum belegte Begriff Fioutier scheint einen kleinen Händler oder umherziehenden Handwerker zu bezeichnen, der einer örtlichen Kundschaft verschiedene Waren und Alltagsgegenstände anbot, wie es ein sesshafter Hausierer tun würde. Sein genauer regionaler Ursprung und sein genaues Tätigkeitsfeld bleiben mangels zuverlässiger Quellen ungewiss."
   },
@@ -11892,7 +11892,7 @@
     "aliases": [
       "Flettenfährmann"
     ],
-    "label": "Fährmann (Flétayeur)",
+    "label": "Flétayeur (Fährmann)",
     "summary": "Fährmann, benannt nach seinem Boot, der Flette.",
     "text": "Der Flétayeur ist ein Fährmann, dessen Boot, „flette“ genannt, ihm seinen Namen gab."
   },
@@ -12202,7 +12202,7 @@
       "Degenfeger",
       "Schwertfegerin"
     ],
-    "label": "Schwertfeger (Fourbisseur)",
+    "label": "Fourbisseur (Schwertfeger)",
     "summary": "Blankwaffenschmied, der Säbel und Degen garniert, montiert und verkauft.",
     "text": "Der Schwertfeger ist ein auf Blankwaffen spezialisierter Waffenschmied: Er garniert, montiert und verkauft Säbel und Degen aller Art."
   },
@@ -12219,7 +12219,7 @@
   },
   "fourboutier": {
     "aliases": [],
-    "label": "Gemüsehändler (Fourboutier)",
+    "label": "Fourboutier (Gemüsehändler)",
     "summary": "Gemüsegärtner, Gemüsehändler.",
     "text": "Der Fourboutier ist ein Gemüsegärtner und -händler, der das Gemüse, das er verkaufte, mitunter selbst anbaute."
   },
@@ -12227,7 +12227,7 @@
     "aliases": [
       "Ofenknecht"
     ],
-    "label": "Ofenbäcker (Fourgonnier)",
+    "label": "Fourgonnier (Ofenbäcker)",
     "summary": "Bäcker, der für den Ofen und das Backen des Brotes zuständig ist.",
     "text": "Der Fourgonnier ist ein Bäcker, der für den Ofen und das Brotbacken zuständig ist und dazu den Fourgon führt, eine Art eiserne Krücke, mit der die Glut geschürt wird."
   },
@@ -12281,7 +12281,7 @@
     "aliases": [
       "Kuttelmetzger"
     ],
-    "label": "Kuttler (Fraisier)",
+    "label": "Fraisier (Kuttler)",
     "summary": "Metzger, wahrscheinlich auf Innereien spezialisiert (Kuttler).",
     "text": "Der Fraisier ist ein Metzger, der wahrscheinlich auf den Verkauf von Innereien spezialisiert war, dem Kuttler verwandt."
   },
@@ -12290,7 +12290,7 @@
       "Fransenmacherin",
       "Fransenwirkerin"
     ],
-    "label": "Fransenmacher (Frangeur)",
+    "label": "Frangeur (Fransenmacher)",
     "summary": "Handwerker, der auf die Herstellung von Fransen spezialisiert ist, Textilschmuck mit herabhängenden Fäden.",
     "text": "Der Frangeur webt oder knüpft Fransen — Zierbänder mit herabhängenden Fäden —, mit denen Vorhänge, Behänge, Uniformen oder liturgische Paramente eingefasst wurden. Dieses Gewerbe gehört wie das des Bortenwirkers zur Posamenterie, unterscheidet sich aber durch die besondere Herstellung von Fransen statt flacher Borten."
   },
@@ -12453,7 +12453,7 @@
     "aliases": [
       "Holzhandwerker"
     ],
-    "label": "Holzarbeiter (Fustier)",
+    "label": "Fustier (Holzarbeiter)",
     "summary": "Im Mittelalter jede Person, die Holz bearbeitet (Zimmermann, Böttcher, Drechsler, Schreiner).",
     "text": "Im Mittelalter bezeichnet der Fustier jeden Holzarbeiter: Zimmermann, Böttcher, Drechsler, Schreiner usw."
   },
@@ -12480,7 +12480,7 @@
     "aliases": [
       "Lastkahnführer"
     ],
-    "label": "Gabarenschiffer (Gabarier)",
+    "label": "Gabarier (Gabarenschiffer)",
     "summary": "Schiffer, der eine Gabare führt, ein flachbodiges Boot für den Warentransport auf Flüssen.",
     "text": "Der Gabarier fuhr eine Gabare, ein für seichte Flüsse geeignetes flachbodiges Boot, um Waren (Holz, Wein, Stein, Salz) zwischen dem Binnenland und den Seehäfen zu befördern. Dieser vor dem Ausbau der Eisenbahn wesentliche Flusstransport prägte Flüsse wie die Loire, die Dordogne und die Charente."
   },
@@ -12586,7 +12586,7 @@
     "aliases": [
       "Gelegenheitsarbeiter"
     ],
-    "label": "Taglöhner (Gagne-deniers)",
+    "label": "Gagne-deniers (Taglöhner)",
     "summary": "Ungelernter Arbeiter, der tageweise für geringen Lohn arbeitet, am unteren Ende der sozialen Leiter.",
     "text": "Der Gagne-deniers verdingte seine Arbeitskraft von Tag zu Tag, ohne besondere Ausbildung und ohne gesicherte Stellung, für verschiedene Lade- oder Schwerarbeiten. Dieser dem „Handlanger“ oder „Tagelöhner“ nahe Begriff bezeichnet den unsichersten Rand der Arbeitswelt des Ancien Régime."
   },
@@ -12651,7 +12651,7 @@
     "aliases": [
       "Holzsohlenmacher"
     ],
-    "label": "Galoschenmacher (Galochier)",
+    "label": "Galochier (Galoschenmacher)",
     "summary": "Handwerker, der Galoschen herstellt, Schuhe mit Lederoberteil auf Holzsohle.",
     "text": "Der Galochier fertigt Galoschen, gemischte Schuhe mit Lederoberteil und dicker Holzsohle, bequemer als der ganz hölzerne Holzschuh und zugleich feuchtigkeitsbeständiger als reines Leder. Von der arbeitenden Landbevölkerung bis ins frühe 20. Jahrhundert viel getragen, wichen die Galoschen nach und nach Schuhen ganz aus Leder und dann aus Gummi."
   },
@@ -12703,7 +12703,7 @@
   },
   "gantelier": {
     "aliases": [],
-    "label": "Handschuhplattner (Gantelier)",
+    "label": "Gantelier (Handschuhplattner)",
     "summary": "Waffenhandwerker, der Panzerhandschuhe herstellt, Rüstungsteile zum Schutz von Hand und Unterarm.",
     "text": "Der Gantelier schmiedet und gliedert Panzerhandschuhe, Rüstungsteile aus beweglichen Metallplatten, die die Hand schützen und zugleich ihre Beweglichkeit bewahren, unentbehrlich für die Ausrüstung des Ritters und dann des gepanzerten Soldaten bis zum Niedergang des Plattenharnischs im 17. Jahrhundert."
   },
@@ -12713,7 +12713,7 @@
       "Handschuhnäherin",
       "Handschuhnäher"
     ],
-    "label": "Handschuhmacher (Gantier)",
+    "label": "Gantier (Handschuhmacher)",
     "summary": "Handwerker, der Handschuhe aus Leder oder anderen Stoffen zum Schutz oder zur Zierde herstellt.",
     "text": "Der Gantier schneidet und näht Handschuhe, aus feinem Leder (Zicklein, Lamm) für elegante Zwecke oder aus festeren Stoffen für berufliche und landwirtschaftliche Zwecke. Grasse in den Alpes-Maritimes wurde ab dem 16. Jahrhundert zu einem bedeutenden Zentrum der Luxushandschuhmacherei, verbunden mit seiner Parfümtradition (parfümierte Handschuhe). „Ganteur“ ist eine alte Variante."
   },
@@ -12914,7 +12914,7 @@
     "aliases": [
       "Salzwächter"
     ],
-    "label": "Salzsteuerwächter (Garde des gabelles)",
+    "label": "Garde des gabelles (Salzsteuerwächter)",
     "summary": "Beamter, der den Salzhandel im Rahmen der Salzsteuer (Gabelle) überwacht und kontrolliert.",
     "text": "Der Garde des gabelles setzt die Vorschriften über den Salzhandel durch — Ausschließlichkeit des Verkaufs in den königlichen Speichern, auferlegte Mindestmengen, Verbot des Transports außerhalb der erlaubten Wege — und wirkt neben dem Gabelou und dem Salzsteuereinnehmer an der Verfolgung des Schmuggels mit."
   },
@@ -12976,7 +12976,7 @@
     "aliases": [
       "Erntehüter"
     ],
-    "label": "Flurwächter (Erntehüter)",
+    "label": "Erntehüter (Flurwächter)",
     "summary": "Ländlicher Aufseher, der die Ernte schützt und die Einhaltung der dörflichen Feldordnung überwacht.",
     "text": "Der Garde-messier (oder Erntehüter) wird von der Dorfgemeinde gewählt oder ernannt, um die Kulturen vor der Ernte zu bewachen und Schäden durch streunendes Vieh oder Diebstahl festzustellen, eine alte Aufgabe, die den 1791 eingeführten Feldhüter vorwegnahm."
   },
@@ -13100,7 +13100,7 @@
   },
   "gardeur_de_forge": {
     "aliases": [],
-    "label": "Schmiedeaufseher (Gardeur de forge)",
+    "label": "Gardeur de forge (Schmiedeaufseher)",
     "summary": "Aufseher eines Hüttenbetriebs im 16. und 17. Jahrhundert, dem Garde-forge nahe.",
     "text": "Der Gardeur de forge sorgt wie der Garde-forge für die tägliche Aufsicht über einen Hüttenbetrieb — Überwachung der Arbeiter, Versorgung und ordnungsgemäßer Ablauf der Produktion —, eine in Urkunden des 16. und 17. Jahrhunderts belegte Aufgabe, bevor der Begriff anderen Bezeichnungen wich."
   },
@@ -13387,7 +13387,7 @@
       "Pirschjäger",
       "Wildbretjäger"
     ],
-    "label": "Wildschütz (Giboyeur)",
+    "label": "Giboyeur (Wildschütz)",
     "summary": "Fußjäger, der gewerbsmäßig vorbeiziehendes Wild schoss, früher mit der Arkebuse.",
     "text": "Der Giboyeur ist ein Fußjäger, der gewerbsmäßig vorbeiziehendes Wild jagt, das er mit dem Gewehr schießt; früher benutzte er eine Arkebuse."
   },
@@ -13495,7 +13495,7 @@
   },
   "gougeard": {
     "aliases": [],
-    "label": "Knecht (Gougeard)",
+    "label": "Gougeard (Knecht)",
     "summary": "Diener, im Mittelalter.",
     "text": "Der Gougeard ist ein Diener, ein im Mittelalter belegter Begriff."
   },
@@ -13847,7 +13847,7 @@
       "Leonischer Drahtmacher",
       "Gimpenmacher"
     ],
-    "label": "Golddrahtzieher (Guimpier)",
+    "label": "Guimpier (Golddrahtzieher)",
     "summary": "Golddrahtzieher, der den Goldfaden für den Goldspinner herstellt.",
     "text": "Der Guimpier ist ein Golddrahtzieher, der den Golddraht herstellt, den Rohstoff, den dann der Goldspinner verarbeitet."
   },
@@ -13986,7 +13986,7 @@
     "aliases": [
       "Geschirrmeister"
     ],
-    "label": "Geschirrmacher (Harnacheur)",
+    "label": "Harnacheur (Geschirrmacher)",
     "summary": "Handwerker, der Pferdegeschirr und -ausrüstung herstellt und repariert.",
     "text": "Der Harnacheur fertigt Kummete, Zaumzeug, Sättel und andere Geschirrteile für Zug- und Reitpferde. Das dem Riemer und Sattler nahestehende Gewerbe ist besonders in Garnisonsstädten und Pferdezuchtgebieten verbreitet. Es ging mit der Motorisierung des Verkehrs im 20. Jahrhundert zurück."
   },
@@ -13994,7 +13994,7 @@
     "aliases": [
       "Halsberger"
     ],
-    "label": "Panzerhemdmacher (Haubergeon)",
+    "label": "Haubergeon (Panzerhemdmacher)",
     "summary": "Handwerker, der Halsberge (Kettenhemden) herstellt, oder Inhaber eines Halsberglehens.",
     "text": "Der Begriff bezeichnet zugleich den auf die Herstellung des Haubert, des den Oberkörper mittelalterlicher Kämpfer schützenden Kettenhemds, spezialisierten Waffenschmied und übertragen den Inhaber eines „fief de haubert“, eines Lehens, das seinen Inhaber zum Kriegsdienst zu Pferd, mit diesem Kettenhemd gerüstet, verpflichtete. Das Wort umfasst also sowohl eine handwerkliche als auch eine ständische Wirklichkeit, beide in alten Urkunden belegt."
   },
@@ -14312,7 +14312,7 @@
     "aliases": [
       "Hortulanus"
     ],
-    "label": "Gemüsegärtner (Hortelain)",
+    "label": "Hortelain (Gemüsegärtner)",
     "summary": "Alte mundartliche Form von „Gärtner“, Bebauer von Gemüsegärten.",
     "text": "Hortelain ist eine alte und regionale Form (Nordfrankreich, Wallonien) des Wortes Gärtner, abgeleitet vom lateinischen hortus (Garten). Anders als der Hortillon, der eigens mit den schwimmenden Gemüsegärten der Gegend von Amiens verbunden ist, bezeichnet der Hortelain allgemeiner jeden Gemüsegärtner in Stadt oder Land."
   },
@@ -14342,7 +14342,7 @@
       "Herbergsvater",
       "Gastgeb"
     ],
-    "label": "Wirt (Hoste)",
+    "label": "Hoste (Wirt)",
     "summary": "Alte Schreibung von „hôte“, Betreiber eines Gasthauses oder einer Herberge.",
     "text": "Der Hoste (alte Schreibung von hôte, Wirt) führte ein Gasthaus oder eine Herberge, in der er Reisende gegen Bezahlung beherbergte und verköstigte, eine seit dem Mittelalter durch eigene Zunftstatuten der Etappen- und Messestädte geregelte Tätigkeit. Der Begriff ist der unmittelbare Vorfahr des modernen Hoteliers."
   },
@@ -14397,7 +14397,7 @@
     "aliases": [
       "Wollwäscher"
     ],
-    "label": "Wollbereiter (Houppier)",
+    "label": "Houppier (Wollbereiter)",
     "summary": "Arbeiter, der Wolle „houppt“: Waschen, Krempeln und Entfetten vor dem Spinnen.",
     "text": "Der Houppier wäscht, krempelt und entfettet Rohwolle, um sie für das Spinnen vorzubereiten, eine Arbeit, die die Enzyklopädie von Diderot und d'Alembert namentlich in den Wollmanufakturen von Amiens und Abbeville ansiedelt, wo der Begriff mitunter gleichbedeutend mit Wollkämmer war. Nicht zu verwechseln mit der modernen Bedeutung von „houppier“, die in der Forstwirtschaft heute die Baumkrone bezeichnet."
   },
@@ -14489,7 +14489,7 @@
   },
   "huissier": {
     "aliases": [],
-    "label": "Türmacher (Huissier)",
+    "label": "Huissier (Türmacher)",
     "summary": "Hersteller von „huis“ (Türen).",
     "text": "Der Huissier ist in seinem alten handwerklichen Sinn ein Türmacher — eine Bedeutung, die sich von der des gleichnamigen Amtsträgers (Gerichtsvollziehers) unterscheidet."
   },
@@ -14902,7 +14902,7 @@
   },
   "jarlier": {
     "aliases": [],
-    "label": "Geltenmacher (Jarlier)",
+    "label": "Jarlier (Geltenmacher)",
     "summary": "Handwerker, der Jarles und Gerles herstellt, Holzgefäße für Wein oder Wäsche.",
     "text": "Der Jarlier fertigt Jarles (oder Gerles), vom lateinischen gerula, große Holzbottiche oder -körbe für Weinlese, Weinlagerung oder Wäsche. Der daraus abgeleitete Familienname ist namentlich in der Haute-Loire im Zentralmassiv belegt, einer Gegend, in der diese Art ländlicher Böttcherei verbreitet war."
   },
@@ -14910,7 +14910,7 @@
     "aliases": [
       "Napfmacher"
     ],
-    "label": "Schüsseldrechsler (Jattier)",
+    "label": "Jattier (Schüsseldrechsler)",
     "summary": "Holzdrechsler, der auf die Herstellung von Schalen und hölzernen Schüsseln spezialisiert ist.",
     "text": "Der Jattier dreht Holz auf einer Tret- oder Bogendrehbank, um Schalen, Schüsseln und anderes einfaches Tischgeschirr herzustellen, ein in bewaldeten Gegenden vor der Verbreitung von Metall- oder Steingutgeschirr verbreitetes ländliches Handwerk."
   },
@@ -15457,7 +15457,7 @@
     "aliases": [
       "Garnknüpfer"
     ],
-    "label": "Netzknüpfer (Laceur)",
+    "label": "Laceur (Netzknüpfer)",
     "summary": "Handwerker, der Jagd- oder Fischernetze knüpft und herstellt.",
     "text": "Der Laceur fertigt und repariert Netze mit geknüpften Maschen für Jagd oder Fischfang aus geflochtenen oder geschnürten Fäden, nach Techniken, die dem Netzstricken nahestehen. Das Wort stammt vom Verb „lacer“, das die Gebärde des Maschenknüpfens beschreibt."
   },
@@ -15491,7 +15491,7 @@
     "aliases": [
       "Lainer"
     ],
-    "label": "Tuchrauher (Laineur)",
+    "label": "Laineur (Tuchrauher)",
     "summary": "Textilarbeiter, der Wolltuche und -stoffe behandelt.",
     "text": "Der Laineur wirkt an der Veredlung des Wolltuchs mit — Walken, Scheren, Rauhen —, um dem Stoff vor dem Verkauf sein endgültiges Aussehen und seine Beschaffenheit zu geben. Laneur ist eine gleichbedeutende Variante."
   },
@@ -15645,7 +15645,7 @@
     "aliases": [
       "Lanificus"
     ],
-    "label": "Wollwerker (Laneficier)",
+    "label": "Laneficier (Wollwerker)",
     "summary": "Fachmann für die Verarbeitung und den Handel mit Wolle.",
     "text": "Der Laneficier, vom lateinischen lanificium (Wollarbeit), bezeichnet einen Fachmann der Wollindustrie, vom Rohstoffhandel bis zur Herstellung von Stoffen. Lanificier ist eine gleichbedeutende Variante."
   },
@@ -15661,7 +15661,7 @@
   },
   "lanspessade": {
     "aliases": [],
-    "label": "Lanzpassat (Lanspessade)",
+    "label": "Lanspessade (Lanzpassat)",
     "summary": "Niederer militärischer Rang, alte Variante von „Anspessade“.",
     "text": "Der Lanspessade ist ein niederer militärischer Rang der Infanterie des Ancien Régime zwischen dem einfachen Soldaten und dem Korporal, häufiger Anspessade geschrieben, ein aus dem italienischen lancia spezzata entlehnter Begriff."
   },
@@ -15689,7 +15689,7 @@
       "Inschriftensteinmetz",
       "Steinschreiber"
     ],
-    "label": "Steinmetz (Lapicida)",
+    "label": "Lapicida (Steinmetz)",
     "summary": "Handwerker, der auf das Behauen und Gravieren von Stein spezialisiert ist.",
     "text": "Der Lapicide (vom lateinischen lapicida) behaut und graviert Stein, namentlich für Grab- und Denkmalinschriften, ein gelehrterer und seltenerer Begriff als „Steinhauer“ in den gewöhnlichen Urkunden."
   },
@@ -15751,13 +15751,13 @@
     "aliases": [
       "Lattenhauer"
     ],
-    "label": "Lattenmacher (Lattier)",
+    "label": "Lattier (Lattenmacher)",
     "summary": "Hersteller von Latten und Pfählen aus gespaltenem Holz für Bau und Dachdeckung.",
     "text": "Der Lattier spaltet und schneidet Holzlatten für Dachstuhl, Dachdeckung (Träger der Ziegel oder Schiefer) oder Zäune zu, ein Waldhandwerk, das eher auf dem Spalten als auf dem Sägen beruht."
   },
   "lauseur": {
     "aliases": [],
-    "label": "Steinplattendecker (Lauseur)",
+    "label": "Lauseur (Steinplattendecker)",
     "summary": "Dachdecker, der auf das Verlegen von Lauzes, flachen Deckplatten aus Stein, spezialisiert ist.",
     "text": "Der Lauseur verlegt Lauzes, flache Steine (je nach Gegend Kalkstein, Schiefer oder Sandstein) für die traditionelle Dachdeckung, eine für manche Gegenden wie den Quercy, das Aveyron oder die Dordogne kennzeichnende Technik."
   },
@@ -15974,7 +15974,7 @@
     "aliases": [
       "Korkarbeiter"
     ],
-    "label": "Korkschneider (Liégeur)",
+    "label": "Liégeur (Korkschneider)",
     "summary": "Handwerker, der Kork bearbeitet, regionale Variante des Korkschneiders.",
     "text": "Der Liégeur verarbeitet Kork zu Stopfen oder anderen Gegenständen, eine regionale Variante des Begriffs Bouchonnier, eine in den Erzeugergebieten wie den Landes, Korsika oder dem Roussillon konzentrierte Tätigkeit."
   },
@@ -16107,7 +16107,7 @@
       "Leinwandnäherin",
       "Linnennäherin"
     ],
-    "label": "Weißnäherin (Wäschehändlerin)",
+    "label": "Wäschehändlerin (Weißnäherin)",
     "summary": "Händlerin oder Handwerkerin, die auf Verkauf und Pflege von Wäsche spezialisiert ist.",
     "text": "Die Lingère verkauft, fertigt oder pflegt Haus- und Leibwäsche, eine Tätigkeit, die je nach Fall kaufmännische Aufgaben (Wäschehändlerin) oder handwerkliche Näharbeiten (Weißnäherin) umfasst."
   },
@@ -16501,7 +16501,7 @@
   },
   "magnien": {
     "aliases": [],
-    "label": "Wanderkesselflicker (Magnien)",
+    "label": "Magnien (Wanderkesselflicker)",
     "summary": "Umherziehender Kupferschmied, oft aus der Auvergne, der Kupfergeräte repariert.",
     "text": "Der Magnien repariert und verzinnt von Dorf zu Dorf Kupfer- und Zinngeräte, ein umherziehendes Handwerk, das traditionell mit den Bergbewohnern der Auvergne und des Limousin verbunden ist. Magnin und Maignan sind in alten Urkunden sehr verbreitete mundartliche Varianten."
   },
@@ -16517,7 +16517,7 @@
     "aliases": [
       "Flegler"
     ],
-    "label": "Flegeldrescher (Maillocheur)",
+    "label": "Maillocheur (Flegeldrescher)",
     "summary": "Getreidedrescher, der den traditionellen Dreschflegel verwendet.",
     "text": "Der Maillocheur drischt das Getreide mit dem Flegel (der „mailloche“ oder „maillot“), um das Korn von der Ähre zu trennen, eine manuelle Dreschtechnik, die ab dem 19. Jahrhundert nach und nach von der Dreschmaschine abgelöst wurde."
   },
@@ -16569,7 +16569,7 @@
       "Hofmeister",
       "Hausmeier"
     ],
-    "label": "Hausverwalter (Maisonnier)",
+    "label": "Maisonnier (Hausverwalter)",
     "summary": "Hausangestellter oder Verwalter, der die tägliche Führung eines bürgerlichen oder adligen Hauses besorgt.",
     "text": "Der Maisonnier ist ein höherrangiger Hausangestellter oder Verwalter, der für den Hausstand zuständig ist: Leitung des Personals, der Vorräte und des Unterhalts der Wohnung im Auftrag eines bürgerlichen oder adligen Herrn. Je nach Gegend kann der Begriff auch einen Teilpächter bezeichnen, der ein Haus auf dem Land eines Eigentümers bewohnt."
   },
@@ -16855,7 +16855,7 @@
     "aliases": [
       "Meister der hohen Werke"
     ],
-    "label": "Scharfrichter (Meister der hohen Werke)",
+    "label": "Meister der hohen Werke (Scharfrichter)",
     "summary": "Verhüllende Bezeichnung des Vollstreckers der hohen Werke, der die Todesurteile vollstreckt.",
     "text": "Der Maître des hautes œuvres ist der Vollstrecker der Strafurteile, namentlich der Todes- und Leibesstrafen. In manchen Familien erblich (die Sanson sind das berühmteste Beispiel), wurde das Amt trotz seines amtlichen Charakters in einer sehr ausgegrenzten sozialen Stellung ausgeübt. Nicht zu verwechseln mit dem Maître des basses œuvres, der für das Räumen der Abortgruben zuständig war."
   },
@@ -16992,7 +16992,7 @@
       "Reisekoffermacher",
       "Kofferfabrikant"
     ],
-    "label": "Koffermacher (Malletier)",
+    "label": "Malletier (Koffermacher)",
     "summary": "Handwerker, der auf die Herstellung von Koffern und Reisegepäck spezialisiert ist.",
     "text": "Der Malletier fertigt Koffer und Reisetruhen aus mit Leder und Eisenbeschlägen verstärktem Holz für den Transport persönlicher Habe. Das dem Truhenmacher und dem Riemer nahestehende Gewerbe erlebte mit der Entwicklung des Reisens im 18. und 19. Jahrhundert seine Blütezeit."
   },
@@ -17261,7 +17261,7 @@
     "aliases": [
       "Bladier"
     ],
-    "label": "Getreidehändler (Bladier)",
+    "label": "Bladier (Getreidehändler)",
     "summary": "Händler mit Weizen und Getreide, Mittler zwischen Erzeugern und Verbrauchern.",
     "text": "Der Marchand bladier (von „blad“, Weizen im Okzitanischen/Altfranzösischen) handelt mit Weizen und Getreide zwischen Erzeugern, Müllern und städtischen Verbrauchern. Dieser für die Versorgung der Städte wesentliche Handel wurde in Hungerzeiten von den Behörden streng überwacht."
   },
@@ -17781,7 +17781,7 @@
       "Pferdeschmied",
       "Faber ferrarius equorum"
     ],
-    "label": "Hufschmied (Maréchal-ferrant)",
+    "label": "Maréchal-ferrant (Hufschmied)",
     "summary": "Genaue und gebräuchliche Bezeichnung des auf das Beschlagen der Pferde spezialisierten Schmieds.",
     "text": "Der Maréchal-ferrant ist ab dem 19. Jahrhundert die genaueste und gebräuchlichste Bezeichnung für den Handwerker, der Pferde beschlägt, da das Wort maréchal allein sonst mit anderen Bedeutungen (namentlich der militärischen Würde) verwechselt werden konnte."
   },
@@ -17789,7 +17789,7 @@
     "aliases": [
       "Wagenschmied"
     ],
-    "label": "Grobschmied (Maréchal grossier)",
+    "label": "Maréchal grossier (Grobschmied)",
     "summary": "Schmied, der auf grobe Schmiedearbeiten und schwere Eisenwaren spezialisiert ist.",
     "text": "Der Maréchal grossier widmet sich den „grosses œuvres“ der Schmiede — landwirtschaftliche Werkzeuge, Wagenteile, schwere Eisenarbeiten —, im Gegensatz zur feineren, dem Maréchal en œuvres blanches vorbehaltenen Arbeit."
   },
@@ -17824,7 +17824,7 @@
     "aliases": [
       "Maretquier"
     ],
-    "label": "Gemüsegärtner von Beruf (Maretquier)",
+    "label": "Maretquier (Gemüsegärtner von Beruf)",
     "summary": "Gemüsegärtner (Bebauer eines „Marais“), gefolgt von der alten Formel „de son stil“, das heißt „von Beruf“.",
     "text": "Maretquier (Varianten maresquier, marequier in der Langue d'oc, mareschier in der Langue d'oïl) ist der Vorläufer des Wortes maraîcher: ursprünglich ein Gärtner, der einen „marais“ bewirtschaftete, ein tiefliegendes, feuchtes, am Stadtrand zu einem Gemüsegarten hergerichtetes Gelände (das Pariser Viertel Marais trägt noch den Namen). Die folgende Angabe „de Stil“ ist eine Verballhornung der alten Formel „de son stil“ (oder „de son estil“), vom lateinischen stilus, die namentlich in den Urkunden des Nord und des Pas-de-Calais „von Beruf“ bedeutet — ebenso findet man „laboureur de son stil“ oder „maçon de son estile“. Der ganze Ausdruck bedeutet also einfach „Gemüsegärtner von Beruf“."
   },
@@ -17854,7 +17854,7 @@
   },
   "margotier": {
     "aliases": [],
-    "label": "Bindestrickmacher (Margotier)",
+    "label": "Margotier (Bindestrickmacher)",
     "summary": "Handwerker, der Bindestricke und Seile zum Festbinden und Verzurren herstellt.",
     "text": "Der Margotier fertigt Bindestricke und Seile, mit denen Lasten festgebunden, verzurrt oder gebunden werden, ein je nach Gegend und verwendeten Stoffen der Seilerei oder der Espartoflechterei nahestehendes Handwerk."
   },
@@ -17979,7 +17979,7 @@
     "aliases": [
       "Markhüter"
     ],
-    "label": "Grenzhüter (Marquard)",
+    "label": "Marquard (Grenzhüter)",
     "summary": "Wächter, der Grenzen, Märkte oder Gemeindegüter bewacht.",
     "text": "Der Marquard ist ein örtlicher Wächter, der Gebietsgrenzen, Märkte oder Gemeindegüter bewacht, ein wenig verbreiteter regionaler Begriff, der den Aufgaben des Feldhüters oder des Grenzhüters (garde des marches) nahesteht."
   },
@@ -18063,7 +18063,7 @@
   },
   "marreur": {
     "aliases": [],
-    "label": "Mergelgräber (Marreur)",
+    "label": "Marreur (Mergelgräber)",
     "summary": "Arbeiter, der in den Mergelgruben Mergel gewinnt und handhabt.",
     "text": "Der Marreur arbeitet an der Gewinnung des Mergels in den Mergelgruben, eine körperliche Bruchtätigkeit, die sich von der des Marneur unterscheidet, der den bereits gewonnenen Mergel auf den Feldern ausbringt. Der als Variante verzeichnete Begriff „pionnier“ verweist auf die alte Bedeutung des Erdarbeiters oder Gräbers."
   },
@@ -18137,7 +18137,7 @@
       "Zepterträger",
       "Kolbenträger"
     ],
-    "label": "Stabträger (Massier)",
+    "label": "Massier (Stabträger)",
     "summary": "Justizbeamter, der als Amtszeichen einen Stab trägt, dem königlichen Sergeanten entsprechend.",
     "text": "Der Massier ist ein Justizbeamter oder Gerichtsdiener, der bei amtlichen Zeremonien als Zeichen seines Amtes einen Streitkolben trägt, eine protokollarische Rolle, die je nach zivilem oder kirchlichem Zusammenhang der des königlichen Sergeanten oder des Kirchendieners nahesteht."
   },
@@ -18197,7 +18197,7 @@
     "aliases": [
       "Mastmatrose"
     ],
-    "label": "Marsgast (Matelot de hune)",
+    "label": "Matelot de hune (Marsgast)",
     "summary": "Matrose, der auf die Bedienung der oberen Segel spezialisiert ist und von den Marsen des Mastes aus arbeitet.",
     "text": "Der Matelot de hune bedient die oberen Segel des Schiffes und hält von den Marsen aus Ausguck, Plattformen oben an den Masten, eine Spezialität, die Gewandtheit und Schwindelfreiheit verlangt."
   },
@@ -18249,7 +18249,7 @@
   },
   "mazelier": {
     "aliases": [],
-    "label": "Metzger (Mazelier)",
+    "label": "Mazelier (Metzger)",
     "summary": "Provenzalischer und okzitanischer Begriff für den Metzger, vom Wort „mazel“ (Schlachthaus, Fleischbank).",
     "text": "Der Mazelier ist in der Provence und im okzitanischen Sprachraum der Name des Metzgers — das Wort stammt von „mazel“, das das Schlachthaus oder die Fleischhalle bezeichnet (verwandt mit italienisch macello, katalanisch macell). Der in den südfranzösischen Urkunden des Ancien Régime gängige Begriff ist eine bloße regionale Entsprechung von „boucher“ und kein eigenes Fach."
   },
@@ -18418,7 +18418,7 @@
       "Joculator",
       "Menestrel"
     ],
-    "label": "Spielmann (Ménestrel)",
+    "label": "Ménestrel (Spielmann)",
     "summary": "Umherziehender Musiker und Dichter, Vortragender von Liedern und Erzählungen an den Herrenhöfen.",
     "text": "Der Ménestrel ist ein mittelalterlicher, oft umherziehender Musiker und Dichter, der an den Herrenhöfen und auf öffentlichen Plätzen Lieder, Heldenepen und Gedichte vorträgt. Anders als der Troubadour oder Trouvère, der Verfasser seiner eigenen Werke, ist der Ménestrel vor allem ein Vortragender im Dienst eines Herrn."
   },
@@ -18427,7 +18427,7 @@
       "Dorfmusikant",
       "Tanzgeiger"
     ],
-    "label": "Spielmann (Dorfmusikant)",
+    "label": "Dorfmusikant (Spielmann)",
     "summary": "Volksmusiker, der Bälle, Feste und Feiern mit traditionellen Instrumenten begleitete.",
     "text": "Der Ménétrier spielt zu Bällen, Hochzeiten und Dorffesten auf der Geige, der Drehleier oder je nach Gegend dem Dudelsack, ein für das festliche Leben auf dem Land im Ancien Régime unentbehrlicher Volksmusiker, zu unterscheiden vom Ménestrel, einem gelehrteren Künstler der mittelalterlichen Höfe."
   },
@@ -18603,7 +18603,7 @@
       "Feldschütze",
       "Flurwächter"
     ],
-    "label": "Flurschütz (Messier)",
+    "label": "Messier (Flurschütz)",
     "summary": "Feldhüter, der die Kulturen und die stehende Ernte bewacht.",
     "text": "Der Messier bewacht die Kulturen und die stehende Ernte und sorgt dafür, dass vor der Ernte Diebstahl, missbräuchliche Weide oder Flurschäden verhindert werden, eine dem Feldhüter nahe Gemeindeaufgabe. Messeur und Mussier sind regionale Schreibvarianten."
   },
@@ -18736,7 +18736,7 @@
       "Mülner",
       "Möller"
     ],
-    "label": "Müller (Meusnier)",
+    "label": "Meusnier (Müller)",
     "summary": "Alte Schreibvariante von meunier, Handwerker, der das Getreide in der Mühle mahlt.",
     "text": "Der Meusnier ist eine alte oder mundartliche Schreibung von „meunier“, dem Handwerker, der eine Getreidemühle für die Einwohner einer Pfarrei betreibt und als Bezahlung meist einen Teil des Mahlguts (den „droit de mouture“) einbehält. Diese Schreibvariante findet sich vor allem in Urkunden vor dem 18. Jahrhundert."
   },
@@ -19107,7 +19107,7 @@
   },
   "moulangeur": {
     "aliases": [],
-    "label": "Mühlenzimmermann (Moulangeur)",
+    "label": "Moulangeur (Mühlenzimmermann)",
     "summary": "Zimmermann, der auf Bau und Reparatur von Wind- oder Wassermühlen spezialisiert ist.",
     "text": "Der Moulangeur (oder „amoulangeur“, „emmoulageur“ je nach Gegend) ist ein Zimmermann, der sich auf Bau und Unterhalt von Wind- oder Wassermühlen spezialisiert hat, namentlich ihrer hölzernen Mechanismen (Räder, Flügel, Getriebe). Der Begriff, trotz lautlicher Ähnlichkeit nicht mit „boulanger“ zu verwechseln, findet sich vor allem im Anjou und in der Loire-Atlantique."
   },
@@ -19155,7 +19155,7 @@
   },
   "moulier": {
     "aliases": [],
-    "label": "Knopfformmacher (Moulier)",
+    "label": "Moulier (Knopfformmacher)",
     "summary": "Handwerker, der Formen herstellt, namentlich für die Knopfherstellung.",
     "text": "Der Moulier fertigt kleine Formen für verschiedene handwerkliche Erzeugnisse, insbesondere für die Herstellung von Knöpfen. Der Begriff findet sich vor allem in Gegenden mit handwerklicher Knopfindustrie."
   },
@@ -19174,7 +19174,7 @@
       "Zwirnerin",
       "Seidenmoulinier"
     ],
-    "label": "Seidenzwirner (Moulinier)",
+    "label": "Moulinier (Seidenzwirner)",
     "summary": "Textilarbeiter, der die Fäden, namentlich Seide, vor dem Weben zwirnt und vorbereitet.",
     "text": "Der Moulinier betreibt das Moulinieren, einen Arbeitsgang, bei dem die Fäden (namentlich Seide) gezwirnt und vereinigt werden, um ihnen die für das Weben nötige Festigkeit zu geben. Dieses in der Seidenindustrie zentrale Gewerbe (namentlich um Lyon) konnte auch für die Verarbeitung anderer, für die Tuchmacherei oder andere Stoffe bestimmter Fasern gelten."
   },
@@ -19349,7 +19349,7 @@
       "Nachenfahrer",
       "Naviculator"
     ],
-    "label": "Fährmann (Nautonnier)",
+    "label": "Nautonnier (Fährmann)",
     "summary": "Führer einer Barke, der Personen oder Waren auf dem Wasser befördert.",
     "text": "Der Nautonnier führt eine Barke oder ein Flussschiff und befördert Personen oder Waren auf Flüssen und Kanälen. Der eher literarische und altertümliche Begriff erinnert auch an die mythologische Gestalt des Fährmanns (wie Charon), und seine latinisierende Entsprechung „naviculaire“ findet sich in manchen Urkunden."
   },
@@ -19397,7 +19397,7 @@
     "aliases": [
       "Messlattenmacher"
     ],
-    "label": "Messgerätemacher (Norretier)",
+    "label": "Norretier (Messgerätemacher)",
     "summary": "Handwerker, der Norres herstellt, Messgeräte der Landvermesser.",
     "text": "Der Norretier fertigt Norres, Geräte, mit denen Geometer und Landvermesser ihre Messungen vornahmen. Der Begriff „nortier“ ist eine regionale Variante. Dieses kaum belegte Gewerbe scheint selten und örtlich begrenzt gewesen zu sein."
   },
@@ -19486,7 +19486,7 @@
     "aliases": [
       "Stallmäster"
     ],
-    "label": "Viehmäster (Nourrisseur)",
+    "label": "Nourrisseur (Viehmäster)",
     "summary": "Person, die für Dritte Vieh mästet und unterhält.",
     "text": "Der Nourrisseur mästet und unterhält Nutztiere — Rinder, Pferde oder andere Zugtiere —, oft für Dritte, eine in der Nähe der Städte häufige Tätigkeit, wo das Vieh mit Rückständen aus Brauereien oder Brennereien gemästet wurde, bevor es auf den städtischen Märkten verkauft wurde."
   },
@@ -19571,7 +19571,7 @@
     "aliases": [
       "Chirurg zweiter Klasse"
     ],
-    "label": "Gesundheitsoffizier (Officier de santé)",
+    "label": "Officier de santé (Gesundheitsoffizier)",
     "summary": "Heilkundiger mit mittlerer Ausbildung, zwischen Wundarzt und Arzt.",
     "text": "Der Officier de santé ist ein durch das Gesetz vom 19. Ventôse des Jahres XI (1803) geschaffener Stand von Heilkundigen, der dem Mangel an diplomierten Ärzten auf dem Land abhelfen sollte: Seine kürzere Ausbildung als die des Doktors der Medizin berechtigte ihn zur Ausübung, aber nur in dem Département, in dem er zugelassen worden war. Dieser Stand bestand bis zu seiner Abschaffung 1892."
   },
@@ -19608,7 +19608,7 @@
       "Aufwärter",
       "Faktotum"
     ],
-    "label": "Hausdiener (Officieux)",
+    "label": "Officieux (Hausdiener)",
     "summary": "Vielseitiger Hausangestellter, der verschiedene Aufgaben im Dienst eines Hauses erfüllt.",
     "text": "Der Officieux ist ein Hausangestellter, der in einem adligen oder bürgerlichen Haus für verschiedene Aufgaben beschäftigt wird, je nach Bedarf des Haushalts dem Diener oder dem Hilfsarbeiter nahe."
   },
@@ -20076,7 +20076,7 @@
       "Fischpacker",
       "Tonnenleger"
     ],
-    "label": "Heringspacker (Pacqueur)",
+    "label": "Pacqueur (Heringspacker)",
     "summary": "Arbeiter, der gesalzenen Fisch zur Haltbarmachung und zum Versand sortiert und in Fässer packt.",
     "text": "Der Pacqueur sortiert gesalzenen Fisch (namentlich Hering) und packt ihn in Fässer für Haltbarmachung und Transport, ein Gewerbe der Fischereihäfen des Nordens und des Ärmelkanals (Boulogne, Dieppe), wo das industrielle Salzen des Herings betrieben wurde."
   },
@@ -20285,7 +20285,7 @@
   },
   "pangoussier": {
     "aliases": [],
-    "label": "Bäcker (Pangoussier)",
+    "label": "Pangoussier (Bäcker)",
     "summary": "Alte regionale Bezeichnung des Bäckers.",
     "text": "Der Pangoussier ist nach den Glossaren alter Berufe eine alte regionale Bezeichnung des Bäckers, der Brot herstellt und verkauft. Der außer Gebrauch gekommene Begriff ist nur noch in Wörterbüchern alter Berufe belegt."
   },
@@ -20308,7 +20308,7 @@
   },
   "pannereux": {
     "aliases": [],
-    "label": "Korbflechter (Pannereux)",
+    "label": "Pannereux (Korbflechter)",
     "summary": "Korbmacher, der auf die Herstellung von Körben und Weidenkörben spezialisiert ist.",
     "text": "Der Pannereux flicht Weiden zu Körben und Körbchen, ein in den Weidenanbaugebieten verbreitetes Korbmacherhandwerk."
   },
@@ -20360,7 +20360,7 @@
   },
   "parandier": {
     "aliases": [],
-    "label": "Tuchwalker (Parandier)",
+    "label": "Parandier (Tuchwalker)",
     "summary": "Textilarbeiter, der Tuche und Wollstoffe walkt.",
     "text": "Der Parandier walkt Tuche und Wollstoffe, ein Arbeitsgang, bei dem das Gewebe gestampft und verdichtet wird, um es zu festigen und zu verdicken, der Arbeit des Walkers nahe."
   },
@@ -20492,7 +20492,7 @@
     "aliases": [
       "Überführer"
     ],
-    "label": "Fährmann (Passager)",
+    "label": "Passager (Fährmann)",
     "summary": "Schiffer, der die Reisenden von einem Ufer zum anderen übersetzt.",
     "text": "Der Passager (im alten Sinn nicht der Reisende, sondern der Übersetzende) führt eine Barke, um Personen von einem Ufer eines Wasserlaufs zum anderen zu bringen, ein Dienst, der vor der Verbreitung der Brücken oft als Fährrecht vergeben wurde."
   },
@@ -20658,7 +20658,7 @@
       "Herdenhirt",
       "Pastor pecoris"
     ],
-    "label": "Hirte (Pâtre)",
+    "label": "Pâtre (Hirte)",
     "summary": "Traditioneller Hirte, der die Herden hütet und treibt.",
     "text": "Der Pâtre hütet und treibt die Herden auf den Weiden, ein literarischer und amtlicher Begriff, der den Hirten allgemein bezeichnet, ohne Unterscheidung der Art der gehüteten Tiere."
   },
@@ -20720,7 +20720,7 @@
   },
   "pattier": {
     "aliases": [],
-    "label": "Lumpensammler (Pattier)",
+    "label": "Pattier (Lumpensammler)",
     "summary": "Händler und Sammler von Lumpen zur Wiederverwertung.",
     "text": "Der Pattier sammelt und verkauft Lumpen und alte Textilien zur Wiederverwertung, namentlich für die Papierherstellung vor dem Aufkommen des Holzschliffs — ein dem Lumpensammler nahes Gewerbe."
   },
@@ -20796,7 +20796,7 @@
   },
   "peaumier": {
     "aliases": [],
-    "label": "Ballhausmeister (Peaumier)",
+    "label": "Peaumier (Ballhausmeister)",
     "summary": "Schreibvariante von Paumier, Hersteller von Ausrüstung für das Jeu de Paume.",
     "text": "Der Peaumier, eine Variante des Paumier, fertigt Bälle, Schläger und andere Geräte für das Jeu de Paume, den vom Mittelalter bis zum 17. Jahrhundert sehr beliebten Vorläufer des Tennis. Das Gewerbe ging mit der allmählichen Abkehr von diesem Spiel ab dem 18. Jahrhundert zurück."
   },
@@ -20990,7 +20990,7 @@
   },
   "peleur_de_rotisses": {
     "aliases": [],
-    "label": "Schäler (Peleur de rôtisses)",
+    "label": "Peleur de rôtisses (Schäler)",
     "summary": "Tagelöhner, der Schäl- und Vorbereitungsarbeiten verrichtet.",
     "text": "Der Peleur de rôtisses ist ein Tagelöhner, der Schäl- und Vorbereitungsarbeiten verrichtet, wahrscheinlich im Zusammenhang mit dem Entrinden von Holz oder einer schlecht belegten örtlichen handwerklichen Tätigkeit. Der seltene Begriff findet sich vor allem in regionalen Urkunden."
   },
@@ -21015,7 +21015,7 @@
       "Buntwerker",
       "Grauwerker"
     ],
-    "label": "Kürschner (Pelletier)",
+    "label": "Pelletier (Kürschner)",
     "summary": "Kürschner, der auf die Behandlung und Verarbeitung von Pelzen spezialisiert ist.",
     "text": "Der Pelletier verarbeitet und fertigt Pelze und bereitet die behaarten Felle zu Kleidung und Besätzen auf. Das seit dem Mittelalter zünftig organisierte Gewerbe unterscheidet sich vom Peaussier, der die für Leder statt für Pelz bestimmten Häute behandelt."
   },
@@ -21059,7 +21059,7 @@
   },
   "penon": {
     "aliases": [],
-    "label": "Fußbote (Penon)",
+    "label": "Penon (Fußbote)",
     "summary": "Fußbote, der Nachrichten und Briefe überbrachte.",
     "text": "Der Penon ist ein Bote, der sich zu Fuß fortbewegte, um Nachrichten und Briefe zu überbringen, vor der Einrichtung eines geordneten Postdienstes. Der alte Begriff bezeichnet eine örtliche Botenaufgabe im Dienst einer Gemeinde, eines Grundherrn oder einer Verwaltung."
   },
@@ -21087,7 +21087,7 @@
   },
   "perceur": {
     "aliases": [],
-    "label": "Schiffsbohrer (Perceur)",
+    "label": "Perceur (Schiffsbohrer)",
     "summary": "Arbeiter, der die Schiffe beim Bau oder bei der Ausbesserung bohrt und verdübelt.",
     "text": "Der Perceur bohrt und verdübelt die Schiffe in allen ihren Teilen bei ihrem Bau oder ihrer Ausbesserung auf der Werft."
   },
@@ -21131,7 +21131,7 @@
   },
   "perleur": {
     "aliases": [],
-    "label": "Kammzahnaushöhler (Perleur)",
+    "label": "Perleur (Kammzahnaushöhler)",
     "summary": "Kammmacher, der die Wurzel der groben Kammzähne aushöhlt.",
     "text": "Der Perleur ist ein Kammmacherarbeiter, der die Wurzel der groben Kammzähne aushöhlt, ein Schritt der Formgebung nach dem Planeteur und vor dem Ponceur. Diese sehr feine Arbeitsteilung veranschaulicht die zünftige Organisation des Kammmachergewerbes."
   },
@@ -21172,7 +21172,7 @@
     "aliases": [
       "Schiefergräber"
     ],
-    "label": "Schieferbrecher (Perrier)",
+    "label": "Perrier (Schieferbrecher)",
     "summary": "Arbeiter in Schieferbrüchen.",
     "text": "Der Perrier arbeitet an der Gewinnung des Schiefers im Bruch, ein in den Erzeugergebieten wie dem Anjou oder den Ardennen verbreitetes Gewerbe. Er unterscheidet sich vom Perreyeur durch seine engere Spezialisierung auf Schiefer statt auf Stein im Allgemeinen."
   },
@@ -21207,7 +21207,7 @@
   },
   "petissier": {
     "aliases": [],
-    "label": "Löffelschnitzer (Petissier)",
+    "label": "Petissier (Löffelschnitzer)",
     "summary": "Handwerker, der Löffel und kleine hölzerne Tischgeräte herstellt.",
     "text": "Der Petissier fertigt Löffel und verschiedene kleine hölzerne Tischgeräte, ein dem Kleinholzwarenmacher oder dem Holzdrechsler nahes Handwerk. Der Begriff bleibt selten und in genealogischen Quellen kaum belegt."
   },
@@ -21216,7 +21216,7 @@
       "Knetknecht",
       "Mehlkneter"
     ],
-    "label": "Teigkneter (Pétrisseur)",
+    "label": "Pétrisseur (Teigkneter)",
     "summary": "Bäckereiarbeiter, der den Brotteig knetet.",
     "text": "Der Pétrisseur knetet den Brotteig in Backstuben und Bäckereien, eine körperlich anstrengende Arbeit vor der Mechanisierung des Knetens Ende des 19. Jahrhunderts. Er arbeitet meist unter der Aufsicht des Bäckermeisters."
   },
@@ -21290,7 +21290,7 @@
     "aliases": [
       "Flicknäherin"
     ],
-    "label": "Näherin (Picurière)",
+    "label": "Picurière (Näherin)",
     "summary": "Näherin, die auf die Anfertigung und Ausbesserung von Kleidung spezialisiert ist.",
     "text": "Die Picurière fertigt und flickt Kleidung, ein Nähgewerbe, das unter vielen regionalen Schreibvarianten belegt ist — piquriere, piqurière, piqûriere —, die die Schwankungen bei der Abschrift alter Urkunden widerspiegeln."
   },
@@ -21339,7 +21339,7 @@
     "aliases": [
       "Lohstößer"
     ],
-    "label": "Lohstampfer (Pile-tan)",
+    "label": "Pile-tan (Lohstampfer)",
     "summary": "Arbeiter, der die Lohe (gemahlene Rinde) für die Gerbereien bereitet.",
     "text": "Der Pile-tan, eine Variante des Rindenstampfers, zerkleinert und bereitet die Lohe, eine zu Pulver gemahlene Eichenrinde, die die Gerber zum Gerben der Häute verwenden. Dieses Gewerbe ist eng mit der Tätigkeit der Gerbereien verbunden."
   },
@@ -21405,7 +21405,7 @@
       "Zinnkannengießer",
       "Maßkannengießer"
     ],
-    "label": "Zinngießer (Pintier)",
+    "label": "Pintier (Zinngießer)",
     "summary": "Zinngießer, der Messgefäße wie die Pinte herstellt.",
     "text": "Der Pintier ist ein Zinngießer, der auf die Herstellung von Messgefäßen spezialisiert ist, darunter die Pinte, ein im Ancien Régime gängiges Hohlmaß. Das Gewerbe gehört zur Zinngießerei."
   },
@@ -21457,7 +21457,7 @@
   },
   "piqueur": {
     "aliases": [],
-    "label": "Kabeljaukopfer (Piqueur)",
+    "label": "Piqueur (Kabeljaukopfer)",
     "summary": "Arbeiter, der den Kabeljau zurichtet und Leber, Eingeweide und Kopf entfernt.",
     "text": "Der Piqueur zerlegt in den Kabeljaufischereien den Kabeljau, um Leber, Eingeweide und Kopf zu entfernen, ein wesentlicher Schritt vor dem Salzen und Trocknen des Fisches. Dieses Gewerbe findet sich in den Kabeljaufischereihäfen, namentlich denen, die auf Neufundland ausgerichtet waren."
   },
@@ -21620,7 +21620,7 @@
     "aliases": [
       "Saalordner"
     ],
-    "label": "Platzanweiser (Placeur)",
+    "label": "Placeur (Platzanweiser)",
     "summary": "Angestellter, der das Publikum in Theatern zu seinen Plätzen führt.",
     "text": "Der Placeur, eine Variante des Ouvreur, empfängt die Zuschauer und führt sie in Theatern und Veranstaltungssälen zu ihren Plätzen. Das Gewerbe bestand bis in die moderne Zeit des Kinos."
   },
@@ -21640,7 +21640,7 @@
       "Marktbeschicker",
       "Standinhaber"
     ],
-    "label": "Markthändler (Standinhaber)",
+    "label": "Standinhaber (Markthändler)",
     "summary": "Fahrender Händler, der einen Standplatz auf Märkten und Messen betreibt.",
     "text": "Der Placier forain betreibt einen Verkaufsstand auf Märkten und Messen, mitunter als Beauftragter, der den fahrenden Händlern die Plätze zuweist. Der Begriff umfasst je nach Fall einen Händler oder einen Marktverwalter."
   },
@@ -22045,7 +22045,7 @@
     "aliases": [
       "Bimser"
     ],
-    "label": "Kammschleifer (Ponceur)",
+    "label": "Ponceur (Kammschleifer)",
     "summary": "Kammmacher, der nach dem Perleur die Schleifspuren beseitigt.",
     "text": "Der Ponceur beseitigt die nach der Arbeit des Perleur auf dem Kamm verbliebenen Schleifspuren, vor dem abschließenden Eingreifen des Polierers. Dieser Schritt gehört zur stark arbeitsteiligen Kammherstellung."
   },
@@ -22064,7 +22064,7 @@
       "Brückengeldeinnehmer",
       "Fährpächter"
     ],
-    "label": "Brückenzöllner (Pontonier)",
+    "label": "Pontonier (Brückenzöllner)",
     "summary": "Verantwortlicher für den Betrieb einer Brücke oder Fähre, namentlich für die Erhebung der Durchgangsgebühren.",
     "text": "Der Pontonier ist für den Betrieb einer Brücke oder einer Fähre verantwortlich, sorgt für ihren Unterhalt und oft für die Erhebung der von den Benutzern geschuldeten Durchgangsgebühren. Der Begriff unterscheidet sich vom Pontonnier, einem Soldaten der Pioniertruppe, der Schiffbrücken baut."
   },
@@ -22117,7 +22117,7 @@
   },
   "porchard": {
     "aliases": [],
-    "label": "Verschneider (Porchard)",
+    "label": "Porchard (Verschneider)",
     "summary": "Regionaler Begriff für einen Kastrierer kleiner Haustiere.",
     "text": "Der Porchard ist in der Mundart des Brionnais und des Charolais ein Kastrierer, der sich auf das Verschneiden kleiner Haustiere spezialisiert hat. „Portsale“ ist die entsprechende regionale Bezeichnung für dieselbe Tätigkeit."
   },
@@ -22286,7 +22286,7 @@
       "Wassermann",
       "Wasserverkäufer"
     ],
-    "label": "Wasserträger (Porteur d'eau)",
+    "label": "Porteur d'eau (Wasserträger)",
     "summary": "Mann, der das Wasser von den Brunnen in die Häuser der Leute trägt.",
     "text": "Der Porteur d'eau trägt das Wasser von Brunnen, Pumpen oder Wasserläufen bis in die Häuser der Leute, vor der Verbreitung des fließenden Wassers."
   },
@@ -23137,7 +23137,7 @@
   },
   "proyer": {
     "aliases": [],
-    "label": "Hirte (Proyer)",
+    "label": "Proyer (Hirte)",
     "summary": "In manchen Gegenden eine mundartliche Variante für einen Schäfer oder Kuhhirten.",
     "text": "Der regionale Begriff bezeichnet einen Herdenhüter, eine örtliche Variante von Schäfer oder Kuhhirt; er teilt seine Wurzel mit dem Namen der Grauammer (bruant proyer), eines Feldvogels, ohne dass die Verbindung zwischen beiden Verwendungen über das Leben auf dem Feld hinausginge."
   },
@@ -23381,7 +23381,7 @@
   },
   "raccommodeux": {
     "aliases": [],
-    "label": "Grubenjunge (Raccommodeux)",
+    "label": "Raccommodeux (Grubenjunge)",
     "summary": "Bergmännisches Synonym von „Galibot“: junger Bergmann oder Lehrling, der für Ausbauarbeiten eingesetzt wird.",
     "text": "Der Begriff verweist auf den Galibot, einen jungen Bergmann und Zimmerhauer, der die Stempel in den Strecken setzte, oder allgemeiner auf den Handlanger und Berglehrling. Das Wort hat hier nichts mit dem Flicken von Kleidern zu tun, an das seine Form sonst erinnert."
   },
@@ -23430,7 +23430,7 @@
       "Nacharbeiter",
       "Gussputzer"
     ],
-    "label": "Fertigmacher (Racheveur)",
+    "label": "Racheveur (Fertigmacher)",
     "summary": "Handwerker, der einem bearbeiteten Gegenstand aus Gießerei, Töpferei oder anderem den letzten Schliff gibt.",
     "text": "Der Racheveur greift am Ende der Herstellung ein, um die Fertigstellung eines Gegenstands zu vollenden — Entgraten, Polieren, Nacharbeiten der Einzelheiten —, bevor er geliefert oder verkauft wird."
   },
@@ -23440,7 +23440,7 @@
       "Werbeoffizier",
       "Rekrutenwerber"
     ],
-    "label": "Werber (Racol)",
+    "label": "Racol (Werber)",
     "summary": "Person, die Rekruten für Heer oder Marine anwarb.",
     "text": "Mit „racoleur“ verwandt, zog der Racol durch Städte und Messen, um oft mit List oder Geldversprechen Männer für die königlichen Truppen oder die Marine anzuwerben, vor der Einführung der Aushebung."
   },
@@ -23448,7 +23448,7 @@
     "aliases": [
       "Floßbinder"
     ],
-    "label": "Flößer (Radelier)",
+    "label": "Radelier (Flößer)",
     "summary": "Flößer, der die Holzflöße auf den Flüssen führte.",
     "text": "Der Radelier fügt die Stämme zu Flößen („trains de bois“) zusammen und führt sie die Flüsse hinab bis zu den Städten, eine Flößereitechnik, die namentlich bis ins 19. Jahrhundert zur Versorgung von Paris mit Brennholz aus dem Morvan verwendet wurde."
   },
@@ -23547,7 +23547,7 @@
   },
   "rancheur": {
     "aliases": [],
-    "label": "Nachreißer (Rancheur)",
+    "label": "Rancheur (Nachreißer)",
     "summary": "Bergmann, der die durch den Gebirgsdruck verengten Strecken wieder auf ihren Querschnitt bringt.",
     "text": "Unter dem Gewicht des Gebirges verloren die Grubenstrecken allmählich ihren nutzbaren Querschnitt; der Rancheur richtete sie wieder auf und erweiterte sie auf ihre ursprünglichen Maße. Der Begriff findet sich unter einer gleichwertigen lautlichen Variante."
   },
@@ -23588,7 +23588,7 @@
   },
   "raquinaudeux": {
     "aliases": [],
-    "label": "Kesselflicker (Raquinaudeux)",
+    "label": "Raquinaudeux (Kesselflicker)",
     "summary": "Umherziehender Kupferschmied.",
     "text": "Mundartlicher Begriff für einen umherziehenden Kupferschmied, der durch die Dörfer zog, um Töpfe, Kessel und metallene Küchengeräte zu reparieren."
   },
@@ -23808,7 +23808,7 @@
   },
   "recouvreur": {
     "aliases": [],
-    "label": "Dachdecker (Recouvreur)",
+    "label": "Recouvreur (Dachdecker)",
     "summary": "Handwerker, der Dächer je nach örtlich verfügbaren Stoffen (Ziegel, Schiefer, Schindeln, Stroh, Steinplatten) baut und ausbessert.",
     "text": "Der Recouvreur ist in manchen Gegenden der allgemeine Name des Dachdeckers und bezeichnet den Handwerker, der die Dächer deckt und unterhält, gleich welchen Werkstoff er nach den örtlichen Überlieferungen verwendet."
   },
@@ -23872,7 +23872,7 @@
   },
   "regent": {
     "aliases": [],
-    "label": "Schulmeister (Régent)",
+    "label": "Régent (Schulmeister)",
     "summary": "Schulmeister, der mit den Einwohnern eines Dorfes einen Vertrag zum Unterricht der Kinder geschlossen hatte.",
     "text": "Vor der Schaffung der öffentlichen Schule stellten viele Dorfgemeinden selbst durch Vertrag einen Régent an, der den Kindern Lesen, Schreiben und Katechismus beibrachte, oft in Geld und Naturalien (Wohnung, Kost) bezahlt. Der in manchen Gegenden gebrauchte Begriff „recteur d'école“ bezeichnet dieselbe Aufgabe."
   },
@@ -23979,7 +23979,7 @@
     "aliases": [
       "Blattstecher"
     ],
-    "label": "Einzieher (Remetteur)",
+    "label": "Remetteur (Einzieher)",
     "summary": "Textilarbeiter, der die Webstühle vorbereitet und einstellt, namentlich die Kettfäden durch die Litzen zieht.",
     "text": "Das Einziehen besteht darin, jeden Kettfaden vor dem eigentlichen Weben durch die Litzen und das Blatt des Webstuhls zu führen, ein sorgfältiger Arbeitsgang, der die Güte des Stoffes bestimmt. Die weibliche Form „remetteuse“ wurde besonders in der Lyoner Seidenindustrie für diese Vorbereitungsarbeit gebraucht."
   },
@@ -24085,7 +24085,7 @@
       "Plätterin",
       "Glanzbüglerin"
     ],
-    "label": "Bügler (Repasseur)",
+    "label": "Repasseur (Bügler)",
     "summary": "Handwerker, der auf das Bügeln und die Fertigstellung von Stoffen und Kleidern spezialisiert ist.",
     "text": "Der Repasseur (oder die Repasseuse) glättet und appretiert Wäsche und Kleider mit dem Bügeleisen, ein sowohl zu Hause als auch in der Wäscherei ausgeübtes Gewerbe; manche Bügler waren zugleich Fleckenreiniger und entfernten die Flecken vor dem Bügeln."
   },
@@ -24128,7 +24128,7 @@
     "aliases": [
       "Kiefernharzer"
     ],
-    "label": "Harzer (Résinier)",
+    "label": "Résinier (Harzer)",
     "summary": "Waldarbeiter, der auf die Gewinnung von Kiefernharz durch Anritzen der Rinde spezialisiert ist.",
     "text": "Der Résinier (oder Gemmeur) betreibt das Harzen: Er ritzt die Rinde der Strandkiefern an, um das Harz (die Gemme) aufzufangen, das in einen kleinen, am Stamm befestigten Tontopf (den Galipot) fließt. Diese seit dem 19. Jahrhundert für den Wald der Landes de Gascogne sinnbildliche Tätigkeit lieferte den Rohstoff der Terpentin- und Kolophoniumindustrie bis zu ihrem Niedergang im 20. Jahrhundert."
   },
@@ -24147,7 +24147,7 @@
       "Restaurantbesitzer",
       "Traiteur"
     ],
-    "label": "Gastwirt (Restaurateur)",
+    "label": "Restaurateur (Gastwirt)",
     "summary": "Person, die ein Lokal führt, in dem gegen Bezahlung Mahlzeiten serviert werden.",
     "text": "Das Wort „restaurant“ stammt ursprünglich von den „restaurants“ genannten stärkenden Brühen, die im 18. Jahrhundert von Gesundheitshändlern verkauft wurden, bevor es ab dem späten 18. Jahrhundert die Einrichtung selbst bezeichnete; der Restaurateur ist deren Betreiber oder verantwortlicher Koch."
   },
@@ -24156,7 +24156,7 @@
       "Neuverzinner",
       "Kesselverzinner"
     ],
-    "label": "Verzinner (Rétameur)",
+    "label": "Rétameur (Verzinner)",
     "summary": "Handwerker, der die Zinnschicht auf Metallgeräten aufträgt und erneuert.",
     "text": "Der Rétameur (oft umherziehend) überzieht das Innere der Küchengeräte aus Kupfer oder Eisen mit einer dünnen Zinnschicht, ein Arbeitsgang, der nötig war, um die giftige Oxidation des Metalls im Kontakt mit den Speisen zu verhindern, und der regelmäßig erneuert werden musste."
   },
@@ -24198,7 +24198,7 @@
     "aliases": [
       "Kleiderhausiererin"
     ],
-    "label": "Kleiderhändlerin (Revendeuse à la toilette)",
+    "label": "Revendeuse à la toilette (Kleiderhändlerin)",
     "summary": "Pariser Wanderhändlerin, die von Tür zu Tür gebrauchte Kleider und Toilettenartikel verkaufte.",
     "text": "Als typische Gestalt der im 17. und 18. Jahrhundert gestochenen „Cris de Paris“ zog die Revendeuse à la toilette mit ihrer Kiepe oder ihrem Korb durch die Straßen und bot gebrauchte Kleider, Spitzen, Bänder und kleine Toilettenartikel an, die sie aufgekauft hatte und weiterverkaufte, oft im Tausch gegen alte Wäsche."
   },
@@ -24237,7 +24237,7 @@
   },
   "rifleur": {
     "aliases": [],
-    "label": "Scharfrichter (Rifleur)",
+    "label": "Rifleur (Scharfrichter)",
     "summary": "Begriff, der in manchen Quellen das Gerichtsamt des Vollstreckers der hohen Werke bezeichnet.",
     "text": "Dieser seltene Begriff wird mitunter als örtliches Synonym des Scharfrichters verzeichnet, der die von der Justiz des Ancien Régime verhängten Todes- und Leibesstrafen vollstreckte."
   },
@@ -24254,7 +24254,7 @@
     "aliases": [
       "Grubenzimmerer"
     ],
-    "label": "Zimmerhauer (Ristapleur)",
+    "label": "Ristapleur (Zimmerhauer)",
     "summary": "Bergmännisches Synonym für „Boiseur“: Bergmann, der die Strecken mit Holz verbaut.",
     "text": "Der Ristapleur setzt die Holzrahmen und Stempel, die das Hangende und die Stöße der Grubenstrecken stützen, eine wesentliche Sicherheitsarbeit, die die des Restapleur ergänzt, der die Hohlräume mit Steinen versetzt."
   },
@@ -24309,13 +24309,13 @@
   },
   "rocteur": {
     "aliases": [],
-    "label": "Felsbrecher (Rocteur)",
+    "label": "Rocteur (Felsbrecher)",
     "summary": "Arbeiter oder Unternehmer, der auf die Gewinnung von Stein im Steinbruch spezialisiert ist.",
     "text": "Der Rocteur (von „roc“, Fels) arbeitet an der Gewinnung von Werkstein oder Bruchstein in einem Steinbruch, ein Kraftgewerbe in Gegenden mit reichen Kalk- oder Granitvorkommen. Der Begriff findet sich unter einer gleichwertigen Variante."
   },
   "rodier": {
     "aliases": [],
-    "label": "Radmacher (Rodier)",
+    "label": "Rodier (Radmacher)",
     "summary": "Handwerker, der Räderfahrzeuge herstellt und repariert: Karren, Wagen und Räder.",
     "text": "Der Rodier (von „roue“, Rad) fertigt und repariert Räder und Pferdefuhrwerke, ein dem Wagner nahes Gewerbe. Der Begriff findet sich unter einer gleichwertigen Variante."
   },
@@ -24360,7 +24360,7 @@
     "aliases": [
       "Weberaufseher"
     ],
-    "label": "Faktor (Weberaufseher)",
+    "label": "Weberaufseher (Faktor)",
     "summary": "Gehilfe, der die verstreuten, für denselben Händler arbeitenden Weber besuchte und beaufsichtigte.",
     "text": "Im System der textilen Heimarbeit (dem Verlagssystem) arbeiteten die Weber zu Hause für einen Kaufmann-Fabrikanten; der Rondier machte die Runde bei diesen in Städten und Dörfern verstreuten Handwerkern, um die Güte der Arbeit zu prüfen und den Rohstoff auszugeben oder einzusammeln."
   },
@@ -24403,7 +24403,7 @@
   },
   "roucheux": {
     "aliases": [],
-    "label": "Rieddachdecker (Roucheux)",
+    "label": "Roucheux (Rieddachdecker)",
     "summary": "Strohdachdecker, der auf das Decken der Dächer mit Schilf nach traditionellen Techniken spezialisiert ist.",
     "text": "Dieser mundartliche Begriff bezeichnet einen Stroh- oder Schilfdachdecker, ein traditioneller Deckstoff der Sumpf- oder Teichgegenden wie der Brenne, der Sologne oder der Camargue."
   },
@@ -24432,7 +24432,7 @@
       "Karrenläufer",
       "Wagenschieber"
     ],
-    "label": "Karrenschieber (Rouleur)",
+    "label": "Rouleur (Karrenschieber)",
     "summary": "Arbeiter, der auf die Beförderung durch Rollen spezialisiert ist, je nach Fach: Hafenarbeiter, Ziegler oder Pfeifenmacher.",
     "text": "Je nach Zweig schiebt oder zieht der Rouleur Karren oder Wagen, um Lasten zu bewegen: Säcke auf den Kais für einen Hafenarbeiter, rohe Ziegel in der Ziegelei oder Pfeifen in Arbeit in einer Pfeifenmanufaktur."
   },
@@ -24489,7 +24489,7 @@
       "Bienenstockhalter",
       "Korbimker"
     ],
-    "label": "Bienenhalter (Ruchier)",
+    "label": "Ruchier (Bienenhalter)",
     "summary": "Imker, der auf die Bienenhaltung und die Erzeugung von Honig und Wachs spezialisiert ist.",
     "text": "Der Ruchier unterhält Bienenstöcke, um Honig und Wachs zu ernten, wobei Letzteres vor dem 20. Jahrhundert für die Herstellung von Kirchen- und Haushaltskerzen besonders gesucht war."
   },
@@ -24503,7 +24503,7 @@
   },
   "rusquier": {
     "aliases": [],
-    "label": "Korkschäler (Rusquier)",
+    "label": "Rusquier (Korkschäler)",
     "summary": "Person, die auf die Ernte des Korks von den Korkeichen spezialisiert ist.",
     "text": "Der Rusquier (von „rusque“, Rinde auf Okzitanisch) schält die Rinde der Korkeichen, ein alle neun bis zwölf Jahre ohne Fällen des Baumes vorgenommener Arbeitsgang, typisch für die Korkeichenwälder Südfrankreichs (Landes, Var, Korsika)."
   },
@@ -24519,7 +24519,7 @@
   },
   "sableur": {
     "aliases": [],
-    "label": "Sandformer (Sableur)",
+    "label": "Sableur (Sandformer)",
     "summary": "Gießereiarbeiter, der auf die Herstellung von Sandformen für den Metallguss spezialisiert ist.",
     "text": "Der Sableur bereitet die Gießformen vor, indem er Formsand um ein Modell stampft, eine Sandformtechnik, die heute noch für den Guss von Metallteilen weit verbreitet ist."
   },
@@ -24659,7 +24659,7 @@
   },
   "saintier": {
     "aliases": [],
-    "label": "Glockengießer (Saintier)",
+    "label": "Saintier (Glockengießer)",
     "summary": "Handwerker, der auf den Guss und die Herstellung von Glocken für Kirchen und kirchliche Gebäude spezialisiert ist.",
     "text": "Der Saintier gießt die Kirchenglocken aus Bronze, ein altes Können, das oft innerhalb von Dynastien umherziehender Gießer von Generation zu Generation weitergegeben wurde, die ihren vorübergehenden Ofen neben dem auszustattenden Glockenturm errichteten."
   },
@@ -24687,7 +24687,7 @@
   },
   "saleran": {
     "aliases": [],
-    "label": "Papierausrüster (Saleran)",
+    "label": "Saleran (Papierausrüster)",
     "summary": "Papiermacher, der auf die Fertigbehandlung des Papiers spezialisiert ist: Leimen, Aufhängen, Falten, Glätten, Trocknen und Schneiden.",
     "text": "In einer handwerklichen Papiermühle sind nach dem Schöpfen des Bogens mehrere Fertigungsvorgänge vor dem Verkauf des Papiers nötig; der Saleran (oder Sallerant) ist der spezialisierte Arbeiter, der diese letzten Zurichtungsarbeiten ausführt."
   },
@@ -24758,7 +24758,7 @@
       "Berufsfeuerwehrmann",
       "Feuerwehrsoldat"
     ],
-    "label": "Feuerwehrmann (Sapeur-pompier)",
+    "label": "Sapeur-pompier (Feuerwehrmann)",
     "summary": "Mitglied eines für Brandbekämpfung und Rettungsdienst zuständigen Korps.",
     "text": "Das Korps der Sapeurs-pompiers, Erbe der alten Spritzenmannschaften und der im 19. Jahrhundert geschaffenen Pionierkompanien, besorgt heute in Frankreich die Brandbekämpfung sowie einen großen Teil der Personenrettung, sei es durch Berufs-, freiwillige oder militärische Feuerwehrleute (Paris, Marseille)."
   },
@@ -24784,7 +24784,7 @@
   },
   "sartre": {
     "aliases": [],
-    "label": "Schneider (Sartre)",
+    "label": "Sartre (Schneider)",
     "summary": "Alter Begriff für einen Kleiderschneider.",
     "text": "Aus dem lateinischen sartor („der flickt, der näht“) hervorgegangen, ist „sartre“ eine alte südfranzösische Form des Wortes für Schneider, heute vor allem als Familienname bekannt — namentlich der Ursprung des Familiennamens des Philosophen Jean-Paul Sartre."
   },
@@ -24793,7 +24793,7 @@
       "Spanschachtelmacher",
       "Sieb- und Scheffelmacher"
     ],
-    "label": "Siebmacher (Sassier)",
+    "label": "Sassier (Siebmacher)",
     "summary": "Holzgefäßmacher, der Gegenstände aus geschältem Holz wie Scheffel und Siebe (Sasses) herstellt.",
     "text": "Der Sassier formt aus dünnen Blättern geschälten Holzes Hohlmaße (Scheffel) und Siebe (sas) zum Sieben von Mehl oder Getreide, ein dem Boisselier nahes Handwerk."
   },
@@ -24856,7 +24856,7 @@
       "Altreis",
       "Pictaciarius"
     ],
-    "label": "Flickschuster (Savetier)",
+    "label": "Savetier (Flickschuster)",
     "summary": "Handwerker, der alte Schuhe flickt, im Gegensatz zum Schuhmacher, der neue herstellt.",
     "text": "Der Savetier bessert abgetragene Schuhe aus und richtet sie her (daher sein Name, von „savate“, alter Schuh), indem er „tacons“, Flickstücke aus Leder, aufsetzt, während der Schuhmacher neue Schuhe fertigt — eine deutliche Standesunterscheidung in den Zünften des Ancien Régime nach den alten Pariser Statuten. Die Pariser Flickschuster stiegen dennoch in der Rangordnung der Gewerbe auf und erreichten 1581 den vierten Rang. „Savatier“ ist eine alte Schreibvariante und „taconneur“ ein Synonym für denselben Schuhflicker."
   },
@@ -24970,7 +24970,7 @@
   },
   "schalliste": {
     "aliases": [],
-    "label": "Schalweber (Schalliste)",
+    "label": "Schalliste (Schalweber)",
     "summary": "Weber, der auf die Herstellung von Schals spezialisiert ist.",
     "text": "Der Schalliste webt Schals, ein im 19. Jahrhundert sehr beliebtes Kleidungsaccessoire. Das Gewerbe entwickelte sich mit der Mode der Schals nach Kaschmirart, die namentlich in den Lyoner und Pariser Manufakturen hergestellt wurden."
   },
@@ -25318,7 +25318,7 @@
     "aliases": [
       "Feinhechler"
     ],
-    "label": "Flachshechler (Séranceur)",
+    "label": "Séranceur (Flachshechler)",
     "summary": "Flachsbereiter, der den Flachs mit Hecheln, mit Eisenzähnen besetzten Brettern, verfeinert.",
     "text": "Der Séranceur macht den Flachs mit kleinen, mit Zähnen aus dickem Eisendraht besetzten Brettern, Hecheln (sérans) genannt, sehr fein."
   },
@@ -25379,7 +25379,7 @@
       "Kompaniefeldwebel",
       "Sergeant-Major"
     ],
-    "label": "Feldwebel (Sergent-major)",
+    "label": "Sergent-major (Feldwebel)",
     "summary": "Unteroffizier, der in der Armee des Ancien Régime für die Verwaltung einer Kompanie zuständig war.",
     "text": "Der Sergent-major ist ein höherer Unteroffizier, der für Disziplin, Ausbildung und laufende Verwaltung einer Infanteriekompanie zuständig ist und die Verbindung zwischen Offizieren und Mannschaft herstellt. Die seit dem 16. Jahrhundert belegte Aufgabe ist der Vorläufer des heutigen Adjudant oder Sergent-chef."
   },
@@ -25524,7 +25524,7 @@
   },
   "sirgien": {
     "aliases": [],
-    "label": "Chirurg (Sirgien)",
+    "label": "Sirgien (Chirurg)",
     "summary": "Alte mundartliche Variante von „chirurgien“ (Chirurg), dessen gängige Tätigkeit der Aderlass war.",
     "text": "„Sirgien“ ist eine alte Schreibvariante von „chirurgien“. Im Ancien Régime beschränkte sich die ländliche Chirurgie meist auf den Aderlass (die als heilsam geltende Blutentnahme mit der Lanzette) und kleine Behandlungen, während die gelehrte Chirurgie den Städten vorbehalten war; der Landchirurg, oft in der Praxis ausgebildet oder aus dem Barbierstand hervorgegangen, konnte mangels eines anderen verfügbaren Heilkundigen auch zu schwierigen Geburten gerufen werden."
   },
@@ -25555,13 +25555,13 @@
   },
   "soigneuse": {
     "aliases": [],
-    "label": "Spinnereivorbereiterin (Soigneuse)",
+    "label": "Soigneuse (Spinnereivorbereiterin)",
     "summary": "Spinnereiarbeiterin, die die Wollspulen für die Spinnmaschinen vorbereitet.",
     "text": "Die Soigneuse bereitet die Wollspulen und -strähnen vor dem Spinnen vor und achtet auf Gleichmäßigkeit und Sauberkeit des Fadens, bevor er auf die Maschine kommt. Ein typischer Werkstattposten der Wollspinnereien des 19. Jahrhunderts."
   },
   "soiton": {
     "aliases": [],
-    "label": "Gemeinschaftsbauer (Soiton)",
+    "label": "Soiton (Gemeinschaftsbauer)",
     "summary": "Kleiner Landwirt des Pariser Beckens und der Normandie, der im Verbund mit anderen arbeitet.",
     "text": "Der Soiton ist ein kleiner Landwirt, der seine Mittel (Land, Gerät, Zugtiere) mit anderen Bauern in einem Verband gegenseitiger Hilfe zusammenlegt, ein im Pariser Becken und in der Normandie verbreiteter Brauch. Der Begriff kennt mehrere regionale Schreibvarianten."
   },
@@ -25611,7 +25611,7 @@
       "Weinkellner",
       "Silberdiener"
     ],
-    "label": "Mundschenk (Sommelier)",
+    "label": "Sommelier (Mundschenk)",
     "summary": "Beamter des Ancien Régime, zuständig für den Tafeldienst, das Gedeck und die Weine.",
     "text": "Im Ancien Régime ist der Sommelier ein Beamter eines adligen oder königlichen Hauses, zuständig für Dienst und Verwahrung von Gedeck, Tafelwäsche und Weinen — eine Verwaltungsaufgabe, die weit über den heutigen, auf den Wein beschränkten Sinn hinausgeht. Die moderne Bedeutung, spezialisiert auf Auswahl und Ausschank der Weine im Restaurant, setzt sich erst ab dem 19. und 20. Jahrhundert durch."
   },
@@ -25661,7 +25661,7 @@
     "aliases": [
       "Holzschuhschnitzer"
     ],
-    "label": "Holzschuhmacher (Souchier)",
+    "label": "Souchier (Holzschuhmacher)",
     "summary": "Holzschuhmacher, der Schuhe aus einem Stück Holz fertigt.",
     "text": "Der Souchier schnitzt Holzschuhe aus einem einzigen Holzblock (einer „souche“, einem Klotz), im Gegensatz zum Holzschuhmacher, der mitunter zusammengesetztes Holz verarbeitet. Ein regionaler Begriff für das Holzschuhmachergewerbe mit örtlichen Schreibvarianten."
   },
@@ -25934,7 +25934,7 @@
       "Vorgesetzter",
       "Aufsichtsführender"
     ],
-    "label": "Aufseher (Vorgesetzter)",
+    "label": "Vorgesetzter (Aufseher)",
     "summary": "Person, die die Arbeit einer Gruppe oder einer Abteilung kontrolliert und koordiniert.",
     "text": "Der Superviseur überwacht und koordiniert die Ausführung der Arbeit einer Gruppe oder einer Werkstatt, eine Aufgabe mittlerer Führung. Ein Begriff modernen Gebrauchs, der vor allem in Urkunden des 20. Jahrhunderts aus Industrie oder Dienstleistungen vorkommt."
   },
@@ -26059,7 +26059,7 @@
     "aliases": [
       "Schiffsausbesserer"
     ],
-    "label": "Schiffszimmermann (Tacquier)",
+    "label": "Tacquier (Schiffszimmermann)",
     "summary": "Schiffszimmermann, der auf Bau und Instandhaltung der hölzernen Teile der Schiffe spezialisiert ist.",
     "text": "Der Tacquier wirkt beim Schiffbau mit, namentlich bei der Reparatur und Instandhaltung der hölzernen Teile der Rümpfe und der Takelage. Ein Beruf der Werften, dem Schiffszimmermann verwandt."
   },
@@ -26221,7 +26221,7 @@
     "aliases": [
       "Siebbäcker"
     ],
-    "label": "Bäcker (Talemelier)",
+    "label": "Talemelier (Bäcker)",
     "summary": "Alter Name des Bäckers, in Paris seit dem 13. Jahrhundert belegt.",
     "text": "Der Talemelier war ursprünglich ein Sieber, der das grobe Mehl aus den Mühlen siebte; nachdem er das Recht erlangt hatte, das Brot im Bannofen zu backen, wurde er auch Ofner, dann, sobald ihm ein eigener Ofen erlaubt war, Brotbäcker oder Pastetenbäcker — der Talemelier ist so der direkte Vorfahr des Bäckers. Das Gewerbe ist im Livre des métiers des Étienne Boileau (1268) geregelt, das die Pariser Zunft der Talemeliers kodifiziert; der Begriff blieb in den Pariser Quellen bis zum 15. Jahrhundert vorherrschend, als sich „boulanger“ endgültig durchsetzte. Er kannte zahlreiche regionale Schreibvarianten (talmetier, tamelier, tamisier …)."
   },
@@ -26271,7 +26271,7 @@
     "aliases": [
       "Schiffsauflader"
     ],
-    "label": "Schiffslader (Tanqueur)",
+    "label": "Tanqueur (Schiffslader)",
     "summary": "Lastträger, der auf das Beladen und Entladen der Schiffe in den Häfen spezialisiert ist.",
     "text": "Der Tanqueur lädt und löscht die Waren der Schiffe am Kai, ein körperlicher Beruf des Hafenumschlags vor der Mechanisierung. Ein regionaler Begriff für Lastträger oder Hafenarbeiter."
   },
@@ -26446,7 +26446,7 @@
       "Echtfärber",
       "Großfärber"
     ],
-    "label": "Schönfärber (Echtfärber)",
+    "label": "Echtfärber (Schönfärber)",
     "summary": "Färber, der befugt ist, breite und hochwertige Wollstoffe zu färben.",
     "text": "Der Teinturier en grand teint darf jeden Wollstoff von mehr als 1,33 Ellen Breite (etwa 1,60 m) und von mehr als 20 Sous die Elle färben, eine höhere Befähigung als die des Teinturier en petit teint."
   },
@@ -26486,7 +26486,7 @@
   },
   "tellatier": {
     "aliases": [],
-    "label": "Leinwandhändler (Tellatier)",
+    "label": "Tellatier (Leinwandhändler)",
     "summary": "Händler oder Hersteller von Leinwand.",
     "text": "Der Tellatier ist ein Händler oder Hersteller von Leinwand, ein dem Weber und dem Kanevashändler verwandtes Gewerbe."
   },
@@ -26579,7 +26579,7 @@
     "aliases": [
       "Dachziegler"
     ],
-    "label": "Ziegler (Thuilier)",
+    "label": "Thuilier (Ziegler)",
     "summary": "Hersteller von Dachziegeln nach den überlieferten Techniken der Ziegelbrennerei.",
     "text": "Der Thuilier (Variante von „tuilier“) formt und brennt Dachziegel aus Ton in einer Ziegelei, die oft in der Nähe einer Tonlagerstätte und eines Wasserlaufs lag. Ein dem Töpfer verwandtes Gewerbe, mit denselben Brenntechniken."
   },
@@ -26809,7 +26809,7 @@
       "Schnurwirker",
       "Litzenwirker"
     ],
-    "label": "Bandwirker (Tissutier)",
+    "label": "Tissutier (Bandwirker)",
     "summary": "Handwerker, der kleine Webwaren herstellt: Bänder, Schnüre, Borten und Litzen.",
     "text": "Der Tissutier fertigt gewebte Kurzwaren — Bänder, Schnürsenkel, Borten, Litzen —, oft mit dem Bandmacher in der Zunft der „tissutiers-rubaniers“ vereint. Ein vom Stoffweber getrenntes Gewerbe, auf kleine, schmale Arbeiten ausgerichtet."
   },
@@ -27150,7 +27150,7 @@
     "aliases": [
       "Verkehrer"
     ],
-    "label": "Händler (Trafiquant)",
+    "label": "Trafiquant (Händler)",
     "summary": "Wanderhändler oder Kaufmann für allerlei Waren.",
     "text": "In seinem alten Sinn bezeichnet der Trafiquant (oder traffiquant, damalige Schreibung) einfach einen Kaufmann oder Händler, der mit allerlei Waren Handel („trafic“) treibt, oft von Markt zu Markt ziehend. Das Wort hat in den alten Urkunden noch nicht die rechtswidrige Färbung, die es später annehmen wird."
   },
@@ -27406,7 +27406,7 @@
       "Herumtreiber",
       "Vagus"
     ],
-    "label": "Landstreicher (Trimardeur)",
+    "label": "Trimardeur (Landstreicher)",
     "summary": "Umherziehender, der über die Landstraßen zieht und mitunter Gelegenheitsarbeiten verrichtet.",
     "text": "Der Trimardeur (vom Argotwort „trimard“, die Landstraße) ist ein Mann ohne festen Wohnsitz, der von Dorf zu Dorf zieht und von kleinen Gelegenheitsarbeiten oder vom Betteln lebt, namentlich während der großen Ernten, wenn umherziehende Arbeitskräfte gesucht waren. Der Ende des 19. Jahrhunderts volkstümlich gewordene Begriff unterscheidet sich vom einfachen Tagelöhner durch die umherziehende Lebensweise."
   },
@@ -27426,7 +27426,7 @@
   },
   "tripotier": {
     "aliases": [],
-    "label": "Ballhausmeister (Tripotier)",
+    "label": "Tripotier (Ballhausmeister)",
     "summary": "Anderer Name des Paumiers, des Inhabers eines Ballhauses.",
     "text": "Der Tripotier ist ein anderer Name des Paumier, der ein Tripot im alten Sinn des Wortes führt: ein Ballhaus für das Jeu de Paume, den Vorläufer des Tennis. Erst später nahm „tripot“ seine heutige Färbung einer übel beleumdeten Spielhölle an, eine Nebenbedeutung, die nicht mit dem ursprünglichen Sinn des Gewerbes verwechselt werden darf."
   },
@@ -27698,7 +27698,7 @@
   },
   "v_r_p": {
     "aliases": [],
-    "label": "Handelsvertreter (V.R.P.)",
+    "label": "V.R.P. (Handelsvertreter)",
     "summary": "Reisender, Vertreter oder Platzvertreter: Rechtsstellung der umherreisenden Verkäufer.",
     "text": "Die Abkürzung V.R.P. (voyageur, représentant, placier) bezeichnet eine französische Rechtsstellung der Handelsvertreter, die für ein oder mehrere Unternehmen verkaufen, indem sie die Kundschaft aufsuchen. Diese Rechtsstellung, seit dem 20. Jahrhundert durch das Arbeitsrecht geregelt, unterscheidet Reisenden, Vertreter und Platzvertreter nach ihren Tätigkeitsbedingungen."
   },
@@ -28020,7 +28020,7 @@
       "Holzvogt",
       "Waldvogt"
     ],
-    "label": "Forstaufseher (Verdier)",
+    "label": "Verdier (Forstaufseher)",
     "summary": "Alter Beamter des Wasser- und Forstwesens, zuständig für die Aufsicht über die königlichen Wälder.",
     "text": "Der Verdier ist ein unterer Beamter des Wasser- und Forstwesens, zuständig für die Überwachung der königlichen oder herrschaftlichen Wälder, die Feststellung von Vergehen (unerlaubter Holzschlag, Wilderei) und die Aufsicht über die ordnungsgemäße Holznutzung. Diese alte Forstverwaltung ist ein Vorläufer der modernen Forstdienste."
   },
@@ -28090,7 +28090,7 @@
     "aliases": [
       "Fenstermaler"
     ],
-    "label": "Glasmaler (Verinier)",
+    "label": "Verinier (Glasmaler)",
     "summary": "Glasmaler, der auf die Schaffung und Restaurierung von Kirchenfenstern spezialisiert ist.",
     "text": "Der Vérinier übt die auf das Bleiglasfenster angewandte Glaskunst aus, indem er Kompositionen aus farbigem und bemaltem Glas für kirchliche und weltliche Bauten schafft oder restauriert. Der Begriff, von seltener Form, gehört zum regionalen Wortschatz der Glasbearbeitung."
   },
@@ -28363,7 +28363,7 @@
       "Visitatorin",
       "Krankenbesucherin"
     ],
-    "label": "Prüferin (Visiteuse)",
+    "label": "Visiteuse (Prüferin)",
     "summary": "Frau, die mit einer Prüf- oder Kontrollaufgabe betraut ist.",
     "text": "Die Visiteuse übt in verschiedenen Tätigkeiten eine Prüf- oder Kontrollaufgabe aus, sei es die Güteprüfung in einer Werkstatt oder der soziale Besuch (Kranken- oder Armenbesucherin je nach Zusammenhang). Der Begriff bleibt recht allgemein und hängt stark vom Zusammenhang der Urkunde ab, in der er erscheint."
   },
@@ -28562,7 +28562,7 @@
       "Nagelbohrerschmied",
       "Bohrermacherin"
     ],
-    "label": "Bohrerschmied (Vrillier)",
+    "label": "Vrillier (Bohrerschmied)",
     "summary": "Zeugschmied, der auf die Herstellung von Bohrern, Feilen, Pfriemen und Schneidwerkzeugen spezialisiert ist.",
     "text": "Der Vrillier fertigt Schneid- und Bohrwerkzeuge der kleinen Zeugschmiede: Nagelbohrer, Feilen, Pfrieme, Meißel und Zangen. Dieses Gewerbe der handwerklichen Metallverarbeitung liefert das Grundwerkzeug der anderen Holz- und Metallhandwerker."
   },
@@ -28770,7 +28770,7 @@
     "aliases": [
       "Wegstreicher"
     ],
-    "label": "Landstreicher (Yane)",
+    "label": "Yane (Landstreicher)",
     "summary": "Umherziehender, der über die Wege streift.",
     "text": "Der Yane bezeichnet einen auf den Straßen umherirrenden Landstreicher, ein seltener und regionaler Begriff, dessen Gebrauch sich auf bestimmte mundartliche Quellen beschränkt."
   },
@@ -28790,7 +28790,7 @@
       "Imaginator",
       "Bildhawer"
     ],
-    "label": "Bildhauer (Imagier)",
+    "label": "Imagier (Bildhauer)",
     "summary": "Mittelalterlicher Handwerker, der die Bilder (Statuen) der Kirchenfassaden meißelt.",
     "text": "Der Imagier (im Altfranzösischen „ymagier“ geschrieben) meißelt die Statuen und Figuren, die die Portale und Fassaden der mittelalterlichen Kirchen und Kathedralen schmücken. Die großen Skulpturenensembles von Chartres, Reims oder Amiens sind das Werk solcher Imagiers, deren Arbeit Steinbearbeitung und ausgeprägtes künstlerisches Gespür verband."
   },

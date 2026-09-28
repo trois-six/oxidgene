@@ -10,7 +10,7 @@
   },
   "abaiseur": {
     "aliases": [],
-    "label": "Spianatore (abaiseur)",
+    "label": "Abaiseur (spianatore)",
     "summary": "Artigiano specializzato in una tecnica di spianatura applicata a un materiale.",
     "text": "Il termine designa un artigiano incaricato di spianare un materiale (pasta, metallo o cuoio, secondo il mestiere), un'operazione comune in diversi artigianati tradizionali. Il significato preciso varia secondo il contesto del mestiere a cui è collegato nell'atto."
   },
@@ -90,7 +90,7 @@
   },
   "abergeur": {
     "aliases": [],
-    "label": "Albergatore (abergeur)",
+    "label": "Abergeur (albergatore)",
     "summary": "Oste che alloggia i viaggiatori, termine talvolta legato a contratti di concessione di terre.",
     "text": "Nel senso più comune, l'abergeur tiene una locanda e alloggia i viaggiatori; è una forma antica della parola «aubergiste» (albergatore). In alcune regioni della Francia meridionale, la parola affine «albergement» designava anche una concessione feudale o enfiteutica di terre; il significato esatto dipende quindi dal contesto dell'atto."
   },
@@ -215,7 +215,7 @@
   },
   "admodiateur": {
     "aliases": [],
-    "label": "Affittuario (admodiateur)",
+    "label": "Admodiateur (affittuario)",
     "summary": "Gestore incaricato, dietro canone, di sfruttare terre o beni appartenenti ad altri.",
     "text": "L'admodiateur prende in affitto («admodiation») lo sfruttamento di un dominio, in particolare regio, signorile o ecclesiastico, in cambio di un canone fisso versato al proprietario, traendo poi a proprio profitto i redditi della gestione. Il termine è vicino a quello di appaltatore delle imposte, ma si applica di solito a proprietà più modeste."
   },
@@ -332,7 +332,7 @@
     "aliases": [
       "Garzone a salario"
     ],
-    "label": "Salariato (agent à gage)",
+    "label": "Agent à gage (salariato)",
     "summary": "Dipendente che riceve un salario garantito in cambio di servizi determinati.",
     "text": "L'agent à gage è un dipendente che riceve un salario garantito, e spesso l'alloggio, in cambio di servizi precisi resi a un datore di lavoro. Il termine si oppone al lavoro a cottimo o a giornata, più precario."
   },
@@ -568,7 +568,7 @@
   },
   "alerresse": {
     "aliases": [],
-    "label": "Levatrice (alerresse)",
+    "label": "Alerresse (levatrice)",
     "summary": "Levatrice, nel francese medio.",
     "text": "Attestata nel francese medio (XV secolo), la parola «alerresse» designa una levatrice. Deriva dal latino «alitrix» («nutrice»), della stessa famiglia del verbo «alere», nutrire."
   },
@@ -672,7 +672,7 @@
     "aliases": [
       "Espadrillaio"
     ],
-    "label": "Fabbricante di espadrillas (alpagatier)",
+    "label": "Alpagatier (fabbricante di espadrillas)",
     "summary": "Artigiano che fabbrica alpargatas, calzature con suola di corda intrecciata.",
     "text": "L'alpagatier fabbrica alpargatas (espadrillas), calzature formate da una tomaia di tela e da una suola intrecciata di corda o di giunco, prodotto tradizionale della Francia sud-occidentale e dei Paesi Baschi."
   },
@@ -1178,7 +1178,7 @@
   },
   "arnesaire": {
     "aliases": [],
-    "label": "Bastaio (arnesaire)",
+    "label": "Arnesaire (bastaio)",
     "summary": "Fabbricante occitano di finimenti ed equipaggiamenti per cavalli.",
     "text": "L'arnesaire è in Occitania un fabbricante di finimenti, collarinaio, sellaio e carrozziere, che produce bardature ed equipaggiamenti per cavalli. Nella regione di Tolosa lo stesso mestiere era talvolta chiamato con la variante regionale «arnesié»."
   },
@@ -1586,7 +1586,7 @@
   },
   "bachoteur": {
     "aliases": [],
-    "label": "Barcaiolo (bachoteur)",
+    "label": "Bachoteur (barcaiolo)",
     "summary": "Barcaiolo che trasporta passeggeri o merci con una barca a fondo piatto.",
     "text": "Il bachoteur è un barcaiolo che usa un «bachot», piccola barca a fondo piatto, per traghettare da una riva all'altra, trasportare merci leggere o pescare su fiumi e stagni."
   },
@@ -1685,7 +1685,7 @@
     "aliases": [
       "Baiulus"
     ],
-    "label": "Baiulo (baile)",
+    "label": "Baile (baiulo)",
     "summary": "Funzionario locale con funzioni amministrative e giudiziarie, in particolare nel Mezzogiorno della Francia.",
     "text": "Il baile (o bayle) è un funzionario locale che esercita funzioni amministrative e giudiziarie per conto di un signore o di una comunità, particolarmente diffuso nel Mezzogiorno della Francia e in Catalogna; un ruolo affine a quello del balivo nelle province di diritto consuetudinario."
   },
@@ -1754,7 +1754,7 @@
   },
   "balzmeister": {
     "aliases": [],
-    "label": "Carnefice (balzmeister)",
+    "label": "Balzmeister (carnefice)",
     "summary": "Carnefice, nella Svizzera del XVI secolo.",
     "text": "Secondo il glossario Les Métiers de nos Ancêtres, il balzmeister è un carnefice che operava nella Svizzera del XVI secolo, termine di origine germanica legato a questa funzione giudiziaria."
   },
@@ -1770,7 +1770,7 @@
   },
   "bambrocheuse": {
     "aliases": [],
-    "label": "Incannatrice (bambrocheuse)",
+    "label": "Bambrocheuse (incannatrice)",
     "summary": "Operaia di tessitura incaricata di rifornire le bobine dei telai.",
     "text": "La bambrocheuse lavora in una fabbrica di tessuti dove è incaricata di avvolgere il filo sulle bobine dei telai, compito preparatorio della tessitura propriamente detta."
   },
@@ -1780,7 +1780,7 @@
       "Brachieraio",
       "Ortopedico"
     ],
-    "label": "Cinturaio (bandagista)",
+    "label": "Bandagista (cinturaio)",
     "summary": "Fabbricante di apparecchi ortopedici e di cinti erniari.",
     "text": "Il bandagista fabbrica cinti, fasce erniarie e altri apparecchi ortopedici, un mestiere medico e artigianale legato agli inizi dell'ortopedia, ancora oggi praticato con il titolo di ortopedico-bandagista."
   },
@@ -1902,7 +1902,7 @@
   },
   "barquer": {
     "aliases": [],
-    "label": "Barcaiolo (barquer)",
+    "label": "Barquer (barcaiolo)",
     "summary": "Barcaiolo che trasporta persone o merci in barca.",
     "text": "Il barquer conduce una barca per trasportare persone o merci su un fiume o lungo una costa, un mestiere della navigazione fluviale o costiera comune prima dello sviluppo dei ponti e della ferrovia."
   },
@@ -1911,7 +1911,7 @@
       "Padron di barca",
       "Barcaiolo di porto"
     ],
-    "label": "Padrone di barca (barquier)",
+    "label": "Barquier (padrone di barca)",
     "summary": "Padrone di una barca che fa la spola tra il porto e le navi ancorate, o barcaiolo del Canal du Midi.",
     "text": "Il barquier è il padrone di una barca o di una chiatta che fa la spola tra il porto e le navi quando queste, a causa del pescaggio, non possono attraccare direttamente; il termine designa anche un barcaiolo del Canal du Midi."
   },
@@ -2085,7 +2085,7 @@
     "aliases": [
       "Curatore di pelli"
     ],
-    "label": "Cuoiaio rifinitore (baudroyer)",
+    "label": "Baudroyer (cuoiaio rifinitore)",
     "summary": "Artigiano del cuoio specializzato nella rifinitura (ammorbidimento e finitura delle pelli conciate).",
     "text": "Il baudroyer prepara e ammorbidisce il cuoio già conciato, operazione detta rifinitura o «corroieria», per renderlo morbido e utilizzabile da sellai, calzolai e finimentai. Il termine, da «baudroyerie», antico nome della rifinitura del cuoio, compare negli atti delle città di tradizione conciaria."
   },
@@ -2150,7 +2150,7 @@
     "aliases": [
       "Cavaterra"
     ],
-    "label": "Cavatore d'argilla (bêcheux)",
+    "label": "Bêcheux (cavatore d'argilla)",
     "summary": "Operaio che scava l'argilla destinata alle fornaci di tegole e mattoni.",
     "text": "Il bêcheux scava con la vanga l'argilla usata nelle fornaci di tegole e mattoni, compito preparatorio alla formatura di tegole e mattoni."
   },
@@ -2191,7 +2191,7 @@
     "aliases": [
       "Cestaio di gerle"
     ],
-    "label": "Gerlaio (bénatier)",
+    "label": "Bénatier (gerlaio)",
     "summary": "Artigiano che fabbrica, o lavoratore che usa, i bénatons, gerle di vimini per il trasporto.",
     "text": "Il bénatier fabbrica o utilizza i bénatons, grandi gerle o ceste da spalla intrecciate in vimini, usate in particolare per trasportare la vendemmia o altri raccolti sulla schiena di un uomo o di un mulo, pratica ben attestata nel Massiccio Centrale. Il termine è talvolta confuso per errore con «bénéficier» a causa della grafia simile, ma designa un mestiere artigiano o contadino distinto."
   },
@@ -2535,7 +2535,7 @@
   },
   "boeutier": {
     "aliases": [],
-    "label": "Bovaro (bœutier)",
+    "label": "Bœutier (bovaro)",
     "summary": "Antico termine legato all'allevamento o alla conduzione dei buoi.",
     "text": "La parola si ricollega all'allevamento, al commercio o alla conduzione dei buoi e designa verosimilmente un conduttore di buoi o un mercante di bestiame, anche se il senso preciso non è stabilito con certezza nelle fonti disponibili."
   },
@@ -2568,7 +2568,7 @@
     "aliases": [
       "Armatore di miniera"
     ],
-    "label": "Boscaiolo (boiseur)",
+    "label": "Boiseur (boscaiolo)",
     "summary": "Lavoratore forestale addetto all'abbattimento, alla sagomatura e al trasporto del legname.",
     "text": "Il boiseur lavora il legno nella foresta: abbattimento, sagomatura e trasporto dei tronchi verso le segherie o i luoghi di vendita. Il termine «boier», variante regionale, designa lo stesso mestiere in alcune zone."
   },
@@ -2625,7 +2625,7 @@
   },
   "bonissier": {
     "aliases": [],
-    "label": "Rifinitore (bonissier)",
+    "label": "Bonissier (rifinitore)",
     "summary": "Artigiano incaricato del miglioramento e della rifinitura dei prodotti fabbricati.",
     "text": "Il bonissier esegue il miglioramento e la rifinitura dei prodotti, ritocchi, miglioramenti di qualità, in una bottega artigiana. Termine raro il cui campo preciso di applicazione varia secondo la regione e il mestiere."
   },
@@ -2637,7 +2637,7 @@
       "Servetta",
       "Serva di casa"
     ],
-    "label": "Serva (domestica)",
+    "label": "Domestica (serva)",
     "summary": "Domestica al servizio di una famiglia («serva tuttofare»).",
     "text": "La bonne è una domestica impiegata in una casa privata per le faccende, la cucina o la cura dei bambini, da sola o nell'ambito di una servitù più numerosa (cuoca, cameriera). Termine molto comune dal XIX secolo alla metà del XX, designa tanto la serva di campagna quanto la domestica della borghesia urbana."
   },
@@ -2654,7 +2654,7 @@
   },
   "boquetier": {
     "aliases": [],
-    "label": "Venditore di zoccoli (boquetier)",
+    "label": "Boquetier (venditore di zoccoli)",
     "summary": "Mercante che vende zoccoli.",
     "text": "Il boquetier è un mercante che vende zoccoli, distinto dallo zoccolaio, che li fabbrica."
   },
@@ -3029,7 +3029,7 @@
   },
   "bourricotier": {
     "aliases": [],
-    "label": "Asinaio (bourricotier)",
+    "label": "Bourricotier (asinaio)",
     "summary": "Persona il cui mestiere è legato alla conduzione o all'allevamento degli asini e degli asinelli.",
     "text": "Il bourricotier conduce o alleva asini («bourricots»), usati per trasportare carichi leggeri nelle regioni collinari o per il piccolo commercio ambulante."
   },
@@ -3044,7 +3044,7 @@
   },
   "bourriquier": {
     "aliases": [],
-    "label": "Asinaio (bourriquier)",
+    "label": "Bourriquier (asinaio)",
     "summary": "Persona che esercita un'attività di trasporto o di commercio legata agli asini («bourriques»).",
     "text": "Il bourriquier usa gli asini per trasportare merci o ne fa commercio, un'attività vicina a quella del bourricotier ma indicata con una radice dialettale diversa secondo la regione."
   },
@@ -3116,7 +3116,7 @@
   },
   "boutillonnier": {
     "aliases": [],
-    "label": "Cestaio (boutillonnier)",
+    "label": "Boutillonnier (cestaio)",
     "summary": "Nel Basso Poitou, cestaio.",
     "text": "Nel Basso Poitou il boutillonnier designa il cestaio, artigiano che intreccia il vimine per fare ceste e altri oggetti d'uso."
   },
@@ -3253,7 +3253,7 @@
   },
   "bresmen": {
     "aliases": [],
-    "label": "Facchino (bresmen)",
+    "label": "Bresmen (facchino)",
     "summary": "Servitore e facchino.",
     "text": "Il bresmen è un servitore e facchino, lavoratore incaricato di trasportare carichi pesanti al servizio di un padrone."
   },
@@ -3472,7 +3472,7 @@
   },
   "brutiste": {
     "aliases": [],
-    "label": "Lattoniere (brutiste)",
+    "label": "Brutiste (lattoniere)",
     "summary": "Lattoniere che fabbrica utensili domestici in latta.",
     "text": "Il brutiste è un lattoniere specializzato nella fabbricazione di utensili domestici (pentole, secchi, scatole) in latta, lamiera di ferro ricoperta da un sottile strato di stagno. Mestiere vicino a quello del calderaio, che lavora invece il rame e il bronzo."
   },
@@ -3576,7 +3576,7 @@
     "aliases": [
       "Burattaio"
     ],
-    "label": "Tessitore di buratto (buratier)",
+    "label": "Buratier (tessitore di buratto)",
     "summary": "Tessitore che fabbrica il buratto o la bigella, tessuto grossolano di lana.",
     "text": "Il buratier è un tessitore specializzato nel buratto o nella bigella, tessuto grossolano di lana usato per abiti modesti e per le tonache monastiche."
   },
@@ -3649,7 +3649,7 @@
   },
   "cabrolie": {
     "aliases": [],
-    "label": "Capraio (cabrolié)",
+    "label": "Cabrolié (capraio)",
     "summary": "Pastore specializzato nella custodia e nell'allevamento delle capre.",
     "text": "Il cabrolié custodisce e alleva le capre («cabres» in occitano), attività pastorale distinta dalla custodia delle pecore, praticata in particolare nelle regioni meridionali e montane dove la capra si adatta meglio ai terreni difficili."
   },
@@ -3878,7 +3878,7 @@
   },
   "calmendier": {
     "aliases": [],
-    "label": "Tessitore di calamandra (calmendier)",
+    "label": "Calmendier (tessitore di calamandra)",
     "summary": "Tessitore che fabbrica la calamandra, tessuto di lana diagonale dal finish satinato.",
     "text": "Il calmendier tesse la calamandra (calmande o calemande), tessuto di lana diagonale, robusto e satinato, usato per abiti e arredamento dal XVII al XIX secolo. Mestiere tessile affine alla tessitura ma specializzato in questa particolare armatura."
   },
@@ -3905,7 +3905,7 @@
       "Strillone",
       "Imbonitore di strada"
     ],
-    "label": "Venditore ambulante (camelot)",
+    "label": "Camelot (venditore ambulante)",
     "summary": "Mercante girovago che vende piccoli articoli per strada o di porta in porta.",
     "text": "Il camelot vende a gran voce piccoli articoli, chincaglierie o giornali, per strada, sui mercati o di porta in porta, spesso decantando la sua merce. Il termine designa ancora oggi un venditore di strada e, nel Québec, un fattorino che consegna i giornali."
   },
@@ -4041,7 +4041,7 @@
       "Cantiniere",
       "Bettoliere militare"
     ],
-    "label": "Vivandiere (cantiniere)",
+    "label": "Cantiniere (vivandiere)",
     "summary": "Persona incaricata della ristorazione collettiva, in particolare nell'esercito in campagna.",
     "text": "Il cantiniere tiene una cantina, fornendo cibo e bevande a una comunità, a una guarnigione o alle truppe in campagna. La cantiniera, presenza femminile aggregata ai reggimenti fino all'inizio del XX secolo, ebbe un ruolo emblematico nell'esercito francese, vendendo viveri e tabacco ai soldati e talvolta soccorrendoli in combattimento."
   },
@@ -4430,7 +4430,7 @@
       "Pressatore di panni",
       "Soppressatore"
     ],
-    "label": "Decatissatore (catisseur)",
+    "label": "Catisseur (decatissatore)",
     "summary": "Operaio tessile incaricato della lucidatura e rifinitura dei tessuti mediante catissage.",
     "text": "Il catisseur pratica il catissage, operazione di finissaggio che liscia e lucida un tessuto (in particolare di lana) sotto una pressa calda, per dargli un aspetto brillante e uniforme."
   },
@@ -4490,7 +4490,7 @@
   },
   "cavelier": {
     "aliases": [],
-    "label": "Oste (cavelier)",
+    "label": "Cavelier (oste)",
     "summary": "Gestore di un esercizio che offre cibo e bevande a pagamento.",
     "text": "Il cavelier teneva una locanda, una taverna o un'osteria, offrendo cibo e bevande ai viaggiatori e agli abitanti del luogo. Il termine è una variante regionale vicina a cabaretier o tavernier e compare in alcuni atti della Francia occidentale e centrale."
   },
@@ -4582,7 +4582,7 @@
     "aliases": [
       "Sensale di cambi"
     ],
-    "label": "Sensale (censal)",
+    "label": "Censal (sensale)",
     "summary": "Mediatore finanziario che commercia rendite e operazioni di credito, termine d'uso mediterraneo.",
     "text": "Il censal è un intermediario finanziario, attestato in particolare nei porti mediterranei come Marsiglia, che trattava rendite costituite («censales») e vari strumenti di credito, sul modello del censal catalano ben documentato nel commercio di Barcellona. Il termine riflette l'influenza delle pratiche commerciali catalane e provenzali sul lessico finanziario del Mezzogiorno."
   },
@@ -4805,7 +4805,7 @@
   },
   "chalmandrier": {
     "aliases": [],
-    "label": "Tessitore di calamandra (chalmandrier)",
+    "label": "Chalmandrier (tessitore di calamandra)",
     "summary": "Tessitore specializzato nella fabbricazione di tessuti di lana lucidati dal finish satinato.",
     "text": "Lo chalmandrier tesseva tessuti di lana detti «chalmandes» o «calmandes» (calamandre), stoffe lucide dal finish satinato ottenuto con una particolare pressatura, usate in particolare per abiti e arredamento nei secoli XVII e XVIII."
   },
@@ -4860,7 +4860,7 @@
     "aliases": [
       "Servente"
     ],
-    "label": "Serva (chambrière)",
+    "label": "Chambrière (serva)",
     "summary": "Serva, generalmente al servizio di persone di modesta condizione.",
     "text": "La chambrière è una serva generalmente impiegata da persone di modesta condizione, incaricata delle faccende domestiche ordinarie."
   },
@@ -4878,7 +4878,7 @@
     "aliases": [
       "Terraticante"
     ],
-    "label": "Esattore del terratico (champarteur)",
+    "label": "Champarteur (esattore del terratico)",
     "summary": "Esattore del champart, canone signorile prelevato in natura sui raccolti.",
     "text": "Il champarteur riscuoteva il champart (terratico), canone feudale prelevato direttamente sul raccolto (spesso un decimo o un dodicesimo dei covoni) a beneficio del signore, distinto dalla decima ecclesiastica. Questo prelievo in natura, fatto al momento stesso della mietitura, richiedeva un agente presente sul posto durante il raccolto."
   },
@@ -5054,7 +5054,7 @@
   },
   "chapuis": {
     "aliases": [],
-    "label": "Carpentiere (chapuis)",
+    "label": "Chapuis (carpentiere)",
     "summary": "Antico nome del carpentiere, artigiano che lavora il legname da costruzione.",
     "text": "Chapuis è un'antica forma della parola charpentier, che designa l'artigiano che taglia e assembla le travature dei tetti e delle strutture degli edifici. Questo termine ha dato origine anche al cognome Chapuis, ancora diffuso in Francia e nella Svizzera romanda."
   },
@@ -5354,7 +5354,7 @@
       "Calzaiuolo",
       "Calzaio"
     ],
-    "label": "Calzaiolo (chaucier)",
+    "label": "Chaucier (calzaiolo)",
     "summary": "Fabbricante medievale di calze, indumenti che coprivano gambe e piedi prima dell'invenzione della calza a maglia.",
     "text": "Il chaucier fabbrica le calze, indumento medievale che copre la gamba e talvolta il piede, tagliato e cucito in tessuto, da distinguere dalla calza lavorata a maglia, più tarda, che produrrà il chaussetier. Questo antico mestiere declinò con l'evoluzione della moda dal XVI secolo."
   },
@@ -5437,7 +5437,7 @@
   },
   "chaussetier": {
     "aliases": [],
-    "label": "Calzettaio (chaussetier)",
+    "label": "Chaussetier (calzettaio)",
     "summary": "Fabbricante di calzini e calze, in particolare di maglieria.",
     "text": "Il chaussetier fabbrica calzini e calze, in origine tagliati e cuciti in tessuto, poi, dall'invenzione del telaio da calze nel XVI secolo, lavorati a maglia. Questo mestiere tessile si sviluppò in particolare in alcune regioni specializzate come la Champagne (Troyes)."
   },
@@ -5453,7 +5453,7 @@
   },
   "chaussier": {
     "aliases": [],
-    "label": "Calzolaio (chaussier)",
+    "label": "Chaussier (calzolaio)",
     "summary": "Fabbricante di scarpe, artigiano calzolaio.",
     "text": "Il chaussier fabbrica scarpe, mestiere vicino a quello del calzolaio, indicato anche con le forme regionali chaussunier o chaussumier."
   },
@@ -5469,7 +5469,7 @@
   },
   "chavetier": {
     "aliases": [],
-    "label": "Ciabattino (chavetier)",
+    "label": "Chavetier (ciabattino)",
     "summary": "Calzolaio specializzato nella riparazione delle scarpe vecchie, vicino al ciabattino.",
     "text": "Il chavetier ripara le scarpe consumate, ruolo vicino a quello del ciabattino, in opposizione al calzolaio che le fabbrica nuove. Il termine, di forma regionale, si trova in alcune province con grafie affini."
   },
@@ -5928,7 +5928,7 @@
   },
   "clignotant": {
     "aliases": [],
-    "label": "Segnalatore ferroviario (clignotant)",
+    "label": "Clignotant (segnalatore ferroviario)",
     "summary": "Addetto ferroviario incaricato di manovrare segnali e scambi sulle linee belghe.",
     "text": "Il clignotant manovra i segnali luminosi e gli scambi ferroviari, funzione di sicurezza ferroviaria attestata in particolare nel lessico ferroviario belga."
   },
@@ -5944,7 +5944,7 @@
   },
   "clocheron": {
     "aliases": [],
-    "label": "Campanaro (clocheron)",
+    "label": "Clocheron (campanaro)",
     "summary": "Suonatore delle campane della chiesa, incaricato di annunciare le funzioni e gli eventi parrocchiali.",
     "text": "Il clocheron suona le campane della chiesa per annunciare le funzioni religiose, ma anche gli eventi importanti della vita parrocchiale (nascite, morti, allarmi), funzione spesso svolta dal sagrestano o dal bidello di chiesa."
   },
@@ -6019,7 +6019,7 @@
   },
   "cocherel": {
     "aliases": [],
-    "label": "Pollivendolo (cocherel)",
+    "label": "Cocherel (pollivendolo)",
     "summary": "Mercante che vende galli e pollame nei mercati.",
     "text": "Il cocherel vendeva galli e, più in generale, pollame nei mercati locali, piccolo commercio alimentare di prossimità."
   },
@@ -6363,7 +6363,7 @@
   },
   "comporteur": {
     "aliases": [],
-    "label": "Venditore ambulante (comporteur)",
+    "label": "Comporteur (venditore ambulante)",
     "summary": "Antica forma della parola colporteur, che designa un mercante itinerante di piccole merci.",
     "text": "Comporteur è in realtà la forma antica della parola: è colporteur a essere un'alterazione di «comporteur», per accostamento popolare a «porter sur le col» (portare sul collo). Il colporteur/comporteur vende piccole merci, merceria, almanacchi, libri, rimedi, di villaggio in villaggio, spesso portate sulla schiena in una cassetta o in una gerla. Questo mestiere itinerante ebbe un ruolo importante nella diffusione delle idee e degli oggetti manifatturati nelle campagne fino al XIX secolo."
   },
@@ -6775,7 +6775,7 @@
   },
   "corbelier": {
     "aliases": [],
-    "label": "Cestaio (corbelier)",
+    "label": "Corbelier (cestaio)",
     "summary": "Cestaio specializzato nella fabbricazione di ceste.",
     "text": "Il corbelier è un cestaio specializzato nella fabbricazione di ceste intrecciate di vimini."
   },
@@ -6927,7 +6927,7 @@
   },
   "cotrier": {
     "aliases": [],
-    "label": "Portatore di fascine (cotrier)",
+    "label": "Cotrier (portatore di fascine)",
     "summary": "Operaio che trasporta i cotrets, piccole fascine di legna, dal luogo di taglio al margine del bosco.",
     "text": "Il cotrier sgombera la legna e le fascine (cotrets) abbattute dai boscaioli e le porta al margine della foresta, dove vengono accatastate prima di essere caricate dai carrettieri per il trasporto in città o nei luoghi di vendita. Il nome deriva da «cotret», piccola fascina di legna da ardere."
   },
@@ -6958,7 +6958,7 @@
   },
   "coultre": {
     "aliases": [],
-    "label": "Sagrestano (coultre)",
+    "label": "Coultre (sagrestano)",
     "summary": "Sagrestano incaricato della manutenzione della chiesa e della sagrestia.",
     "text": "Il coultre, o coutre, è un sagrestano, incaricato della manutenzione del luogo di culto, della custodia degli oggetti sacri e dell'assistenza al sacerdote durante le funzioni. Il termine deriva dal francese antico «costre» (custode, poi sagrestano), di cui «coltre»/«coultre» è una variante attestata."
   },
@@ -7074,7 +7074,7 @@
       "Ortaiolo",
       "Hortulanus"
     ],
-    "label": "Ortolano (courtillier)",
+    "label": "Courtillier (ortolano)",
     "summary": "Giardiniere che coltiva un courtil, piccolo orto recintato per ortaggi e frutta.",
     "text": "Il courtillier coltiva un courtil, modesto orto recintato situato alla periferia dei villaggi o delle città, destinato agli ortaggi, alla frutta e talvolta a un po' di allevamento. Questo tipo di piccola orticoltura riforniva i mercati locali, in particolare intorno a città come Parigi."
   },
@@ -7114,7 +7114,7 @@
   },
   "coutal": {
     "aliases": [],
-    "label": "Mulattiere (coutal)",
+    "label": "Coutal (mulattiere)",
     "summary": "Conducente di muli per il trasporto delle merci.",
     "text": "Il coutal (o coutaud) conduce muli carichi per il trasporto delle merci, in particolare nelle zone montuose o pedemontane dove queste bestie da soma erano più adatte dei cavalli ai sentieri ripidi. Il termine, di origine occitana, si trova soprattutto nel Mezzogiorno della Francia."
   },
@@ -7214,7 +7214,7 @@
   },
   "coyratier": {
     "aliases": [],
-    "label": "Cuoiaio (coyratier)",
+    "label": "Coyratier (cuoiaio)",
     "summary": "Artigiano che prepara e rifinisce il cuoio dopo la concia.",
     "text": "Il coyratier partecipa alla lavorazione del cuoio dopo la concia, funzione vicina a quella del cuoiaio rifinitore. Il termine, di grafia rara e probabilmente regionale, resta poco documentato nelle fonti genealogiche."
   },
@@ -7262,7 +7262,7 @@
   },
   "crepinier": {
     "aliases": [],
-    "label": "Frangiaio (crépinier)",
+    "label": "Crépinier (frangiaio)",
     "summary": "Fabbricante di crépine, frangia tessuta che guarnisce letti e baldacchini.",
     "text": "Il crépinier fabbrica la crépine, specie di frangia tessuta e lavorata nella parte superiore, usata per guarnire letti e baldacchini."
   },
@@ -7375,7 +7375,7 @@
     "aliases": [
       "Rivendugliolo di campagna"
     ],
-    "label": "Treccone (croquetier)",
+    "label": "Croquetier (treccone)",
     "summary": "Mercante ambulante affine all'ovaiolo, che raccoglie uova, burro, formaggio e pollame per rivenderli in città.",
     "text": "Il croquetier è un mercante ambulante affine all'ovaiolo: percorre le fattorie per comprare prodotti freschi, uova, burro, formaggio, pollame, poi li porta ai mercati cittadini per rivenderli al minuto. Questo mestiere d'intermediario rurale scomparve con lo sviluppo delle moderne reti di distribuzione."
   },
@@ -7420,7 +7420,7 @@
   },
   "cubillier": {
     "aliases": [],
-    "label": "Tinaio (cubillier)",
+    "label": "Cubillier (tinaio)",
     "summary": "Bottaio specializzato nella fabbricazione di secchi e tini di varie dimensioni.",
     "text": "Il cubillier fabbrica secchi e tini di legno di varie dimensioni, destinati alla conservazione dei liquidi, alla vinificazione o a usi domestici e artigianali, specialità vicina a quella del bottaio."
   },
@@ -7721,7 +7721,7 @@
   },
   "dauraire": {
     "aliases": [],
-    "label": "Doratore orafo (dauraire)",
+    "label": "Dauraire (doratore orafo)",
     "summary": "Termine della Francia meridionale per l'orafo doratore, dal latino daurator/deaurator.",
     "text": "Dauraire (con la variante dauradier) è il termine usato nel Mezzogiorno della Francia per designare un orafo specializzato nella doratura, derivato dal latino daurator o deaurator. Nei secoli XIV e XV gli orafi che praticavano la doratura erano comunemente chiamati «doriers» o «dorers»; il termine fu poi soppiantato da «doreur»."
   },
@@ -7758,7 +7758,7 @@
     "aliases": [
       "Rivenditore d'acquavite"
     ],
-    "label": "Acquavitaio (rivenditore d'acquavite)",
+    "label": "Rivenditore d'acquavite (acquavitaio)",
     "summary": "Gestore di caffè o mercante ambulante specializzato nella vendita di acquavite e liquori.",
     "text": "Il débitant d'eau-de-vie vende acquavite e altri liquori, in una bottega fissa (osteria, caffè) o in giro. Questo commercio di alcolici forti era sottoposto a una regolamentazione specifica sotto l'Antico Regime e poi a un regime di licenze dopo la Rivoluzione."
   },
@@ -7839,7 +7839,7 @@
     "aliases": [
       "Sventratore di merluzzi"
     ],
-    "label": "Decapitatore di merluzzi (décolleur)",
+    "label": "Décolleur (decapitatore di merluzzi)",
     "summary": "Operaio della preparazione del merluzzo incaricato di togliere il fegato, le interiora e la testa del pesce.",
     "text": "Il décolleur taglia il merluzzo appena pescato per togliergli il fegato, le interiora e la testa, fase essenziale della preparazione del pesce prima della salatura, eseguita a bordo delle navi da pesca del merluzzo o nei porti pescherecci."
   },
@@ -7875,7 +7875,7 @@
       "Spazzafango",
       "Pulitore di scarpe"
     ],
-    "label": "Lustrascarpe (décrotteur)",
+    "label": "Décrotteur (lustrascarpe)",
     "summary": "Persona che pulisce e lucida le scarpe dei passanti, o spazza il fango dalle strade.",
     "text": "Il décrotteur esercita l'uno o l'altro di due mestieri affini: pulisce e lucida le scarpe dei passanti per strada o in un posto fisso, oppure spazza il fango accumulato sulle carreggiate dopo la pioggia. I lustrascarpe, spesso ragazzi, erano una figura familiare delle strade delle grandi città nel XIX secolo."
   },
@@ -7923,7 +7923,7 @@
   },
   "defroisseur": {
     "aliases": [],
-    "label": "Stiratore (défroisseur)",
+    "label": "Défroisseur (stiratore)",
     "summary": "Operaio tessile incaricato di eliminare pieghe e grinze da tessuti e abiti.",
     "text": "Il défroisseur stira e liscia tessuti e abiti per eliminarne le pieghe, operazione di rifinitura dell'industria tessile o della confezione."
   },
@@ -8032,7 +8032,7 @@
     "aliases": [
       "Cernitore di carta"
     ],
-    "label": "Allestitore di cartiera (délisseur)",
+    "label": "Délisseur (allestitore di cartiera)",
     "summary": "Operaio di cartiera incaricato della rifinitura: collatura, piegatura, lisciatura e taglio della carta.",
     "text": "Il délisseur esegue le ultime operazioni di rifinitura in una cartiera: collatura, riunione in risme, piegatura, lisciatura, essiccazione e taglio dei fogli prima della vendita."
   },
@@ -8109,7 +8109,7 @@
   },
   "dentateur": {
     "aliases": [],
-    "label": "Cavadenti (dentateur)",
+    "label": "Dentateur (cavadenti)",
     "summary": "Antico termine per chi estrae e cura i denti, spesso un barbiere, prima della comparsa della parola dentista.",
     "text": "Il dentateur pratica l'estrazione e la cura dei denti; antico termine attestato già nel XVI secolo: Ambroise Paré mette in guardia contro «i barbieri e dentateurs» troppo pronti a cavare i denti. Questi pratici erano più spesso barbieri che esercitavano questa attività accanto al loro mestiere principale, prima che l'odontoiatria diventasse una disciplina medica a sé nei secoli XVIII e XIX."
   },
@@ -8579,7 +8579,7 @@
     "aliases": [
       "Piallatore di doghe"
     ],
-    "label": "Doghiere (doleur)",
+    "label": "Doleur (doghiere)",
     "summary": "Operaio che maneggia la doloire, capo esperto di una squadra di segantini o tagliatore di doghe.",
     "text": "Il doleur è un operaio specializzato nel maneggio della doloire, pesante ascia il cui uso richiede tanta abilità quanta forza: con essa si tagliano le doghe delle botti. All'interno di una squadra di segantini, il doleur è il più esperto: recluta la squadra, tratta con i proprietari e sulle tariffe, scortecca e squadra il tronco prima della segatura."
   },
@@ -8680,7 +8680,7 @@
   },
   "dorlotier": {
     "aliases": [],
-    "label": "Nastraio (dorlotier)",
+    "label": "Dorlotier (nastraio)",
     "summary": "Artigiano che fabbrica nastri, galloni e passamanerie, variante regionale del nastraio.",
     "text": "Il dorlotier, o dorelotier, fabbrica nastri, galloni e altri articoli di passamaneria, termine regionale equivalente a rubanier secondo la zona di produzione, in particolare intorno a Saint-Étienne, grande centro francese della nastreria."
   },
@@ -8864,7 +8864,7 @@
     "aliases": [
       "Stagnaro ambulante"
     ],
-    "label": "Stagnino ambulante (drouineur)",
+    "label": "Drouineur (stagnino ambulante)",
     "summary": "Piccolo calderaio ambulante che ripara gli utensili da cucina di villaggio in villaggio.",
     "text": "Il drouineur è un calderaio ambulante che percorre le campagne per riparare pentole, casseruole e altri utensili di metallo, spesso con saldature a stagno, alla maniera degli stagnini ambulanti."
   },
@@ -8992,7 +8992,7 @@
   },
   "ecaillon": {
     "aliases": [],
-    "label": "Spaccatore d'ardesia (écaillon)",
+    "label": "Écaillon (spaccatore d'ardesia)",
     "summary": "Operaio di cava d'ardesia che estrae e taglia l'ardesia nelle cave.",
     "text": "L'écaillon lavora nelle cave d'ardesia: estrae lo scisto ardesiaco, poi spacca e calibra le lastre per produrre l'ardesia da copertura, mestiere attestato nei bacini ardesiaci come quelli dell'Angiò o delle Ardenne."
   },
@@ -9055,7 +9055,7 @@
     "aliases": [
       "Operaio della chiesa"
     ],
-    "label": "Fabbriciere (échevin d'église)",
+    "label": "Échevin d'église (fabbriciere)",
     "summary": "Laico eletto incaricato di gestire i beni e le rendite temporali di una parrocchia.",
     "text": "L'échevin d'église è un amministratore laico eletto, incaricato della gestione dei beni temporali della parrocchia, della manutenzione degli edifici religiosi e dell'amministrazione delle rendite parrocchiali, funzione vicina a quella del fabbriciere o del marguillier secondo la regione."
   },
@@ -9069,7 +9069,7 @@
   },
   "eclotier": {
     "aliases": [],
-    "label": "Zoccolaio (éclotier)",
+    "label": "Éclotier (zoccolaio)",
     "summary": "Artigiano che taglia e modella il legno per fabbricare zoccoli.",
     "text": "L'éclotier fabbrica zoccoli tagliando e scavando il legno, producendo calzature robuste e poco costose destinate alle popolazioni rurali e operaie."
   },
@@ -9163,7 +9163,7 @@
   },
   "ecoucheux": {
     "aliases": [],
-    "label": "Scotolatore (écoucheux)",
+    "label": "Écoucheux (scotolatore)",
     "summary": "Operaio che batte il lino e la canapa per estrarne le fibre tessili.",
     "text": "L'écoucheux pratica la scotolatura («écouchage»): batte gli steli di lino o di canapa già macerati per separare la stoppa (fibra tessile) dalla paglia e dal cuore legnoso. Il termine si trova anche nella forma «escoucheur» in alcune regioni."
   },
@@ -9216,7 +9216,7 @@
     "aliases": [
       "Filettatore"
     ],
-    "label": "Bullonaio (écroutier)",
+    "label": "Écroutier (bullonaio)",
     "summary": "Artigiano che fabbrica bulloni e pezzi filettati.",
     "text": "L'écroutier forgia e filetta bulloni, dadi e altri pezzi filettati destinati all'assemblaggio meccanico."
   },
@@ -9296,7 +9296,7 @@
   },
   "eguilletier": {
     "aliases": [],
-    "label": "Fabbricante di stringhe (éguilletier)",
+    "label": "Éguilletier (fabbricante di stringhe)",
     "summary": "Artigiano che fabbrica stringhe con puntale metallico usate per guarnire e allacciare gli abiti.",
     "text": "L'éguilletier fabbrica stringhe: cordoni intrecciati terminati da puntali metallici («ferrets») usati sia per allacciare gli abiti sia per ornarli, accessorio d'abbigliamento caratteristico degli abiti aristocratici e militari d'Antico Regime."
   },
@@ -9450,7 +9450,7 @@
   },
   "emmoulageur": {
     "aliases": [],
-    "label": "Rabbigliatore di macine (emmoulageur)",
+    "label": "Emmoulageur (rabbigliatore di macine)",
     "summary": "Variante di «amoulangeur»: artigiano che taglia e mette in opera le macine.",
     "text": "L'emmoulageur è una variante grafica di «amoulangeur» (o amoulageur): l'artigiano che taglia e rabbiglia le macine, o che costruisce le parti in legno di un mulino, per metterlo in condizione di macinare; mestiere di rabbigliatore di macine o di carpentiere di mulini secondo la regione."
   },
@@ -9650,7 +9650,7 @@
       "Cantiniera",
       "Canevaro"
     ],
-    "label": "Cantiniere (encaveur)",
+    "label": "Encaveur (cantiniere)",
     "summary": "Operaio vinicolo che mette il vino in cantina per l'invecchiamento.",
     "text": "L'encaveur mette il vino in cantina e ne assicura la conservazione in buone condizioni di temperatura e umidità, in vista di un invecchiamento ottimale."
   },
@@ -9658,7 +9658,7 @@
     "aliases": [
       "Bozzimatore"
     ],
-    "label": "Imbozzimatore (encolleur)",
+    "label": "Encolleur (imbozzimatore)",
     "summary": "Operaio tessile che imbozzima l'ordito per rinforzarlo prima della tessitura.",
     "text": "L'encolleur fa passare il filo d'ordito in un bagno di bozzima con una macchina detta imbozzimatrice, operazione che rinforza e liscia il filo perché resista agli sfregamenti del telaio."
   },
@@ -9725,7 +9725,7 @@
   },
   "engraveur": {
     "aliases": [],
-    "label": "Incisore (engraveur)",
+    "label": "Engraveur (incisore)",
     "summary": "Artigiano che incide decorazioni e motivi su vari materiali.",
     "text": "L'engraveur pratica l'incisione su metallo, legno o pietra per creare decorazioni, riproduzioni e ornamenti; è un'antica variante grafica di «graveur» (incisore)."
   },
@@ -9992,7 +9992,7 @@
   },
   "escaillier": {
     "aliases": [],
-    "label": "Copritetto in ardesia (escaillier)",
+    "label": "Escaillier (copritetto in ardesia)",
     "summary": "Copritetto che posa le ardesie sui tetti.",
     "text": "L'escaillier posa le ardesie per coprire e rendere stagni i tetti; la parola viene da «escaille», termine regionale (Vallonia, Francia settentrionale) che designa l'ardesia, e si trova anche nelle grafie «escalier» ed «escallier»."
   },
@@ -10043,7 +10043,7 @@
   },
   "esclopier": {
     "aliases": [],
-    "label": "Zoccolaio (esclopier)",
+    "label": "Esclopier (zoccolaio)",
     "summary": "Zoccolaio che fabbrica calzature di legno, termine di origine occitana.",
     "text": "L'esclopier fabbrica zoccoli di legno; la parola viene dall'occitano/provenzale «esclop», che designa lo zoccolo, e resta attestata come nome di mestiere nel Mezzogiorno della Francia, mentre altrove si usa piuttosto «sabotier»."
   },
@@ -10075,7 +10075,7 @@
   },
   "escoriateur": {
     "aliases": [],
-    "label": "Scorticatore (escoriateur)",
+    "label": "Escoriateur (scorticatore)",
     "summary": "Operaio che prepara le pelli scuoiandole per la concia.",
     "text": "L'escoriateur, termine attestato in Normandia, prepara le pelli animali destinate alla conceria mediante scorticatura, fase a monte della lavorazione del cuoio."
   },
@@ -10138,7 +10138,7 @@
   },
   "esguillier": {
     "aliases": [],
-    "label": "Agoraio (esguillier)",
+    "label": "Esguillier (agoraio)",
     "summary": "Artigiano che fabbrica aghi metallici, grafia antica di «aiguillier».",
     "text": "L'esguillier forgia e affila aghi fini e robusti; si tratta di una grafia antica del mestiere di agoraio."
   },
@@ -10179,7 +10179,7 @@
   },
   "espilleur": {
     "aliases": [],
-    "label": "Tagliapietre (espilleur)",
+    "label": "Espilleur (tagliapietre)",
     "summary": "Artigiano che taglia la pietra per realizzare elementi architettonici.",
     "text": "L'espilleur taglia la pietra per realizzare elementi architettonici e decorativi, mestiere vicino a quello del tagliapietre."
   },
@@ -10204,7 +10204,7 @@
   },
   "esquillier": {
     "aliases": [],
-    "label": "Fonditore di campane (esquillier)",
+    "label": "Esquillier (fonditore di campane)",
     "summary": "In Linguadoca, fonditore che fonde le campane delle chiese.",
     "text": "L'esquillier, termine attestato in Linguadoca, fonde le campane destinate alle chiese, artigianato che richiede grande padronanza della fusione e delle leghe del bronzo."
   },
@@ -10304,7 +10304,7 @@
   },
   "etalonneur": {
     "aliases": [],
-    "label": "Verificatore dei pesi e delle misure (étalonneur)",
+    "label": "Étalonneur (verificatore dei pesi e delle misure)",
     "summary": "Ufficiale incaricato di tarare i pesi e le misure.",
     "text": "L'étalonneur è un ufficiale pubblico incaricato di controllare e tarare i pesi e le misure usati dai commercianti, per garantirne la conformità."
   },
@@ -10421,7 +10421,7 @@
   },
   "fabre": {
     "aliases": [],
-    "label": "Fabbro (fabre)",
+    "label": "Fabre (fabbro)",
     "summary": "Fabbro, dal latino faber («artigiano che lavora il ferro»).",
     "text": "Fabre è un antico termine, in particolare occitano, che designa il fabbro generico che lavora il ferro per i bisogni domestici e agricoli; viene direttamente dal latino «faber» e ha dato origine al cognome molto diffuso nel Mezzogiorno della Francia (Fabre, Faure, Lefebvre sono forme affini secondo la regione)."
   },
@@ -10480,7 +10480,7 @@
   },
   "fabricant_de_fides": {
     "aliases": [],
-    "label": "Pastaio (fabricant de fidés)",
+    "label": "Fabricant de fidés (pastaio)",
     "summary": "Artigiano savoiardo che produce pasta (vermicelli) secondo la tradizione italiana.",
     "text": "Il fabricant de fidés produce i «fidés», sorta di vermicelli, con tecniche di pastificazione trasmesse dalla vicina Italia (la parola «fidé» viene dall'italiano «fidelini»), specialità artigianale della Savoia."
   },
@@ -10765,7 +10765,7 @@
   },
   "faiseur_d_estoeuf": {
     "aliases": [],
-    "label": "Pallaio (faiseur d'estoeuf)",
+    "label": "Faiseur d'estoeuf (pallaio)",
     "summary": "Fabbricante di estoeufs, palle usate nel gioco della pallacorda.",
     "text": "Il faiseur d'estoeuf fabbrica gli estoeufs, palle imbottite usate nella pallacorda (jeu de paume), antenata del tennis."
   },
@@ -10825,7 +10825,7 @@
   },
   "faiseur_de_cercles": {
     "aliases": [],
-    "label": "Cerchiaio (faiseur de cercles)",
+    "label": "Faiseur de cercles (cerchiaio)",
     "summary": "Artigiano che fabbrica i cerchi (di legno spaccato o di ferro) che cingono e tengono le doghe delle botti.",
     "text": "Il faiseur de cercles produce i cerchi di legno spaccato (nocciolo, castagno) o di ferro che cingono le doghe di una botte e ne assicurano la tenuta e la solidità. Questo lavoro integra quello del bottaio propriamente detto, che assembla le doghe, e per certi aspetti si sovrappone al mestiere del tagliatore di legno da cerchi nelle regioni produttrici."
   },
@@ -10982,13 +10982,13 @@
       "Venditore di fieno",
       "Fenarolo"
     ],
-    "label": "Fienaiolo (mercante di fieno)",
+    "label": "Mercante di fieno (fienaiolo)",
     "summary": "Mercante di fieno e foraggi, che rifornisce gli allevatori di alimenti per il bestiame.",
     "text": "Il feinier (o fenier, fannelier secondo la regione) compra il fieno dai contadini, lo immagazzina e lo rivende poi agli allevatori e ai proprietari di cavalli, in particolare in città, dove pochi abitanti possono falciare il proprio foraggio. La parola viene dal francese antico «fein»/«fain», variante di «foin» (fieno). Questo commercio era particolarmente attivo vicino ai mercati coperti e alle stazioni di posta, dove molti cavalli venivano nutriti ogni giorno."
   },
   "fargier": {
     "aliases": [],
-    "label": "Fabbro (fargier)",
+    "label": "Fargier (fabbro)",
     "summary": "Fabbro, termine dialettale (occitano, Franca Contea) derivato da «fargue»/«farga», la forgia.",
     "text": "Fargier è una variante regionale di «forgeron» (fabbro), attestata in particolare nella Franca Contea e nelle zone di lingua occitana, dove la parola viene da «farga» (la forgia, in occitano e in catalano). Designa l'artigiano che lavora il ferro al fuoco e all'incudine per fabbricare o riparare attrezzi, ferramenta e pezzi agricoli."
   },
@@ -11052,13 +11052,13 @@
   },
   "fauldeur": {
     "aliases": [],
-    "label": "Carbonaio (fauldeur)",
+    "label": "Fauldeur (carbonaio)",
     "summary": "Carbonaio, termine usato soprattutto in Belgio e nelle regioni francofone settentrionali per il produttore di carbone di legna.",
     "text": "Il fauldeur esercita lo stesso mestiere del carbonaio: costruisce cataste di legna coperte di terra e muschio, che lascia bruciare lentamente sotto costante sorveglianza per diversi giorni per produrre carbone di legna. Il termine, derivato da «faulde» (la carbonaia stessa), è attestato soprattutto in Vallonia e nella Francia settentrionale."
   },
   "faure": {
     "aliases": [],
-    "label": "Fabbro (faure)",
+    "label": "Faure (fabbro)",
     "summary": "Fabbro, termine occitano (dal latino «faber») molto frequente negli atti del Mezzogiorno della Francia.",
     "text": "Faure è la forma occitana di «forgeron» (fabbro), derivata direttamente dal latino «faber» (artigiano, fabbro). Estremamente diffuso come nome di mestiere e poi come cognome nelle regioni di lingua d'oc, ha dato origine a molti cognomi (Faure, Lefaure, Fabre, Favre secondo la regione)."
   },
@@ -11075,7 +11075,7 @@
   },
   "fayancier": {
     "aliases": [],
-    "label": "Maiolicaro (fayancier)",
+    "label": "Fayancier (maiolicaro)",
     "summary": "Fabbricante di maiolica, ceramica decorata a smalto cotta secondo tecniche venute dall'Italia e poi da Delft.",
     "text": "Il fayancier fabbrica la maiolica, ceramica dal corpo poroso ricoperta di uno smalto stannifero opaco che permette la pittura decorativa, tecnica introdotta in Francia nei secoli XVI-XVII dall'Italia (Faenza, che dà il nome alla faïence) e poi diffusa attraverso i modelli olandesi di Delft. Centri come Nevers, Rouen, Moustiers o Quimper ne fecero una specialità regionale rinomata."
   },
@@ -11252,7 +11252,7 @@
   },
   "ferratier": {
     "aliases": [],
-    "label": "Ferrivecchi (ferratier)",
+    "label": "Ferratier (ferrivecchi)",
     "summary": "Termine regionale per il ferrivecchi: mercante che recupera e rivende ferro e oggetti metallici usati.",
     "text": "Il ferratier è una variante regionale del ferrivecchi, che designa chi raccoglie e rivende rottami e oggetti di ferro vecchio per riutilizzarli o rifonderli. La parola è attestata anche come nome di un attrezzo del maniscalco, segno della vicinanza tra la lavorazione del ferro e il suo commercio di recupero."
   },
@@ -11285,13 +11285,13 @@
   },
   "ferrier": {
     "aliases": [],
-    "label": "Ferraio (ferrier)",
+    "label": "Ferrier (ferraio)",
     "summary": "Operaio del ferro, termine generico che designa chi lavora il metallo in una fucina o in una miniera di ferro.",
     "text": "«Ferrier» designa in senso ampio un operaio del ferro, fabbro, minatore di ferro o operaio di fonderia secondo la regione e l'epoca. Il termine, più vago di «forgeron» o «maréchal-ferrant», compare in particolare negli atti antichi delle regioni minerarie e siderurgiche."
   },
   "ferron": {
     "aliases": [],
-    "label": "Ferraio (ferron)",
+    "label": "Ferron (ferraio)",
     "summary": "Antico termine per un fabbro o un mercante di ferro, all'origine del cognome Ferron.",
     "text": "«Ferron» è un'antica parola francese che designa un fabbro o un operaio del ferro, oggi scomparsa dall'uso corrente ma fossilizzata nel cognome Ferron, molto diffuso nella Francia occidentale. Condivide la radice latina («ferrum», ferro) con «ferronnier» e «ferrailleur»."
   },
@@ -11319,7 +11319,7 @@
     "aliases": [
       "Scapecchiatore"
     ],
-    "label": "Pettinatore di canapa (ferteur)",
+    "label": "Ferteur (pettinatore di canapa)",
     "summary": "Operaio tessile che pettina le fibre (canapa o lino) per districarle e allinearle prima della filatura.",
     "text": "Il ferteur pettina la stoppa di canapa o di lino con lo scapecchiatoio (tavola irta di punte di ferro) per districare le fibre, eliminare le impurità e allineare i filamenti per la filatura. Questa fase, tra la gramolatura e la filatura propriamente detta, determina la finezza del filo ottenuto."
   },
@@ -11391,7 +11391,7 @@
     "aliases": [
       "Fidelinaio"
     ],
-    "label": "Pastaio (fidelier)",
+    "label": "Fidelier (pastaio)",
     "summary": "Artigiano provenzale che produce pasta alimentare, in particolare fidéou (vermicelli fini), con il grano duro.",
     "text": "Il fidelier fabbrica pasta alimentare, in particolare i fidéou o fidés, vermicelli fini tipici della cucina provenzale e più in generale mediterranea (la parola fideos si ritrova in catalano e in spagnolo). Questa attività artigianale, antenata dei pastifici industriali, permetteva di conservare a lungo il grano una volta trasformato."
   },
@@ -11482,7 +11482,7 @@
   },
   "fileresse": {
     "aliases": [],
-    "label": "Filatrice di seta (fileresse)",
+    "label": "Fileresse (filatrice di seta)",
     "summary": "Operaia filatrice che dipana e fila la seta, designata secondo la grandezza del fuso impiegato.",
     "text": "La fileresse è un'operaia filatrice che dipana e fila la seta, la cui designazione variava secondo la grandezza del fuso che impiegava."
   },
@@ -11507,7 +11507,7 @@
   },
   "filetoupier": {
     "aliases": [],
-    "label": "Battitore di canapa (filetoupier)",
+    "label": "Filetoupier (battitore di canapa)",
     "summary": "Lavoratore agricolo che batte la canapa per separarne i semi e preparare gli steli alla macerazione.",
     "text": "Il filetoupier partecipava alle prime fasi della lavorazione della canapa: batteva gli steli essiccati per staccarne i semi (canapuccia), prima che gli steli stessi fossero messi a macerare nell'acqua per liberarne la fibra tessile. La parola sembra composta da «fil» (filo) ed «étoupe» (stoppa, residuo grossolano della fibra di canapa o di lino)."
   },
@@ -11691,7 +11691,7 @@
   },
   "fletayeur": {
     "aliases": [],
-    "label": "Traghettatore (flétayeur)",
+    "label": "Flétayeur (traghettatore)",
     "summary": "Traghettatore, chiamato così dalla sua barca, la flette.",
     "text": "Il flétayeur è un traghettatore la cui barca, detta «flette», gli ha dato il nome."
   },
@@ -11769,7 +11769,7 @@
     "aliases": [
       "Campanaro fonditore"
     ],
-    "label": "Fonditore di campane (fondeur de cloches)",
+    "label": "Fondeur de cloches (fonditore di campane)",
     "summary": "Artigiano fonditore specializzato nella fabbricazione delle campane per chiese ed edifici religiosi.",
     "text": "Il fonditore di campane cola il bronzo (lega di rame e stagno) in uno stampo complesso di terra e cera persa per produrre campane, il cui suono dipende da un dosaggio preciso della lega e da una geometria accurata. Famiglie di fonditori, come i Cornille-Havard in Normandia, hanno tramandato questo sapere di generazione in generazione fino a oggi."
   },
@@ -12025,7 +12025,7 @@
       "Fornarius",
       "Furnarius"
     ],
-    "label": "Fornaio (fournier)",
+    "label": "Fournier (fornaio)",
     "summary": "Fornaio o gestore di un forno, spesso il forno bannale dove gli abitanti cuocevano il loro pane.",
     "text": "Il fournier gestiva un forno da pane, sua impresa personale o forno bannale in cui gli abitanti erano obbligati, sotto l'Antico Regime, a cuocere la propria pasta dietro compenso. La parola è all'origine di molti cognomi (Fournier, Fornier) molto diffusi in Francia."
   },
@@ -12060,7 +12060,7 @@
   },
   "fraisier": {
     "aliases": [],
-    "label": "Trippaio (fraisier)",
+    "label": "Fraisier (trippaio)",
     "summary": "Macellaio, probabilmente specializzato nelle frattaglie (trippaio).",
     "text": "Il fraisier è un macellaio, probabilmente specializzato nella vendita delle frattaglie, da accostare al trippaio."
   },
@@ -12092,7 +12092,7 @@
   },
   "fremailler": {
     "aliases": [],
-    "label": "Fermagliaio (frémailler)",
+    "label": "Frémailler (fermagliaio)",
     "summary": "Fabbricante di fermagli: ganci, spille, fibbie che chiudono gli abiti.",
     "text": "Il frémailler fabbrica fermagli, cioè chiusure come ganci, spille e fibbie, usati per chiudere gli abiti."
   },
@@ -12246,7 +12246,7 @@
   },
   "futier": {
     "aliases": [],
-    "label": "Bottaio (fûtier)",
+    "label": "Fûtier (bottaio)",
     "summary": "Bottaio specializzato nella fabbricazione di botti, recipienti di legno per la conservazione dei liquidi.",
     "text": "Il fûtier assemblava doghe di legno legate da cerchi per fabbricare botti stagne, destinate a conservare e trasportare vino, sidro, acquavite o altri liquidi. Il termine è vicino a «bottaio», di cui costituisce spesso un sinonimo regionale o una specializzazione nei pezzi di grande capacità."
   },
@@ -12284,7 +12284,7 @@
     "aliases": [
       "Guardia del sale"
     ],
-    "label": "Gabelliere (gabelou)",
+    "label": "Gabelou (gabelliere)",
     "summary": "Agente incaricato di reprimere il contrabbando di sale e di riscuotere la gabella, termine oggi spregiativo per «doganiere».",
     "text": "Il gabelou percorreva le strade e i confini fiscali per inseguire i contrabbandieri di sale e riscuoteva le tasse dovute su questa merce. Molto impopolare sotto l'Antico Regime, la parola è sopravvissuta nel linguaggio familiare moderno come sinonimo spregiativo di «doganiere»."
   },
@@ -12325,7 +12325,7 @@
   },
   "gadouard": {
     "aliases": [],
-    "label": "Vuotacessi (gadouard)",
+    "label": "Gadouard (vuotacessi)",
     "summary": "Operaio incaricato di raccogliere e trasportare la gadoue, fango e materie di rifiuto delle strade e dei pozzi neri urbani.",
     "text": "Il gadouard raccoglieva la gadoue, miscela di fango, immondizie e materie di rifiuto, dalle strade e dai pozzi neri delle città, prima dell'installazione delle moderne reti fognarie. Questo lavoro insalubre, spesso svolto di notte, ebbe un ruolo sanitario essenziale nelle città d'Antico Regime e del XIX secolo."
   },
@@ -12341,7 +12341,7 @@
   },
   "gagiste": {
     "aliases": [],
-    "label": "Salariato (gagiste)",
+    "label": "Gagiste (salariato)",
     "summary": "Dipendente retribuito con un salario fisso, in particolare nell'amministrazione militare o civile dell'Antico Regime.",
     "text": "Il gagiste riceveva un salario (gages), retribuzione fissa versata da un'amministrazione, da una casa nobile o da un'istituzione militare, in opposizione ai redditi tratti direttamente dallo sfruttamento di beni o dal commercio. Il termine copre funzioni molto diverse, dal semplice domestico ad alcuni ufficiali subalterni."
   },
@@ -12421,7 +12421,7 @@
   },
   "galonnier": {
     "aliases": [],
-    "label": "Gallonaio (galonnier)",
+    "label": "Galonnier (gallonaio)",
     "summary": "Artigiano passamanaio specializzato nella fabbricazione di galloni, fasce strette usate come ornamento o insegna.",
     "text": "Il gallonaio tesse galloni, nastri stretti e rigidi, spesso arricchiti di filo d'oro, d'argento o colorato, usati per ornare uniformi militari, livree di servitù o abiti da cerimonia e per indicare i gradi. Questo mestiere della passamaneria si sviluppò in particolare con la codificazione delle uniformi militari dal XVII secolo."
   },
@@ -12513,7 +12513,7 @@
       "Garzone di magazzino",
       "Garzone di deposito"
     ],
-    "label": "Magazziniere (garzone di deposito)",
+    "label": "Garzone di deposito (magazziniere)",
     "summary": "Addetto subalterno incaricato di movimentare e sistemare le merci in un magazzino.",
     "text": "Il garçon d'entrepôt riceve, sistema e prepara le merci conservate in un deposito commerciale, compito di movimentazione che non richiede qualifica particolare. Il termine «garçon» designava comunemente, nei documenti antichi, un addetto subalterno qualunque fosse la sua età reale."
   },
@@ -12896,7 +12896,7 @@
     "aliases": [
       "Oste di bettola"
     ],
-    "label": "Bettoliere (gargotier)",
+    "label": "Gargotier (bettoliere)",
     "summary": "Gestore di una bettola, piccola trattoria economica per clienti di ceto popolare.",
     "text": "Il gargotier teneva una gargote, esercizio spesso modesto che offriva cibo semplice e a buon mercato a operai, studenti e viaggiatori squattrinati. La parola, a lungo usata in senso spregiativo rispetto ai ristoranti più raffinati, designa un anello essenziale della ristorazione popolare urbana del XIX secolo."
   },
@@ -12957,7 +12957,7 @@
   },
   "gastelier": {
     "aliases": [],
-    "label": "Pasticciere (gastelier)",
+    "label": "Gastelier (pasticciere)",
     "summary": "Mercante o fabbricante di dolci e pasticcini, termine medievale formato su «gastel», antenato della parola gâteau.",
     "text": "Il gastelier fabbrica e vende i «gastels», pasticcini e dolci il cui nome medievale si è evoluto in «gâteau». Questo antico mestiere della panetteria-pasticceria compare in fonti risalenti al Medioevo e conosce una rinascita di interesse patrimoniale, con fornai contemporanei che riprendono il termine per le loro insegne."
   },
@@ -13219,7 +13219,7 @@
   },
   "gougeard": {
     "aliases": [],
-    "label": "Servitore (gougeard)",
+    "label": "Gougeard (servitore)",
     "summary": "Servitore, nel Medioevo.",
     "text": "Il gougeard è un servitore, termine attestato nel Medioevo."
   },
@@ -13400,7 +13400,7 @@
     "aliases": [
       "Vagliaio di vimini"
     ],
-    "label": "Crivellaio (grelassier)",
+    "label": "Grelassier (crivellaio)",
     "summary": "Nella Francia occidentale, fabbricante di grêles: crivelli, setacci o ceste di vimini.",
     "text": "Nella Francia occidentale il grelassier fabbrica le grêles: crivelli, setacci o ceste di vimini, mestiere affine a quello del crivellaio, del setacciaio o del cestaio."
   },
@@ -14018,7 +14018,7 @@
   },
   "hortelain": {
     "aliases": [],
-    "label": "Ortolano (hortelain)",
+    "label": "Hortelain (ortolano)",
     "summary": "Antica forma dialettale di «giardiniere», coltivatore di orti.",
     "text": "Hortelain è una forma antica e regionale (Francia settentrionale, Vallonia) della parola giardiniere, derivata dal latino hortus (l'orto). A differenza dell'hortillon, legato specificamente agli orti galleggianti della regione di Amiens, l'hortelain designa più in generale qualsiasi ortolano, in città o in campagna."
   },
@@ -14637,7 +14637,7 @@
     "aliases": [
       "Cavalcante"
     ],
-    "label": "Postiglione (jocquier)",
+    "label": "Jocquier (postiglione)",
     "summary": "Domestico che guida una carrozza montando uno dei cavalli, come postiglione.",
     "text": "Il jocquier è un domestico che guida una carrozza come postiglione, cioè montando uno dei cavalli del tiro invece di sedere a cassetta, per condurre e dirigere l'equipaggio. Il termine designa dunque un mestiere di conduzione dei cavalli più che un artigianato."
   },
@@ -15135,7 +15135,7 @@
     "aliases": [
       "Intrecciatore di reti"
     ],
-    "label": "Retaio (laceur)",
+    "label": "Laceur (retaio)",
     "summary": "Artigiano specializzato nell'annodatura e nella confezione di reti da caccia o da pesca.",
     "text": "Il laceur confeziona e ripara reti a maglie annodate destinate alla caccia o alla pesca, a partire da fili intrecciati o allacciati secondo tecniche vicine a quelle del retaio. La parola viene dal verbo «lacer», che descrive il gesto di annodare le maglie."
   },
@@ -15335,7 +15335,7 @@
   },
   "lanspessade": {
     "aliases": [],
-    "label": "Lancia spezzata (lanspessade)",
+    "label": "Lanspessade (lancia spezzata)",
     "summary": "Grado militare subalterno, variante antica di «anspessade».",
     "text": "Il lanspessade è un grado militare subalterno della fanteria d'Antico Regime, intermedio tra il soldato semplice e il caporale, più comunemente scritto anspessade, termine preso in prestito dall'italiano lancia spezzata."
   },
@@ -15436,7 +15436,7 @@
     "aliases": [
       "Piodaio"
     ],
-    "label": "Copritetto in lose (lauseur)",
+    "label": "Lauseur (copritetto in lose)",
     "summary": "Copritetto specializzato nella posa di lose, pietre piatte da copertura.",
     "text": "Il lauseur posa le lose, pietre piatte (calcare, scisto o arenaria secondo le regioni) usate nella copertura tradizionale, tecnica caratteristica di alcune regioni come il Quercy, l'Aveyron o la Dordogna."
   },
@@ -16146,7 +16146,7 @@
     "aliases": [
       "Maestro di villaggio"
     ],
-    "label": "Maestro di scuola (magister)",
+    "label": "Magister (maestro di scuola)",
     "summary": "Maestro di scuola incaricato dell'insegnamento elementare prima dell'istituzione della scuola pubblica moderna.",
     "text": "Il magister insegna la lettura, la scrittura e il calcolo nelle scuole parrocchiali o comunali d'Antico Regime, cumulando spesso questa funzione con quella di cantore o di sagrestano, per mancanza di una retribuzione sufficiente. È il diretto predecessore del maestro elementare istituito dalle leggi scolastiche del XIX secolo."
   },
@@ -16239,7 +16239,7 @@
     "aliases": [
       "Mastro di casa"
     ],
-    "label": "Maestro di casa (maisonnier)",
+    "label": "Maisonnier (maestro di casa)",
     "summary": "Domestico o amministratore incaricato della gestione quotidiana di una casa borghese o nobile.",
     "text": "Il maisonnier è un domestico di rango superiore, o amministratore, incaricato dell'intendenza di una casa: gestione del personale, delle provviste e della manutenzione dell'abitazione, per conto di un padrone borghese o nobile. Il termine può anche, secondo le regioni, designare un mezzadro che occupa una casa sulle terre di un proprietario."
   },
@@ -16496,7 +16496,7 @@
     "aliases": [
       "Spurgatore di latrine"
     ],
-    "label": "Vuotacessi (maître des basses œuvres)",
+    "label": "Maître des basses œuvres (vuotacessi)",
     "summary": "Termine che designa il vuotacessi, incaricato dello spurgo delle latrine e della pulizia immonda.",
     "text": "Il maître des basses œuvres è il nome pudico dato al vuotacessi, incaricato di spurgare i pozzi neri e di trasportare le materie fecali fuori dalle città, lavoro considerato il più vile (da cui le «basse» opere). Non va confuso con il maître des hautes œuvres, che designa il carnefice delle sentenze capitali: i due titoli, costruiti a specchio, rimandano a mestieri radicalmente diversi, l'uno legato all'igiene urbana, l'altro alla giustizia penale."
   },
@@ -16815,7 +16815,7 @@
     "aliases": [
       "Marnaiolo"
     ],
-    "label": "Cavatore di marna (manissier)",
+    "label": "Manissier (cavatore di marna)",
     "summary": "Operaio che estrae la marna nelle marniere, ammendante calcareo per le terre agricole.",
     "text": "Il manissier lavora nelle marniere, cave da cui si estrae la marna, ammendante calcareo usato per arricchire le terre agricole prima dell'uso generalizzato dei concimi chimici."
   },
@@ -17068,7 +17068,7 @@
     "aliases": [
       "Mercante di carbone"
     ],
-    "label": "Carbonaio (mercante di carbone)",
+    "label": "Mercante di carbone (carbonaio)",
     "summary": "Negoziante di combustibile (carbone di legna o carbon fossile), soggetto a regole di vendita severe.",
     "text": "Il mercante di carbone vende il carbone di legna e poi, con l'industrializzazione, il carbon fossile, combustibile essenziale al riscaldamento e all'industria. Il commercio era spesso regolamentato (obbligo di scarico rapido, prezzo esposto) per evitare la speculazione nei periodi di freddo."
   },
@@ -17202,7 +17202,7 @@
   },
   "marchand_de_peilles": {
     "aliases": [],
-    "label": "Straccivendolo (marchand de peilles)",
+    "label": "Marchand de peilles (straccivendolo)",
     "summary": "Straccivendolo che rivende alle cartiere le peilles (stracci) raccolte per la fabbricazione della carta.",
     "text": "Il marchand de peilles raccoglie le peilles, stracci usati, che rivende alle cartiere dove servono da materia prima per la fabbricazione della carta prima dell'invenzione della carta a base di pasta di legno. Il termine è una variante regionale di «chiffonnier»."
   },
@@ -17287,7 +17287,7 @@
       "Mercante di vetri",
       "Bicchieraio mercante"
     ],
-    "label": "Vetraio (mercante di vetri)",
+    "label": "Mercante di vetri (vetraio)",
     "summary": "Commerciante che vende oggetti e lastre di vetro prodotti dalle vetrerie.",
     "text": "Il marchand de verre vende i prodotti delle vetrerie, lastre, bicchieri, flaconi, assicurando la distribuzione commerciale di un artigianato tecnico concentrato in regioni boscose favorevoli (legna da ardere per i forni)."
   },
@@ -17534,13 +17534,13 @@
       "Santese",
       "Marguilliere"
     ],
-    "label": "Fabbriciere (marguillier)",
+    "label": "Marguillier (fabbriciere)",
     "summary": "Laico eletto incaricato della gestione dei beni temporali e delle rendite di una parrocchia.",
     "text": "Il marguillier è un parrocchiano laico eletto dai suoi pari (o cooptato secondo i luoghi) per sedere nel consiglio di fabbrica e gestire i beni materiali e le rendite della parrocchia: manutenzione della chiesa, conti, questue. Le grafie marglier, marillier e marreglier ne sono varianti ortografiche che si incontrano secondo le regioni e le epoche. La funzione, spesso onorifica, era ricercata dai notabili locali."
   },
   "margotier": {
     "aliases": [],
-    "label": "Fabbricante di legacci (margotier)",
+    "label": "Margotier (fabbricante di legacci)",
     "summary": "Artigiano che fabbrica legacci e corde destinati a legare e ad assicurare i carichi.",
     "text": "Il margotier fabbrica legacci e corde usati per legare, assicurare o fissare i carichi, artigianato vicino alla corderia o alla lavorazione dello sparto secondo le regioni e i materiali impiegati."
   },
@@ -17792,7 +17792,7 @@
       "Addetto al maglio",
       "Maglierista"
     ],
-    "label": "Maglista (addetto al maglio)",
+    "label": "Addetto al maglio (maglista)",
     "summary": "Operaio che usa il maglio, martello idraulico impiegato in metallurgia.",
     "text": "Il martinéteur aziona il maglio, pesante martello meccanico mosso dalla forza idraulica di una ruota ad acqua, usato per schiacciare o forgiare il metallo nelle ferriere e nelle fonderie prima dell'era del vapore."
   },
@@ -18201,7 +18201,7 @@
       "Spaccadoghe",
       "Fabbricante di doghe"
     ],
-    "label": "Doghiere (mérandier)",
+    "label": "Mérandier (doghiere)",
     "summary": "Artigiano che spacca e lavora il legno di quercia per fabbricare le doghe destinate alle botti.",
     "text": "Il mérandier (scritto anche mairandier) è un artigiano specializzato nella fabbricazione del merrain, le doghe di quercia spaccate che compongono la parete di botti e barili. Lavora a monte del bottaio, scegliendo e tagliando il legno nel senso della fibra per garantire la tenuta delle botti. Il mestiere, molto legato alle regioni di foreste di querce (Centro, Limosino, Borgogna), è talvolta designato con il nome di merrinier."
   },
@@ -18236,7 +18236,7 @@
   },
   "mere_sage": {
     "aliases": [],
-    "label": "Levatrice (mère-sage)",
+    "label": "Mère-sage (levatrice)",
     "summary": "Antico termine per la levatrice, che assiste i parti e le cure post-natali.",
     "text": "La mère-sage assiste i parti e presta le prime cure alle madri e ai neonati, denominazione antica progressivamente sostituita da «sage-femme» a partire dal XVII-XVIII secolo, man mano che la professione si struttura e si regolamenta."
   },
@@ -18367,7 +18367,7 @@
   },
   "metier_de_rets": {
     "aliases": [],
-    "label": "Retaio (métier de rets)",
+    "label": "Métier de rets (retaio)",
     "summary": "Artigiano che fabbrica reti da pesca.",
     "text": "Il termine designa l'artigiano che confeziona le reti destinate alla pesca, attrezzatura essenziale nelle comunità costiere e fluviali. Questo mestiere coincide con quello del retaio o del fabbricante di reti, secondo le regioni e gli usi locali degli atti."
   },
@@ -18438,7 +18438,7 @@
   },
   "meusnier": {
     "aliases": [],
-    "label": "Mugnaio (meusnier)",
+    "label": "Meusnier (mugnaio)",
     "summary": "Variante grafica antica di meunier, artigiano che macina il grano al mulino.",
     "text": "Il meusnier è una grafia antica o dialettale di «meunier», l'artigiano che gestisce un mulino da grano per conto degli abitanti di una parrocchia, trattenendo in genere una parte della macinatura (il «diritto di molenda») come compenso. Questa variante grafica si incontra soprattutto negli atti anteriori al XVIII secolo."
   },
@@ -18803,7 +18803,7 @@
       "Maestro di mulini",
       "Mulinaio carpentiere"
     ],
-    "label": "Carpentiere di mulini (moulangeur)",
+    "label": "Moulangeur (carpentiere di mulini)",
     "summary": "Carpentiere specializzato nella costruzione e nella riparazione dei mulini a vento o ad acqua.",
     "text": "Il moulangeur (o «amoulangeur», «emmoulageur» secondo le regioni) è un carpentiere specializzato nella costruzione e nella manutenzione dei mulini a vento o ad acqua, in particolare dei loro meccanismi di legno (ruote, pale, ingranaggi). Il termine, da non confondere con «boulanger» nonostante la somiglianza fonetica, si incontra soprattutto nell'Angiò e nella Loira Atlantica."
   },
@@ -19184,7 +19184,7 @@
     "aliases": [
       "Vaccaro lattaio"
     ],
-    "label": "Ingrassatore di bestiame (nourrisseur)",
+    "label": "Nourrisseur (ingrassatore di bestiame)",
     "summary": "Persona che ingrassa e mantiene il bestiame per conto altrui.",
     "text": "Il nourrisseur ingrassa e mantiene animali d'allevamento, bovini, equini o altre bestie da tiro, spesso per conto di terzi, attività frequente vicino alle città dove si ingrassava il bestiame con i residui delle birrerie o delle distillerie prima di venderlo ai mercati urbani."
   },
@@ -19936,7 +19936,7 @@
       "Salinarius",
       "Operaio di salina"
     ],
-    "label": "Salinaio (paludier)",
+    "label": "Paludier (salinaio)",
     "summary": "Operaio che raccoglie il sale nelle saline.",
     "text": "Il paludier sfrutta una salina, dove raccoglie il sale per evaporazione dell'acqua di mare in bacini successivi (œillets), mestiere tradizionale emblematico delle saline di Guérande e dell'isola di Noirmoutier."
   },
@@ -19961,7 +19961,7 @@
   },
   "pangoussier": {
     "aliases": [],
-    "label": "Fornaio (pangoussier)",
+    "label": "Pangoussier (fornaio)",
     "summary": "Antica denominazione regionale del fornaio.",
     "text": "Il pangoussier è, secondo i glossari dei mestieri antichi, un'antica denominazione regionale del fornaio, colui che fabbrica e vende il pane. Il termine, caduto in disuso, è attestato ormai solo nei dizionari dei mestieri antichi."
   },
@@ -19984,7 +19984,7 @@
   },
   "pannereux": {
     "aliases": [],
-    "label": "Panieraio (pannereux)",
+    "label": "Pannereux (panieraio)",
     "summary": "Cestaio specializzato nella fabbricazione di panieri e ceste di vimini.",
     "text": "Il pannereux intreccia il vimine per fabbricare panieri e ceste, artigianato della cesteria comune nelle regioni produttrici di vimini."
   },
@@ -20098,7 +20098,7 @@
     "aliases": [
       "Venditore di profumi"
     ],
-    "label": "Profumiere (venditore di profumi)",
+    "label": "Venditore di profumi (profumiere)",
     "summary": "Mercante specializzato nella vendita di profumi e articoli di profumeria.",
     "text": "Il parfumier vende profumi e prodotti di profumeria, termine talvolta usato indifferentemente con «parfumeur» secondo le epoche e le regioni, ma che designa più specificamente il commercio che la creazione."
   },
@@ -20141,7 +20141,7 @@
   },
   "particheur": {
     "aliases": [],
-    "label": "Cernitore (particheur)",
+    "label": "Particheur (cernitore)",
     "summary": "Operaio che smista e ripartisce le merci secondo la qualità e la destinazione.",
     "text": "Il particheur smista e ripartisce le merci in base alla qualità o alla destinazione, funzione di controllo e di classificazione presente in alcuni commerci o industrie."
   },
@@ -20315,7 +20315,7 @@
     "aliases": [
       "Guardiano di greggi"
     ],
-    "label": "Pastore (pâtre)",
+    "label": "Pâtre (pastore)",
     "summary": "Pastore tradizionale incaricato della custodia e della conduzione delle greggi.",
     "text": "Il pâtre custodisce e conduce le greggi sui pascoli, termine letterario e amministrativo che designa il pastore in generale, senza distinzione del tipo di animali custoditi."
   },
@@ -20375,7 +20375,7 @@
   },
   "pattier": {
     "aliases": [],
-    "label": "Straccivendolo (pattier)",
+    "label": "Pattier (straccivendolo)",
     "summary": "Mercante e raccoglitore di stracci destinati al riciclo.",
     "text": "Il pattier raccoglie e rivende stracci e vecchi tessuti destinati al riciclo, in particolare alla fabbricazione della carta prima dello sviluppo della pasta di legno; mestiere vicino a quello dello straccivendolo."
   },
@@ -20426,7 +20426,7 @@
   },
   "pavisseur": {
     "aliases": [],
-    "label": "Selciatore (pavisseur)",
+    "label": "Pavisseur (selciatore)",
     "summary": "Operaio che posa e ripara listoni di legno o cubetti di pietra nelle strade.",
     "text": "Il pavisseur posa e ripara rivestimenti stradali, listoni di legno o cubetti di pietra, in particolare nelle strade. Il termine, vicino a selciatore, designa un mestiere dell'edilizia e della viabilità che si incontra nei registri d'Antico Regime."
   },
@@ -20443,7 +20443,7 @@
   },
   "peaumier": {
     "aliases": [],
-    "label": "Pallaio (peaumier)",
+    "label": "Peaumier (pallaio)",
     "summary": "Variante grafica di paumier, fabbricante di attrezzature per la pallacorda.",
     "text": "Il peaumier, variante del paumier, fabbrica palle, racchette e altre attrezzature destinate alla pallacorda, antenata del tennis molto popolare dal Medioevo al XVII secolo. Il mestiere declina con il progressivo disinteresse per questo gioco dal XVIII secolo."
   },
@@ -20660,7 +20660,7 @@
   },
   "pelletier": {
     "aliases": [],
-    "label": "Pellicciaio (pelletier)",
+    "label": "Pelletier (pellicciaio)",
     "summary": "Artigiano pellicciaio specializzato nel trattamento e nella confezione di pellicce.",
     "text": "Il pelletier lavora e confeziona pellicce, preparando le pelli con il pelo per farne abiti e guarnizioni. Il mestiere, organizzato in corporazione fin dal Medioevo, si distingue dal pellaio, che tratta le pelli destinate al cuoio più che alla pelliccia."
   },
@@ -20730,7 +20730,7 @@
     "aliases": [
       "Foratore di navi"
     ],
-    "label": "Foratore navale (perceur)",
+    "label": "Perceur (foratore navale)",
     "summary": "Operaio che fora, inchioda e incavigliona le navi durante la costruzione o il raddobbo.",
     "text": "Il perceur fora, inchioda e incaviglia le navi in tutte le loro parti, durante la costruzione o il raddobbo nel cantiere navale."
   },
@@ -20829,7 +20829,7 @@
       "Parruccaia",
       "Capillamentarius"
     ],
-    "label": "Parrucchiere (parruccaio)",
+    "label": "Parruccaio (parrucchiere)",
     "summary": "Fabbricante di parrucche, spesso anche parrucchiere e barbiere sotto l'Antico Regime.",
     "text": "Il perruquier fabbrica parrucche ed esercita spesso anche i mestieri di parrucchiere e di barbiere, poiché le tre attività furono a lungo riunite in una stessa corporazione sotto l'Antico Regime. L'uso della parrucca, simbolo di condizione sociale dal XVII al XVIII secolo, assicurò al mestiere una clientela agiata prima del suo declino dopo la Rivoluzione."
   },
@@ -21090,7 +21090,7 @@
   },
   "piqueur": {
     "aliases": [],
-    "label": "Spaccatore di merluzzi (piqueur)",
+    "label": "Piqueur (spaccatore di merluzzi)",
     "summary": "Operaio che prepara il merluzzo, tagliando fegato, interiora e testa del pesce.",
     "text": "Il piqueur, nelle pescherie del merluzzo, taglia il merluzzo per toglierne il fegato, le interiora e la testa, fase essenziale prima della salatura e dell'essiccazione del pesce. Questo mestiere si incontra nei porti della pesca del merluzzo, in particolare quelli rivolti a Terranova."
   },
@@ -21257,7 +21257,7 @@
     "aliases": [
       "Accompagnatore di sala"
     ],
-    "label": "Maschera (placeur)",
+    "label": "Placeur (maschera)",
     "summary": "Addetto che guida il pubblico ai posti nei teatri.",
     "text": "Il placeur, variante dell'ouvreur, accoglie gli spettatori e li guida ai loro posti nei teatri e nelle sale di spettacolo. Il mestiere persiste fino all'era moderna del cinema."
   },
@@ -21329,7 +21329,7 @@
       "Spianatrice",
       "Planatore di lamiere"
     ],
-    "label": "Spianatore (planeur)",
+    "label": "Planeur (spianatore)",
     "summary": "Artigiano che spiana e liscia superfici, in particolare metalliche.",
     "text": "Il planeur spiana e liscia superfici, in particolare lamiere o pezzi di metallo, per correggerne le deformazioni prima dell'uso finale. Il termine si incontra in diversi mestieri del metallo e del legno."
   },
@@ -21534,7 +21534,7 @@
   },
   "poigneur": {
     "aliases": [],
-    "label": "Sarto (poigneur)",
+    "label": "Poigneur (sarto)",
     "summary": "Denominazione medievale talvolta data ai sarti.",
     "text": "Il poigneur è una denominazione medievale talvolta data ai sarti, termine che resta raro e poco attestato nelle fonti genealogiche successive."
   },
@@ -22171,7 +22171,7 @@
   },
   "poussecul": {
     "aliases": [],
-    "label": "Birro (poussecul)",
+    "label": "Poussecul (birro)",
     "summary": "Termine popolare che designa i recors, aiutanti di giustizia.",
     "text": "Il poussecul è un termine popolare e spregiativo che designa i recors, aiutanti che accompagnavano gli uscieri per dar man forte durante i pignoramenti e gli arresti."
   },
@@ -22342,7 +22342,7 @@
     "aliases": [
       "Illusionista"
     ],
-    "label": "Prestigiatore (prestidigitateur)",
+    "label": "Prestidigitateur (prestigiatore)",
     "summary": "Artista specializzato nei giochi di prestigio e di illusione.",
     "text": "Il prestidigitateur diverte il pubblico con giochi di prestigio e d'illusione, padroneggiando tecniche di manipolazione manuale rapida («lesta»). Il mestiere si professionalizza particolarmente nel XIX secolo con figure come Robert-Houdin."
   },
@@ -22773,7 +22773,7 @@
   },
   "proyer": {
     "aliases": [],
-    "label": "Mandriano (proyer)",
+    "label": "Proyer (mandriano)",
     "summary": "In alcune regioni, variante dialettale che designa un pastore o un vaccaro, custode di greggi.",
     "text": "Il termine regionale designa un custode di greggi, variante locale di pastore o di vaccaro; condivide la radice con il nome dello strillozzo (bruant proyer), uccello dei campi, senza che il legame tra i due usi sia altro che la vita nei campi."
   },
@@ -22903,7 +22903,7 @@
     "aliases": [
       "Mastro cuoco"
     ],
-    "label": "Cuoco (queu)",
+    "label": "Queu (cuoco)",
     "summary": "Antica forma della parola «queux», che designa un cuoco o un aiuto cuoco.",
     "text": "«Queux» è il termine medievale e classico per cuoco, che sopravvive oggi nell'espressione cristallizzata «maître queux». La grafia «queu», senza x, compare in alcuni atti antichi per designare la stessa funzione di preparazione dei pasti, spesso al servizio di una grande casa."
   },
@@ -23021,7 +23021,7 @@
   },
   "raccommodeux": {
     "aliases": [],
-    "label": "Garzone di miniera (raccommodeux)",
+    "label": "Raccommodeux (garzone di miniera)",
     "summary": "Sinonimo minerario di «galibot»: giovane minatore o apprendista addetto ai lavori di armatura.",
     "text": "Il termine rimanda al galibot, giovane minatore-carpentiere incaricato della posa dei puntelli nelle gallerie, o più in generale al manovale e all'apprendista minatore. La parola non ha qui alcun rapporto con il rammendo degli abiti che la sua forma evoca altrimenti."
   },
@@ -23029,7 +23029,7 @@
     "aliases": [
       "Racconciascarpe"
     ],
-    "label": "Ciabattino (raccoutreur de souliers)",
+    "label": "Raccoutreur de souliers (ciabattino)",
     "summary": "Calzolaio riparatore di scarpe.",
     "text": "«Raccoutrer» è una forma antica di «raccommoder» (rammendare, riparare); il raccoutreur de souliers esercita il mestiere di calzolaio riparatore, rimettendo in ordine le scarpe consumate invece di fabbricarne di nuove."
   },
@@ -23054,7 +23054,7 @@
   },
   "racheur": {
     "aliases": [],
-    "label": "Allargatore di gallerie (racheur)",
+    "label": "Racheur (allargatore di gallerie)",
     "summary": "Minatore incaricato di allargare le gallerie divenute troppo strette.",
     "text": "Sotto la pressione dei terreni le gallerie di miniera si restringevano con il tempo; il racheur interveniva per riportarle alla sezione d'origine, lavoro faticoso e pericoloso del fondo."
   },
@@ -23062,7 +23062,7 @@
     "aliases": [
       "Rinettatore"
     ],
-    "label": "Rifinitore (racheveur)",
+    "label": "Racheveur (rifinitore)",
     "summary": "Artigiano che dà l'ultimo tocco a un oggetto lavorato di fonderia, ceramica o altro.",
     "text": "Il racheveur interviene alla fine della fabbricazione per perfezionare la rifinitura di un oggetto, sbavatura, lucidatura, ritocco dei dettagli, prima della consegna o della messa in vendita."
   },
@@ -23080,7 +23080,7 @@
     "aliases": [
       "Radeliere"
     ],
-    "label": "Zattiere (radelier)",
+    "label": "Radelier (zattiere)",
     "summary": "Operaio della fluitazione del legname, che conduce le zattere sui fiumi.",
     "text": "Il radelier assembla i tronchi in zattere («treni di legname») e le conduce lungo i fiumi fino alle città, tecnica di fluitazione usata in particolare per l'approvvigionamento di Parigi in legna da ardere dal Morvan fino al XIX secolo."
   },
@@ -23441,7 +23441,7 @@
     "aliases": [
       "Ricopritore"
     ],
-    "label": "Copritetto (recouvreur)",
+    "label": "Recouvreur (copritetto)",
     "summary": "Artigiano incaricato di costruire e riparare i tetti, secondo i materiali disponibili localmente (tegole, ardesie, scandole, paglia, lose).",
     "text": "Il recouvreur è il nome generico del copritetto in alcune regioni, che designa l'artigiano che posa e mantiene i tetti, qualunque sia il materiale impiegato secondo le tradizioni locali."
   },
@@ -23657,7 +23657,7 @@
       "Segantino di fossa",
       "Resegaio"
     ],
-    "label": "Segantino (renard)",
+    "label": "Renard (segantino)",
     "summary": "Operaio forestale specializzato nella segatura del legno per il lungo, con una sega a due manici manovrata da due uomini.",
     "text": "La segatura per il lungo consisteva nel ridurre i tronchi in tavole o travi con la sega a due mani, uno dei segatori stando nella fossa o su un cavalletto e l'altro sopra il pezzo di legno. Questo mestiere itinerante, spesso esercitato da squadre venute dal Massiccio Centrale o dalle Alpi, porta molti nomi regionali che designano la stessa attività."
   },
@@ -23741,13 +23741,13 @@
   },
   "repriseuse": {
     "aliases": [],
-    "label": "Rammendatrice (repriseuse)",
+    "label": "Repriseuse (rammendatrice)",
     "summary": "Operaia tessile specializzata nel rammendo dei tessuti, cioè nella riparazione di strappi e buchi.",
     "text": "La repriseuse chiude gli strappi e i buchi di un tessuto tessendo nuovi fili nel punto danneggiato, tecnica detta del «rammendo», vicina al rammendo invisibile ma generalmente applicata alla biancheria e agli abiti correnti."
   },
   "resarcisseuse": {
     "aliases": [],
-    "label": "Rammendatrice (resarcisseuse)",
+    "label": "Resarcisseuse (rammendatrice)",
     "summary": "Operaia tessile specializzata nel rammendo e nella riparazione dei tessuti strappati o consumati.",
     "text": "Dal latino resarcire («riparare, ricucire»), questo termine antico e raro designa un'operaia incaricata di rimettere in ordine le stoffe rovinate, nello stesso spirito della repriseuse o della ravaudeuse ma con una denominazione più dotta e localizzata."
   },
@@ -23755,7 +23755,7 @@
     "aliases": [
       "Resiniere"
     ],
-    "label": "Resinatore (résinier)",
+    "label": "Résinier (resinatore)",
     "summary": "Operaio forestale specializzato nell'estrazione della resina dai pini mediante incisione della corteccia.",
     "text": "Il résinier (o gemmeur) pratica la resinazione: incide la corteccia dei pini marittimi per raccoglierne la resina (gemma), che cola in un piccolo vaso di terracotta fissato al tronco. Questa attività, emblematica della foresta delle Landes di Guascogna dal XIX secolo, fornì la materia prima dell'industria della trementina e della colofonia fino al suo declino nel XX secolo."
   },
@@ -23782,7 +23782,7 @@
     "aliases": [
       "Ristagnatore"
     ],
-    "label": "Stagnino (ristagnatore)",
+    "label": "Ristagnatore (stagnino)",
     "summary": "Artigiano che applica e ripara il rivestimento di stagno sugli utensili metallici.",
     "text": "Il ristagnatore (spesso ambulante) ricopre di un sottile strato di stagno l'interno degli utensili da cucina di rame o di ferro, operazione necessaria per evitare l'ossidazione tossica del metallo a contatto con gli alimenti, da rinnovare periodicamente."
   },
@@ -24130,7 +24130,7 @@
     "aliases": [
       "Custode di arnie"
     ],
-    "label": "Apicoltore (ruchier)",
+    "label": "Ruchier (apicoltore)",
     "summary": "Apicoltore specializzato nell'allevamento delle api e nella produzione di miele e cera.",
     "text": "Il ruchier mantiene arnie per raccoglierne il miele e la cera, quest'ultima particolarmente ricercata prima del XX secolo per la fabbricazione di ceri e candele."
   },
@@ -24162,7 +24162,7 @@
   },
   "sableur": {
     "aliases": [],
-    "label": "Formatore in sabbia (sableur)",
+    "label": "Sableur (formatore in sabbia)",
     "summary": "Operaio di fonderia specializzato nella confezione delle forme in sabbia per la colata dei metalli.",
     "text": "Il sableur prepara le forme di fonderia costipando una sabbia speciale intorno a un modello, tecnica di formatura in sabbia ancora largamente usata oggi per la fusione di pezzi metallici."
   },
@@ -24256,7 +24256,7 @@
       "Mammana approvata",
       "Levatrice condotta"
     ],
-    "label": "Levatrice (ostetrica)",
+    "label": "Ostetrica (levatrice)",
     "summary": "Donna formata per assistere le donne durante il parto.",
     "text": "La levatrice accompagna la gravidanza e il parto, succedendo alla mammana empirica d'Antico Regime man mano che la professione si professionalizzò e si regolamentò a partire dal XVIII secolo, con la creazione di scuole e di diplomi ufficiali di levatrice."
   },
@@ -24410,7 +24410,7 @@
     "aliases": [
       "Tessitore di saia"
     ],
-    "label": "Saiaio (sarger)",
+    "label": "Sarger (saiaio)",
     "summary": "Fabbricante di saia, tessuto di lana ad armatura diagonale.",
     "text": "Il sarger tesse la saia, stoffa di lana robusta ad armatura diagonale usata per la confezione di abiti correnti, specialità di molte regioni francesi di manifattura laniera."
   },
@@ -24418,7 +24418,7 @@
     "aliases": [
       "Sartore"
     ],
-    "label": "Sarto (sartre)",
+    "label": "Sartre (sarto)",
     "summary": "Antico termine che designa un sarto.",
     "text": "Derivato dal latino sartor («colui che rammenda, che cuce»), «sartre» è un'antica forma meridionale della parola che designa il sarto, oggi nota soprattutto come cognome: è in particolare l'origine del cognome del filosofo Jean-Paul Sartre."
   },
@@ -24547,7 +24547,7 @@
   },
   "scagard": {
     "aliases": [],
-    "label": "Segantino dei Vosgi (sçagard)",
+    "label": "Sçagard (segantino dei Vosgi)",
     "summary": "Operaio di segheria dei Vosgi incaricato di tagliare il legno in tavole.",
     "text": "Il sagard (o sçagard) riduce i tronchi in tavole in una segheria, mestiere ben attestato nei Vosgi, dove l'abbondanza delle foreste di resinose e della forza idraulica fece prosperare le segherie. La parola viene dall'antico tedesco «sagôn» (oggi «sägen»), che significa segare."
   },
@@ -24599,13 +24599,13 @@
   },
   "schalliste": {
     "aliases": [],
-    "label": "Tessitore di scialli (schalliste)",
+    "label": "Schalliste (tessitore di scialli)",
     "summary": "Tessitore specializzato nella fabbricazione di scialli.",
     "text": "Lo schalliste tesse scialli, accessorio d'abbigliamento molto in voga nel XIX secolo. Il mestiere si sviluppa con la moda degli scialli di tipo cachemire, prodotti in particolare nelle manifatture lionesi e parigine."
   },
   "scharfrichter": {
     "aliases": [],
-    "label": "Boia (Scharfrichter)",
+    "label": "Scharfrichter (boia)",
     "summary": "Termine tedesco che designa il boia, esecutore dell'alta giustizia.",
     "text": "Lo Scharfrichter (letteralmente «giudice tagliente») è il termine tedesco per boia, incaricato di eseguire le pene capitali e talvolta la tortura giudiziaria. Si incontra nei registri dell'Alsazia, della Lorena e di altre regioni di cultura germanica, dove lo stato civile usa spesso la terminologia tedesca."
   },
@@ -24661,7 +24661,7 @@
     "aliases": [
       "Scuoiatore di carogne"
     ],
-    "label": "Scorticatore (Schinder)",
+    "label": "Schinder (scorticatore)",
     "summary": "Scorticatore incaricato di sezionare gli animali morti, termine di origine germanica.",
     "text": "Lo Schinder squarta le bestie morte o inadatte al consumo e ne tratta i cuoi e le pelli, mestiere considerato impuro e socialmente svalutato nelle società germaniche d'Antico Regime. Il termine si incontra nei registri delle regioni di cultura tedesca (Alsazia, Mosella)."
   },
@@ -24788,7 +24788,7 @@
   },
   "scloneur": {
     "aliases": [],
-    "label": "Vagonista (scloneur)",
+    "label": "Scloneur (vagonista)",
     "summary": "Minatore incaricato del trasporto del minerale sui vagoncini nelle gallerie.",
     "text": "Lo scloneur spinge e guida i vagoncini di minerale lungo le gallerie sotterranee, tra il fronte di taglio e il pozzo di estrazione. Termine regionale del lessico minerario vallone e della Francia settentrionale."
   },
@@ -24872,7 +24872,7 @@
   },
   "seillietier": {
     "aliases": [],
-    "label": "Secchiaio (seillietier)",
+    "label": "Seillietier (secchiaio)",
     "summary": "Fabbricante di secchi e di seilles, secchi da vendemmia di forma ovale.",
     "text": "Il seillietier fabbrica secchi e seilles, secchi da vendemmia di forma ovale il cui fondo è più stretto dell'imboccatura, muniti di una maniglia su ciascun lato."
   },
@@ -25043,7 +25043,7 @@
   },
   "serre_frein": {
     "aliases": [],
-    "label": "Frenatore (serre-frein)",
+    "label": "Serre-frein (frenatore)",
     "summary": "Addetto ferroviario incaricato di azionare manualmente i freni dei vagoni.",
     "text": "Il serre-frein viaggia a bordo di un vagone munito di una postazione di frenatura manuale, che aziona su ordine del macchinista per rallentare o fermare il treno, prima della generalizzazione del freno continuo automatico. Il mestiere, scomparso con la modernizzazione del materiale ferroviario, è ben attestato nei registri dei ferrovieri del XIX e dell'inizio del XX secolo."
   },
@@ -25132,7 +25132,7 @@
   },
   "silindreur": {
     "aliases": [],
-    "label": "Cilindratore (silindreur)",
+    "label": "Silindreur (cilindratore)",
     "summary": "Operaio che usava un cilindro per ammorbidire il cuoio o lucidare le stoffe.",
     "text": "Il silindreur fa passare le pelli o le stoffe sotto un cilindro (calandra) per ammorbidirle, lisciarle o dar loro lucentezza, ultima fase prima della messa in vendita. Termine della rifinitura nei mestieri del cuoio e del tessile."
   },
@@ -25225,7 +25225,7 @@
   },
   "sommelier": {
     "aliases": [],
-    "label": "Bottigliere (sommelier)",
+    "label": "Sommelier (bottigliere)",
     "summary": "Ufficiale d'Antico Regime incaricato del servizio della tavola, della posateria e dei vini.",
     "text": "Sotto l'Antico Regime il sommelier è un ufficiale di casa nobile o regia incaricato del servizio e della custodia della posateria, della biancheria da tavola e dei vini, funzione d'intendenza ben più ampia del senso attuale ristretto al vino. Il senso moderno, specializzato nella scelta e nel servizio dei vini al ristorante, si impone solo a partire dal XIX-XX secolo."
   },
@@ -25268,7 +25268,7 @@
   },
   "souchier": {
     "aliases": [],
-    "label": "Zoccolaio (souchier)",
+    "label": "Souchier (zoccolaio)",
     "summary": "Artigiano zoccolaio che fabbrica calzature di legno in un solo pezzo.",
     "text": "Il souchier ricava da un blocco di legno (una «ceppaia») zoccoli in un solo pezzo, in opposizione allo zoccolaio che lavora talvolta un legno assemblato. Termine regionale per il mestiere di zoccolaio, con varianti grafiche locali."
   },
@@ -25787,7 +25787,7 @@
     "aliases": [
       "Sarto di busti"
     ],
-    "label": "Bustaio (sarto di busti)",
+    "label": "Sarto di busti (bustaio)",
     "summary": "Sarto specializzato nella fabbricazione di busti per donne e bambini.",
     "text": "Il tailleur de corps confeziona busti con stecche di balena («corps à baleines») per donne e bambini, capo essenziale del guardaroba femminile fino all'inizio del XX secolo. Specializzazione distinta da quella del sarto d'abiti ordinario, che richiede una tecnica propria."
   },
@@ -25812,7 +25812,7 @@
   },
   "tailleur_de_sel": {
     "aliases": [],
-    "label": "Misuratore del sale (tailleur de sel)",
+    "label": "Tailleur de sel (misuratore del sale)",
     "summary": "Commesso incaricato di misurare e verificare i sali importati nel porto di Bordeaux.",
     "text": "Il tailleur de sel è un commesso del porto di Bordeaux incaricato di misurare e controllare i carichi di sale importati, in particolare per la riscossione delle tasse che gravavano pesantemente su questo prodotto (gabella). Funzione specializzata del commercio portuale del sale."
   },
@@ -26167,7 +26167,7 @@
     "aliases": [
       "Embricaio"
     ],
-    "label": "Tegolaio (thuilier)",
+    "label": "Thuilier (tegolaio)",
     "summary": "Fabbricante di tegole secondo le tecniche tradizionali della terracotta.",
     "text": "Il thuilier (variante di «tuilier») modella e cuoce tegole d'argilla in una fornace, spesso installata vicino a un giacimento d'argilla e a un corso d'acqua. Mestiere affine a quello del vasaio, con cui condivide le stesse tecniche di cottura."
   },
@@ -26844,7 +26844,7 @@
   },
   "trelissier": {
     "aliases": [],
-    "label": "Tessitore di traliccio (trélissier)",
+    "label": "Trélissier (tessitore di traliccio)",
     "summary": "Tessitore occitano specializzato nella tela di canapa chiamata «trélis».",
     "text": "Il trélissier tesse il trélis, tela di canapa a tre fili considerata l'antenata del traliccio, usata in particolare per sacchi, teloni e abiti da lavoro. Il termine, affine all'occitano, è attestato soprattutto nel Mezzogiorno della Francia, regione di forte coltura della canapa."
   },
@@ -26932,7 +26932,7 @@
     "aliases": [
       "Vagabondo di strada"
     ],
-    "label": "Vagabondo (trimardeur)",
+    "label": "Trimardeur (vagabondo)",
     "summary": "Vagabondo che percorre le strade, compiendo talvolta lavori occasionali.",
     "text": "Il trimardeur (dal gergo «trimard», la strada) è un uomo senza fissa dimora che vaga di villaggio in villaggio, vivendo di piccoli lavori occasionali o di mendicità, in particolare durante le grandi mietiture in cui si ricercava manodopera itinerante. Il termine, reso popolare alla fine del XIX secolo, si distingue dal semplice giornaliero per il modo di vita itinerante."
   },
@@ -26967,7 +26967,7 @@
   },
   "trollard": {
     "aliases": [],
-    "label": "Portatore a spalla (trollard)",
+    "label": "Trollard (portatore a spalla)",
     "summary": "Portatore che trasporta colli e merci sulla schiena.",
     "text": "Il trollard trasporta merci o colli a spalla d'uomo nelle strade e nei sobborghi, in un'epoca in cui molti quartieri urbani restavano di difficile accesso ai veicoli. Si avvicina per funzione al facchino o al portatore."
   },
@@ -27196,7 +27196,7 @@
   },
   "usinier": {
     "aliases": [],
-    "label": "Industriale (usinier)",
+    "label": "Usinier (industriale)",
     "summary": "Persona che lavora in una fabbrica, o che ne gestisce una.",
     "text": "Secondo il contesto, l'usinier designa o un operaio impiegato in una fabbrica, o il conduttore o il proprietario di uno stabilimento industriale (per esempio un mulino o una fucina sfruttati industrialmente). Il termine si generalizza con lo sviluppo dell'industria nel XIX secolo."
   },
@@ -27215,7 +27215,7 @@
       "Commesso viaggiatore",
       "Viaggiatore di commercio"
     ],
-    "label": "Rappresentante di commercio (V.R.P.)",
+    "label": "V.R.P. (rappresentante di commercio)",
     "summary": "Viaggiatore, rappresentante o piazzista: statuto commerciale dei venditori itineranti.",
     "text": "La sigla V.R.P. designa uno statuto giuridico francese proprio dei rappresentanti di commercio che vendono per conto di una o più imprese spostandosi presso la clientela. Questo statuto, disciplinato dal diritto del lavoro dal XX secolo, distingue il viaggiatore, il rappresentante e il piazzista secondo le condizioni di esercizio."
   },
@@ -27540,7 +27540,7 @@
   },
   "vergeur": {
     "aliases": [],
-    "label": "Stazzatore di botti (vergeur)",
+    "label": "Vergeur (stazzatore di botti)",
     "summary": "Stazzatore che misura la capacità delle botti con un'asta graduata.",
     "text": "Il vergeur misura la capacità delle botti e dei fusti con una «verge», regolo graduato il cui nome dà nel XVI secolo i verbi «verger»/«vergier» (stazzare) e la parola «vergeur» (stazzatore). Il mestiere è sinonimo del velteur, che compie la stessa operazione con uno strumento paragonabile chiamato velte."
   },
@@ -27730,7 +27730,7 @@
     "aliases": [
       "Viminarius"
     ],
-    "label": "Cestaio (vietor)",
+    "label": "Vietor (cestaio)",
     "summary": "Cestaio e, per estensione, bottaio; termine d'origine latina («vietor», colui che intreccia).",
     "text": "Il vietor (o vitor) designa un cestaio, artigiano che intreccia il vimini o altre fibre vegetali per fabbricare panieri e oggetti intrecciati; la parola viene dal latino «vietor» (da «viere», intrecciare). È attestata anche con il senso di bottaio, poiché i due mestieri condividevano storicamente tecniche vicine di curvatura e di legatura del legno (cerchi di botti, impagliatura)."
   },
@@ -27912,7 +27912,7 @@
   },
   "voiturier_a_dos": {
     "aliases": [],
-    "label": "Portatore a spalla (voiturier à dos)",
+    "label": "Voiturier à dos (portatore a spalla)",
     "summary": "Portatore che carica e trasporta merci a spalla d'uomo o a dorso di bestia.",
     "text": "Il voiturier à dos si occupa del carico, dello scarico e talvolta del trasporto di merci portate sulla schiena, nei luoghi dove l'accesso ai veicoli a ruote è difficile (vicoli stretti, sentieri di montagna). Si avvicina per funzione al facchino o al portatore."
   },
@@ -28096,13 +28096,13 @@
   },
   "waretier": {
     "aliases": [],
-    "label": "Copritetto di paglia (waretier)",
+    "label": "Waretier (copritetto di paglia)",
     "summary": "Artigiano che copre i tetti con materiali vegetali (paglia, canna o erica).",
     "text": "Il waretier (copritetto di paglia) copre i tetti con vegetali intrecciati, paglia, canna o erica secondo la regione, tecnica di copertura tradizionale ancora visibile in alcune case rurali del Nord della Francia. Il termine, di inflessione dialettale, designa lo stesso mestiere del chaumier."
   },
   "wasenmeister": {
     "aliases": [],
-    "label": "Scorticatore (Wasenmeister)",
+    "label": "Wasenmeister (scorticatore)",
     "summary": "Scorticatore tedesco, spesso incaricato anche di funzioni legate all'esecuzione delle pene.",
     "text": "Il Wasenmeister è, nei paesi di lingua tedesca, lo scorticatore incaricato della rimozione e dello squartamento degli animali morti, funzione di salubrità pubblica. Come il boia, con cui la funzione era talvolta cumulata, apparteneva alla categoria dei mestieri detti «disonorevoli» (unehrliche Berufe) nella società germanica d'Antico Regime."
   },
@@ -28216,7 +28216,7 @@
   },
   "yane": {
     "aliases": [],
-    "label": "Vagabondo (yane)",
+    "label": "Yane (vagabondo)",
     "summary": "Vagabondo che percorre le strade.",
     "text": "Lo yane designa un vagabondo errante per le strade, termine raro e regionale il cui uso si limita ad alcune fonti dialettali."
   },
@@ -28371,7 +28371,7 @@
   },
   "zordisseur": {
     "aliases": [],
-    "label": "Orditore (zordisseur)",
+    "label": "Zordisseur (orditore)",
     "summary": "Operaio tessile che dispone i fili d'ordito prima della tessitura.",
     "text": "Lo zordisseur prepara e dispone i fili d'ordito sul telaio prima della tessitura vera e propria, operazione affine all'orditura (il termine, di inflessione dialettale del Nord, sembra essere una variante regionale di «ourdisseur», orditore)."
   },

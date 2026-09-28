@@ -762,7 +762,10 @@ a Polish register's `Kmieć` returns the French sheet under `/reference/fr/`.
 Keys match first, then the aliases of `lang`'s own file, then those of the
 other languages in the order above, so a term two languages use for
 different entries goes to `lang`'s. English holds every entry; a sheet not
-yet written in `lang` is returned in English. A given-name sheet covers one
+yet written in `lang` is returned in English. An occupation sheet's label
+names the term as records write it, followed, when `lang` does not use that
+word itself, by a gloss in `lang` in parentheses: `Kmieć (paysan tenancier)`,
+`Laboureur (ploughman-farmer)`. A given-name sheet covers one
 name as written in one language, masculine and feminine apart: Jean,
 Jeanne, Johann and Giovanni are four sheets, each with its own saint and
 feast day, while spellings, diminutives and Latin forms met in records
