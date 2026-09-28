@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, and notable lists."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:18:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:20:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -153,9 +153,7 @@ tree's used places span.
 ## 5. Names and occupations
 
 Donuts of the ten most common family names, occupations, men's first given
-names and women's first given names, then the **given names carried once**:
-the first given names only one person carries, for men and for women, with
-how many there are.
+names and women's first given names.
 
 ## 6. Charts
 

@@ -71,9 +71,6 @@ pub struct TreeStatistics {
     pub top_given_names_men: Vec<CountEntry>,
     pub top_given_names_women: Vec<CountEntry>,
     pub top_occupations: Vec<CountEntry>,
-    /// First given names carried by one person only, alphabetically.
-    pub rare_given_names_men: Vec<String>,
-    pub rare_given_names_women: Vec<String>,
     /// Every event type with how many events it has, most used first; the
     /// label is the `EventType` in its snake_case form.
     pub event_types: Vec<CountEntry>,
@@ -637,17 +634,6 @@ fn top(values: impl IntoIterator<Item = String>) -> Vec<CountEntry> {
     entries
 }
 
-/// The labels that come once, alphabetically.
-fn rare(values: impl IntoIterator<Item = String>) -> Vec<String> {
-    let mut labels: Vec<String> = tally(values)
-        .into_iter()
-        .filter(|e| e.count == 1)
-        .map(|e| e.label)
-        .collect();
-    labels.sort_by_cached_key(|l| l.to_lowercase());
-    labels
-}
-
 fn first_given_name(profile: &PersonProfile) -> Option<String> {
     profile
         .primary_name
@@ -1161,8 +1147,6 @@ pub fn compute(
         top_given_names_men: top(given(Some(Sex::Male))),
         top_given_names_women: top(given(Some(Sex::Female))),
         top_occupations,
-        rare_given_names_men: rare(given(Some(Sex::Male))),
-        rare_given_names_women: rare(given(Some(Sex::Female))),
         event_types,
         children_histogram,
         events_by_year: events_by_year.years(),
@@ -1444,9 +1428,6 @@ mod tests {
                 .any(|e| e.label == "Jean" && e.count == 2)
         );
         assert_eq!(stats.top_given_names_women.len(), 2);
-        // Each of the women's given names is carried once.
-        assert_eq!(stats.rare_given_names_women, vec!["Anne", "Marie"]);
-        assert!(stats.rare_given_names_men.is_empty());
         assert_eq!((stats.surnames, stats.given_names), (2, 3));
     }
 

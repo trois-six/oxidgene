@@ -6133,31 +6133,9 @@ pub const LAYOUT_STYLES: &str = r#"
     .stats-tile-label { font-size: 0.8rem; color: var(--text-secondary); }
     .stats-tile-detail { font-size: 0.72rem; color: var(--text-muted); }
 
-    .stats-grid + .stats-card { margin-top: 16px; }
-
     .stats-grid-3 {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         margin-top: 16px;
-    }
-
-    .stats-rare {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 16px;
-    }
-
-    .stats-rare-title {
-        margin: 0 0 4px;
-        font-size: 0.8rem;
-        color: var(--text-secondary);
-    }
-
-    .stats-rare-names {
-        margin: 0;
-        max-height: 160px;
-        overflow-y: auto;
-        font-size: 0.8rem;
-        line-height: 1.5;
     }
 
     .stats-bars { display: grid; gap: 3px; font-size: 0.75rem; }
@@ -6457,7 +6435,6 @@ pub const LAYOUT_STYLES: &str = r#"
     @media (max-width: 900px) {
         .stats-grid,
         .stats-grid-3,
-        .stats-rare,
         .stats-places { grid-template-columns: minmax(0, 1fr); }
         /* The years, the interval and the button on one line, the ruler
            on its own below them. */

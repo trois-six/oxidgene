@@ -1460,8 +1460,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("stats.chart.given_names_women", "10 najczęstszych imion żeńskich"),
         ("stats.hint.given_names_men", "Mężczyźni liczeni według pierwszego imienia."),
         ("stats.hint.given_names_women", "Kobiety liczone według pierwszego imienia."),
-        ("stats.chart.rare_given_names", "Imiona noszone tylko raz"),
-        ("stats.hint.rare_given_names", "Pierwsze imiona noszone przez jedną osobę, bez względu na wielkość liter."),
         ("stats.chart.births_by_country", "Urodzenia według kraju"),
         ("stats.chart.births_by_region", "Urodzenia według regionu"),
         ("stats.chart.births_by_subdivision", "Urodzenia według powiatu"),

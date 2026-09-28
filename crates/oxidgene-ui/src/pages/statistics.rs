@@ -586,19 +586,6 @@ fn render_places(stats: &TreeStatistics, paths: Memo<Vec<String>>, i18n: &I18n) 
 
 fn render_names(stats: &TreeStatistics, i18n: &I18n) -> Element {
     let i18n = *i18n;
-    let rare = [
-        (
-            "men",
-            i18n.t("stats.series.men"),
-            &stats.rare_given_names_men,
-        ),
-        (
-            "women",
-            i18n.t("stats.series.women"),
-            &stats.rare_given_names_women,
-        ),
-    ];
-    let no_rare = rare.iter().all(|(_, _, names)| names.is_empty());
     rsx! {
         {block(&i18n, "surnames_occupations", rsx! {
             div { class: "stats-grid",
@@ -610,20 +597,6 @@ fn render_names(stats: &TreeStatistics, i18n: &I18n) -> Element {
             div { class: "stats-grid",
                 {donut_card(&i18n, "given_names_men", counts(&stats.top_given_names_men))}
                 {donut_card(&i18n, "given_names_women", counts(&stats.top_given_names_women))}
-            }
-            ChartCard {
-                title: i18n.t("stats.chart.rare_given_names"),
-                hint: i18n.t("stats.hint.rare_given_names"),
-                empty: no_rare,
-                i18n,
-                div { class: "stats-rare",
-                    for (key, label, names) in rare {
-                        div { key: "{key}", class: "stats-rare-column",
-                            h4 { class: "stats-rare-title", "{label} ({names.len()})" }
-                            p { class: "stats-rare-names", {names.join(", ")} }
-                        }
-                    }
-                }
             }
         })}
     }

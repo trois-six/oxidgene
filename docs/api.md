@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T11:47:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:20:00Z }
 ---
 
 
@@ -588,9 +588,7 @@ The response carries:
 - **Rankings** `{label, count}`: the top ten `top_surnames`,
   `top_given_names_men`, `top_given_names_women`, `top_occupations`, and
   every `event_types` entry (the label an `EventType` in snake_case), most
-  first; `rare_given_names_men` and `rare_given_names_women`, the first
-  given names carried once; `children_histogram`, the unions by number of
-  children.
+  first; `children_histogram`, the unions by number of children.
 - **Time series** filed by year, oldest first, only the years with a value
   appearing (the client groups them into periods of any width over any
   range of years, [Statistics §7](ui-statistics.md)): averages as

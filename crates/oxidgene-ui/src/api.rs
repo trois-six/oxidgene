@@ -237,8 +237,6 @@ pub struct TreeStatistics {
     pub top_given_names_men: Vec<StatCount>,
     pub top_given_names_women: Vec<StatCount>,
     pub top_occupations: Vec<StatCount>,
-    pub rare_given_names_men: Vec<String>,
-    pub rare_given_names_women: Vec<String>,
     /// Labels are `EventType`s in their snake_case form.
     pub event_types: Vec<StatCount>,
     pub children_histogram: Vec<i64>,

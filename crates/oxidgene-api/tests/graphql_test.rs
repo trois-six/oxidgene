@@ -3802,7 +3802,7 @@ async fn tree_statistics_match_rest() {
         &format!(
             r#"{{ treeStatistics(treeId: "{tree_id}", approximate: true, language: "fr") {{
                 persons unknownSex sources firstYear topSurnames {{ label count }}
-                topGivenNamesMen {{ label }} rareGivenNamesWomen eventTypes {{ label count }}
+                topGivenNamesMen {{ label }} eventTypes {{ label count }}
                 lifespan {{ all {{ count mean median stdDev min max }} men {{ mean }} }}
                 generationInterval {{ mean }} childrenHistogram mortality {{ year counts }}
                 records {{ kind persons {{ name }} value value2 }}
