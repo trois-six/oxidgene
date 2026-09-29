@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T06:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:48:00Z }
 ---
 
 
@@ -1733,7 +1733,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Persons (INDI) | Full | Full | All names (multiple `NAME` records), sex, events |
 | Families (FAM) | Full | Full | Spouses, children, events, `FAMS`/`FAMC` back-links |
 | Events with native tags | Lossless | Lossless | See EventType enum for tag list |
-| Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType |
+| Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType. A `TITL` whose `PLAC` only repeats the title's domain, as GeneWeb writes `[Roi:de France]` (`TITL Roi de France`, `PLAC de France`), creates no place: the domain is no locality and stays in the title's text. A `TITL` with any other `PLAC` keeps it |
 | Occupation (`OCCU`) | Split | One tag per profession, or merged | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` (each part trimmed) into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event unless `merge_occupations=true`, which collapses them back into a single comma-separated tag for importers that only support one profession field |
 | Name aliases (`SURN`) | Split | One `NAME` per alias, or merged | The primary `PersonName` takes its surname from the `NAME` line, not `SURN` — Geneanet packs every surname alias it knows into a single `SURN` sub-tag (e.g. `"LE NADEN,NADAM"`) instead of matching `NAME`. That value is split on `,` (each part trimmed, primary excluded) into one `AlsoKnownAs` `PersonName` per alias. Export writes one `NAME`/`SURN` structure per name unless `merge_names=true`, which collapses non-primary names back into the primary name's comma-separated `SURN` tag for importers that only read the first `NAME` structure |
 | Adoption (`ADOP`) | Full | Full | Individual-level event; adoptive family via nested `FAMC` |

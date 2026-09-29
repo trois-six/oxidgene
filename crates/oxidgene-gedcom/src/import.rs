@@ -2099,21 +2099,33 @@ fn import_attribute_detail(
         .map(crate::date::parse)
         .unwrap_or_default();
 
-    // Place
+    // Place — but not a title's domain. GeneWeb writes `[Roi:de France]`
+    // as `TITL Roi de France` with `PLAC de France`: the "place" is the
+    // domain the title is of, already in its text, and no locality.
+    let title_domain = |name: &str| {
+        event_type == EventType::NobilityTitle
+            && detail
+                .value
+                .as_deref()
+                .is_some_and(|title| names_domain(title, name))
+    };
     let place_id = detail.place.as_ref().and_then(|p| {
-        p.value.as_ref().map(|name| {
-            let pid = get_or_create_place(name, result);
-            if let Some(ref map) = p.map
-                && let (Some(lat_str), Some(lon_str)) = (&map.latitude, &map.longitude)
-                && let (Ok(lat), Ok(lon)) =
-                    (parse_gedcom_coord(lat_str), parse_gedcom_coord(lon_str))
-                && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
-            {
-                place.latitude = Some(lat);
-                place.longitude = Some(lon);
-            }
-            pid
-        })
+        p.value
+            .as_ref()
+            .filter(|name| !title_domain(name))
+            .map(|name| {
+                let pid = get_or_create_place(name, result);
+                if let Some(ref map) = p.map
+                    && let (Some(lat_str), Some(lon_str)) = (&map.latitude, &map.longitude)
+                    && let (Ok(lat), Ok(lon)) =
+                        (parse_gedcom_coord(lat_str), parse_gedcom_coord(lon_str))
+                    && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
+                {
+                    place.latitude = Some(lat);
+                    place.longitude = Some(lon);
+                }
+                pid
+            })
     });
 
     let cause = detail.cause.clone();
@@ -2209,6 +2221,24 @@ fn import_attribute_detail(
             );
         }
     }
+}
+
+/// Whether a title's text names `place` as its domain: "Roi de France"
+/// names "de France", "Marquis d'Anvers 2 (Charles)" names "d'Anvers". Case
+/// aside, the place follows a space in the title and ends a word there.
+fn names_domain(title: &str, place: &str) -> bool {
+    let place = place.trim().to_lowercase();
+    if place.is_empty() {
+        return false;
+    }
+    let title = title.to_lowercase();
+    let needle = format!(" {place}");
+    title.match_indices(&needle).any(|(at, _)| {
+        title[at + needle.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| c == ' ' || c == '(' || c == ',')
+    })
 }
 
 /// Splits a free-text value on common list separators, trimming whitespace

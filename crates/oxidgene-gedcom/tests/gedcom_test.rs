@@ -1775,3 +1775,51 @@ fn test_import_drops_geneweb_bookkeeping_from_events() {
     assert_eq!(other.description.as_deref(), Some("Tutelle apres un deces"));
     assert_eq!(note_of(other.id), Some("Acte non numerise"));
 }
+
+/// Titles as GeneWeb converts `[Duc:de Village-A]`: the domain is written
+/// both in the title and as its PLAC. A title with a real place keeps it.
+const TITLE_DOMAIN_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Anna /BRANCH_A/
+1 SEX F
+1 TITL Duchesse de Village-A
+2 PLAC de Village-A
+1 TITL Marquise d'Estate-B 2 (Anna)
+2 PLAC d'Estate-B
+1 TITL Comtesse
+2 PLAC Town-C
+0 TRLR
+";
+
+#[test]
+fn test_import_drops_a_title_domain_written_as_its_place() {
+    let result = import_gedcom(TITLE_DOMAIN_GEDCOM, Uuid::now_v7()).unwrap();
+    let places: Vec<&str> = result.places.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(places, ["Town-C"], "only the real place is created");
+
+    let titles: Vec<(&str, bool)> = result
+        .events
+        .iter()
+        .filter(|e| e.event_type == oxidgene_core::EventType::NobilityTitle)
+        .map(|e| {
+            (
+                e.description.as_deref().unwrap_or_default(),
+                e.place_id.is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            ("Duchesse de Village-A", false),
+            ("Marquise d'Estate-B 2 (Anna)", false),
+            ("Comtesse", true),
+        ],
+        "the domain stays in the title's text"
+    );
+}
