@@ -14,6 +14,7 @@
 //! caller via [`oxidgene_core::search::normalize_for_search`]; queries are
 //! normalized here, so both backends match identically.
 
+use crate::repo::db_err;
 use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::normalize_for_search;
@@ -242,7 +243,7 @@ impl PersonSearchRepo {
             [Value::from(tree_id.to_string())],
         ))
         .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        .map_err(db_err)?;
         Ok(())
     }
 
@@ -265,7 +266,7 @@ impl PersonSearchRepo {
         ))
         .await
         .map(|row| row.is_some())
-        .map_err(|e| OxidGeneError::Database(e.to_string()))
+        .map_err(db_err)
     }
 
     /// Count the search rows for a tree.
@@ -285,11 +286,11 @@ impl PersonSearchRepo {
                 [Value::from(tree_id.to_string())],
             ))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         let count: i64 = row
             .map(|r| r.try_get("", "cnt"))
             .transpose()
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .unwrap_or(0);
         Ok(count.max(0) as u64)
     }
@@ -339,17 +340,12 @@ impl PersonSearchRepo {
 
         let stmt = Self::filtered_statement(backend, tree_id, &words, filters, sort, limit, offset);
 
-        let rows = db
-            .query_all_raw(stmt)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let rows = db.query_all_raw(stmt).await.map_err(db_err)?;
 
         let mut total_count: u64 = 0;
         let mut entries = Vec::with_capacity(rows.len());
         for row in rows {
-            let total: i64 = row
-                .try_get("", "total_count")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            let total: i64 = row.try_get("", "total_count").map_err(db_err)?;
             total_count = total.max(0) as u64;
             entries.push(Self::row_to_entry(&row)?);
         }
@@ -383,16 +379,12 @@ impl PersonSearchRepo {
         let Some(row) = db
             .query_one_raw(Statement::from_sql_and_values(backend, subject, values))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
         else {
             return Ok(Vec::new());
         };
-        let surname: String = row
-            .try_get("", "surname")
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-        let given_names: String = row
-            .try_get("", "given_names")
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let surname: String = row.try_get("", "surname").map_err(db_err)?;
+        let given_names: String = row.try_get("", "given_names").map_err(db_err)?;
         if surname.trim().is_empty() || given_names.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -439,7 +431,7 @@ impl PersonSearchRepo {
 
         db.query_all_raw(Statement::from_sql_and_values(backend, sql, values))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .iter()
             .map(Self::row_to_entry)
             .collect()
@@ -467,13 +459,10 @@ impl PersonSearchRepo {
         );
         db.query_all_raw(Statement::from_sql_and_values(backend, sql, values))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .iter()
             .map(|row| {
-                let get = |column: &str| {
-                    row.try_get::<String>("", column)
-                        .map_err(|e| OxidGeneError::Database(e.to_string()))
-                };
+                let get = |column: &str| row.try_get::<String>("", column).map_err(db_err);
                 Ok((get("surname_display")?, get("given_names_display")?))
             })
             .collect()
@@ -537,7 +526,7 @@ impl PersonSearchRepo {
             .collect();
         db.execute_raw(Statement::from_sql_and_values(backend, sql, values))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(())
     }
 
@@ -597,19 +586,17 @@ impl PersonSearchRepo {
             );
             db.execute_raw(Statement::from_sql_and_values(backend, sql, values))
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
         }
         Ok(())
     }
 
     fn row_to_entry(row: &sea_orm::QueryResult) -> Result<PersonSearchEntry, OxidGeneError> {
         let get_string = |col: &str| -> Result<String, OxidGeneError> {
-            row.try_get::<String>("", col)
-                .map_err(|e| OxidGeneError::Database(e.to_string()))
+            row.try_get::<String>("", col).map_err(db_err)
         };
         let get_opt = |col: &str| -> Result<Option<String>, OxidGeneError> {
-            row.try_get::<Option<String>>("", col)
-                .map_err(|e| OxidGeneError::Database(e.to_string()))
+            row.try_get::<Option<String>>("", col).map_err(db_err)
         };
         let parse_uuid = |s: String| -> Result<Uuid, OxidGeneError> {
             Uuid::parse_str(&s).map_err(|e| OxidGeneError::Database(e.to_string()))

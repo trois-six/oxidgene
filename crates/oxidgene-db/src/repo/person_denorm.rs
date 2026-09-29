@@ -18,6 +18,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::entities::person_denorm::{ActiveModel, Column, Entity, Model};
+use crate::repo::db_err;
 
 /// Maximum rows per INSERT batch (5 bind values per row, well under the
 /// SQLite / PostgreSQL parameter limits).
@@ -52,7 +53,7 @@ impl PersonDenormRepo {
             .filter(is_current())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         model.map(decode).transpose()
     }
 
@@ -75,7 +76,7 @@ impl PersonDenormRepo {
                 .filter(is_current())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             for model in models {
                 out.push(decode(model)?);
             }
@@ -99,7 +100,7 @@ impl PersonDenormRepo {
             .filter(Column::TreeId.eq(tree_id))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         models.into_iter().map(decode).collect()
     }
 
@@ -132,7 +133,7 @@ impl PersonDenormRepo {
                 )
                 .exec(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
         }
         Ok(())
     }
@@ -158,7 +159,7 @@ impl PersonDenormRepo {
         Entity::delete_by_id(person_id)
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(())
     }
 
@@ -171,7 +172,7 @@ impl PersonDenormRepo {
             .filter(Column::TreeId.eq(tree_id))
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(())
     }
 
@@ -197,7 +198,7 @@ impl PersonDenormRepo {
             .one(db)
             .await
             .map(|row| row.is_some())
-            .map_err(|e| OxidGeneError::Database(e.to_string()))
+            .map_err(db_err)
     }
 
     /// Count every projection row of a tree, current or stale.
@@ -212,7 +213,7 @@ impl PersonDenormRepo {
             .filter(Column::TreeId.eq(tree_id))
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))
+            .map_err(db_err)
     }
 }
 

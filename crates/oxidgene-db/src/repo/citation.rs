@@ -15,6 +15,7 @@ use crate::entities::citation::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 use crate::entities::source;
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Optional entity filters for listing citations.
@@ -72,7 +73,7 @@ impl CitationRepo {
             .filter(source::Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -86,7 +87,7 @@ impl CitationRepo {
                 .filter(Column::PersonId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -110,7 +111,7 @@ impl CitationRepo {
             .filter(targets)
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -123,7 +124,7 @@ impl CitationRepo {
             .filter(Column::SourceId.eq(source_id))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -137,7 +138,7 @@ impl CitationRepo {
                 .filter(Column::SourceId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -148,7 +149,7 @@ impl CitationRepo {
         Entity::find_by_id(id)
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "Citation",
@@ -182,10 +183,7 @@ impl CitationRepo {
             created_at: Set(now),
             updated_at: Set(now),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -206,7 +204,7 @@ impl CitationRepo {
         let existing = Entity::find_by_id(id)
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Citation",
                 id,
@@ -227,19 +225,13 @@ impl CitationRepo {
         }
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
     /// Hard-delete a citation.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let result = Entity::delete_by_id(id)
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         if result.rows_affected == 0 {
             return Err(OxidGeneError::NotFound {
                 entity: "Citation",

@@ -7,6 +7,7 @@
 //! parent relation is read straight from the family links:
 //! a person's parents are the spouses of the family in which they are a child.
 
+use crate::repo::db_err;
 use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::AncestryLink;
@@ -91,11 +92,9 @@ impl AncestryRepo {
                 ],
             ))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         row.map(|row| {
-            let number = row
-                .try_get::<i64>("", "sosa")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            let number = row.try_get::<i64>("", "sosa").map_err(db_err)?;
             u64::try_from(number).map_err(|e| OxidGeneError::Database(e.to_string()))
         })
         .transpose()
@@ -180,23 +179,20 @@ impl AncestryRepo {
                 [Value::from(tree_id)],
             ))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
-        let database = |e: sea_orm::DbErr| OxidGeneError::Database(e.to_string());
         rows.iter()
             .map(|row| {
-                let role = row
-                    .try_get::<Option<String>>("", "role")
-                    .map_err(database)?;
+                let role = row.try_get::<Option<String>>("", "role").map_err(db_err)?;
                 Ok(FamilyLink {
-                    family_id: row.try_get("", "family_id").map_err(database)?,
-                    person_id: row.try_get("", "person_id").map_err(database)?,
+                    family_id: row.try_get("", "family_id").map_err(db_err)?,
+                    person_id: row.try_get("", "person_id").map_err(db_err)?,
                     spouse_role: role.map(|role| match role.as_str() {
                         "husband" => SpouseRole::Husband,
                         "wife" => SpouseRole::Wife,
                         _ => SpouseRole::Partner,
                     }),
-                    sort_order: row.try_get("", "sort_order").map_err(database)?,
+                    sort_order: row.try_get("", "sort_order").map_err(db_err)?,
                 })
             })
             .collect()
@@ -248,17 +244,13 @@ impl AncestryRepo {
                 [Value::from(person_id), Value::from(depth_limit)],
             ))
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         rows.iter()
             .map(|row| {
                 Ok(AncestryLink {
-                    person_id: row
-                        .try_get::<Uuid>("", "person_id")
-                        .map_err(|e| OxidGeneError::Database(e.to_string()))?,
-                    depth: row
-                        .try_get::<i32>("", "depth")
-                        .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                    person_id: row.try_get::<Uuid>("", "person_id").map_err(db_err)?,
+                    depth: row.try_get::<i32>("", "depth").map_err(db_err)?,
                 })
             })
             .collect()

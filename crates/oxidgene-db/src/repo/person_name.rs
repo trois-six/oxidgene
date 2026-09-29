@@ -15,6 +15,7 @@ use crate::entities::person;
 use crate::entities::person_name::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 
 /// The writable pieces of a name, as a group.
 ///
@@ -68,7 +69,7 @@ impl PersonNameRepo {
             .order_by_asc(Column::Id)
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -85,7 +86,7 @@ impl PersonNameRepo {
                 .order_by_asc(Column::Id)
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -108,7 +109,7 @@ impl PersonNameRepo {
                 .order_by_asc(Column::Id)
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -119,7 +120,7 @@ impl PersonNameRepo {
         Entity::find_by_id(id)
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "PersonName",
@@ -153,10 +154,7 @@ impl PersonNameRepo {
             created_at: Set(now),
             updated_at: Set(now),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -172,7 +170,7 @@ impl PersonNameRepo {
         let existing = Entity::find_by_id(id)
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "PersonName",
                 id,
@@ -208,19 +206,13 @@ impl PersonNameRepo {
         }
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
     /// Hard-delete a person name.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let result = Entity::delete_by_id(id)
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         if result.rows_affected == 0 {
             return Err(OxidGeneError::NotFound {
                 entity: "PersonName",

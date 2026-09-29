@@ -36,6 +36,7 @@ use crate::entities::media::{self, Column, Entity};
 use crate::entities::{event, family_spouse, media_link, media_tag, vignette};
 use crate::repo::MediaRepo;
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, encode_cursor};
 
 /// What a library listing is narrowed to. Every field is optional, and the
@@ -180,7 +181,7 @@ impl MediaLibraryRepo {
                 .into_tuple()
                 .all(db)
                 .await
-                .map_err(db_error)
+                .map_err(db_err)
         })
         .await?;
         Ok(rows.into_iter().collect())
@@ -233,7 +234,7 @@ impl MediaLibraryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(db_error)?;
+            .map_err(db_err)?;
 
         // normalized key -> (documents, best spelling, its documents)
         let mut tags: BTreeMap<String, (i64, String, i64)> = BTreeMap::new();
@@ -281,7 +282,7 @@ impl MediaLibraryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(db_error)?;
+            .map_err(db_err)?;
         let counts: HashMap<MediaFileKind, i64> = rows
             .into_iter()
             .filter_map(|(kind, uses)| Some((MediaFileKind::parse(&kind)?, uses)))
@@ -308,7 +309,7 @@ impl MediaLibraryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(db_error)?;
+            .map_err(db_err)?;
         let counts: HashMap<DocumentCategory, i64> = rows
             .into_iter()
             .filter_map(|(category, uses)| Some((DocumentCategory::parse(&category)?, uses)))
@@ -363,7 +364,7 @@ impl MediaLibraryRepo {
             query =
                 query.filter(Column::CreatedAt.lt(next.and_time(chrono::NaiveTime::MIN).and_utc()));
         }
-        query.into_tuple().all(db).await.map_err(db_error)
+        query.into_tuple().all(db).await.map_err(db_err)
     }
 
     /// Documents linked — themselves or through a page, by a media link or a
@@ -399,7 +400,7 @@ impl MediaLibraryRepo {
             .into_tuple::<Uuid>()
             .all(db)
             .await
-            .map_err(db_error)?
+            .map_err(db_err)?
             .into_iter()
             .collect();
         documents.extend(
@@ -415,7 +416,7 @@ impl MediaLibraryRepo {
                 .into_tuple::<Uuid>()
                 .all(db)
                 .await
-                .map_err(db_error)?,
+                .map_err(db_err)?,
         );
         Ok(documents)
     }
@@ -444,7 +445,7 @@ impl MediaLibraryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(db_error)?;
+            .map_err(db_err)?;
         Ok(rows
             .into_iter()
             .filter(|(_, _, title, file_name)| {
@@ -483,7 +484,7 @@ impl MediaLibraryRepo {
                 .into_tuple()
                 .all(db)
                 .await
-                .map_err(db_error)
+                .map_err(db_err)
         })
         .await?;
         let mut events: Vec<Uuid> = in_chunks(&persons, |chunk| async move {
@@ -516,7 +517,7 @@ impl MediaLibraryRepo {
                         .into_tuple::<Uuid>()
                         .all(db)
                         .await
-                        .map_err(db_error)
+                        .map_err(db_err)
                 })
                 .await?,
             );
@@ -534,7 +535,7 @@ impl MediaLibraryRepo {
                     .into_tuple::<Uuid>()
                     .all(db)
                     .await
-                    .map_err(db_error)
+                    .map_err(db_err)
             })
             .await?,
         );
@@ -603,7 +604,7 @@ async fn event_ids(
         .into_tuple()
         .all(db)
         .await
-        .map_err(db_error)
+        .map_err(db_err)
 }
 
 /// The persons of the tree whose primary name — given names and surname in
@@ -640,11 +641,11 @@ async fn named_persons(
             ],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_err)?;
     rows.into_iter()
         .map(|row| {
-            let id: String = row.try_get("", "person_id").map_err(db_error)?;
-            Uuid::parse_str(&id).map_err(|error| OxidGeneError::Database(error.to_string()))
+            let id: String = row.try_get("", "person_id").map_err(db_err)?;
+            Uuid::parse_str(&id).map_err(|e| OxidGeneError::Database(e.to_string()))
         })
         .collect()
 }
@@ -669,10 +670,6 @@ fn tagged(tag: &str) -> sea_orm::sea_query::SelectStatement {
         .from(media_tag::Entity)
         .and_where(media_tag::Column::NormalizedTag.eq(tag))
         .to_owned()
-}
-
-fn db_error(error: DbErr) -> OxidGeneError {
-    OxidGeneError::Database(error.to_string())
 }
 
 #[cfg(test)]

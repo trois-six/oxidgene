@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::entities::background_job::{self, Column, Entity};
+use crate::repo::db_err;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -115,7 +116,7 @@ impl BackgroundJobRepo {
         }
         .insert(db)
         .await
-        .map_err(|error| OxidGeneError::Database(error.to_string()))
+        .map_err(db_err)
     }
 
     pub async fn get_in_tree(
@@ -127,7 +128,7 @@ impl BackgroundJobRepo {
             .filter(Column::TreeId.eq(tree_id))
             .one(db)
             .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "BackgroundJob",
                 id,
@@ -145,7 +146,7 @@ impl BackgroundJobRepo {
             .into_model::<ActiveImport>()
             .all(db)
             .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))
+            .map_err(db_err)
     }
 
     /// Requeue interrupted jobs when starting the single-worker SQLite runtime.
@@ -163,7 +164,7 @@ impl BackgroundJobRepo {
             .exec(db)
             .await
             .map(|result| result.rows_affected)
-            .map_err(|error| OxidGeneError::Database(error.to_string()))
+            .map_err(db_err)
     }
 
     /// Claim the oldest queued job or a running job whose worker lease expired.
@@ -179,7 +180,7 @@ impl BackgroundJobRepo {
             .order_by_asc(Column::CreatedAt)
             .one(db)
             .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?
+            .map_err(db_err)?
         else {
             return Ok(None);
         };
@@ -198,7 +199,7 @@ impl BackgroundJobRepo {
             .filter(claimable)
             .exec(db)
             .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+            .map_err(db_err)?;
         if updated.rows_affected == 0 {
             return Ok(None);
         }
@@ -228,7 +229,7 @@ impl BackgroundJobRepo {
             .filter(Column::LeaseOwner.eq(worker_id))
             .exec(db)
             .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+            .map_err(db_err)?;
         Ok(result.rows_affected == 1)
     }
 
@@ -250,7 +251,7 @@ impl BackgroundJobRepo {
             .filter(Column::LeaseOwner.eq(worker_id))
             .exec(db)
             .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+            .map_err(db_err)?;
         Ok(result.rows_affected == 1)
     }
 
@@ -321,7 +322,7 @@ impl BackgroundJobRepo {
             .filter(Column::LeaseOwner.eq(worker_id))
             .exec(db)
             .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+            .map_err(db_err)?;
         Ok(result.rows_affected == 1)
     }
 }

@@ -33,6 +33,7 @@ use crate::entities::{
     source, vignette,
 };
 use crate::repo::batch::{in_chunks, sorted_unique};
+use crate::repo::db_err;
 
 /// A distinct free-text value (surname, occupation label) plus the number of
 /// persons carrying it.
@@ -133,7 +134,7 @@ async fn tree_names(
         .filter(person::Column::DeletedAt.is_null())
         .all(db)
         .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))
+        .map_err(db_err)
 }
 
 impl DictionaryRepo {
@@ -158,7 +159,7 @@ impl DictionaryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         // Group by person, not by row: a person with two `PersonName` entries
         // sharing the same surname (e.g. birth + nickname) must count once.
@@ -218,7 +219,7 @@ impl DictionaryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         let mut per_value: HashMap<String, HashSet<Uuid>> = HashMap::new();
         for (person_id, given_names) in names {
@@ -253,7 +254,7 @@ impl DictionaryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         // Group by person: the same label recorded on two occupation events
         // for one person (e.g. at different life stages) must count once.
@@ -276,7 +277,7 @@ impl DictionaryRepo {
             .filter(source::Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         let mut counts: HashMap<Uuid, i64> = HashMap::new();
         if !sources.is_empty() {
@@ -289,7 +290,7 @@ impl DictionaryRepo {
                 .into_tuple()
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             for source_id in cited {
                 *counts.entry(source_id).or_insert(0) += 1;
             }
@@ -350,7 +351,7 @@ impl DictionaryRepo {
             .filter(source::Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         let prefix_upper = prefix.to_uppercase();
         let prefix_len = prefix_upper.chars().count();
@@ -427,7 +428,7 @@ impl DictionaryRepo {
             .filter(place::Column::TreeId.eq(tree_id))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         // Places belong to one tree, so the tree's own events and media are
         // every use there can be. The database counts them: one row per
@@ -445,7 +446,7 @@ impl DictionaryRepo {
                 .into_tuple()
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             let media_counts: Vec<(Option<Uuid>, i64)> = media::Entity::find()
                 .select_only()
                 .column(media::Column::PlaceId)
@@ -457,7 +458,7 @@ impl DictionaryRepo {
                 .into_tuple()
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             for (pid, uses) in event_counts.into_iter().chain(media_counts) {
                 if let Some(pid) = pid {
                     *counts.entry(pid).or_insert(0) += uses;
@@ -486,7 +487,7 @@ impl DictionaryRepo {
             .filter(citation::Column::SourceId.eq(source_id))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         let mut event_ids = Vec::new();
         let mut person_ids: Vec<Uuid> = Vec::new();
@@ -503,7 +504,7 @@ impl DictionaryRepo {
                 .filter(event::Column::Id.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))
+                .map_err(db_err)
         })
         .await?;
         person_ids.extend(events.into_iter().filter_map(|e| e.person_id));
@@ -521,7 +522,6 @@ impl DictionaryRepo {
         db: &impl ConnectionTrait,
         place_id: Uuid,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
-        let db_error = |e: DbErr| OxidGeneError::Database(e.to_string());
         let mut persons: Vec<Uuid> = Vec::new();
         let mut families: Vec<Uuid> = Vec::new();
         let mut event_ids: Vec<Uuid> = Vec::new();
@@ -531,7 +531,7 @@ impl DictionaryRepo {
             .filter(event::Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(db_error)?;
+            .map_err(db_err)?;
         for e in events {
             persons.extend(e.person_id);
             families.extend(e.family_id);
@@ -547,7 +547,7 @@ impl DictionaryRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(db_error)?;
+            .map_err(db_err)?;
         let mut media_ids = documents.clone();
         media_ids.extend(
             in_chunks(&documents, |chunk| async move {
@@ -559,7 +559,7 @@ impl DictionaryRepo {
                     .into_tuple::<Uuid>()
                     .all(db)
                     .await
-                    .map_err(db_error)
+                    .map_err(db_err)
             })
             .await?,
         );
@@ -568,7 +568,7 @@ impl DictionaryRepo {
                 .filter(media_link::Column::MediaId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(db_error)
+                .map_err(db_err)
         })
         .await?;
         for link in links {
@@ -581,7 +581,7 @@ impl DictionaryRepo {
                 .filter(vignette::Column::MediaId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(db_error)
+                .map_err(db_err)
         })
         .await?;
         for crop in crops {
@@ -596,7 +596,7 @@ impl DictionaryRepo {
                 .filter(event::Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(db_error)
+                .map_err(db_err)
         })
         .await?;
         for e in linked {
@@ -610,7 +610,7 @@ impl DictionaryRepo {
                 .filter(family_spouse::Column::FamilyId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(db_error)
+                .map_err(db_err)
         })
         .await?;
         persons.extend(spouses.into_iter().map(|s| s.person_id));
@@ -625,7 +625,7 @@ impl DictionaryRepo {
                 .into_tuple::<Uuid>()
                 .all(db)
                 .await
-                .map_err(db_error)
+                .map_err(db_err)
         })
         .await?
         .into_iter()
@@ -646,7 +646,7 @@ impl DictionaryRepo {
             .filter(event::Column::Description.eq(value))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         Ok(sorted_unique(
             events.into_iter().filter_map(|e| e.person_id).collect(),
@@ -674,7 +674,7 @@ impl DictionaryRepo {
             .filter(person_name::Column::Surname.is_in(root_candidates(value)))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         Ok(sorted_unique(
             names
@@ -855,7 +855,7 @@ impl DictionaryRepo {
                 .filter(person_name::Column::PersonId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))
+                .map_err(db_err)
         })
         .await?;
         let mut name_by_person: HashMap<Uuid, person_name::Model> = HashMap::new();
@@ -886,7 +886,7 @@ impl DictionaryRepo {
                 )
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))
+                .map_err(db_err)
         })
         .await?;
         let mut birth_by_person: HashMap<Uuid, (i32, DateQualifier)> = HashMap::new();
@@ -1023,7 +1023,7 @@ async fn rewrite_surnames(
         }
         .update(db)
         .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        .map_err(db_err)?;
         persons.insert(n.person_id);
         names_updated += 1;
     }

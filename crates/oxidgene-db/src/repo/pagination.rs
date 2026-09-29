@@ -3,6 +3,7 @@
 //! Uses UUID v7 as the cursor — since UUID v7 is time-ordered, `ORDER BY id`
 //! gives chronological insertion order. The cursor is the hex-encoded UUID string.
 
+use crate::repo::db_err;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Edge, PageInfo};
 use sea_orm::entity::prelude::*;
@@ -85,7 +86,7 @@ where
     // Count total matching rows (before cursor/limit).
     let total_count = PaginatorTrait::count(base_query.clone(), db)
         .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        .map_err(db_err)?;
 
     // Build the paginated query.
     let mut query = base_query.order_by(id_column, Order::Asc);
@@ -95,11 +96,7 @@ where
     }
 
     // Fetch limit + 1 to detect has_next_page.
-    let rows = query
-        .limit(limit + 1)
-        .all(db)
-        .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+    let rows = query.limit(limit + 1).all(db).await.map_err(db_err)?;
 
     let has_next_page = rows.len() as u64 > limit;
     let items: Vec<M> = rows.into_iter().take(limit as usize).collect();

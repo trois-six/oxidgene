@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::entities::event::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Optional filters for listing events.
@@ -59,7 +60,7 @@ impl EventRepo {
             .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -74,7 +75,7 @@ impl EventRepo {
                 .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -91,7 +92,7 @@ impl EventRepo {
                 .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -103,7 +104,7 @@ impl EventRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "Event",
@@ -148,10 +149,7 @@ impl EventRepo {
             updated_at: Set(now),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -174,7 +172,7 @@ impl EventRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Event",
                 id,
@@ -210,10 +208,7 @@ impl EventRepo {
         }
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -223,7 +218,7 @@ impl EventRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Event",
                 id,
@@ -231,10 +226,7 @@ impl EventRepo {
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
-        active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        active.update(db).await.map_err(db_err)?;
         Ok(())
     }
 }

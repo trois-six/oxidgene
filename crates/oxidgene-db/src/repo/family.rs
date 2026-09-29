@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::entities::family::{self, ActiveModel, Column, Entity};
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for family CRUD operations.
@@ -37,7 +38,7 @@ impl FamilyRepo {
             .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -57,7 +58,7 @@ impl FamilyRepo {
                 .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(|m| m.id).collect())
         })
         .await
@@ -69,7 +70,7 @@ impl FamilyRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "Family",
@@ -92,10 +93,7 @@ impl FamilyRepo {
             updated_at: Set(now),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -109,7 +107,7 @@ impl FamilyRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Family",
                 id,
@@ -121,10 +119,7 @@ impl FamilyRepo {
         }
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -134,7 +129,7 @@ impl FamilyRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Family",
                 id,
@@ -142,10 +137,7 @@ impl FamilyRepo {
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
-        active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        active.update(db).await.map_err(db_err)?;
         Ok(())
     }
 }

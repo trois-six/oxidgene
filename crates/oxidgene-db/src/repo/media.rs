@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::entities::media::{self, ActiveModel, Column, Entity};
 use crate::entities::{media_link, media_tag, note, person, vignette};
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::{MediaTagRepo, PlaceRepo, VignetteRepo};
 
@@ -127,7 +128,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         let mut media: Vec<Media> = models.into_iter().map(into_domain).collect();
         hydrate_tags(db, &mut media).await?;
         Ok(media)
@@ -144,7 +145,7 @@ impl MediaRepo {
                 .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))
+                .map_err(db_err)
         })
         .await?;
         let mut media: Vec<Media> = models.into_iter().map(into_domain).collect();
@@ -158,7 +159,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id,
@@ -221,10 +222,7 @@ impl MediaRepo {
             updated_at: Set(now),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Self::refresh_page_count(db, document_id).await?;
         Ok(into_domain(result))
     }
@@ -274,10 +272,7 @@ impl MediaRepo {
             updated_at: Set(Utc::now()),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Self::refresh_page_count(db, document_id).await?;
         Ok(into_domain(result))
     }
@@ -296,7 +291,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id,
@@ -321,10 +316,7 @@ impl MediaRepo {
         active.file_size = Set(upload.file_size);
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -379,10 +371,7 @@ impl MediaRepo {
             updated_at: Set(Utc::now()),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -400,7 +389,7 @@ impl MediaRepo {
             .order_by_asc(Column::Id)
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -418,7 +407,7 @@ impl MediaRepo {
                 .order_by_asc(Column::Id)
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -454,7 +443,7 @@ impl MediaRepo {
                 .filter(Column::Id.eq(*page_id))
                 .exec(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
         }
         Self::list_pages(db, document_id).await
     }
@@ -478,7 +467,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id: page_id,
@@ -510,7 +499,7 @@ impl MediaRepo {
             .filter(Column::Id.eq(document_id))
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(())
     }
 
@@ -526,7 +515,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id,
@@ -538,10 +527,7 @@ impl MediaRepo {
         apply_patch(&mut active, patch);
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         let mut media = into_domain(result);
         hydrate_tags(db, std::slice::from_mut(&mut media)).await?;
         Ok(media)
@@ -553,7 +539,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id,
@@ -561,10 +547,7 @@ impl MediaRepo {
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
-        active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        active.update(db).await.map_err(db_err)?;
         Ok(())
     }
 
@@ -578,7 +561,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id,
@@ -589,7 +572,7 @@ impl MediaRepo {
                 .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                .map_err(db_err)?
         } else {
             Vec::new()
         };
@@ -613,7 +596,7 @@ impl MediaRepo {
             .filter(Column::Id.is_not_in(media_ids.iter().copied()))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .into_iter()
             .flat_map(|media| {
                 [media.storage_key, media.thumbnail_key]
@@ -626,25 +609,22 @@ impl MediaRepo {
             .filter(media_tag::Column::MediaId.is_in(media_ids.iter().copied()))
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         delete_media_relations(db, &media_ids).await?;
         note::Entity::delete_many()
             .filter(note::Column::MediaId.is_in(media_ids.iter().copied()))
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         if !page_ids.is_empty() {
             Entity::delete_many()
                 .filter(Column::Id.is_in(page_ids))
                 .exec(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
         }
-        Entity::delete_by_id(id)
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
 
         if let Some(document_id) = root.parent_media_id {
             let remaining: Vec<Uuid> = Self::list_pages(db, document_id)
@@ -674,7 +654,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Media",
                 id,
@@ -687,7 +667,7 @@ impl MediaRepo {
             .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         let mut media_ids: Vec<Uuid> = pages.iter().map(|page| page.id).collect();
         media_ids.push(id);
 
@@ -696,19 +676,19 @@ impl MediaRepo {
             .filter(media_link::Column::Id.ne(allowed_link_id))
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             > 0;
         let has_vignette = vignette::Entity::find()
             .filter(vignette::Column::MediaId.is_in(media_ids.iter().copied()))
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             > 0;
         let has_portrait = person::Entity::find()
             .filter(person::Column::PortraitMediaId.is_in(media_ids.iter().copied()))
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             > 0;
 
         if has_other_link || has_vignette || has_portrait {
@@ -874,7 +854,7 @@ async fn delete_media_relations(
         .filter(vignette::Column::MediaId.is_in(media_ids.iter().copied()))
         .all(db)
         .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?
+        .map_err(db_err)?
         .into_iter()
         .map(|vignette| vignette.id)
         .collect();
@@ -883,7 +863,7 @@ async fn delete_media_relations(
         .filter(media_link::Column::MediaId.is_in(media_ids.iter().copied()))
         .exec(db)
         .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        .map_err(db_err)?;
 
     if !vignette_ids.is_empty() {
         person::Entity::update_many()
@@ -894,12 +874,12 @@ async fn delete_media_relations(
             .filter(person::Column::PortraitVignetteId.is_in(vignette_ids.iter().copied()))
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         vignette::Entity::delete_many()
             .filter(vignette::Column::Id.is_in(vignette_ids))
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
     }
     person::Entity::update_many()
         .col_expr(
@@ -909,7 +889,7 @@ async fn delete_media_relations(
         .filter(person::Column::PortraitMediaId.is_in(media_ids.iter().copied()))
         .exec(db)
         .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        .map_err(db_err)?;
 
     Ok(())
 }

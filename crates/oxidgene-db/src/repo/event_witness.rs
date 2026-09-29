@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::entities::event_witness::{self, Column, Entity};
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 
 /// Repository for event–witness links.
 pub struct EventWitnessRepo;
@@ -23,7 +24,7 @@ impl EventWitnessRepo {
             .order_by_asc(Column::SortOrder)
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -38,7 +39,7 @@ impl EventWitnessRepo {
                 .order_by_asc(Column::SortOrder)
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -49,7 +50,7 @@ impl EventWitnessRepo {
         Entity::find_by_id(id)
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "EventWitness",
@@ -69,7 +70,7 @@ impl EventWitnessRepo {
             .filter(event::Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -82,7 +83,7 @@ impl EventWitnessRepo {
             .filter(Column::PersonId.eq(person_id))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -102,19 +103,13 @@ impl EventWitnessRepo {
             relation: Set(relation),
             sort_order: Set(sort_order),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
     /// Hard-delete an event–witness link.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let result = Entity::delete_by_id(id)
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         if result.rows_affected == 0 {
             return Err(OxidGeneError::NotFound {
                 entity: "EventWitness",

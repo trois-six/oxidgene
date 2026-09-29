@@ -15,6 +15,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, S
 use uuid::Uuid;
 
 use crate::entities::tree::{self, ActiveModel, Column, Entity};
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for tree CRUD operations.
@@ -48,7 +49,7 @@ impl TreeRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound { entity: "Tree", id })
     }
@@ -73,10 +74,7 @@ impl TreeRepo {
             updated_at: Set(now),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -90,7 +88,7 @@ impl TreeRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound { entity: "Tree", id })?;
 
         let mut active: ActiveModel = existing.into_active_model();
@@ -114,10 +112,7 @@ impl TreeRepo {
         }
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -134,7 +129,7 @@ impl TreeRepo {
             .filter(Column::DeletedAt.is_null())
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         if result.rows_affected == 0 {
             return Err(OxidGeneError::NotFound { entity: "Tree", id });
         }
@@ -152,7 +147,7 @@ impl TreeRepo {
             .all(db)
             .await
             .map(|models| models.into_iter().map(|m| m.id).collect())
-            .map_err(|e| OxidGeneError::Database(e.to_string()))
+            .map_err(db_err)
     }
 
     /// Hard-delete a tree. Cascades via `ON DELETE CASCADE` foreign keys to
@@ -168,10 +163,7 @@ impl TreeRepo {
     /// from a request handler. Deleting an already-purged tree is not an
     /// error, so a re-run after a crash is harmless.
     pub async fn purge(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        Entity::delete_by_id(id)
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 }

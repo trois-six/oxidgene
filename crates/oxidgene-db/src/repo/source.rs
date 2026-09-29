@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::entities::source::{self, ActiveModel, Column, Entity};
 use crate::entities::{citation, media_link, note};
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for source CRUD operations.
@@ -38,7 +39,7 @@ impl SourceRepo {
             .filter(Column::DeletedAt.is_null())
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))
+            .map_err(db_err)
     }
 
     /// List all sources in a tree without pagination (excludes soft-deleted).
@@ -51,7 +52,7 @@ impl SourceRepo {
             .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -61,7 +62,7 @@ impl SourceRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "Source",
@@ -82,7 +83,7 @@ impl SourceRepo {
                 .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -113,10 +114,7 @@ impl SourceRepo {
             updated_at: Set(now),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -135,7 +133,7 @@ impl SourceRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Source",
                 id,
@@ -159,10 +157,7 @@ impl SourceRepo {
         }
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -172,7 +167,7 @@ impl SourceRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Source",
                 id,
@@ -180,10 +175,7 @@ impl SourceRepo {
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
-        active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        active.update(db).await.map_err(db_err)?;
         Ok(())
     }
 
@@ -209,7 +201,7 @@ impl SourceRepo {
             .filter(citation::Column::SourceId.eq(id))
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         if referenced(cited) {
             return Ok(false);
         }
@@ -221,7 +213,7 @@ impl SourceRepo {
             .filter(note::Column::DeletedAt.is_null())
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         if referenced(noted) {
             return Ok(false);
         }
@@ -230,7 +222,7 @@ impl SourceRepo {
             .filter(media_link::Column::SourceId.eq(id))
             .count(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         if referenced(linked) {
             return Ok(false);
         }

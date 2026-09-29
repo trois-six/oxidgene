@@ -37,6 +37,7 @@ use crate::entities::{
     citation, event, event_witness, family, family_child, family_spouse, note, person, person_name,
     place, source, tree,
 };
+use crate::repo::db_err;
 
 /// Which records of a tree to snapshot.
 #[derive(Debug, Clone, Copy)]
@@ -1654,8 +1655,4 @@ where
         row.insert(db).await.map_err(db_err)?;
     }
     Ok(())
-}
-
-fn db_err(error: DbErr) -> OxidGeneError {
-    OxidGeneError::Database(error.to_string())
 }

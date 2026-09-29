@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::entities::person_distinct::{self, Column, Entity};
 use crate::repo::batch::sorted_unique;
+use crate::repo::db_err;
 
 /// Repository for distinct-person confirmations.
 pub struct PersonDistinctRepo;
@@ -53,10 +54,7 @@ impl PersonDistinctRepo {
                 created_at: Set(now),
             }
         });
-        Entity::insert_many(rows)
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        Entity::insert_many(rows).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 
@@ -73,7 +71,7 @@ impl PersonDistinctRepo {
             )
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(rows
             .into_iter()
             .map(|row| {
@@ -95,7 +93,7 @@ impl PersonDistinctRepo {
             .filter(Column::TreeId.eq(tree_id))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(rows
             .into_iter()
             .map(|row| ordered(row.person_id, row.other_person_id))
@@ -126,7 +124,7 @@ impl PersonDistinctRepo {
             )
             .exec(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Self::mark(db, tree_id, kept, &inherited).await
     }
 }

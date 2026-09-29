@@ -73,3 +73,8 @@ pub use snapshot::{BuiltSnapshot, SnapshotRepo, SnapshotScope, display_names};
 pub use source::SourceRepo;
 pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};
+
+/// A database error as the domain reports it.
+pub(crate) fn db_err(error: sea_orm::DbErr) -> oxidgene_core::error::OxidGeneError {
+    oxidgene_core::error::OxidGeneError::Database(error.to_string())
+}

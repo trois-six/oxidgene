@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::entities::media_link::{self, Column, Entity};
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 
 /// Which of a media link's four nullable targets to match on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,28 +106,18 @@ impl MediaLinkRepo {
         let stmt =
             Statement::from_sql_and_values(backend, &sql, vec![tree_id.into(), tree_id.into()]);
 
-        let query_results = db
-            .query_all_raw(stmt)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let query_results = db.query_all_raw(stmt).await.map_err(db_err)?;
 
         let mut rows = Vec::with_capacity(query_results.len());
         for row in query_results {
             let get_string = |name: &str| -> Result<String, OxidGeneError> {
-                row.try_get("", name)
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))
+                row.try_get("", name).map_err(db_err)
             };
             rows.push(MediaLinkRow {
-                link_id: row
-                    .try_get("", "link_id")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
-                entity_id: row
-                    .try_get("", "entity_id")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                link_id: row.try_get("", "link_id").map_err(db_err)?,
+                entity_id: row.try_get("", "entity_id").map_err(db_err)?,
                 entity_type: get_string("entity_type")?,
-                media_id: row
-                    .try_get("", "media_id")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                media_id: row.try_get("", "media_id").map_err(db_err)?,
                 file_path: get_string("file_path")?,
                 file_name: get_string("file_name")?,
                 mime_type: get_string("mime_type")?,
@@ -134,7 +125,7 @@ impl MediaLinkRepo {
                 // is what the caller branches on to draw an icon instead.
                 has_thumbnail: row
                     .try_get::<Option<String>>("", "thumbnail_key")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .map_err(db_err)?
                     .is_some(),
             });
         }
@@ -150,7 +141,7 @@ impl MediaLinkRepo {
             .filter(Column::MediaId.eq(media_id))
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -164,7 +155,7 @@ impl MediaLinkRepo {
                 .filter(Column::MediaId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -180,7 +171,7 @@ impl MediaLinkRepo {
                 .filter(Column::PersonId.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -211,7 +202,7 @@ impl MediaLinkRepo {
             .order_by_asc(Column::Id)
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         Ok(rows
             .into_iter()
@@ -241,7 +232,7 @@ impl MediaLinkRepo {
             .order_by_asc(Column::Id)
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         Ok(rows
             .into_iter()
@@ -267,7 +258,7 @@ impl MediaLinkRepo {
             .order_by_asc(Column::Id)
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
 
         Ok(rows
             .into_iter()
@@ -283,7 +274,7 @@ impl MediaLinkRepo {
         Entity::find_by_id(id)
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "MediaLink",
@@ -309,7 +300,7 @@ impl MediaLinkRepo {
                 .filter(Column::EventId.is_not_null())
                 .one(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                .map_err(db_err)?
                 .is_some()
         {
             return Err(OxidGeneError::Validation(
@@ -326,19 +317,13 @@ impl MediaLinkRepo {
             family_id: Set(family_id),
             sort_order: Set(sort_order),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
     /// Hard-delete a media link.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let result = Entity::delete_by_id(id)
-            .exec(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         if result.rows_affected == 0 {
             return Err(OxidGeneError::NotFound {
                 entity: "MediaLink",

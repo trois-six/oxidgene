@@ -25,6 +25,7 @@ use uuid::Uuid;
 use super::batch::{in_chunks, sorted_unique};
 use super::pagination::{PaginationParams, encode_cursor};
 use crate::entities::{audit_entry, record_version};
+use crate::repo::db_err;
 
 /// Filters of the audit log.
 #[derive(Debug, Clone, Copy, Default)]
@@ -654,8 +655,4 @@ fn parse<T: std::str::FromStr<Err = String>>(value: &str) -> Result<T, OxidGeneE
 
 fn parse_snapshot(json: &str) -> Result<RecordSnapshot, OxidGeneError> {
     serde_json::from_str(json).map_err(|e| OxidGeneError::Internal(e.to_string()))
-}
-
-fn db_err(error: DbErr) -> OxidGeneError {
-    OxidGeneError::Database(error.to_string())
 }

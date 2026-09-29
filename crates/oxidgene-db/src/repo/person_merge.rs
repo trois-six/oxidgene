@@ -20,6 +20,7 @@ use crate::entities::{
     citation, event, event_witness, family_child, family_spouse, media_link, note, person,
     person_name, tree, vignette,
 };
+use crate::repo::db_err;
 use crate::repo::person_distinct::PersonDistinctRepo;
 
 /// Re-points a duplicate person's rows at the person kept in its place.
@@ -109,11 +110,11 @@ impl PersonMergeRepo {
             person::Entity::find_by_id(kept)
                 .one(db)
                 .await
-                .map_err(database)?,
+                .map_err(db_err)?,
             person::Entity::find_by_id(duplicate)
                 .one(db)
                 .await
-                .map_err(database)?,
+                .map_err(db_err)?,
         ) else {
             return Err(OxidGeneError::NotFound {
                 entity: "Person",
@@ -140,7 +141,7 @@ impl PersonMergeRepo {
             active.portrait_vignette_id = Set(duplicate_row.portrait_vignette_id);
         }
         active.updated_at = Set(Utc::now());
-        active.update(db).await.map_err(database)?;
+        active.update(db).await.map_err(db_err)?;
         Ok(())
     }
 
@@ -153,12 +154,12 @@ impl PersonMergeRepo {
             .filter(person_name::Column::PersonId.eq(kept))
             .all(db)
             .await
-            .map_err(database)?;
+            .map_err(db_err)?;
         let mut duplicate_names = person_name::Entity::find()
             .filter(person_name::Column::PersonId.eq(duplicate))
             .all(db)
             .await
-            .map_err(database)?;
+            .map_err(db_err)?;
         // Primary first, then in the duplicate's own order, so that when the
         // kept person has no name at all the duplicate's primary stays primary.
         duplicate_names.sort_by_key(|name| (!name.is_primary, name.sort_order));
@@ -172,7 +173,7 @@ impl PersonMergeRepo {
                 person_name::Entity::delete_by_id(name.id)
                     .exec(db)
                     .await
-                    .map_err(database)?;
+                    .map_err(db_err)?;
                 continue;
             }
             let primary = name.is_primary && !has_primary;
@@ -182,7 +183,7 @@ impl PersonMergeRepo {
             active.is_primary = Set(primary);
             active.sort_order = Set(next_order);
             active.updated_at = Set(Utc::now());
-            let moved = active.update(db).await.map_err(database)?;
+            let moved = active.update(db).await.map_err(db_err)?;
             next_order += 1;
             borne.push(moved);
         }
@@ -198,7 +199,7 @@ impl PersonMergeRepo {
             .filter(family_spouse::Column::PersonId.eq(kept))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
             .into_iter()
             .map(|link| link.family_id)
             .collect();
@@ -206,17 +207,17 @@ impl PersonMergeRepo {
             .filter(family_spouse::Column::PersonId.eq(duplicate))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
         {
             if kept_spouse_of.contains(&link.family_id) {
                 family_spouse::Entity::delete_by_id(link.id)
                     .exec(db)
                     .await
-                    .map_err(database)?;
+                    .map_err(db_err)?;
             } else {
                 let mut active = link.into_active_model();
                 active.person_id = Set(kept);
-                active.update(db).await.map_err(database)?;
+                active.update(db).await.map_err(db_err)?;
             }
         }
 
@@ -224,7 +225,7 @@ impl PersonMergeRepo {
             .filter(family_child::Column::PersonId.eq(kept))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
             .into_iter()
             .map(|link| link.family_id)
             .collect();
@@ -232,17 +233,17 @@ impl PersonMergeRepo {
             .filter(family_child::Column::PersonId.eq(duplicate))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
         {
             if kept_child_of.contains(&link.family_id) {
                 family_child::Entity::delete_by_id(link.id)
                     .exec(db)
                     .await
-                    .map_err(database)?;
+                    .map_err(db_err)?;
             } else {
                 let mut active = link.into_active_model();
                 active.person_id = Set(kept);
-                active.update(db).await.map_err(database)?;
+                active.update(db).await.map_err(db_err)?;
             }
         }
         Ok(())
@@ -257,7 +258,7 @@ impl PersonMergeRepo {
             .filter(event_witness::Column::PersonId.eq(kept))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
             .into_iter()
             .map(|row| row.event_id)
             .collect();
@@ -271,7 +272,7 @@ impl PersonMergeRepo {
             )
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
             .into_iter()
             .map(|row| row.id)
             .collect();
@@ -280,18 +281,18 @@ impl PersonMergeRepo {
             .filter(event_witness::Column::PersonId.eq(duplicate))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
         {
             if witnessed.contains(&row.event_id) || own.contains(&row.event_id) {
                 event_witness::Entity::delete_by_id(row.id)
                     .exec(db)
                     .await
-                    .map_err(database)?;
+                    .map_err(db_err)?;
             } else {
                 witnessed.insert(row.event_id);
                 let mut active = row.into_active_model();
                 active.person_id = Set(kept);
-                active.update(db).await.map_err(database)?;
+                active.update(db).await.map_err(db_err)?;
             }
         }
 
@@ -302,7 +303,7 @@ impl PersonMergeRepo {
             .filter(event_witness::Column::EventId.is_in(own))
             .exec(db)
             .await
-            .map_err(database)?;
+            .map_err(db_err)?;
         Ok(())
     }
 
@@ -315,7 +316,7 @@ impl PersonMergeRepo {
             .filter(media_link::Column::PersonId.eq(kept))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
             .into_iter()
             .map(|link| link.media_id)
             .collect();
@@ -323,18 +324,18 @@ impl PersonMergeRepo {
             .filter(media_link::Column::PersonId.eq(duplicate))
             .all(db)
             .await
-            .map_err(database)?
+            .map_err(db_err)?
         {
             if linked.contains(&link.media_id) {
                 media_link::Entity::delete_by_id(link.id)
                     .exec(db)
                     .await
-                    .map_err(database)?;
+                    .map_err(db_err)?;
             } else {
                 linked.insert(link.media_id);
                 let mut active = link.into_active_model();
                 active.person_id = Set(Some(kept));
-                active.update(db).await.map_err(database)?;
+                active.update(db).await.map_err(db_err)?;
             }
         }
         Ok(())
@@ -369,10 +370,6 @@ async fn repoint<E: EntityTrait>(
         .col_expr(column, Expr::value(kept))
         .exec(db)
         .await
-        .map_err(database)?;
+        .map_err(db_err)?;
     Ok(())
-}
-
-fn database(error: DbErr) -> OxidGeneError {
-    OxidGeneError::Database(error.to_string())
 }

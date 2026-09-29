@@ -18,6 +18,7 @@ use crate::entities::person::{self, ActiveModel, Column, Entity};
 use crate::entities::person_name;
 use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
+use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Repository for person CRUD operations.
@@ -103,7 +104,7 @@ impl PersonRepo {
             .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_err)?;
         Ok(models.into_iter().map(into_domain).collect())
     }
 
@@ -118,7 +119,7 @@ impl PersonRepo {
                 .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
@@ -130,7 +131,7 @@ impl PersonRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "Person",
@@ -149,7 +150,7 @@ impl PersonRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .map(into_domain)
             .ok_or(OxidGeneError::NotFound {
                 entity: "Person",
@@ -176,10 +177,7 @@ impl PersonRepo {
             updated_at: Set(now),
             deleted_at: Set(None),
         };
-        let result = model
-            .insert(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -194,7 +192,7 @@ impl PersonRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Person",
                 id,
@@ -209,10 +207,7 @@ impl PersonRepo {
         }
         active.updated_at = Set(Utc::now());
 
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 
@@ -222,7 +217,7 @@ impl PersonRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Person",
                 id,
@@ -230,10 +225,7 @@ impl PersonRepo {
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
-        active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        active.update(db).await.map_err(db_err)?;
         Ok(())
     }
 
@@ -255,7 +247,7 @@ impl PersonRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))
+            .map_err(db_err)
     }
 
     /// How many of a tree's persons were soft-deleted at each instant (a
@@ -274,7 +266,7 @@ impl PersonRepo {
             .into_tuple()
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))
+            .map_err(db_err)
     }
 
     /// Every person's portrait in a tree, with enough to draw it.
@@ -447,59 +439,47 @@ impl PersonRepo {
             "#
         );
         let stmt = Statement::from_sql_and_values(backend, &sql, values);
-        let results = db
-            .query_all_raw(stmt)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let results = db.query_all_raw(stmt).await.map_err(db_err)?;
 
         let mut rows = Vec::with_capacity(results.len());
         for row in results {
             let get = |name: &str| row.try_get::<Option<Uuid>>("", name);
             let thumbnail_key = row
                 .try_get::<Option<String>>("", "thumbnail_key")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
-            let crop_x = row
-                .try_get::<Option<i32>>("", "crop_x")
-                .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+                .map_err(db_err)?;
+            let crop_x = row.try_get::<Option<i32>>("", "crop_x").map_err(db_err)?;
             rows.push(PortraitRow {
-                person_id: row
-                    .try_get("", "person_id")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
-                media_id: get("portrait_media_id")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
-                vignette_id: get("portrait_vignette_id")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                person_id: row.try_get("", "person_id").map_err(db_err)?,
+                media_id: get("portrait_media_id").map_err(db_err)?,
+                vignette_id: get("portrait_vignette_id").map_err(db_err)?,
                 file_path: row
                     .try_get::<Option<String>>("", "file_path")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .map_err(db_err)?
                     .unwrap_or_default(),
                 has_thumbnail: thumbnail_key.is_some(),
                 thumbnail_key,
                 storage_key: row
                     .try_get::<Option<String>>("", "storage_key")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .map_err(db_err)?
                     .filter(|key| !key.is_empty()),
                 mime_type: row
                     .try_get::<Option<String>>("", "mime_type")
-                    .map_err(|e| OxidGeneError::Database(e.to_string()))?
+                    .map_err(db_err)?
                     .unwrap_or_default(),
                 crop: match crop_x {
                     Some(x) => Some((
                         x,
-                        row.try_get("", "crop_y")
-                            .map_err(|e| OxidGeneError::Database(e.to_string()))?,
-                        row.try_get("", "crop_width")
-                            .map_err(|e| OxidGeneError::Database(e.to_string()))?,
-                        row.try_get("", "crop_height")
-                            .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                        row.try_get("", "crop_y").map_err(db_err)?,
+                        row.try_get("", "crop_width").map_err(db_err)?,
+                        row.try_get("", "crop_height").map_err(db_err)?,
                     )),
                     None => None,
                 },
                 source_size: (
                     row.try_get::<Option<i32>>("", "source_width")
-                        .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                        .map_err(db_err)?,
                     row.try_get::<Option<i32>>("", "source_height")
-                        .map_err(|e| OxidGeneError::Database(e.to_string()))?,
+                        .map_err(db_err)?,
                 ),
             });
         }
@@ -516,7 +496,7 @@ impl PersonRepo {
             .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?
+            .map_err(db_err)?
             .ok_or(OxidGeneError::NotFound {
                 entity: "Person",
                 id: person_id,
@@ -527,10 +507,7 @@ impl PersonRepo {
         active.portrait_media_id = Set(media_id);
         active.portrait_vignette_id = Set(vignette_id);
         active.updated_at = Set(Utc::now());
-        let result = active
-            .update(db)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
     }
 }
