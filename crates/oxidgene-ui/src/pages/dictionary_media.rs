@@ -32,7 +32,9 @@ const CLOUD_MAX_REM: f64 = 1.5;
 /// until sent, so a half-typed year is not rejected mid-keystroke.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Draft {
-    tag: Option<String>,
+    /// The selected tags, as the cloud spells them; a document must carry
+    /// every one.
+    tags: Vec<String>,
     kind: Option<MediaFileKind>,
     category: Option<DocumentCategory>,
     name: String,
@@ -51,7 +53,7 @@ impl Draft {
         let year = |value: &str| value.trim().parse::<i32>().ok();
         let day = |value: &str| NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").ok();
         MediaListFilters {
-            tag: self.tag.clone(),
+            tags: self.tags.clone(),
             kind: self.kind,
             category: self.category,
             name: text(&self.name),
@@ -147,12 +149,17 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         }
     });
 
+    // The cloud counts the tags among the documents carrying the selected
+    // ones, so it offers only the tags that still narrow the selection. It
+    // follows the selection at once, and no other filter.
+    let selected_tags = use_memo(move || draft().tags);
     let api_facets = api.clone();
     let facets = use_ui_resource("media_facets", move || {
         let api = api_facets.clone();
         let _ = revision();
         let tree_id = tree();
-        async move { api.media_facets(tree_id).await }
+        let with_tags = selected_tags();
+        async move { api.media_facets(tree_id, &with_tags).await }
     });
     let list = use_ui_resource("media_list", move || {
         let api = api.clone();
@@ -186,9 +193,12 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         .fold((i64::MAX, 0_i64), |(min, max), tag| {
             (min.min(tag.count), max.max(tag.count))
         });
-    let selected_tag = current.tag.as_deref().map(str::to_lowercase);
-    let is_selected =
-        |tag: &MediaTagFacet| selected_tag.as_deref() == Some(&tag.tag.to_lowercase());
+    let is_selected = |tag: &MediaTagFacet| {
+        current
+            .tags
+            .iter()
+            .any(|selected| selected.to_lowercase() == tag.tag.to_lowercase())
+    };
 
     // ── List state ──
     let per_page = page_size();
@@ -239,8 +249,8 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
                 role: "group",
                 aria_label: i18n.t("dictionary.media.tags"),
                 button {
-                    class: if current.tag.is_none() { "dict-letter-btn active" } else { "dict-letter-btn" },
-                    onclick: move |_| draft.write().tag = None,
+                    class: if current.tags.is_empty() { "dict-letter-btn active" } else { "dict-letter-btn" },
+                    onclick: move |_| draft.write().tags.clear(),
                     {i18n.t("dictionary.letter_all")}
                 }
                 for tag in facets_value.tags.iter() {
@@ -255,8 +265,15 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
                                 style: cloud_style(tag.count, min, max),
                                 title: "{title}",
                                 aria_pressed: active,
+                                // A click adds the tag to the selection, or
+                                // takes a selected one back out.
                                 onclick: move |_| {
-                                    draft.write().tag = if active { None } else { Some(value.clone()) };
+                                    let mut draft = draft.write();
+                                    if active {
+                                        draft.tags.retain(|t| t.to_lowercase() != value.to_lowercase());
+                                    } else {
+                                        draft.tags.push(value.clone());
+                                    }
                                 },
                                 "{tag.tag}"
                                 span { class: "dict-media-tag-count", "{tag.count}" }
@@ -387,10 +404,14 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
 
         if has_filters {
             div { class: "sr-active-filters",
-                if let Some(tag) = current.tag.clone() {
+                for tag in current.tags.clone() {
                     button {
+                        key: "tag-{tag}",
                         class: "sr-filter-chip",
-                        onclick: move |_| draft.write().tag = None,
+                        onclick: {
+                            let tag = tag.clone();
+                            move |_| draft.write().tags.retain(|t| *t != tag)
+                        },
                         {format!("{}: {tag}", i18n.t("dictionary.media.tag"))}
                         span { " \u{00D7}" }
                     }

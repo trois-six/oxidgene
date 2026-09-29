@@ -42,9 +42,9 @@ use crate::repo::pagination::{PaginationParams, encode_cursor};
 /// set fields combine with AND; the default lists every document.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MediaFilter {
-    /// Documents carrying this tag, given as its normalized key
-    /// (`media_tag.normalized_tag`).
-    pub tag: Option<String>,
+    /// Documents carrying every one of these tags, each given as its
+    /// normalized key (`media_tag.normalized_tag`).
+    pub tags: Vec<String>,
     /// Documents with at least one live page of this kind.
     pub kind: Option<MediaFileKind>,
     pub category: Option<DocumentCategory>,
@@ -188,19 +188,24 @@ impl MediaLibraryRepo {
 
     /// The tags, file kinds and categories the tree's live documents carry,
     /// each counted in the database — one row per value comes back, not one
-    /// per document.
+    /// per document. The tags are counted among the documents carrying every
+    /// tag of `with_tags` (normalized keys), so a tag cloud narrows to the
+    /// tags that can still be added to a selection; the kinds and categories
+    /// always count the whole library.
     pub async fn facets(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
+        with_tags: &[String],
     ) -> Result<MediaFacets, OxidGeneError> {
         Ok(MediaFacets {
-            tags: Self::tag_counts(db, tree_id).await?,
+            tags: Self::tag_counts(db, tree_id, with_tags).await?,
             kinds: Self::kind_counts(db, tree_id).await?,
             categories: Self::category_counts(db, tree_id).await?,
         })
     }
 
-    /// Every tag used in a tree, with how many live documents carry it.
+    /// Every tag used in a tree, with how many live documents carry it,
+    /// counting only the documents that also carry every tag of `with_tags`.
     ///
     /// A tag is identified by its normalized key and displayed in the
     /// spelling most documents carry, ties going to the first in code-point
@@ -208,8 +213,13 @@ impl MediaLibraryRepo {
     async fn tag_counts(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
+        with_tags: &[String],
     ) -> Result<Vec<MediaTagCount>, OxidGeneError> {
-        let rows: Vec<(String, String, i64)> = media_tag::Entity::find()
+        let mut query = media_tag::Entity::find();
+        for tag in with_tags {
+            query = query.filter(media_tag::Column::MediaId.in_subquery(tagged(tag)));
+        }
+        let rows: Vec<(String, String, i64)> = query
             .select_only()
             .column(media_tag::Column::NormalizedTag)
             .column(media_tag::Column::Tag)
@@ -322,16 +332,8 @@ impl MediaLibraryRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::ParentMediaId.is_null())
             .filter(Column::DeletedAt.is_null());
-        if let Some(tag) = &filter.tag {
-            query = query.filter(
-                Column::Id.in_subquery(
-                    Query::select()
-                        .column(media_tag::Column::MediaId)
-                        .from(media_tag::Entity)
-                        .and_where(media_tag::Column::NormalizedTag.eq(tag.as_str()))
-                        .to_owned(),
-                ),
-            );
+        for tag in &filter.tags {
+            query = query.filter(Column::Id.in_subquery(tagged(tag)));
         }
         if let Some(kind) = filter.kind {
             query = query.filter(
@@ -658,6 +660,15 @@ fn escape_like(text: &str) -> String {
         out.push(c);
     }
     out
+}
+
+/// The ids of the media carrying the tag of normalized key `tag`.
+fn tagged(tag: &str) -> sea_orm::sea_query::SelectStatement {
+    Query::select()
+        .column(media_tag::Column::MediaId)
+        .from(media_tag::Entity)
+        .and_where(media_tag::Column::NormalizedTag.eq(tag))
+        .to_owned()
 }
 
 fn db_error(error: DbErr) -> OxidGeneError {

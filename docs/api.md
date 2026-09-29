@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T21:05:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T06:10:00Z }
 ---
 
 
@@ -344,7 +344,7 @@ Its optional filters combine with AND, and `total_count` is counted under them:
 
 | Parameter | Keeps the documents… |
 |---|---|
-| `tag` | carrying this tag, in any case (matched on the stored normalized key: trimmed and lowercased) |
+| `tag` | carrying this tag, in any case (matched on the stored normalized key: trimmed and lowercased). Repeatable: `tag=a&tag=b` keeps the documents carrying every tag given |
 | `kind` | with at least one live page of this file kind: `image`, `pdf`, `video`, `audio` or `other`, read from the page's MIME type |
 | `category` | filed under this `document_category` |
 | `name` | whose title or file name, or one of whose pages' file names, contains the text, ignoring case and accents |
@@ -362,14 +362,17 @@ portraits are not counted. The counts for a page are one grouped query.
 document count, displayed in the spelling most of those documents carry (ties
 to the first in code-point order) and sorted alphabetically ignoring case and
 accents; every file kind and category held, with theirs, in their declaration
-order. It always counts the whole library, never a filtered listing.
+order. With `tag` (repeatable), the tags are listed and counted among the
+documents carrying every tag given, so a tag cloud offers only the tags that
+still narrow a selection; the kinds and categories always count the whole
+library, and no other listing filter applies.
 
 GraphQL mirrors both: `mediaList(treeId, first, after, filter:
-MediaListFilterInput)` takes the same filters (`tag`, `kind`, `category`,
+MediaListFilterInput)` takes the same filters (`tags: [String!]`, `kind`, `category`,
 `name`, `linkedName`, `eventFrom`, `eventTo`, `addedFrom`, `addedTo`) and puts
 the count on each edge as `usageCount`; a backwards range is a GraphQL error.
-`mediaFacets(treeId)` returns `{tags {tag count} kinds {kind count} categories
-{category count}}`.
+`mediaFacets(treeId, tags: [String!])` returns `{tags {tag count} kinds {kind
+count} categories {category count}}`.
 
 **Download capability.** `mediaDownload(treeId: ID!, id: ID!): GqlMediaDownload!`
 and `mediaArchive(treeId: ID!, id: ID!): GqlMediaDownload!` return `{ url }`, a

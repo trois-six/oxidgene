@@ -525,7 +525,8 @@ pub struct MediaListQuery {
     pub first: Option<u64>,
     /// Cursor to start after (UUID string).
     pub after: Option<String>,
-    pub tag: Option<String>,
+    // `tag` may be repeated, which this map-shaped query cannot hold: the
+    // handler reads it from the raw pairs (`tag_values`).
     pub kind: Option<oxidgene_core::enums::MediaFileKind>,
     pub category: Option<oxidgene_core::enums::DocumentCategory>,
     pub name: Option<String>,
@@ -537,10 +538,10 @@ pub struct MediaListQuery {
 }
 
 impl MediaListQuery {
-    /// The filter part of the query.
-    pub fn filters(&self) -> crate::service::media_library::MediaListFilters {
+    /// The filter part of the query, with the tags given.
+    pub fn filters(&self, tags: Vec<String>) -> crate::service::media_library::MediaListFilters {
         crate::service::media_library::MediaListFilters {
-            tag: self.tag.clone(),
+            tags,
             kind: self.kind,
             category: self.category,
             name: self.name.clone(),
@@ -551,6 +552,15 @@ impl MediaListQuery {
             added_to: self.added_to,
         }
     }
+}
+
+/// Every value of a repeatable query parameter, in the order given.
+pub fn tag_values(pairs: Vec<(String, String)>) -> Vec<String> {
+    pairs
+        .into_iter()
+        .filter(|(key, _)| key == "tag")
+        .map(|(_, value)| value)
+        .collect()
 }
 
 /// Request body for updating a couple.

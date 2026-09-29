@@ -14,8 +14,9 @@ use uuid::Uuid;
 /// The media list's filters as a client sends them. Blank text is no filter.
 #[derive(Debug, Clone, Default)]
 pub struct MediaListFilters {
-    /// A tag in any spelling; matched on its normalized key.
-    pub tag: Option<String>,
+    /// Tags in any spelling, matched on their normalized keys: a document
+    /// must carry all of them.
+    pub tags: Vec<String>,
     pub kind: Option<MediaFileKind>,
     pub category: Option<DocumentCategory>,
     pub name: Option<String>,
@@ -53,10 +54,7 @@ impl MediaListFilters {
                 .filter(|value| !value.is_empty())
         };
         Ok(MediaFilter {
-            tag: self
-                .tag
-                .and_then(crate::rest::media::normalize_tag)
-                .map(|(_, normalized)| normalized),
+            tags: normalized_tags(self.tags),
             kind: self.kind,
             category: self.category,
             name: text(self.name),
@@ -137,13 +135,31 @@ pub struct MediaFacets {
     pub categories: Vec<MediaCategoryFacet>,
 }
 
+/// Tags in any spelling as their normalized keys, blanks and repeats left
+/// out.
+fn normalized_tags(tags: Vec<String>) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::with_capacity(tags.len());
+    for (_, key) in tags
+        .into_iter()
+        .filter_map(crate::rest::media::normalize_tag)
+    {
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
 /// The tree's tags, file kinds and categories, each with its document count.
-/// Counted over the whole library, never narrowed by a listing's filters.
+/// The kinds and categories count the whole library; the tags count the
+/// documents carrying every tag of `with_tags`, so a selection of tags only
+/// offers the tags that still narrow it. Never narrowed by the other filters.
 pub async fn facets(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
+    with_tags: Vec<String>,
 ) -> Result<MediaFacets, OxidGeneError> {
-    let facets = MediaLibraryRepo::facets(db, tree_id).await?;
+    let facets = MediaLibraryRepo::facets(db, tree_id, &normalized_tags(with_tags)).await?;
     Ok(MediaFacets {
         tags: facets
             .tags

@@ -514,8 +514,10 @@ impl TryFrom<ImageSourceInput> for oxidgene_core::types::ImageSource {
 /// with AND; blank text is no filter.
 #[derive(Debug, Default, InputObject)]
 pub struct MediaListFilterInput {
-    /// A tag in any spelling, matched case-insensitively.
-    pub tag: Option<String>,
+    /// Tags in any spelling, matched case-insensitively: a document must
+    /// carry all of them.
+    #[graphql(default)]
+    pub tags: Vec<String>,
     /// Documents with at least one page of this file kind.
     pub kind: Option<GqlMediaFileKind>,
     pub category: Option<GqlDocumentCategory>,
@@ -536,7 +538,7 @@ pub struct MediaListFilterInput {
 impl From<MediaListFilterInput> for crate::service::media_library::MediaListFilters {
     fn from(input: MediaListFilterInput) -> Self {
         Self {
-            tag: input.tag,
+            tags: input.tags,
             kind: input.kind.map(Into::into),
             category: input.category.map(Into::into),
             name: input.name,

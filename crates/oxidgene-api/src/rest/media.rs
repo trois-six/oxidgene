@@ -72,17 +72,19 @@ pub async fn gallery_bundle(
 /// GET /api/v1/trees/:tree_id/media
 ///
 /// The tree's documents, narrowed by the query's filters, each with its
-/// usage count.
+/// usage count. `tag` may be repeated: a document must carry every one.
 pub async fn list_media(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<MediaListQuery>,
+    Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<Connection<MediaListItem>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after.clone(),
     };
-    let connection = media_library::list(&state.db, tree_id, query.filters(), &params)
+    let filters = query.filters(crate::rest::dto::tag_values(pairs));
+    let connection = media_library::list(&state.db, tree_id, filters, &params)
         .await
         .map_err(ApiError::from)?;
     Ok(Json(connection))
@@ -91,12 +93,14 @@ pub async fn list_media(
 /// GET /api/v1/trees/:tree_id/media/facets
 ///
 /// The tags, file kinds and categories the tree's documents carry, each
-/// with its document count.
+/// with its document count. With `tag` (repeatable), the tags are counted
+/// among the documents carrying every tag given.
 pub async fn list_media_facets(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
+    Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<media_library::MediaFacets>, ApiError> {
-    let facets = media_library::facets(&state.db, tree_id)
+    let facets = media_library::facets(&state.db, tree_id, crate::rest::dto::tag_values(pairs))
         .await
         .map_err(ApiError::from)?;
     Ok(Json(facets))

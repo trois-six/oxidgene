@@ -3184,6 +3184,11 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
         ["Group photo"],
         "filters combine with AND"
     );
+    assert_eq!(
+        library_titles(&h, "tag=village%20alpha&tag=SURVEY").await,
+        ["Census sheet"],
+        "a repeated tag keeps the documents carrying every one"
+    );
 
     let (status, _) = json_request(
         &h.app,
@@ -3261,5 +3266,28 @@ async fn the_media_facets_count_what_the_tree_holds() {
     assert_eq!(
         facets["categories"],
         json!([{ "category": "census", "count": 1 }])
+    );
+
+    // With tags selected, the tags are counted among the documents carrying
+    // them all, so the cloud offers only what still narrows the selection.
+    let (status, facets) = json_request(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/facets?tag=survey", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{facets}");
+    assert_eq!(
+        facets["tags"],
+        json!([
+            { "tag": "Survey", "count": 1 },
+            { "tag": "Village Alpha", "count": 1 },
+        ])
+    );
+    assert_eq!(
+        facets["kinds"],
+        json!([{ "kind": "image", "count": 2 }, { "kind": "pdf", "count": 1 }]),
+        "kinds still count the whole library"
     );
 }

@@ -1175,7 +1175,8 @@ pub struct MediaListItem {
 /// with AND on the server.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MediaListFilters {
-    pub tag: Option<String>,
+    /// A document must carry every one of these tags.
+    pub tags: Vec<String>,
     pub kind: Option<oxidgene_core::MediaFileKind>,
     pub category: Option<DocumentCategory>,
     pub name: Option<String>,
@@ -1194,7 +1195,9 @@ impl MediaListFilters {
                 pairs.push((key, value));
             }
         };
-        push("tag", self.tag.clone());
+        for tag in &self.tags {
+            push("tag", Some(tag.clone()));
+        }
         push("kind", self.kind.map(|kind| kind.as_str().to_string()));
         push(
             "category",
@@ -3989,9 +3992,16 @@ impl ApiClient {
             .await
     }
 
-    /// The tags, file kinds and categories the tree's documents carry.
-    pub async fn media_facets(&self, tree_id: Uuid) -> Result<MediaFacets, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/media/facets"))
+    /// The tags, file kinds and categories the tree's documents carry; the
+    /// tags counted among the documents carrying every tag of `with_tags`.
+    pub async fn media_facets(
+        &self,
+        tree_id: Uuid,
+        with_tags: &[String],
+    ) -> Result<MediaFacets, ApiError> {
+        let params: Vec<(&str, String)> =
+            with_tags.iter().map(|tag| ("tag", tag.clone())).collect();
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/media/facets"), &params)
             .await
     }
 

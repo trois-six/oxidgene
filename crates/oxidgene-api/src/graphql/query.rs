@@ -1096,12 +1096,20 @@ impl QueryRoot {
     }
 
     /// The tags, file kinds and categories the tree's documents carry, each
-    /// with its document count.
-    async fn media_facets(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlMediaFacets> {
+    /// with its document count; with `tags`, the tags are counted among the
+    /// documents carrying every tag given.
+    async fn media_facets(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        #[graphql(default)] tags: Vec<String>,
+    ) -> Result<GqlMediaFacets> {
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        Ok(crate::service::media_library::facets(db_from_ctx(ctx), tid)
-            .await?
-            .into())
+        Ok(
+            crate::service::media_library::facets(db_from_ctx(ctx), tid, tags)
+                .await?
+                .into(),
+        )
     }
 
     /// Get a single media by ID.

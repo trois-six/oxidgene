@@ -4281,8 +4281,16 @@ async fn the_media_library_narrows_by_every_filter_over_graphql() {
     let all = ["Census sheet", "Écrits de paroisse", "Group photo"];
     let titles = |filter: Value| gql_library_titles(&app, &tree_id, filter);
     assert_eq!(titles(json!(null)).await, all);
-    assert_eq!(titles(json!({ "tag": "VILLAGE ALPHA" })).await, all);
-    assert_eq!(titles(json!({ "tag": "survey" })).await, ["Census sheet"]);
+    assert_eq!(titles(json!({ "tags": ["VILLAGE ALPHA"] })).await, all);
+    assert_eq!(
+        titles(json!({ "tags": ["survey"] })).await,
+        ["Census sheet"]
+    );
+    assert_eq!(
+        titles(json!({ "tags": ["village alpha", "Survey"] })).await,
+        ["Census sheet"],
+        "a document must carry every tag given"
+    );
     assert_eq!(
         titles(json!({ "kind": "PDF" })).await,
         ["Écrits de paroisse"]
@@ -4320,7 +4328,8 @@ async fn the_media_library_narrows_by_every_filter_over_graphql() {
             .is_empty()
     );
     assert_eq!(
-        titles(json!({ "tag": "village alpha", "kind": "IMAGE", "linkedName": "exemple" })).await,
+        titles(json!({ "tags": ["village alpha"], "kind": "IMAGE", "linkedName": "exemple" }))
+            .await,
         ["Group photo"]
     );
 
@@ -4344,7 +4353,7 @@ async fn the_media_library_narrows_by_every_filter_over_graphql() {
             let resp = graphql(
                 app,
                 r#"query($tree: ID!, $after: String) {
-                    mediaList(treeId: $tree, first: 2, after: $after, filter: { tag: "village alpha" }) {
+                    mediaList(treeId: $tree, first: 2, after: $after, filter: { tags: ["village alpha"] }) {
                         totalCount pageInfo { hasNextPage endCursor }
                         edges { usageCount node { title } }
                     }
@@ -4373,6 +4382,23 @@ async fn the_media_facets_over_graphql_match_rest() {
     let (app, _root) = setup_app_with_media().await;
     let tree_id = tree_id_for(&app).await;
     gql_library_fixture(&app, &tree_id).await;
+
+    let resp = graphql(
+        app.clone(),
+        r#"query($tree: ID!) {
+            narrowed: mediaFacets(treeId: $tree, tags: ["survey"]) { tags { tag count } }
+        }"#,
+        Some(json!({ "tree": tree_id })),
+    )
+    .await;
+    assert_eq!(
+        data(&resp)["narrowed"]["tags"],
+        json!([
+            { "tag": "Survey", "count": 1 },
+            { "tag": "Village Alpha", "count": 1 },
+        ]),
+        "with tags selected, the tags are counted among their documents"
+    );
 
     let resp = graphql(
         app,

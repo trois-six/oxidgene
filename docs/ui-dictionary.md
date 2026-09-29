@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T21:05:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T06:10:00Z }
 ---
 
 
@@ -505,7 +505,7 @@ were added.
 |  All  Census¹²  Parish register⁴  Survey¹  Village Alpha³⁰  ...      |  <- tag cloud
 |  [ Filter by title or file name... ]          [25 v]   142 media items|
 |  [v Filters]                                                         |
-|  Tag: Village Alpha x   Linked person: exemple x   [Clear all filters]|  <- chips
+|  Tag: Village Alpha x   Tag: Survey x   Linked person: exemple x  [...]|  <- chips
 +----------------------------------------------------------------------+
 |  [tile] [tile] [tile] [tile] [tile] [tile]                           |
 |  Title    Title    ...                                               |
@@ -528,14 +528,16 @@ Above the grid, every tag carried by at least one document, from
   scaled on the logarithm of the count between the least and the most used
   tag, so one tag on every document does not flatten all the others to the
   minimum. When every tag has the same count they all take the minimum.
-- **Selection**: one tag at a time. Clicking a tag keeps the documents
-  carrying it; clicking it again, or the leading **All** button, clears it.
-  The selected tag is highlighted like an active letter and shown as a chip.
-  Several tags at once would need the cloud to narrow to the tags co-occurring
-  with the selection to stay usable; a single tag combined with the filter
-  panel covers the need without that.
-- **Counts** are the whole library's and do not narrow as filters apply: the
-  cloud is the tree's vocabulary, and hiding a tag because another filter is
+- **Selection**: several tags at once. Clicking a tag adds it to the
+  selection, clicking a selected tag takes it out, and the leading **All**
+  button clears them all; the grid keeps the documents carrying *every*
+  selected tag. Selected tags are highlighted like an active letter and each
+  shown as a chip.
+- **Counts**: with nothing selected, the whole library's. With tags selected,
+  each tag is counted among the documents carrying all the selected ones, and
+  the cloud lists only the tags those documents carry — the ones that can
+  still narrow the selection — the selected tags included. The other filters
+  never narrow the cloud: hiding a tag because the name or panel filters are
   set would hide the tag the user may want to switch to.
 
 A large vocabulary scrolls inside the cloud (at most 14rem high) rather than
