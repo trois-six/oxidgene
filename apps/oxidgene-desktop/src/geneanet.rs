@@ -659,6 +659,20 @@ fn single_page_deposits(collection: &str) -> Result<Vec<i64>, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Queue a message the login window's scripts posted, if it is one of ours.
+fn deliver(inbox: &Inbox, body: &str) {
+    match serde_json::from_str::<Message>(body) {
+        Ok(message) => {
+            if let Ok(mut inbox) = inbox.lock() {
+                inbox.push(message);
+            }
+        }
+        // Geneanet's own pages post to this channel too; anything we
+        // cannot read is not ours.
+        Err(_) => debug!("ignoring an unrecognised IPC message"),
+    }
+}
+
 /// Builds the login window and wires its scripts up.
 fn open<T: 'static>(
     target: &EventLoopWindowTarget<T>,
@@ -702,16 +716,7 @@ fn open<T: 'static>(
                 debug!("ignoring an IPC message outside Geneanet");
                 return;
             }
-            match serde_json::from_str::<Message>(request.body()) {
-                Ok(message) => {
-                    if let Ok(mut inbox) = inbox.lock() {
-                        inbox.push(message);
-                    }
-                }
-                // Geneanet's own pages post to this channel too; anything we
-                // cannot read is not ours.
-                Err(_) => debug!("ignoring an unrecognised IPC message"),
-            }
+            deliver(&inbox, request.body());
         });
 
     // Building onto the window handle only works where the platform's webview

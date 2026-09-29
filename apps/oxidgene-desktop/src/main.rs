@@ -51,13 +51,14 @@ use std::sync::{Arc, Mutex};
 use axum::Router;
 use axum::routing::get;
 use dioxus::desktop::tao::event::Event;
-use dioxus::desktop::tao::window::Icon;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::access::{LocalToken, require_local_token};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
 #[cfg(feature = "telemetry")]
-use oxidgene_observability::{init, init_to_stderr, make_http_span, on_http_response};
+use oxidgene_observability::{
+    TelemetryGuard, init, init_to_stderr, make_http_span, on_http_response,
+};
 use oxidgene_ui::api::ApiClient;
 use oxidgene_ui::assistant::AssistantLauncher;
 use oxidgene_ui::theme::CustomThemeLoader;
@@ -256,30 +257,7 @@ fn main() {
 
     // ── Initialize observability ─────────────────────────────────────
     #[cfg(feature = "telemetry")]
-    let filter = cli
-        .log_level
-        .or_else(|| std::env::var("OXIDGENE_LOG_LEVEL").ok())
-        .unwrap_or_else(|| {
-            if cli.debug {
-                "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug".to_string()
-            } else {
-                "info".to_string()
-            }
-        });
-    // An MCP session owns standard output for its protocol, so its logs go to
-    // standard error.
-    #[cfg(feature = "telemetry")]
-    let telemetry = Arc::new(Mutex::new(Some(
-        if cli.mcp { init_to_stderr } else { init }(
-            "oxidgene-desktop",
-            env!("CARGO_PKG_VERSION"),
-            &filter,
-        )
-        .unwrap_or_else(|_| {
-            eprintln!("Failed to initialize observability");
-            std::process::exit(1);
-        }),
-    )));
+    let telemetry = Arc::new(Mutex::new(Some(init_telemetry(&cli))));
 
     // ── Resolve data directory (SQLite) ──────────────────────────────
     let data_dir = dirs::data_dir()
@@ -289,9 +267,7 @@ fn main() {
     if cli.mcp {
         let status = mcp::run(&data_dir.join("oxidgene.db"));
         #[cfg(feature = "telemetry")]
-        if let Some(telemetry) = telemetry.lock().unwrap().take() {
-            telemetry.shutdown();
-        }
+        shutdown_telemetry(&telemetry);
         std::process::exit(status);
     }
 
@@ -417,26 +393,13 @@ fn main() {
         });
     });
 
-    // Wait for the server to be ready
-    let port = rx
-        .recv()
-        .expect("failed to receive port from server thread");
-    let api_url = format!("http://127.0.0.1:{port}");
-    info!(%api_url, "API server ready");
-
-    // Create the API client that will be shared with the UI
-    // Pictures are served from the window's own origin rather than encoded
-    // into every payload — see `media_assets`.
-    let api_client = ApiClient::new(&api_url)
-        .with_auth_token(token.as_str())
-        .with_image_host(media_assets::host());
+    let api_client = api_client_when_ready(&rx, &token);
 
     // ── Launch Dioxus desktop window ─────────────────────────────────
     // Dioxus `launch()` returns `-> !` (never returns), so we use a custom
     // event handler to intercept `Event::LoopDestroyed` and shut the embedded
     // server down cleanly before the process exits. Nothing needs flushing:
     // person projections live in SQLite, written as part of each mutation.
-    let window_icon: Option<Icon> = icon_from_memory(ICON_PNG).ok();
     let shutdown_tx_for_handler = Arc::clone(&shutdown_tx);
     let server_thread_for_handler = Arc::new(Mutex::new(Some(server_thread)));
     #[cfg(feature = "telemetry")]
@@ -447,30 +410,7 @@ fn main() {
     // UI talks to and the handler that services it are installed together.
     let (geneanet_bridge, mut geneanet_handler) = geneanet::install();
     let theme_loader = CustomThemeLoader::new(themes::DesktopThemeSource::install(&data_dir));
-    let mut cfg = Config::new()
-        .with_data_directory(data_dir.join("webview"))
-        .with_menu(None::<dioxus::desktop::muda::Menu>)
-        .with_window(
-            WindowBuilder::new()
-                .with_title("OxidGene")
-                .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
-        );
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    {
-        // GTK emits the generic `event` signal before the specialized
-        // `configure-event` consumed by Tao, so duplicates never reach
-        // Dioxus's WebView::set_bounds path.
-        cfg = cfg.with_on_window(|window, _| suppress_duplicate_configure_events(window));
-    }
-    if let Some(icon) = window_icon {
-        cfg = cfg.with_icon(icon);
-    }
+    let cfg = window_config(&data_dir);
     let mut launch = dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_context(geneanet_bridge)
@@ -498,14 +438,90 @@ fn main() {
                     let _ = server_thread.join();
                 }
                 #[cfg(feature = "telemetry")]
-                {
-                    if let Some(telemetry) = telemetry_for_handler.lock().unwrap().take() {
-                        telemetry.shutdown();
-                    }
-                }
+                shutdown_telemetry(&telemetry_for_handler);
             }
         }))
         .launch(media_assets::DesktopApp);
+}
+
+/// Wait for the embedded server to report its port, then build the client
+/// the UI shares to call it.
+fn api_client_when_ready(port: &std::sync::mpsc::Receiver<u16>, token: &LocalToken) -> ApiClient {
+    // Wait for the server to be ready
+    let port = port
+        .recv()
+        .expect("failed to receive port from server thread");
+    let api_url = format!("http://127.0.0.1:{port}");
+    info!(%api_url, "API server ready");
+
+    // Create the API client that will be shared with the UI
+    // Pictures are served from the window's own origin rather than encoded
+    // into every payload — see `media_assets`.
+    ApiClient::new(&api_url)
+        .with_auth_token(token.as_str())
+        .with_image_host(media_assets::host())
+}
+
+/// Start logging and tracing with the filter the command line or the
+/// environment asks for, exiting if that fails.
+#[cfg(feature = "telemetry")]
+fn init_telemetry(cli: &Cli) -> TelemetryGuard {
+    let filter = cli
+        .log_level
+        .clone()
+        .or_else(|| std::env::var("OXIDGENE_LOG_LEVEL").ok())
+        .unwrap_or_else(|| {
+            if cli.debug {
+                "info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug".to_string()
+            } else {
+                "info".to_string()
+            }
+        });
+    // An MCP session owns standard output for its protocol, so its logs go to
+    // standard error.
+    let init = if cli.mcp { init_to_stderr } else { init };
+    init("oxidgene-desktop", env!("CARGO_PKG_VERSION"), &filter).unwrap_or_else(|_| {
+        eprintln!("Failed to initialize observability");
+        std::process::exit(1);
+    })
+}
+
+/// Flush and stop telemetry, once: later calls find nothing left to stop.
+#[cfg(feature = "telemetry")]
+fn shutdown_telemetry(telemetry: &Mutex<Option<TelemetryGuard>>) {
+    if let Some(telemetry) = telemetry.lock().unwrap().take() {
+        telemetry.shutdown();
+    }
+}
+
+/// The main window's configuration: its title, size and icon, and the
+/// webview's data directory under `data_dir`.
+fn window_config(data_dir: &std::path::Path) -> Config {
+    let mut cfg = Config::new()
+        .with_data_directory(data_dir.join("webview"))
+        .with_menu(None::<dioxus::desktop::muda::Menu>)
+        .with_window(
+            WindowBuilder::new()
+                .with_title("OxidGene")
+                .with_inner_size(dioxus::desktop::LogicalSize::new(1280.0, 800.0)),
+        );
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        // GTK emits the generic `event` signal before the specialized
+        // `configure-event` consumed by Tao, so duplicates never reach
+        // Dioxus's WebView::set_bounds path.
+        cfg = cfg.with_on_window(|window, _| suppress_duplicate_configure_events(window));
+    }
+    if let Ok(icon) = icon_from_memory(ICON_PNG) {
+        cfg = cfg.with_icon(icon);
+    }
+    cfg
 }
 
 /// Health check handler returning `200 OK` with a JSON body.

@@ -11,10 +11,12 @@
 //! background thread for an event that arrives a few times in a program's
 //! life.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use oxidgene_ui::theme::{CustomThemeError, CustomThemeSource, CustomThemes, parse_custom_theme};
+use oxidgene_ui::theme::{
+    CustomThemeError, CustomThemeSource, CustomThemes, Theme, parse_custom_theme,
+};
 use tracing::{debug, warn};
 
 /// Folder name under the application data directory.
@@ -52,8 +54,8 @@ impl CustomThemeSource for DesktopThemeSource {
         let mut themes = Vec::new();
         let mut errors = Vec::new();
 
-        let entries = match std::fs::read_dir(&self.dir) {
-            Ok(entries) => entries,
+        let paths = match json_files(&self.dir) {
+            Ok(paths) => paths,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return CustomThemes::default();
             }
@@ -66,49 +68,13 @@ impl CustomThemeSource for DesktopThemeSource {
             }
         };
 
-        // Sorted, so the picker lists the same themes in the same order from
-        // one launch to the next; directory order is not stable.
-        let mut paths: Vec<PathBuf> = entries
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-            .collect();
-        paths.sort();
-
         for path in paths {
-            let file = path.file_name().map_or_else(
-                || path.display().to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            );
-
-            let outcome = std::fs::read_to_string(&path)
-                .map_err(|error| error.to_string())
-                .and_then(|source| parse_custom_theme(&source).map_err(|error| error.to_string()));
-
-            match outcome {
+            match read_theme(&path) {
                 Ok(theme) => themes.push(theme),
-                Err(message) => {
-                    // Reported rather than logged and dropped: a theme that
-                    // silently fails to appear gives the author nothing to
-                    // work from.
-                    warn!(file = %file, error = %message, "Ignoring an invalid theme file");
-                    errors.push(CustomThemeError { file, message });
-                }
+                Err(error) => errors.push(error),
             }
         }
-
-        // Two files can carry the same id; the first one wins so that the
-        // choice the user has stored keeps resolving to the same theme.
-        let mut seen: Vec<String> = Vec::with_capacity(themes.len());
-        themes.retain(|theme| {
-            if seen.contains(&theme.id) {
-                warn!(id = %theme.id, "Ignoring a duplicate custom theme id");
-                false
-            } else {
-                seen.push(theme.id.clone());
-                true
-            }
-        });
+        keep_first_of_each_id(&mut themes);
 
         debug!(
             loaded = themes.len(),
@@ -117,6 +83,55 @@ impl CustomThemeSource for DesktopThemeSource {
         );
         CustomThemes { themes, errors }
     }
+}
+
+/// The `*.json` files directly in `dir`, sorted by path.
+///
+/// Sorted, so the picker lists the same themes in the same order from one
+/// launch to the next; directory order is not stable.
+fn json_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    paths.sort();
+    Ok(paths)
+}
+
+/// Read and parse one theme file, or say what was wrong with it.
+fn read_theme(path: &Path) -> Result<Theme, CustomThemeError> {
+    let file = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+
+    std::fs::read_to_string(path)
+        .map_err(|error| error.to_string())
+        .and_then(|source| parse_custom_theme(&source).map_err(|error| error.to_string()))
+        .map_err(|message| {
+            // Reported rather than logged and dropped: a theme that silently
+            // fails to appear gives the author nothing to work from.
+            warn!(file = %file, error = %message, "Ignoring an invalid theme file");
+            CustomThemeError { file, message }
+        })
+}
+
+/// Drop every theme whose id an earlier one already carries.
+///
+/// Two files can carry the same id; the first one wins so that the choice the
+/// user has stored keeps resolving to the same theme.
+fn keep_first_of_each_id(themes: &mut Vec<Theme>) {
+    let mut seen: Vec<String> = Vec::with_capacity(themes.len());
+    themes.retain(|theme| {
+        if seen.contains(&theme.id) {
+            warn!(id = %theme.id, "Ignoring a duplicate custom theme id");
+            false
+        } else {
+            seen.push(theme.id.clone());
+            true
+        }
+    });
 }
 
 #[cfg(test)]
