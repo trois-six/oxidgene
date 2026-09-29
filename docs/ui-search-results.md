@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T05:29:00Z }
 ---
 
 
@@ -149,7 +149,7 @@ Each result is a horizontal row:
 Each row shows:
 - **Portrait** (circular, ~40px) — profile photo when available, otherwise the same sex-specific placeholder used by the pedigree
 - **Full name** (surname uppercase + given names)
-- **Birth / death years** with green/blue symbols
+- **Birth / death years** with green/blue symbols, each with its precision mark as on a pedigree card (`ca 1849`, `< 1917`, `1691..1693`), spelled out on hover; birth falls back to baptism and death to burial when the primary event has no date
 - **Relation line** — who the person is, not just what they are called
 - **Birth place** when known
 - **Sex indicator**: colored left border (blue/pink/grey)

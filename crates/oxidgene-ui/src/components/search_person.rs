@@ -8,12 +8,14 @@
 //! accent-folded matching, instead of downloading the full tree.
 
 use dioxus::prelude::*;
-use oxidgene_core::Sex;
-use oxidgene_core::projection::{PersonProfile, SearchEntry};
+use oxidgene_core::projection::{PersonProfile, ProfileEvent, SearchEntry};
+use oxidgene_core::types::{QualifiedYear, year_from_date};
+use oxidgene_core::{DateQualifier, Sex};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource};
 use crate::components::cropped_image::CroppedImage;
+use crate::components::pedigree_chart::lifespan_tooltip;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 
@@ -23,9 +25,11 @@ pub(crate) struct PersonSearchSummary {
     sex: Sex,
     surname: String,
     given_names: String,
-    birth_year: Option<String>,
+    /// Birth (or baptism) and death (or burial) years with their precision:
+    /// a year shown alone must not present a guess as a fact.
+    birth_year: Option<QualifiedYear>,
     birth_place: Option<String>,
-    death_year: Option<String>,
+    death_year: Option<QualifiedYear>,
     /// Close relatives, so two people of the same name can be told apart.
     spouse_names: Vec<String>,
     father_name: Option<String>,
@@ -66,9 +70,9 @@ impl From<&SearchEntry> for PersonSearchSummary {
             sex: entry.sex,
             surname: entry.surname.clone(),
             given_names: entry.given_names.clone(),
-            birth_year: entry.birth_year.clone(),
+            birth_year: entry_year(entry.birth_year.as_deref(), entry.birth_qualifier),
             birth_place: entry.birth_place.clone(),
-            death_year: entry.death_year.clone(),
+            death_year: entry_year(entry.death_year.as_deref(), entry.death_qualifier),
             spouse_names: entry.spouse_names.clone(),
             father_name: entry.father_name.clone(),
             mother_name: entry.mother_name.clone(),
@@ -90,12 +94,14 @@ impl From<PersonProfile> for PersonSearchSummary {
             given_names: primary_name
                 .and_then(|name| name.given_names.clone())
                 .unwrap_or_default(),
-            birth_year: profile.birth.as_ref().and_then(profile_event_year),
+            birth_year: profile_event_year(&profile.birth)
+                .or_else(|| profile_event_year(&profile.baptism)),
             birth_place: profile
                 .birth
                 .as_ref()
                 .and_then(|event| event.place_name.clone()),
-            death_year: profile.death.as_ref().and_then(profile_event_year),
+            death_year: profile_event_year(&profile.death)
+                .or_else(|| profile_event_year(&profile.burial)),
             spouse_names: profile
                 .families_as_spouse
                 .iter()
@@ -156,9 +162,27 @@ fn relation_label(summary: &PersonSearchSummary, i18n: &I18n) -> Option<String> 
     Some(label)
 }
 
-fn profile_event_year(event: &oxidgene_core::projection::ProfileEvent) -> Option<String> {
-    oxidgene_core::types::year_from_date(event.date_sort, event.date_value.as_deref())
-        .map(|year| format!("{year:04}"))
+/// A search entry's year, which travels as text beside its precision.
+fn entry_year(year: Option<&str>, qualifier: DateQualifier) -> Option<QualifiedYear> {
+    year?
+        .trim()
+        .parse()
+        .ok()
+        .map(|year| QualifiedYear::new(year, qualifier))
+}
+
+/// An event's year with its precision, a range keeping its far end.
+fn profile_event_year(event: &Option<ProfileEvent>) -> Option<QualifiedYear> {
+    let event = event.as_ref()?;
+    Some(QualifiedYear {
+        year: year_from_date(event.date_sort, event.date_value.as_deref())?,
+        qualifier: event.date_qualifier,
+        year2: event
+            .date_qualifier
+            .needs_second_date()
+            .then(|| year_from_date(None, event.date_value2.as_deref()))
+            .flatten(),
+    })
 }
 
 /// Props for [`SearchPerson`].
@@ -343,7 +367,10 @@ pub(crate) fn render_person_search_summary(
                     span { class: "sp-given", "?" }
                 }
             }
-            div { class: "sp-result-dates",
+            div {
+                class: "sp-result-dates",
+                // The marks (`ca`, `<`, `..`) spelled out, as on a pedigree card.
+                title: lifespan_tooltip(i18n, summary.birth_year, summary.death_year),
                 if let Some(ref birth_year) = summary.birth_year {
                     span { class: "sp-birth", "\u{2726} {birth_year}" }
                 }
@@ -382,6 +409,23 @@ mod relation_tests {
             mother_name: None,
             children_count: 0,
         }
+    }
+
+    #[test]
+    fn a_year_keeps_its_precision() {
+        assert_eq!(
+            entry_year(Some("1849"), DateQualifier::About).map(|y| y.to_string()),
+            Some("ca 1849".to_string())
+        );
+        assert_eq!(
+            entry_year(Some("1917"), DateQualifier::Before).map(|y| y.to_string()),
+            Some("< 1917".to_string())
+        );
+        assert_eq!(
+            entry_year(Some("1850"), DateQualifier::Exact).map(|y| y.to_string()),
+            Some("1850".to_string())
+        );
+        assert_eq!(entry_year(None, DateQualifier::About), None);
     }
 
     #[test]

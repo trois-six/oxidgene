@@ -203,7 +203,7 @@ fn fit_lifespan(
 /// Empty when neither year is qualified: a tooltip that only repeats the text
 /// already on the card is noise, and an empty string is how the caller knows
 /// to omit the `<title>` entirely.
-fn lifespan_tooltip(
+pub(crate) fn lifespan_tooltip(
     i18n: &I18n,
     birth: Option<QualifiedYear>,
     death: Option<QualifiedYear>,
