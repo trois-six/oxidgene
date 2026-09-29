@@ -180,14 +180,39 @@ pub async fn merge_persons(
 
 // ── Potential duplicates ─────────────────────────────────────────────────
 
-/// The fewest points a pair needs to be listed: the same name alone (30)
-/// is not enough, a tree holds many namesakes; a second clue is needed.
+/// The fewest points a pair needs to be listed: the same name alone
+/// ([`SAME_NAME_POINTS`]) is not enough, a tree holds many namesakes; a
+/// second clue is needed.
 pub const MIN_DUPLICATE_SCORE: i64 = 40;
 /// The most pairs one answer lists, best first; `count` says how many
 /// there are.
 pub const MAX_DUPLICATE_PAIRS: usize = 500;
 /// Births or deaths further apart than this rule a pair out.
 const MAX_YEAR_GAP: i32 = 5;
+
+// Points each shared clue adds to a pair's score, capped at 100
+// (`docs/ui-tools.md` §6).
+
+/// The same surname and given names, folded.
+const SAME_NAME_POINTS: i64 = 30;
+/// Only a similar name: the same sound key.
+const SIMILAR_NAME_POINTS: i64 = 15;
+/// The same complete birth date.
+const SAME_BIRTH_DATE_POINTS: i64 = 30;
+/// Otherwise the same birth year.
+const SAME_BIRTH_YEAR_POINTS: i64 = 20;
+/// Otherwise births at most [`MAX_YEAR_GAP`] years apart.
+const CLOSE_BIRTH_POINTS: i64 = 5;
+/// The same birthplace, folded.
+const SAME_BIRTH_PLACE_POINTS: i64 = 10;
+/// The same death year.
+const SAME_DEATH_YEAR_POINTS: i64 = 15;
+/// Children of the same family.
+const SAME_PARENTS_POINTS: i64 = 20;
+/// Otherwise a father, or a mother, of the same name: each.
+const SAME_PARENT_NAME_POINTS: i64 = 10;
+/// A spouse of the same name.
+const SAME_SPOUSE_POINTS: i64 = 10;
 
 /// Two records of a tree that may be one person.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -336,10 +361,10 @@ fn compare(
     let mut score = 0;
     let mut reasons = Vec::new();
     if a.surname == b.surname && a.given == b.given {
-        score += 30;
+        score += SAME_NAME_POINTS;
         reasons.push("same_name");
     } else {
-        score += 15;
+        score += SIMILAR_NAME_POINTS;
         reasons.push("similar_name");
     }
 
@@ -352,13 +377,13 @@ fn compare(
                         .is_some_and(|v| v.split_whitespace().count() >= 3)
                 });
             if same_day {
-                score += 30;
+                score += SAME_BIRTH_DATE_POINTS;
                 reasons.push("same_birth_date");
             } else if x == y {
-                score += 20;
+                score += SAME_BIRTH_YEAR_POINTS;
                 reasons.push("same_birth_year");
             } else {
-                score += 5;
+                score += CLOSE_BIRTH_POINTS;
                 reasons.push("close_birth");
             }
         }
@@ -373,13 +398,13 @@ fn compare(
     if let (Some(x), Some(y)) = (place(a), place(b))
         && x == y
     {
-        score += 10;
+        score += SAME_BIRTH_PLACE_POINTS;
         reasons.push("same_birth_place");
     }
     match (Record::year(a.death), Record::year(b.death)) {
         (Some(x), Some(y)) if (x - y).abs() > MAX_YEAR_GAP => return None,
         (Some(x), Some(y)) if x == y => {
-            score += 15;
+            score += SAME_DEATH_YEAR_POINTS;
             reasons.push("same_death_year");
         }
         _ => {}
@@ -404,7 +429,7 @@ fn compare(
         {
             return None;
         }
-        score += 20;
+        score += SAME_PARENTS_POINTS;
         reasons.push("same_parents");
     } else {
         let name = |id: Option<Uuid>| id.and_then(|id| names.get(&id)).filter(|n| !n.is_empty());
@@ -413,13 +438,13 @@ fn compare(
         if let (Some(x), Some(y)) = (name(a_father), name(b_father))
             && x == y
         {
-            score += 10;
+            score += SAME_PARENT_NAME_POINTS;
             reasons.push("same_father");
         }
         if let (Some(x), Some(y)) = (name(a_mother), name(b_mother))
             && x == y
         {
-            score += 10;
+            score += SAME_PARENT_NAME_POINTS;
             reasons.push("same_mother");
         }
     }
@@ -433,7 +458,7 @@ fn compare(
             .collect()
     };
     if !spouses(a).is_disjoint(&spouses(b)) {
-        score += 10;
+        score += SAME_SPOUSE_POINTS;
         reasons.push("same_spouse");
     }
     Some((score.min(100), reasons))

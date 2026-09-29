@@ -847,11 +847,16 @@ fn render_generation(
 
 // ── Potential duplicates ────────────────────────────────────────────────
 
+/// The score from which a pair reads as *very likely* one person.
+const VERY_LIKELY_SCORE: i64 = 70;
+/// The score from which a pair reads as *likely* one person.
+const LIKELY_SCORE: i64 = 55;
+
 /// How sure a pair's score makes it (`docs/ui-tools.md` §6).
 fn confidence(score: i64) -> &'static str {
     match score {
-        s if s >= 70 => "very_likely",
-        s if s >= 55 => "likely",
+        s if s >= VERY_LIKELY_SCORE => "very_likely",
+        s if s >= LIKELY_SCORE => "likely",
         _ => "possible",
     }
 }
