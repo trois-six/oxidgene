@@ -28,8 +28,8 @@ use oxidgene_core::enums::{DocumentCategory, SourceMediaType};
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, CreateMediaBody, CreateMediaLinkBody, CreateNoteBody, MediaKind, MediaUpload,
-    UpdateMediaBody,
+    ApiClient, ApiError, CreateMediaBody, CreateMediaLinkBody, CreateNoteBody, MediaKind,
+    MediaUpload, UpdateMediaBody,
 };
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::media_gallery::{MediaOwner, MediaTagForm};
@@ -758,43 +758,7 @@ async fn write_document(
             break;
         };
         progress.set(Some((index + 1, total)));
-        let outcome = match page {
-            PendingPage::File { name, bytes } => api
-                .upload_media(
-                    tree_id,
-                    MediaUpload {
-                        file_name: name.clone(),
-                        bytes,
-                        title: None,
-                        description: None,
-                        attach_to: None,
-                        as_page_of: Some(document_id),
-                    },
-                )
-                .await
-                .map(|_| ())
-                .map_err(|err| format!("{name}: {}", friendly(&err, i18n))),
-            PendingPage::Remote { url, file_name } => api
-                .create_media(
-                    tree_id,
-                    &CreateMediaBody {
-                        document_id,
-                        file_name,
-                        // Left empty on purpose: the server guesses from the
-                        // address, which is the only evidence there is for a
-                        // file nobody is going to fetch.
-                        mime_type: String::new(),
-                        file_path: url.clone(),
-                        file_size: 0,
-                        title: None,
-                        description: None,
-                    },
-                )
-                .await
-                .map(|_| ())
-                .map_err(|err| format!("{url}: {}", friendly(&err, i18n))),
-        };
-        outcome?;
+        add_page(api, tree_id, document_id, page, i18n).await?;
     }
 
     api.update_media(
@@ -840,6 +804,67 @@ async fn write_document(
 
     // Linked last: until this runs the document belongs to nobody, which is
     // exactly what a rollback wants to be true.
+    link_document(api, tree_id, document_id, owner, event_ids)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+/// Add one page to a document: uploaded when it is a file, recorded by its
+/// address when somebody else serves it. The error names the page.
+async fn add_page(
+    api: &ApiClient,
+    tree_id: Uuid,
+    document_id: Uuid,
+    page: PendingPage,
+    i18n: &crate::i18n::I18n,
+) -> Result<(), String> {
+    match page {
+        PendingPage::File { name, bytes } => api
+            .upload_media(
+                tree_id,
+                MediaUpload {
+                    file_name: name.clone(),
+                    bytes,
+                    title: None,
+                    description: None,
+                    attach_to: None,
+                    as_page_of: Some(document_id),
+                },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|err| format!("{name}: {}", friendly(&err, i18n))),
+        PendingPage::Remote { url, file_name } => api
+            .create_media(
+                tree_id,
+                &CreateMediaBody {
+                    document_id,
+                    file_name,
+                    // Left empty on purpose: the server guesses from the
+                    // address, which is the only evidence there is for a
+                    // file nobody is going to fetch.
+                    mime_type: String::new(),
+                    file_path: url.clone(),
+                    file_size: 0,
+                    title: None,
+                    description: None,
+                },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|err| format!("{url}: {}", friendly(&err, i18n))),
+    }
+}
+
+/// Attach a document to its owner, then to every event it proves that is not
+/// that owner already.
+async fn link_document(
+    api: &ApiClient,
+    tree_id: Uuid,
+    document_id: Uuid,
+    owner: MediaOwner,
+    event_ids: Vec<Uuid>,
+) -> Result<(), ApiError> {
     api.create_media_link(
         tree_id,
         &CreateMediaLinkBody {
@@ -851,8 +876,7 @@ async fn write_document(
             sort_order: 0,
         },
     )
-    .await
-    .map_err(|err| err.to_string())?;
+    .await?;
 
     for event_id in event_ids {
         if matches!(owner, MediaOwner::Event(id) if id == event_id) {
@@ -860,20 +884,11 @@ async fn write_document(
         }
         api.create_media_link(
             tree_id,
-            &CreateMediaLinkBody {
-                media_id: document_id,
-                person_id: None,
-                family_id: None,
-                event_id: Some(event_id),
-                source_id: None,
-                sort_order: 0,
-            },
+            &CreateMediaLinkBody::to_event(document_id, event_id),
         )
-        .await
-        .map_err(|err| err.to_string())?;
+        .await?;
     }
-
-    Ok::<(), String>(())
+    Ok(())
 }
 
 #[cfg(test)]

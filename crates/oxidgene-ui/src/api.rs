@@ -1432,6 +1432,20 @@ pub struct CreateMediaLinkBody {
     pub sort_order: i32,
 }
 
+impl CreateMediaLinkBody {
+    /// A link attaching `media_id` to one event, first in its order.
+    pub fn to_event(media_id: uuid::Uuid, event_id: uuid::Uuid) -> Self {
+        Self {
+            media_id,
+            person_id: None,
+            event_id: Some(event_id),
+            source_id: None,
+            family_id: None,
+            sort_order: 0,
+        }
+    }
+}
+
 /// A page whose bytes somebody else serves.
 ///
 /// The counterpart to [`MediaUpload`]: same destination — the next page of a

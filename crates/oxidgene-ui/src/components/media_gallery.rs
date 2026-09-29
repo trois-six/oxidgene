@@ -954,31 +954,7 @@ fn MediaTile(
             let api = api.clone();
             spawn(async move {
                 busy.set(true);
-                let result = if attach {
-                    api.create_media_link(
-                        tree_id,
-                        &CreateMediaLinkBody {
-                            media_id,
-                            person_id: None,
-                            event_id: Some(event_id),
-                            source_id: None,
-                            family_id: None,
-                            sort_order: 0,
-                        },
-                    )
-                    .await
-                    .map(|_| ())
-                } else {
-                    match api.list_media_links_of(tree_id, media_id).await {
-                        Ok(links) => {
-                            match links.iter().find(|link| link.event_id == Some(event_id)) {
-                                Some(link) => api.delete_media_link(tree_id, link.id).await,
-                                None => Ok(()),
-                            }
-                        }
-                        Err(err) => Err(err),
-                    }
-                };
+                let result = set_event_link(&api, tree_id, media_id, event_id, attach).await;
                 match result {
                     Ok(()) => {
                         on_changed.call(());
@@ -1758,31 +1734,7 @@ fn MediaEditPanel(
         move |(event_id, attach): (Uuid, bool)| {
             let api = api.clone();
             spawn(async move {
-                let result = if attach {
-                    api.create_media_link(
-                        tree_id,
-                        &CreateMediaLinkBody {
-                            media_id,
-                            person_id: None,
-                            event_id: Some(event_id),
-                            source_id: None,
-                            family_id: None,
-                            sort_order: 0,
-                        },
-                    )
-                    .await
-                    .map(|_| ())
-                } else {
-                    // Find the link to remove: an event may be documented by
-                    // several files, so the media id alone is not enough.
-                    match api.list_media_links_of(tree_id, media_id).await {
-                        Ok(list) => match list.iter().find(|l| l.event_id == Some(event_id)) {
-                            Some(link) => api.delete_media_link(tree_id, link.id).await,
-                            None => Ok(()),
-                        },
-                        Err(e) => Err(e),
-                    }
-                };
+                let result = set_event_link(&api, tree_id, media_id, event_id, attach).await;
                 if let Err(e) = result {
                     error.set(Some(e.to_string()));
                 }
@@ -2913,31 +2865,7 @@ fn MediaEventLinks(
         move |(event_id, attach): (Uuid, bool)| {
             let api = api.clone();
             spawn(async move {
-                let result = if attach {
-                    api.create_media_link(
-                        tree_id,
-                        &CreateMediaLinkBody {
-                            media_id,
-                            person_id: None,
-                            event_id: Some(event_id),
-                            source_id: None,
-                            family_id: None,
-                            sort_order: 0,
-                        },
-                    )
-                    .await
-                    .map(|_| ())
-                } else {
-                    match api.list_media_links_of(tree_id, media_id).await {
-                        Ok(links) => {
-                            match links.iter().find(|link| link.event_id == Some(event_id)) {
-                                Some(link) => api.delete_media_link(tree_id, link.id).await,
-                                None => Ok(()),
-                            }
-                        }
-                        Err(err) => Err(err),
-                    }
-                };
+                let result = set_event_link(&api, tree_id, media_id, event_id, attach).await;
                 match result {
                     Ok(()) => {
                         revision += 1;
@@ -3068,6 +2996,31 @@ async fn attach_media_to(
     };
     api.create_media_link(tree_id, &body).await?;
     Ok(true)
+}
+
+/// Attach a media to an event, or detach it.
+///
+/// Detaching looks the link up first: an event may be documented by several
+/// files, so the media id alone is not enough. A link already gone is not an
+/// error.
+async fn set_event_link(
+    api: &ApiClient,
+    tree_id: Uuid,
+    media_id: Uuid,
+    event_id: Uuid,
+    attach: bool,
+) -> Result<(), ApiError> {
+    if attach {
+        return api
+            .create_media_link(tree_id, &CreateMediaLinkBody::to_event(media_id, event_id))
+            .await
+            .map(|_| ());
+    }
+    let links = api.list_media_links_of(tree_id, media_id).await?;
+    match links.iter().find(|link| link.event_id == Some(event_id)) {
+        Some(link) => api.delete_media_link(tree_id, link.id).await,
+        None => Ok(()),
+    }
 }
 
 fn vignette_overlay_style(vignette: &Vignette, width: Option<i32>, height: Option<i32>) -> String {
