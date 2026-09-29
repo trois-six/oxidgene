@@ -1242,6 +1242,40 @@ const HOME_STYLES: &str = r#"
         background: none;
     }
 
+    /* One line per person, so five fit a card: a small portrait, the name
+       and the years; the relatives and the birthplace are left to the
+       search results, where telling namesakes apart matters. */
+    .search-person-result.tree-card-person {
+        padding: 3px 6px;
+    }
+
+    .tree-card-person .sp-result-rel,
+    .tree-card-person .sp-result-meta {
+        display: none;
+    }
+
+    .tree-card-person .sp-result-photo,
+    .tree-card-person .sp-result-portrait {
+        width: 24px;
+        height: 24px;
+    }
+
+    .tree-card-person .sp-result-info {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+
+    .tree-card-person .sp-result-name {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .tree-card-person .sp-result-dates {
+        flex-shrink: 0;
+        margin-top: 0;
+    }
+
     .tree-card-person:hover .sp-surname,
     .tree-card-person:hover .sp-given {
         color: var(--orange);
