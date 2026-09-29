@@ -479,11 +479,7 @@ fn import_multimedia(
         page_map.insert(xref.clone(), id);
 
         let (file_path, mime_type, source_media_type) = media_file(mm);
-        let file_name: String = file_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&file_path)
-            .to_string();
+        let file_name = file_name_of(&file_path);
         let description = mm
             .note_structure
             .as_ref()
@@ -589,6 +585,15 @@ fn media_file(mm: &ged_io::types::multimedia::Multimedia) -> (String, String, So
         .and_then(SourceMediaType::parse)
         .unwrap_or_default();
     (path, mime, medium)
+}
+
+/// The last `/`-separated segment of a GEDCOM `FILE` path.
+fn file_name_of(file_path: &str) -> String {
+    file_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(file_path)
+        .to_string()
 }
 
 /// Import an `INDI` record: the person, their names, events, attributes,
@@ -2515,28 +2520,13 @@ fn resolve_or_create_media(
     }
 
     // Case 2: inline multimedia with file data
-    if let Some(ref file_ref) = mm.file {
-        let file_path = file_ref.value.clone().unwrap_or_default();
+    if mm.file.is_some() {
+        // Read the same way as a top-level OBJE: see `media_file`.
+        let (file_path, mime_type, source_media_type) = media_file(mm);
         if file_path.is_empty() {
             return None;
         }
-        // Same as the top-level OBJE path above: the FORM is an extension at
-        // best, and absent at worst, so the file name is the better evidence.
-        let mime_type = normalize_mime(
-            file_ref.form.as_ref().and_then(|f| f.value.as_deref()),
-            &file_path,
-        );
-        let source_media_type = file_ref
-            .form
-            .as_ref()
-            .and_then(|f| f.source_media_type.as_deref())
-            .and_then(SourceMediaType::parse)
-            .unwrap_or_default();
-        let file_name = file_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&file_path)
-            .to_string();
+        let file_name = file_name_of(&file_path);
 
         let document_id = Uuid::now_v7();
         let page = Media {
