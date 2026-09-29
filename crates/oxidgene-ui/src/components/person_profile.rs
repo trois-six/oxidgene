@@ -332,310 +332,43 @@ pub(crate) fn build_profile(
         .map(|place| (place.id, place.name.clone()))
         .collect();
     let resolve = |pid: Uuid| resolve_name(pid, &names, i18n);
-
-    // Index events by person and by family.
-    let mut events_by_person: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
-    let mut events_by_family: HashMap<Uuid, Vec<&DomainEvent>> = HashMap::new();
-    for e in detail.events.iter().filter(|e| e.deleted_at.is_none()) {
-        if let Some(epid) = e.person_id {
-            events_by_person.entry(epid).or_default().push(e);
-        }
-        if let Some(fid) = e.family_id {
-            events_by_family.entry(fid).or_default().push(e);
-        }
-    }
+    let index = EventIndex::new(&detail.events);
 
     // Tree-wide sex + lifespan lookups, used to decorate every person
     // mentioned in the family narrative (sex glyph + "birth-death" suffix,
     // matching the format shown on the pedigree cards).
     let sexes: HashMap<Uuid, Sex> = detail.persons.iter().map(|p| (p.id, p.sex)).collect();
-    // Years carry their qualifier so the narrative hedges the same way the
-    // pedigree cards do — "ca 1849" in both places.
-    let mut birth_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
-    let mut death_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
-    for e in &detail.events {
-        let (Some(pid), Some(year)) = (e.person_id, e.qualified_year()) else {
-            continue;
-        };
-        match e.event_type {
-            EventType::Birth => {
-                birth_years.entry(pid).or_insert(year);
-            }
-            EventType::Death => {
-                death_years.entry(pid).or_insert(year);
-            }
-            _ => {}
-        }
-    }
-    let lifespans: HashMap<Uuid, String> = sexes
-        .keys()
-        .filter_map(|pid| {
-            let lifespan = crate::components::pedigree_chart::format_lifespan(
-                birth_years.get(pid).copied(),
-                death_years.get(pid).copied(),
-            );
-            (!lifespan.is_empty()).then_some((*pid, lifespan))
-        })
-        .collect();
+    let lifespans = lifespans(detail, &sexes);
 
-    let spouse_family_ids: Vec<Uuid> = detail
-        .spouses
-        .iter()
-        .filter(|s| s.person_id == person_id)
-        .map(|s| s.family_id)
-        .collect();
-    let child_family_ids: Vec<Uuid> = detail
-        .children
-        .iter()
-        .filter(|c| c.person_id == person_id)
-        .map(|c| c.family_id)
-        .collect();
-
-    // ── Family narrative ──
-    let mut unions: Vec<UnionGroup> = spouse_family_ids
-        .iter()
-        .map(|fid| {
-            let role = detail
-                .spouses
-                .iter()
-                .find(|s| s.family_id == *fid && s.person_id == person_id)
-                .map(|s| s.role)
-                .unwrap_or(SpouseRole::Partner);
-            let partner_ids = detail
-                .spouses
-                .iter()
-                .filter(|s| s.family_id == *fid && s.person_id != person_id)
-                .map(|s| s.person_id)
-                .collect();
-            let child_ids = detail
-                .children
-                .iter()
-                .filter(|c| c.family_id == *fid)
-                .map(|c| c.person_id)
-                .collect();
-            let (marriage_date, marriage_place, divorce_date) =
-                union_marriage_divorce(events_by_family.get(fid), &places, i18n);
-            UnionGroup {
-                family_id: *fid,
-                sort_date: union_sort_date(
-                    events_by_family.get(fid).into_iter().flatten().copied(),
-                ),
-                partner_ids,
-                role,
-                marriage_date,
-                marriage_place,
-                divorce_date,
-                child_ids,
-            }
-        })
-        .collect();
-    sort_unions_chronologically(&mut unions, |union| union.sort_date);
-
-    let mut parent_ids: Vec<Uuid> = Vec::new();
-    let mut full_sibling_ids: Vec<Uuid> = Vec::new();
-    for fid in &child_family_ids {
-        for s in detail.spouses.iter().filter(|s| s.family_id == *fid) {
-            parent_ids.push(s.person_id);
-        }
-        for c in detail.children.iter() {
-            if c.family_id == *fid && c.person_id != person_id {
-                full_sibling_ids.push(c.person_id);
-            }
-        }
-    }
-    if parent_ids.is_empty()
-        && let Some(pedigree) = pedigree
-    {
-        let mut pedigree_parent_ids = pedigree
-            .edges
-            .iter()
-            .filter(|edge| edge.child_id == person_id)
-            .map(|edge| edge.parent_id)
-            .collect::<Vec<_>>();
-        pedigree_parent_ids.sort_by_key(|parent_id| {
-            pedigree
-                .persons
-                .get(parent_id)
-                .map(|person| match person.sex {
-                    Sex::Male => 0,
-                    Sex::Female => 1,
-                    Sex::Unknown => 2,
-                })
-                .unwrap_or(2)
-        });
-        pedigree_parent_ids.dedup();
-        parent_ids = pedigree_parent_ids;
-    }
-
-    // Half-siblings: each parent's *other* unions.
-    let mut half_sibling_groups: Vec<SiblingGroup> = Vec::new();
-    for parent_id in parent_ids.iter().filter(|_| !child_family_ids.is_empty()) {
-        let other_family_ids: Vec<Uuid> = detail
+    let families = OwnFamilies {
+        person_id,
+        as_spouse: detail
             .spouses
             .iter()
-            .filter(|s| s.person_id == *parent_id && !child_family_ids.contains(&s.family_id))
+            .filter(|s| s.person_id == person_id)
             .map(|s| s.family_id)
-            .collect();
-        for fid in &other_family_ids {
-            let other_parent_id = detail
-                .spouses
-                .iter()
-                .find(|s| s.family_id == *fid && s.person_id != *parent_id)
-                .map(|s| s.person_id);
-            let child_ids: Vec<Uuid> = detail
-                .children
-                .iter()
-                .filter(|c| c.family_id == *fid)
-                .map(|c| c.person_id)
-                .collect();
-            if !child_ids.is_empty() {
-                half_sibling_groups.push(SiblingGroup {
-                    common_parent_id: *parent_id,
-                    other_parent_id,
-                    child_ids,
-                });
-            }
-        }
-    }
-
-    // ── Enriched event list ──
-    //
-    // Combines three sources:
-    //   1. Individual events (birth, death, occupation…)
-    //   2. Conjugal family events (marriage, divorce…) and the children's
-    //   3. Parental family events (parent death, sibling birth…)
-    let is_life_event = |e: &DomainEvent| {
-        matches!(
-            e.event_type,
-            EventType::Birth | EventType::Death | EventType::Baptism | EventType::Burial
-        )
-    };
-    let mut events: Vec<EnrichedEvent> = Vec::new();
-    let mut seen_ids: HashSet<Uuid> = HashSet::new();
-
-    for &e in events_by_person.get(&person_id).into_iter().flatten() {
-        if seen_ids.insert(e.id) {
-            events.push(EnrichedEvent {
-                event: e.clone(),
-                origin: EventOrigin::Individual,
-                context: None,
-                union_id: None,
-            });
-        }
-    }
-
-    for fid in &spouse_family_ids {
-        let partner_name = detail
-            .spouses
-            .iter()
-            .find(|s| s.family_id == *fid && s.person_id != person_id)
-            .map(|s| resolve(s.person_id));
-        for &e in events_by_family.get(fid).into_iter().flatten() {
-            if seen_ids.insert(e.id) {
-                events.push(EnrichedEvent {
-                    event: e.clone(),
-                    origin: EventOrigin::ConjugalFamily,
-                    context: partner_name.clone(),
-                    union_id: Some(*fid),
-                });
-            }
-        }
-        for c in detail.children.iter().filter(|c| c.family_id == *fid) {
-            let child_name = resolve(c.person_id);
-            for &e in events_by_person.get(&c.person_id).into_iter().flatten() {
-                if is_life_event(e) && seen_ids.insert(e.id) {
-                    events.push(EnrichedEvent {
-                        event: e.clone(),
-                        origin: EventOrigin::ChildFamily,
-                        context: Some(child_name.clone()),
-                        union_id: Some(*fid),
-                    });
-                }
-            }
-        }
-    }
-
-    for fid in &child_family_ids {
-        for &e in events_by_family.get(fid).into_iter().flatten() {
-            if seen_ids.insert(e.id) {
-                events.push(EnrichedEvent {
-                    event: e.clone(),
-                    origin: EventOrigin::ParentalFamily,
-                    context: None,
-                    union_id: None,
-                });
-            }
-        }
-        // Major individual events of parents (death, burial).
-        for s in detail.spouses.iter().filter(|s| s.family_id == *fid) {
-            let parent_name = resolve(s.person_id);
-            for &e in events_by_person.get(&s.person_id).into_iter().flatten() {
-                if matches!(e.event_type, EventType::Death | EventType::Burial)
-                    && seen_ids.insert(e.id)
-                {
-                    events.push(EnrichedEvent {
-                        event: e.clone(),
-                        origin: EventOrigin::ParentalFamily,
-                        context: Some(parent_name.clone()),
-                        union_id: None,
-                    });
-                }
-            }
-        }
-        // Major individual events of siblings (birth, death, baptism, burial).
-        for c in detail
+            .collect(),
+        as_child: detail
             .children
             .iter()
-            .filter(|c| c.family_id == *fid && c.person_id != person_id)
-        {
-            let sib_name = resolve(c.person_id);
-            for &e in events_by_person.get(&c.person_id).into_iter().flatten() {
-                if is_life_event(e) && seen_ids.insert(e.id) {
-                    events.push(EnrichedEvent {
-                        event: e.clone(),
-                        origin: EventOrigin::ParentalFamily,
-                        context: Some(sib_name.clone()),
-                        union_id: None,
-                    });
-                }
-            }
-        }
-    }
-    events.sort_by_key(|a| a.event.date_sort);
+            .filter(|c| c.person_id == person_id)
+            .map(|c| c.family_id)
+            .collect(),
+    };
 
-    // ── Citations and evidence per event ──
-    let mut citations_by_event: HashMap<Uuid, Vec<String>> = HashMap::new();
-    let source_by_id: HashMap<Uuid, &oxidgene_core::types::Source> =
-        detail.sources.iter().map(|s| (s.id, s)).collect();
-    for citation in &detail.citations {
-        let (Some(eid), Some(source)) = (citation.event_id, source_by_id.get(&citation.source_id))
-        else {
-            continue;
-        };
-        let text = match &citation.page {
-            Some(page) if !page.is_empty() => format!("{} \u{2014} {page}", source.title),
-            _ => source.title.clone(),
-        };
-        citations_by_event.entry(eid).or_default().push(text);
-    }
-    let mut evidence_by_event: HashMap<Uuid, Vec<MediaWithLink>> = HashMap::new();
-    for item in &detail.event_media {
-        evidence_by_event
-            .entry(item.event_id)
-            .or_default()
-            .push(MediaWithLink {
-                link_id: item.link_id,
-                sort_order: item.sort_order,
-                media: item.media.clone(),
-            });
-    }
+    // ── Family narrative ──
+    let unions = unions(detail, &families, &index, &places, i18n);
+    let (parent_ids, full_sibling_ids) = parents_and_full_siblings(detail, &families, pedigree);
+    let half_sibling_groups = half_sibling_groups(detail, &parent_ids, &families.as_child);
+
+    let events = enriched_events(detail, &families, &index, &resolve);
+    let citations_by_event = citations_by_event(detail);
+    let evidence_by_event = evidence_by_event(detail);
 
     let person = detail.persons.iter().find(|p| p.id == person_id).cloned();
     let own_names = names.get(&person_id).cloned().unwrap_or_default();
-    let own_events: Vec<&DomainEvent> = events_by_person
-        .get(&person_id)
-        .cloned()
-        .unwrap_or_default();
+    let own_events: Vec<&DomainEvent> =
+        index.by_person.get(&person_id).cloned().unwrap_or_default();
     let name = header_name(&own_names, i18n);
     let vitals = vital_clauses(&own_events, &places, i18n);
 
@@ -660,6 +393,391 @@ pub(crate) fn build_profile(
         evidence_by_event,
         bundle,
     }
+}
+
+/// A bundle's live events, indexed by the person and by the family they
+/// belong to.
+struct EventIndex<'a> {
+    by_person: HashMap<Uuid, Vec<&'a DomainEvent>>,
+    by_family: HashMap<Uuid, Vec<&'a DomainEvent>>,
+}
+
+impl<'a> EventIndex<'a> {
+    fn new(events: &'a [DomainEvent]) -> Self {
+        let mut index = Self {
+            by_person: HashMap::new(),
+            by_family: HashMap::new(),
+        };
+        for e in events.iter().filter(|e| e.deleted_at.is_none()) {
+            if let Some(epid) = e.person_id {
+                index.by_person.entry(epid).or_default().push(e);
+            }
+            if let Some(fid) = e.family_id {
+                index.by_family.entry(fid).or_default().push(e);
+            }
+        }
+        index
+    }
+
+    /// The events of one person.
+    fn of_person(&self, person_id: Uuid) -> impl Iterator<Item = &'a DomainEvent> + '_ {
+        self.by_person
+            .get(&person_id)
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+
+    /// The events of one family.
+    fn of_family(&self, family_id: Uuid) -> impl Iterator<Item = &'a DomainEvent> + '_ {
+        self.by_family
+            .get(&family_id)
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+}
+
+/// The families the profiled person belongs to, as a spouse and as a child.
+struct OwnFamilies {
+    person_id: Uuid,
+    as_spouse: Vec<Uuid>,
+    as_child: Vec<Uuid>,
+}
+
+/// The "birth-death" suffix of every person in `sexes` who has one.
+fn lifespans(detail: &PersonDetailBundle, sexes: &HashMap<Uuid, Sex>) -> HashMap<Uuid, String> {
+    // Years carry their qualifier so the narrative hedges the same way the
+    // pedigree cards do — "ca 1849" in both places.
+    let mut birth_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
+    let mut death_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
+    for e in &detail.events {
+        let (Some(pid), Some(year)) = (e.person_id, e.qualified_year()) else {
+            continue;
+        };
+        match e.event_type {
+            EventType::Birth => {
+                birth_years.entry(pid).or_insert(year);
+            }
+            EventType::Death => {
+                death_years.entry(pid).or_insert(year);
+            }
+            _ => {}
+        }
+    }
+    sexes
+        .keys()
+        .filter_map(|pid| {
+            let lifespan = crate::components::pedigree_chart::format_lifespan(
+                birth_years.get(pid).copied(),
+                death_years.get(pid).copied(),
+            );
+            (!lifespan.is_empty()).then_some((*pid, lifespan))
+        })
+        .collect()
+}
+
+/// The person's own unions, in chronological order.
+fn unions(
+    detail: &PersonDetailBundle,
+    families: &OwnFamilies,
+    index: &EventIndex<'_>,
+    places: &HashMap<Uuid, String>,
+    i18n: &I18n,
+) -> Vec<UnionGroup> {
+    let person_id = families.person_id;
+    let mut unions: Vec<UnionGroup> = families
+        .as_spouse
+        .iter()
+        .map(|fid| {
+            let role = detail
+                .spouses
+                .iter()
+                .find(|s| s.family_id == *fid && s.person_id == person_id)
+                .map(|s| s.role)
+                .unwrap_or(SpouseRole::Partner);
+            let partner_ids = detail
+                .spouses
+                .iter()
+                .filter(|s| s.family_id == *fid && s.person_id != person_id)
+                .map(|s| s.person_id)
+                .collect();
+            let child_ids = detail
+                .children
+                .iter()
+                .filter(|c| c.family_id == *fid)
+                .map(|c| c.person_id)
+                .collect();
+            let (marriage_date, marriage_place, divorce_date) =
+                union_marriage_divorce(index.by_family.get(fid), places, i18n);
+            UnionGroup {
+                family_id: *fid,
+                sort_date: union_sort_date(index.of_family(*fid)),
+                partner_ids,
+                role,
+                marriage_date,
+                marriage_place,
+                divorce_date,
+                child_ids,
+            }
+        })
+        .collect();
+    sort_unions_chronologically(&mut unions, |union| union.sort_date);
+    unions
+}
+
+/// The person's parents and full siblings.
+///
+/// `pedigree` supplies the parents when the bundle knows of none.
+fn parents_and_full_siblings(
+    detail: &PersonDetailBundle,
+    families: &OwnFamilies,
+    pedigree: Option<&Pedigree>,
+) -> (Vec<Uuid>, Vec<Uuid>) {
+    let mut parent_ids: Vec<Uuid> = Vec::new();
+    let mut full_sibling_ids: Vec<Uuid> = Vec::new();
+    for fid in &families.as_child {
+        for s in detail.spouses.iter().filter(|s| s.family_id == *fid) {
+            parent_ids.push(s.person_id);
+        }
+        for c in detail.children.iter() {
+            if c.family_id == *fid && c.person_id != families.person_id {
+                full_sibling_ids.push(c.person_id);
+            }
+        }
+    }
+    if parent_ids.is_empty()
+        && let Some(pedigree) = pedigree
+    {
+        parent_ids = pedigree_parent_ids(pedigree, families.person_id);
+    }
+    (parent_ids, full_sibling_ids)
+}
+
+/// The parents the pedigree links `person_id` to, father first.
+fn pedigree_parent_ids(pedigree: &Pedigree, person_id: Uuid) -> Vec<Uuid> {
+    let mut parent_ids = pedigree
+        .edges
+        .iter()
+        .filter(|edge| edge.child_id == person_id)
+        .map(|edge| edge.parent_id)
+        .collect::<Vec<_>>();
+    parent_ids.sort_by_key(|parent_id| {
+        pedigree
+            .persons
+            .get(parent_id)
+            .map(|person| match person.sex {
+                Sex::Male => 0,
+                Sex::Female => 1,
+                Sex::Unknown => 2,
+            })
+            .unwrap_or(2)
+    });
+    parent_ids.dedup();
+    parent_ids
+}
+
+/// Half-siblings: the children of each parent's *other* unions.
+fn half_sibling_groups(
+    detail: &PersonDetailBundle,
+    parent_ids: &[Uuid],
+    child_family_ids: &[Uuid],
+) -> Vec<SiblingGroup> {
+    let mut groups: Vec<SiblingGroup> = Vec::new();
+    for parent_id in parent_ids.iter().filter(|_| !child_family_ids.is_empty()) {
+        let other_family_ids: Vec<Uuid> = detail
+            .spouses
+            .iter()
+            .filter(|s| s.person_id == *parent_id && !child_family_ids.contains(&s.family_id))
+            .map(|s| s.family_id)
+            .collect();
+        for fid in &other_family_ids {
+            let other_parent_id = detail
+                .spouses
+                .iter()
+                .find(|s| s.family_id == *fid && s.person_id != *parent_id)
+                .map(|s| s.person_id);
+            let child_ids: Vec<Uuid> = detail
+                .children
+                .iter()
+                .filter(|c| c.family_id == *fid)
+                .map(|c| c.person_id)
+                .collect();
+            if !child_ids.is_empty() {
+                groups.push(SiblingGroup {
+                    common_parent_id: *parent_id,
+                    other_parent_id,
+                    child_ids,
+                });
+            }
+        }
+    }
+    groups
+}
+
+/// Whether an event marks a life's start or end: birth, death, baptism or
+/// burial.
+fn is_life_event(e: &DomainEvent) -> bool {
+    matches!(
+        e.event_type,
+        EventType::Birth | EventType::Death | EventType::Baptism | EventType::Burial
+    )
+}
+
+/// Events gathered for the profile, each listed once, in the order found.
+#[derive(Default)]
+struct EventList {
+    events: Vec<EnrichedEvent>,
+    seen_ids: HashSet<Uuid>,
+}
+
+impl EventList {
+    /// List `event` unless an earlier source already did.
+    fn add(
+        &mut self,
+        event: &DomainEvent,
+        origin: EventOrigin,
+        context: Option<&str>,
+        union_id: Option<Uuid>,
+    ) {
+        if self.seen_ids.insert(event.id) {
+            self.events.push(EnrichedEvent {
+                event: event.clone(),
+                origin,
+                context: context.map(str::to_owned),
+                union_id,
+            });
+        }
+    }
+}
+
+/// The enriched event list, in chronological order.
+///
+/// Combines three sources:
+///   1. Individual events (birth, death, occupation…)
+///   2. Conjugal family events (marriage, divorce…) and the children's
+///   3. Parental family events (parent death, sibling birth…)
+fn enriched_events(
+    detail: &PersonDetailBundle,
+    families: &OwnFamilies,
+    index: &EventIndex<'_>,
+    resolve: &dyn Fn(Uuid) -> String,
+) -> Vec<EnrichedEvent> {
+    let mut list = EventList::default();
+    for e in index.of_person(families.person_id) {
+        list.add(e, EventOrigin::Individual, None, None);
+    }
+    for fid in &families.as_spouse {
+        add_conjugal_events(&mut list, detail, families.person_id, *fid, index, resolve);
+    }
+    for fid in &families.as_child {
+        add_parental_events(&mut list, detail, families.person_id, *fid, index, resolve);
+    }
+    let mut events = list.events;
+    events.sort_by_key(|a| a.event.date_sort);
+    events
+}
+
+/// The events of one of the person's own unions, then its children's life
+/// events.
+fn add_conjugal_events(
+    list: &mut EventList,
+    detail: &PersonDetailBundle,
+    person_id: Uuid,
+    fid: Uuid,
+    index: &EventIndex<'_>,
+    resolve: &dyn Fn(Uuid) -> String,
+) {
+    let partner_name = detail
+        .spouses
+        .iter()
+        .find(|s| s.family_id == fid && s.person_id != person_id)
+        .map(|s| resolve(s.person_id));
+    for e in index.of_family(fid) {
+        list.add(
+            e,
+            EventOrigin::ConjugalFamily,
+            partner_name.as_deref(),
+            Some(fid),
+        );
+    }
+    for c in detail.children.iter().filter(|c| c.family_id == fid) {
+        let child_name = resolve(c.person_id);
+        for e in index.of_person(c.person_id).filter(|e| is_life_event(e)) {
+            list.add(e, EventOrigin::ChildFamily, Some(&child_name), Some(fid));
+        }
+    }
+}
+
+/// The events of the family the person was born into, its parents' deaths
+/// and burials, and their siblings' life events.
+fn add_parental_events(
+    list: &mut EventList,
+    detail: &PersonDetailBundle,
+    person_id: Uuid,
+    fid: Uuid,
+    index: &EventIndex<'_>,
+    resolve: &dyn Fn(Uuid) -> String,
+) {
+    for e in index.of_family(fid) {
+        list.add(e, EventOrigin::ParentalFamily, None, None);
+    }
+    // Major individual events of parents (death, burial).
+    for s in detail.spouses.iter().filter(|s| s.family_id == fid) {
+        let parent_name = resolve(s.person_id);
+        for e in index
+            .of_person(s.person_id)
+            .filter(|e| matches!(e.event_type, EventType::Death | EventType::Burial))
+        {
+            list.add(e, EventOrigin::ParentalFamily, Some(&parent_name), None);
+        }
+    }
+    // Major individual events of siblings (birth, death, baptism, burial).
+    for c in detail
+        .children
+        .iter()
+        .filter(|c| c.family_id == fid && c.person_id != person_id)
+    {
+        let sib_name = resolve(c.person_id);
+        for e in index.of_person(c.person_id).filter(|e| is_life_event(e)) {
+            list.add(e, EventOrigin::ParentalFamily, Some(&sib_name), None);
+        }
+    }
+}
+
+/// "Source title — page", one entry per citation, keyed by event.
+fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<String>> {
+    let mut citations_by_event: HashMap<Uuid, Vec<String>> = HashMap::new();
+    let source_by_id: HashMap<Uuid, &oxidgene_core::types::Source> =
+        detail.sources.iter().map(|s| (s.id, s)).collect();
+    for citation in &detail.citations {
+        let (Some(eid), Some(source)) = (citation.event_id, source_by_id.get(&citation.source_id))
+        else {
+            continue;
+        };
+        let text = match &citation.page {
+            Some(page) if !page.is_empty() => format!("{} \u{2014} {page}", source.title),
+            _ => source.title.clone(),
+        };
+        citations_by_event.entry(eid).or_default().push(text);
+    }
+    citations_by_event
+}
+
+/// The documents proving each event, keyed by the event they document.
+fn evidence_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<MediaWithLink>> {
+    let mut evidence_by_event: HashMap<Uuid, Vec<MediaWithLink>> = HashMap::new();
+    for item in &detail.event_media {
+        evidence_by_event
+            .entry(item.event_id)
+            .or_default()
+            .push(MediaWithLink {
+                link_id: item.link_id,
+                sort_order: item.sort_order,
+                media: item.media.clone(),
+            });
+    }
+    evidence_by_event
 }
 
 fn header_name(own_names: &[PersonName], i18n: &I18n) -> HeaderName {
@@ -1018,15 +1136,25 @@ pub(crate) struct SectionContext<'a> {
     pub media_revision: Signal<u32>,
 }
 
+/// The mark shown before a person's name: ♂, ♀, or `?` when unknown.
+fn sex_glyph(sex: Sex) -> &'static str {
+    match sex {
+        Sex::Male => "\u{2642}",
+        Sex::Female => "\u{2640}",
+        Sex::Unknown => "?",
+    }
+}
+
 /// Renders "[SOSA mark] [sex glyph] Name [years]", linked to the person's own
 /// page — used throughout the family narrative.
 pub(crate) fn person_chip(ctx: &SectionContext, profile: &Profile, pid: Uuid) -> Element {
     let name = profile.name_of(pid, &ctx.i18n);
     let sex = profile.sexes.get(&pid).copied().unwrap_or(Sex::Unknown);
-    let (sex_glyph, sex_class) = match sex {
-        Sex::Male => ("\u{2642}", "pd-sex-glyph male"),
-        Sex::Female => ("\u{2640}", "pd-sex-glyph female"),
-        Sex::Unknown => ("?", "pd-sex-glyph"),
+    let sex_glyph = sex_glyph(sex);
+    let sex_class = match sex {
+        Sex::Male => "pd-sex-glyph male",
+        Sex::Female => "pd-sex-glyph female",
+        Sex::Unknown => "pd-sex-glyph",
     };
     let lifespan = profile.lifespans.get(&pid).cloned().unwrap_or_default();
     let is_sosa = ctx.sosa_ancestors.contains(&pid);
@@ -1069,11 +1197,6 @@ pub(crate) fn header_section(
         return rsx! {};
     };
     let person_sex = person.sex;
-    let sex_symbol = match person_sex {
-        Sex::Male => "\u{2642}",
-        Sex::Female => "\u{2640}",
-        Sex::Unknown => "?",
-    };
     let avatar = photo.unwrap_or_else(|| CroppedSource::silhouette(person_sex));
     let name = &profile.name;
     rsx! {
@@ -1087,19 +1210,7 @@ pub(crate) fn header_section(
                 }
                 div { class: "pd-header-main",
                     div { class: "pd-header-top",
-                        h1 {
-                            if let Some(given) = name.given.clone() {
-                                if let Some(prefix) = &name.prefix {
-                                    "{prefix} "
-                                }
-                                GivenNamesHover { given_names: given }
-                                if !name.rest.is_empty() {
-                                    " {name.rest}"
-                                }
-                            } else {
-                                "{name.display_name}"
-                            }
-                        }
+                        h1 { {header_title(name)} }
                     }
                     if !name.alt_names.is_empty() {
                         p { class: "pd-alt-names",
@@ -1109,22 +1220,7 @@ pub(crate) fn header_section(
                         }
                     }
                     if !profile.vitals.is_empty() {
-                        p { class: "pd-vitals",
-                            span { class: "pd-sex-mark", "{sex_symbol}" }
-                            for (i, clause) in profile.vitals.iter().enumerate() {
-                                if i > 0 {
-                                    match clause {
-                                        VitalClause::Event {
-                                            event_type: EventType::Death | EventType::Burial,
-                                            ..
-                                        }
-                                        | VitalClause::Occupation(_) => rsx! { br {} },
-                                        _ => rsx! { " \u{2014} " },
-                                    }
-                                }
-                                {vital_clause(clause, person_sex, &i18n)}
-                            }
-                        }
+                        {vitals_line(&profile.vitals, person_sex, &i18n)}
                     }
                 }
             }
@@ -1143,6 +1239,48 @@ pub(crate) fn header_section(
                     }
                 }
                 div { class: "pd-header-buttons", {actions} }
+            }
+        }
+    }
+}
+
+/// The header's name: the given names with their reference hover between
+/// the prefix and the rest, or the display name when no given name is known.
+fn header_title(name: &HeaderName) -> Element {
+    rsx! {
+        if let Some(given) = name.given.clone() {
+            if let Some(prefix) = &name.prefix {
+                "{prefix} "
+            }
+            GivenNamesHover { given_names: given }
+            if !name.rest.is_empty() {
+                " {name.rest}"
+            }
+        } else {
+            "{name.display_name}"
+        }
+    }
+}
+
+/// The header's vitals: a sex mark, then each clause, a death, burial or
+/// occupation starting a new line.
+fn vitals_line(vitals: &[VitalClause], sex: Sex, i18n: &I18n) -> Element {
+    let sex_symbol = sex_glyph(sex);
+    rsx! {
+        p { class: "pd-vitals",
+            span { class: "pd-sex-mark", "{sex_symbol}" }
+            for (i, clause) in vitals.iter().enumerate() {
+                if i > 0 {
+                    match clause {
+                        VitalClause::Event {
+                            event_type: EventType::Death | EventType::Burial,
+                            ..
+                        }
+                        | VitalClause::Occupation(_) => rsx! { br {} },
+                        _ => rsx! { " \u{2014} " },
+                    }
+                }
+                {vital_clause(clause, sex, i18n)}
             }
         }
     }
