@@ -646,12 +646,13 @@ fn completeness_class(part: i64, whole: i64) -> &'static str {
     }
 }
 
-/// A fact of an ancestor: recorded, missing, or, for a death, not due yet.
-fn fact(i18n: &I18n, key: &str, recorded: bool, living: bool) -> Element {
-    let (class, state) = match (recorded, living) {
-        (true, _) => ("tools-fact tools-fact-yes", "tools.ancestry.recorded"),
-        (false, true) => ("tools-fact tools-fact-living", "tools.ancestry.living"),
-        (false, false) => ("tools-fact tools-fact-no", "tools.ancestry.missing"),
+/// A fact of an ancestor: recorded or missing. A living person's death is
+/// not drawn at all: nothing is expected there.
+fn fact(i18n: &I18n, key: &str, recorded: bool) -> Element {
+    let (class, state) = if recorded {
+        ("tools-fact tools-fact-yes", "tools.ancestry.recorded")
+    } else {
+        ("tools-fact tools-fact-no", "tools.ancestry.missing")
     };
     let label = i18n.t(&format!("tools.ancestry.fact.{key}"));
     let state = i18n.t(state);
@@ -827,11 +828,18 @@ fn render_generation(
                                             }
                                         }
                                     }
-                                    td { class: "tools-facts",
-                                        {fact(i18n, "birth", person.has_birth, false)}
-                                        {fact(i18n, "death", person.has_death, person.living)}
-                                        if row.generation > 1 {
-                                            {fact(i18n, "union", person.has_union, false)}
+                                    // The pills lay out in a box inside the
+                                    // cell: a flex `td` stops being a table
+                                    // cell and its border leaves the row's.
+                                    td {
+                                        div { class: "tools-facts",
+                                            {fact(i18n, "birth", person.has_birth)}
+                                            if person.has_death || !person.living {
+                                                {fact(i18n, "death", person.has_death)}
+                                            }
+                                            if row.generation > 1 {
+                                                {fact(i18n, "union", person.has_union)}
+                                            }
                                         }
                                     }
                                 },

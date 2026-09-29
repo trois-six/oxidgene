@@ -1606,7 +1606,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("tools.ancestry.fact.union", "União"),
         ("tools.ancestry.recorded", "registado"),
         ("tools.ancestry.missing", "em falta"),
-        ("tools.ancestry.living", "possivelmente vivo"),
         ("tools.ancestry.only_missing", "Mostrar apenas o que falta"),
         ("tools.ancestry.missing_ancestor", "Antepassado em falta"),
         ("tools.ancestry.implied_one", "Falta mais {count} antepassado porque o filho também falta."),

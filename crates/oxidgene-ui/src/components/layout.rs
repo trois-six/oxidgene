@@ -6858,7 +6858,6 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .tools-fact-yes { color: var(--green); border-color: var(--green); }
     .tools-fact-no { color: var(--red); border-color: var(--red); text-decoration: line-through; }
-    .tools-fact-living { color: var(--text-muted); }
 
     /* A category tile filters the anomalies: a tile that is a button. */
     .tools-category {

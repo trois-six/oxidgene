@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:55:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T18:47:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -237,11 +237,13 @@ root, 2n the father and 2n + 1 the mother of n.
   birth, a death (or may be alive) and a union.
 - **Generations**: below the summary, each generation (the first three open)
   lists by SOSA number either the ancestor, a link to their profile with
-  their birth and death dates, and three marks, or "missing ancestor".
+  their birth and death dates, and a mark per key fact, recorded (green) or
+  missing (red, struck through), or "missing ancestor".
 - **Key facts**, each recorded when its event exists with a date or a place:
   - *birth*: a birth or a baptism;
   - *death*: a death or a burial; a person with neither, born fewer than 120
-    years ago, may be alive and is marked so rather than missing (the
+    years ago, may be alive: nothing is expected, so no death mark is drawn
+    for them at all, and they count as complete (the
     [Statistics](ui-statistics.md) §7 rule);
   - *union*: an event attesting the union of the ancestor with the other
     parent of their child in the line (the family that makes them a parent

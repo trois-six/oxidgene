@@ -1606,7 +1606,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("tools.ancestry.fact.union", "Verbintenis"),
         ("tools.ancestry.recorded", "vastgelegd"),
         ("tools.ancestry.missing", "ontbreekt"),
-        ("tools.ancestry.living", "mogelijk in leven"),
         ("tools.ancestry.only_missing", "Alleen tonen wat ontbreekt"),
         ("tools.ancestry.missing_ancestor", "Ontbrekende voorouder"),
         ("tools.ancestry.implied_one", "Nog {count} voorouder ontbreekt omdat ook het kind ontbreekt."),
