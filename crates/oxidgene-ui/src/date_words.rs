@@ -1495,9 +1495,21 @@ enum Piece {
 /// write but a text may hold, folded.
 static PIECES: LazyLock<HashMap<String, Piece>> = LazyLock::new(|| {
     let mut map = HashMap::new();
-    let mut add = |word: &str, piece: Piece| {
-        map.insert(fold(word), piece);
-    };
+    add_tabled_numbers(&mut map);
+    add_derived_numbers(&mut map);
+    add_irregular_words(&mut map);
+    map
+});
+
+/// Add `word`, folded, as `piece`.
+fn add_piece(map: &mut HashMap<String, Piece>, word: &str, piece: Piece) {
+    map.insert(fold(word), piece);
+}
+
+/// The numbers the writers' tables spell out: units, ordinals, tens and
+/// hundreds.
+fn add_tabled_numbers(map: &mut HashMap<String, Piece>) {
+    let mut add = |word: &str, piece: Piece| add_piece(map, word, piece);
     let tables: [&[&str]; 12] = [
         &EN_UNITS,
         &FR_UNITS,
@@ -1555,6 +1567,13 @@ static PIECES: LazyLock<HashMap<String, Piece>> = LazyLock::new(|| {
     for (i, word) in PL_THOUSANDS_ORDINALS.iter().enumerate().skip(2) {
         add(word, Piece::Add(i as u32 * 1000));
     }
+}
+
+/// The forms of numbers the tables do not spell out but a text may hold:
+/// inflected Latin ordinals, elided Italian tens, and the ordinals German and
+/// Dutch form by rule.
+fn add_derived_numbers(map: &mut HashMap<String, Piece>) {
+    let mut add = |word: &str, piece: Piece| add_piece(map, word, piece);
     // Latin feminine forms of every ordinal, and the Italian tens that lose
     // their vowel.
     for table in [&LA_ORDINALS[..], &LA_TENS_ORDINALS[..]] {
@@ -1585,6 +1604,11 @@ static PIECES: LazyLock<HashMap<String, Piece>> = LazyLock::new(|| {
         }
         add(&nl_ordinal(n), Piece::Add(n));
     }
+}
+
+/// Irregular number words, and the words that multiply or join numbers.
+fn add_irregular_words(map: &mut HashMap<String, Piece>) {
+    let mut add = |word: &str, piece: Piece| add_piece(map, word, piece);
     for (word, value) in [
         ("premier", 1),
         ("premiere", 1),
@@ -1640,8 +1664,7 @@ static PIECES: LazyLock<HashMap<String, Piece>> = LazyLock::new(|| {
     for word in ["and", "et", "und", "y", "e", "en"] {
         add(word, Piece::And);
     }
-    map
-});
+}
 
 /// A folded word cut into number pieces, when it is made of nothing else:
 /// "sechzehnhundertfunfzig" is sechzehn, hundert, funfzig. The cut with the
@@ -1773,6 +1796,27 @@ pub fn read(text: &str) -> Result<Ymd, ReadError> {
     if text.trim().is_empty() {
         return Err(ReadError::Empty);
     }
+    let (numbers, marks) = numbers_and_marks(merge_compounds(tokenize(text)));
+
+    let month_at = marks.iter().find_map(|(i, t)| match t {
+        Token::Month(m) => Some((*i, *m)),
+        _ => None,
+    });
+    let anchor = marks.iter().find_map(|(i, t)| match t {
+        Token::Kalends | Token::Nones | Token::Ides => Some((*i, t.clone())),
+        _ => None,
+    });
+
+    let date = match (anchor, month_at) {
+        (Some(anchor), Some(month_at)) => roman_reckoning_date(anchor, month_at, &numbers, &marks)?,
+        (_, Some(month_at)) => month_name_date(month_at, &numbers)?,
+        (_, None) => figures_date(&numbers)?,
+    };
+    checked(date)
+}
+
+/// The words of `text`, classified.
+fn tokenize(text: &str) -> Vec<Token> {
     // Roman numerals are only read where written in capitals, or where the
     // Roman reckoning expects one, so that "di" or "mil" stay words.
     let reckoning = fold(text)
@@ -1798,7 +1842,12 @@ pub fn read(text: &str) -> Result<Ymd, ReadError> {
             (token, _) => token,
         });
     }
-    // "quatre-vingt" is one number, "bis millesimo" two thousand.
+    tokens
+}
+
+/// Joins the words that make one number between them: "quatre-vingt" is one
+/// number, "bis millesimo" two thousand.
+fn merge_compounds(tokens: Vec<Token>) -> Vec<Token> {
     let mut merged: Vec<Token> = Vec::new();
     for token in tokens {
         match (merged.last_mut(), token) {
@@ -1820,8 +1869,15 @@ pub fn read(text: &str) -> Result<Ymd, ReadError> {
             (_, token) => merged.push(token),
         }
     }
+    merged
+}
 
-    // Numbers: words next to words make one number, joined by "and".
+/// Values found in a text, each with the position of the token it starts at.
+type Positioned<T> = Vec<(usize, T)>;
+
+/// The numbers of a text and its other meaningful tokens, each with the
+/// position it holds. Words next to words make one number, joined by "and".
+fn numbers_and_marks(merged: Vec<Token>) -> (Positioned<u32>, Positioned<Token>) {
     let mut numbers: Vec<(usize, u32)> = Vec::new();
     let mut run: Vec<Piece> = Vec::new();
     let mut run_start = 0;
@@ -1853,121 +1909,135 @@ pub fn read(text: &str) -> Result<Ymd, ReadError> {
         }
     }
     flush(&mut run, run_start, &mut numbers);
+    (numbers, marks)
+}
 
-    let month_at = marks.iter().find_map(|(i, t)| match t {
-        Token::Month(m) => Some((*i, *m)),
-        _ => None,
-    });
-    let anchor = marks.iter().find_map(|(i, t)| match t {
-        Token::Kalends | Token::Nones | Token::Ides => Some((*i, t.clone())),
-        _ => None,
-    });
+/// A date in the Roman reckoning: a count before the Kalends, Nones or Ides
+/// found at `at`, the year after the month.
+fn roman_reckoning_date(
+    (at, kind): (usize, Token),
+    (month_pos, month): (usize, u8),
+    numbers: &[(usize, u32)],
+    marks: &[(usize, Token)],
+) -> Result<Ymd, ReadError> {
+    let pridie = marks.iter().any(|(i, t)| *t == Token::Pridie && *i < at);
+    let bis = marks.iter().any(|(i, t)| *t == Token::Bis && *i < at);
+    let count = if pridie {
+        2
+    } else {
+        numbers
+            .iter()
+            .filter(|(i, _)| *i < at)
+            .map(|(_, n)| *n)
+            .next_back()
+            .unwrap_or(1)
+    };
+    let year = numbers
+        .iter()
+        .find(|(i, _)| *i > month_pos)
+        .map(|(_, n)| *n)
+        .ok_or(ReadError::NoYear)? as i32;
+    let (month, day) = match kind {
+        Token::Nones => (month, i64::from(nones(month)) - i64::from(count) + 1),
+        Token::Ides => (month, i64::from(nones(month) + 8) - i64::from(count) + 1),
+        _ if count == 1 => (month, 1),
+        _ => before_kalends(year, month, count, bis),
+    };
+    Ok(Ymd {
+        year,
+        month: Some(month),
+        day: Some(
+            u8::try_from(day)
+                .ok()
+                .filter(|d| *d > 0)
+                .ok_or(ReadError::NoSuchDay)?,
+        ),
+    })
+}
 
-    let date = if let (Some((at, kind)), Some((month_pos, month))) = (anchor, month_at) {
-        // The Roman reckoning: a count before the anchor, the year after the
-        // month.
-        let pridie = marks.iter().any(|(i, t)| *t == Token::Pridie && *i < at);
-        let bis = marks.iter().any(|(i, t)| *t == Token::Bis && *i < at);
-        let count = if pridie {
-            2
+/// The month and day `count` days before the Kalends of `month`, counted
+/// inclusively. `bis` names the doubled sixth day of a leap February.
+fn before_kalends(year: i32, month: u8, count: u32, bis: bool) -> (u8, i64) {
+    let previous = if month == 1 { 12 } else { month - 1 };
+    let length = i64::from(days_in_month(Calendar::Gregorian, year, previous));
+    let count = i64::from(count);
+    let day = if previous == 2 && length == 29 {
+        if bis {
+            24
+        } else if count <= 6 {
+            31 - count
         } else {
-            numbers
-                .iter()
-                .filter(|(i, _)| *i < at)
-                .map(|(_, n)| *n)
-                .next_back()
-                .unwrap_or(1)
-        };
-        let year = numbers
-            .iter()
-            .find(|(i, _)| *i > month_pos)
-            .map(|(_, n)| *n)
-            .ok_or(ReadError::NoYear)? as i32;
-        let (month, day) = match kind {
-            Token::Nones => (month, i64::from(nones(month)) - i64::from(count) + 1),
-            Token::Ides => (month, i64::from(nones(month) + 8) - i64::from(count) + 1),
-            _ if count == 1 => (month, 1),
-            _ => {
-                let previous = if month == 1 { 12 } else { month - 1 };
-                let length = i64::from(days_in_month(Calendar::Gregorian, year, previous));
-                let count = i64::from(count);
-                let day = if previous == 2 && length == 29 {
-                    if bis {
-                        24
-                    } else if count <= 6 {
-                        31 - count
-                    } else {
-                        30 - count
-                    }
-                } else {
-                    length - count + 2
-                };
-                (previous, day)
-            }
-        };
-        Ymd {
-            year,
-            month: Some(month),
-            day: Some(
-                u8::try_from(day)
-                    .ok()
-                    .filter(|d| *d > 0)
-                    .ok_or(ReadError::NoSuchDay)?,
-            ),
-        }
-    } else if let Some((month_pos, month)) = month_at {
-        let before: Vec<u32> = numbers
-            .iter()
-            .filter(|(i, _)| *i < month_pos)
-            .map(|(_, n)| *n)
-            .collect();
-        let after: Vec<u32> = numbers
-            .iter()
-            .filter(|(i, _)| *i > month_pos)
-            .map(|(_, n)| *n)
-            .collect();
-        let (day, year) = match (before.last(), after.as_slice()) {
-            (Some(&d), [y, ..]) if (1..=31).contains(&d) => (Some(d), Some(*y)),
-            (_, [d, y, ..]) if (1..=31).contains(d) => (Some(*d), Some(*y)),
-            (None, [y]) => (None, Some(*y)),
-            (Some(&y), []) if y > 31 => (None, Some(y)),
-            (Some(&y), [d]) if y > 31 && (1..=31).contains(d) => (Some(*d), Some(y)),
-            (_, [y, ..]) => (None, Some(*y)),
-            _ => (None, None),
-        };
-        Ymd {
-            year: year.ok_or(ReadError::NoYear)? as i32,
-            month: Some(month),
-            day: day.map(|d| d as u8),
+            30 - count
         }
     } else {
-        // Figures alone.
-        let values: Vec<u32> = numbers.iter().map(|(_, n)| *n).collect();
-        match values.as_slice() {
-            [y] => Ymd {
-                year: *y as i32,
-                month: None,
-                day: None,
-            },
-            [y, m, d] if *y > 31 => Ymd {
-                year: *y as i32,
-                month: u8::try_from(*m).ok(),
-                day: u8::try_from(*d).ok(),
-            },
-            [d, m, y] => Ymd {
-                year: *y as i32,
-                month: u8::try_from(*m).ok(),
-                day: u8::try_from(*d).ok(),
-            },
-            [m, y] if *m <= 12 => Ymd {
-                year: *y as i32,
-                month: u8::try_from(*m).ok(),
-                day: None,
-            },
-            _ => return Err(ReadError::NoYear),
-        }
+        length - count + 2
     };
+    (previous, day)
+}
 
+/// A date around a month's name: the day and year in figures or words on
+/// either side of it.
+fn month_name_date(
+    (month_pos, month): (usize, u8),
+    numbers: &[(usize, u32)],
+) -> Result<Ymd, ReadError> {
+    let before: Vec<u32> = numbers
+        .iter()
+        .filter(|(i, _)| *i < month_pos)
+        .map(|(_, n)| *n)
+        .collect();
+    let after: Vec<u32> = numbers
+        .iter()
+        .filter(|(i, _)| *i > month_pos)
+        .map(|(_, n)| *n)
+        .collect();
+    let (day, year) = match (before.last(), after.as_slice()) {
+        (Some(&d), [y, ..]) if (1..=31).contains(&d) => (Some(d), Some(*y)),
+        (_, [d, y, ..]) if (1..=31).contains(d) => (Some(*d), Some(*y)),
+        (None, [y]) => (None, Some(*y)),
+        (Some(&y), []) if y > 31 => (None, Some(y)),
+        (Some(&y), [d]) if y > 31 && (1..=31).contains(d) => (Some(*d), Some(y)),
+        (_, [y, ..]) => (None, Some(*y)),
+        _ => (None, None),
+    };
+    Ok(Ymd {
+        year: year.ok_or(ReadError::NoYear)? as i32,
+        month: Some(month),
+        day: day.map(|d| d as u8),
+    })
+}
+
+/// A date in figures alone: a year, day first ("2/2/1650"), year first
+/// ("1650-02-02"), or a month and a year.
+fn figures_date(numbers: &[(usize, u32)]) -> Result<Ymd, ReadError> {
+    let values: Vec<u32> = numbers.iter().map(|(_, n)| *n).collect();
+    Ok(match values.as_slice() {
+        [y] => Ymd {
+            year: *y as i32,
+            month: None,
+            day: None,
+        },
+        [y, m, d] if *y > 31 => Ymd {
+            year: *y as i32,
+            month: u8::try_from(*m).ok(),
+            day: u8::try_from(*d).ok(),
+        },
+        [d, m, y] => Ymd {
+            year: *y as i32,
+            month: u8::try_from(*m).ok(),
+            day: u8::try_from(*d).ok(),
+        },
+        [m, y] if *m <= 12 => Ymd {
+            year: *y as i32,
+            month: u8::try_from(*m).ok(),
+            day: None,
+        },
+        _ => return Err(ReadError::NoYear),
+    })
+}
+
+/// `date`, once its year, month and day are known to exist.
+fn checked(date: Ymd) -> Result<Ymd, ReadError> {
     if !(1..=MAX_YEAR).contains(&date.year) {
         return Err(ReadError::NoYear);
     }
