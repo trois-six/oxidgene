@@ -5,7 +5,7 @@
 //! [`persist_import_result`] — is format-agnostic and also backs the GeneWeb
 //! importer in [`crate::service::geneweb`].
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::entities::{
     citation, event, event_witness, family, family_child, family_spouse, media, media_link,
@@ -406,7 +406,30 @@ async fn persist_import_result_in_with_progress(
     on_inserted: &mut impl FnMut(usize),
 ) -> Result<ImportSummary, OxidGeneError> {
     let now = Utc::now();
+    insert_standalone_records(db, &result, now, on_inserted).await?;
+    insert_persons_and_families(db, &result, now, on_inserted).await?;
+    insert_attached_records(db, &result, now, on_inserted).await?;
 
+    Ok(ImportSummary {
+        persons_count: result.persons.len(),
+        families_count: result.families.len(),
+        events_count: result.events.len(),
+        sources_count: result.sources.len(),
+        media_count: result.media.len(),
+        places_count: result.places.len(),
+        notes_count: result.notes.len(),
+        warnings: result.warnings,
+    })
+}
+
+/// Inserts the imported records that reference no other imported entity:
+/// places, sources, and media with their tags.
+async fn insert_standalone_records(
+    db: &impl ConnectionTrait,
+    result: &oxidgene_gedcom::ImportResult,
+    now: DateTime<Utc>,
+    on_inserted: &mut impl FnMut(usize),
+) -> Result<(), OxidGeneError> {
     // 1. Places (no FKs to other imported entities)
     if !result.places.is_empty() {
         let models: Vec<place::ActiveModel> = result
@@ -503,6 +526,17 @@ async fn persist_import_result_in_with_progress(
         batch_insert::<media_tag::Entity, _>(db, tags, &mut |_| {}).await?;
     }
 
+    Ok(())
+}
+
+/// Inserts the imported persons and their names, then the families with
+/// their spouses and children.
+async fn insert_persons_and_families(
+    db: &impl ConnectionTrait,
+    result: &oxidgene_gedcom::ImportResult,
+    now: DateTime<Utc>,
+    on_inserted: &mut impl FnMut(usize),
+) -> Result<(), OxidGeneError> {
     // 4. Persons (FK → tree)
     if !result.persons.is_empty() {
         let models: Vec<person::ActiveModel> = result
@@ -596,6 +630,17 @@ async fn persist_import_result_in_with_progress(
         batch_insert::<family_child::Entity, _>(db, models, on_inserted).await?;
     }
 
+    Ok(())
+}
+
+/// Inserts the imported records attached to persons and families: events
+/// with their witnesses, citations, media links, vignettes and notes.
+async fn insert_attached_records(
+    db: &impl ConnectionTrait,
+    result: &oxidgene_gedcom::ImportResult,
+    now: DateTime<Utc>,
+    on_inserted: &mut impl FnMut(usize),
+) -> Result<(), OxidGeneError> {
     // 9. Events (FK → tree, person?, family?, place?)
     if !result.events.is_empty() {
         let models: Vec<event::ActiveModel> = result
@@ -723,16 +768,7 @@ async fn persist_import_result_in_with_progress(
         batch_insert::<note::Entity, _>(db, models, on_inserted).await?;
     }
 
-    Ok(ImportSummary {
-        persons_count: result.persons.len(),
-        families_count: result.families.len(),
-        events_count: result.events.len(),
-        sources_count: result.sources.len(),
-        media_count: result.media.len(),
-        places_count: result.places.len(),
-        notes_count: result.notes.len(),
-        warnings: result.warnings,
-    })
+    Ok(())
 }
 
 /// Load all entities from a tree and export them as a GEDCOM string.

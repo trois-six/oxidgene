@@ -587,21 +587,17 @@ async fn respond<T: Serialize>(
     let started = Instant::now();
     let outcome = call.await.and_then(to_value);
     let elapsed_ms = started.elapsed().as_millis();
+    let code = match &outcome {
+        Ok(_) => "ok",
+        Err(error) => classify(error).code,
+    };
+    info!(tool, outcome = code, elapsed_ms, "MCP tool call");
     match outcome {
-        Ok(value) => {
-            info!(tool, outcome = "ok", elapsed_ms, "MCP tool call");
-            CallToolResult::structured(match value {
-                Value::Object(_) => value,
-                items => serde_json::json!({ "items": items }),
-            })
-        }
+        Ok(value) => CallToolResult::structured(match value {
+            Value::Object(_) => value,
+            items => serde_json::json!({ "items": items }),
+        }),
         Err(error) => {
-            info!(
-                tool,
-                outcome = classify(&error).code,
-                elapsed_ms,
-                "MCP tool call"
-            );
             let body = serde_json::to_value(ErrorBody::from_error(&error))
                 .expect("an envelope of strings and a UUID always serializes");
             CallToolResult::structured_error(body)

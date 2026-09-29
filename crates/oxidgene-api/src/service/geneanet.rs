@@ -1498,74 +1498,29 @@ async fn document(
     // The *writes* stay sequential and in page order: a page is indexed by
     // how many pages are already there, so racing them would shuffle the
     // document.
-    let mut resolved: Vec<(i64, i64, String, Vec<u8>)> = Vec::new();
-    for view in pages_in_order(deposit) {
-        let page = view.page.unwrap_or(0);
-        match resolve_bytes(deposit, view, deposit_sizes, archives, hashes, fetched).await {
-            Ok(bytes) => {
-                resolved.push((view.id, page, photo_file_name(deposit, view, "jpg"), bytes))
-            }
-            Err(err) => {
-                // A page that cannot be fetched leaves a gap, and the pages
-                // after it move up one — so the number is recorded, or the
-                // document would silently claim to be complete.
-                summary
-                    .skipped
-                    .push(format!("deposit {} page {page}: {err}", deposit.id));
-                progress.advance();
-            }
-        }
-    }
+    let resolved = resolve_pages(
+        deposit,
+        deposit_sizes,
+        archives,
+        hashes,
+        fetched,
+        progress,
+        summary,
+    )
+    .await;
 
     let mut pages: HashMap<i64, Uuid> = HashMap::new();
-    let mut prepared_pages: Vec<(i64, i64, Uuid)> = Vec::new();
-
-    for chunk in resolved.chunks(ingest_width()) {
-        let mut pending = FuturesUnordered::new();
-        for (index, (_, _, name, bytes)) in chunk.iter().enumerate() {
-            pending.push(async move {
-                let outcome = media::ingest(store, tree_id, name, bytes.clone()).await;
-                (index, outcome)
-            });
-        }
-        let mut ingested = Vec::with_capacity(chunk.len());
-        while let Some(outcome) = pending.next().await {
-            progress.advance();
-            ingested.push(outcome);
-        }
-        ingested.sort_unstable_by_key(|(index, _)| *index);
-
-        for ((view_id, page, name, _), (_, outcome)) in chunk.iter().zip(ingested) {
-            let ingested = match outcome {
-                Ok(ingested) => ingested,
-                Err(err) => {
-                    summary.skipped.push(format!("{name}: {err}"));
-                    continue;
-                }
-            };
-
-            let Some(page_id) = write_media(
-                db,
-                tree_id,
-                MediaWrite {
-                    document_id,
-                    ingested,
-                    title: None,
-                    classification,
-                    privacy,
-                    created_at,
-                    metadata: &metadata,
-                },
-                summary,
-            )
-            .await
-            else {
-                continue;
-            };
-
-            prepared_pages.push((*view_id, *page, page_id));
-        }
-    }
+    let describe = |ingested| MediaWrite {
+        document_id,
+        ingested,
+        title: None,
+        classification,
+        privacy,
+        created_at,
+        metadata: &metadata,
+    };
+    let prepared_pages =
+        write_pages(db, store, tree_id, &resolved, describe, progress, summary).await;
 
     // The pages were written already attached, in the deposit's own page
     // order, so their indices are settled; the document only needs its count
@@ -1604,6 +1559,88 @@ async fn document(
     }
 
     Some((document_id, pages))
+}
+
+/// Reads the bytes of each page of a deposit, in page order.
+///
+/// A page that cannot be read is noted as skipped and counted as done.
+async fn resolve_pages(
+    deposit: &ManifestDeposit,
+    deposit_sizes: &HashMap<i64, u64>,
+    archives: &ArchiveSet,
+    hashes: Option<&ContentIndex>,
+    fetched: &HashMap<String, String>,
+    progress: &ImportProgress,
+    summary: &mut GeneanetImportSummary,
+) -> Vec<(i64, i64, String, Vec<u8>)> {
+    let mut resolved: Vec<(i64, i64, String, Vec<u8>)> = Vec::new();
+    for view in pages_in_order(deposit) {
+        let page = view.page.unwrap_or(0);
+        match resolve_bytes(deposit, view, deposit_sizes, archives, hashes, fetched).await {
+            Ok(bytes) => {
+                resolved.push((view.id, page, photo_file_name(deposit, view, "jpg"), bytes))
+            }
+            Err(err) => {
+                // A page that cannot be fetched leaves a gap, and the pages
+                // after it move up one — so the number is recorded, or the
+                // document would silently claim to be complete.
+                summary
+                    .skipped
+                    .push(format!("deposit {} page {page}: {err}", deposit.id));
+                progress.advance();
+            }
+        }
+    }
+    resolved
+}
+
+/// Ingests the resolved pages of a document several at a time and writes
+/// their `media` rows one by one, in page order, each as `describe` has
+/// it. Returns the view, page number and media id of each page written.
+async fn write_pages<'m>(
+    db: &DatabaseConnection,
+    store: &dyn MediaStore,
+    tree_id: Uuid,
+    resolved: &[(i64, i64, String, Vec<u8>)],
+    describe: impl Fn(crate::media::IngestedMedia) -> MediaWrite<'m>,
+    progress: &ImportProgress,
+    summary: &mut GeneanetImportSummary,
+) -> Vec<(i64, i64, Uuid)> {
+    let mut prepared_pages: Vec<(i64, i64, Uuid)> = Vec::new();
+
+    for chunk in resolved.chunks(ingest_width()) {
+        let mut pending = FuturesUnordered::new();
+        for (index, (_, _, name, bytes)) in chunk.iter().enumerate() {
+            pending.push(async move {
+                let outcome = media::ingest(store, tree_id, name, bytes.clone()).await;
+                (index, outcome)
+            });
+        }
+        let mut ingested = Vec::with_capacity(chunk.len());
+        while let Some(outcome) = pending.next().await {
+            progress.advance();
+            ingested.push(outcome);
+        }
+        ingested.sort_unstable_by_key(|(index, _)| *index);
+
+        for ((view_id, page, name, _), (_, outcome)) in chunk.iter().zip(ingested) {
+            let ingested = match outcome {
+                Ok(ingested) => ingested,
+                Err(err) => {
+                    summary.skipped.push(format!("{name}: {err}"));
+                    continue;
+                }
+            };
+
+            let Some(page_id) = write_media(db, tree_id, describe(ingested), summary).await else {
+                continue;
+            };
+
+            prepared_pages.push((*view_id, *page, page_id));
+        }
+    }
+
+    prepared_pages
 }
 
 /// Creates a `Person` for each identification Geneanet marks as outside the
@@ -1906,19 +1943,28 @@ fn build_content_index(
         return None;
     }
 
-    let mut claimed: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-    for deposit_id in by_deposit.keys() {
-        let Some(deposit) = deposits.get(deposit_id) else {
-            continue;
-        };
-        if deposit.views.len() <= 1
-            && let Some(size) = deposit_sizes.get(deposit_id)
-            && let Ok(Some(position)) = archives.locate_by_size(*size)
-        {
-            claimed.insert(position);
-        }
-    }
+    Some(index_unclaimed_entries(
+        deposits,
+        by_deposit,
+        deposit_sizes,
+        archives,
+        fetched,
+        target_dimensions,
+    ))
+}
 
+/// Hashes the archive entries no single-page deposit claims by its byte
+/// length, for the pages' `target_dimensions` and renditions, and logs how
+/// many it filtered and hashed.
+fn index_unclaimed_entries(
+    deposits: &HashMap<i64, &ManifestDeposit>,
+    by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
+    deposit_sizes: &HashMap<i64, u64>,
+    archives: &ArchiveSet,
+    fetched: &HashMap<String, String>,
+    target_dimensions: std::collections::BTreeSet<(u32, u32)>,
+) -> ContentIndex {
+    let claimed = claimed_by_size(deposits, by_deposit, deposit_sizes, archives);
     let candidates: Vec<usize> = (0..archives.entry_count())
         .filter(|position| !claimed.contains(position))
         .collect();
@@ -1942,7 +1988,30 @@ fn build_content_index(
         undecodable = index.undecodable_count(),
         "built Geneanet archive perceptual index"
     );
-    Some(index)
+    index
+}
+
+/// The archive entries single-page deposits are recognised as by their byte
+/// length, which need no hashing.
+fn claimed_by_size(
+    deposits: &HashMap<i64, &ManifestDeposit>,
+    by_deposit: &BTreeMap<i64, Vec<&join::Attachment>>,
+    deposit_sizes: &HashMap<i64, u64>,
+    archives: &ArchiveSet,
+) -> std::collections::BTreeSet<usize> {
+    let mut claimed: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    for deposit_id in by_deposit.keys() {
+        let Some(deposit) = deposits.get(deposit_id) else {
+            continue;
+        };
+        if deposit.views.len() <= 1
+            && let Some(size) = deposit_sizes.get(deposit_id)
+            && let Ok(Some(position)) = archives.locate_by_size(*size)
+        {
+            claimed.insert(position);
+        }
+    }
+    claimed
 }
 
 /// The rendition bytes of every page that could be looked up by content.

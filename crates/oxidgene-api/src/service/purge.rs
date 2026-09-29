@@ -98,16 +98,28 @@ async fn purge_tree(
     media: &dyn MediaStore,
     tree_id: Uuid,
 ) {
+    if let Err((code, message)) = purge_steps(db, profiles, media, tree_id).await {
+        error!(error = code, "{message}");
+    }
+}
+
+/// Runs the steps of [`purge_tree`] in order and logs how long they took,
+/// stopping at the first that fails with its error code and log message.
+async fn purge_steps(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+) -> Result<(), (&'static str, &'static str)> {
     let started = Instant::now();
 
     // Projections first: `person_search_fts` has no FK to cascade through.
-    if profiles.invalidate_tree(db, tree_id).await.is_err() {
-        error!(
-            error = "projection_invalidation",
-            "could not drop projections; retrying at next start"
-        );
-        return;
-    }
+    profiles.invalidate_tree(db, tree_id).await.map_err(|_| {
+        (
+            "projection_invalidation",
+            "could not drop projections; retrying at next start",
+        )
+    })?;
 
     // Files before rows. Media keys are scoped per tree, so this is one
     // directory removal and nothing outside the tree can reference what it
@@ -115,19 +127,19 @@ async fn purge_tree(
     // tree row survives, so the next sweep finds it again and finishes the
     // job. The reverse order would drop the row and strand the bytes with
     // nothing left pointing at them.
-    if media.delete_tree(tree_id).await.is_err() {
-        error!(
-            error = "media_deletion",
-            "could not remove media files; retrying at next start"
-        );
-        return;
-    }
+    media.delete_tree(tree_id).await.map_err(|_| {
+        (
+            "media_deletion",
+            "could not remove media files; retrying at next start",
+        )
+    })?;
 
-    match TreeRepo::purge(db, tree_id).await {
-        Ok(()) => info!(
-            elapsed_ms = started.elapsed().as_millis(),
-            "purged soft-deleted tree"
-        ),
-        Err(_) => error!(error = "tree_purge", "purge failed; retrying at next start"),
-    }
+    TreeRepo::purge(db, tree_id)
+        .await
+        .map_err(|_| ("tree_purge", "purge failed; retrying at next start"))?;
+    info!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "purged soft-deleted tree"
+    );
+    Ok(())
 }

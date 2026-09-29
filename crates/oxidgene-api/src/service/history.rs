@@ -21,7 +21,7 @@ use futures_util::future::BoxFuture;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
     AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, AuditSubject,
-    RecordSnapshot, RecordType,
+    PersonSnapshot, RecordLabel, RecordSnapshot, RecordType,
 };
 use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::types::Note;
@@ -650,22 +650,16 @@ async fn revert_inner(
     .details(details);
     match &target.snapshot {
         RecordSnapshot::Person(snapshot) => {
-            let before = invalidation::affected_persons(db, record_id).await?;
-            let touched =
-                SnapshotRepo::restore_person(db, tree_id, record_id, snapshot, &target.labels)
-                    .await?;
-            let after = invalidation::affected_persons(db, record_id).await?;
-            let affected: Vec<Uuid> = before
-                .into_iter()
-                .chain(after)
-                .chain(touched)
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .collect();
-            profiles
-                .invalidate_for_mutation(db, tree_id, &affected)
-                .await?;
-            change.person(record_id).persons(affected).record(db).await
+            revert_person(
+                db,
+                profiles,
+                tree_id,
+                record_id,
+                snapshot,
+                &target.labels,
+                change,
+            )
+            .await
         }
         RecordSnapshot::Place(snapshot) => {
             SnapshotRepo::restore_place(db, tree_id, record_id, snapshot).await?;
@@ -690,6 +684,33 @@ async fn revert_inner(
             change.tree_settings().record(db).await
         }
     }
+}
+
+/// Puts a person back as `snapshot` had them, refreshes everyone linked to
+/// them before or after the restore, and records `change` for them.
+async fn revert_person(
+    db: &impl ConnectionTrait,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    person_id: Uuid,
+    snapshot: &PersonSnapshot,
+    labels: &[RecordLabel],
+    change: Change,
+) -> Result<AuditEntry, OxidGeneError> {
+    let before = invalidation::affected_persons(db, person_id).await?;
+    let touched = SnapshotRepo::restore_person(db, tree_id, person_id, snapshot, labels).await?;
+    let after = invalidation::affected_persons(db, person_id).await?;
+    let affected: Vec<Uuid> = before
+        .into_iter()
+        .chain(after)
+        .chain(touched)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    profiles
+        .invalidate_for_mutation(db, tree_id, &affected)
+        .await?;
+    change.person(person_id).persons(affected).record(db).await
 }
 
 /// The audit entity a record type's restore is filed under.
