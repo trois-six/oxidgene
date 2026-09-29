@@ -15,6 +15,13 @@ members = [
     "apps/oxidgene-place-dictionary",
 ]
 
+# Lints every member opts into with `[lints] workspace = true`. CI runs
+# Clippy with `-D warnings`, so a warning here fails the build. The
+# cognitive complexity threshold (15, the conventional range) lives in
+# `clippy.toml`.
+[workspace.lints.clippy]
+cognitive_complexity = "warn"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

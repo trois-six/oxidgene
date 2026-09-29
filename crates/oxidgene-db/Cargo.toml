@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = []
 # Enable the PostgreSQL driver — opt in for the server binary; desktop uses SQLite only.

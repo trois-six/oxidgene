@@ -8,6 +8,9 @@ authors.workspace = true
 repository.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = { workspace = true }
 # Compresses the dictionary the way every embedded file is compressed.

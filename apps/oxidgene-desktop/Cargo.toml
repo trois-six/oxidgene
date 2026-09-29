@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = ["telemetry"]
 telemetry = ["dep:oxidgene-observability", "dep:tower-http", "oxidgene-api/telemetry-context", "oxidgene-ui/telemetry-client"]

@@ -1,0 +1,3 @@
+# Keep every function within the conventional cognitive complexity range.
+# The lint itself is enabled in the workspace `Cargo.toml`.
+cognitive-complexity-threshold = 15

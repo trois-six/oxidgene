@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:40:42Z }
 ---
 
 # Development Environment and Workflows
@@ -59,6 +59,15 @@ the repository root.
 | `just doc` | Generate and open workspace API documentation. |
 
 Run `just check` before committing code changes.
+
+Every function stays within a cognitive complexity of 15, the conventional
+range. The workspace `Cargo.toml` enables Clippy's `cognitive_complexity`
+lint for every member (`[lints] workspace = true`) and `clippy.toml` sets the
+threshold, so `just clippy` and the CI Clippy job, which deny warnings, fail
+on a function above it. Bring such a function back under the threshold by
+extracting named steps or sharing code with its look-alikes; an `allow` is not
+a fix. A `tracing` macro counts for several points on its own, so a function
+that logs on several branches is better served by one log call.
 
 ### 2.2 Backend and Database
 
