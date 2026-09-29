@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:02:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T18:29:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -161,7 +161,11 @@ Three rows of tiles, each a figure with what it counts:
   codes told apart by what follows it; a municipality name only when a part
   after it confirms it (its code, subdivision, region or country), so a
   namesake elsewhere never catches a hamlet. "Le Brossais, Vigneux-de-Bretagne,
-  44217, Loire-Atlantique" is put at Vigneux-de-Bretagne. The lookup
+  44217, Loire-Atlantique" is put at Vigneux-de-Bretagne.
+- A part that mixes words and numbers is read without its numbers — a
+  postcode or a street number: "22 Rue A, 50700 Valognes, France" is put at
+  Valognes, "Fort Lee, New Jersey 07024, USA" at Fort Lee. A part made of
+  numbers alone stays a code. The lookup
   happens at each visit and changes nothing in the tree; it keeps no
   dictionary in memory ([Place dictionary §2.1](place-dictionary.md)).
 

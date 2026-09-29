@@ -395,6 +395,7 @@ impl Dictionary {
         for (label, _) in labels {
             for part in label.split(',').map(str::trim).filter(|p| !p.is_empty()) {
                 names.insert(normalize_key(part));
+                names.insert(without_numbers(part));
                 codes.insert(part.to_ascii_uppercase());
             }
         }
@@ -612,13 +613,20 @@ impl Dictionary {
             .filter(|p| !normalize_key(p).is_empty())
             .collect();
         let folded: Vec<String> = raw.iter().map(|p| normalize_key(p)).collect();
+        // The parts as places are named, an address's numbers aside: the
+        // postcode of « 50700 Valognes », the ZIP code of « New Jersey
+        // 07024 ». A code alone is kept whole.
+        let bare: Vec<String> = raw.iter().map(|p| without_numbers(p)).collect();
         let Some(name) = folded.first() else {
             return Located::Nowhere;
         };
         let located = |e: &&Entry| !e.latitude.is_nan() && !e.longitude.is_nan();
-        let candidates: Vec<&Entry> = self.named(name).filter(located).collect();
+        let mut candidates: Vec<&Entry> = self.named(name).filter(located).collect();
+        if candidates.is_empty() && bare[0] != *name {
+            candidates = self.named(&bare[0]).filter(located).collect();
+        }
         if !candidates.is_empty() {
-            return self.read(candidates, &folded[1..]);
+            return self.read(candidates, &bare[1..]);
         }
         // The name is unknown: read the label from its enclosing places. A
         // code places it on its own, homonyms aside; a name only when a part
@@ -626,7 +634,7 @@ impl Dictionary {
         // the world is no place to put a hamlet.
         (1..raw.len())
             .find_map(|i| {
-                let rest = &folded[i + 1..];
+                let rest = &bare[i + 1..];
                 let by_code: Vec<&Entry> = self.coded(raw[i]).filter(located).collect();
                 if !by_code.is_empty() {
                     return match self.read(by_code, rest) {
@@ -634,11 +642,13 @@ impl Dictionary {
                         _ => None,
                     };
                 }
-                self.named(&folded[i])
-                    .filter(located)
-                    .max_by_key(|e| (self.score(e, rest), e.current))
-                    .filter(|e| self.score(e, rest) > 0)
-                    .map(Located::At)
+                [&folded[i], &bare[i]].into_iter().find_map(|name| {
+                    self.named(name)
+                        .filter(located)
+                        .max_by_key(|e| (self.score(e, rest), e.current))
+                        .filter(|e| self.score(e, rest) > 0)
+                        .map(Located::At)
+                })
             })
             .unwrap_or(Located::Nowhere)
     }
@@ -788,6 +798,23 @@ fn first_field(line: &str) -> std::borrow::Cow<'_, str> {
             None => rest.into(),
         },
         None => line.split(',').next().unwrap_or_default().into(),
+    }
+}
+
+/// A label part folded without its numbers — the postcode of « 50700
+/// Valognes », the street number of « 22 Rue … » — when it has words besides
+/// them; a part of numbers alone, a code, is folded whole.
+fn without_numbers(part: &str) -> String {
+    let tokens: Vec<&str> = part.split_whitespace().collect();
+    let words: Vec<&str> = tokens
+        .iter()
+        .copied()
+        .filter(|t| !t.chars().any(|c| c.is_ascii_digit()))
+        .collect();
+    if words.is_empty() || words.len() == tokens.len() {
+        normalize_key(part)
+    } else {
+        normalize_key(&words.join(" "))
     }
 }
 
@@ -982,6 +1009,28 @@ mod tests {
         assert_eq!(found[1].spot, bourg);
         assert_eq!(found[2], PlaceLocation::default());
         assert_eq!(found[3], PlaceLocation::default());
+    }
+
+    #[test]
+    fn an_address_is_located_by_its_municipality_its_numbers_aside() {
+        let dictionary = Dictionary::parse(ROWS);
+        let bourg = Some((48.1_f32.into(), (-1.5_f32).into()));
+        let found = dictionary.locate_all(
+            &[
+                // A street address, then postcode and municipality in one part.
+                ("22 Rue A, 99100 Bourg-A, France", 1),
+                // The postcode after the municipality's name, in the first part.
+                ("Bourg-A 99100, Département A", 1),
+                // A street alone, confirmed by nothing: stays unlocated.
+                ("22 Rue A, 99100 Bourg-A", 1),
+            ],
+            ReferenceLang::En,
+        );
+        assert_eq!(found[0].spot, bourg);
+        assert_eq!(found[1].spot, bourg);
+        assert_eq!(found[2], PlaceLocation::default());
+        assert_eq!(without_numbers("99100 Bourg-A"), normalize_key("Bourg-A"));
+        assert_eq!(without_numbers("99001"), "99001", "a code alone is kept");
     }
 
     #[test]
