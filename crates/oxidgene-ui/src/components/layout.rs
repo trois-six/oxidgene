@@ -6967,7 +6967,10 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 8px;
     }
 
-    .tools-pair-person {
+    /* Doubled class: `.search-person-result:last-child` drops the bottom
+       border a list's last row does not need, which cut the second card of
+       each pair open at the bottom. */
+    .search-person-result.tools-pair-person {
         border: 1px solid var(--border);
         border-radius: var(--radius);
         color: var(--text-primary);
