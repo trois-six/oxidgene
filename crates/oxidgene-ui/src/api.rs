@@ -2258,37 +2258,40 @@ impl ApiClient {
         cache_key: &str,
         request: impl FnOnce() -> reqwest::RequestBuilder,
     ) -> Result<T, ApiError> {
-        if let Some(cached) = self.cache.get(cache_key)
-            && let Ok(val) = Self::deserialize(&cached)
-        {
-            tracing::debug!(
-                method = "GET",
-                path = log_path(cache_key),
-                cached = true,
-                "API request completed"
-            );
+        if let Some(val) = self.cached(cache_key, false) {
             return Ok(val);
         }
         let result = {
             let gate = self.cache.gate(cache_key);
             let _guard = gate.lock().await;
-            if let Some(cached) = self.cache.get(cache_key)
-                && let Ok(val) = Self::deserialize(&cached)
-            {
-                tracing::debug!(
-                    method = "GET",
-                    path = log_path(cache_key),
-                    cached = true,
-                    coalesced = true,
-                    "API request completed"
-                );
-                Ok(val)
-            } else {
-                self.fetch_and_cache(cache_key, request()).await
+            match self.cached(cache_key, true) {
+                Some(val) => Ok(val),
+                None => self.fetch_and_cache(cache_key, request()).await,
             }
         };
         self.cache.release_gate(cache_key);
         result
+    }
+
+    /// The warm cache entry under `cache_key`, deserialized, logging the hit.
+    ///
+    /// `coalesced` says the caller waited for another request for the same
+    /// key rather than finding the entry straight away.
+    fn cached<T: serde::de::DeserializeOwned>(
+        &self,
+        cache_key: &str,
+        coalesced: bool,
+    ) -> Option<T> {
+        let cached = self.cache.get(cache_key)?;
+        let val = Self::deserialize(&cached).ok()?;
+        tracing::debug!(
+            method = "GET",
+            path = log_path(cache_key),
+            cached = true,
+            coalesced = coalesced.then_some(true),
+            "API request completed"
+        );
+        Some(val)
     }
 
     /// Sends one GET, stores its body under `cache_key`, and deserializes it.
@@ -2298,18 +2301,7 @@ impl ApiClient {
         request: reqwest::RequestBuilder,
     ) -> Result<T, ApiError> {
         let resp = self.send_request("GET", request).await?;
-        let status = resp.status();
-        let path = resp.url().path().to_string();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            tracing::debug!(method = "GET", path, %status, "API request failed");
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body,
-            });
-        }
-        let bytes = Self::read_response_body(resp).await?;
-        tracing::debug!(method = "GET", path, %status, bytes = bytes.len(), "API request completed");
+        let bytes = Self::successful_body("GET", resp).await?;
         let val: T = Self::deserialize(&bytes)?;
         self.cache.set(cache_key.to_string(), bytes);
         Ok(val)
@@ -2404,14 +2396,9 @@ impl ApiClient {
             .send_request("DELETE", self.client.delete(&url))
             .await?;
         let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
+        Self::require_success(resp).await.inspect_err(|_| {
             tracing::debug!(method = "DELETE", path, %status, "API request failed");
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body,
-            });
-        }
+        })?;
         tracing::debug!(method = "DELETE", path, %status, "API request completed");
         Ok(status.as_u16())
     }
@@ -2426,13 +2413,7 @@ impl ApiClient {
         let resp = self
             .send_request("POST", self.client.post(&url).json(body))
             .await?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body: resp.text().await.unwrap_or_default(),
-            });
-        }
+        Self::require_success(resp).await?;
         Ok(())
     }
 
@@ -2445,13 +2426,7 @@ impl ApiClient {
         let resp = self
             .send_request("DELETE", self.client.delete(&url).json(body))
             .await?;
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body: resp.text().await.unwrap_or_default(),
-            });
-        }
+        Self::require_success(resp).await?;
         Ok(())
     }
 
@@ -2460,19 +2435,33 @@ impl ApiClient {
         method: &str,
         resp: reqwest::Response,
     ) -> Result<T, ApiError> {
+        let bytes = Self::successful_body(method, resp).await?;
+        Ok(Self::deserialize(&bytes)?)
+    }
+
+    /// Pass a successful response through, or turn any other into
+    /// [`ApiError::Api`] carrying its status and body.
+    async fn require_success(resp: reqwest::Response) -> Result<reqwest::Response, ApiError> {
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(resp);
+        }
+        Err(ApiError::Api {
+            status: status.as_u16(),
+            body: resp.text().await.unwrap_or_default(),
+        })
+    }
+
+    /// The body of a successful response, logging how the request ended.
+    async fn successful_body(method: &str, resp: reqwest::Response) -> Result<Vec<u8>, ApiError> {
         let status = resp.status();
         let path = resp.url().path().to_string();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
+        let resp = Self::require_success(resp).await.inspect_err(|_| {
             tracing::debug!(method, path, %status, "API request failed");
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body,
-            });
-        }
+        })?;
         let bytes = Self::read_response_body(resp).await?;
         tracing::debug!(method, path, %status, bytes = bytes.len(), "API request completed");
-        Ok(Self::deserialize(&bytes)?)
+        Ok(bytes)
     }
 
     // ── Trees ───────────────────────────────────────────────────────
@@ -3666,14 +3655,9 @@ impl ApiClient {
             .await?;
         let status = response.status();
         let path = response.url().path().to_string();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+        let response = Self::require_success(response).await.inspect_err(|_| {
             tracing::debug!(method = "GET", path, %status, "API binary request failed");
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body,
-            });
-        }
+        })?;
         let content_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -3721,23 +3705,17 @@ impl ApiClient {
             .await
     }
 
-    /// Turn a whole screen's picture addresses into things it can draw.
+    /// Resolve every source that needs no request: remote URLs, and whatever
+    /// the shell serving pictures from its own origin can answer for.
     ///
-    /// A shell that serves pictures from its own origin (the desktop) answers
-    /// per source with no network at all. Everywhere else the bytes have to be
-    /// fetched and inlined as `data:` URLs — and that happens for the whole set
-    /// in one request, because a pedigree resolving one portrait at a time is
-    /// one round trip per person on screen.
-    ///
-    /// Returns one slot per source, in order.
-    async fn resolve_sources(
+    /// Returns one slot per source, in order, plus the sources left for the
+    /// server, each with the slot it has to fill.
+    fn resolve_locally(
         &self,
         tree_id: Uuid,
         sources: Vec<ImageSource>,
-    ) -> Vec<Option<String>> {
+    ) -> (Vec<Option<String>>, Vec<(usize, ImageSource)>) {
         let mut resolved: Vec<Option<String>> = Vec::with_capacity(sources.len());
-        // Whatever the shell cannot answer for goes to the server, remembered
-        // by the slot it has to fill.
         let mut pending: Vec<(usize, ImageSource)> = Vec::new();
         for (index, source) in sources.into_iter().enumerate() {
             if let ImageSource::Remote { url } = source {
@@ -3752,6 +3730,24 @@ impl ApiClient {
             }
             resolved.push(hosted);
         }
+        (resolved, pending)
+    }
+
+    /// Turn a whole screen's picture addresses into things it can draw.
+    ///
+    /// A shell that serves pictures from its own origin (the desktop) answers
+    /// per source with no network at all. Everywhere else the bytes have to be
+    /// fetched and inlined as `data:` URLs — and that happens for the whole set
+    /// in one request, because a pedigree resolving one portrait at a time is
+    /// one round trip per person on screen.
+    ///
+    /// Returns one slot per source, in order.
+    async fn resolve_sources(
+        &self,
+        tree_id: Uuid,
+        sources: Vec<ImageSource>,
+    ) -> Vec<Option<String>> {
+        let (mut resolved, pending) = self.resolve_locally(tree_id, sources);
         if pending.is_empty() {
             return resolved;
         }
@@ -4434,13 +4430,7 @@ impl ApiClient {
                     .get(self.url(&format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"))),
             )
             .await?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body: response.text().await.unwrap_or_default(),
-            });
-        }
+        let response = Self::require_success(response).await?;
         Ok(response.json().await?)
     }
 
@@ -4499,15 +4489,7 @@ impl ApiClient {
         let resp = self
             .send_request("POST", self.client.post(&url).json(body))
             .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status().as_u16();
-            return Err(ApiError::Api {
-                status,
-                body: resp.text().await.unwrap_or_default(),
-            });
-        }
-
+        let resp = Self::require_success(resp).await?;
         Self::read_response_body(resp).await.map_err(ApiError::from)
     }
 
@@ -4642,16 +4624,10 @@ impl ApiClient {
     ) -> Result<(), ApiError> {
         use tokio::io::AsyncWriteExt;
 
-        let mut response = self
+        let response = self
             .send_request("GET", self.client.get(self.download_url(path)))
             .await?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(ApiError::Api {
-                status: status.as_u16(),
-                body: response.text().await.unwrap_or_default(),
-            });
-        }
+        let mut response = Self::require_success(response).await?;
         let parent = destination
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
