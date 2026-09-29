@@ -2315,7 +2315,13 @@ pub const LAYOUT_STYLES: &str = r#"
     .document-form-modal select,
     .media-panel select,
     .document-form-modal textarea,
-    .media-panel textarea {
+    .media-panel textarea,
+    /* The date input carries its own box wherever it is placed — a form, a
+       filter panel, a tool — rather than inheriting whatever its host
+       gives an input and a select, which is how its selects ended up taller
+       than its fields outside the forms. */
+    .pf-date-widget input:not([type="checkbox"]):not([type="radio"]),
+    .pf-date-widget select {
         background: var(--bg-card);
     }
 
@@ -2384,7 +2390,9 @@ pub const LAYOUT_STYLES: &str = r#"
        `input` here would stretch to a field's height. */
     .media-panel input:not([type="checkbox"]):not([type="radio"]),
     .document-form-modal select,
-    .media-panel select {
+    .media-panel select,
+    .pf-date-widget input:not([type="checkbox"]):not([type="radio"]),
+    .pf-date-widget select {
         height: 38px;
         line-height: 20px;
     }
@@ -2399,7 +2407,8 @@ pub const LAYOUT_STYLES: &str = r#"
     .union-form-modal select,
     .pf-embedded select,
     .document-form-modal select,
-    .media-panel select {
+    .media-panel select,
+    .pf-date-widget select {
         appearance: none;
         -webkit-appearance: none;
         padding-right: 30px;
@@ -4321,6 +4330,21 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-panel .pf-date-month-select {
         flex: 1 1 0;
         min-width: 0;
+    }
+
+    /* A phone is as narrow as the media panel: the same two rows, wherever
+       the date input is. */
+    @media (max-width: 640px) {
+        .pf-date-calendar,
+        .pf-date-qualifier-select {
+            flex: 1 1 calc(50% - 4px);
+            min-width: 0;
+        }
+
+        .pf-date-month-select {
+            flex: 1 1 0;
+            min-width: 0;
+        }
     }
 
     /* ── Image cropper ────────────────────────────────────────────── */
