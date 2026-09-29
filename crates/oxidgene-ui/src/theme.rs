@@ -165,8 +165,6 @@ theme_tokens! {
     sel_bg => "sel-bg",
     /// Borders and dividers.
     border => "border",
-    /// Border of a focused control.
-    border_glow => "border-glow",
 
     // ── Text ────────────────────────────────────────────────────────────
     /// Body and heading text.

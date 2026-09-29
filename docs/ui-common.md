@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T21:05:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T05:40:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -164,7 +164,6 @@ files rather than being repeated here.
 | `--nav-surface` | `#f4f2ee` | `#0a0b0d` | Opaque colour behind the navbar |
 | `--sel-bg` | `#e8e0d4` | `#192038` | Selection |
 | `--border` | `#d4ccc0` | `#252d3d` | Borders and dividers |
-| `--border-glow` | `#e07820` | `#e07820` | Focus border |
 | `--text-primary` | `#1e1a14` | `#ddd8cc` | Primary text |
 | `--text-secondary` | `#5c5447` | `#7a8da8` | Secondary text |
 | `--text-muted` | `#9e9488` | `#404f65` | Placeholder and disabled text |
