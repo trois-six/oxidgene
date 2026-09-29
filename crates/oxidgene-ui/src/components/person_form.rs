@@ -1265,7 +1265,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                         event: ev.clone(),
                                                         description_label: i18n.t("person_form.profession"),
                                                         place_options: place_options.clone(),
-                                                        on_saved: move |_| { on_saved_profession_del.call(()); refresh += 1; },
+                                                        on_saved: move |_| { open_event_notes.set(None); on_saved_profession_del.call(()); refresh += 1; },
                                                     }
                                                 }
                                             }
@@ -1852,7 +1852,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                 event: ev.clone(),
                                                 description_label: i18n.t("person_form.description"),
                                                 place_options: place_options.clone(),
-                                                on_saved: move |_| { on_saved_event_del.call(()); refresh += 1; },
+                                                on_saved: move |_| { open_event_notes.set(None); on_saved_event_del.call(()); refresh += 1; },
                                             }
                                         }
                                     }

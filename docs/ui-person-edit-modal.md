@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T12:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T18:43:00Z }
 ---
 
 
@@ -429,9 +429,9 @@ Each added event appears as a collapsible block with:
 - **Calendar** (supplementary, collapsed by default) — same calendar selector
 - **Witnesses** (supplementary, collapsed by default) — same dynamic list
 
-Blocks can be reordered via drag handle. They are collapsed by default after creation, showing only the event type label and its date summary.
+Blocks can be reordered via drag handle. They are collapsed by default after creation; a collapsed row reads its event's type, description, date and place (« @ place »), so an event known only by its place — a residence — says what it holds without being opened.
 
-Once saved, an event's row carries a **"Notes & source"** toggle that expands a panel with those two fields and its own Save button — the surrounding lists have no footer of their own. Only one row is open at a time, and the panel is mounted only while open, so a long event list costs nothing until one is expanded. The same toggle appears on each Occupation row in the Civil Status section.
+Once saved, an event's row carries a **"Notes & source"** toggle that expands a panel with those two fields and its own Save button — the surrounding lists have no footer of their own. Only one row is open at a time, and the panel is mounted only while open, so a long event list costs nothing until one is expanded. Saving folds the panel back into its row once the write has succeeded — the row then shows the saved values, which is the confirmation — and leaves it open with the error when it has not. The same toggle appears on each Occupation row in the Civil Status section, and the couple edit modal's union events behave the same way.
 
 ---
 

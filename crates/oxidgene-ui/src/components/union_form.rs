@@ -629,6 +629,15 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                     let et = i18n.t(event_type_label_key(evt.event_type));
                                     let date = format_event_date(&i18n, evt);
                                     let desc = evt.description.clone().unwrap_or_default();
+                                    // What the row says without opening it: a
+                                    // residence often has only its place.
+                                    let place = evt
+                                        .place_id
+                                        .map(|id| id.to_string())
+                                        .and_then(|id| {
+                                            place_options.iter().find(|(pid, _)| *pid == id).map(|(_, name)| name.clone())
+                                        })
+                                        .unwrap_or_default();
                                     let open = open_union_event() == Some(eid);
                                     rsx! {
                                         div {
@@ -637,6 +646,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                 span { class: "badge", "{et}" }
                                                 if !desc.is_empty() { span { "{desc}" } }
                                                 if !date.is_empty() { span { class: "text-muted", "{date}" } }
+                                                if !place.is_empty() { span { class: "text-muted", "@ {place}" } }
                                             }
                                             div { class: "person-form-item-actions",
                                                 button {
@@ -674,7 +684,12 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                                                 event: evt.clone(),
                                                 description_label: i18n.t("person_form.description"),
                                                 place_options: place_options.clone(),
-                                                on_saved: move |_| { on_saved_del_union.call(()); refresh += 1; },
+                                                // Saved, the event folds back into its row.
+                                                on_saved: move |_| {
+                                                    open_union_event.set(None);
+                                                    on_saved_del_union.call(());
+                                                    refresh += 1;
+                                                },
                                             }
                                         }
                                     }
