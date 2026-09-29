@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T06:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T16:45:00Z }
 ---
 
 
@@ -113,7 +113,7 @@ An importing card takes no clicks at all.
 | State | Visual |
 |---|---|
 | Default | Neutral border, subtle shadow |
-| Hover | Orange border, lifted shadow, 2px upward translate |
+| Hover | Orange border, lifted shadow, raised 4px — by its `top`, never a `transform`, which would make the card the containing block of its fixed action menu and open the menu offset by the card's position |
 | New (< 24h) | Green "Recent" badge in footer |
 | Importing | Full-card translucent overlay, activity indicator, and localized “Import in progress” status |
 

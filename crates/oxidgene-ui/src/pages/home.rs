@@ -1090,14 +1090,19 @@ const HOME_STYLES: &str = r#"
         border-radius: 16px;
         min-width: 0;
         cursor: pointer;
-        transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.25s;
+        /* Lifted by `top`, not `transform`: a transformed card becomes the
+           containing block of its `position: fixed` menu, which then opens
+           offset by the card's position — for the whole of the lift's
+           transition, and for good in a WebView that keeps that layout. */
+        transition: top 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.25s;
         position: relative;
+        top: 0;
         display: flex;
         flex-direction: column;
     }
 
     .tree-card:hover {
-        transform: translateY(-4px);
+        top: -4px;
         border-color: var(--orange);
         box-shadow: 0 8px 40px color-mix(in srgb, var(--orange) 18%, transparent), 0 2px 12px color-mix(in srgb, var(--shadow-black) 50%, transparent);
         background: var(--bg-card-hover);
@@ -1105,7 +1110,7 @@ const HOME_STYLES: &str = r#"
 
     .tree-card.is-importing,
     .tree-card.is-importing:hover {
-        transform: none;
+        top: 0;
         border-color: var(--border);
         box-shadow: none;
         background: var(--bg-card);
@@ -1196,11 +1201,10 @@ const HOME_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
-    /* A transformed ancestor becomes the containing block for a fixed menu.
-       Keep the selected card still while its shared menu surface is open. */
+    /* The card whose menu is open stays still and above its neighbours. */
     .tree-card-menu-open,
     .tree-card-menu-open:hover {
-        transform: none;
+        top: 0;
         z-index: 320;
     }
 
