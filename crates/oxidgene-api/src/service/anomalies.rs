@@ -349,7 +349,10 @@ impl Findings {
 }
 
 /// Events that may rightly follow a death: its burial or cremation, a
-/// funeral, and the probate of a will.
+/// funeral, the probate of a will; the free-form events (`Other`, `Fact`),
+/// whose own text says what they are — a succession, a mention, the
+/// transcription of the death — and which the rules cannot judge; and the
+/// LDS ordinances, performed by proxy for the dead.
 fn after_death_allowed(event_type: EventType) -> bool {
     matches!(
         event_type,
@@ -358,6 +361,15 @@ fn after_death_allowed(event_type: EventType) -> bool {
             | EventType::Cremation
             | EventType::Funeral
             | EventType::Probate
+            | EventType::Other
+            | EventType::Fact
+            | EventType::LdsBaptism
+            | EventType::LdsConfirmation
+            | EventType::Endowment
+            | EventType::LdsDotation
+            | EventType::SealingChild
+            | EventType::SealingSpouse
+            | EventType::SealingParent
     )
 }
 

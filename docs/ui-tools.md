@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T22:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T06:50:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -136,8 +136,8 @@ consistency check, whose whole list the catalogue covers.
 | `burial_before_death` | dates | The burial before the death | error | implemented | |
 | `event_before_birth` | dates | Another own event (baptism included, the event standing for the birth excepted) before the birth | error | implemented | 21 |
 | `baptism_after_death` | dates | The baptism after the death or the burial | warning | implemented | 22 |
-| `event_after_death` | dates | An own event after the death, other than a burial, a cremation, a funeral or a probate | warning | implemented | 24 |
-| `burial_not_last` | dates | An own event after the burial, other than a cremation, a funeral or a probate, and not already after the death | warning | implemented | 23 |
+| `event_after_death` | dates | An own event after the death, other than a burial, a cremation, a funeral, a probate, a free-form event (a succession, a mention: its text says what it is) or an LDS ordinance (performed by proxy) | warning | implemented | 24 |
+| `burial_not_last` | dates | An own event after the burial, other than those `event_after_death` accepts, and not already after the death | warning | implemented | 23 |
 | `lived_over_105` | dates | Died more than 105 years after the birth | warning | implemented | 5 |
 | `centenarian_before_1900` | dates | Born before 1900 and died more than 100 years old (not over 105) | warning | implemented | 4 |
 | `future_date` | dates | An event after today | error | implemented | |

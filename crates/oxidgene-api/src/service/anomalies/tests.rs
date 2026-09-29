@@ -227,13 +227,18 @@ fn events_keep_their_place_in_a_life() {
     p.other_events = vec![
         year(EventType::Residence, 1902),
         day(EventType::Probate, 1901, 1, 1),
+        // A succession, entered as a free-form event, is expected after a
+        // death too, and so is a proxy ordinance.
+        year(EventType::Other, 1901),
+        year(EventType::Endowment, 1950),
         year(EventType::Census, 2090),
     ];
     let result = run(&[p]);
     assert_eq!(found(&result, "event_before_birth"), vec![vec!["Events"]]);
     assert_eq!(found(&result, "burial_before_death"), vec![vec!["Events"]]);
     // The residence and the census after death, once each and not again as
-    // following the burial; the probate is expected there.
+    // following the burial; the probate, the succession and the ordinance
+    // are expected there.
     assert_eq!(found(&result, "event_after_death").len(), 2);
     assert!(found(&result, "burial_not_last").is_empty());
     assert_eq!(found(&result, "future_date"), vec![vec!["Events"]]);
