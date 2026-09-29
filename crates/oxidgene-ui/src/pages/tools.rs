@@ -793,8 +793,8 @@ fn render_generation(
     let lacking =
         |entry: &&crate::api::AncestryEntry| entry.person.as_ref().is_none_or(|p| !complete(p));
     // Only a generation with something to fill opens by itself: a missing
-    // ancestor, or an ancestor lacking a fact.
-    let open = row.entries.iter().any(|entry| lacking(&entry));
+    // ancestor, listed or only counted, or an ancestor lacking a fact.
+    let open = row.implied_missing > 0 || row.entries.iter().any(|entry| lacking(&entry));
     let entries: Vec<_> = row
         .entries
         .iter()
