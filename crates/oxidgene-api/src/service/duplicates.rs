@@ -227,6 +227,32 @@ pub struct DuplicatePair {
     /// Both records as the search rows show them.
     pub first: SearchEntry,
     pub second: SearchEntry,
+    /// Their full birth and death dates, which the search rows reduce to a
+    /// year: a comparison needs the day.
+    pub first_dates: LifeDates,
+    pub second_dates: LifeDates,
+}
+
+/// A record's birth (or baptism) and death (or burial) dates, as recorded.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[cfg_attr(feature = "graphql", derive(async_graphql::SimpleObject))]
+pub struct LifeDates {
+    pub birth: Option<crate::service::statistics::RecordDate>,
+    pub death: Option<crate::service::statistics::RecordDate>,
+}
+
+impl LifeDates {
+    fn of(profile: &PersonProfile) -> Self {
+        let date = |event: Option<&ProfileEvent>| {
+            event
+                .filter(|e| e.date_value.is_some() || e.date_sort.is_some())
+                .map(crate::service::statistics::record_date)
+        };
+        Self {
+            birth: date(profile.birth_or_baptism()),
+            death: date(profile.death_or_burial()),
+        }
+    }
 }
 
 /// A tree's potential duplicates.
@@ -519,6 +545,8 @@ pub fn potential_duplicates(
             reasons: reasons.into_iter().map(str::to_string).collect(),
             first: build_search_entry(a),
             second: build_search_entry(b),
+            first_dates: LifeDates::of(a),
+            second_dates: LifeDates::of(b),
         })
         .collect();
     PotentialDuplicates { count, pairs }

@@ -3936,6 +3936,10 @@ async fn potential_duplicates_are_listed_until_confirmed_distinct() {
     ];
     assert!(ids.contains(&first.as_str()) && ids.contains(&second.as_str()));
     assert_eq!(pair["first"]["surname"], "BRANCH_A");
+    // The full dates, which the search rows reduce to a year.
+    assert_eq!(pair["first_dates"]["birth"]["value"], "1850");
+    assert_eq!(pair["first_dates"]["birth"]["qualifier"], "exact");
+    assert!(pair["second_dates"]["death"].is_null());
 
     let (status, _) = send_request(
         app.clone(),

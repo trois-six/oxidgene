@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T18:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:06:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -317,13 +317,17 @@ computed from the person projections on each request.
   for good.
 - **Compare** opens the two records side by side, field by field (surname,
   given names, sex, birth, birthplace, death, father, mother, spouses,
-  children), the fields that differ highlighted, with a choice of the record
+  children), the dates written in full with their precision (« 8 déc.
+  1776 », « vers 1776 »), the fields that differ highlighted, with a choice of the record
   kept (the first by default). Under it, the shared homonym picker settles
-  the pair: choosing the kept record **merges** the other into it through
+  the pair. It opens on the kept record, so its main button reads **Merge**,
+  with the merge warning, and follows the choice of the record kept:
+  confirming **merges** the other into it through
   the existing merge operation ([Person Merge](ui-merge.md) §6, [Data
   Model](data-model.md#person-merge)), in one transaction that refreshes the
-  projections and records the history; "a different person" records them as
-  different, and "decide later" closes the comparison.
+  projections and records the history; choosing "a different person" in
+  the picker records them as different, and "decide later" closes the
+  comparison.
 - After either answer the list is computed again.
 
 ## 7. Date converter

@@ -4080,7 +4080,8 @@ async fn potential_duplicates_match_rest() {
     }
     let query = format!(
         r#"{{ potentialDuplicates(treeId: "{tree_id}") {{ count pairs {{ score reasons
-            first {{ personId surname birthYear }} second {{ personId }} }} }} }}"#
+            first {{ personId surname birthYear }} second {{ personId }}
+            firstDates {{ birth {{ value qualifier calendar }} death {{ value }} }} }} }} }}"#
     );
     let resp = graphql(app.clone(), &query, None).await;
     let found = &data(&resp)["potentialDuplicates"];
@@ -4091,6 +4092,8 @@ async fn potential_duplicates_match_rest() {
         json!(["same_name", "same_birth_year"])
     );
     assert_eq!(found["pairs"][0]["first"]["birthYear"], "1850");
+    assert_eq!(found["pairs"][0]["firstDates"]["birth"]["value"], "1850");
+    assert!(found["pairs"][0]["firstDates"]["death"].is_null());
 
     let resp = gql_mark_distinct(&app, &tree_id, &first, &[&second]).await;
     data(&resp);

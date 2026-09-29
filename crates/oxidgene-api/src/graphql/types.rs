@@ -2429,6 +2429,9 @@ pub struct GqlDuplicatePair {
     pub reasons: Vec<String>,
     pub first: GqlSearchEntry,
     pub second: GqlSearchEntry,
+    /// Both records' full birth and death dates.
+    pub first_dates: crate::service::duplicates::LifeDates,
+    pub second_dates: crate::service::duplicates::LifeDates,
 }
 
 /// A tree's potential duplicates: every pair found, and the best listed.
@@ -2450,6 +2453,8 @@ impl From<crate::service::duplicates::PotentialDuplicates> for GqlPotentialDupli
                     reasons: pair.reasons,
                     first: pair.first.into(),
                     second: pair.second.into(),
+                    first_dates: pair.first_dates,
+                    second_dates: pair.second_dates,
                 })
                 .collect(),
         }

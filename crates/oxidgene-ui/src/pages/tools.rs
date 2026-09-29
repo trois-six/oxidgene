@@ -7,7 +7,6 @@
 use dioxus::prelude::*;
 use oxidgene_core::calendar::to_jdn;
 use oxidgene_core::enums::{Calendar, DateQualifier, Sex};
-use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
 use crate::api::{
@@ -1027,12 +1026,10 @@ fn CompareDialog(
     } else {
         (&pair.second, &pair.first)
     };
-    let year = |year: &Option<String>, qualifier: DateQualifier| {
-        year.as_deref()
-            .and_then(|y| y.parse::<i32>().ok())
-            .map(|y| QualifiedYear::new(y, qualifier).to_string())
-            .unwrap_or_default()
-    };
+    // Dates as the rest of the application writes them — « 8 déc. 1776 »,
+    // « vers 1776 » — not reduced to a year: two records of one person
+    // often differ only by the day.
+    let date = |date: &Option<crate::api::StatDate>| date_text(&i18n, date.as_ref());
     let sex = |s: Sex| {
         i18n.t(match s {
             Sex::Male => "sex.male",
@@ -1058,8 +1055,8 @@ fn CompareDialog(
         ),
         (
             i18n.t("tools.ancestry.fact.birth"),
-            year(&pair.first.birth_year, pair.first.birth_qualifier),
-            year(&pair.second.birth_year, pair.second.birth_qualifier),
+            date(&pair.first_dates.birth),
+            date(&pair.second_dates.birth),
         ),
         (
             i18n.t("tools.duplicates.field.birth_place"),
@@ -1068,8 +1065,8 @@ fn CompareDialog(
         ),
         (
             i18n.t("tools.ancestry.fact.death"),
-            year(&pair.first.death_year, pair.first.death_qualifier),
-            year(&pair.second.death_year, pair.second.death_qualifier),
+            date(&pair.first_dates.death),
+            date(&pair.second_dates.death),
         ),
         (
             i18n.t("tools.duplicates.field.father"),
@@ -1151,6 +1148,9 @@ fn CompareDialog(
                     tree_id,
                     person_id: absorbed.person_id,
                     homonyms: vec![kept.clone()],
+                    // Comparing is asking whether to merge: the picker opens
+                    // on merging into the record ticked to keep.
+                    preselected: Some(kept.person_id),
                     on_later: move |_| on_close.call(()),
                     on_decided: move |decision| on_decided.call(decision),
                 }

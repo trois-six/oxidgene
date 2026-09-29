@@ -460,6 +460,17 @@ pub struct DuplicatePair {
     pub reasons: Vec<String>,
     pub first: SearchEntry,
     pub second: SearchEntry,
+    #[serde(default)]
+    pub first_dates: LifeDates,
+    #[serde(default)]
+    pub second_dates: LifeDates,
+}
+
+/// A record's birth (or baptism) and death (or burial) dates, as recorded.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct LifeDates {
+    pub birth: Option<StatDate>,
+    pub death: Option<StatDate>,
 }
 
 /// A tree's anomalies (`docs/ui-tools.md`), the rules that found something

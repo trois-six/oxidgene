@@ -42,6 +42,12 @@ pub struct HomonymPickerProps {
     /// the next time the person is saved.
     #[props(default)]
     pub on_later: Option<EventHandler<()>>,
+    /// The homonym chosen when the picker opens, so its button merges into
+    /// them. Unset, it opens on keeping the person apart. A caller that
+    /// already asks the user which record to keep — the duplicates tool —
+    /// passes that record, merging being its question.
+    #[props(default)]
+    pub preselected: Option<Uuid>,
     pub on_decided: EventHandler<HomonymDecision>,
 }
 
@@ -51,13 +57,28 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut open = use_signal(|| false);
-    let mut chosen = use_signal(|| None::<Uuid>);
+    let preselected = props
+        .preselected
+        .filter(|id| props.homonyms.iter().any(|e| e.person_id == *id));
+    let mut chosen = use_signal(|| preselected);
+    // Props are not reactive: a caller that changes the pre-selection (the
+    // record to keep) moves the choice along with it.
+    let mut last_preselected = use_signal(|| preselected);
+    if *last_preselected.peek() != preselected {
+        last_preselected.set(preselected);
+        chosen.set(preselected);
+    }
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
 
     let tree_id = props.tree_id;
     let person_id = props.person_id;
     let homonym_ids: Vec<Uuid> = props.homonyms.iter().map(|e| e.person_id).collect();
+    // Only a homonym offered can be merged into: a choice the list no longer
+    // holds reads as keeping the person apart, never as a merge into
+    // someone not shown.
+    let valid_ids = homonym_ids.clone();
+    let chosen_now = move || chosen().filter(|id| valid_ids.contains(id));
 
     let api_portraits = api.clone();
     let portrait_ids = homonym_ids.clone();
@@ -73,7 +94,8 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
         .iter()
         .map(PersonSearchSummary::from)
         .collect();
-    let selected = chosen().and_then(|id| rows.iter().find(|row| row.person_id() == id));
+    let selected = chosen_now().and_then(|id| rows.iter().find(|row| row.person_id() == id));
+    let merging = selected.is_some();
 
     let (separate_label, separate_hint, keep_label) = if props.new_person {
         (
@@ -93,7 +115,7 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
     let on_confirm = move |_| {
         let api = api.clone();
         let homonym_ids = homonym_ids.clone();
-        let target = chosen();
+        let target = chosen_now();
         spawn(async move {
             busy.set(true);
             error.set(None);
@@ -204,7 +226,7 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
                 }
             }
 
-            if chosen().is_some() {
+            if merging {
                 p { class: "homonym-warning", {i18n.t("homonym.merge_warning")} }
             }
             if let Some(message) = error() {
@@ -221,13 +243,13 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
                     }
                 }
                 button {
-                    class: if chosen().is_some() { "btn btn-danger" } else { "btn btn-primary" },
+                    class: if merging { "btn btn-danger" } else { "btn btn-primary" },
                     disabled: busy(),
                     onclick: on_confirm,
                     if busy() {
                         span { class: "btn-spinner" }
                     }
-                    if chosen().is_some() {
+                    if merging {
                         {i18n.t("homonym.merge")}
                     } else {
                         "{keep_label}"

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:55:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:06:00Z }
 ---
 
 
@@ -753,11 +753,16 @@ the recorded text for `unreadable_date` (the date as typed) and
 `godparent_sex` (the relation).
 
 **Potential duplicates** returns `{count, pairs}`: every pair found and at
-most 500 of them, best first, each `{score, reasons, first, second}` — the
+most 500 of them, best first, each `{score, reasons, first, second,
+first_dates, second_dates}` — the
 score out of 100, the reasons (`same_name`, `similar_name`,
 `same_birth_date`, `same_birth_year`, `close_birth`, `same_birth_place`,
 `same_death_year`, `same_parents`, `same_father`, `same_mother`,
-`same_spouse`) and both records as `SearchEntry` rows. Pairs confirmed
+`same_spouse`), both records as `SearchEntry` rows, and each record's full
+birth and death dates as `{birth, death}`, each a recorded date `{value,
+value2, qualifier, calendar, sort}` or `null` (birth falling back to the
+baptism, death to the burial), which the rows reduce to a year. GraphQL
+names them `firstDates` and `secondDates`. Pairs confirmed
 distinct are left out. A pair is settled with the existing `distinct` and
 `merge` operations; the rules are those of [Tools §6](ui-tools.md).
 
