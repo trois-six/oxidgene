@@ -3137,6 +3137,9 @@ pub const LAYOUT_STYLES: &str = r#"
     .sr-filter-chip {
         display: inline-flex;
         align-items: center;
+        /* A flex item's leading space collapses: the gap keeps the removal
+           cross apart from the label. */
+        gap: 4px;
         max-width: 100%;
         padding: 3px 10px;
         border: 1px solid var(--border);
