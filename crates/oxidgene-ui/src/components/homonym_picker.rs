@@ -121,7 +121,7 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
             error.set(None);
             let outcome = match target {
                 Some(kept) => api
-                    .merge_persons(tree_id, kept, person_id)
+                    .merge_persons(tree_id, kept, person_id, &[], &[])
                     .await
                     .map(|_| HomonymDecision::Merged(kept))
                     .map_err(|_| i18n.t("homonym.merge_failed")),

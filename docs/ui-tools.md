@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:06:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -315,19 +315,11 @@ computed from the person projections on each request.
   distinct-person confirmation as the homonym check of the
   [Person Edit Modal](ui-person-edit-modal.md) §13; the pair leaves the list
   for good.
-- **Compare** opens the two records side by side, field by field (surname,
-  given names, sex, birth, birthplace, death, father, mother, spouses,
-  children), the dates written in full with their precision (« 8 déc.
-  1776 », « vers 1776 »), the fields that differ highlighted, with a choice of the record
-  kept (the first by default). Under it, the shared homonym picker settles
-  the pair. It opens on the kept record, so its main button reads **Merge**,
-  with the merge warning, and follows the choice of the record kept:
-  confirming **merges** the other into it through
-  the existing merge operation ([Person Merge](ui-merge.md) §6, [Data
-  Model](data-model.md#person-merge)), in one transaction that refreshes the
-  projections and records the history; choosing "a different person" in
-  the picker records them as different, and "decide later" closes the
-  comparison.
+- **Compare** opens the [merge wizard](ui-merge.md) at its Step 2 on the
+  pair: the two records side by side, field by field, the record kept (the
+  first by default), and the events and media to take from the other.
+  Confirming **merges** them ([Person Merge](ui-merge.md) §6); **Two
+  different people** is offered there too, and Cancel leaves the pair listed.
 - After either answer the list is computed again.
 
 ## 7. Date converter

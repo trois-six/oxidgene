@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T22:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -57,21 +57,22 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T22:00:00Z }
 - [ ] Run the complete Geneanet flow against an authorized test account using
   anonymized captures and committing no session or genealogy data.
 
-## 4. Planned: person merge wizard
+## 4. Person merge wizard
 
-The merge operation, the distinct-person confirmations, and the homonym check
-after every person save and on the Geneanet receipt are delivered
-([Data Model](data-model.md#person-merge), [Person Edit
-Modal](ui-person-edit-modal.md) §13). What remains is the comparison flow of
-[Person Merge](ui-merge.md):
+The merge operation, the distinct-person confirmations, the homonym check
+after every person save and on the Geneanet receipt, and the three-step
+[merge wizard](ui-merge.md) are delivered ([Data
+Model](data-model.md#person-merge), [Person Edit
+Modal](ui-person-edit-modal.md) §13):
 
-- [ ] Replace the tree action picker's placeholder "Merge with…" with the
-  three-step wizard, writing the chosen values before calling the merge
-  operation.
-- [x] Add the potential duplicates tab of [Tools](ui-tools.md), with "Two
-  different people" recording a distinct-person confirmation and merges
-  through the homonym picker after a side-by-side comparison.
-- [ ] Let the Tools comparison open the wizard at Step 2 once it exists.
+- [x] Replace the tree action picker's placeholder "Merge with…" with the
+  three-step wizard, choosing the record kept and the events and media taken
+  from the other.
+- [x] Offer "Merge with…" on the person profile.
+- [x] Add the potential duplicates tab of [Tools](ui-tools.md), whose
+  comparison opens the wizard at Step 2.
+- [ ] Let the wizard choose, field by field, a surname or given names of the
+  absorbed record as the kept record's primary name.
 - [ ] Decide whether a merge should reconcile events recorded twice (two
   births, say) or keep leaving that to the user.
 

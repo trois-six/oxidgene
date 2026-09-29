@@ -1,252 +1,135 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
-description: "Three-step wizard to select a duplicate person, compare both records side by side, and confirm the merge."
+description: "Three-step wizard to find the other record of a person, compare the two, choose the record kept and the events and media taken from the other, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
 ---
 
 
 # Visual & Functional Specifications — Person Merge
 
 > Part of the [OxidGene Specifications](index.md).
-> See also: [Tree View](ui-genealogy-tree.md) (action picker "Merge with…") · [Person Edit Modal](ui-person-edit-modal.md) · [Tools](ui-tools.md) (potential duplicates) · [Data Model](data-model.md) (Person, PersonName, Event, Family)
+> See also: [Tree View](ui-genealogy-tree.md) (action picker "Merge with…") · [Person Profile](ui-person-profile.md) · [Person Edit Modal](ui-person-edit-modal.md) · [Tools](ui-tools.md) (potential duplicates) · [Data Model](data-model.md#person-merge) · [API Contract](api.md)
 
 ---
 
 ## 1. Overview
 
-The merge flow allows combining two person records that represent the same individual into a single unified record. It is a **multi-step wizard** that guides the user through selecting the duplicate, comparing data side by side, and choosing which values to keep.
+The merge wizard combines two records of one person into one. It is a
+**three-step modal**: find the other record, compare the two and choose what
+to keep, then confirm. One component, `MergeDialog`, serves every entry:
 
-The merge flow can be triggered from:
+| Entry | Opens on |
+|---|---|
+| **Merge with…** in the [Tree View](ui-genealogy-tree.md) action picker | Step 1, the selected person as the source |
+| **Merge with…** in the [Person Profile](ui-person-profile.md) header | Step 1, the profile's person as the source |
+| **Compare** on a pair of the [Tools](ui-tools.md) potential duplicates (§6) | Step 2, the pair's first record as the source, with **Two different people** |
 
-- The [Tree View](ui-genealogy-tree.md) **action picker**: "Merge with…" on a selected person
-
-Three lighter flows merge without this wizard, straight through the merge
-operation of §6 and the shared homonym picker: the homonym check that
+Two lighter flows merge without the wizard, through the shared homonym
+picker and the operation of §6 with nothing left out: the homonym check that
 follows every save of the [Person Edit Modal](ui-person-edit-modal.md) §13,
-the receipt of a Geneanet import ([Import](ui-import.md) §9.7), for people
-identified outside the tree who bear the name of somebody in it, and the
-potential duplicates of the [Tools](ui-tools.md) page §6, whose side-by-side
-comparison chooses the record kept. The first two keep the pre-existing
-person.
+and the receipt of a Geneanet import ([Import](ui-import.md) §9.7). Both keep
+the pre-existing person.
 
 ---
 
-## 2. Wizard Steps
+## 2. Layout
 
-```
-Step 1: Select          Step 2: Compare          Step 3: Confirm
-┌──────────────┐       ┌──────────────┐         ┌──────────────┐
-│ Search for    │  →    │ Side-by-side │   →     │ Review &     │
-│ the duplicate │       │ field picker │         │ confirm      │
-└──────────────┘       └──────────────┘         └──────────────┘
-```
-
-The wizard is displayed in a large modal (~900px wide, max-height 90vh). A progress bar at the top indicates the current step. Back navigation is available at each step.
+A modal card up to 760px wide, scrolling within 90% of the viewport height.
+Under the title, a line reads the step: "Step 2 of 3 · Compare and choose".
+The footer holds, in order: **Two different people** (Step 2 from Tools
+only), **Back** (Step 3, and Step 2 when Step 1 was shown), **Cancel**, and
+the step's own action. Clicking the backdrop does nothing; Cancel closes.
 
 ---
 
-## 3. Step 1 — Select Duplicate
+## 3. Step 1 — Select
 
-### When triggered from the action picker
-
-The source person is already selected (the person on which "Merge with…" was clicked). The user must select the **target person** to merge into.
-
-```
-┌─────────────────────────────────────────────────────┐
-│  Merge <person A>                              [×]  │
-│  Step 1 of 3 — Select the duplicate                 │
-│  ═══════════●─────────────────────                  │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  SOURCE PERSON (kept)                               │
-│  ┌────────────────────────────────────────────────┐ │
-│  │ [photo] <person A>             ✦ 1842  ✝ 1918  │ │
-│  └────────────────────────────────────────────────┘ │
-│                                                      │
-│  Search for the duplicate to merge:                  │
-│  [Last name ________] [First name ________]         │
-│                                                      │
-│  Results:                                            │
-│  ○ [photo] <person B>          ✦ 1842  ✝ 1918     │
-│  ○ [photo] <person C>          ✦ 1843              │
-│  ○ [photo] <person D>          ✦ c.1840  ✝ 1918   │
-│                                                      │
-├─────────────────────────────────────────────────────┤
-│                               [Cancel]   [Next →]   │
-└─────────────────────────────────────────────────────┘
-```
-
-- Search uses the same person search as the [tree topbar](ui-genealogy-tree.md), filtered to the current tree
-- The source person is excluded from results
-- The user selects one person via radio button
-- **Next** is disabled until a target is selected
-
-### When triggered from Potential Duplicates
-
-Once the wizard exists, the [Tools](ui-tools.md) comparison could open it at
-Step 2 with both persons pre-selected (source and target); today it merges
-through the homonym picker (§1).
+A hint and the shared person search of the
+[tree topbar](ui-genealogy-tree.md), limited to the current tree. Choosing a
+result other than the source person moves to Step 2; choosing the source
+itself is ignored.
 
 ---
 
-## 4. Step 2 — Compare & Choose
+## 4. Step 2 — Compare and choose
 
-A side-by-side comparison of all fields from both persons. For each field or group of fields, the user chooses which value to keep in the merged result.
+Both records are loaded together — each one's projection and detail bundle —
+and drawn side by side as the search results draw a person (portrait, name,
+dates, relatives, birthplace), the source first.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Merge <person A>                                          [×]  │
-│  Step 2 of 3 — Compare and choose                              │
-│  ───────────═══════════●───────                                │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌── Person A (source) ────┐  ┌── Person B (target) ────────┐  │
-│  │  [photo]                 │  │  [photo]                     │  │
-│  │  <person A>              │  │  <person B>                  │  │
-│  │  ✦ 12/03/1842            │  │  ✦ 1842                      │  │
-│  │  ✝ 07/11/1918            │  │  ✝ 1918                      │  │
-│  └──────────────────────────┘  └──────────────────────────────┘  │
-│                                                                  │
-│  SURNAME                                                         │
-│  ● [A] <surname A>             ○ [B] <surname A>          ═     │
-│                                                                  │
-│  FIRST NAME(S)                                                   │
-│  ● [A] <given form A>          ○ [B] <given form B>             │
-│                                                                  │
-│  GENDER                                                          │
-│  ● [A] Male                    ○ [B] Male                  ═    │
-│                                                                  │
-│  BIRTH DATE                                                      │
-│  ● [A] 12/03/1842              ○ [B] 1842                       │
-│                                                                  │
-│  BIRTH PLACE                                                     │
-│  ○ [A] <place A>               ● [B] <place A, region>          │
-│                                                                  │
-│  DEATH DATE                                                      │
-│  ● [A] 07/11/1918              ○ [B] 1918                       │
-│                                                                  │
-│  ... (more fields)                                               │
-│                                                                  │
-│  EVENTS (combined)                                               │
-│  ☑ ✦ Birth — 12/03/1842, <place A>           from A             │
-│  ☑ 💍 Marriage — 1865                         from A             │
-│  ☑ ⚒ Occupation — Vigneron                    from B            │
-│  ☑ ✝ Death — 07/11/1918                       from A            │
-│  ☐ ✦ Birth — 1842 (duplicate)                 from B            │
-│                                                                  │
-│  FAMILY LINKS (combined)                                         │
-│  ☑ Spouse: <person E>                          from A             │
-│  ☑ Child: <person F>                           from A & B         │
-│                                                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                          [← Back]   [Cancel]   [Next →]         │
-└─────────────────────────────────────────────────────────────────┘
-```
+- **The record kept.** Each card carries a "Keep this record" radio; the
+  source is kept by default. The other record is *absorbed*.
+- **The comparison.** One table row per field — surname, given names, sex,
+  birth, birthplace, death, father, mother, spouses, number of children — the
+  dates written in full with their precision and calendar ("8 Dec 1776",
+  "about 1776"). A row whose two values differ is highlighted in orange.
+- **Events to take.** The absorbed record's own events (not its unions'),
+  one checkbox each, written as type, date, place and description. An event
+  the kept record already has is marked "already on the record kept": one of
+  a type a person has once (birth, baptism, death, burial, cremation), or one
+  of the same type, date and place. Everything else is ticked by default.
+- **Media to attach.** The absorbed record's media linked to the person
+  directly (not through a union), one checkbox each by title or file name. A
+  medium the kept record is already linked to is marked the same way; the
+  others are ticked by default.
+- Choosing the other record as kept recomputes both lists' defaults for it.
+- A note says that names, family links, notes and sources always move to the
+  record kept.
 
-### Field comparison rules
-
-| Field type | Selection | Default |
-|---|---|---|
-| **Single-value fields** (name, gender, dates, places) | Radio: choose A or B | The more complete/precise value is pre-selected (e.g. full date over year-only) |
-| **Identical values** | Shown with `═` indicator, no choice needed | Auto-kept |
-| **Events** | Checkbox list: keep or discard each | All kept by default. Probable duplicates (same type + similar date) are flagged and the less precise one is unchecked |
-| **Family links** | Checkbox list: keep or discard | All kept by default. Conflicting links (e.g. two different spouse sets for the same union) are highlighted in orange |
-| **Media** | Checkbox list | All kept by default |
-| **Notes** | Checkbox list | All kept by default (concatenated) |
-
-### Conflict detection
-
-When both persons have events of the same type with similar dates (within 1 year), the system flags them as **probable duplicates**:
-- A warning icon appears next to the pair
-- The less precise entry is unchecked by default
-- The user can override by checking both (they will both be kept)
+**Next** moves to Step 3.
 
 ---
 
-## 5. Step 3 — Review & Confirm
+## 5. Step 3 — Confirm
 
-A preview of the merged result, shown as a read-only person profile card.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Merge <person A>                                          [×]  │
-│  Step 3 of 3 — Review and confirm                              │
-│  ─────────────────────═══════════●                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  MERGED RESULT                                                   │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  [photo]  <person A>                                      │  │
-│  │           Male                                             │  │
-│  │           ✦ 12/03/1842, <place A, region>                 │  │
-│  │           ✝ 07/11/1918                                     │  │
-│  │                                                            │  │
-│  │  Events: Birth, Marriage (1865), Occupation, Death         │  │
-│  │  Spouse: <person E>                                        │  │
-│  │  Children: <person F>, <person G>, <person H>              │  │
-│  │  Media: 3 items                                            │  │
-│  │  Notes: 2 notes                                            │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  ⚠ This action cannot be undone. Person B will be permanently   │
-│    removed and all references will point to the merged record.  │
-│                                                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                  [← Back]   [Cancel]   [Confirm merge]          │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**"Confirm merge"** is styled as a destructive action (orange background, bold text).
+A summary — the record kept; the events and media taken from the other,
+counted; those left out, counted — and the warning that the merge cannot be
+undone, naming the record deleted and the record kept. **Merge** is the
+destructive button. Failure leaves the wizard open with an error line.
 
 ---
 
-## 6. Merge Execution
+## 6. Merge execution
 
-On confirmation:
+**Merge** calls the merge operation —
+`POST /trees/{tree_id}/persons/{kept}/merge` with `{duplicate_id,
+left_out_events, left_out_media_links}`, or `mergePersons`
+([API Contract](api.md)) — naming the absorbed record's unticked events and
+media links. In one transaction it drops what was left out (events
+soft-deleted, media links removed, media kept in the library), moves
+everything else the absorbed record carried onto the kept one and
+soft-deletes it, following [Data Model — Person merge](data-model.md#person-merge):
+names, events, family links, witness and media links, notes, citations,
+identification boxes, the tree roots and the distinct-person confirmations.
+The projections of both persons' relatives are rebuilt and the history
+records the merge.
 
-1. Values chosen from Person B are written onto **Person A** (source) with the
-   ordinary person, name, and event operations, and discarded items are
-   deleted.
-2. The merge operation — `POST /trees/{tree_id}/persons/{A}/merge` with
-   `{duplicate_id: B}`, or `mergePersons` ([API Contract](api.md)) — moves
-   everything else Person B carried onto Person A and soft-deletes Person B,
-   following [Data Model — Person merge](data-model.md#person-merge): names,
-   events, family links, witness and media links, notes, citations,
-   identification boxes, the tree roots, and the distinct-person
-   confirmations.
-3. Ancestor/descendant traversal needs no maintenance — it reads the family
-   links directly — and the projections of both persons' relatives are
-   rebuilt in the same transaction.
-4. The modal closes.
-5. The tree view refreshes, centered on the merged person (Person A).
+Afterwards:
+
+| Entry | Then |
+|---|---|
+| Tree View | The pedigree reloads; if the absorbed record was its root, the kept one becomes the root |
+| Person Profile | The profile of the kept record, reloaded or navigated to in place of the absorbed one |
+| Tools | The duplicates are computed again |
+
+**Two different people** records a distinct-person confirmation, as the
+homonym check does, and closes the wizard.
 
 ---
 
-## 7. Edge Cases
+## 7. Edge cases
 
 | Case | Behavior |
 |---|---|
 | Both persons are children of the same family | The merge proceeds; the family keeps one child link |
-| Person B is the current tree root (SOSA 1) | Warning: "This person is the tree root. After merge, Person A will become the new root." |
-| Person B has unions that Person A doesn't | All unions are transferred to Person A |
+| The absorbed record is a tree root | The kept record takes its place |
 | The two persons are spouses of the same family, or one is the other's ancestor | The merge is refused: it would leave a person married to, or descended from, themselves |
 
 ---
 
-## 8. Keyboard & Accessibility
+## 8. Responsive
 
-| Key | Behavior |
-|---|---|
-| `Escape` | Close wizard (with confirmation if on step 2 or 3) |
-| `Tab` | Navigate between radio buttons / checkboxes |
-| `←` / `→` | Switch between A and B for the focused field |
-| `Enter` | Proceed to next step |
-
----
-
-## 9. Responsive
-
-- Below **900px**: the side-by-side comparison in Step 2 switches to a **stacked layout** (Person A fields above, Person B below, with radio buttons between)
-- Below **600px**: the wizard modal becomes a full-screen view
+At **640px** and below, the two cards stack; the comparison table and the
+lists keep their single column and wrap long values.

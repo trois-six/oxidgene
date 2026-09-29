@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::media_gallery::MediaOwner;
+use crate::components::merge_dialog::MergeDialog;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::{
     ProfileMediaCard, SHOW_MANUAL_REFRESH, SectionContext, SharedProfile, ancestors_section,
@@ -60,6 +61,8 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Delete confirmation state.
     let mut confirm_delete = use_signal(|| false);
+    // "Merge with…" is open.
+    let mut merging = use_signal(|| false);
     let mut delete_error = use_signal(|| None::<String>);
 
     // Person edit modal (names are managed there — see PersonForm).
@@ -339,6 +342,30 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             }
         }
 
+        // "Merge with…": the wizard, from the search for the other record.
+        if let (true, Some(tid), Some(pid)) = (merging(), tree_id_parsed(), person_id_parsed()) {
+            MergeDialog {
+                tree_id: tid,
+                person_id: pid,
+                on_close: move |_| merging.set(false),
+                on_merged: {
+                    let tree_id = tree_id.clone();
+                    move |kept: Uuid| {
+                        merging.set(false);
+                        tree_cache.invalidate();
+                        if kept == pid {
+                            refresh += 1;
+                        } else {
+                            nav.replace(Route::PersonDetail {
+                                tree_id: tree_id.clone(),
+                                person_id: kept.to_string(),
+                            });
+                        }
+                    }
+                },
+            }
+        }
+
         // Delete person confirmation dialog
         if confirm_delete() {
             ConfirmDialog {
@@ -392,6 +419,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                                 delete_error.set(None);
                             },
                             move || show_edit_person.set(true),
+                            move || merging.set(true),
                             {
                                 let tree_id = tree_id.clone();
                                 let person_id = person_id.clone();
@@ -445,11 +473,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     }
 }
 
-/// The person header's Delete, Edit, History and (on the web) Refresh buttons.
+/// The person header's Delete, Edit, Merge with…, History and (on the web)
+/// Refresh buttons.
 fn header_actions(
     i18n: &crate::i18n::I18n,
     mut on_delete: impl FnMut() + 'static,
     mut on_edit: impl FnMut() + 'static,
+    mut on_merge: impl FnMut() + 'static,
     mut on_history: impl FnMut() + 'static,
     on_refresh: impl FnMut() + 'static,
 ) -> Element {
@@ -482,6 +512,20 @@ fn header_actions(
                 path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
             }
             span { class: "pd-header-action-label", {i18n.t("common.edit")} }
+        }
+        button {
+            class: "btn btn-outline pd-header-action-btn",
+            title: i18n.t("context.merge"),
+            aria_label: i18n.t("context.merge"),
+            onclick: move |_| on_merge(),
+            svg {
+                class: "pd-header-action-icon",
+                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                stroke: "currentColor", "strokeWidth": "2",
+                path { d: "M6 3v6a6 6 0 0 0 6 6a6 6 0 0 0 6-6V3" }
+                path { d: "M12 15v6" }
+            }
+            span { class: "pd-header-action-label", {i18n.t("context.merge")} }
         }
         button {
             class: "btn btn-outline pd-header-action-btn",

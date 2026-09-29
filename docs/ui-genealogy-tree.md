@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
 ---
 
 
@@ -270,7 +270,7 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | Action | Description |
 |---|---|
 | **Edit individual** | Opens the full person edit modal |
-| **Merge with...** | Opens a person search to select a duplicate to merge |
+| **Merge with...** | Opens the [merge wizard](ui-merge.md) on its search for the other record of this person |
 | **Edit union** | See below — expands into a sub-list if multiple unions exist |
 | **Add spouse** | Opens a new person form pre-linked as spouse |
 | **Add child** | Opens a new person form pre-linked as child |

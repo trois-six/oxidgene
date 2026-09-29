@@ -1357,6 +1357,109 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1.5;
     }
 
+    /* ── Merge wizard (`docs/ui-merge.md`) ─────────────────────── */
+    .modal-card.merge-card {
+        width: 100%;
+        min-width: 0;
+        max-width: min(760px, calc(100vw - 32px));
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .merge-step {
+        margin: -4px 0 12px;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
+
+    .merge-persons {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    .merge-person {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        cursor: pointer;
+    }
+
+    .merge-person > input { position: absolute; opacity: 0; pointer-events: none; }
+
+    .merge-person-keep {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .merge-person-keep::before {
+        content: "";
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 2px solid var(--border);
+    }
+
+    .merge-person > input:checked ~ .merge-person-keep { color: var(--orange); font-weight: 600; }
+    .merge-person > input:checked ~ .merge-person-keep::before {
+        border-color: var(--orange);
+        background: radial-gradient(var(--orange) 40%, transparent 45%);
+    }
+    .merge-person > input:focus-visible ~ .merge-person-keep { outline: 2px solid var(--orange); outline-offset: 2px; }
+
+    /* Nested: `.search-person-result:last-child`, declared further down,
+       drops the bottom border a list's last row does not need. */
+    .merge-person .search-person-result.merge-person-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+
+    .merge-person > input:checked ~ .search-person-result.merge-person-card {
+        border-color: var(--orange);
+    }
+
+    .merge-compare-table th { width: 26%; }
+    .merge-compare-table td { width: 37%; overflow-wrap: anywhere; }
+    .merge-compare-table tr.merge-differs td { color: var(--orange); }
+
+    .merge-list-title { margin: 16px 0 4px; font-size: 0.9rem; }
+
+    .merge-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .merge-list-item {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 4px 0;
+        cursor: pointer;
+        overflow-wrap: anywhere;
+    }
+
+    .merge-already {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        font-style: italic;
+    }
+
+    .merge-summary {
+        margin: 0;
+        padding-left: 18px;
+        line-height: 1.7;
+    }
+
+    @media (max-width: 640px) {
+        .merge-persons { grid-template-columns: minmax(0, 1fr); }
+    }
+
     /* ── Pedigree outer container ────────────────────────────────── */
 
     .pedigree-outer {
@@ -6983,25 +7086,6 @@ pub const LAYOUT_STYLES: &str = r#"
         justify-content: flex-end;
         gap: 6px;
         margin-top: 8px;
-    }
-
-    .modal-card.tools-compare {
-        width: 100%;
-        min-width: 0;
-        max-width: min(720px, calc(100vw - 32px));
-        max-height: 90vh;
-        overflow-y: auto;
-    }
-
-    .tools-compare-table th { width: 30%; }
-    .tools-compare-table tr.tools-differs td { color: var(--orange); }
-    .tools-compare-table td { overflow-wrap: anywhere; }
-
-    .tools-keep {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
     }
 
     @media (max-width: 640px) {

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
 ---
 
 
@@ -127,6 +127,8 @@ person it identifies.
 
 **Action buttons**:
 - **Edit** — opens the [Person Edit Modal](ui-person-edit-modal.md)
+- **Merge with…** — opens the [merge wizard](ui-merge.md) on its search for the
+  other record of this person; after the merge the page shows the record kept
 - **History** — opens the person's [history](ui-person-history.md): every
   recorded version, compared side by side, and the restore of an earlier one
 - **View in tree** — returns to the tree view, centered on this person
@@ -500,6 +502,7 @@ Tree View (canvas)
             +- Click family member -> navigates to their profile
             +- "View in tree" button -> returns to tree view, centered on person
             +- "Edit" button -> opens Person Edit Modal
+            +- "Merge with…" button -> Person Merge wizard
             +- "History" button -> Person History (versions, compare, restore)
             +- Escape -> returns to tree view
 ```

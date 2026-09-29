@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 use oxidgene_core::calendar::to_jdn;
-use oxidgene_core::enums::{Calendar, DateQualifier, Sex};
+use oxidgene_core::enums::{Calendar, DateQualifier};
 use uuid::Uuid;
 
 use crate::api::{
@@ -15,7 +15,7 @@ use crate::api::{
 };
 use crate::components::copy_field::CopyField;
 use crate::components::date_input::{DateInput, DateParts};
-use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
+use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
@@ -996,164 +996,15 @@ fn Duplicates(tree_id: Uuid, tree_route: String) -> Element {
             {body}
         }
         if let Some(pair) = comparing() {
-            CompareDialog {
+            // Comparing is the merge wizard opened on its comparison, with
+            // "two different people" as its other answer.
+            MergeDialog {
                 tree_id,
-                pair,
+                person_id: pair.first.person_id,
+                other_id: Some(pair.second.person_id),
                 on_close: move |_| comparing.set(None),
-                on_decided: move |decision: HomonymDecision| {
-                    settled(matches!(decision, HomonymDecision::Merged(_)));
-                },
-            }
-        }
-    }
-}
-
-/// Two records side by side, field by field, and the homonym picker that
-/// merges one into the other or keeps them apart.
-#[component]
-fn CompareDialog(
-    tree_id: Uuid,
-    pair: DuplicatePair,
-    on_close: EventHandler<()>,
-    on_decided: EventHandler<HomonymDecision>,
-) -> Element {
-    let i18n = use_i18n();
-    // The record kept: the first by default, the one the picker merges the
-    // other into.
-    let mut kept_first = use_signal(|| true);
-    let (kept, absorbed) = if kept_first() {
-        (&pair.first, &pair.second)
-    } else {
-        (&pair.second, &pair.first)
-    };
-    // Dates as the rest of the application writes them — « 8 déc. 1776 »,
-    // « vers 1776 » — not reduced to a year: two records of one person
-    // often differ only by the day.
-    let date = |date: &Option<crate::api::StatDate>| date_text(&i18n, date.as_ref());
-    let sex = |s: Sex| {
-        i18n.t(match s {
-            Sex::Male => "sex.male",
-            Sex::Female => "sex.female",
-            Sex::Unknown => "sex.unknown",
-        })
-    };
-    let rows: Vec<(String, String, String)> = vec![
-        (
-            i18n.t("tools.duplicates.field.surname"),
-            pair.first.surname.clone(),
-            pair.second.surname.clone(),
-        ),
-        (
-            i18n.t("tools.duplicates.field.given_names"),
-            pair.first.given_names.clone(),
-            pair.second.given_names.clone(),
-        ),
-        (
-            i18n.t("tools.duplicates.field.sex"),
-            sex(pair.first.sex),
-            sex(pair.second.sex),
-        ),
-        (
-            i18n.t("tools.ancestry.fact.birth"),
-            date(&pair.first_dates.birth),
-            date(&pair.second_dates.birth),
-        ),
-        (
-            i18n.t("tools.duplicates.field.birth_place"),
-            pair.first.birth_place.clone().unwrap_or_default(),
-            pair.second.birth_place.clone().unwrap_or_default(),
-        ),
-        (
-            i18n.t("tools.ancestry.fact.death"),
-            date(&pair.first_dates.death),
-            date(&pair.second_dates.death),
-        ),
-        (
-            i18n.t("tools.duplicates.field.father"),
-            pair.first.father_name.clone().unwrap_or_default(),
-            pair.second.father_name.clone().unwrap_or_default(),
-        ),
-        (
-            i18n.t("tools.duplicates.field.mother"),
-            pair.first.mother_name.clone().unwrap_or_default(),
-            pair.second.mother_name.clone().unwrap_or_default(),
-        ),
-        (
-            i18n.t("tools.duplicates.field.spouses"),
-            pair.first.spouse_names.join(", "),
-            pair.second.spouse_names.join(", "),
-        ),
-        (
-            i18n.t("tools.duplicates.field.children"),
-            pair.first.children_count.to_string(),
-            pair.second.children_count.to_string(),
-        ),
-    ];
-
-    rsx! {
-        div { class: "modal-backdrop",
-            onclick: move |_| on_close.call(()),
-            div {
-                class: "modal-card tools-compare",
-                role: "dialog",
-                "aria-modal": "true",
-                onclick: move |e| e.stop_propagation(),
-                h3 { {i18n.t("tools.duplicates.compare_title")} }
-                table { class: "stats-table tools-compare-table",
-                    thead {
-                        tr {
-                            th {}
-                            th { {i18n.t("tools.duplicates.record_a")} }
-                            th { {i18n.t("tools.duplicates.record_b")} }
-                        }
-                    }
-                    tbody {
-                        for (k, (label, a, b)) in rows.into_iter().enumerate() {
-                            tr { key: "{k}", class: if a != b { "tools-differs" } else { "" },
-                                th { "{label}" }
-                                td { "{a}" }
-                                td { "{b}" }
-                            }
-                        }
-                        tr {
-                            th { {i18n.t("tools.duplicates.keep")} }
-                            td {
-                                label { class: "tools-keep",
-                                    input {
-                                        r#type: "radio",
-                                        name: "tools-keep",
-                                        checked: kept_first(),
-                                        onchange: move |_| kept_first.set(true),
-                                    }
-                                    {i18n.t("tools.duplicates.keep_this")}
-                                }
-                            }
-                            td {
-                                label { class: "tools-keep",
-                                    input {
-                                        r#type: "radio",
-                                        name: "tools-keep",
-                                        checked: !kept_first(),
-                                        onchange: move |_| kept_first.set(false),
-                                    }
-                                    {i18n.t("tools.duplicates.keep_this")}
-                                }
-                            }
-                        }
-                    }
-                }
-                p { class: "tools-intro", {i18n.t_args("tools.duplicates.kept_hint", &[("name", &kept.display_name)])} }
-                HomonymPicker {
-                    key: "{kept.person_id}",
-                    tree_id,
-                    person_id: absorbed.person_id,
-                    homonyms: vec![kept.clone()],
-                    // Comparing is asking whether to merge: the picker opens
-                    // on merging into the record ticked to keep.
-                    preselected: Some(kept.person_id),
-                    on_later: move |_| on_close.call(()),
-                    on_decided: move |decision| on_decided.call(decision),
-                }
+                on_merged: move |_| settled(true),
+                on_distinct: move |_| settled(false),
             }
         }
     }

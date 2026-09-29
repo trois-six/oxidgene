@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
+use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::search_person::SearchPerson;
@@ -35,8 +36,6 @@ enum LinkingMode {
     Child(Uuid),
     /// Adding a sibling for the given person.
     Sibling(Uuid),
-    /// Merging person with another (search target).
-    Merge(Uuid),
     /// Choosing whom to trace the given person's relationship to.
     Kinship(Uuid),
 }
@@ -113,6 +112,8 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
     // ── Linking mode (search-or-create panel) ──
     let mut linking_mode = use_signal(|| None::<LinkingMode>);
+    // The person "Merge with…" was chosen on, while the wizard is open.
+    let mut merging = use_signal(|| None::<Uuid>);
 
     // ── Delete person confirmation ──
     let mut confirm_delete_person_id = use_signal(|| None::<Uuid>);
@@ -324,7 +325,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 editing_person_id.set(Some(pid));
             }
             PersonAction::Merge => {
-                linking_mode.set(Some(LinkingMode::Merge(pid)));
+                merging.set(Some(pid));
             }
             PersonAction::AddParents => {
                 linking_mode.set(Some(LinkingMode::Parents(pid)));
@@ -744,13 +745,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     };
 
     // Merge: link existing person to merge with.
-    let on_link_merge = move |_target_id: Uuid| {
-        // TODO: Implement merge UI — should show a modal to choose which
-        // events/info/sources to keep from each person, then delete one.
-        // For now, just close the linking panel.
-        linking_mode.set(None);
-    };
-
     // Kinship: open the relationship page between the two persons.
     let tree_id_kinship = tree_id.clone();
     let on_pick_kinship = move |other: Uuid| {
@@ -791,7 +785,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         LinkingMode::Parents(_) => i18n.t("linking.add_parent"),
         LinkingMode::Child(_) => i18n.t("linking.add_child"),
         LinkingMode::Sibling(_) => i18n.t("linking.add_sibling"),
-        LinkingMode::Merge(_) => i18n.t("linking.merge"),
         LinkingMode::Kinship(_) => i18n.t("context.kinship"),
     });
 
@@ -833,6 +826,22 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         TopbarSearch { tree_id: tree_id.clone() }
                     }
                 }
+            }
+        }
+
+        // "Merge with…": the wizard, from the search for the other record.
+        if let (Some(pid), Some(tid)) = (merging(), tree_id_parsed()) {
+            MergeDialog {
+                tree_id: tid,
+                person_id: pid,
+                on_close: move |_| merging.set(None),
+                on_merged: move |kept: Uuid| {
+                    merging.set(None);
+                    if selected_root() == Some(pid) && kept != pid {
+                        selected_root.set(Some(kept));
+                    }
+                    tree_cache.invalidate();
+                },
             }
         }
 
@@ -1132,17 +1141,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                                     class: "btn btn-outline",
                                     onclick: on_create_new_sibling,
                                     {i18n.t("linking.create_sibling")}
-                                }
-                            },
-                            Some(LinkingMode::Merge(_)) => rsx! {
-                                p { style: "font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;",
-                                    {i18n.t("linking.merge_hint")}
-                                }
-                                SearchPerson {
-                                    tree_id: tid,
-                                    placeholder: i18n.t("linking.search_merge"),
-                                    on_select: on_link_merge,
-                                    on_cancel: move |_| linking_mode.set(None),
                                 }
                             },
                             Some(LinkingMode::Kinship(_)) => rsx! {

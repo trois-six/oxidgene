@@ -770,6 +770,8 @@ pub struct MarkPersonsDistinctBody {
 #[derive(Debug, Serialize)]
 pub struct MergePersonBody {
     pub duplicate_id: Uuid,
+    pub left_out_events: Vec<Uuid>,
+    pub left_out_media_links: Vec<Uuid>,
 }
 
 // ── PersonName request bodies ───────────────────────────────────────
@@ -2739,17 +2741,23 @@ impl ApiClient {
     }
 
     /// Merge `duplicate` into `kept`, which survives; returns the kept person.
+    /// Merge `duplicate` into `kept`, leaving out the duplicate's own events
+    /// and direct media links named (`docs/api.md`, merge).
     pub async fn merge_persons(
         &self,
         tree_id: Uuid,
         kept: Uuid,
         duplicate: Uuid,
+        left_out_events: &[Uuid],
+        left_out_media_links: &[Uuid],
     ) -> Result<Person, ApiError> {
         let result = self
             .post(
                 &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
                 &MergePersonBody {
                     duplicate_id: duplicate,
+                    left_out_events: left_out_events.to_vec(),
+                    left_out_media_links: left_out_media_links.to_vec(),
                 },
             )
             .await?;

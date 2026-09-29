@@ -195,8 +195,10 @@ pub struct SearchPersonProps {
     pub placeholder: String,
     /// Called when the user selects a person from the results.
     pub on_select: EventHandler<Uuid>,
-    /// Called when the user wants to cancel the search.
-    pub on_cancel: EventHandler<()>,
+    /// Called when the user wants to cancel the search. Without it, no
+    /// Cancel button: the caller's own dialog closes the search.
+    #[props(default)]
+    pub on_cancel: Option<EventHandler<()>>,
 }
 
 /// A typeahead search input that queries the server-side search index.
@@ -285,10 +287,12 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
                     value: "{query}",
                     oninput: move |e: Event<FormData>| query.set(e.value()),
                 }
-                button {
-                    class: "btn btn-outline btn-sm",
-                    onclick: move |_| props.on_cancel.call(()),
-                    {i18n.t("common.cancel")}
+                if let Some(on_cancel) = props.on_cancel {
+                    button {
+                        class: "btn btn-outline btn-sm",
+                        onclick: move |_| on_cancel.call(()),
+                        {i18n.t("common.cancel")}
+                    }
                 }
             }
 

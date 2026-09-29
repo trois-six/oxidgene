@@ -41,5 +41,5 @@ okf_version: "0.2"
 # UI Modals and Flows
 
 * [Person Edit Modal](ui-person-edit-modal.md) - Modal to create and edit a person in every context, edit a couple, manage media, and delete.
-* [Person Merge](ui-merge.md) - Three-step wizard to select a duplicate person, compare both records side by side, and confirm the merge.
+* [Person Merge](ui-merge.md) - Three-step wizard to find the other record of a person, compare the two, choose the record kept and the events and media taken from the other, and confirm the merge.
 * [Import](ui-import.md) - The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media.
