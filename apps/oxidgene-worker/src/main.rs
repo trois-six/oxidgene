@@ -7,7 +7,7 @@ use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_db::repo::{connect, run_migrations};
 use oxidgene_observability::init;
 use oxidgene_server::config::ServerConfig;
-use tokio::signal;
+use oxidgene_server::shutdown::shutdown_signal;
 use tracing::{error, info};
 
 #[tokio::main]
@@ -54,28 +54,4 @@ async fn main() {
     }
     info!("Background worker shut down gracefully");
     telemetry.shutdown();
-}
-
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        () = ctrl_c => info!("Received SIGINT, shutting down"),
-        () = terminate => info!("Received SIGTERM, shutting down"),
-    }
 }

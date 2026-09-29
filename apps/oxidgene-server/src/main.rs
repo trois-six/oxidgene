@@ -20,12 +20,12 @@ use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{BackgroundJobRepo, connect, run_migrations};
 use oxidgene_observability::{init, make_http_span, on_http_response};
 use tokio::net::TcpListener;
-use tokio::signal;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 use oxidgene_server::config::{MediaBackend, ServerConfig};
+use oxidgene_server::shutdown::shutdown_signal;
 
 #[tokio::main]
 async fn main() {
@@ -170,29 +170,4 @@ async fn main() {
 /// Health check handler returning `200 OK` with a JSON body.
 async fn healthz() -> axum::Json<serde_json::Value> {
     axum::Json(serde_json::json!({ "status": "ok" }))
-}
-
-/// Wait for SIGINT (Ctrl+C) or SIGTERM to initiate graceful shutdown.
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        () = ctrl_c => info!("Received SIGINT, shutting down"),
-        () = terminate => info!("Received SIGTERM, shutting down"),
-    }
 }
