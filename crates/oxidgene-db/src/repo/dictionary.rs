@@ -28,7 +28,10 @@ use sea_orm::{ActiveValue::Set, Condition, JoinType, QuerySelect, Unchanged};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
-use crate::entities::{citation, event, media, person, person_name, place, sea_enums, source};
+use crate::entities::{
+    citation, event, family_spouse, media, media_link, person, person_name, place, sea_enums,
+    source, vignette,
+};
 use crate::repo::batch::in_chunks;
 
 /// A distinct free-text value (surname, occupation label) plus the number of
@@ -508,21 +511,126 @@ impl DictionaryRepo {
         Ok(dedup(person_ids))
     }
 
-    /// Distinct persons with an individual event at a given place.
+    /// Distinct live persons a place concerns: those whose own events take
+    /// place there, the spouses of the couples whose events do, and the
+    /// persons a media filed there — or a page of one — is attached to: by a
+    /// media link to them, to one of their events or to one of their couples,
+    /// or by a crop identifying them. The same uses the place's count counts
+    /// (its events and media), so a place with uses never lists nobody.
     pub async fn place_usage_person_ids(
         db: &impl ConnectionTrait,
         place_id: Uuid,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let db_error = |e: DbErr| OxidGeneError::Database(e.to_string());
+        let mut persons: Vec<Uuid> = Vec::new();
+        let mut families: Vec<Uuid> = Vec::new();
+        let mut event_ids: Vec<Uuid> = Vec::new();
+
         let events = event::Entity::find()
             .filter(event::Column::PlaceId.eq(place_id))
             .filter(event::Column::DeletedAt.is_null())
             .all(db)
             .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+            .map_err(db_error)?;
+        for e in events {
+            persons.extend(e.person_id);
+            families.extend(e.family_id);
+        }
 
-        Ok(dedup(
-            events.into_iter().filter_map(|e| e.person_id).collect(),
-        ))
+        // Media filed at the place, and their pages, which carry the links
+        // as often as the document does.
+        let documents: Vec<Uuid> = media::Entity::find()
+            .select_only()
+            .column(media::Column::Id)
+            .filter(media::Column::PlaceId.eq(place_id))
+            .filter(media::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_error)?;
+        let mut media_ids = documents.clone();
+        media_ids.extend(
+            in_chunks(&documents, |chunk| async move {
+                media::Entity::find()
+                    .select_only()
+                    .column(media::Column::Id)
+                    .filter(media::Column::ParentMediaId.is_in(chunk))
+                    .filter(media::Column::DeletedAt.is_null())
+                    .into_tuple::<Uuid>()
+                    .all(db)
+                    .await
+                    .map_err(db_error)
+            })
+            .await?,
+        );
+        let links = in_chunks(&media_ids, |chunk| async move {
+            media_link::Entity::find()
+                .filter(media_link::Column::MediaId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_error)
+        })
+        .await?;
+        for link in links {
+            persons.extend(link.person_id);
+            families.extend(link.family_id);
+            event_ids.extend(link.event_id);
+        }
+        let crops = in_chunks(&media_ids, |chunk| async move {
+            vignette::Entity::find()
+                .filter(vignette::Column::MediaId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_error)
+        })
+        .await?;
+        for crop in crops {
+            persons.extend(crop.person_id);
+            event_ids.extend(crop.event_id);
+        }
+
+        // The events a media is linked to: their person, or their couple.
+        let linked = in_chunks(&event_ids, |chunk| async move {
+            event::Entity::find()
+                .filter(event::Column::Id.is_in(chunk))
+                .filter(event::Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(db_error)
+        })
+        .await?;
+        for e in linked {
+            persons.extend(e.person_id);
+            families.extend(e.family_id);
+        }
+
+        // A couple is its spouses.
+        let spouses = in_chunks(&dedup(families), |chunk| async move {
+            family_spouse::Entity::find()
+                .filter(family_spouse::Column::FamilyId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_error)
+        })
+        .await?;
+        persons.extend(spouses.into_iter().map(|s| s.person_id));
+
+        let persons = dedup(persons);
+        let live: HashSet<Uuid> = in_chunks(&persons, |chunk| async move {
+            person::Entity::find()
+                .select_only()
+                .column(person::Column::Id)
+                .filter(person::Column::Id.is_in(chunk))
+                .filter(person::Column::DeletedAt.is_null())
+                .into_tuple::<Uuid>()
+                .all(db)
+                .await
+                .map_err(db_error)
+        })
+        .await?
+        .into_iter()
+        .collect();
+        Ok(persons.into_iter().filter(|id| live.contains(id)).collect())
     }
 
     /// Distinct persons holding a given occupation label in a tree.

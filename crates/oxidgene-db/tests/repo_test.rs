@@ -3033,6 +3033,98 @@ async fn dictionary_places_with_usage_counts_events() {
     assert_eq!(usage, vec![person_id]);
 }
 
+/// A place used only by a couple's event and by a media still lists the
+/// persons it concerns: the spouses, and whoever the media is attached to or
+/// shows. A deleted person is left out.
+#[tokio::test]
+async fn place_usage_covers_couples_and_media() {
+    use oxidgene_db::entities::media;
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let place = Uuid::now_v7();
+    PlaceRepo::create(&db, place, tree_id, "Town-A".into(), None, None)
+        .await
+        .unwrap();
+    let husband = create_person(&db, tree_id).await;
+    let wife = create_person(&db, tree_id).await;
+    let linked = create_person(&db, tree_id).await;
+    let shown = create_person(&db, tree_id).await;
+    let deleted = create_person(&db, tree_id).await;
+
+    // A marriage at the place.
+    let family = Uuid::now_v7();
+    FamilyRepo::create(&db, family, tree_id).await.unwrap();
+    for (i, (person, role)) in [(husband, SpouseRole::Husband), (wife, SpouseRole::Wife)]
+        .into_iter()
+        .enumerate()
+    {
+        FamilySpouseRepo::create(&db, Uuid::now_v7(), family, person, role, i as i32)
+            .await
+            .unwrap();
+    }
+    EventRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        EventType::Marriage,
+        None,
+        None,
+        Some(place),
+        None,
+        Some(family),
+        None,
+        DateQualifier::default(),
+        None,
+        Calendar::default(),
+        None,
+    )
+    .await
+    .unwrap();
+
+    // A document filed at the place, linked on its page to one person and
+    // to a deleted one, and showing another in a crop.
+    let (document, page) = create_document_with_page(&db, tree_id, "scan.jpg", None).await;
+    media::ActiveModel {
+        id: Set(document),
+        place_id: Set(Some(place)),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .unwrap();
+    for person in [linked, deleted] {
+        MediaLinkRepo::create(&db, Uuid::now_v7(), page, Some(person), None, None, None, 0)
+            .await
+            .unwrap();
+    }
+    oxidgene_db::repo::VignetteRepo::create(
+        &db,
+        Uuid::now_v7(),
+        oxidgene_db::repo::VignetteInput {
+            media_id: page,
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            person_id: Some(shown),
+            event_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    PersonRepo::delete(&db, deleted).await.unwrap();
+
+    let mut usage = DictionaryRepo::place_usage_person_ids(&db, place)
+        .await
+        .unwrap();
+    usage.sort();
+    let mut expected = vec![husband, wife, linked, shown];
+    expected.sort();
+    assert_eq!(usage, expected);
+}
+
 /// More ids than SQLite binds in one statement (32 766): a whole-tree read
 /// passes one per person, so a large tree used to fail with "too many SQL
 /// variables" on import, rebuild and the dictionary.

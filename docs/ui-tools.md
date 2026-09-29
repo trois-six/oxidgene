@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:02:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:55:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -212,7 +212,7 @@ are listed here (`GET /trees/{id}/unlocated-places`,
 `unlocatedPlaces`, [API](api.md)), most used first, with their count, the
 same number the statistics report as "N places could not be located".
 
-- **Who uses it** unfolds the persons whose events or media name the place,
+- **Who uses it** unfolds, on a row of its own under the place, the persons whose events or media name the place (a couple's event its spouses, a media whoever it is linked to or shows),
   as the [Dictionary](ui-dictionary.md) lists them, each opening the pedigree
   on them.
 - **Correct** turns the name into the shared place field of

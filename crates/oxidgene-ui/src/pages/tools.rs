@@ -508,7 +508,8 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
                 }
                 tbody {
                     for place in list.iter().cloned() {
-                        tr { key: "{place.place_id}",
+                        Fragment { key: "{place.place_id}",
+                        tr {
                             td {
                                 if editing() == Some(place.place_id) {
                                     div { class: "tools-place-edit",
@@ -535,9 +536,6 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
                                     }
                                 } else {
                                     span { class: "tools-place-name", "{place.name}" }
-                                }
-                                if opened() == Some(place.place_id) {
-                                    {render_place_usage(&i18n, &tree_route, place.place_id, &usage.read())}
                                 }
                             }
                             td { class: "tools-col-fact", "{place.count}" }
@@ -566,6 +564,17 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
                                     }
                                 }
                             }
+                        }
+                        // Who uses the place opens on a row of its own, the
+                        // table's full width, rather than inside the name's
+                        // cell, where it pushed the count and buttons apart.
+                        if opened() == Some(place.place_id) {
+                            tr { class: "tools-place-usage",
+                                td { colspan: 3,
+                                    {render_place_usage(&i18n, &tree_route, place.place_id, &usage.read())}
+                                }
+                            }
+                        }
                         }
                     }
                 }

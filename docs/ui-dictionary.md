@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T06:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:55:00Z }
 ---
 
 
@@ -316,7 +316,7 @@ Grouped by first letter of the place name (same pattern as section 7). Each row:
 - A small pin icon (📍-style, filled) when `latitude`/`longitude` are set, outline/muted when not
 - Usage count badge: number of `Event` + `Media` rows referencing this place
 
-Clicking a row expands it inline (same accordion pattern as Sources) listing the events/media referencing that place, each linking to the relevant person.
+Clicking a row expands it inline (same accordion pattern as Sources) listing the persons the place's events and media concern — a couple's event its spouses, a media the persons it is linked to or shows — each linking to the person, so a place with uses never lists nobody.
 
 ---
 
