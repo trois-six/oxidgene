@@ -408,6 +408,183 @@ fn profile_event_to_domain(
     }
 }
 
+/// What a pedigree projection says about one person: enough to draw a card
+/// and list their birth and death.
+struct PersonSummary<'a> {
+    person_id: Uuid,
+    sex: Sex,
+    given_names: &'a Option<String>,
+    surname: &'a Option<String>,
+    birth: Option<&'a ProfileEvent>,
+    death: Option<&'a ProfileEvent>,
+}
+
+/// The synthetic domain records built from [`PersonSummary`]s: a person, one
+/// birth name, and their birth and death events.
+struct SummarisedPeople {
+    tree_id: Uuid,
+    now: chrono::DateTime<chrono::Utc>,
+    persons: HashMap<Uuid, Person>,
+    names: HashMap<Uuid, Vec<PersonName>>,
+    events_by_person: HashMap<Uuid, Vec<DomainEvent>>,
+}
+
+impl SummarisedPeople {
+    fn new(tree_id: Uuid, now: chrono::DateTime<chrono::Utc>) -> Self {
+        Self {
+            tree_id,
+            now,
+            persons: HashMap::new(),
+            names: HashMap::new(),
+            events_by_person: HashMap::new(),
+        }
+    }
+
+    /// Record one person, replacing any earlier record of them.
+    fn add(&mut self, summary: PersonSummary<'_>) {
+        let (tree_id, now, person_id) = (self.tree_id, self.now, summary.person_id);
+        self.persons.insert(
+            person_id,
+            Person {
+                id: person_id,
+                tree_id,
+                sex: summary.sex,
+                privacy: Privacy::default(),
+                portrait_media_id: None,
+                portrait_vignette_id: None,
+                created_at: now,
+                updated_at: now,
+                deleted_at: None,
+            },
+        );
+        let name = PersonName {
+            id: Uuid::nil(),
+            person_id,
+            name_type: oxidgene_core::NameType::Birth,
+            given_names: summary.given_names.clone(),
+            surname: summary.surname.clone(),
+            surname_prefix: None,
+            prefix: None,
+            suffix: None,
+            nickname: None,
+            is_primary: true,
+            sort_order: 0,
+            created_at: now,
+            updated_at: now,
+        };
+        self.names.insert(person_id, vec![name]);
+
+        let events: Vec<DomainEvent> = [summary.birth, summary.death]
+            .into_iter()
+            .flatten()
+            .map(|pe| profile_event_to_domain(pe, tree_id, Some(person_id), None, now))
+            .collect();
+        if !events.is_empty() {
+            self.events_by_person.insert(person_id, events);
+        }
+    }
+}
+
+/// Who belongs to which family, as spouse or as child, in both directions.
+struct FamilyLinks {
+    spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>>,
+    children_by_family: HashMap<Uuid, Vec<FamilyChild>>,
+    families_as_child: HashMap<Uuid, Vec<Uuid>>,
+    families_as_spouse: HashMap<Uuid, Vec<Uuid>>,
+}
+
+impl FamilyLinks {
+    /// Read the links of a pedigree's families.
+    ///
+    /// PedigreeFamily carries full family membership (spouses + children),
+    /// covering childless couples that produce no PedigreeEdge. The edges
+    /// supplement it with each child's type. A spouse's role comes from their
+    /// sex in `persons`.
+    fn from_pedigree(pedigree: &Pedigree, persons: &HashMap<Uuid, Person>) -> Self {
+        // Build child_type lookup from edges.
+        let mut child_type_map: HashMap<(Uuid, Uuid), ChildType> = HashMap::new();
+        for edge in &pedigree.edges {
+            child_type_map.insert((edge.family_id, edge.child_id), edge.edge_type);
+        }
+
+        let mut links = Self {
+            spouses_by_family: HashMap::new(),
+            children_by_family: HashMap::new(),
+            families_as_child: HashMap::new(),
+            families_as_spouse: HashMap::new(),
+        };
+        for (family_id, family) in &pedigree.families {
+            for (i, &spouse_id) in family.spouse_ids.iter().enumerate() {
+                let role = spouse_role(persons.get(&spouse_id).map(|p| p.sex), i);
+                links.add_spouse(*family_id, spouse_id, role, i);
+            }
+            for (i, &child_id) in family.children_ids.iter().enumerate() {
+                let child_type = child_type_map
+                    .get(&(*family_id, child_id))
+                    .copied()
+                    .unwrap_or(ChildType::Biological);
+                links.add_child(*family_id, child_id, child_type, i);
+            }
+        }
+        sort_and_dedup_values(&mut links.families_as_spouse);
+        sort_and_dedup_values(&mut links.families_as_child);
+        links
+    }
+
+    fn add_spouse(&mut self, family_id: Uuid, person_id: Uuid, role: SpouseRole, index: usize) {
+        self.spouses_by_family
+            .entry(family_id)
+            .or_default()
+            .push(FamilySpouse {
+                id: Uuid::nil(),
+                family_id,
+                person_id,
+                role,
+                sort_order: index as i32,
+            });
+        self.families_as_spouse
+            .entry(person_id)
+            .or_default()
+            .push(family_id);
+    }
+
+    fn add_child(&mut self, family_id: Uuid, person_id: Uuid, child_type: ChildType, index: usize) {
+        self.children_by_family
+            .entry(family_id)
+            .or_default()
+            .push(FamilyChild {
+                id: Uuid::nil(),
+                family_id,
+                person_id,
+                child_type,
+                sort_order: index as i32,
+            });
+        self.families_as_child
+            .entry(person_id)
+            .or_default()
+            .push(family_id);
+    }
+}
+
+/// A spouse's role, told by their sex, or else by their place in the couple:
+/// the first one husband, any other wife.
+fn spouse_role(sex: Option<Sex>, index: usize) -> SpouseRole {
+    match sex {
+        Some(Sex::Male) => SpouseRole::Husband,
+        Some(Sex::Female) => SpouseRole::Wife,
+        _ if index == 0 => SpouseRole::Husband,
+        _ => SpouseRole::Wife,
+    }
+}
+
+/// Sort every list of the map and drop its duplicates.
+fn sort_and_dedup_values(map: &mut HashMap<Uuid, Vec<Uuid>>) {
+    for ids in map.values_mut() {
+        ids.sort();
+        ids.dedup();
+    }
+}
+
 impl PedigreeData {
     /// Build chart data from a [`Pedigree`] returned by the projection API.
     ///
@@ -416,208 +593,70 @@ impl PedigreeData {
     pub fn from_pedigree(pedigree: &Pedigree) -> Self {
         use chrono::Utc;
 
-        let now = Utc::now();
         let tree_id = pedigree.tree_id;
+        let mut people = SummarisedPeople::new(tree_id, Utc::now());
 
-        // ── Persons & Names ──
-        let mut persons: HashMap<Uuid, Person> = HashMap::new();
-        let mut names: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
-
+        // ── Persons, names, and the birth/death events the projection
+        // carries whole ──
         for node in pedigree.persons.values() {
-            let person = Person {
-                id: node.person_id,
-                tree_id,
-                sex: node.sex,
-                privacy: Privacy::default(),
-                portrait_media_id: None,
-                portrait_vignette_id: None,
-                created_at: now,
-                updated_at: now,
-                deleted_at: None,
-            };
-            persons.insert(node.person_id, person);
-
-            let name = PersonName {
-                id: Uuid::nil(),
+            people.add(PersonSummary {
                 person_id: node.person_id,
-                name_type: oxidgene_core::NameType::Birth,
-                given_names: node.given_names.clone(),
+                sex: node.sex,
+                given_names: &node.given_names,
                 // Projection surnames already carry their particle, so there
                 // is nothing to re-attach here.
-                surname: node.surname.clone(),
-                surname_prefix: None,
-                prefix: None,
-                suffix: None,
-                nickname: None,
-                is_primary: true,
-                sort_order: 0,
-                created_at: now,
-                updated_at: now,
-            };
-            names.insert(node.person_id, vec![name]);
-        }
-
-        // ── Birth/death events, carried whole by the projection ──
-        let mut events_by_person: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
-        for node in pedigree.persons.values() {
-            let person_events: Vec<DomainEvent> = [node.birth.as_ref(), node.death.as_ref()]
-                .into_iter()
-                .flatten()
-                .map(|pe| profile_event_to_domain(pe, tree_id, Some(node.person_id), None, now))
-                .collect();
-            if !person_events.is_empty() {
-                events_by_person.insert(node.person_id, person_events);
-            }
+                surname: &node.surname,
+                birth: node.birth.as_ref(),
+                death: node.death.as_ref(),
+            });
         }
 
         // ── Family relationships from PedigreeFamily + PedigreeEdge ──
         //
-        // PedigreeFamily carries full family membership (spouses + children),
-        // covering childless couples that produce no PedigreeEdge.
-        // We supplement with edge data for child_type info.
-
-        // Build child_type lookup from edges.
-        let mut child_type_map: HashMap<(Uuid, Uuid), ChildType> = HashMap::new();
-        for edge in &pedigree.edges {
-            child_type_map.insert((edge.family_id, edge.child_id), edge.edge_type);
-        }
-
-        let mut spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>> = HashMap::new();
-        let mut children_by_family: HashMap<Uuid, Vec<FamilyChild>> = HashMap::new();
-        let mut families_as_child: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-        let mut families_as_spouse: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-
-        for (family_id, family) in &pedigree.families {
-            // Build FamilySpouse entries — assign role by sex.
-            for (i, &spouse_id) in family.spouse_ids.iter().enumerate() {
-                let role = match persons.get(&spouse_id).map(|p| &p.sex) {
-                    Some(Sex::Male) => SpouseRole::Husband,
-                    Some(Sex::Female) => SpouseRole::Wife,
-                    _ => {
-                        if i == 0 {
-                            SpouseRole::Husband
-                        } else {
-                            SpouseRole::Wife
-                        }
-                    }
-                };
-                let fs = FamilySpouse {
-                    id: Uuid::nil(),
-                    family_id: *family_id,
-                    person_id: spouse_id,
-                    role,
-                    sort_order: i as i32,
-                };
-                spouses_by_family.entry(*family_id).or_default().push(fs);
-                families_as_spouse
-                    .entry(spouse_id)
-                    .or_default()
-                    .push(*family_id);
-            }
-
-            // Build FamilyChild entries.
-            for (i, &child_id) in family.children_ids.iter().enumerate() {
-                let child_type = child_type_map
-                    .get(&(*family_id, child_id))
-                    .copied()
-                    .unwrap_or(ChildType::Biological);
-                let fc = FamilyChild {
-                    id: Uuid::nil(),
-                    family_id: *family_id,
-                    person_id: child_id,
-                    child_type,
-                    sort_order: i as i32,
-                };
-                children_by_family.entry(*family_id).or_default().push(fc);
-                families_as_child
-                    .entry(child_id)
-                    .or_default()
-                    .push(*family_id);
-            }
-        }
-
-        // Deduplicate families_as_spouse entries.
-        for fids in families_as_spouse.values_mut() {
-            fids.sort();
-            fids.dedup();
-        }
-
-        // Deduplicate families_as_child entries.
-        for fids in families_as_child.values_mut() {
-            fids.sort();
-            fids.dedup();
-        }
+        // Roles are assigned before the members outside the pedigree window
+        // are added below: only the pedigree's own persons tell a spouse's
+        // role by sex.
+        let links = FamilyLinks::from_pedigree(pedigree, &people.persons);
 
         // ── Reconstruct family events from the pedigree payload ──
         let mut events_by_family: HashMap<Uuid, Vec<DomainEvent>> = HashMap::new();
         for (family_id, events) in &pedigree.family_events {
             let domain_events: Vec<DomainEvent> = events
                 .iter()
-                .map(|ce| profile_event_to_domain(ce, tree_id, None, Some(*family_id), now))
+                .map(|ce| profile_event_to_domain(ce, tree_id, None, Some(*family_id), people.now))
                 .collect();
             events_by_family.insert(*family_id, domain_events);
         }
 
         // ── Synthetic events + names for family members outside the pedigree window ──
-        for family in pedigree.families.values() {
-            for member in &family.members {
-                // Skip members already in the pedigree persons map.
-                if persons.contains_key(&member.person_id) {
-                    continue;
-                }
-                // Build synthetic person + name (for display in event panel).
-                let person = Person {
-                    id: member.person_id,
-                    tree_id,
-                    sex: member.sex,
-                    privacy: Privacy::default(),
-                    portrait_media_id: None,
-                    portrait_vignette_id: None,
-                    created_at: now,
-                    updated_at: now,
-                    deleted_at: None,
-                };
-                persons.insert(member.person_id, person);
-                let name = PersonName {
-                    id: Uuid::nil(),
-                    person_id: member.person_id,
-                    name_type: oxidgene_core::NameType::Birth,
-                    given_names: member.given_names.clone(),
-                    surname: member.surname.clone(),
-                    surname_prefix: None,
-                    prefix: None,
-                    suffix: None,
-                    nickname: None,
-                    is_primary: true,
-                    sort_order: 0,
-                    created_at: now,
-                    updated_at: now,
-                };
-                names.insert(member.person_id, vec![name]);
-
-                // Same conversion as the pedigree nodes above.
-                let member_events: Vec<DomainEvent> =
-                    [member.birth.as_ref(), member.death.as_ref()]
-                        .into_iter()
-                        .flatten()
-                        .map(|pe| {
-                            profile_event_to_domain(pe, tree_id, Some(member.person_id), None, now)
-                        })
-                        .collect();
-                if !member_events.is_empty() {
-                    events_by_person.insert(member.person_id, member_events);
-                }
+        for member in pedigree
+            .families
+            .values()
+            .flat_map(|family| &family.members)
+        {
+            // Skip members already in the pedigree persons map.
+            if people.persons.contains_key(&member.person_id) {
+                continue;
             }
+            // Same conversion as the pedigree nodes above.
+            people.add(PersonSummary {
+                person_id: member.person_id,
+                sex: member.sex,
+                given_names: &member.given_names,
+                surname: &member.surname,
+                birth: member.birth.as_ref(),
+                death: member.death.as_ref(),
+            });
         }
 
         Self {
-            persons,
-            names,
-            spouses_by_family,
-            children_by_family,
-            families_as_child,
-            families_as_spouse,
-            events_by_person,
+            persons: people.persons,
+            names: people.names,
+            spouses_by_family: links.spouses_by_family,
+            children_by_family: links.children_by_family,
+            families_as_child: links.families_as_child,
+            families_as_spouse: links.families_as_spouse,
+            events_by_person: people.events_by_person,
             events_by_family,
             places: HashMap::new(),
             photos: HashMap::new(),
@@ -978,6 +1017,29 @@ impl PersonNode {
             photo_url,
             sosa_badge,
             is_self: data.self_person_id == Some(id),
+        }
+    }
+
+    /// The card of one of the root's siblings, drawn at (`x`, `y`) on the
+    /// root's row, outside the tree layout.
+    fn root_sibling_card(self, id: Uuid, x: f64, y: f64) -> LayoutNode {
+        LayoutNode {
+            id: Some(id),
+            x,
+            y,
+            sex: self.sex,
+            label_surname: self.surname,
+            label_given: self.given,
+            birth_year: self.birth_year,
+            death_year: self.death_year,
+            photo_url: self.photo_url,
+            sosa_badge: self.sosa_badge,
+            is_self: self.is_self,
+            is_compact: false,
+            child_of: None,
+            is_father: false,
+            is_sibling: false,
+            has_more_relations: false,
         }
     }
 }
@@ -1449,18 +1511,7 @@ fn first_walk(
     last_level: i32,
     compact_sep: f64,
 ) {
-    // Iterative post-order via explicit stack.
-    let mut post_order: Vec<usize> = Vec::new();
-    let mut stack = vec![root];
-    while let Some(v) = stack.pop() {
-        post_order.push(v);
-        for &c in &wrap[v].children.clone() {
-            stack.push(c);
-        }
-    }
-    post_order.reverse();
-
-    for v in post_order {
+    for v in post_order(wrap, root) {
         let parent = wrap[v].parent;
         let siblings_in_parent = parent.map(|p| wrap[p].children.clone()).unwrap_or_default();
         let prev_sibling = if wrap[v].i > 0 {
@@ -1469,152 +1520,22 @@ fn first_walk(
             None
         };
 
-        // Determine effective children: filter by first sibling's parent2 if node has siblings.
-        let node_siblings = wrap[v].siblings.clone();
-        let orig_children = wrap[v].children.clone();
-        let effective_children: Vec<usize> = if node_siblings.is_empty() {
-            orig_children.clone()
-        } else {
-            // Filter children belonging to first sibling (spouse). A child
-            // with no recorded second parent (`parent2 == None`) belongs to
-            // an empty/unknown first-sibling placeholder — without this, such
-            // children match neither branch, `effective_children` comes back
-            // empty, and the centering/shift logic below is skipped entirely
-            // for this node, leaving its subtree adrift.
-            let first_sib = node_siblings[0];
-            let first_sib_orig = wrap[first_sib].orig;
-            let first_sib_is_empty = arena[first_sib_orig].id.is_none();
-            orig_children
-                .iter()
-                .copied()
-                .filter(|&ci| {
-                    wrap[ci].parent2.map(|p2| wrap[p2].orig) == Some(first_sib_orig)
-                        || (first_sib_is_empty && wrap[ci].parent2.is_none())
-                })
-                .collect()
-        };
-
+        let effective_children = effective_children(wrap, arena, v);
         if !effective_children.is_empty() {
-            tree_shift(wrap, v);
-
-            let mut midpoint = 0.0f64;
-            if !node_siblings.is_empty() && (arena[v].after != 1 || effective_children.len() == 1) {
-                midpoint -= 0.5;
-            }
-
-            // Adjustment for female-first nodes (after=1) with siblings.
-            let first_child = effective_children[0];
-            let last_child = *effective_children.last().unwrap();
-            let mut m_adj = 0.0f64;
-            if arena[wrap[first_child].orig].after == 1 {
-                let fc_sibs = wrap[first_child].siblings.clone();
-                if let Some(&last_fc_sib) = fc_sibs.last() {
-                    m_adj += wrap[last_fc_sib].z;
-                }
-            }
-            let last_child_orig = wrap[last_child].orig;
-            if arena[last_child_orig].after == 1 {
-                let lc_sibs = wrap[last_child].siblings.clone();
-                if let Some(&last_lc_sib) = lc_sibs.last() {
-                    m_adj += wrap[last_lc_sib].z;
-                }
-            }
-
-            let last_sib_z = {
-                let lc_sibs = wrap[last_child].siblings.clone();
-                lc_sibs.last().map(|&s| wrap[s].z).unwrap_or(0.0)
-            };
-            midpoint += (wrap[first_child].z + wrap[last_child].z + last_sib_z + m_adj) / 2.0;
-
-            // Special case for 2 children at deepest level: the midpoint above
-            // was computed as if they stood a full card apart, so give back
-            // half of whatever the compact row actually saves. A theme that
-            // packs its top row at full width saves nothing and needs no
-            // correction, which is what this expression says at 1.0.
-            if effective_children.len() == 2 && arena[wrap[first_child].orig].depth == last_level {
-                midpoint -= (1.0 - compact_sep) / 2.0;
-            }
-
-            match prev_sibling {
-                Some(w) => {
-                    let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
-                    // Consecutive siblings share the same parent, so they sit
-                    // exactly one separation apart.
-                    let sep = tree_separation(arena[wrap[v].orig].depth, last_level, compact_sep);
-                    wrap[v].z = wrap[w].z + w_sib_z + sep;
-                    wrap[v].m = wrap[v].z - midpoint;
-                }
-                None => {
-                    wrap[v].z = midpoint;
-                }
-            }
+            centre_over_children(
+                wrap,
+                arena,
+                v,
+                &effective_children,
+                prev_sibling,
+                last_level,
+                compact_sep,
+            );
         } else if let Some(w) = prev_sibling {
-            let w_sib_z = wrap[w].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
-            let sep = tree_separation(arena[wrap[v].orig].depth, last_level, compact_sep);
-            wrap[v].z = wrap[w].z + w_sib_z + sep;
+            wrap[v].z = next_to_sibling(wrap, arena, v, w, last_level, compact_sep);
         }
 
-        // Multi-spouse positioning (simplified port).
-        let mut last_z = 0.0f64;
-        let node_siblings_clone = wrap[v].siblings.clone();
-        let orig_children_clone = wrap[v].children.clone();
-
-        if !node_siblings_clone.is_empty() && arena[v].after == 1 && effective_children.len() != 1 {
-            wrap[v].m -= 0.5;
-            // Port of JS `firstSibWithChild` correction:
-            // if the FIRST sibling (index 0) is the parent2 of the children,
-            // firstSibWithChild = 0 - 1 = -1 → node.m -= (-1) → m += 1.
-            // Net result for the common case (first spouse has the children): m += 0.5.
-            let mut first_sib_with_child = 0i32;
-            if !orig_children_clone.is_empty() {
-                let first_child_p2 = wrap[orig_children_clone[0]].parent2;
-                for (index, &sib_wi) in node_siblings_clone.iter().enumerate() {
-                    let sib_is_empty = arena[wrap[sib_wi].orig].id.is_none();
-                    if first_child_p2 == Some(sib_wi) || (first_child_p2.is_none() && sib_is_empty)
-                    {
-                        first_sib_with_child = index as i32 - 1;
-                    }
-                }
-            }
-            wrap[v].m -= first_sib_with_child as f64;
-        }
-
-        for (si, &sib_wi) in node_siblings_clone.iter().enumerate() {
-            let sib_children: Vec<usize> = orig_children_clone
-                .iter()
-                .copied()
-                .filter(|&ci| wrap[ci].parent2 == Some(sib_wi))
-                .collect();
-
-            if si == 0 {
-                wrap[sib_wi].z = 1.0;
-                last_z = wrap[sib_wi].z;
-            } else if !sib_children.is_empty() {
-                let first_sc = sib_children[0];
-                let last_sc = *sib_children.last().unwrap();
-                let mut mp = (wrap[first_sc].z + wrap[last_sc].z) / 2.0;
-                mp += if sib_children.len() > 1 { 0.0 } else { 0.5 };
-                if arena[v].after == 1 {
-                    mp = (wrap[first_sc].z + wrap[last_sc].z) / 2.0 + 0.5;
-                }
-                // Adjust relative to parent position.
-                let parent_z = if !orig_children_clone.is_empty() {
-                    wrap[orig_children_clone[0]]
-                        .parent
-                        .map(|p| wrap[p].m)
-                        .unwrap_or(0.0)
-                } else {
-                    0.0
-                };
-                wrap[sib_wi].z = (mp - parent_z).max(last_z + 1.0);
-                last_z = wrap[sib_wi].z;
-            } else {
-                last_z += 1.0;
-                wrap[sib_wi].z = last_z;
-            }
-
-            wrap[sib_wi].m = wrap[v].m;
-        }
+        place_spouses(wrap, arena, v, effective_children.len());
 
         // Apportion.
         let _new_ancestor = apportion(
@@ -1627,6 +1548,214 @@ fn first_walk(
             compact_sep,
         );
     }
+}
+
+/// Every node under `root`, children before their parent.
+fn post_order(wrap: &[WrapNode], root: usize) -> Vec<usize> {
+    // Iterative post-order via explicit stack.
+    let mut post_order: Vec<usize> = Vec::new();
+    let mut stack = vec![root];
+    while let Some(v) = stack.pop() {
+        post_order.push(v);
+        for &c in &wrap[v].children {
+            stack.push(c);
+        }
+    }
+    post_order.reverse();
+    post_order
+}
+
+/// The children `v` is centred over: all of them, or, when `v` has spouses,
+/// only those of its first spouse.
+fn effective_children(wrap: &[WrapNode], arena: &[TreeNode], v: usize) -> Vec<usize> {
+    let Some(&first_sib) = wrap[v].siblings.first() else {
+        return wrap[v].children.clone();
+    };
+    // Filter children belonging to first sibling (spouse). A child with no
+    // recorded second parent (`parent2 == None`) belongs to an empty/unknown
+    // first-sibling placeholder — without this, such children match neither
+    // branch, the effective children come back empty, and the
+    // centering/shift logic is skipped entirely for this node, leaving its
+    // subtree adrift.
+    let first_sib_orig = wrap[first_sib].orig;
+    let first_sib_is_empty = arena[first_sib_orig].id.is_none();
+    wrap[v]
+        .children
+        .iter()
+        .copied()
+        .filter(|&ci| {
+            wrap[ci].parent2.map(|p2| wrap[p2].orig) == Some(first_sib_orig)
+                || (first_sib_is_empty && wrap[ci].parent2.is_none())
+        })
+        .collect()
+}
+
+/// The z of the last spouse drawn beside `v`, or 0 when it has none.
+fn last_spouse_z(wrap: &[WrapNode], v: usize) -> f64 {
+    wrap[v].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0)
+}
+
+/// Where `v` sits after its previous sibling `w` and that sibling's spouses.
+///
+/// Consecutive siblings share the same parent, so they sit exactly one
+/// separation apart.
+fn next_to_sibling(
+    wrap: &[WrapNode],
+    arena: &[TreeNode],
+    v: usize,
+    w: usize,
+    last_level: i32,
+    compact_sep: f64,
+) -> f64 {
+    let sep = tree_separation(arena[wrap[v].orig].depth, last_level, compact_sep);
+    wrap[w].z + last_spouse_z(wrap, w) + sep
+}
+
+/// Centre `v` over its effective children, or, when it follows a sibling,
+/// place it after that sibling and keep the offset its subtree must move by.
+fn centre_over_children(
+    wrap: &mut [WrapNode],
+    arena: &[TreeNode],
+    v: usize,
+    effective_children: &[usize],
+    prev_sibling: Option<usize>,
+    last_level: i32,
+    compact_sep: f64,
+) {
+    tree_shift(wrap, v);
+    let midpoint = children_midpoint(wrap, arena, v, effective_children, last_level, compact_sep);
+    match prev_sibling {
+        Some(w) => {
+            wrap[v].z = next_to_sibling(wrap, arena, v, w, last_level, compact_sep);
+            wrap[v].m = wrap[v].z - midpoint;
+        }
+        None => {
+            wrap[v].z = midpoint;
+        }
+    }
+}
+
+/// The point midway over `v`'s effective children, spouses included.
+fn children_midpoint(
+    wrap: &[WrapNode],
+    arena: &[TreeNode],
+    v: usize,
+    effective_children: &[usize],
+    last_level: i32,
+    compact_sep: f64,
+) -> f64 {
+    let mut midpoint = 0.0f64;
+    if !wrap[v].siblings.is_empty() && (arena[v].after != 1 || effective_children.len() == 1) {
+        midpoint -= 0.5;
+    }
+
+    // Adjustment for female-first nodes (after=1) with siblings.
+    let first_child = effective_children[0];
+    let last_child = *effective_children.last().unwrap();
+    let mut m_adj = 0.0f64;
+    m_adj += female_first_offset(wrap, arena, first_child);
+    m_adj += female_first_offset(wrap, arena, last_child);
+
+    let last_sib_z = last_spouse_z(wrap, last_child);
+    midpoint += (wrap[first_child].z + wrap[last_child].z + last_sib_z + m_adj) / 2.0;
+
+    // Special case for 2 children at deepest level: the midpoint above
+    // was computed as if they stood a full card apart, so give back
+    // half of whatever the compact row actually saves. A theme that
+    // packs its top row at full width saves nothing and needs no
+    // correction, which is what this expression says at 1.0.
+    if effective_children.len() == 2 && arena[wrap[first_child].orig].depth == last_level {
+        midpoint -= (1.0 - compact_sep) / 2.0;
+    }
+    midpoint
+}
+
+/// How far a female-first child (after=1) reaches past its own card: the z of
+/// its last spouse. Nothing for any other child.
+fn female_first_offset(wrap: &[WrapNode], arena: &[TreeNode], child: usize) -> f64 {
+    if arena[wrap[child].orig].after == 1 {
+        last_spouse_z(wrap, child)
+    } else {
+        0.0
+    }
+}
+
+/// Multi-spouse positioning (simplified port): place `v`'s spouses beside it,
+/// each over the children they had together.
+fn place_spouses(wrap: &mut [WrapNode], arena: &[TreeNode], v: usize, effective_children: usize) {
+    let mut last_z = 0.0f64;
+    let node_siblings_clone = wrap[v].siblings.clone();
+    let orig_children_clone = wrap[v].children.clone();
+
+    if !node_siblings_clone.is_empty() && arena[v].after == 1 && effective_children != 1 {
+        wrap[v].m -= 0.5;
+        let first_sib_with_child =
+            first_sib_with_child(wrap, arena, &node_siblings_clone, &orig_children_clone);
+        wrap[v].m -= first_sib_with_child as f64;
+    }
+
+    for (si, &sib_wi) in node_siblings_clone.iter().enumerate() {
+        let sib_children: Vec<usize> = orig_children_clone
+            .iter()
+            .copied()
+            .filter(|&ci| wrap[ci].parent2 == Some(sib_wi))
+            .collect();
+
+        if si == 0 {
+            wrap[sib_wi].z = 1.0;
+            last_z = wrap[sib_wi].z;
+        } else if !sib_children.is_empty() {
+            let first_sc = sib_children[0];
+            let last_sc = *sib_children.last().unwrap();
+            let mut mp = (wrap[first_sc].z + wrap[last_sc].z) / 2.0;
+            mp += if sib_children.len() > 1 { 0.0 } else { 0.5 };
+            if arena[v].after == 1 {
+                mp = (wrap[first_sc].z + wrap[last_sc].z) / 2.0 + 0.5;
+            }
+            // Adjust relative to parent position.
+            let parent_z = if !orig_children_clone.is_empty() {
+                wrap[orig_children_clone[0]]
+                    .parent
+                    .map(|p| wrap[p].m)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            wrap[sib_wi].z = (mp - parent_z).max(last_z + 1.0);
+            last_z = wrap[sib_wi].z;
+        } else {
+            last_z += 1.0;
+            wrap[sib_wi].z = last_z;
+        }
+
+        wrap[sib_wi].m = wrap[v].m;
+    }
+}
+
+/// Port of JS `firstSibWithChild`, the correction a female-first node's
+/// offset takes from the spouse its first child descends from.
+///
+/// If the FIRST sibling (index 0) is the parent2 of the children,
+/// firstSibWithChild = 0 - 1 = -1 → node.m -= (-1) → m += 1. Net result for
+/// the common case (first spouse has the children): m += 0.5.
+fn first_sib_with_child(
+    wrap: &[WrapNode],
+    arena: &[TreeNode],
+    siblings: &[usize],
+    children: &[usize],
+) -> i32 {
+    let mut first_sib_with_child = 0i32;
+    let Some(&first_child) = children.first() else {
+        return first_sib_with_child;
+    };
+    let first_child_p2 = wrap[first_child].parent2;
+    for (index, &sib_wi) in siblings.iter().enumerate() {
+        let sib_is_empty = arena[wrap[sib_wi].orig].id.is_none();
+        if first_child_p2 == Some(sib_wi) || (first_child_p2.is_none() && sib_is_empty) {
+            first_sib_with_child = index as i32 - 1;
+        }
+    }
+    first_sib_with_child
 }
 
 fn second_walk(wrap: &mut [WrapNode], arena: &mut [TreeNode], root: usize) {
@@ -1650,7 +1779,7 @@ fn second_walk(wrap: &mut [WrapNode], arena: &mut [TreeNode], root: usize) {
         let sibs = wrap[v].siblings.clone();
         for &sib_wi in &sibs {
             let sib_x = if arena[v].after == 1 {
-                let last_sib_z = wrap[v].siblings.last().map(|&s| wrap[s].z).unwrap_or(0.0);
+                let last_sib_z = last_spouse_z(wrap, v);
                 node_x - last_sib_z + wrap[sib_wi].z - 1.0
             } else {
                 node_x + wrap[sib_wi].z
@@ -1661,6 +1790,45 @@ fn second_walk(wrap: &mut [WrapNode], arena: &mut [TreeNode], root: usize) {
         // Process children.
         for &c in &wrap[v].children.clone() {
             stack.push(c);
+        }
+    }
+}
+
+/// How far a subtree whose leftmost card per depth is `curr_min` must move
+/// right to clear the row contour `contour_max` — negative to close a gap.
+///
+/// Tightest depth wins: after shifting, every depth the two sides share must
+/// keep a 1.0-unit gap; depths only one side occupies are unconstrained, so a
+/// subtree sharing no depth does not move.
+fn contour_shift(curr_min: &HashMap<i32, f64>, contour_max: &HashMap<i32, f64>) -> f64 {
+    let mut shift = f64::NEG_INFINITY;
+    for (d, cmin) in curr_min {
+        if let Some(pmax) = contour_max.get(d) {
+            shift = shift.max(1.0 - (cmin - pmax));
+        }
+    }
+    if !shift.is_finite() {
+        shift = 0.0;
+    }
+    shift
+}
+
+/// If `curr` starts a new parent2 (half-sibling) group, shift the matching
+/// spouse sibling of the parent, and every spouse after it, along with it.
+fn shift_spouse_group(
+    arena: &mut [TreeNode],
+    siblings: &[usize],
+    prev: usize,
+    curr: usize,
+    shift: f64,
+) {
+    if arena[curr].parent2 != arena[prev].parent2
+        && let Some(pos) = siblings
+            .iter()
+            .position(|&s| Some(s) == arena[curr].parent2)
+    {
+        for &si in &siblings[pos..] {
+            arena[si].x += shift;
         }
     }
 }
@@ -1735,34 +1903,12 @@ fn fix_spouse_group_overlaps(arena: &mut Vec<TreeNode>, node: usize) {
             let mut curr_max: HashMap<i32, f64> = HashMap::new();
             collect_depth_extents(arena, curr, &mut curr_min, &mut curr_max);
 
-            // Tightest depth wins: after shifting, every depth the two sides
-            // share must keep a 1.0-unit gap; depths only one side occupies
-            // are unconstrained.
-            let mut shift = f64::NEG_INFINITY;
-            for (d, cmin) in &curr_min {
-                if let Some(pmax) = contour_max.get(d) {
-                    shift = shift.max(1.0 - (cmin - pmax));
-                }
-            }
-            if !shift.is_finite() {
-                shift = 0.0;
-            }
-
+            let shift = contour_shift(&curr_min, &contour_max);
             if shift.abs() > 1e-9 {
                 for &ci in &children[i..] {
                     shift_subtree(arena, ci, shift);
                 }
-                // If `curr` starts a new parent2 (half-sibling) group, shift
-                // the matching spouse sibling of `node` along with it.
-                if arena[curr].parent2 != arena[prev].parent2
-                    && let Some(pos) = siblings
-                        .iter()
-                        .position(|&s| Some(s) == arena[curr].parent2)
-                {
-                    for &si in &siblings[pos..] {
-                        arena[si].x += shift;
-                    }
-                }
+                shift_spouse_group(arena, &siblings, prev, curr, shift);
             }
 
             // Fold `curr`'s (post-shift) extents into the row contour so the
@@ -2340,6 +2486,33 @@ impl PedigreeLayoutOptions {
     }
 }
 
+/// The horizontal extent of the root couple, with the root drawn at
+/// `root_x`: the root's card widened by its spouses from the descending tree —
+/// to the right of a male root (his wife), to the left of a female one.
+fn root_couple_extent(desc_arena: &[TreeNode], root_x: f64) -> (f64, f64) {
+    let root = &desc_arena[0];
+    let mut min_x = root_x;
+    let mut max_x = root_x;
+    if root.after == 0 && !root.siblings.is_empty() {
+        // Male root: wife is to the right → extend maxX.
+        let last_si = *root.siblings.last().unwrap();
+        max_x += desc_arena[last_si].x - root.x;
+    } else if !root.siblings.is_empty() {
+        // Female root: husband is to the left → extend minX.
+        let first_si = root.siblings[0];
+        min_x -= root.x - desc_arena[first_si].x;
+    }
+    (min_x, max_x)
+}
+
+/// Position and depth of the root's `index`-th parent in the ascending tree.
+fn root_parent_anchor(asc_arena: &[TreeNode], index: usize) -> Option<(f64, f64, i32)> {
+    asc_arena[0]
+        .children
+        .get(index)
+        .map(|&ci| (asc_arena[ci].x, asc_arena[ci].y, asc_arena[ci].depth))
+}
+
 fn compute_layout(
     root_id: Uuid,
     data: &PedigreeData,
@@ -2395,33 +2568,16 @@ fn compute_layout(
             let sibs_before = &all_siblings[..root_sib_idx];
             let sibs_after = &all_siblings[root_sib_idx + 1..];
 
-            // Extend minX/maxX based on desc root's spouses.
-            let mut sib_min_x = asc_root_x;
-            let mut sib_max_x = asc_root_x;
-            if desc_arena[0].after == 0 && !desc_arena[0].siblings.is_empty() {
-                // Male root: wife is to the right → extend maxX.
-                let last_si = *desc_arena[0].siblings.last().unwrap();
-                sib_max_x += desc_arena[last_si].x - desc_root_x;
-            } else if !desc_arena[0].siblings.is_empty() {
-                // Female root: husband is to the left → extend minX.
-                let first_si = desc_arena[0].siblings[0];
-                sib_min_x -= desc_root_x - desc_arena[first_si].x;
-            }
+            let (sib_min_x, sib_max_x) = root_couple_extent(&desc_arena, asc_root_x);
 
             // Father: asc_arena[0].children[0], Mother: children[1] (if present).
-            let father_data = asc_arena[0]
-                .children
-                .first()
-                .map(|&ci| (asc_arena[ci].x, asc_arena[ci].y, asc_arena[ci].depth));
+            let father_data = root_parent_anchor(&asc_arena, 0);
             let parent_idx = if asc_arena[0].children.len() > 1 {
                 1
             } else {
                 0
             };
-            let mother_data = asc_arena[0]
-                .children
-                .get(parent_idx)
-                .map(|&ci| (asc_arena[ci].x, asc_arena[ci].y, asc_arena[ci].depth));
+            let mother_data = root_parent_anchor(&asc_arena, parent_idx);
 
             let len_before = sibs_before.len();
             let len_after = sibs_after.len();
@@ -2430,24 +2586,7 @@ fn compute_layout(
                 let sib_x = sib_min_x - metrics.sibling_spacing * (len_before - i) as f64;
                 let sib_y = asc_root_y;
                 let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
-                extra_asc_nodes.push(LayoutNode {
-                    id: Some(sib_id),
-                    x: sib_x,
-                    y: sib_y,
-                    sex: pn.sex,
-                    label_surname: pn.surname,
-                    label_given: pn.given,
-                    birth_year: pn.birth_year,
-                    death_year: pn.death_year,
-                    photo_url: pn.photo_url,
-                    sosa_badge: pn.sosa_badge,
-                    is_self: pn.is_self,
-                    is_compact: false,
-                    child_of: None,
-                    is_father: false,
-                    is_sibling: false,
-                    has_more_relations: false,
-                });
+                extra_asc_nodes.push(pn.root_sibling_card(sib_id, sib_x, sib_y));
                 // Link from father node (index reversed so furthest sibling is "last").
                 if let Some((fx, fy, fd)) = father_data {
                     let rev_idx = len_before - i - 1;
@@ -2472,24 +2611,7 @@ fn compute_layout(
                 let sib_x = sib_max_x + metrics.sibling_spacing * (i + 1) as f64;
                 let sib_y = asc_root_y;
                 let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
-                extra_asc_nodes.push(LayoutNode {
-                    id: Some(sib_id),
-                    x: sib_x,
-                    y: sib_y,
-                    sex: pn.sex,
-                    label_surname: pn.surname,
-                    label_given: pn.given,
-                    birth_year: pn.birth_year,
-                    death_year: pn.death_year,
-                    photo_url: pn.photo_url,
-                    sosa_badge: pn.sosa_badge,
-                    is_self: pn.is_self,
-                    is_compact: false,
-                    child_of: None,
-                    is_father: false,
-                    is_sibling: false,
-                    has_more_relations: false,
-                });
+                extra_asc_nodes.push(pn.root_sibling_card(sib_id, sib_x, sib_y));
                 // Link from mother (or father if no mother).
                 if let Some((px, py, pd)) = mother_data {
                     let simple = sib_x <= px;
@@ -3563,7 +3685,7 @@ fn render_pedigree_card(
     ni: usize,
     key_prefix: &str,
     root_person_id: Uuid,
-    mut selected_person_id: Signal<Uuid>,
+    selected_person_id: Signal<Uuid>,
     on_person_navigate: EventHandler<Uuid>,
     on_person_click: EventHandler<(Uuid, f64, f64)>,
     on_empty_slot: EventHandler<(Uuid, bool)>,
@@ -3573,14 +3695,90 @@ fn render_pedigree_card(
     mini_tooltip: Option<Signal<Option<MiniPedigreeTooltipValue>>>,
 ) -> Element {
     let geo = card_geometry(node, theme, &i18n);
+    let key = format!("{key_prefix}-{ni}");
+
+    match node.id {
+        Some(pid) => render_person_card(
+            node,
+            pid,
+            &key,
+            &geo,
+            theme,
+            &i18n,
+            PersonCardActions {
+                root_person_id,
+                selected_person_id,
+                on_person_navigate,
+                on_person_click,
+                mini_tooltip,
+            },
+        ),
+        None => render_empty_slot(
+            node,
+            &key,
+            &geo,
+            theme,
+            allow_empty_click.then_some(on_empty_slot),
+        ),
+    }
+}
+
+/// What a person card answers to, and the state it reports into.
+#[derive(Clone, Copy)]
+struct PersonCardActions {
+    root_person_id: Uuid,
+    selected_person_id: Signal<Uuid>,
+    on_person_navigate: EventHandler<Uuid>,
+    on_person_click: EventHandler<(Uuid, f64, f64)>,
+    mini_tooltip: Option<Signal<Option<MiniPedigreeTooltipValue>>>,
+}
+
+/// The card of the person `pid`: outline, portrait, SOSA mark, name and
+/// lifespan, plus the edit button on the focus card and the "+" marking
+/// relations outside the layout.
+fn render_person_card(
+    node: &LayoutNode,
+    pid: Uuid,
+    key: &str,
+    geo: &CardGeometry,
+    theme: &PedigreeTheme,
+    i18n: &I18n,
+    actions: PersonCardActions,
+) -> Element {
+    let PersonCardActions {
+        root_person_id,
+        mut selected_person_id,
+        on_person_navigate,
+        on_person_click,
+        mini_tooltip,
+    } = actions;
+    let (nx, ny) = (node.x, node.y);
+    let is_focus = pid == root_person_id;
+    let bg = card_bg(is_focus, node.is_sibling);
+    // The lifespan is secondary to the name, and every theme gives it a
+    // colour of its own for that; on the root card both sit on the
+    // accent and share its contrast colour.
+    let (text_fill, date_fill) = if is_focus {
+        ("var(--white)", "var(--white)")
+    } else {
+        ("var(--pn-text)", "var(--pn-text-muted)")
+    };
+    let stroke = gender_stroke(node.sex);
+    let portrait = node
+        .photo_url
+        .clone()
+        .unwrap_or_else(|| CroppedSource::silhouette(node.sex));
+    let card_class = if is_focus {
+        "ped-card ped-card-focus"
+    } else {
+        "ped-card"
+    };
+    let tooltip_value = card_tooltip(node, i18n);
+    let tooltip_name = tooltip_value.name.clone();
+    let enter_tooltip = tooltip_value.clone();
+    let focus_tooltip = tooltip_value.clone();
     let CardGeometry {
-        rect_w: rw,
-        rect_h: rh,
-        frame,
-        frame_d,
-        inner_frame_d,
-        text_anchor,
-        gender_line: gl_path,
+        gender_line,
         gender_line_width,
         photo_x: ph_x,
         photo_y: ph_y,
@@ -3588,10 +3786,172 @@ fn render_pedigree_card(
         photo_h: ph_h,
         photo_round,
         photo_mat,
+        fab_x,
+        fab_y,
+        fab_r,
+        more_relations_x,
+        more_relations_y,
+        ..
+    } = geo;
+    rsx! {
+        g {
+            key: "{key}",
+            class: "{card_class}",
+            transform: "translate({nx},{ny})",
+            style: "cursor:pointer",
+            role: mini_tooltip.map(|_| "link"),
+            tabindex: mini_tooltip.map(|_| "0"),
+            "aria-label": mini_tooltip.map(|_| tooltip_name.clone()),
+            onmouseenter: move |_| {
+                if let Some(mut hovered) = mini_tooltip {
+                    hovered.set(Some(enter_tooltip.clone()));
+                }
+            },
+            onmouseleave: move |_| {
+                if let Some(mut hovered) = mini_tooltip {
+                    hovered.set(None);
+                }
+            },
+            onfocus: move |_| {
+                if let Some(mut hovered) = mini_tooltip {
+                    hovered.set(Some(focus_tooltip.clone()));
+                }
+            },
+            onblur: move |_| {
+                if let Some(mut hovered) = mini_tooltip {
+                    hovered.set(None);
+                }
+            },
+            onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
+            oncontextmenu: move |evt: Event<MouseData>| {
+                evt.prevent_default();
+                evt.stop_propagation();
+                selected_person_id.set(pid);
+                let coords = evt.client_coordinates();
+                on_person_click.call((pid, coords.x, coords.y));
+            },
+            {card_outline(node, geo, theme, bg)}
+            if let Some(gl) = gender_line {
+                path { d: "{gl}", style: "stroke:{stroke};stroke-width:{gender_line_width};fill:none" }
+            }
+            if *photo_mat {
+                rect { class: "ped-card-mat", x: "{ph_x}", y: "{ph_y}", rx: "{photo_round}", ry: "{photo_round}", width: "{ph_w}", height: "{ph_h}", style: "fill:var(--pn-mat,var(--white))" }
+            }
+            CroppedSvgImage { image: portrait, x: *ph_x, y: *ph_y, width: *ph_w, height: *ph_h, fallback: CroppedSource::silhouette(node.sex) }
+            {sosa_mark(node, geo)}
+            {card_text(geo, text_fill, date_fill)}
+            if is_focus {
+                g {
+                    transform: "translate({fab_x},{fab_y})",
+                    style: "cursor:pointer",
+                    onclick: move |evt: Event<MouseData>| {
+                        evt.stop_propagation();
+                        let coords = evt.client_coordinates();
+                        on_person_click.call((pid, coords.x, coords.y));
+                    },
+                    circle { r: "{fab_r}", style: "fill:var(--pn-root-bg);stroke:var(--white);stroke-width:2" }
+                    text { x: "0", y: "6", style: "fill:var(--white);font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
+                }
+            }
+            if node.has_more_relations {
+                g {
+                    transform: "translate({more_relations_x},{more_relations_y})",
+                    style: "cursor:pointer",
+                    onclick: move |evt: Event<MouseData>| {
+                        evt.stop_propagation();
+                        selected_person_id.set(pid);
+                        on_person_navigate.call(pid);
+                    },
+                    text { x: "0", y: "0", style: "fill:var(--blue);font-size:13px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
+                }
+            }
+        }
+    }
+}
+
+/// What the mini pedigree's tooltip says about a card: the name, and the
+/// lifespan with its qualifiers spelled out when it has any.
+fn card_tooltip(node: &LayoutNode, i18n: &I18n) -> MiniPedigreeTooltipValue {
+    let name = format!("{} {}", node.label_given, node.label_surname)
+        .trim()
+        .to_string();
+    let qualified_lifespan = lifespan_tooltip(i18n, node.birth_year, node.death_year);
+    MiniPedigreeTooltipValue {
+        name,
+        lifespan: if qualified_lifespan.is_empty() {
+            format_lifespan(node.birth_year, node.death_year)
+        } else {
+            qualified_lifespan
+        },
+        pointer: None,
+    }
+}
+
+/// A person card's outline filled with `bg`, and a cartouche's inner rule.
+fn card_outline(node: &LayoutNode, geo: &CardGeometry, theme: &PedigreeTheme, bg: &str) -> Element {
+    let padding = theme.metrics.padding;
+    let border_radius = theme.metrics.border_radius;
+    let (rw, rh) = (geo.rect_w, geo.rect_h);
+    // The classic card shows sex on a short rule beside the portrait and
+    // keeps a neutral outline; a cartouche is heavy enough to carry the
+    // colour itself, and drops the rule.
+    let frame_stroke = match theme.card.frame_stroke {
+        FrameStroke::Border => "var(--pn-border)",
+        FrameStroke::Gender => gender_stroke(node.sex),
+    };
+    let frame_width = theme.card.frame_width;
+    let inner = match geo.frame {
+        CardFrame::Plain => None,
+        CardFrame::Cartouche { inner_inset } => Some((
+            padding + inner_inset,
+            rw - 2.0 * inner_inset,
+            rh - 2.0 * inner_inset,
+        )),
+    };
+    rsx! {
+        if let Some(d) = &geo.frame_d {
+            path { class: "ped-card-rect", d: "{d}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
+        } else {
+            rect { class: "ped-card-rect", x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
+        }
+        if let Some(d) = &geo.inner_frame_d {
+            path { class: "ped-card-inner-rule", d: "{d}", style: "fill:none;stroke:var(--pn-border);stroke-width:1" }
+        } else if let Some((inset, iw, ih)) = inner {
+            rect { class: "ped-card-inner-rule", x: "{inset}", y: "{inset}", width: "{iw}", height: "{ih}", style: "fill:none;stroke:var(--pn-border);stroke-width:1" }
+        }
+    }
+}
+
+/// The badge in a card's corner: the user's own mark, the SOSA root's "1",
+/// or a direct ancestor's ring. Nothing for anyone else.
+fn sosa_mark(node: &LayoutNode, geo: &CardGeometry) -> Element {
+    let (sosa_cx, sosa_cy, sosa_r) = (geo.sosa_cx, geo.sosa_cy, geo.sosa_r);
+    rsx! {
+        if node.is_self {
+            g {
+                circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-self)" }
+                circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--white)" }
+            }
+        } else if matches!(node.sosa_badge, SosaBadge::Root) {
+            g {
+                circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-sosa-root)" }
+                text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:var(--white);font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
+            }
+        } else if matches!(node.sosa_badge, SosaBadge::Direct) {
+            g {
+                circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-sosa)" }
+                circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:var(--white)" }
+                circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--pn-sosa)" }
+            }
+        }
+    }
+}
+
+/// A person card's given name and surname, then its lifespan.
+fn card_text(geo: &CardGeometry, text_fill: &str, date_fill: &str) -> Element {
+    let CardGeometry {
+        text_anchor,
         text_x: tx,
-        sosa_cx,
-        sosa_cy,
-        sosa_r,
         given: given_disp,
         surname: surname_disp,
         given_y,
@@ -3606,230 +3966,79 @@ fn render_pedigree_card(
         surname_font_px,
         given_font_px,
         date_font_px,
-        fab_x,
-        fab_y,
-        fab_r,
-        more_relations_x,
-        more_relations_y,
-        slot_plus_x,
-        slot_plus_y,
+        ..
     } = geo;
-    let padding = theme.metrics.padding;
-    let border_radius = theme.metrics.border_radius;
-    // A cartouche's second rule, measured once for every branch that draws
-    // an outline — the person card, and both empty-slot forms.
-    // The classic card shows sex on a short rule beside the portrait and
-    // keeps a neutral outline; a cartouche is heavy enough to carry the
-    // colour itself, and drops the rule.
-    let frame_stroke = match theme.card.frame_stroke {
-        FrameStroke::Border => "var(--pn-border)",
-        FrameStroke::Gender => gender_stroke(node.sex),
-    };
-    let frame_width = theme.card.frame_width;
-    let inner = match frame {
-        CardFrame::Plain => None,
-        CardFrame::Cartouche { inner_inset } => Some((
-            padding + inner_inset,
-            rw - 2.0 * inner_inset,
-            rh - 2.0 * inner_inset,
-        )),
-    };
-    let key = format!("{key_prefix}-{ni}");
-    let nx = node.x;
-    let ny = node.y;
-
-    match node.id {
-        Some(pid) => {
-            let is_focus = pid == root_person_id;
-            let bg = card_bg(is_focus, node.is_sibling);
-            // The lifespan is secondary to the name, and every theme gives it a
-            // colour of its own for that; on the root card both sit on the
-            // accent and share its contrast colour.
-            let (text_fill, date_fill) = if is_focus {
-                ("var(--white)", "var(--white)")
-            } else {
-                ("var(--pn-text)", "var(--pn-text-muted)")
-            };
-            let stroke = gender_stroke(node.sex);
-            let has_surname = !surname_disp.is_empty();
-            let has_given = !given_disp.is_empty();
-            let has_date = !date_s.is_empty();
-            let portrait = node
-                .photo_url
-                .clone()
-                .unwrap_or_else(|| CroppedSource::silhouette(node.sex));
-            let is_sosa_root = matches!(node.sosa_badge, SosaBadge::Root);
-            let is_sosa_direct = matches!(node.sosa_badge, SosaBadge::Direct);
-            let is_self = node.is_self;
-            let card_class = if is_focus {
-                "ped-card ped-card-focus"
-            } else {
-                "ped-card"
-            };
-            let tooltip_name = format!("{} {}", node.label_given, node.label_surname)
-                .trim()
-                .to_string();
-            let qualified_lifespan = lifespan_tooltip(&i18n, node.birth_year, node.death_year);
-            let tooltip_value = MiniPedigreeTooltipValue {
-                name: tooltip_name.clone(),
-                lifespan: if qualified_lifespan.is_empty() {
-                    format_lifespan(node.birth_year, node.death_year)
-                } else {
-                    qualified_lifespan
-                },
-                pointer: None,
-            };
-            let enter_tooltip = tooltip_value.clone();
-            let focus_tooltip = tooltip_value.clone();
-            rsx! {
-                g {
-                    key: "{key}",
-                    class: "{card_class}",
-                    transform: "translate({nx},{ny})",
-                    style: "cursor:pointer",
-                    role: mini_tooltip.map(|_| "link"),
-                    tabindex: mini_tooltip.map(|_| "0"),
-                    "aria-label": mini_tooltip.map(|_| tooltip_name.clone()),
-                    onmouseenter: move |_| {
-                        if let Some(mut hovered) = mini_tooltip {
-                            hovered.set(Some(enter_tooltip.clone()));
-                        }
-                    },
-                    onmouseleave: move |_| {
-                        if let Some(mut hovered) = mini_tooltip {
-                            hovered.set(None);
-                        }
-                    },
-                    onfocus: move |_| {
-                        if let Some(mut hovered) = mini_tooltip {
-                            hovered.set(Some(focus_tooltip.clone()));
-                        }
-                    },
-                    onblur: move |_| {
-                        if let Some(mut hovered) = mini_tooltip {
-                            hovered.set(None);
-                        }
-                    },
-                    onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
-                    oncontextmenu: move |evt: Event<MouseData>| {
-                        evt.prevent_default();
-                        evt.stop_propagation();
-                        selected_person_id.set(pid);
-                        let coords = evt.client_coordinates();
-                        on_person_click.call((pid, coords.x, coords.y));
-                    },
-                    if let Some(d) = &frame_d {
-                        path { class: "ped-card-rect", d: "{d}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
-                    } else {
-                        rect { class: "ped-card-rect", x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:{bg};stroke:{frame_stroke};stroke-width:{frame_width}" }
-                    }
-                    if let Some(d) = &inner_frame_d {
-                        path { class: "ped-card-inner-rule", d: "{d}", style: "fill:none;stroke:var(--pn-border);stroke-width:1" }
-                    } else if let Some((inset, iw, ih)) = inner {
-                        rect { class: "ped-card-inner-rule", x: "{inset}", y: "{inset}", width: "{iw}", height: "{ih}", style: "fill:none;stroke:var(--pn-border);stroke-width:1" }
-                    }
-                    if let Some(gl) = gl_path {
-                        path { d: "{gl}", style: "stroke:{stroke};stroke-width:{gender_line_width};fill:none" }
-                    }
-                    if photo_mat {
-                        rect { class: "ped-card-mat", x: "{ph_x}", y: "{ph_y}", rx: "{photo_round}", ry: "{photo_round}", width: "{ph_w}", height: "{ph_h}", style: "fill:var(--pn-mat,var(--white))" }
-                    }
-                    CroppedSvgImage { image: portrait, x: ph_x, y: ph_y, width: ph_w, height: ph_h, fallback: CroppedSource::silhouette(node.sex) }
-                    if is_self {
-                        g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-self)" }
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--white)" }
-                        }
-                    } else if is_sosa_root {
-                        g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-sosa-root)" }
-                            text { x: "{sosa_cx}", y: "{sosa_cy+4.0}", style: "fill:var(--white);font-size:10px;font-weight:700;text-anchor:middle;font-family:Arial,sans-serif", "1" }
-                        }
-                    } else if is_sosa_direct {
-                        g {
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "{sosa_r}", style: "fill:var(--pn-sosa)" }
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "5", style: "fill:var(--white)" }
-                            circle { cx: "{sosa_cx}", cy: "{sosa_cy}", r: "3", style: "fill:var(--pn-sosa)" }
-                        }
-                    }
-                    text {
-                        class: "ped-card-name-text",
-                        if has_given {
-                            tspan { x: "{tx}", y: "{given_y}", style: "font-size:{given_font_px}px;font-family:{body_font};fill:{text_fill};text-anchor:{text_anchor}", "{given_disp}" }
-                        }
-                        if has_surname {
-                            tspan { x: "{tx}", y: "{surname_y}", style: "font-size:{surname_font_px}px;font-weight:{surname_weight};font-family:{surname_font};fill:{text_fill};text-anchor:{text_anchor}", "{surname_disp}" }
-                        }
-                    }
-                    // The lifespan is its own `text` rather than a third tspan
-                    // so it can own a `<title>`: SVG 1.1 does not allow one
-                    // inside a `tspan`, and the qualifier marks are exactly the
-                    // part of the card that needs to be able to explain itself.
-                    // Absolute x/y means it lands where the tspan did.
-                    if has_date {
-                        text {
-                            class: "ped-card-name-text",
-                            x: "{tx}",
-                            y: "{date_y}",
-                            style: "font-size:{date_font_px}px;font-family:{body_font};fill:{date_fill};text-anchor:{text_anchor}",
-                            "textLength": date_squeeze.map(|w| w.to_string()),
-                            "lengthAdjust": date_squeeze.map(|_| "spacingAndGlyphs"),
-                            dangerous_inner_html: "{date_html}",
-                        }
-                    }
-                    if is_focus {
-                        g {
-                            transform: "translate({fab_x},{fab_y})",
-                            style: "cursor:pointer",
-                            onclick: move |evt: Event<MouseData>| {
-                                evt.stop_propagation();
-                                let coords = evt.client_coordinates();
-                                on_person_click.call((pid, coords.x, coords.y));
-                            },
-                            circle { r: "{fab_r}", style: "fill:var(--pn-root-bg);stroke:var(--white);stroke-width:2" }
-                            text { x: "0", y: "6", style: "fill:var(--white);font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
-                        }
-                    }
-                    if node.has_more_relations {
-                        g {
-                            transform: "translate({more_relations_x},{more_relations_y})",
-                            style: "cursor:pointer",
-                            onclick: move |evt: Event<MouseData>| {
-                                evt.stop_propagation();
-                                selected_person_id.set(pid);
-                                on_person_navigate.call(pid);
-                            },
-                            text { x: "0", y: "0", style: "fill:var(--blue);font-size:13px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
-                        }
-                    }
-                }
+    let date_squeeze = *date_squeeze;
+    rsx! {
+        text {
+            class: "ped-card-name-text",
+            if !given_disp.is_empty() {
+                tspan { x: "{tx}", y: "{given_y}", style: "font-size:{given_font_px}px;font-family:{body_font};fill:{text_fill};text-anchor:{text_anchor}", "{given_disp}" }
+            }
+            if !surname_disp.is_empty() {
+                tspan { x: "{tx}", y: "{surname_y}", style: "font-size:{surname_font_px}px;font-weight:{surname_weight};font-family:{surname_font};fill:{text_fill};text-anchor:{text_anchor}", "{surname_disp}" }
             }
         }
-        None => {
-            let child_id = node.child_of;
-            let is_father = node.is_father;
-            let plus_x = slot_plus_x;
-            let plus_y = slot_plus_y;
-            rsx! {
-                g { key: "{key}", transform: "translate({nx},{ny})",
-                    if let (true, Some(cid)) = (allow_empty_click, child_id) {
-                        g {
-                            style: "cursor:pointer",
-                            onclick: move |_| on_empty_slot.call((cid, is_father)),
-                            if let Some(d) = &frame_d {
-                                path { d: "{d}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
-                            } else {
-                                rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4" }
-                            }
-                            text { x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
-                        }
-                    } else if let Some(d) = &frame_d {
-                        path { d: "{d}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
-                    } else {
-                        rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3" }
-                    }
-                }
+        // The lifespan is its own `text` rather than a third tspan
+        // so it can own a `<title>`: SVG 1.1 does not allow one
+        // inside a `tspan`, and the qualifier marks are exactly the
+        // part of the card that needs to be able to explain itself.
+        // Absolute x/y means it lands where the tspan did.
+        if !date_s.is_empty() {
+            text {
+                class: "ped-card-name-text",
+                x: "{tx}",
+                y: "{date_y}",
+                style: "font-size:{date_font_px}px;font-family:{body_font};fill:{date_fill};text-anchor:{text_anchor}",
+                "textLength": date_squeeze.map(|w| w.to_string()),
+                "lengthAdjust": date_squeeze.map(|_| "spacingAndGlyphs"),
+                dangerous_inner_html: "{date_html}",
             }
+        }
+    }
+}
+
+/// An empty slot: a dashed outline, with a "+" to fill it when
+/// `on_empty_slot` is given and the slot knows whose parent it stands for,
+/// faded otherwise.
+fn render_empty_slot(
+    node: &LayoutNode,
+    key: &str,
+    geo: &CardGeometry,
+    theme: &PedigreeTheme,
+    on_empty_slot: Option<EventHandler<(Uuid, bool)>>,
+) -> Element {
+    let (nx, ny) = (node.x, node.y);
+    let is_father = node.is_father;
+    let plus_x = geo.slot_plus_x;
+    let plus_y = geo.slot_plus_y;
+    rsx! {
+        g { key: "{key}", transform: "translate({nx},{ny})",
+            if let (Some(on_empty_slot), Some(cid)) = (on_empty_slot, node.child_of) {
+                g {
+                    style: "cursor:pointer",
+                    onclick: move |_| on_empty_slot.call((cid, is_father)),
+                    {empty_slot_outline(geo, theme, "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4")}
+                    text { x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
+                }
+            } else {
+                {empty_slot_outline(geo, theme, "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3")}
+            }
+        }
+    }
+}
+
+/// An empty slot's outline in `style`: the theme's frame shape, or else a
+/// rounded rectangle.
+fn empty_slot_outline(geo: &CardGeometry, theme: &PedigreeTheme, style: &str) -> Element {
+    let padding = theme.metrics.padding;
+    let border_radius = theme.metrics.border_radius;
+    let (rw, rh) = (geo.rect_w, geo.rect_h);
+    rsx! {
+        if let Some(d) = &geo.frame_d {
+            path { d: "{d}", style: "{style}" }
+        } else {
+            rect { x: "{padding}", y: "{padding}", rx: "{border_radius}", ry: "{border_radius}", width: "{rw}", height: "{rh}", style: "{style}" }
         }
     }
 }
