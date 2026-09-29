@@ -60,10 +60,7 @@ async fn test_migrate_up_and_down_postgres() {
 }
 
 async fn assert_migration_lifecycle(db: &DatabaseConnection) {
-    let manager = SchemaManager::new(db);
-    for table in TABLES {
-        assert!(!manager.has_table(*table).await.unwrap(), "{table} exists");
-    }
+    assert_no_table(db, "exists").await;
 
     // The initial migration creates the bulk of the schema and each later one
     // amends it; running them in order must land on the current schema.
@@ -75,9 +72,7 @@ async fn assert_migration_lifecycle(db: &DatabaseConnection) {
     rollback_migrations(db)
         .await
         .expect("Migration down failed");
-    for table in TABLES {
-        assert!(!manager.has_table(*table).await.unwrap(), "{table} remains");
-    }
+    assert_no_table(db, "remains").await;
     assert!(
         Migrator::get_applied_migrations(db)
             .await
@@ -91,9 +86,39 @@ async fn assert_migration_lifecycle(db: &DatabaseConnection) {
     rollback_migrations(db).await.expect("cleanup failed");
 }
 
-async fn assert_current_schema(db: &DatabaseConnection) {
-    let backend = db.get_database_backend();
+/// None of the schema's tables exists; `state` names the failure.
+async fn assert_no_table(db: &DatabaseConnection, state: &str) {
     let manager = SchemaManager::new(db);
+    for table in TABLES {
+        assert!(!manager.has_table(*table).await.unwrap(), "{table} {state}");
+    }
+}
+
+/// Run one statement.
+async fn execute(db: &DatabaseConnection, sql: &str) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_string(db.get_database_backend(), sql))
+        .await
+        .map(drop)
+}
+
+/// The first row of a query that must return one.
+async fn query_one(db: &DatabaseConnection, sql: &str) -> sea_orm::QueryResult {
+    db.query_one_raw(Statement::from_string(db.get_database_backend(), sql))
+        .await
+        .unwrap()
+        .unwrap()
+}
+
+async fn assert_current_schema(db: &DatabaseConnection) {
+    assert_applied_migrations(db).await;
+    assert_tables_and_columns(db).await;
+    assert_indexes(db).await;
+    assert_optional_defaults(db).await;
+    assert_person_search(db).await;
+}
+
+/// Every migration ran, in order.
+async fn assert_applied_migrations(db: &DatabaseConnection) {
     let applied = Migrator::get_applied_migrations(db).await.unwrap();
     let applied: Vec<&str> = applied.iter().map(|m| m.name()).collect();
     assert_eq!(
@@ -108,7 +133,13 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "m20260928_000001_tree_entry_suggestions",
         ]
     );
+}
 
+/// Every table exists with its current columns, and the dropped ones are
+/// gone.
+async fn assert_tables_and_columns(db: &DatabaseConnection) {
+    let backend = db.get_database_backend();
+    let manager = SchemaManager::new(db);
     for table in TABLES {
         assert!(manager.has_table(*table).await.unwrap(), "missing {table}");
     }
@@ -166,7 +197,11 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         .await
         .unwrap_or_else(|err| panic!("current {table} columns: {err}"));
     }
+}
 
+/// The indexes the queries rely on exist, and the redundant ones are gone.
+async fn assert_indexes(db: &DatabaseConnection) {
+    let manager = SchemaManager::new(db);
     for (table, index) in [
         ("background_job", "idx_background_job_active_tree"),
         ("background_job", "idx_background_job_claim"),
@@ -202,32 +237,29 @@ async fn assert_current_schema(db: &DatabaseConnection) {
             "redundant {index}"
         );
     }
+}
 
-    db.execute_raw(Statement::from_string(
-        backend,
+/// A job's trace context is optional, and a new projection row starts at
+/// schema version 0.
+async fn assert_optional_defaults(db: &DatabaseConnection) {
+    execute(
+        db,
         "INSERT INTO tree (id, name, created_at, updated_at) \
          VALUES ('00000000-0000-7000-8000-000000000003', 'Fixture', \
          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-    ))
+    )
     .await
     .unwrap();
-    db.execute_raw(Statement::from_string(
-        backend,
+    execute(
+        db,
         "INSERT INTO background_job (id, tree_id, kind, format, status, phase, created_at, updated_at) \
          VALUES ('00000000-0000-7000-8000-000000000001', \
          '00000000-0000-7000-8000-000000000003', 'import', 'gedcom', 'queued', \
          'staging', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-    ))
+    )
     .await
     .expect("trace context must be optional");
-    let job = db
-        .query_one_raw(Statement::from_string(
-            backend,
-            "SELECT trace_parent, trace_state FROM background_job",
-        ))
-        .await
-        .unwrap()
-        .unwrap();
+    let job = query_one(db, "SELECT trace_parent, trace_state FROM background_job").await;
     assert_eq!(
         job.try_get::<Option<String>>("", "trace_parent").unwrap(),
         None
@@ -236,42 +268,39 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         job.try_get::<Option<String>>("", "trace_state").unwrap(),
         None
     );
-    db.execute_raw(Statement::from_string(
-        backend,
+    execute(
+        db,
         "INSERT INTO person (id, tree_id, sex, created_at, updated_at) \
          VALUES ('00000000-0000-7000-8000-000000000002', \
          '00000000-0000-7000-8000-000000000003', 'unknown', \
          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-    ))
+    )
     .await
     .unwrap();
-    db.execute_raw(Statement::from_string(
-        backend,
+    execute(
+        db,
         "INSERT INTO person_denorm (person_id, tree_id, payload, updated_at) \
          VALUES ('00000000-0000-7000-8000-000000000002', \
          '00000000-0000-7000-8000-000000000003', '{}', CURRENT_TIMESTAMP)",
-    ))
+    )
     .await
     .unwrap();
-    let projection = db
-        .query_one_raw(Statement::from_string(
-            backend,
-            "SELECT schema_version FROM person_denorm",
-        ))
-        .await
-        .unwrap()
-        .unwrap();
+    let projection = query_one(db, "SELECT schema_version FROM person_denorm").await;
     assert_eq!(projection.try_get::<i32>("", "schema_version").unwrap(), 0);
-    db.execute_raw(Statement::from_string(backend, "DELETE FROM tree"))
-        .await
-        .unwrap();
+    execute(db, "DELETE FROM tree").await.unwrap();
+}
 
-    db.execute_raw(Statement::from_string(
-        backend,
+/// The search table finds a row by its surname: through FTS5 on SQLite, by
+/// an indexed prefix elsewhere.
+async fn assert_person_search(db: &DatabaseConnection) {
+    let backend = db.get_database_backend();
+    let manager = SchemaManager::new(db);
+    execute(
+        db,
         "INSERT INTO person_search_fts (person_id, tree_id, surname, given_names) \
          VALUES ('00000000-0000-7000-8000-000000000002', \
          '00000000-0000-7000-8000-000000000003', 'fixture', 'example')",
-    ))
+    )
     .await
     .unwrap();
     let predicate = if backend == DatabaseBackend::Sqlite {
@@ -293,10 +322,5 @@ async fn assert_current_schema(db: &DatabaseConnection) {
         .await
         .unwrap();
     assert_eq!(matches.len(), 1);
-    db.execute_raw(Statement::from_string(
-        backend,
-        "DELETE FROM person_search_fts",
-    ))
-    .await
-    .unwrap();
+    execute(db, "DELETE FROM person_search_fts").await.unwrap();
 }

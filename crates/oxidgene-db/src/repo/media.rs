@@ -532,109 +532,10 @@ impl MediaRepo {
                 id,
             })?;
 
-        if (patch.file_path.is_some() || patch.mime_type.is_some() || patch.dimensions.is_some())
-            && (existing.parent_media_id.is_none() || existing.storage_key.is_some())
-        {
-            return Err(OxidGeneError::Validation(
-                "file path, MIME type and dimensions can only be edited on pages without stored bytes"
-                    .into(),
-            ));
-        }
-        if let Some((width, height)) = patch.dimensions {
-            if width <= 0 || height <= 0 {
-                return Err(OxidGeneError::Validation(
-                    "image dimensions must be positive".into(),
-                ));
-            }
-            // Crops were drawn before the size was known and were accepted
-            // without bounds, so learning the size is also the moment they can
-            // first be checked. The same guard `attach_file` applies when our
-            // own bytes arrive.
-            let mut sized = into_domain(existing.clone());
-            sized.width = Some(width);
-            sized.height = Some(height);
-            for crop in VignetteRepo::list_for_media(db, id).await? {
-                sized.validate_crop(crop.x, crop.y, crop.width, crop.height)?;
-            }
-        }
-        if let Some(Some(place_id)) = patch.place_id
-            && PlaceRepo::get(db, place_id).await?.tree_id != existing.tree_id
-        {
-            return Err(OxidGeneError::NotFound {
-                entity: "Place",
-                id: place_id,
-            });
-        }
+        validate_patch(db, &existing, &patch).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
-        if let Some(title) = patch.title {
-            active.title = Set(title);
-        }
-        if let Some(description) = patch.description {
-            active.description = Set(description);
-        }
-        if let Some(date_value) = patch.date_value {
-            active.date_value = Set(date_value);
-        }
-        if let Some(date_value2) = patch.date_value2 {
-            active.date_value2 = Set(date_value2);
-        }
-        if let Some(qualifier) = patch.date_qualifier {
-            active.date_qualifier = Set(qualifier.into());
-        }
-        if let Some(calendar) = patch.calendar {
-            active.calendar = Set(calendar.into());
-        }
-        if let Some(place_id) = patch.place_id {
-            active.place_id = Set(place_id);
-        }
-        if let Some(privacy) = patch.privacy {
-            active.privacy = Set(privacy.into());
-        }
-        if let Some(source_media_type) = patch.source_media_type {
-            active.source_media_type = Set(source_media_type.into());
-        }
-        if let Some(category) = patch.document_category {
-            active.document_category = Set(category.map(|c| c.as_str().to_string()));
-            // Choosing a category answers the GEDCOM question too. Setting
-            // both explicitly in one request keeps the caller's medium; it is
-            // only the unstated one that follows the category, so that a user
-            // who classified a scan as a census return does not silently
-            // export it as `OTHER`.
-            if patch.source_media_type.is_none()
-                && let Some(category) = category
-            {
-                active.source_media_type = Set(category.implied_medium().into());
-            }
-        }
-        if let Some(file_path) = patch.file_path {
-            // The name shown under a tile follows the path when the path is
-            // all we have: a record repointed at a new URL should not keep
-            // captioning itself with the old file's name.
-            let derived_name = file_path
-                .split(['?', '#'])
-                .next()
-                .unwrap_or(&file_path)
-                .rsplit(['/', '\\'])
-                .next()
-                .unwrap_or(&file_path)
-                .trim()
-                .to_string();
-            if !derived_name.is_empty() {
-                active.file_name = Set(derived_name);
-            }
-            active.file_path = Set(file_path);
-        }
-        if let Some(mime_type) = patch.mime_type {
-            active.mime_type = Set(mime_type);
-        }
-        if let Some((width, height)) = patch.dimensions {
-            active.width = Set(Some(width));
-            active.height = Set(Some(height));
-        }
-        if let Some(date_sort) = patch.date_sort {
-            active.date_sort = Set(date_sort);
-        }
+        apply_patch(&mut active, patch);
         active.updated_at = Set(Utc::now());
 
         let result = active
@@ -831,6 +732,118 @@ impl MediaRepo {
     }
 }
 
+/// Rejects a patch the record cannot take: file fields on a record whose
+/// bytes we hold, a non-positive size, a size too small for an existing
+/// crop, or a place from another tree.
+async fn validate_patch(
+    db: &impl ConnectionTrait,
+    existing: &media::Model,
+    patch: &MediaPatch,
+) -> Result<(), OxidGeneError> {
+    if (patch.file_path.is_some() || patch.mime_type.is_some() || patch.dimensions.is_some())
+        && (existing.parent_media_id.is_none() || existing.storage_key.is_some())
+    {
+        return Err(OxidGeneError::Validation(
+            "file path, MIME type and dimensions can only be edited on pages without stored bytes"
+                .into(),
+        ));
+    }
+    if let Some((width, height)) = patch.dimensions {
+        if width <= 0 || height <= 0 {
+            return Err(OxidGeneError::Validation(
+                "image dimensions must be positive".into(),
+            ));
+        }
+        // Crops were drawn before the size was known and were accepted
+        // without bounds, so learning the size is also the moment they can
+        // first be checked. The same guard `attach_file` applies when our
+        // own bytes arrive.
+        let mut sized = into_domain(existing.clone());
+        sized.width = Some(width);
+        sized.height = Some(height);
+        for crop in VignetteRepo::list_for_media(db, existing.id).await? {
+            sized.validate_crop(crop.x, crop.y, crop.width, crop.height)?;
+        }
+    }
+    if let Some(Some(place_id)) = patch.place_id
+        && PlaceRepo::get(db, place_id).await?.tree_id != existing.tree_id
+    {
+        return Err(OxidGeneError::NotFound {
+            entity: "Place",
+            id: place_id,
+        });
+    }
+    Ok(())
+}
+
+/// Sets `field` to `value` when the patch carries one.
+fn set_if_some<V: Into<sea_orm::Value>>(field: &mut sea_orm::ActiveValue<V>, value: Option<V>) {
+    if let Some(value) = value {
+        *field = Set(value);
+    }
+}
+
+/// Copies every field a validated patch carries onto the record.
+fn apply_patch(active: &mut ActiveModel, patch: MediaPatch) {
+    set_if_some(&mut active.title, patch.title);
+    set_if_some(&mut active.description, patch.description);
+    set_if_some(&mut active.date_value, patch.date_value);
+    set_if_some(&mut active.date_value2, patch.date_value2);
+    set_if_some(
+        &mut active.date_qualifier,
+        patch.date_qualifier.map(Into::into),
+    );
+    set_if_some(&mut active.calendar, patch.calendar.map(Into::into));
+    set_if_some(&mut active.place_id, patch.place_id);
+    set_if_some(&mut active.privacy, patch.privacy.map(Into::into));
+    set_if_some(
+        &mut active.source_media_type,
+        patch.source_media_type.map(Into::into),
+    );
+    if let Some(category) = patch.document_category {
+        active.document_category = Set(category.map(|c| c.as_str().to_string()));
+        // Choosing a category answers the GEDCOM question too. Setting
+        // both explicitly in one request keeps the caller's medium; it is
+        // only the unstated one that follows the category, so that a user
+        // who classified a scan as a census return does not silently
+        // export it as `OTHER`.
+        if patch.source_media_type.is_none()
+            && let Some(category) = category
+        {
+            active.source_media_type = Set(category.implied_medium().into());
+        }
+    }
+    if let Some(file_path) = patch.file_path {
+        // The name shown under a tile follows the path when the path is
+        // all we have: a record repointed at a new URL should not keep
+        // captioning itself with the old file's name.
+        let derived_name = file_name_of(&file_path);
+        if !derived_name.is_empty() {
+            active.file_name = Set(derived_name);
+        }
+        active.file_path = Set(file_path);
+    }
+    set_if_some(&mut active.mime_type, patch.mime_type);
+    if let Some((width, height)) = patch.dimensions {
+        active.width = Set(Some(width));
+        active.height = Set(Some(height));
+    }
+    set_if_some(&mut active.date_sort, patch.date_sort);
+}
+
+/// The last segment of a path or URL, without its query or fragment.
+fn file_name_of(file_path: &str) -> String {
+    file_path
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(file_path)
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(file_path)
+        .trim()
+        .to_string()
+}
+
 async fn page_document(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
@@ -949,4 +962,20 @@ async fn hydrate_tags(db: &impl ConnectionTrait, media: &mut [Media]) -> Result<
         item.tags = tags_by_media.remove(&item.id).unwrap_or_default();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_name_of_keeps_the_last_segment_without_query_or_fragment() {
+        assert_eq!(
+            file_name_of("https://example.org/scans/page%201.jpg?size=large#top"),
+            "page%201.jpg"
+        );
+        assert_eq!(file_name_of(r"C:\scans\ page.png "), "page.png");
+        assert_eq!(file_name_of("plain.tif"), "plain.tif");
+        assert_eq!(file_name_of("https://example.org/folder/"), "");
+    }
 }

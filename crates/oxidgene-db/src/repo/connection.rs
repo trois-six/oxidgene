@@ -90,34 +90,51 @@ async fn reclaim_free_pages(db: &DatabaseConnection) {
     if db.get_database_backend() != DatabaseBackend::Sqlite {
         return;
     }
+    let Some(free_pages) = free_page_count(db).await else {
+        return;
+    };
+    if free_pages < VACUUM_THRESHOLD_PAGES {
+        return;
+    }
+    info!(free_pages, "reclaiming free database pages (VACUUM)");
+    vacuum(db).await;
+}
 
-    let free_pages = match db
+/// The number of free pages in the SQLite file, or `None` when it cannot be
+/// read.
+async fn free_page_count(db: &DatabaseConnection) -> Option<i64> {
+    match db
         .query_one_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "PRAGMA freelist_count",
         ))
         .await
     {
-        Ok(Some(row)) => row.try_get::<i32>("", "freelist_count").unwrap_or(0) as i64,
-        _ => return,
-    };
-
-    if free_pages < VACUUM_THRESHOLD_PAGES {
-        return;
+        Ok(Some(row)) => Some(row.try_get::<i32>("", "freelist_count").unwrap_or(0) as i64),
+        _ => None,
     }
+}
 
-    info!(free_pages, "reclaiming free database pages (VACUUM)");
+/// Rewrite the SQLite file without its free pages, logging the outcome.
+async fn vacuum(db: &DatabaseConnection) {
     match db
         .execute_raw(Statement::from_string(DatabaseBackend::Sqlite, "VACUUM"))
         .await
     {
         Ok(_) => info!("database file compacted"),
-        // Not fatal: the database is correct, just larger than it needs to be.
-        Err(_) => warn!(
-            error = "sqlite_vacuum",
-            "VACUUM failed; database file stays at its current size"
-        ),
+        Err(_) => warn_vacuum_failed(),
     }
+}
+
+/// Not fatal: the database is correct, just larger than it needs to be.
+///
+/// Its own function because each `tracing` macro expands to several
+/// branches, and two of them in one function exceed the complexity limit.
+fn warn_vacuum_failed() {
+    warn!(
+        error = "sqlite_vacuum",
+        "VACUUM failed; database file stays at its current size"
+    );
 }
 
 /// Roll back all migrations on the given database connection.

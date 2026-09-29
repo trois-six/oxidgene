@@ -22,7 +22,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use super::batch::in_chunks;
+use super::batch::{in_chunks, sorted_unique};
 use super::pagination::{PaginationParams, encode_cursor};
 use crate::entities::{audit_entry, record_version};
 
@@ -270,20 +270,20 @@ impl HistoryRepo {
         tree_id: Uuid,
     ) -> Result<Vec<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>, OxidGeneError>
     {
-        let mut restored: Vec<Uuid> = audit_entry::Entity::find()
-            .select_only()
-            .column(audit_entry::Column::EntityId)
-            .filter(audit_entry::Column::TreeId.eq(tree_id))
-            .filter(audit_entry::Column::Category.eq(AuditCategory::History.as_str()))
-            .filter(audit_entry::Column::Action.eq(AuditAction::Revert.as_str()))
-            .filter(audit_entry::Column::Entity.eq(AuditEntity::Person.as_str()))
-            .filter(audit_entry::Column::EntityId.is_not_null())
-            .into_tuple()
-            .all(db)
-            .await
-            .map_err(db_err)?;
-        restored.sort();
-        restored.dedup();
+        let restored = sorted_unique(
+            audit_entry::Entity::find()
+                .select_only()
+                .column(audit_entry::Column::EntityId)
+                .filter(audit_entry::Column::TreeId.eq(tree_id))
+                .filter(audit_entry::Column::Category.eq(AuditCategory::History.as_str()))
+                .filter(audit_entry::Column::Action.eq(AuditAction::Revert.as_str()))
+                .filter(audit_entry::Column::Entity.eq(AuditEntity::Person.as_str()))
+                .filter(audit_entry::Column::EntityId.is_not_null())
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)?,
+        );
         let mut rows: Vec<(Uuid, i32, bool, chrono::DateTime<chrono::Utc>)> =
             in_chunks(&restored, |chunk| async move {
                 record_version::Entity::find()
@@ -581,9 +581,7 @@ async fn with_entries(
     db: &impl ConnectionTrait,
     rows: Vec<record_version::Model>,
 ) -> Result<Vec<RecordVersion>, OxidGeneError> {
-    let mut entry_ids: Vec<Uuid> = rows.iter().map(|row| row.audit_entry_id).collect();
-    entry_ids.sort();
-    entry_ids.dedup();
+    let entry_ids = sorted_unique(rows.iter().map(|row| row.audit_entry_id).collect());
     let entry_rows = in_chunks(&entry_ids, |chunk| async move {
         audit_entry::Entity::find()
             .filter(audit_entry::Column::Id.is_in(chunk))

@@ -14,6 +14,7 @@ use sea_orm::{Condition, ConnectionTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::person_distinct::{self, Column, Entity};
+use crate::repo::batch::sorted_unique;
 
 /// Repository for distinct-person confirmations.
 pub struct PersonDistinctRepo;
@@ -30,13 +31,13 @@ impl PersonDistinctRepo {
         others: &[Uuid],
     ) -> Result<(), OxidGeneError> {
         let known = Self::distinct_from(db, person_id).await?;
-        let mut missing: Vec<Uuid> = others
-            .iter()
-            .copied()
-            .filter(|other| *other != person_id && !known.contains(other))
-            .collect();
-        missing.sort();
-        missing.dedup();
+        let missing = sorted_unique(
+            others
+                .iter()
+                .copied()
+                .filter(|other| *other != person_id && !known.contains(other))
+                .collect(),
+        );
         if missing.is_empty() {
             return Ok(());
         }

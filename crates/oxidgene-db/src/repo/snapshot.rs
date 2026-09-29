@@ -32,7 +32,7 @@ use sea_orm::{ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySe
 use uuid::Uuid;
 
 use super::HistoryRepo;
-use super::batch::in_chunks;
+use super::batch::{in_chunks, sorted_unique};
 use crate::entities::{
     citation, event, event_witness, family, family_child, family_spouse, note, person, person_name,
     place, source, tree,
@@ -104,269 +104,11 @@ impl SnapshotRepo {
             return Ok(Vec::new());
         }
         let person_ids: Vec<Uuid> = persons.iter().map(|p| p.id).collect();
-
-        // Memberships, and the live families they lead to.
-        let as_child = in_chunks(&person_ids, |chunk| async move {
-            family_child::Entity::find()
-                .filter(family_child::Column::PersonId.is_in(chunk))
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        let as_spouse = in_chunks(&person_ids, |chunk| async move {
-            family_spouse::Entity::find()
-                .filter(family_spouse::Column::PersonId.is_in(chunk))
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        let mut family_ids: Vec<Uuid> = as_child
-            .iter()
-            .map(|c| c.family_id)
-            .chain(as_spouse.iter().map(|s| s.family_id))
-            .collect();
-        family_ids.sort();
-        family_ids.dedup();
-        let families: HashMap<Uuid, family::Model> = live_families(db, &family_ids)
-            .await?
+        let rows = PersonRows::load(db, &person_ids).await?;
+        Ok(persons
             .into_iter()
-            .map(|f| (f.id, f))
-            .collect();
-        let family_ids: Vec<Uuid> = families.keys().copied().collect();
-
-        // Everything the families hold.
-        let family_spouses = in_chunks(&family_ids, |chunk| async move {
-            family_spouse::Entity::find()
-                .filter(family_spouse::Column::FamilyId.is_in(chunk))
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        let family_children = in_chunks(&family_ids, |chunk| async move {
-            family_child::Entity::find()
-                .filter(family_child::Column::FamilyId.is_in(chunk))
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-
-        let names = in_chunks(&person_ids, |chunk| async move {
-            person_name::Entity::find()
-                .filter(person_name::Column::PersonId.is_in(chunk))
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        let person_events = in_chunks(&person_ids, |chunk| async move {
-            event::Entity::find()
-                .filter(event::Column::PersonId.is_in(chunk))
-                .filter(event::Column::DeletedAt.is_null())
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        let family_events = in_chunks(&family_ids, |chunk| async move {
-            event::Entity::find()
-                .filter(event::Column::FamilyId.is_in(chunk))
-                .filter(event::Column::DeletedAt.is_null())
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        let event_ids: Vec<Uuid> = person_events
-            .iter()
-            .chain(family_events.iter())
-            .map(|e| e.id)
-            .collect();
-        let witnesses = in_chunks(&event_ids, |chunk| async move {
-            event_witness::Entity::find()
-                .filter(event_witness::Column::EventId.is_in(chunk))
-                .all(db)
-                .await
-                .map_err(db_err)
-        })
-        .await?;
-        let notes = Attached::notes(db, &person_ids, &event_ids, &family_ids).await?;
-        let citations = Attached::citations(db, &person_ids, &event_ids, &family_ids).await?;
-
-        // Labels: places, sources, and every person or family named by ID.
-        let mut place_ids: Vec<Uuid> = person_events
-            .iter()
-            .chain(family_events.iter())
-            .filter_map(|e| e.place_id)
-            .collect();
-        place_ids.sort();
-        place_ids.dedup();
-        let mut source_ids: Vec<Uuid> = citations.rows.iter().map(|c| c.source_id).collect();
-        source_ids.sort();
-        source_ids.dedup();
-        let mut named: Vec<Uuid> = witnesses
-            .iter()
-            .map(|w| w.person_id)
-            .chain(family_spouses.iter().map(|s| s.person_id))
-            .chain(family_children.iter().map(|c| c.person_id))
-            .collect();
-        named.sort();
-        named.dedup();
-        let place_labels = place_names(db, &place_ids).await?;
-        let source_labels = source_titles(db, &source_ids).await?;
-        let person_labels = display_names(db, &named).await?;
-
-        let witnesses_by_event = group(witnesses, |w| w.event_id);
-        let names_by_person = group(names, |n| n.person_id);
-        let events_by_person = group(person_events, |e| e.person_id.unwrap_or_default());
-        let events_by_family = group(family_events, |e| e.family_id.unwrap_or_default());
-        let spouses_by_family = group(family_spouses, |s| s.family_id);
-        let children_by_family = group(family_children, |c| c.family_id);
-        let as_child_by_person = group(as_child, |c| c.person_id);
-        let as_spouse_by_person = group(as_spouse, |s| s.person_id);
-
-        let event_snapshot = |e: &event::Model| EventSnapshot {
-            id: e.id,
-            event_type: e.event_type.into(),
-            date_value: e.date_value.clone(),
-            date_sort: e.date_sort,
-            date_qualifier: e.date_qualifier.into(),
-            date_value2: e.date_value2.clone(),
-            calendar: e.calendar.into(),
-            cause: e.cause.clone(),
-            place_id: e.place_id,
-            description: e.description.clone(),
-            witnesses: sorted(
-                witnesses_by_event
-                    .get(&e.id)
-                    .into_iter()
-                    .flatten()
-                    .map(|w| WitnessSnapshot {
-                        id: w.id,
-                        person_id: w.person_id,
-                        relation: w.relation.clone(),
-                        sort_order: w.sort_order,
-                    })
-                    .collect(),
-                |w| (w.sort_order, w.id),
-            ),
-            notes: notes.of(|n| n.event_id == Some(e.id)),
-            citations: citations.of(|c| c.event_id == Some(e.id)),
-        };
-        let events_of = |events: Option<&Vec<event::Model>>| {
-            sorted(
-                events.into_iter().flatten().map(event_snapshot).collect(),
-                |e: &EventSnapshot| e.id,
-            )
-        };
-
-        let mut built = Vec::with_capacity(persons.len());
-        for person in persons {
-            let mut labels: HashMap<Uuid, String> = HashMap::new();
-            let names = sorted(
-                names_by_person
-                    .get(&person.id)
-                    .into_iter()
-                    .flatten()
-                    .map(name_snapshot)
-                    .collect(),
-                |n: &NameSnapshot| (!n.is_primary, n.sort_order, n.id),
-            );
-            let events = events_of(events_by_person.get(&person.id));
-            let parents = sorted(
-                as_child_by_person
-                    .get(&person.id)
-                    .into_iter()
-                    .flatten()
-                    .filter(|c| families.contains_key(&c.family_id))
-                    .map(child_snapshot)
-                    .collect(),
-                |c: &ChildLinkSnapshot| (c.sort_order, c.id),
-            );
-            for parent in &parents {
-                let spouse_names: Vec<&str> = spouses_by_family
-                    .get(&parent.family_id)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|s| person_labels.get(&s.person_id).map(String::as_str))
-                    .collect();
-                if !spouse_names.is_empty() {
-                    labels.insert(parent.family_id, spouse_names.join(" & "));
-                }
-                labels.extend(
-                    spouses_by_family
-                        .get(&parent.family_id)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|s| {
-                            person_labels
-                                .get(&s.person_id)
-                                .map(|name| (s.person_id, name.clone()))
-                        }),
-                );
-            }
-            let unions = sorted(
-                as_spouse_by_person
-                    .get(&person.id)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|link| families.get(&link.family_id))
-                    .map(|family| UnionSnapshot {
-                        family_id: family.id,
-                        privacy: family.privacy.into(),
-                        spouses: sorted(
-                            spouses_by_family
-                                .get(&family.id)
-                                .into_iter()
-                                .flatten()
-                                .map(spouse_snapshot)
-                                .collect(),
-                            |s: &SpouseLinkSnapshot| (s.sort_order, s.id),
-                        ),
-                        children: sorted(
-                            children_by_family
-                                .get(&family.id)
-                                .into_iter()
-                                .flatten()
-                                .map(child_snapshot)
-                                .collect(),
-                            |c: &ChildLinkSnapshot| (c.sort_order, c.id),
-                        ),
-                        events: events_of(events_by_family.get(&family.id)),
-                        notes: notes.of(|n| n.family_id == Some(family.id)),
-                        citations: citations.of(|c| c.family_id == Some(family.id)),
-                    })
-                    .collect(),
-                |u: &UnionSnapshot| u.family_id,
-            );
-            let snapshot = PersonSnapshot {
-                sex: person.sex.into(),
-                privacy: person.privacy.into(),
-                names,
-                events,
-                notes: notes.of(|n| n.person_id == Some(person.id)),
-                citations: citations.of(|c| c.person_id == Some(person.id)),
-                parents,
-                unions,
-            };
-            collect_person_labels(
-                &snapshot,
-                &mut labels,
-                &place_labels,
-                &source_labels,
-                &person_labels,
-            );
-            built.push(BuiltSnapshot {
-                record_id: person.id,
-                deleted: person.deleted_at.is_some(),
-                snapshot: RecordSnapshot::Person(snapshot),
-                labels: into_labels(labels),
-            });
-        }
-        Ok(built)
+            .map(|person| rows.snapshot(person))
+            .collect())
     }
 
     async fn places(
@@ -511,7 +253,6 @@ impl SnapshotRepo {
         snapshot: &PersonSnapshot,
         labels: &[RecordLabel],
     ) -> Result<Vec<Uuid>, OxidGeneError> {
-        let now = Utc::now();
         let existing = person::Entity::find_by_id(person_id)
             .filter(person::Column::TreeId.eq(tree_id))
             .one(db)
@@ -525,24 +266,12 @@ impl SnapshotRepo {
         active.sex = Set(snapshot.sex.into());
         active.privacy = Set(snapshot.privacy.into());
         active.deleted_at = Set(None);
-        active.updated_at = Set(now);
+        active.updated_at = Set(Utc::now());
         active.update(db).await.map_err(db_err)?;
 
         let mut touched: HashSet<Uuid> = HashSet::from([person_id]);
         let mut restorer = Restorer::new(db, tree_id, labels);
-
-        // Names: no soft deletion, so the snapshot's list replaces the table's.
-        let wanted: HashSet<Uuid> = snapshot.names.iter().map(|n| n.id).collect();
-        person_name::Entity::delete_many()
-            .filter(person_name::Column::PersonId.eq(person_id))
-            .filter(person_name::Column::Id.is_not_in(wanted))
-            .exec(db)
-            .await
-            .map_err(db_err)?;
-        for name in &snapshot.names {
-            restorer.name(person_id, name).await?;
-        }
-
+        restorer.names(person_id, &snapshot.names).await?;
         restorer
             .events(EventOwner::Person(person_id), &snapshot.events)
             .await?;
@@ -552,50 +281,12 @@ impl SnapshotRepo {
         restorer
             .citations(CitationOwner::Person(person_id), &snapshot.citations)
             .await?;
-
-        // Parent families: the links the snapshot has, to families still there.
-        let current_parents = family_child::Entity::find()
-            .filter(family_child::Column::PersonId.eq(person_id))
-            .all(db)
-            .await
-            .map_err(db_err)?;
-        let wanted: HashSet<Uuid> = snapshot.parents.iter().map(|c| c.id).collect();
-        for link in current_parents.iter().filter(|c| !wanted.contains(&c.id)) {
-            touched.extend(family_members(db, link.family_id).await?);
-            family_child::Entity::delete_by_id(link.id)
-                .exec(db)
-                .await
-                .map_err(db_err)?;
-        }
-        for link in &snapshot.parents {
-            if restorer.family_is_live(link.family_id).await? {
-                restorer.child_link(link).await?;
-                touched.extend(family_members(db, link.family_id).await?);
-            }
-        }
-
-        // Unions: leave the families the snapshot lacks, restore the others.
-        let current_unions = family_spouse::Entity::find()
-            .filter(family_spouse::Column::PersonId.eq(person_id))
-            .all(db)
-            .await
-            .map_err(db_err)?;
-        let kept: HashSet<Uuid> = snapshot.unions.iter().map(|u| u.family_id).collect();
-        for link in current_unions
-            .iter()
-            .filter(|s| !kept.contains(&s.family_id))
-        {
-            touched.extend(family_members(db, link.family_id).await?);
-            family_spouse::Entity::delete_by_id(link.id)
-                .exec(db)
-                .await
-                .map_err(db_err)?;
-        }
-        for union in &snapshot.unions {
-            touched.extend(family_members(db, union.family_id).await?);
-            restorer.union(union).await?;
-            touched.extend(family_members(db, union.family_id).await?);
-        }
+        restorer
+            .parents(person_id, &snapshot.parents, &mut touched)
+            .await?;
+        restorer
+            .unions(person_id, &snapshot.unions, &mut touched)
+            .await?;
 
         let mut touched: Vec<Uuid> = touched.into_iter().collect();
         touched.sort();
@@ -713,6 +404,348 @@ impl SnapshotRepo {
 }
 
 // ── Building helpers ────────────────────────────────────────────────────
+
+/// Everything a batch of person snapshots is assembled from: the rows each
+/// person's profile shows, grouped by the record they belong to, and the
+/// labels of every place, source, and person those rows name.
+struct PersonRows {
+    families: HashMap<Uuid, family::Model>,
+    as_child_by_person: HashMap<Uuid, Vec<family_child::Model>>,
+    as_spouse_by_person: HashMap<Uuid, Vec<family_spouse::Model>>,
+    spouses_by_family: HashMap<Uuid, Vec<family_spouse::Model>>,
+    children_by_family: HashMap<Uuid, Vec<family_child::Model>>,
+    names_by_person: HashMap<Uuid, Vec<person_name::Model>>,
+    events_by_person: HashMap<Uuid, Vec<event::Model>>,
+    events_by_family: HashMap<Uuid, Vec<event::Model>>,
+    witnesses_by_event: HashMap<Uuid, Vec<event_witness::Model>>,
+    notes: Attached<note::Model>,
+    citations: Attached<citation::Model>,
+    place_labels: HashMap<Uuid, String>,
+    source_labels: HashMap<Uuid, String>,
+    person_labels: HashMap<Uuid, String>,
+}
+
+impl PersonRows {
+    /// Read the rows the snapshots of these persons are built from.
+    async fn load(db: &impl ConnectionTrait, person_ids: &[Uuid]) -> Result<Self, OxidGeneError> {
+        // Memberships, and the live families they lead to.
+        let (as_child, as_spouse) = memberships(db, person_ids).await?;
+        let family_ids = sorted_unique(
+            as_child
+                .iter()
+                .map(|c| c.family_id)
+                .chain(as_spouse.iter().map(|s| s.family_id))
+                .collect(),
+        );
+        let families: HashMap<Uuid, family::Model> = live_families(db, &family_ids)
+            .await?
+            .into_iter()
+            .map(|f| (f.id, f))
+            .collect();
+        let family_ids: Vec<Uuid> = families.keys().copied().collect();
+
+        // Everything the families hold.
+        let (family_spouses, family_children) = family_links(db, &family_ids).await?;
+
+        let names = in_chunks(person_ids, |chunk| async move {
+            person_name::Entity::find()
+                .filter(person_name::Column::PersonId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
+        let (person_events, family_events) = live_events(db, person_ids, &family_ids).await?;
+        let event_ids: Vec<Uuid> = person_events
+            .iter()
+            .chain(family_events.iter())
+            .map(|e| e.id)
+            .collect();
+        let witnesses = in_chunks(&event_ids, |chunk| async move {
+            event_witness::Entity::find()
+                .filter(event_witness::Column::EventId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
+        let notes = Attached::notes(db, person_ids, &event_ids, &family_ids).await?;
+        let citations = Attached::citations(db, person_ids, &event_ids, &family_ids).await?;
+
+        // Labels: places, sources, and every person or family named by ID.
+        let place_ids = sorted_unique(
+            person_events
+                .iter()
+                .chain(family_events.iter())
+                .filter_map(|e| e.place_id)
+                .collect(),
+        );
+        let source_ids = sorted_unique(citations.rows.iter().map(|c| c.source_id).collect());
+        let named = sorted_unique(
+            witnesses
+                .iter()
+                .map(|w| w.person_id)
+                .chain(family_spouses.iter().map(|s| s.person_id))
+                .chain(family_children.iter().map(|c| c.person_id))
+                .collect(),
+        );
+        let place_labels = place_names(db, &place_ids).await?;
+        let source_labels = source_titles(db, &source_ids).await?;
+        let person_labels = display_names(db, &named).await?;
+
+        Ok(Self {
+            families,
+            as_child_by_person: group(as_child, |c| c.person_id),
+            as_spouse_by_person: group(as_spouse, |s| s.person_id),
+            spouses_by_family: group(family_spouses, |s| s.family_id),
+            children_by_family: group(family_children, |c| c.family_id),
+            names_by_person: group(names, |n| n.person_id),
+            events_by_person: group(person_events, |e| e.person_id.unwrap_or_default()),
+            events_by_family: group(family_events, |e| e.family_id.unwrap_or_default()),
+            witnesses_by_event: group(witnesses, |w| w.event_id),
+            notes,
+            citations,
+            place_labels,
+            source_labels,
+            person_labels,
+        })
+    }
+
+    /// A person's snapshot, with the labels of everything it names.
+    fn snapshot(&self, person: person::Model) -> BuiltSnapshot {
+        let mut labels: HashMap<Uuid, String> = HashMap::new();
+        let names = sorted(
+            self.names_by_person
+                .get(&person.id)
+                .into_iter()
+                .flatten()
+                .map(name_snapshot)
+                .collect(),
+            |n: &NameSnapshot| (!n.is_primary, n.sort_order, n.id),
+        );
+        let events = self.events(self.events_by_person.get(&person.id));
+        let parents = sorted(
+            self.as_child_by_person
+                .get(&person.id)
+                .into_iter()
+                .flatten()
+                .filter(|c| self.families.contains_key(&c.family_id))
+                .map(child_snapshot)
+                .collect(),
+            |c: &ChildLinkSnapshot| (c.sort_order, c.id),
+        );
+        for parent in &parents {
+            self.label_parent_family(parent.family_id, &mut labels);
+        }
+        let unions = sorted(
+            self.as_spouse_by_person
+                .get(&person.id)
+                .into_iter()
+                .flatten()
+                .filter_map(|link| self.families.get(&link.family_id))
+                .map(|family| self.union(family))
+                .collect(),
+            |u: &UnionSnapshot| u.family_id,
+        );
+        let snapshot = PersonSnapshot {
+            sex: person.sex.into(),
+            privacy: person.privacy.into(),
+            names,
+            events,
+            notes: self.notes.of(|n| n.person_id == Some(person.id)),
+            citations: self.citations.of(|c| c.person_id == Some(person.id)),
+            parents,
+            unions,
+        };
+        collect_person_labels(
+            &snapshot,
+            &mut labels,
+            &self.place_labels,
+            &self.source_labels,
+            &self.person_labels,
+        );
+        BuiltSnapshot {
+            record_id: person.id,
+            deleted: person.deleted_at.is_some(),
+            snapshot: RecordSnapshot::Person(snapshot),
+            labels: into_labels(labels),
+        }
+    }
+
+    /// Label a parent family with its spouses' names joined, and each spouse
+    /// with their own.
+    fn label_parent_family(&self, family_id: Uuid, labels: &mut HashMap<Uuid, String>) {
+        let spouse_names: Vec<&str> = self
+            .spouses_by_family
+            .get(&family_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|s| self.person_labels.get(&s.person_id).map(String::as_str))
+            .collect();
+        if !spouse_names.is_empty() {
+            labels.insert(family_id, spouse_names.join(" & "));
+        }
+        labels.extend(
+            self.spouses_by_family
+                .get(&family_id)
+                .into_iter()
+                .flatten()
+                .filter_map(|s| {
+                    self.person_labels
+                        .get(&s.person_id)
+                        .map(|name| (s.person_id, name.clone()))
+                }),
+        );
+    }
+
+    /// A family the person is a spouse in, with everything it holds.
+    fn union(&self, family: &family::Model) -> UnionSnapshot {
+        UnionSnapshot {
+            family_id: family.id,
+            privacy: family.privacy.into(),
+            spouses: sorted(
+                self.spouses_by_family
+                    .get(&family.id)
+                    .into_iter()
+                    .flatten()
+                    .map(spouse_snapshot)
+                    .collect(),
+                |s: &SpouseLinkSnapshot| (s.sort_order, s.id),
+            ),
+            children: sorted(
+                self.children_by_family
+                    .get(&family.id)
+                    .into_iter()
+                    .flatten()
+                    .map(child_snapshot)
+                    .collect(),
+                |c: &ChildLinkSnapshot| (c.sort_order, c.id),
+            ),
+            events: self.events(self.events_by_family.get(&family.id)),
+            notes: self.notes.of(|n| n.family_id == Some(family.id)),
+            citations: self.citations.of(|c| c.family_id == Some(family.id)),
+        }
+    }
+
+    /// The snapshots of some events, in ID order.
+    fn events(&self, events: Option<&Vec<event::Model>>) -> Vec<EventSnapshot> {
+        sorted(
+            events
+                .into_iter()
+                .flatten()
+                .map(|e| self.event(e))
+                .collect(),
+            |e: &EventSnapshot| e.id,
+        )
+    }
+
+    /// An event's snapshot, with its witnesses, notes, and citations.
+    fn event(&self, e: &event::Model) -> EventSnapshot {
+        EventSnapshot {
+            id: e.id,
+            event_type: e.event_type.into(),
+            date_value: e.date_value.clone(),
+            date_sort: e.date_sort,
+            date_qualifier: e.date_qualifier.into(),
+            date_value2: e.date_value2.clone(),
+            calendar: e.calendar.into(),
+            cause: e.cause.clone(),
+            place_id: e.place_id,
+            description: e.description.clone(),
+            witnesses: sorted(
+                self.witnesses_by_event
+                    .get(&e.id)
+                    .into_iter()
+                    .flatten()
+                    .map(|w| WitnessSnapshot {
+                        id: w.id,
+                        person_id: w.person_id,
+                        relation: w.relation.clone(),
+                        sort_order: w.sort_order,
+                    })
+                    .collect(),
+                |w| (w.sort_order, w.id),
+            ),
+            notes: self.notes.of(|n| n.event_id == Some(e.id)),
+            citations: self.citations.of(|c| c.event_id == Some(e.id)),
+        }
+    }
+}
+
+/// The links making these persons a child and a spouse, in that order.
+async fn memberships(
+    db: &impl ConnectionTrait,
+    person_ids: &[Uuid],
+) -> Result<(Vec<family_child::Model>, Vec<family_spouse::Model>), OxidGeneError> {
+    let as_child = in_chunks(person_ids, |chunk| async move {
+        family_child::Entity::find()
+            .filter(family_child::Column::PersonId.is_in(chunk))
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    let as_spouse = in_chunks(person_ids, |chunk| async move {
+        family_spouse::Entity::find()
+            .filter(family_spouse::Column::PersonId.is_in(chunk))
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    Ok((as_child, as_spouse))
+}
+
+/// The spouse and child links of these families, in that order.
+async fn family_links(
+    db: &impl ConnectionTrait,
+    family_ids: &[Uuid],
+) -> Result<(Vec<family_spouse::Model>, Vec<family_child::Model>), OxidGeneError> {
+    let spouses = in_chunks(family_ids, |chunk| async move {
+        family_spouse::Entity::find()
+            .filter(family_spouse::Column::FamilyId.is_in(chunk))
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    let children = in_chunks(family_ids, |chunk| async move {
+        family_child::Entity::find()
+            .filter(family_child::Column::FamilyId.is_in(chunk))
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    Ok((spouses, children))
+}
+
+/// The live events of these persons, then those of these families.
+async fn live_events(
+    db: &impl ConnectionTrait,
+    person_ids: &[Uuid],
+    family_ids: &[Uuid],
+) -> Result<(Vec<event::Model>, Vec<event::Model>), OxidGeneError> {
+    let person_events = in_chunks(person_ids, |chunk| async move {
+        event::Entity::find()
+            .filter(event::Column::PersonId.is_in(chunk))
+            .filter(event::Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    let family_events = in_chunks(family_ids, |chunk| async move {
+        event::Entity::find()
+            .filter(event::Column::FamilyId.is_in(chunk))
+            .filter(event::Column::DeletedAt.is_null())
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    Ok((person_events, family_events))
+}
 
 /// Notes and citations attached to persons, events, and families.
 struct Attached<T> {
@@ -1089,6 +1122,26 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         }
     }
 
+    /// Replace a person's names with the snapshot's. Names have no soft
+    /// deletion, so the ones it lacks are removed.
+    async fn names(
+        &mut self,
+        person_id: Uuid,
+        names: &[NameSnapshot],
+    ) -> Result<(), OxidGeneError> {
+        let wanted: HashSet<Uuid> = names.iter().map(|n| n.id).collect();
+        person_name::Entity::delete_many()
+            .filter(person_name::Column::PersonId.eq(person_id))
+            .filter(person_name::Column::Id.is_not_in(wanted))
+            .exec(self.db)
+            .await
+            .map_err(db_err)?;
+        for name in names {
+            self.name(person_id, name).await?;
+        }
+        Ok(())
+    }
+
     async fn name(&mut self, person_id: Uuid, name: &NameSnapshot) -> Result<(), OxidGeneError> {
         let now = Utc::now();
         let row = person_name::ActiveModel {
@@ -1106,21 +1159,13 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             created_at: Set(now),
             updated_at: Set(now),
         };
-        let exists = person_name::Entity::find_by_id(name.id)
-            .one(self.db)
-            .await
-            .map_err(db_err)?;
-        match exists {
-            Some(existing) => {
-                let mut row = row;
-                row.created_at = Set(existing.created_at);
-                row.update(self.db).await.map_err(db_err)?;
-            }
-            None => {
-                row.insert(self.db).await.map_err(db_err)?;
-            }
-        }
-        Ok(())
+        upsert(
+            self.db,
+            row,
+            person_name::Entity::find_by_id(name.id),
+            &[person_name::Column::CreatedAt],
+        )
+        .await
     }
 
     async fn events(
@@ -1171,20 +1216,13 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 updated_at: Set(now),
                 deleted_at: Set(None),
             };
-            match event::Entity::find_by_id(snapshot.id)
-                .one(self.db)
-                .await
-                .map_err(db_err)?
-            {
-                Some(existing) => {
-                    let mut row = row;
-                    row.created_at = Set(existing.created_at);
-                    row.update(self.db).await.map_err(db_err)?;
-                }
-                None => {
-                    row.insert(self.db).await.map_err(db_err)?;
-                }
-            }
+            upsert(
+                self.db,
+                row,
+                event::Entity::find_by_id(snapshot.id),
+                &[event::Column::CreatedAt],
+            )
+            .await?;
             self.witnesses(snapshot.id, &snapshot.witnesses).await?;
             self.notes(NoteOwner::Event(snapshot.id), &snapshot.notes)
                 .await?;
@@ -1217,7 +1255,13 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 relation: Set(witness.relation.clone()),
                 sort_order: Set(witness.sort_order),
             };
-            upsert(self.db, row, event_witness::Entity::find_by_id(witness.id)).await?;
+            upsert(
+                self.db,
+                row,
+                event_witness::Entity::find_by_id(witness.id),
+                &[],
+            )
+            .await?;
         }
         Ok(())
     }
@@ -1265,20 +1309,13 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 updated_at: Set(now),
                 deleted_at: Set(None),
             };
-            match note::Entity::find_by_id(snapshot.id)
-                .one(self.db)
-                .await
-                .map_err(db_err)?
-            {
-                Some(existing) => {
-                    let mut row = row;
-                    row.created_at = Set(existing.created_at);
-                    row.update(self.db).await.map_err(db_err)?;
-                }
-                None => {
-                    row.insert(self.db).await.map_err(db_err)?;
-                }
-            }
+            upsert(
+                self.db,
+                row,
+                note::Entity::find_by_id(snapshot.id),
+                &[note::Column::CreatedAt],
+            )
+            .await?;
         }
         Ok(())
     }
@@ -1322,20 +1359,13 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 created_at: Set(now),
                 updated_at: Set(now),
             };
-            match citation::Entity::find_by_id(snapshot.id)
-                .one(self.db)
-                .await
-                .map_err(db_err)?
-            {
-                Some(existing) => {
-                    let mut row = row;
-                    row.created_at = Set(existing.created_at);
-                    row.update(self.db).await.map_err(db_err)?;
-                }
-                None => {
-                    row.insert(self.db).await.map_err(db_err)?;
-                }
-            }
+            upsert(
+                self.db,
+                row,
+                citation::Entity::find_by_id(snapshot.id),
+                &[citation::Column::CreatedAt],
+            )
+            .await?;
         }
         Ok(())
     }
@@ -1348,10 +1378,87 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             child_type: Set(link.child_type.into()),
             sort_order: Set(link.sort_order),
         };
-        upsert(self.db, row, family_child::Entity::find_by_id(link.id)).await
+        upsert(self.db, row, family_child::Entity::find_by_id(link.id), &[]).await
+    }
+
+    /// Restore the links making a person a child, to the families still
+    /// there, and remove the links the snapshot lacks. The members of every
+    /// family whose links change are added to `touched`.
+    async fn parents(
+        &mut self,
+        person_id: Uuid,
+        parents: &[ChildLinkSnapshot],
+        touched: &mut HashSet<Uuid>,
+    ) -> Result<(), OxidGeneError> {
+        let current_parents = family_child::Entity::find()
+            .filter(family_child::Column::PersonId.eq(person_id))
+            .all(self.db)
+            .await
+            .map_err(db_err)?;
+        let wanted: HashSet<Uuid> = parents.iter().map(|c| c.id).collect();
+        for link in current_parents.iter().filter(|c| !wanted.contains(&c.id)) {
+            touched.extend(family_members(self.db, link.family_id).await?);
+            family_child::Entity::delete_by_id(link.id)
+                .exec(self.db)
+                .await
+                .map_err(db_err)?;
+        }
+        for link in parents {
+            if self.family_is_live(link.family_id).await? {
+                self.child_link(link).await?;
+                touched.extend(family_members(self.db, link.family_id).await?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Leave the families the snapshot lacks, and restore the others. The
+    /// members of every family whose links change are added to `touched`.
+    async fn unions(
+        &mut self,
+        person_id: Uuid,
+        unions: &[UnionSnapshot],
+        touched: &mut HashSet<Uuid>,
+    ) -> Result<(), OxidGeneError> {
+        let current_unions = family_spouse::Entity::find()
+            .filter(family_spouse::Column::PersonId.eq(person_id))
+            .all(self.db)
+            .await
+            .map_err(db_err)?;
+        let kept: HashSet<Uuid> = unions.iter().map(|u| u.family_id).collect();
+        for link in current_unions
+            .iter()
+            .filter(|s| !kept.contains(&s.family_id))
+        {
+            touched.extend(family_members(self.db, link.family_id).await?);
+            family_spouse::Entity::delete_by_id(link.id)
+                .exec(self.db)
+                .await
+                .map_err(db_err)?;
+        }
+        for union in unions {
+            touched.extend(family_members(self.db, union.family_id).await?);
+            self.union(union).await?;
+            touched.extend(family_members(self.db, union.family_id).await?);
+        }
+        Ok(())
     }
 
     async fn union(&mut self, union: &UnionSnapshot) -> Result<(), OxidGeneError> {
+        self.family(union).await?;
+        self.spouses(union.family_id, &union.spouses).await?;
+        self.children(union.family_id, &union.children).await?;
+        self.events(EventOwner::Family(union.family_id), &union.events)
+            .await?;
+        self.notes(NoteOwner::Family(union.family_id), &union.notes)
+            .await?;
+        self.citations(CitationOwner::Family(union.family_id), &union.citations)
+            .await
+    }
+
+    /// Undelete a union's family with the snapshot's privacy, re-creating it
+    /// if it is gone.
+    async fn family(&mut self, union: &UnionSnapshot) -> Result<(), OxidGeneError> {
         let now = Utc::now();
         match family::Entity::find_by_id(union.family_id)
             .filter(family::Column::TreeId.eq(self.tree_id))
@@ -1380,47 +1487,65 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 .map_err(db_err)?;
             }
         }
+        Ok(())
+    }
 
-        let wanted: Vec<Uuid> = union.spouses.iter().map(|s| s.id).collect();
+    /// Replace a family's spouse links with the snapshot's, skipping persons
+    /// who no longer exist.
+    async fn spouses(
+        &mut self,
+        family_id: Uuid,
+        spouses: &[SpouseLinkSnapshot],
+    ) -> Result<(), OxidGeneError> {
+        let wanted: Vec<Uuid> = spouses.iter().map(|s| s.id).collect();
         family_spouse::Entity::delete_many()
-            .filter(family_spouse::Column::FamilyId.eq(union.family_id))
+            .filter(family_spouse::Column::FamilyId.eq(family_id))
             .filter(family_spouse::Column::Id.is_not_in(wanted))
             .exec(self.db)
             .await
             .map_err(db_err)?;
-        for spouse in &union.spouses {
+        for spouse in spouses {
             if !self.person_is_live(spouse.person_id).await? {
                 continue;
             }
             let row = family_spouse::ActiveModel {
                 id: Set(spouse.id),
-                family_id: Set(union.family_id),
+                family_id: Set(family_id),
                 person_id: Set(spouse.person_id),
                 role: Set(spouse.role.into()),
                 sort_order: Set(spouse.sort_order),
             };
-            upsert(self.db, row, family_spouse::Entity::find_by_id(spouse.id)).await?;
+            upsert(
+                self.db,
+                row,
+                family_spouse::Entity::find_by_id(spouse.id),
+                &[],
+            )
+            .await?;
         }
+        Ok(())
+    }
 
-        let wanted: Vec<Uuid> = union.children.iter().map(|c| c.id).collect();
+    /// Replace a family's child links with the snapshot's, skipping persons
+    /// who no longer exist.
+    async fn children(
+        &mut self,
+        family_id: Uuid,
+        children: &[ChildLinkSnapshot],
+    ) -> Result<(), OxidGeneError> {
+        let wanted: Vec<Uuid> = children.iter().map(|c| c.id).collect();
         family_child::Entity::delete_many()
-            .filter(family_child::Column::FamilyId.eq(union.family_id))
+            .filter(family_child::Column::FamilyId.eq(family_id))
             .filter(family_child::Column::Id.is_not_in(wanted))
             .exec(self.db)
             .await
             .map_err(db_err)?;
-        for child in &union.children {
+        for child in children {
             if self.person_is_live(child.person_id).await? {
                 self.child_link(child).await?;
             }
         }
-
-        self.events(EventOwner::Family(union.family_id), &union.events)
-            .await?;
-        self.notes(NoteOwner::Family(union.family_id), &union.notes)
-            .await?;
-        self.citations(CitationOwner::Family(union.family_id), &union.citations)
-            .await
+        Ok(())
     }
 
     async fn family_is_live(&mut self, family_id: Uuid) -> Result<bool, OxidGeneError> {
@@ -1507,18 +1632,23 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
     }
 }
 
-/// Update a row that exists, insert it otherwise.
+/// Update a row that exists, keeping its stored value of the `kept`
+/// columns; insert it otherwise.
 async fn upsert<E, A>(
     db: &impl ConnectionTrait,
-    row: A,
+    mut row: A,
     existing: sea_orm::Select<E>,
+    kept: &[E::Column],
 ) -> Result<(), OxidGeneError>
 where
     E: EntityTrait,
     A: ActiveModelTrait<Entity = E> + ActiveModelBehavior + Send,
     E::Model: IntoActiveModel<A>,
 {
-    if existing.one(db).await.map_err(db_err)?.is_some() {
+    if let Some(existing) = existing.one(db).await.map_err(db_err)? {
+        for column in kept {
+            row.set(*column, existing.get(*column));
+        }
         row.update(db).await.map_err(db_err)?;
     } else {
         row.insert(db).await.map_err(db_err)?;

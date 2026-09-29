@@ -32,7 +32,7 @@ use crate::entities::{
     citation, event, family_spouse, media, media_link, person, person_name, place, sea_enums,
     source, vignette,
 };
-use crate::repo::batch::in_chunks;
+use crate::repo::batch::{in_chunks, sorted_unique};
 
 /// A distinct free-text value (surname, occupation label) plus the number of
 /// persons carrying it.
@@ -508,7 +508,7 @@ impl DictionaryRepo {
         .await?;
         person_ids.extend(events.into_iter().filter_map(|e| e.person_id));
 
-        Ok(dedup(person_ids))
+        Ok(sorted_unique(person_ids))
     }
 
     /// Distinct live persons a place concerns: those whose own events take
@@ -605,7 +605,7 @@ impl DictionaryRepo {
         }
 
         // A couple is its spouses.
-        let spouses = in_chunks(&dedup(families), |chunk| async move {
+        let spouses = in_chunks(&sorted_unique(families), |chunk| async move {
             family_spouse::Entity::find()
                 .filter(family_spouse::Column::FamilyId.is_in(chunk))
                 .all(db)
@@ -615,7 +615,7 @@ impl DictionaryRepo {
         .await?;
         persons.extend(spouses.into_iter().map(|s| s.person_id));
 
-        let persons = dedup(persons);
+        let persons = sorted_unique(persons);
         let live: HashSet<Uuid> = in_chunks(&persons, |chunk| async move {
             person::Entity::find()
                 .select_only()
@@ -648,7 +648,7 @@ impl DictionaryRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
-        Ok(dedup(
+        Ok(sorted_unique(
             events.into_iter().filter_map(|e| e.person_id).collect(),
         ))
     }
@@ -676,7 +676,7 @@ impl DictionaryRepo {
             .await
             .map_err(|e| OxidGeneError::Database(e.to_string()))?;
 
-        Ok(dedup(
+        Ok(sorted_unique(
             names
                 .into_iter()
                 .filter(|n| is_spelled(n, value))
@@ -1053,12 +1053,6 @@ fn sorted_entries_with(
         .collect();
     out.sort_by_cached_key(|a| a.value.to_lowercase());
     out
-}
-
-fn dedup(mut ids: Vec<Uuid>) -> Vec<Uuid> {
-    ids.sort();
-    ids.dedup();
-    ids
 }
 
 fn into_source(m: source::Model) -> Source {

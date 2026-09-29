@@ -422,7 +422,7 @@ impl PersonSearchRepo {
             let match_expr = surname
                 .split_whitespace()
                 .chain(given_names.split_whitespace())
-                .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
+                .map(fts_phrase)
                 .collect::<Vec<_>>()
                 .join(" ");
             conditions.push(format!(
@@ -492,174 +492,15 @@ impl PersonSearchRepo {
         offset: u64,
     ) -> Statement {
         let mut values = Vec::new();
-        let mut conditions = Vec::new();
-
-        conditions.push(format!(
+        let mut conditions = vec![format!(
             "tree_id = {}",
             push_value(&mut values, backend, tree_id.to_string().into())
-        ));
-
-        if !words.is_empty() {
-            if backend == DbBackend::Sqlite {
-                let match_expr = words
-                    .iter()
-                    .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                conditions.push(format!(
-                    "person_search_fts MATCH {}",
-                    push_value(&mut values, backend, match_expr.into())
-                ));
-            } else {
-                // Prefix, not substring: FTS5 above matches `"word"*`, and the
-                // two backends have to answer the same question. Prefix is
-                // also the indexable half of the choice, and the one a
-                // typeahead wants.
-                for word in words {
-                    let param = push_value(&mut values, backend, format!("{word}%").into());
-                    conditions.push(format!(
-                        "(surname LIKE {param} OR given_names LIKE {param} OR \
-                         COALESCE(maiden_name, '') LIKE {param} OR \
-                         COALESCE(birth_year, '') LIKE {param} OR \
-                         COALESCE(death_year, '') LIKE {param})"
-                    ));
-                }
-            }
-        }
-
-        if let Some(sex) = filters.sex {
-            let param = push_value(&mut values, backend, sex.to_string().into());
-            conditions.push(format!("sex = {param}"));
-        }
-        push_name_filters(
-            &mut values,
-            &mut conditions,
-            backend,
-            filters.surname.as_deref(),
-            filters.given_names.as_deref(),
-        );
-        for (column, operator, year) in [
-            ("birth_year", ">=", filters.birth_from),
-            ("birth_year", "<=", filters.birth_to),
-            ("death_year", ">=", filters.death_from),
-            ("death_year", "<=", filters.death_to),
-        ] {
-            if let Some(year) = year {
-                let param = push_value(&mut values, backend, i64::from(year).into());
-                conditions.push(format!("CAST({column} AS INTEGER) {operator} {param}"));
-            }
-        }
-
-        if filters
-            .place
-            .as_ref()
-            .is_some_and(|place| !place.trim().is_empty())
-            || filters.event_type.is_some()
-            || filters.event_from.is_some()
-            || filters.event_to.is_some()
-        {
-            let event_person_id = uuid_as_text(backend, "e.person_id");
-            let spouse_person_id = uuid_as_text(backend, "fs.person_id");
-            let mut event_conditions = vec![
-                "e.deleted_at IS NULL".to_string(),
-                format!(
-                    "({event_person_id} = person_search_fts.person_id OR EXISTS (\
-                    SELECT 1 FROM family_spouse fs WHERE fs.family_id = e.family_id \
-                    AND {spouse_person_id} = person_search_fts.person_id))"
-                ),
-            ];
-            if let Some(place) = filters
-                .place
-                .as_ref()
-                .filter(|place| !place.trim().is_empty())
-            {
-                let param = push_value(
-                    &mut values,
-                    backend,
-                    format!("%{}%", place.trim().to_lowercase()).into(),
-                );
-                event_conditions.push(format!("LOWER(p.name) LIKE {param}"));
-            }
-            if let Some(event_type) = filters.event_type {
-                let param = push_value(&mut values, backend, event_type.to_string().into());
-                event_conditions.push(format!("e.event_type = {param}"));
-            }
-            if let Some(year) = filters.event_from {
-                let param = push_value(&mut values, backend, format!("{year:04}-01-01").into());
-                event_conditions.push(format!("CAST(e.date_sort AS TEXT) >= {param}"));
-            }
-            if let Some(year) = filters.event_to {
-                let param = push_value(&mut values, backend, format!("{year:04}-12-31").into());
-                event_conditions.push(format!("CAST(e.date_sort AS TEXT) <= {param}"));
-            }
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM event e LEFT JOIN place p ON p.id = e.place_id WHERE {})",
-                event_conditions.join(" AND ")
-            ));
-        }
-
-        if let Some(occupation) = filters
-            .occupation
-            .as_ref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            let param = push_value(
-                &mut values,
-                backend,
-                format!("%{}%", occupation.trim().to_lowercase()).into(),
-            );
-            let occupation_person_id = uuid_as_text(backend, "oe.person_id");
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM event oe WHERE oe.deleted_at IS NULL \
-                 AND oe.event_type = 'occupation' \
-                 AND {occupation_person_id} = person_search_fts.person_id \
-                 AND LOWER(COALESCE(oe.description, '')) LIKE {param})"
-            ));
-        }
-
-        // Relatives are matched on this row's own denormalized columns rather
-        // than by joining back to `person_name`. That is what makes these
-        // filters accent-folded like the subject's own name — SQL cannot fold
-        // accents portably, so the folding has to happen where the row is
-        // written — and it drops three correlated EXISTS subqueries.
-        for (column, value) in [
-            ("spouse_surnames", filters.spouse_surname.as_deref()),
-            ("spouse_given_names", filters.spouse_given_names.as_deref()),
-            ("father_surname", filters.father_surname.as_deref()),
-            ("father_given_names", filters.father_given_names.as_deref()),
-            ("mother_surname", filters.mother_surname.as_deref()),
-            ("mother_given_names", filters.mother_given_names.as_deref()),
-        ] {
-            if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
-                let param = push_value(
-                    &mut values,
-                    backend,
-                    format!("%{}%", normalize_for_search(value.trim())).into(),
-                );
-                conditions.push(format!("COALESCE({column}, '') LIKE {param}"));
-            }
-        }
-
-        if filters.has_media {
-            let media_person_id = uuid_as_text(backend, "ml.person_id");
-            conditions.push(format!(
-                "EXISTS (SELECT 1 FROM media_link ml JOIN media m ON m.id = ml.media_id \
-                 WHERE {media_person_id} = person_search_fts.person_id \
-                 AND m.deleted_at IS NULL)"
-            ));
-        }
-
-        let order = match sort {
-            PersonSearchSort::Relevance => relevance_order(&mut values, backend, words, filters),
-            PersonSearchSort::NameAsc => "surname, given_names".to_string(),
-            PersonSearchSort::NameDesc => "surname DESC, given_names DESC".to_string(),
-            PersonSearchSort::BirthAsc => {
-                "date_sort IS NULL, date_sort, surname, given_names".to_string()
-            }
-            PersonSearchSort::BirthDesc => {
-                "date_sort IS NULL, date_sort DESC, surname, given_names".to_string()
-            }
-        };
+        )];
+        push_word_conditions(&mut values, &mut conditions, backend, words);
+        push_person_filters(&mut values, &mut conditions, backend, filters);
+        push_event_filters(&mut values, &mut conditions, backend, filters);
+        push_relative_filters(&mut values, &mut conditions, backend, filters);
+        let order = sort_order(&mut values, backend, words, filters, sort);
         let limit_param = push_value(&mut values, backend, (limit as i64).into());
         let offset_param = push_value(&mut values, backend, (offset as i64).into());
         let sql = format!(
@@ -816,13 +657,224 @@ fn push_name_filters(
     given_names: Option<&str>,
 ) {
     for (column, value) in [("surname", surname), ("given_names", given_names)] {
-        if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
-            let param = push_value(
-                values,
-                backend,
-                format!("%{}%", normalize_for_search(value.trim())).into(),
-            );
-            conditions.push(format!("{column} LIKE {param}"));
+        push_folded_like(values, conditions, backend, column, value);
+    }
+}
+
+/// A case- and accent-insensitive substring filter on `column`, which holds
+/// folded text. Blank is no constraint.
+fn push_folded_like(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    column: &str,
+    value: Option<&str>,
+) {
+    if let Some(value) = non_blank(value) {
+        let param = push_value(
+            values,
+            backend,
+            format!("%{}%", normalize_for_search(value.trim())).into(),
+        );
+        conditions.push(format!("{column} LIKE {param}"));
+    }
+}
+
+/// The value, unless it is missing or only whitespace.
+fn non_blank(value: Option<&str>) -> Option<&str> {
+    value.filter(|value| !value.trim().is_empty())
+}
+
+/// A word of the query as an FTS5 phrase, its quotes doubled.
+fn fts_phrase(word: &str) -> String {
+    format!("\"{}\"", word.replace('"', "\"\""))
+}
+
+/// The free-text words: an FTS5 `MATCH` of their prefixes on SQLite, a
+/// prefix `LIKE` over the same columns elsewhere.
+fn push_word_conditions(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    words: &[String],
+) {
+    if words.is_empty() {
+        return;
+    }
+    if backend == DbBackend::Sqlite {
+        let match_expr = words
+            .iter()
+            .map(|word| format!("{}*", fts_phrase(word)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        conditions.push(format!(
+            "person_search_fts MATCH {}",
+            push_value(values, backend, match_expr.into())
+        ));
+        return;
+    }
+    // Prefix, not substring: FTS5 above matches `"word"*`, and the
+    // two backends have to answer the same question. Prefix is
+    // also the indexable half of the choice, and the one a
+    // typeahead wants.
+    for word in words {
+        let param = push_value(values, backend, format!("{word}%").into());
+        conditions.push(format!(
+            "(surname LIKE {param} OR given_names LIKE {param} OR \
+             COALESCE(maiden_name, '') LIKE {param} OR \
+             COALESCE(birth_year, '') LIKE {param} OR \
+             COALESCE(death_year, '') LIKE {param})"
+        ));
+    }
+}
+
+/// The filters on the person's own row: sex, primary name, and birth and
+/// death years.
+fn push_person_filters(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    filters: &PersonSearchFilters,
+) {
+    if let Some(sex) = filters.sex {
+        let param = push_value(values, backend, sex.to_string().into());
+        conditions.push(format!("sex = {param}"));
+    }
+    push_name_filters(
+        values,
+        conditions,
+        backend,
+        filters.surname.as_deref(),
+        filters.given_names.as_deref(),
+    );
+    for (column, operator, year) in [
+        ("birth_year", ">=", filters.birth_from),
+        ("birth_year", "<=", filters.birth_to),
+        ("death_year", ">=", filters.death_from),
+        ("death_year", "<=", filters.death_to),
+    ] {
+        if let Some(year) = year {
+            let param = push_value(values, backend, i64::from(year).into());
+            conditions.push(format!("CAST({column} AS INTEGER) {operator} {param}"));
+        }
+    }
+}
+
+/// The filters on the person's events: one event (their own or a family's
+/// they are a spouse in) matching place, type and years together, and an
+/// occupation.
+fn push_event_filters(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    filters: &PersonSearchFilters,
+) {
+    let place = non_blank(filters.place.as_deref());
+    if place.is_some()
+        || filters.event_type.is_some()
+        || filters.event_from.is_some()
+        || filters.event_to.is_some()
+    {
+        let event_person_id = uuid_as_text(backend, "e.person_id");
+        let spouse_person_id = uuid_as_text(backend, "fs.person_id");
+        let mut event_conditions = vec![
+            "e.deleted_at IS NULL".to_string(),
+            format!(
+                "({event_person_id} = person_search_fts.person_id OR EXISTS (\
+                SELECT 1 FROM family_spouse fs WHERE fs.family_id = e.family_id \
+                AND {spouse_person_id} = person_search_fts.person_id))"
+            ),
+        ];
+        if let Some(place) = place {
+            let param = push_value(values, backend, lowercase_contains(place));
+            event_conditions.push(format!("LOWER(p.name) LIKE {param}"));
+        }
+        if let Some(event_type) = filters.event_type {
+            let param = push_value(values, backend, event_type.to_string().into());
+            event_conditions.push(format!("e.event_type = {param}"));
+        }
+        if let Some(year) = filters.event_from {
+            let param = push_value(values, backend, format!("{year:04}-01-01").into());
+            event_conditions.push(format!("CAST(e.date_sort AS TEXT) >= {param}"));
+        }
+        if let Some(year) = filters.event_to {
+            let param = push_value(values, backend, format!("{year:04}-12-31").into());
+            event_conditions.push(format!("CAST(e.date_sort AS TEXT) <= {param}"));
+        }
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM event e LEFT JOIN place p ON p.id = e.place_id WHERE {})",
+            event_conditions.join(" AND ")
+        ));
+    }
+
+    if let Some(occupation) = non_blank(filters.occupation.as_deref()) {
+        let param = push_value(values, backend, lowercase_contains(occupation));
+        let occupation_person_id = uuid_as_text(backend, "oe.person_id");
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM event oe WHERE oe.deleted_at IS NULL \
+             AND oe.event_type = 'occupation' \
+             AND {occupation_person_id} = person_search_fts.person_id \
+             AND LOWER(COALESCE(oe.description, '')) LIKE {param})"
+        ));
+    }
+}
+
+/// A `LIKE` pattern for the trimmed value, lowercased, anywhere in the text.
+fn lowercase_contains(value: &str) -> Value {
+    format!("%{}%", value.trim().to_lowercase()).into()
+}
+
+/// The filters on relatives, and on attached media.
+fn push_relative_filters(
+    values: &mut Vec<Value>,
+    conditions: &mut Vec<String>,
+    backend: DbBackend,
+    filters: &PersonSearchFilters,
+) {
+    // Relatives are matched on this row's own denormalized columns rather
+    // than by joining back to `person_name`. That is what makes these
+    // filters accent-folded like the subject's own name — SQL cannot fold
+    // accents portably, so the folding has to happen where the row is
+    // written — and it drops three correlated EXISTS subqueries.
+    for (column, value) in [
+        ("spouse_surnames", filters.spouse_surname.as_deref()),
+        ("spouse_given_names", filters.spouse_given_names.as_deref()),
+        ("father_surname", filters.father_surname.as_deref()),
+        ("father_given_names", filters.father_given_names.as_deref()),
+        ("mother_surname", filters.mother_surname.as_deref()),
+        ("mother_given_names", filters.mother_given_names.as_deref()),
+    ] {
+        let column = format!("COALESCE({column}, '')");
+        push_folded_like(values, conditions, backend, &column, value);
+    }
+
+    if filters.has_media {
+        let media_person_id = uuid_as_text(backend, "ml.person_id");
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM media_link ml JOIN media m ON m.id = ml.media_id \
+             WHERE {media_person_id} = person_search_fts.person_id \
+             AND m.deleted_at IS NULL)"
+        ));
+    }
+}
+
+/// The `ORDER BY` clause of a sort.
+fn sort_order(
+    values: &mut Vec<Value>,
+    backend: DbBackend,
+    words: &[String],
+    filters: &PersonSearchFilters,
+    sort: PersonSearchSort,
+) -> String {
+    match sort {
+        PersonSearchSort::Relevance => relevance_order(values, backend, words, filters),
+        PersonSearchSort::NameAsc => "surname, given_names".to_string(),
+        PersonSearchSort::NameDesc => "surname DESC, given_names DESC".to_string(),
+        PersonSearchSort::BirthAsc => {
+            "date_sort IS NULL, date_sort, surname, given_names".to_string()
+        }
+        PersonSearchSort::BirthDesc => {
+            "date_sort IS NULL, date_sort DESC, surname, given_names".to_string()
         }
     }
 }
@@ -887,5 +939,170 @@ fn uuid_as_text(backend: DbBackend, column: &str) -> String {
              SUBSTR(HEX({column}), 21, 12))"
         ),
         _ => format!("CAST({column} AS TEXT)"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every filter set, with a blank one and an absent one among them.
+    fn every_filter() -> PersonSearchFilters {
+        PersonSearchFilters {
+            sex: Some(Sex::Female),
+            surname: Some(" Dóe ".into()),
+            given_names: Some("Ann".into()),
+            occupation: Some(" Baker ".into()),
+            spouse_surname: Some("Roe".into()),
+            spouse_given_names: Some("  ".into()),
+            father_surname: Some("Poe".into()),
+            father_given_names: Some("Bob".into()),
+            mother_surname: None,
+            mother_given_names: Some("Eve".into()),
+            birth_from: Some(1800),
+            birth_to: Some(1900),
+            death_from: None,
+            death_to: Some(1950),
+            place: Some(" Springfield ".into()),
+            event_type: Some(EventType::Birth),
+            event_from: Some(1820),
+            event_to: Some(1830),
+            has_media: true,
+        }
+    }
+
+    fn values(stmt: &Statement) -> Vec<Value> {
+        stmt.values.clone().map(|v| v.0).unwrap_or_default()
+    }
+
+    #[test]
+    fn filtered_statement_binds_every_filter_in_order() {
+        let words = ["an\"n".to_string(), "doe".to_string()];
+        let stmt = PersonSearchRepo::filtered_statement(
+            DbBackend::Postgres,
+            Uuid::nil(),
+            &words,
+            &every_filter(),
+            PersonSearchSort::Relevance,
+            25,
+            50,
+        );
+        let word = |n: usize| {
+            format!(
+                "(surname LIKE ${n} OR given_names LIKE ${n} OR \
+                 COALESCE(maiden_name, '') LIKE ${n} OR \
+                 COALESCE(birth_year, '') LIKE ${n} OR \
+                 COALESCE(death_year, '') LIKE ${n})"
+            )
+        };
+        let expected = format!(
+            "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count FROM person_search_fts \
+             WHERE tree_id = $1 AND {} AND {} AND sex = $4 AND surname LIKE $5 \
+             AND given_names LIKE $6 AND CAST(birth_year AS INTEGER) >= $7 \
+             AND CAST(birth_year AS INTEGER) <= $8 AND CAST(death_year AS INTEGER) <= $9 \
+             AND EXISTS (SELECT 1 FROM event e LEFT JOIN place p ON p.id = e.place_id \
+             WHERE e.deleted_at IS NULL AND (CAST(e.person_id AS TEXT) = \
+             person_search_fts.person_id OR EXISTS (SELECT 1 FROM family_spouse fs \
+             WHERE fs.family_id = e.family_id AND CAST(fs.person_id AS TEXT) = \
+             person_search_fts.person_id)) AND LOWER(p.name) LIKE $10 \
+             AND e.event_type = $11 AND CAST(e.date_sort AS TEXT) >= $12 \
+             AND CAST(e.date_sort AS TEXT) <= $13) \
+             AND EXISTS (SELECT 1 FROM event oe WHERE oe.deleted_at IS NULL \
+             AND oe.event_type = 'occupation' AND CAST(oe.person_id AS TEXT) = \
+             person_search_fts.person_id AND LOWER(COALESCE(oe.description, '')) LIKE $14) \
+             AND COALESCE(spouse_surnames, '') LIKE $15 \
+             AND COALESCE(father_surname, '') LIKE $16 \
+             AND COALESCE(father_given_names, '') LIKE $17 \
+             AND COALESCE(mother_given_names, '') LIKE $18 \
+             AND EXISTS (SELECT 1 FROM media_link ml JOIN media m ON m.id = ml.media_id \
+             WHERE CAST(ml.person_id AS TEXT) = person_search_fts.person_id \
+             AND m.deleted_at IS NULL) \
+             ORDER BY CASE WHEN surname LIKE $19 THEN 0 WHEN given_names LIKE $20 THEN 1 \
+             ELSE 2 END, surname, given_names LIMIT $21 OFFSET $22",
+            word(2),
+            word(3),
+        );
+        assert_eq!(stmt.sql, expected);
+        let text = |s: &str| Value::from(s.to_string());
+        assert_eq!(
+            values(&stmt),
+            vec![
+                text("00000000-0000-0000-0000-000000000000"),
+                text("an\"n%"),
+                text("doe%"),
+                text("female"),
+                text("%doe%"),
+                text("%ann%"),
+                Value::from(1800_i64),
+                Value::from(1900_i64),
+                Value::from(1950_i64),
+                text("%springfield%"),
+                text("birth"),
+                text("1820-01-01"),
+                text("1830-12-31"),
+                text("%baker%"),
+                text("%roe%"),
+                text("%poe%"),
+                text("%bob%"),
+                text("%eve%"),
+                text("an\"n%"),
+                text("an\"n%"),
+                Value::from(25_i64),
+                Value::from(50_i64),
+            ]
+        );
+    }
+
+    #[test]
+    fn filtered_statement_matches_quoted_word_prefixes_on_sqlite() {
+        let words = ["an\"n".to_string(), "doe".to_string()];
+        let stmt = PersonSearchRepo::filtered_statement(
+            DbBackend::Sqlite,
+            Uuid::nil(),
+            &words,
+            &PersonSearchFilters::default(),
+            PersonSearchSort::NameAsc,
+            25,
+            50,
+        );
+        assert_eq!(
+            stmt.sql,
+            format!(
+                "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count FROM person_search_fts \
+                 WHERE tree_id = ? AND person_search_fts MATCH ? \
+                 ORDER BY surname, given_names LIMIT ? OFFSET ?"
+            )
+        );
+        assert_eq!(
+            values(&stmt)[1],
+            Value::from("\"an\"\"n\"* \"doe\"*".to_string())
+        );
+    }
+
+    #[test]
+    fn filtered_statement_ignores_blank_filters() {
+        let filters = PersonSearchFilters {
+            place: Some("  ".into()),
+            occupation: Some(" ".into()),
+            surname: Some(" ".into()),
+            mother_surname: Some("\t".into()),
+            ..PersonSearchFilters::default()
+        };
+        let stmt = PersonSearchRepo::filtered_statement(
+            DbBackend::Postgres,
+            Uuid::nil(),
+            &[],
+            &filters,
+            PersonSearchSort::Relevance,
+            25,
+            50,
+        );
+        assert_eq!(
+            stmt.sql,
+            format!(
+                "SELECT {COLUMNS}, COUNT(*) OVER () AS total_count FROM person_search_fts \
+                 WHERE tree_id = $1 ORDER BY surname, given_names LIMIT $2 OFFSET $3"
+            )
+        );
     }
 }
