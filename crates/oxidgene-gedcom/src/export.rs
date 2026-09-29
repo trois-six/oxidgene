@@ -98,89 +98,140 @@ pub fn export_gedcom(
     );
     let build_guard = build_span.enter();
 
-    // ── Build UUID → xref maps ──────────────────────────────────────
-    let mut person_xref: HashMap<Uuid, String> = HashMap::new();
-    for (i, p) in persons.iter().enumerate() {
-        person_xref.insert(p.id, format!("@I{}@", i + 1));
+    let xrefs = Xrefs::new(persons, families, sources, media);
+    let assoc_by_person = associations(events, event_witnesses, &xrefs);
+    let index = ExportIndex {
+        place_map: places.iter().map(|p| (p.id, p)).collect(),
+        media_by_id: media.iter().map(|m| (m.id, m)).collect(),
+        pages_of: pages_of(media),
+        names_by_person: group_by(person_names, |pn| Some(pn.person_id)),
+        events_by_person: group_by(events, |evt| evt.person_id),
+        events_by_family: group_by(events, |evt| evt.family_id),
+        assoc_by_person,
+        cites_by_person: group_by(citations, |cite| cite.person_id),
+        cites_by_event: group_by(citations, |cite| cite.event_id),
+        // A family's own citations: those on its events are written there.
+        cites_by_family: group_by(citations, |cite| {
+            cite.family_id.filter(|_| cite.event_id.is_none())
+        }),
+        notes_by_person: group_by(notes, |note| note.person_id),
+        notes_by_family: group_by(notes, |note| note.family_id),
+        notes_by_source: group_by(notes, |note| note.source_id),
+        notes_by_event: group_by(notes, |note| note.event_id),
+        notes_by_media: group_by(notes, |note| note.media_id),
+        mlinks_by_person: group_by(media_links, |ml| ml.person_id),
+        mlinks_by_event: group_by(media_links, |ml| ml.event_id),
+        mlinks_by_family: group_by(media_links, |ml| ml.family_id),
+        spouses_by_family: group_by(family_spouses, |fs| Some(fs.family_id)),
+        children_by_family: group_by(family_children, |fc| Some(fc.family_id)),
+        // person_id → families (for INDI-level FAMS/FAMC back-links, without
+        // which the exported file has no individual↔family linkage at all —
+        // most GEDCOM readers rely on FAMS/FAMC rather than cross-referencing
+        // FAM's own HUSB/WIFE/CHIL back to individuals).
+        fams_by_person: group_by(family_spouses, |fs| Some(fs.person_id)),
+        famc_by_person: group_by(family_children, |fc| Some(fc.person_id)),
+        xrefs,
+    };
+
+    let mut data = GedcomData {
+        header: Some(gedcom_header()),
+        ..Default::default()
+    };
+    data.sources = sources.iter().map(|src| index.source(src)).collect();
+    data.multimedia = media
+        .iter()
+        // Dissolved into its pages, which carry the bytes; see `pages_of`.
+        .filter(|m| !m.is_document())
+        .map(|m| index.multimedia(m, media_paths))
+        .collect();
+    for person in persons {
+        let individual = index.individual(person, merge_names, merge_occupations, &mut warnings);
+        data.individuals.push(individual);
+    }
+    for fam in families {
+        let family = index.family(fam, &mut warnings);
+        data.families.push(family);
     }
 
-    let mut family_xref: HashMap<Uuid, String> = HashMap::new();
-    for (i, f) in families.iter().enumerate() {
-        family_xref.insert(f.id, format!("@F{}@", i + 1));
-    }
+    drop(build_guard);
 
-    let mut source_xref: HashMap<Uuid, String> = HashMap::new();
-    for (i, s) in sources.iter().enumerate() {
-        source_xref.insert(s.id, format!("@S{}@", i + 1));
-    }
+    let gedcom = write_gedcom(&data)?;
+    let (gedcom, extension_warnings) = inject_extensions(gedcom, media, vignettes, &index);
+    warnings.extend(extension_warnings);
 
-    // Only pages become records: a document holds no bytes and is dissolved
-    // into them. Numbering just the pages keeps the xrefs contiguous rather
-    // than leaving a gap wherever a document sat in the list.
-    let mut media_xref: HashMap<Uuid, String> = HashMap::new();
-    for (i, m) in media.iter().filter(|m| !m.is_document()).enumerate() {
-        media_xref.insert(m.id, format!("@M{}@", i + 1));
-    }
+    Ok(ExportResult { gedcom, warnings })
+}
 
-    // ── Build lookup indexes ─────────────────────────────────────────
-    let place_map: HashMap<Uuid, &Place> = places.iter().map(|p| (p.id, p)).collect();
+/// The GEDCOM cross-reference of every record the export writes, by id.
+struct Xrefs {
+    person: HashMap<Uuid, String>,
+    family: HashMap<Uuid, String>,
+    source: HashMap<Uuid, String>,
+    media: HashMap<Uuid, String>,
+}
 
-    // person_id → names
-    let mut names_by_person: HashMap<Uuid, Vec<&PersonName>> = HashMap::new();
-    for pn in person_names {
-        names_by_person.entry(pn.person_id).or_default().push(pn);
-    }
-
-    // entity_id → events
-    let mut events_by_person: HashMap<Uuid, Vec<&Event>> = HashMap::new();
-    let mut events_by_family: HashMap<Uuid, Vec<&Event>> = HashMap::new();
-    for evt in events {
-        if let Some(pid) = evt.person_id {
-            events_by_person.entry(pid).or_default().push(evt);
+impl Xrefs {
+    fn new(persons: &[Person], families: &[Family], sources: &[Source], media: &[Media]) -> Self {
+        Self {
+            person: numbered("I", persons.iter().map(|p| p.id)),
+            family: numbered("F", families.iter().map(|f| f.id)),
+            source: numbered("S", sources.iter().map(|s| s.id)),
+            // Only pages become records: a document holds no bytes and is
+            // dissolved into them. Numbering just the pages keeps the xrefs
+            // contiguous rather than leaving a gap wherever a document sat in
+            // the list.
+            media: numbered("M", media.iter().filter(|m| !m.is_document()).map(|m| m.id)),
         }
-        if let Some(fid) = evt.family_id {
-            events_by_family.entry(fid).or_default().push(evt);
+    }
+}
+
+/// `@{prefix}{n}@` for each id, numbered from 1 in order.
+fn numbered(prefix: &str, ids: impl Iterator<Item = Uuid>) -> HashMap<Uuid, String> {
+    ids.enumerate()
+        .map(|(i, id)| (id, format!("@{prefix}{}@", i + 1)))
+        .collect()
+}
+
+/// The rows of a slice grouped by the record `key` attaches each to, in slice
+/// order. A row `key` attaches to nothing is left out.
+fn group_by<T>(rows: &[T], key: impl Fn(&T) -> Option<Uuid>) -> HashMap<Uuid, Vec<&T>> {
+    let mut grouped: HashMap<Uuid, Vec<&T>> = HashMap::new();
+    for row in rows {
+        if let Some(id) = key(row) {
+            grouped.entry(id).or_default().push(row);
         }
     }
+    grouped
+}
 
-    // event_id → witnesses
-    let mut witnesses_by_event: HashMap<Uuid, Vec<&EventWitness>> = HashMap::new();
-    for w in event_witnesses {
-        witnesses_by_event.entry(w.event_id).or_default().push(w);
-    }
-
-    // GEDCOM only allows `ASSO` as a level-1 substructure of an INDI record
-    // (GEDCOM 5.5.1 grammar; confirmed against real-world Gramps output and
-    // rejected by Gramps as an unsupported tag when nested inside an event
-    // detail). Which INDI record it's attached to, and what it points at,
-    // depends on whether the witnessed event belongs to a person or a family:
-    //   - family event (e.g. a marriage): attached to the *witness's* own
-    //     INDI record, pointing at the family — mirrors how Gramps itself
-    //     writes it (`1 ASSO @F1@` / `2 RELA witness`).
-    //   - individual event (e.g. a burial): attached to the *event owner's*
-    //     own INDI record, pointing at the witness
-    //     (`1 ASSO @I2@` / `2 RELA witness`).
-    // A person with several individual events sharing a witness can't
-    // disambiguate which event on GEDCOM re-import (the format has no way
-    // to nest ASSO under a specific event and still be portable) — this is
-    // an inherent GEDCOM/Gramps limitation, not something round-tripped.
+/// The `ASSO` structures each individual record carries for the witnesses.
+///
+/// GEDCOM only allows `ASSO` as a level-1 substructure of an INDI record
+/// (GEDCOM 5.5.1 grammar; confirmed against real-world Gramps output and
+/// rejected by Gramps as an unsupported tag when nested inside an event
+/// detail). Which INDI record it's attached to, and what it points at,
+/// depends on whether the witnessed event belongs to a person or a family:
+///   - family event (e.g. a marriage): attached to the *witness's* own
+///     INDI record, pointing at the family — mirrors how Gramps itself
+///     writes it (`1 ASSO @F1@` / `2 RELA witness`).
+///   - individual event (e.g. a burial): attached to the *event owner's*
+///     own INDI record, pointing at the witness
+///     (`1 ASSO @I2@` / `2 RELA witness`).
+///
+/// A person with several individual events sharing a witness can't
+/// disambiguate which event on GEDCOM re-import (the format has no way
+/// to nest ASSO under a specific event and still be portable) — this is
+/// an inherent GEDCOM/Gramps limitation, not something round-tripped.
+fn associations(
+    events: &[Event],
+    event_witnesses: &[EventWitness],
+    xrefs: &Xrefs,
+) -> HashMap<Uuid, Vec<GedAssociation>> {
+    let witnesses_by_event = group_by(event_witnesses, |w| Some(w.event_id));
     let mut assoc_by_person: HashMap<Uuid, Vec<GedAssociation>> = HashMap::new();
     for evt in events {
-        let Some(witnesses) = witnesses_by_event.get(&evt.id) else {
-            continue;
-        };
-        for w in witnesses {
-            let Some(witness_xref) = person_xref.get(&w.person_id) else {
-                continue;
-            };
-            let (owner, target_xref) = if let Some(family_id) = evt.family_id {
-                let Some(fam_xref) = family_xref.get(&family_id) else {
-                    continue;
-                };
-                (w.person_id, fam_xref.clone())
-            } else if let Some(person_id) = evt.person_id {
-                (person_id, witness_xref.clone())
-            } else {
+        for w in witnesses_by_event.get(&evt.id).into_iter().flatten() {
+            let Some((owner, target_xref)) = association_target(evt, w, xrefs) else {
                 continue;
             };
             assoc_by_person
@@ -195,97 +246,42 @@ pub fn export_gedcom(
                 });
         }
     }
+    assoc_by_person
+}
 
-    // entity_id → citations
-    let mut cites_by_person: HashMap<Uuid, Vec<&Citation>> = HashMap::new();
-    let mut cites_by_event: HashMap<Uuid, Vec<&Citation>> = HashMap::new();
-    let mut cites_by_family: HashMap<Uuid, Vec<&Citation>> = HashMap::new();
-    for cite in citations {
-        if let Some(pid) = cite.person_id {
-            cites_by_person.entry(pid).or_default().push(cite);
-        }
-        if let Some(eid) = cite.event_id {
-            cites_by_event.entry(eid).or_default().push(cite);
-        }
-        if let Some(fid) = cite.family_id
-            && cite.event_id.is_none()
-        {
-            cites_by_family.entry(fid).or_default().push(cite);
-        }
+/// The person whose record carries a witness's `ASSO`, and the xref it points
+/// at — see [`associations`]. `None` when either end is not exported.
+fn association_target(evt: &Event, w: &EventWitness, xrefs: &Xrefs) -> Option<(Uuid, String)> {
+    let witness_xref = xrefs.person.get(&w.person_id)?;
+    if let Some(family_id) = evt.family_id {
+        return Some((w.person_id, xrefs.family.get(&family_id)?.clone()));
     }
+    Some((evt.person_id?, witness_xref.clone()))
+}
 
-    // entity_id → notes
-    let mut notes_by_person: HashMap<Uuid, Vec<&Note>> = HashMap::new();
-    let mut notes_by_family: HashMap<Uuid, Vec<&Note>> = HashMap::new();
-    let mut notes_by_source: HashMap<Uuid, Vec<&Note>> = HashMap::new();
-    let mut notes_by_event: HashMap<Uuid, Vec<&Note>> = HashMap::new();
-    let mut notes_by_media: HashMap<Uuid, Vec<&Note>> = HashMap::new();
-    for note in notes {
-        if let Some(pid) = note.person_id {
-            notes_by_person.entry(pid).or_default().push(note);
-        }
-        if let Some(fid) = note.family_id {
-            notes_by_family.entry(fid).or_default().push(note);
-        }
-        if let Some(sid) = note.source_id {
-            notes_by_source.entry(sid).or_default().push(note);
-        }
-        if let Some(eid) = note.event_id {
-            notes_by_event.entry(eid).or_default().push(note);
-        }
-        if let Some(mid) = note.media_id {
-            notes_by_media.entry(mid).or_default().push(note);
-        }
+/// The pages of each multi-page document, in reading order.
+///
+/// A multi-page document is a container, and GEDCOM has no container at
+/// all. Rather than fake one, the document dissolves: its pages are
+/// exported as ordinary standalone media, and anything linked to the
+/// document is linked to every one of them.
+///
+/// The document's own row is not exported. It holds no bytes — its
+/// `file_path` is its *title*, which is what made a GEDZIP warn about an
+/// archive entry that could never exist — and writing it as its cover
+/// instead only produced a duplicate of page one while leaving the other
+/// thirty-seven attached to nobody.
+fn pages_of(media: &[Media]) -> HashMap<Uuid, Vec<&Media>> {
+    let mut pages_of = group_by(media, |m| m.parent_media_id);
+    for pages in pages_of.values_mut() {
+        pages.sort_by_key(|page| (page.page_index, page.id));
     }
+    pages_of
+}
 
-    // entity_id → media links
-    let mut mlinks_by_person: HashMap<Uuid, Vec<&MediaLink>> = HashMap::new();
-    let mut mlinks_by_event: HashMap<Uuid, Vec<&MediaLink>> = HashMap::new();
-    let mut mlinks_by_family: HashMap<Uuid, Vec<&MediaLink>> = HashMap::new();
-    let media_by_id: HashMap<Uuid, &Media> = media.iter().map(|m| (m.id, m)).collect();
-    for ml in media_links {
-        if let Some(pid) = ml.person_id {
-            mlinks_by_person.entry(pid).or_default().push(ml);
-        }
-        if let Some(eid) = ml.event_id {
-            mlinks_by_event.entry(eid).or_default().push(ml);
-        }
-        if let Some(fid) = ml.family_id {
-            mlinks_by_family.entry(fid).or_default().push(ml);
-        }
-    }
-
-    // family_id → spouses / children
-    let mut spouses_by_family: HashMap<Uuid, Vec<&FamilySpouse>> = HashMap::new();
-    for fs in family_spouses {
-        spouses_by_family.entry(fs.family_id).or_default().push(fs);
-    }
-    let mut children_by_family: HashMap<Uuid, Vec<&FamilyChild>> = HashMap::new();
-    for fc in family_children {
-        children_by_family.entry(fc.family_id).or_default().push(fc);
-    }
-
-    // person_id → families (for INDI-level FAMS/FAMC back-links, without
-    // which the exported file has no individual↔family linkage at all —
-    // most GEDCOM readers rely on FAMS/FAMC rather than cross-referencing
-    // FAM's own HUSB/WIFE/CHIL back to individuals).
-    let mut fams_by_person: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-    for fs in family_spouses {
-        fams_by_person
-            .entry(fs.person_id)
-            .or_default()
-            .push(fs.family_id);
-    }
-    let mut famc_by_person: HashMap<Uuid, Vec<(Uuid, ChildType)>> = HashMap::new();
-    for fc in family_children {
-        famc_by_person
-            .entry(fc.person_id)
-            .or_default()
-            .push((fc.family_id, fc.child_type));
-    }
-
-    // ── Build GEDCOM Header ──────────────────────────────────────────
-    let header = Header {
+/// The GEDCOM header naming OxidGene as the producer.
+fn gedcom_header() -> Header {
+    Header {
         gedcom: Some(HeadMeta {
             version: Some("5.5.1".to_string()),
             form: Some("LINEAGE-LINKED".to_string()),
@@ -301,66 +297,97 @@ pub fn export_gedcom(
             ..Default::default()
         }),
         ..Default::default()
-    };
+    }
+}
 
-    // ── Build GedcomData ─────────────────────────────────────────────
-    let mut data = GedcomData {
-        header: Some(header),
-        ..Default::default()
-    };
+/// Serialize the model to GEDCOM text.
+fn write_gedcom(data: &GedcomData) -> Result<String, String> {
+    let write_span =
+        tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
+    let gedcom = write_span
+        .in_scope(|| GedcomWriter::new().write_to_string(data))
+        .map_err(|e| format!("GEDCOM write error: {e}"))?;
+    write_span.record("export.output_bytes", gedcom.len());
+    Ok(gedcom)
+}
 
-    // ── Export Sources ────────────────────────────────────────────────
-    for src in sources {
-        let xref = source_xref.get(&src.id).cloned();
-        let ged_notes: Vec<GedNote> = notes_by_source
-            .get(&src.id)
-            .map(|ns| ns.iter().map(|n| to_ged_note(&n.text)).collect())
-            .unwrap_or_default();
+/// Add the OxidGene media extensions to the written GEDCOM.
+fn inject_extensions(
+    gedcom: String,
+    media: &[Media],
+    vignettes: &[Vignette],
+    index: &ExportIndex,
+) -> (String, Vec<String>) {
+    let extensions_span = tracing::info_span!(
+        "export.inject_extensions",
+        export.input_bytes = gedcom.len(),
+        export.output_bytes = tracing::field::Empty,
+        export.vignette_count = vignettes.len(),
+    );
+    let (gedcom, warnings) = extensions_span.in_scope(|| {
+        inject_oxidgene_media_extensions(
+            gedcom,
+            media,
+            vignettes,
+            &index.xrefs.media,
+            &index.xrefs.person,
+            &index.place_map,
+            &index.notes_by_media,
+        )
+    });
+    extensions_span.record("export.output_bytes", gedcom.len());
+    (gedcom, warnings)
+}
 
-        data.sources.push(GedSource {
-            xref,
+/// Every lookup the export reads, built once from the rows it writes.
+struct ExportIndex<'a> {
+    xrefs: Xrefs,
+    place_map: HashMap<Uuid, &'a Place>,
+    media_by_id: HashMap<Uuid, &'a Media>,
+    pages_of: HashMap<Uuid, Vec<&'a Media>>,
+    names_by_person: HashMap<Uuid, Vec<&'a PersonName>>,
+    events_by_person: HashMap<Uuid, Vec<&'a Event>>,
+    events_by_family: HashMap<Uuid, Vec<&'a Event>>,
+    assoc_by_person: HashMap<Uuid, Vec<GedAssociation>>,
+    cites_by_person: HashMap<Uuid, Vec<&'a Citation>>,
+    cites_by_event: HashMap<Uuid, Vec<&'a Citation>>,
+    cites_by_family: HashMap<Uuid, Vec<&'a Citation>>,
+    notes_by_person: HashMap<Uuid, Vec<&'a Note>>,
+    notes_by_family: HashMap<Uuid, Vec<&'a Note>>,
+    notes_by_source: HashMap<Uuid, Vec<&'a Note>>,
+    notes_by_event: HashMap<Uuid, Vec<&'a Note>>,
+    notes_by_media: HashMap<Uuid, Vec<&'a Note>>,
+    mlinks_by_person: HashMap<Uuid, Vec<&'a MediaLink>>,
+    mlinks_by_event: HashMap<Uuid, Vec<&'a MediaLink>>,
+    mlinks_by_family: HashMap<Uuid, Vec<&'a MediaLink>>,
+    spouses_by_family: HashMap<Uuid, Vec<&'a FamilySpouse>>,
+    children_by_family: HashMap<Uuid, Vec<&'a FamilyChild>>,
+    fams_by_person: HashMap<Uuid, Vec<&'a FamilySpouse>>,
+    famc_by_person: HashMap<Uuid, Vec<&'a FamilyChild>>,
+}
+
+impl ExportIndex<'_> {
+    /// A `SOUR` record.
+    fn source(&self, src: &Source) -> GedSource {
+        GedSource {
+            xref: self.xrefs.source.get(&src.id).cloned(),
             title: Some(src.title.clone()),
             author: src.author.clone(),
             publication_facts: src.publisher.clone(),
             abbreviation: src.abbreviation.clone(),
-            notes: ged_notes,
+            notes: all_notes(self.notes_by_source.get(&src.id)),
             ..Default::default()
-        });
-    }
-
-    // ── Export Multimedia ─────────────────────────────────────────────
-    // A multi-page document is a container, and GEDCOM has no container at
-    // all. Rather than fake one, the document dissolves: its pages are
-    // exported as ordinary standalone media, and anything linked to the
-    // document is linked to every one of them.
-    //
-    // The document's own row is not exported. It holds no bytes — its
-    // `file_path` is its *title*, which is what made a GEDZIP warn about an
-    // archive entry that could never exist — and writing it as its cover
-    // instead only produced a duplicate of page one while leaving the other
-    // thirty-seven attached to nobody.
-    let mut pages_of: HashMap<Uuid, Vec<&Media>> = HashMap::new();
-    for page in media.iter().filter(|m| m.parent_media_id.is_some()) {
-        if let Some(parent) = page.parent_media_id {
-            pages_of.entry(parent).or_default().push(page);
         }
     }
-    for pages in pages_of.values_mut() {
-        pages.sort_by_key(|page| (page.page_index, page.id));
-    }
 
-    for m in media {
-        // Dissolved above; its pages carry the bytes.
-        if m.is_document() {
-            continue;
-        }
-        let xref = media_xref.get(&m.id).cloned();
+    /// An `OBJE` record for one page.
+    fn multimedia(&self, m: &Media, media_paths: &HashMap<Uuid, String>) -> GedMultimedia {
         // Title, description, category and medium describe the document, not
         // the scan. Reading them from the parent is what keeps a `.ged` other
         // software opens from showing thirty-eight untitled files — and what
         // keeps a one-page document, which is what an ordinary photograph now
         // is, exporting under the title its owner gave it.
-        let document = m.parent_media_id.and_then(|id| media_by_id.get(&id));
+        let document = m.parent_media_id.and_then(|id| self.media_by_id.get(&id));
         let described = document.copied().unwrap_or(m);
         // `file_path` is the producer's own path, preserved so a plain `.ged`
         // round-trips to whatever wrote it. A GEDZIP carries the bytes, so
@@ -377,8 +404,8 @@ pub fn export_gedcom(
             (Some(category), SourceMediaType::Other) => category.implied_medium(),
             (_, medium) => medium,
         };
-        data.multimedia.push(GedMultimedia {
-            xref,
+        GedMultimedia {
+            xref: self.xrefs.media.get(&m.id).cloned(),
             file: Some(Reference {
                 value: Some(path),
                 form: Some(Format {
@@ -389,29 +416,28 @@ pub fn export_gedcom(
             }),
             title: page_title(
                 described,
-                document.map(|d| pages_of_len(&pages_of, d.id)).unwrap_or(1),
+                document
+                    .map(|d| pages_of_len(&self.pages_of, d.id))
+                    .unwrap_or(1),
                 m.page_index,
             ),
             note_structure: described.description.as_deref().map(to_ged_note),
             ..Default::default()
-        });
+        }
     }
 
-    // ── Export Individuals ────────────────────────────────────────────
-    for person in persons {
-        let xref = person_xref.get(&person.id).cloned();
-
-        // Sex
-        let sex = Some(Gender {
-            value: convert_sex(person.sex),
-            fact: None,
-            sources: Vec::new(),
-            custom_data: Vec::new(),
-        });
-
+    /// An `INDI` record.
+    fn individual(
+        &self,
+        person: &Person,
+        merge_names: bool,
+        merge_occupations: bool,
+        warnings: &mut Vec<String>,
+    ) -> Individual {
         // Names (GEDCOM allows {0:M} NAME structures; primary goes first
         // so `names.first()` on the way back in matches what we exported).
-        let mut names: Vec<GedName> = names_by_person
+        let mut names: Vec<GedName> = self
+            .names_by_person
             .get(&person.id)
             .map(|names| {
                 let mut ordered: Vec<_> = names.iter().collect();
@@ -423,242 +449,253 @@ pub fn export_gedcom(
             names = merge_name_aliases_into_surn(names);
         }
 
-        // Events (GEDCOM INDIVIDUAL_EVENT_STRUCTURE) and attributes
-        // (INDIVIDUAL_ATTRIBUTE_STRUCTURE, e.g. OCCU) — split so each
-        // round-trips to its own tag rather than a generic EVEN.
-        let mut indi_events: Vec<GedDetail> = Vec::new();
-        let mut indi_attributes: Vec<GedAttributeDetail> = Vec::new();
-        for evt in events_by_person.get(&person.id).into_iter().flatten() {
-            match event_type_to_attribute(evt.event_type) {
-                Some(attribute) => indi_attributes.push(to_ged_attribute_detail(
-                    evt,
-                    attribute,
-                    &place_map,
-                    &cites_by_event,
-                    &notes_by_event,
-                    &mlinks_by_event,
-                    &media_by_id,
-                    &source_xref,
-                    &media_xref,
-                    &pages_of,
-                    &mut warnings,
-                )),
-                None => indi_events.push(to_ged_detail(
-                    evt,
-                    &place_map,
-                    &cites_by_event,
-                    &notes_by_event,
-                    &mlinks_by_event,
-                    &media_by_id,
-                    &source_xref,
-                    &media_xref,
-                    &pages_of,
-                    &mut warnings,
-                )),
-            }
-        }
+        let (events, mut attributes) = self.individual_events(person.id, warnings);
         if merge_occupations {
-            indi_attributes = merge_occupation_attributes(indi_attributes);
+            attributes = merge_occupation_attributes(attributes);
         }
 
-        // Source citations on the individual
-        let source_cites: Vec<GedCitation> = cites_by_person
-            .get(&person.id)
-            .map(|cs| {
-                cs.iter()
-                    .filter_map(|c| to_ged_citation(c, &source_xref, &mut warnings))
-                    .collect()
-            })
-            .unwrap_or_default();
-
+        let source = self.citations(self.cites_by_person.get(&person.id), warnings);
         // Note on the individual (take the first one for GEDCOM 5.5.1)
-        let note = notes_by_person
-            .get(&person.id)
-            .and_then(|ns| ns.first())
-            .map(|n| to_ged_note(&n.text));
-
-        // Multimedia links, portrait first.
-        //
-        // GEDCOM has no primary-photo flag, so the choice cannot be stated —
-        // but it can be *implied*, because order survives and our own import
-        // takes a person's first picture when no portrait is recorded. Writing
-        // the portrait first is therefore what carries the choice across a
-        // round trip; without it the person kept every photograph and came back
-        // represented by whichever one happened to be written first.
-        //
-        // A crop portrait has no whole media to lead with, so those trees fall
-        // back to the first picture as before: GEDCOM cannot express a region
-        // of an image as somebody's portrait at all.
-        let multimedia: Vec<GedMultimedia> = mlinks_by_person
-            .get(&person.id)
-            .map(|mls| {
-                let mut ordered: Vec<&&MediaLink> = mls.iter().collect();
-                ordered.sort_by_key(|ml| {
-                    (
-                        person.portrait_media_id != Some(ml.media_id),
-                        ml.sort_order,
-                        ml.id,
-                    )
-                });
-                ordered
-                    .into_iter()
-                    .flat_map(|ml| {
-                        to_ged_multimedia_refs(ml.media_id, &media_by_id, &media_xref, &pages_of)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
+        let note = first_note(self.notes_by_person.get(&person.id));
+        let multimedia = self.portrait_first_multimedia(person);
         // FAMS/FAMC back-links to the families this person belongs to.
-        let family_links = to_ged_family_links(
+        let families = to_ged_family_links(
             person.id,
-            &fams_by_person,
-            &famc_by_person,
-            &family_xref,
-            &mut warnings,
+            &self.fams_by_person,
+            &self.famc_by_person,
+            &self.xrefs.family,
+            warnings,
         );
 
-        data.individuals.push(Individual {
-            xref,
+        Individual {
+            xref: self.xrefs.person.get(&person.id).cloned(),
             names,
-            sex,
-            families: family_links,
-            events: indi_events,
-            attributes: indi_attributes,
-            source: source_cites,
+            sex: Some(Gender {
+                value: convert_sex(person.sex),
+                fact: None,
+                sources: Vec::new(),
+                custom_data: Vec::new(),
+            }),
+            families,
+            events,
+            attributes,
+            source,
             note,
             multimedia,
-            associations: assoc_by_person.get(&person.id).cloned().unwrap_or_default(),
+            associations: self
+                .assoc_by_person
+                .get(&person.id)
+                .cloned()
+                .unwrap_or_default(),
             ..Default::default()
-        });
+        }
     }
 
-    // ── Export Families ───────────────────────────────────────────────
-    for fam in families {
-        let xref = family_xref.get(&fam.id).cloned();
+    /// A person's events (GEDCOM INDIVIDUAL_EVENT_STRUCTURE) and attributes
+    /// (INDIVIDUAL_ATTRIBUTE_STRUCTURE, e.g. OCCU) — split so each
+    /// round-trips to its own tag rather than a generic EVEN.
+    fn individual_events(
+        &self,
+        person_id: Uuid,
+        warnings: &mut Vec<String>,
+    ) -> (Vec<GedDetail>, Vec<GedAttributeDetail>) {
+        let mut events: Vec<GedDetail> = Vec::new();
+        let mut attributes: Vec<GedAttributeDetail> = Vec::new();
+        for evt in self.events_by_person.get(&person_id).into_iter().flatten() {
+            match event_type_to_attribute(evt.event_type) {
+                Some(attribute) => {
+                    attributes.push(to_ged_attribute_detail(evt, attribute, self, warnings));
+                }
+                None => events.push(to_ged_detail(evt, self, warnings)),
+            }
+        }
+        (events, attributes)
+    }
 
-        // Find HUSB and WIFE
-        let spouses = spouses_by_family.get(&fam.id);
-        let individual1 = spouses.and_then(|ss| {
-            ss.iter()
-                .find(|s| s.role == SpouseRole::Husband)
-                .and_then(|s| person_xref.get(&s.person_id).cloned())
+    /// A person's multimedia links, portrait first.
+    ///
+    /// GEDCOM has no primary-photo flag, so the choice cannot be stated —
+    /// but it can be *implied*, because order survives and our own import
+    /// takes a person's first picture when no portrait is recorded. Writing
+    /// the portrait first is therefore what carries the choice across a
+    /// round trip; without it the person kept every photograph and came back
+    /// represented by whichever one happened to be written first.
+    ///
+    /// A crop portrait has no whole media to lead with, so those trees fall
+    /// back to the first picture as before: GEDCOM cannot express a region
+    /// of an image as somebody's portrait at all.
+    fn portrait_first_multimedia(&self, person: &Person) -> Vec<GedMultimedia> {
+        let Some(mls) = self.mlinks_by_person.get(&person.id) else {
+            return Vec::new();
+        };
+        let mut ordered: Vec<&&MediaLink> = mls.iter().collect();
+        ordered.sort_by_key(|ml| {
+            (
+                person.portrait_media_id != Some(ml.media_id),
+                ml.sort_order,
+                ml.id,
+            )
         });
-        let individual2 = spouses.and_then(|ss| {
-            ss.iter()
-                .find(|s| s.role == SpouseRole::Wife)
-                .and_then(|s| person_xref.get(&s.person_id).cloned())
-        });
+        self.multimedia_refs(ordered.into_iter().copied())
+    }
 
-        // Children
-        let children_list: Vec<String> = children_by_family
+    /// A `FAM` record.
+    fn family(&self, fam: &Family, warnings: &mut Vec<String>) -> GedFamily {
+        let spouses = self.spouses_by_family.get(&fam.id);
+        let spouse_xref = |role: SpouseRole| {
+            spouses.and_then(|ss| {
+                ss.iter()
+                    .find(|s| s.role == role)
+                    .and_then(|s| self.xrefs.person.get(&s.person_id).cloned())
+            })
+        };
+        let children: Vec<String> = self
+            .children_by_family
             .get(&fam.id)
             .map(|cs| {
                 let mut sorted: Vec<&&FamilyChild> = cs.iter().collect();
                 sorted.sort_by_key(|fc| fc.sort_order);
                 sorted
                     .iter()
-                    .filter_map(|fc| person_xref.get(&fc.person_id).cloned())
+                    .filter_map(|fc| self.xrefs.person.get(&fc.person_id).cloned())
                     .collect()
             })
             .unwrap_or_default();
-
-        // Family events
-        let fam_events: Vec<GedDetail> = events_by_family
+        let events: Vec<GedDetail> = self
+            .events_by_family
             .get(&fam.id)
             .map(|evts| {
                 evts.iter()
-                    .map(|evt| {
-                        to_ged_detail(
-                            evt,
-                            &place_map,
-                            &cites_by_event,
-                            &notes_by_event,
-                            &mlinks_by_event,
-                            &media_by_id,
-                            &source_xref,
-                            &media_xref,
-                            &pages_of,
-                            &mut warnings,
-                        )
-                    })
+                    .map(|evt| to_ged_detail(evt, self, warnings))
                     .collect()
             })
             .unwrap_or_default();
 
-        // Source citations on the family
-        // (citations with family_id but no event_id)
-        let fam_sources: Vec<GedCitation> = cites_by_family
-            .get(&fam.id)
-            .map(|cs| {
-                cs.iter()
-                    .filter_map(|c| to_ged_citation(c, &source_xref, &mut warnings))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        // Notes on the family
-        let fam_notes: Vec<GedNote> = notes_by_family
-            .get(&fam.id)
-            .map(|ns| ns.iter().map(|n| to_ged_note(&n.text)).collect())
-            .unwrap_or_default();
-
-        // Multimedia links
-        let fam_multimedia: Vec<GedMultimedia> = mlinks_by_family
-            .get(&fam.id)
-            .map(|mls| {
-                mls.iter()
-                    .flat_map(|ml| {
-                        to_ged_multimedia_refs(ml.media_id, &media_by_id, &media_xref, &pages_of)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        data.families.push(GedFamily {
-            xref,
-            individual1,
-            individual2,
-            children: children_list,
-            events: fam_events,
-            sources: fam_sources,
-            notes: fam_notes,
-            multimedia: fam_multimedia,
+        GedFamily {
+            xref: self.xrefs.family.get(&fam.id).cloned(),
+            individual1: spouse_xref(SpouseRole::Husband),
+            individual2: spouse_xref(SpouseRole::Wife),
+            children,
+            events,
+            // Citations with a family_id but no event_id.
+            sources: self.citations(self.cites_by_family.get(&fam.id), warnings),
+            notes: all_notes(self.notes_by_family.get(&fam.id)),
+            multimedia: self.multimedia_refs(
+                self.mlinks_by_family
+                    .get(&fam.id)
+                    .into_iter()
+                    .flatten()
+                    .copied(),
+            ),
             ..Default::default()
-        });
+        }
     }
 
-    drop(build_guard);
+    /// The citations of a record, leaving out (with a warning) those whose
+    /// source is not exported.
+    fn citations(
+        &self,
+        cites: Option<&Vec<&Citation>>,
+        warnings: &mut Vec<String>,
+    ) -> Vec<GedCitation> {
+        cites
+            .into_iter()
+            .flatten()
+            .filter_map(|c| to_ged_citation(c, &self.xrefs.source, warnings))
+            .collect()
+    }
 
-    // ── Serialize ────────────────────────────────────────────────────
-    let write_span =
-        tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
-    let gedcom = write_span
-        .in_scope(|| GedcomWriter::new().write_to_string(&data))
-        .map_err(|e| format!("GEDCOM write error: {e}"))?;
-    write_span.record("export.output_bytes", gedcom.len());
+    /// The `OBJE` pointers of some media links, in order.
+    fn multimedia_refs<'l>(
+        &self,
+        links: impl Iterator<Item = &'l MediaLink>,
+    ) -> Vec<GedMultimedia> {
+        links
+            .flat_map(|ml| {
+                to_ged_multimedia_refs(
+                    ml.media_id,
+                    &self.media_by_id,
+                    &self.xrefs.media,
+                    &self.pages_of,
+                )
+            })
+            .collect()
+    }
 
-    let extensions_span = tracing::info_span!(
-        "export.inject_extensions",
-        export.input_bytes = gedcom.len(),
-        export.output_bytes = tracing::field::Empty,
-        export.vignette_count = vignettes.len(),
-    );
-    let (gedcom, extension_warnings) = extensions_span.in_scope(|| {
-        inject_oxidgene_media_extensions(
-            gedcom,
-            media,
-            vignettes,
-            &media_xref,
-            &person_xref,
-            &place_map,
-            &notes_by_media,
+    /// What an event and an attribute write alike: its date, place,
+    /// citations, first note and media.
+    fn event_parts(&self, evt: &Event, warnings: &mut Vec<String>) -> EventParts {
+        // Recompose the calendar escape and qualifier tag the columns were
+        // split from on import — see `crate::date`.
+        let date = crate::date::format(
+            evt.calendar,
+            evt.date_qualifier,
+            evt.date_value.as_deref(),
+            evt.date_value2.as_deref(),
         )
-    });
-    extensions_span.record("export.output_bytes", gedcom.len());
-    warnings.extend(extension_warnings);
+        .map(|value| Date {
+            value: Some(value),
+            ..Default::default()
+        });
+        EventParts {
+            date,
+            place: evt
+                .place_id
+                .and_then(|pid| self.place_map.get(&pid))
+                .map(|p| to_ged_place(p)),
+            citations: self.citations(self.cites_by_event.get(&evt.id), warnings),
+            note: first_note(self.notes_by_event.get(&evt.id)),
+            multimedia: self.multimedia_refs(
+                self.mlinks_by_event
+                    .get(&evt.id)
+                    .into_iter()
+                    .flatten()
+                    .copied(),
+            ),
+        }
+    }
+}
 
-    Ok(ExportResult { gedcom, warnings })
+/// The parts [`to_ged_detail`] and [`to_ged_attribute_detail`] share.
+struct EventParts {
+    date: Option<Date>,
+    place: Option<GedPlace>,
+    citations: Vec<GedCitation>,
+    note: Option<GedNote>,
+    multimedia: Vec<GedMultimedia>,
+}
+
+/// A `PLAC` with its `MAP` coordinates when both are known.
+fn to_ged_place(p: &Place) -> GedPlace {
+    let map = match (p.latitude, p.longitude) {
+        (Some(lat), Some(lon)) => Some(MapCoordinates {
+            latitude: Some(format_coord(lat, true)),
+            longitude: Some(format_coord(lon, false)),
+        }),
+        _ => None,
+    };
+    GedPlace {
+        value: Some(p.name.clone()),
+        map,
+        ..Default::default()
+    }
+}
+
+/// The first note of a record: GEDCOM 5.5.1 gives an individual and an event
+/// one.
+fn first_note(notes: Option<&Vec<&Note>>) -> Option<GedNote> {
+    notes
+        .and_then(|ns| ns.first())
+        .map(|n| to_ged_note(&n.text))
+}
+
+/// Every note of a record.
+fn all_notes(notes: Option<&Vec<&Note>>) -> Vec<GedNote> {
+    notes
+        .into_iter()
+        .flatten()
+        .map(|n| to_ged_note(&n.text))
+        .collect()
 }
 
 fn inject_oxidgene_media_extensions(
@@ -976,49 +1013,48 @@ fn convert_sex(sex: Sex) -> GenderType {
 /// the file read as a set of disconnected individuals in other software.
 fn to_ged_family_links(
     person_id: Uuid,
-    fams_by_person: &HashMap<Uuid, Vec<Uuid>>,
-    famc_by_person: &HashMap<Uuid, Vec<(Uuid, ChildType)>>,
+    fams_by_person: &HashMap<Uuid, Vec<&FamilySpouse>>,
+    famc_by_person: &HashMap<Uuid, Vec<&FamilyChild>>,
     family_xref: &HashMap<Uuid, String>,
     warnings: &mut Vec<String>,
 ) -> Vec<FamilyLink> {
+    let spouse_links = fams_by_person
+        .get(&person_id)
+        .into_iter()
+        .flatten()
+        .map(|fs| (fs.family_id, FamilyLinkType::Spouse, None, "spouse"));
+    let child_links = famc_by_person
+        .get(&person_id)
+        .into_iter()
+        .flatten()
+        .map(|fc| {
+            (
+                fc.family_id,
+                FamilyLinkType::Child,
+                convert_child_type_to_pedigree(fc.child_type),
+                "parental",
+            )
+        });
     let mut links = Vec::new();
-
-    for &family_id in fams_by_person.get(&person_id).into_iter().flatten() {
+    for (family_id, family_link_type, pedigree_linkage_type, kind) in
+        spouse_links.chain(child_links)
+    {
         let Some(xref) = family_xref.get(&family_id) else {
             warnings.push(format!(
-                "Person {person_id}: spouse family {family_id} not found"
+                "Person {person_id}: {kind} family {family_id} not found"
             ));
             continue;
         };
         links.push(FamilyLink {
             xref: xref.clone(),
-            family_link_type: FamilyLinkType::Spouse,
-            pedigree_linkage_type: None,
+            family_link_type,
+            pedigree_linkage_type,
             child_linkage_status: None,
             adopted_by: None,
             note: None,
             custom_data: Vec::new(),
         });
     }
-
-    for &(family_id, child_type) in famc_by_person.get(&person_id).into_iter().flatten() {
-        let Some(xref) = family_xref.get(&family_id) else {
-            warnings.push(format!(
-                "Person {person_id}: parental family {family_id} not found"
-            ));
-            continue;
-        };
-        links.push(FamilyLink {
-            xref: xref.clone(),
-            family_link_type: FamilyLinkType::Child,
-            pedigree_linkage_type: convert_child_type_to_pedigree(child_type),
-            child_linkage_status: None,
-            adopted_by: None,
-            note: None,
-            custom_data: Vec::new(),
-        });
-    }
-
     links
 }
 
@@ -1227,80 +1263,20 @@ fn to_ged_note(text: &str) -> GedNote {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn to_ged_detail(
-    evt: &Event,
-    place_map: &HashMap<Uuid, &Place>,
-    cites_by_event: &HashMap<Uuid, Vec<&Citation>>,
-    notes_by_event: &HashMap<Uuid, Vec<&Note>>,
-    mlinks_by_event: &HashMap<Uuid, Vec<&MediaLink>>,
-    media_by_id: &HashMap<Uuid, &Media>,
-    source_xref: &HashMap<Uuid, String>,
-    media_xref: &HashMap<Uuid, String>,
-    pages_of: &HashMap<Uuid, Vec<&Media>>,
-    warnings: &mut Vec<String>,
-) -> GedDetail {
+fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -> GedDetail {
     let event = convert_event_type(evt.event_type);
-    // Recompose the calendar escape and qualifier tag the columns were split
-    // from on import — see `crate::date`.
-    let date = crate::date::format(
-        evt.calendar,
-        evt.date_qualifier,
-        evt.date_value.as_deref(),
-        evt.date_value2.as_deref(),
-    )
-    .map(|value| Date {
-        value: Some(value),
-        ..Default::default()
-    });
-
-    let place = evt.place_id.and_then(|pid| {
-        place_map.get(&pid).map(|p| {
-            let map = match (p.latitude, p.longitude) {
-                (Some(lat), Some(lon)) => Some(MapCoordinates {
-                    latitude: Some(format_coord(lat, true)),
-                    longitude: Some(format_coord(lon, false)),
-                }),
-                _ => None,
-            };
-            GedPlace {
-                value: Some(p.name.clone()),
-                map,
-                ..Default::default()
-            }
-        })
-    });
-
-    let citations: Vec<GedCitation> = cites_by_event
-        .get(&evt.id)
-        .map(|cs| {
-            cs.iter()
-                .filter_map(|c| to_ged_citation(c, source_xref, warnings))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let note = notes_by_event
-        .get(&evt.id)
-        .and_then(|ns| ns.first())
-        .map(|n| to_ged_note(&n.text));
-
-    let multimedia: Vec<GedMultimedia> = mlinks_by_event
-        .get(&evt.id)
-        .map(|mls| {
-            mls.iter()
-                .flat_map(|ml| {
-                    to_ged_multimedia_refs(ml.media_id, media_by_id, media_xref, pages_of)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let EventParts {
+        date,
+        place,
+        citations,
+        note,
+        multimedia,
+    } = index.event_parts(evt, warnings);
 
     // Witnesses/godparents are exported separately as a level-1 `ASSO` on
-    // the relevant INDI record (see `assoc_by_person` in `export_gedcom`),
-    // not nested here — GEDCOM 5.5.1 only allows `ASSO` directly under an
-    // INDIVIDUAL_RECORD, and readers (Gramps included) reject it as a
-    // substructure of an event.
+    // the relevant INDI record (see `associations`), not nested here —
+    // GEDCOM 5.5.1 only allows `ASSO` directly under an INDIVIDUAL_RECORD,
+    // and readers (Gramps included) reject it as a substructure of an event.
     let associations: Vec<GedAssociation> = Vec::new();
 
     // An adoption event's adoptive family is not captured on import (see
@@ -1435,77 +1411,22 @@ fn merge_name_aliases_into_surn(mut names: Vec<GedName>) -> Vec<GedName> {
 /// Exports an individual attribute (e.g. `EventType::Occupation`, GEDCOM
 /// `OCCU`) as an `AttributeDetail` under `Individual.attributes`, so it
 /// round-trips to its original tag instead of a generic `EVEN`.
-#[allow(clippy::too_many_arguments)]
 fn to_ged_attribute_detail(
     evt: &Event,
     attribute: GedIndividualAttribute,
-    place_map: &HashMap<Uuid, &Place>,
-    cites_by_event: &HashMap<Uuid, Vec<&Citation>>,
-    notes_by_event: &HashMap<Uuid, Vec<&Note>>,
-    mlinks_by_event: &HashMap<Uuid, Vec<&MediaLink>>,
-    media_by_id: &HashMap<Uuid, &Media>,
-    source_xref: &HashMap<Uuid, String>,
-    media_xref: &HashMap<Uuid, String>,
-    pages_of: &HashMap<Uuid, Vec<&Media>>,
+    index: &ExportIndex,
     warnings: &mut Vec<String>,
 ) -> GedAttributeDetail {
-    // Recompose the calendar escape and qualifier tag the columns were split
-    // from on import — see `crate::date`.
-    let date = crate::date::format(
-        evt.calendar,
-        evt.date_qualifier,
-        evt.date_value.as_deref(),
-        evt.date_value2.as_deref(),
-    )
-    .map(|value| Date {
-        value: Some(value),
-        ..Default::default()
-    });
-
-    let place = evt.place_id.and_then(|pid| {
-        place_map.get(&pid).map(|p| {
-            let map = match (p.latitude, p.longitude) {
-                (Some(lat), Some(lon)) => Some(MapCoordinates {
-                    latitude: Some(format_coord(lat, true)),
-                    longitude: Some(format_coord(lon, false)),
-                }),
-                _ => None,
-            };
-            GedPlace {
-                value: Some(p.name.clone()),
-                map,
-                ..Default::default()
-            }
-        })
-    });
-
-    let sources: Vec<GedCitation> = cites_by_event
-        .get(&evt.id)
-        .map(|cs| {
-            cs.iter()
-                .filter_map(|c| to_ged_citation(c, source_xref, warnings))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let note = notes_by_event
-        .get(&evt.id)
-        .and_then(|ns| ns.first())
-        .map(|n| to_ged_note(&n.text));
-
     // An attribute documents itself as readily as an event does: a scan of the
-    // trade card behind an OCCU, of the deed behind a TITL. The same links, read
-    // the same way as `to_ged_detail` reads them.
-    let multimedia: Vec<GedMultimedia> = mlinks_by_event
-        .get(&evt.id)
-        .map(|mls| {
-            mls.iter()
-                .flat_map(|ml| {
-                    to_ged_multimedia_refs(ml.media_id, media_by_id, media_xref, pages_of)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    // trade card behind an OCCU, of the deed behind a TITL. The same parts,
+    // media links included, read the same way as `to_ged_detail` reads them.
+    let EventParts {
+        date,
+        place,
+        citations,
+        note,
+        multimedia,
+    } = index.event_parts(evt, warnings);
 
     GedAttributeDetail {
         attribute,
@@ -1515,7 +1436,7 @@ fn to_ged_attribute_detail(
         value: evt.description.clone(),
         place,
         date,
-        sources,
+        sources: citations,
         note,
         multimedia,
         attribute_type: None,
@@ -1922,17 +1843,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn oxidgene_media_metadata_survives_an_export_and_a_re_import() {
-        let place = Place {
-            id: Uuid::now_v7(),
-            tree_id: Uuid::now_v7(),
-            name: "Sample Village".to_string(),
-            latitude: Some(48.25),
-            longitude: Some(-2.75),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
+    /// A document described in every way the extensions carry, filed at
+    /// `place`, and its one stored page.
+    fn described_document_with_page(place: &Place) -> (Media, Media) {
         // Everything descriptive belongs to the document; the page carries
         // the bytes and nothing else.
         let (mut document, mut page) =
@@ -1956,6 +1869,64 @@ mod tests {
         document.place_id = Some(place.id);
         page.created_at = document.created_at;
         page.updated_at = document.updated_at;
+        (document, page)
+    }
+
+    /// The document that came back describes itself as `original` did.
+    fn assert_same_description(imported: &Media, original: &Media) {
+        assert_eq!(imported.file_name, original.file_name);
+        assert_eq!(imported.created_at, original.created_at);
+        assert_eq!(imported.updated_at, original.updated_at);
+        assert_eq!(imported.title, original.title);
+        assert_eq!(imported.description, original.description);
+        assert_eq!(imported.date_value, original.date_value);
+        assert_eq!(imported.date_qualifier, original.date_qualifier);
+        assert_eq!(imported.date_value2, original.date_value2);
+        assert_eq!(imported.calendar, original.calendar);
+        assert_eq!(imported.privacy, original.privacy);
+        assert_eq!(imported.source_media_type, original.source_media_type);
+        assert_eq!(imported.document_category, original.document_category);
+        assert_eq!(imported.tags, original.tags);
+    }
+
+    /// The imported document's place and note are the exported ones.
+    fn assert_place_and_note_came_back(
+        back: &crate::ImportResult,
+        imported: &Media,
+        place: &Place,
+        note: &Note,
+    ) {
+        let imported_place = back
+            .places
+            .iter()
+            .find(|item| Some(item.id) == imported.place_id)
+            .expect("media place");
+        assert_eq!(imported_place.name, place.name);
+        assert_eq!(imported_place.latitude, place.latitude);
+        assert_eq!(imported_place.longitude, place.longitude);
+
+        let imported_note = back
+            .notes
+            .iter()
+            .find(|item| item.media_id == Some(imported.id))
+            .expect("media note");
+        assert_eq!(imported_note.text, note.text);
+        assert_eq!(imported_note.created_at, note.created_at);
+        assert_eq!(imported_note.updated_at, note.updated_at);
+    }
+
+    #[test]
+    fn oxidgene_media_metadata_survives_an_export_and_a_re_import() {
+        let place = Place {
+            id: Uuid::now_v7(),
+            tree_id: Uuid::now_v7(),
+            name: "Sample Village".to_string(),
+            latitude: Some(48.25),
+            longitude: Some(-2.75),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let (document, page) = described_document_with_page(&place);
         let note = Note {
             id: Uuid::now_v7(),
             tree_id: document.tree_id,
@@ -2020,37 +1991,8 @@ mod tests {
             .expect("the document came back");
         assert_eq!(back.media.len(), 2, "a document and its one page");
         assert_eq!(imported.page_count, 1);
-        assert_eq!(imported.file_name, media.file_name);
-        assert_eq!(imported.created_at, media.created_at);
-        assert_eq!(imported.updated_at, media.updated_at);
-        assert_eq!(imported.title, media.title);
-        assert_eq!(imported.description, media.description);
-        assert_eq!(imported.date_value, media.date_value);
-        assert_eq!(imported.date_qualifier, media.date_qualifier);
-        assert_eq!(imported.date_value2, media.date_value2);
-        assert_eq!(imported.calendar, media.calendar);
-        assert_eq!(imported.privacy, media.privacy);
-        assert_eq!(imported.source_media_type, media.source_media_type);
-        assert_eq!(imported.document_category, media.document_category);
-        assert_eq!(imported.tags, media.tags);
-
-        let imported_place = back
-            .places
-            .iter()
-            .find(|item| Some(item.id) == imported.place_id)
-            .expect("media place");
-        assert_eq!(imported_place.name, place.name);
-        assert_eq!(imported_place.latitude, place.latitude);
-        assert_eq!(imported_place.longitude, place.longitude);
-
-        let imported_note = back
-            .notes
-            .iter()
-            .find(|item| item.media_id == Some(imported.id))
-            .expect("media note");
-        assert_eq!(imported_note.text, note.text);
-        assert_eq!(imported_note.created_at, note.created_at);
-        assert_eq!(imported_note.updated_at, note.updated_at);
+        assert_same_description(imported, &media);
+        assert_place_and_note_came_back(&back, imported, &place, &note);
     }
 
     #[test]

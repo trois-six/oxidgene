@@ -208,6 +208,25 @@ const ASSOCIATION_DUPLICATE_GEDCOM: &str = "\
 0 TRLR
 ";
 
+/// The first imported event of a type.
+fn event_of(
+    result: &oxidgene_gedcom::ImportResult,
+    event_type: oxidgene_core::EventType,
+) -> &oxidgene_core::types::Event {
+    result
+        .events
+        .iter()
+        .find(|e| e.event_type == event_type)
+        .unwrap_or_else(|| panic!("{event_type:?} event missing"))
+}
+
+/// A primary name with these given names and surname.
+fn assert_primary_name(name: &PersonName, given_names: &str, surname: &str) {
+    assert_eq!(name.given_names.as_deref(), Some(given_names));
+    assert_eq!(name.surname.as_deref(), Some(surname));
+    assert!(name.is_primary);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Import tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -231,27 +250,16 @@ fn test_import_minimal_individual() {
     assert_eq!(person.tree_id, tree_id);
     assert_eq!(person.sex, oxidgene_core::Sex::Male);
 
-    let name = &result.person_names[0];
-    assert_eq!(name.given_names.as_deref(), Some("John"));
-    assert_eq!(name.surname.as_deref(), Some("Doe"));
-    assert!(name.is_primary);
+    assert_primary_name(&result.person_names[0], "John", "Doe");
 
     // Check birth event
-    let birth = result
-        .events
-        .iter()
-        .find(|e| e.event_type == oxidgene_core::EventType::Birth)
-        .expect("birth event missing");
+    let birth = event_of(&result, oxidgene_core::EventType::Birth);
     assert_eq!(birth.date_value.as_deref(), Some("15 JAN 1842"));
     assert!(birth.date_sort.is_some());
     assert!(birth.place_id.is_some());
 
     // Check death event
-    let death = result
-        .events
-        .iter()
-        .find(|e| e.event_type == oxidgene_core::EventType::Death)
-        .expect("death event missing");
+    let death = event_of(&result, oxidgene_core::EventType::Death);
     assert_eq!(death.date_value.as_deref(), Some("3 MAR 1910"));
 
     // Check places
@@ -408,11 +416,7 @@ fn test_import_various_date_formats() {
     let result = import_gedcom(gedcom, tree_id).unwrap();
 
     // Birth: ABT 1842 → should parse as 1842-01-01
-    let birth = result
-        .events
-        .iter()
-        .find(|e| e.event_type == oxidgene_core::EventType::Birth)
-        .unwrap();
+    let birth = event_of(&result, oxidgene_core::EventType::Birth);
     assert!(birth.date_sort.is_some());
     assert_eq!(
         birth.date_sort.unwrap(),
@@ -420,11 +424,7 @@ fn test_import_various_date_formats() {
     );
 
     // Death: BET ... AND ... → should parse first date
-    let death = result
-        .events
-        .iter()
-        .find(|e| e.event_type == oxidgene_core::EventType::Death)
-        .unwrap();
+    let death = event_of(&result, oxidgene_core::EventType::Death);
     assert!(death.date_sort.is_some());
     assert_eq!(
         death.date_sort.unwrap(),
@@ -441,11 +441,7 @@ fn test_import_asso_witness_and_godparent() {
     assert_eq!(result.event_witnesses.len(), 2);
 
     let witness_person_id = result.persons[2].id; // I3
-    let marriage = result
-        .events
-        .iter()
-        .find(|e| e.event_type == oxidgene_core::EventType::Marriage)
-        .expect("marriage event missing");
+    let marriage = event_of(&result, oxidgene_core::EventType::Marriage);
     let marriage_witness = result
         .event_witnesses
         .iter()
@@ -455,11 +451,7 @@ fn test_import_asso_witness_and_godparent() {
     assert_eq!(marriage_witness.relation.as_deref(), Some("witness"));
 
     let godmother_person_id = result.persons[4].id; // I5
-    let baptism = result
-        .events
-        .iter()
-        .find(|e| e.event_type == oxidgene_core::EventType::Baptism)
-        .expect("baptism event missing");
+    let baptism = event_of(&result, oxidgene_core::EventType::Baptism);
     let baptism_witness = result
         .event_witnesses
         .iter()
@@ -1740,13 +1732,6 @@ fn test_import_drops_geneweb_bookkeeping_from_events() {
     let tree_id = Uuid::now_v7();
     let result = import_gedcom(GENEWEB_CONVERTED_GEDCOM, tree_id).unwrap();
 
-    let event_of = |et: oxidgene_core::EventType| {
-        result
-            .events
-            .iter()
-            .find(|e| e.event_type == et)
-            .unwrap_or_else(|| panic!("no {et:?} event imported"))
-    };
     let note_of = |event_id| {
         result
             .notes
@@ -1757,21 +1742,21 @@ fn test_import_drops_geneweb_bookkeeping_from_events() {
 
     // `TYPE EDUC` is what typed this event; repeating it as the description
     // only put a bare "EDUC" in the form next to the translated type.
-    let education = event_of(oxidgene_core::EventType::Education);
+    let education = event_of(&result, oxidgene_core::EventType::Education);
     assert_eq!(education.description, None);
     assert_eq!(education.date_value.as_deref(), Some("1932"));
     // The note keeps what was written about the event, and nothing else.
     assert_eq!(note_of(education.id), Some("Institution Sainte-Marie"));
 
     // A note that was only the marker leaves no note at all.
-    let occupation = event_of(oxidgene_core::EventType::Occupation);
+    let occupation = event_of(&result, oxidgene_core::EventType::Occupation);
     assert_eq!(occupation.description, None);
     assert_eq!(note_of(occupation.id), None);
 
     // A user-defined GeneWeb event name is not bookkeeping: it is the only
     // record of what the event was, so it stays as the description — and is
     // dropped from the note, where it was a verbatim duplicate of it.
-    let other = event_of(oxidgene_core::EventType::Other);
+    let other = event_of(&result, oxidgene_core::EventType::Other);
     assert_eq!(other.description.as_deref(), Some("Tutelle apres un deces"));
     assert_eq!(note_of(other.id), Some("Acte non numerise"));
 }

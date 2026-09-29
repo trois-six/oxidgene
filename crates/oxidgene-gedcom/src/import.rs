@@ -290,44 +290,15 @@ fn entry_key(raw: &str) -> String {
 ///
 /// Returns `Err` if the model cannot be converted.
 pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResult, String> {
-    let now = Utc::now();
+    let ctx = ImportContext::allocate(data, tree_id);
+    let now = ctx.now;
     let mut result = ImportResult::default();
 
-    // ── xref → UUID maps ────────────────────────────────────────────
-    let mut indi_map: HashMap<String, Uuid> = HashMap::new();
-    let mut fam_map: HashMap<String, Uuid> = HashMap::new();
-    let mut source_map: HashMap<String, Uuid> = HashMap::new();
-    let mut media_map: HashMap<String, Uuid> = HashMap::new();
-    // The page each `OBJE` became, as distinct from the document holding it.
-    // Links point at the document; crops and page metadata at the page.
-    let mut page_map: HashMap<String, Uuid> = HashMap::new();
     // Place name → UUID (dedup by exact name match)
     let mut place_map: HashMap<String, Uuid> = HashMap::new();
     // Free-text SOUR description → UUID of a synthesized Source (dedup by
     // exact text match) — see `get_or_create_text_source` below.
     let mut text_source_map: HashMap<String, Uuid> = HashMap::new();
-
-    // ── Pass 1: Allocate UUIDs for all top-level records ────────────
-    for indi in &data.individuals {
-        if let Some(xref) = &indi.xref {
-            indi_map.insert(xref.clone(), Uuid::now_v7());
-        }
-    }
-    for fam in &data.families {
-        if let Some(xref) = &fam.xref {
-            fam_map.insert(xref.clone(), Uuid::now_v7());
-        }
-    }
-    for src in &data.sources {
-        if let Some(xref) = &src.xref {
-            source_map.insert(xref.clone(), Uuid::now_v7());
-        }
-    }
-    for mm in &data.multimedia {
-        if let Some(xref) = &mm.xref {
-            media_map.insert(xref.clone(), Uuid::now_v7());
-        }
-    }
 
     // ── Helper: get or create a Place by name ───────────────────────
     let mut get_or_create_place = |name: &str, result: &mut ImportResult| -> Uuid {
@@ -378,26 +349,90 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         id
     };
 
-    // ── Import Sources ──────────────────────────────────────────────
+    import_sources(data, &ctx, &mut result);
+    let page_map = import_multimedia(data, &ctx, &mut result);
+    for indi in &data.individuals {
+        import_individual(
+            indi,
+            &ctx,
+            &mut get_or_create_place,
+            &mut get_or_create_text_source,
+            &mut result,
+        );
+    }
+    for fam in &data.families {
+        import_family(
+            fam,
+            &ctx,
+            &mut get_or_create_place,
+            &mut get_or_create_text_source,
+            &mut result,
+        );
+    }
+    apply_pedigree_linkage(data, &ctx, &mut result);
+    import_associations(data, &ctx, &mut result);
+
+    // Handed back so a caller holding links keyed by something outside the
+    // domain model can resolve them to person ids — see the field's docs.
+    result.person_by_xref = ctx.indi_map;
+    result.media_by_xref = page_map;
+
+    Ok(result)
+}
+
+/// What every record of one import is converted against: the tree, the
+/// import time, and the UUID allocated to each top-level record's xref.
+struct ImportContext {
+    tree_id: Uuid,
+    now: chrono::DateTime<Utc>,
+    indi_map: HashMap<String, Uuid>,
+    fam_map: HashMap<String, Uuid>,
+    source_map: HashMap<String, Uuid>,
+    /// The document each `OBJE` record becomes; links point at it.
+    media_map: HashMap<String, Uuid>,
+}
+
+impl ImportContext {
+    /// Pass 1: allocate UUIDs for all top-level records.
+    fn allocate(data: &GedcomData, tree_id: Uuid) -> Self {
+        let now = Utc::now();
+        Self {
+            tree_id,
+            now,
+            indi_map: allocate_ids(data.individuals.iter().map(|indi| indi.xref.as_ref())),
+            fam_map: allocate_ids(data.families.iter().map(|fam| fam.xref.as_ref())),
+            source_map: allocate_ids(data.sources.iter().map(|src| src.xref.as_ref())),
+            media_map: allocate_ids(data.multimedia.iter().map(|mm| mm.xref.as_ref())),
+        }
+    }
+}
+
+/// A new UUID for each xref, in record order. A record without one gets none.
+fn allocate_ids<'a>(xrefs: impl Iterator<Item = Option<&'a String>>) -> HashMap<String, Uuid> {
+    xrefs
+        .flatten()
+        .map(|xref| (xref.clone(), Uuid::now_v7()))
+        .collect()
+}
+
+/// Import the `SOUR` records and their notes.
+fn import_sources(data: &GedcomData, ctx: &ImportContext, result: &mut ImportResult) {
     for src in &data.sources {
-        let xref = match &src.xref {
-            Some(x) => x,
-            None => {
-                result.warnings.push("Skipping source without xref".into());
-                continue;
-            }
+        let Some(xref) = &src.xref else {
+            result.warnings.push("Skipping source without xref".into());
+            continue;
         };
-        let id = source_map[xref];
+        let id = ctx.source_map[xref];
         result.sources.push(Source {
             id,
-            tree_id,
+            tree_id: ctx.tree_id,
             title: src.title.clone().unwrap_or_else(|| "Untitled".into()),
             author: src.author.clone(),
             publisher: src.publication_facts.clone(),
             abbreviation: src.abbreviation.clone(),
             repository_name: None, // repo_citations not directly mappable to a single name
-            created_at: now,
-            updated_at: now,
+            created_at: ctx.now,
+            updated_at: ctx.now,
             deleted_at: None,
         });
 
@@ -405,80 +440,57 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         for note in &src.notes {
             import_note(
                 &note.value,
-                tree_id,
-                now,
+                ctx.tree_id,
+                ctx.now,
                 None,
                 None,
                 None,
                 Some(id),
-                &mut result,
+                result,
             );
         }
     }
+}
 
-    // ── Import Multimedia ───────────────────────────────────────────
+/// Import the `OBJE` records, and return the page each one became, by xref.
+///
+/// One `OBJE` becomes two rows: the page that names the file, and the
+/// document that describes it. GEDCOM has no container, so a foreign file
+/// gives us one document per record — which is exactly right, an ordinary
+/// photograph being a document of one page. An OxidGene file then regroups
+/// its pages from `_OXIDGENE_DOC`.
+fn import_multimedia(
+    data: &GedcomData,
+    ctx: &ImportContext,
+    result: &mut ImportResult,
+) -> HashMap<String, Uuid> {
+    // The page each `OBJE` became, as distinct from the document holding it.
+    // Links point at the document; crops and page metadata at the page.
+    let mut page_map: HashMap<String, Uuid> = HashMap::new();
     for mm in &data.multimedia {
-        let xref = match &mm.xref {
-            Some(x) => x,
-            None => {
-                result
-                    .warnings
-                    .push("Skipping multimedia without xref".into());
-                continue;
-            }
+        let Some(xref) = &mm.xref else {
+            result
+                .warnings
+                .push("Skipping multimedia without xref".into());
+            continue;
         };
-        let document_id = media_map[xref];
+        let document_id = ctx.media_map[xref];
         let id = Uuid::now_v7();
         page_map.insert(xref.clone(), id);
 
-        // Extract file info from the multimedia record
-        // GEDCOM's `FORM` is the "multimedia format", and what producers put
-        // there is an extension (`jpeg`) when they put anything at all — the
-        // sample exports carry `FORM application/octet-stream` or no FORM and
-        // a URL ending `.jpg`. Taking it verbatim as a MIME type is how a
-        // photograph that renders perfectly well in an `<img>` ends up
-        // labelled OCTET-STREAM in the gallery beside it.
-        //
-        // `FORM.TYPE` is the separate question of what the thing physically
-        // is — `PHOTO`, `MANUSCRIPT`, `TOMBSTONE`. A value outside GEDCOM's
-        // enumeration is a producer writing its own vocabulary, and is kept
-        // as `Other` rather than guessed at.
-        let (file_path, mime_type, source_media_type) = if let Some(ref file_ref) = mm.file {
-            let path = file_ref.value.clone().unwrap_or_default();
-            let form = file_ref.form.as_ref();
-            let declared = form.and_then(|f| f.value.as_deref());
-            let mime = normalize_mime(declared, &path);
-            let medium = form
-                .and_then(|f| f.source_media_type.as_deref())
-                .and_then(SourceMediaType::parse)
-                .unwrap_or_default();
-            (path, mime, medium)
-        } else {
-            (
-                String::new(),
-                "application/octet-stream".into(),
-                SourceMediaType::default(),
-            )
-        };
-
+        let (file_path, mime_type, source_media_type) = media_file(mm);
         let file_name: String = file_path
             .rsplit('/')
             .next()
             .unwrap_or(&file_path)
             .to_string();
-
-        // One `OBJE` becomes two rows: the page that names the file, and the
-        // document that describes it. GEDCOM has no container, so a foreign
-        // file gives us one document per record — which is exactly right, an
-        // ordinary photograph being a document of one page. An OxidGene file
-        // then regroups its pages from `_OXIDGENE_DOC`.
         let description = mm
             .note_structure
             .as_ref()
             .and_then(|note| note.value.clone());
         result.media.push(Media {
             id: document_id,
-            tree_id,
+            tree_id: ctx.tree_id,
             file_name: mm.title.clone().unwrap_or_else(|| file_name.clone()),
             mime_type: DOCUMENT_MIME.to_string(),
             file_path: String::new(),
@@ -506,13 +518,13 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             document_category: None,
             tags: Vec::new(),
             place_id: None,
-            created_at: now,
-            updated_at: now,
+            created_at: ctx.now,
+            updated_at: ctx.now,
             deleted_at: None,
         });
         result.media.push(Media {
             id,
-            tree_id,
+            tree_id: ctx.tree_id,
             file_name,
             mime_type,
             file_path,
@@ -539,449 +551,415 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             document_category: None,
             tags: Vec::new(),
             place_id: None,
-            created_at: now,
-            updated_at: now,
+            created_at: ctx.now,
+            updated_at: ctx.now,
             deleted_at: None,
         });
     }
+    page_map
+}
 
-    // ── Import Individuals ──────────────────────────────────────────
+/// The path, MIME type and physical medium an `OBJE` record names.
+///
+/// GEDCOM's `FORM` is the "multimedia format", and what producers put
+/// there is an extension (`jpeg`) when they put anything at all — the
+/// sample exports carry `FORM application/octet-stream` or no FORM and
+/// a URL ending `.jpg`. Taking it verbatim as a MIME type is how a
+/// photograph that renders perfectly well in an `<img>` ends up
+/// labelled OCTET-STREAM in the gallery beside it.
+///
+/// `FORM.TYPE` is the separate question of what the thing physically
+/// is — `PHOTO`, `MANUSCRIPT`, `TOMBSTONE`. A value outside GEDCOM's
+/// enumeration is a producer writing its own vocabulary, and is kept
+/// as `Other` rather than guessed at.
+fn media_file(mm: &ged_io::types::multimedia::Multimedia) -> (String, String, SourceMediaType) {
+    let Some(file_ref) = &mm.file else {
+        return (
+            String::new(),
+            "application/octet-stream".into(),
+            SourceMediaType::default(),
+        );
+    };
+    let path = file_ref.value.clone().unwrap_or_default();
+    let form = file_ref.form.as_ref();
+    let declared = form.and_then(|f| f.value.as_deref());
+    let mime = normalize_mime(declared, &path);
+    let medium = form
+        .and_then(|f| f.source_media_type.as_deref())
+        .and_then(SourceMediaType::parse)
+        .unwrap_or_default();
+    (path, mime, medium)
+}
+
+/// Import an `INDI` record: the person, their names, events, attributes,
+/// citations, note and media links.
+fn import_individual(
+    indi: &ged_io::types::individual::Individual,
+    ctx: &ImportContext,
+    get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    result: &mut ImportResult,
+) {
+    let Some(xref) = &indi.xref else {
+        result
+            .warnings
+            .push("Skipping individual without xref".into());
+        return;
+    };
+    let person_id = ctx.indi_map[xref];
+
+    // Sex
+    let sex = indi
+        .sex
+        .as_ref()
+        .map(|g| convert_gender(&g.value))
+        .unwrap_or(Sex::Unknown);
+
+    result.persons.push(Person {
+        id: person_id,
+        tree_id: ctx.tree_id,
+        sex,
+        privacy: Privacy::default(),
+        // A GEDCOM names a person's media but never says which one
+        // represents them: `OBJE` carries no primary flag.
+        portrait_media_id: None,
+        portrait_vignette_id: None,
+        created_at: ctx.now,
+        updated_at: ctx.now,
+        deleted_at: None,
+    });
+
+    // Names (GEDCOM allows {0:M} NAME structures per individual; the
+    // first is primary, the rest import as additional PersonNames).
+    for (i, name) in indi.names.iter().enumerate() {
+        let (person_name, aliases) = convert_name(name, person_id, i == 0, ctx.now);
+        result.person_names.push(person_name);
+        result.person_names.extend(aliases);
+    }
+
+    // Events
+    for evt_detail in &indi.events {
+        import_event_detail(
+            evt_detail,
+            ctx.tree_id,
+            Some(person_id),
+            None,
+            ctx.now,
+            &ctx.source_map,
+            &ctx.media_map,
+            &ctx.indi_map,
+            get_or_create_place,
+            get_or_create_text_source,
+            result,
+        );
+    }
+
+    // Attributes (GEDCOM's INDIVIDUAL_ATTRIBUTE_STRUCTURE: OCCU, RESI,
+    // TITL, ... — distinct from INDIVIDUAL_EVENT_STRUCTURE in both the
+    // 5.5.1 and 7.0 specs, but modeled as `Event`s in our domain).
+    for attr_detail in &indi.attributes {
+        import_attribute_detail(
+            attr_detail,
+            ctx.tree_id,
+            person_id,
+            ctx.now,
+            &ctx.source_map,
+            &ctx.media_map,
+            get_or_create_place,
+            get_or_create_text_source,
+            result,
+        );
+    }
+
+    // Source citations on the individual
+    for cite in &indi.source {
+        import_citation(
+            cite,
+            Some(person_id),
+            None,
+            None,
+            &ctx.source_map,
+            get_or_create_text_source,
+            result,
+        );
+    }
+
+    // Note on the individual
+    if let Some(ref note) = indi.note {
+        import_note(
+            &note.value,
+            ctx.tree_id,
+            ctx.now,
+            Some(person_id),
+            None,
+            None,
+            None,
+            result,
+        );
+    }
+
+    import_media_links(
+        &indi.multimedia,
+        LinkOwner::Person(person_id),
+        ctx.tree_id,
+        ctx.now,
+        &ctx.media_map,
+        result,
+    );
+}
+
+/// Import a `FAM` record: the family, its spouses and children, events,
+/// citations, notes and media links.
+fn import_family(
+    fam: &ged_io::types::family::Family,
+    ctx: &ImportContext,
+    get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    get_or_create_text_source: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    result: &mut ImportResult,
+) {
+    let Some(xref) = &fam.xref else {
+        result.warnings.push("Skipping family without xref".into());
+        return;
+    };
+    let family_id = ctx.fam_map[xref];
+
+    result.families.push(Family {
+        id: family_id,
+        tree_id: ctx.tree_id,
+        privacy: Privacy::default(),
+        created_at: ctx.now,
+        updated_at: ctx.now,
+        deleted_at: None,
+    });
+
+    import_spouses(fam, xref, family_id, ctx, result);
+
+    // Children
+    for (idx, child_xref) in fam.children.iter().enumerate() {
+        let Some(&person_id) = ctx.indi_map.get(child_xref) else {
+            result
+                .warnings
+                .push(format!("Family {xref}: CHIL {child_xref} not found"));
+            continue;
+        };
+        result.family_children.push(FamilyChild {
+            id: Uuid::now_v7(),
+            family_id,
+            person_id,
+            child_type: ChildType::Biological, // default; PEDI tag handled below
+            sort_order: idx as i32,
+        });
+    }
+
+    // Family events. Some GEDCOM files put them in the `family_event` field.
+    for evt_detail in fam.events.iter().chain(&fam.family_event) {
+        import_event_detail(
+            evt_detail,
+            ctx.tree_id,
+            None,
+            Some(family_id),
+            ctx.now,
+            &ctx.source_map,
+            &ctx.media_map,
+            &ctx.indi_map,
+            get_or_create_place,
+            get_or_create_text_source,
+            result,
+        );
+    }
+
+    // Source citations on the family
+    for cite in &fam.sources {
+        import_citation(
+            cite,
+            None,
+            None,
+            Some(family_id),
+            &ctx.source_map,
+            get_or_create_text_source,
+            result,
+        );
+    }
+
+    // Notes on the family
+    for note in &fam.notes {
+        import_note(
+            &note.value,
+            ctx.tree_id,
+            ctx.now,
+            None,
+            None,
+            Some(family_id),
+            None,
+            result,
+        );
+    }
+
+    import_media_links(
+        &fam.multimedia,
+        LinkOwner::Family(family_id),
+        ctx.tree_id,
+        ctx.now,
+        &ctx.media_map,
+        result,
+    );
+}
+
+/// A family's `HUSB` and `WIFE`, in that order. A spouse the file does not
+/// hold is a warning.
+fn import_spouses(
+    fam: &ged_io::types::family::Family,
+    xref: &str,
+    family_id: Uuid,
+    ctx: &ImportContext,
+    result: &mut ImportResult,
+) {
+    let mut sort_order = 0i32;
+    for (spouse_xref, role, tag) in [
+        (&fam.individual1, SpouseRole::Husband, "HUSB"),
+        (&fam.individual2, SpouseRole::Wife, "WIFE"),
+    ] {
+        let Some(spouse_xref) = spouse_xref else {
+            continue;
+        };
+        let Some(&person_id) = ctx.indi_map.get(spouse_xref) else {
+            result
+                .warnings
+                .push(format!("Family {xref}: {tag} {spouse_xref} not found"));
+            continue;
+        };
+        result.family_spouses.push(FamilySpouse {
+            id: Uuid::now_v7(),
+            family_id,
+            person_id,
+            role,
+            sort_order,
+        });
+        sort_order += 1;
+    }
+}
+
+/// The record a media link attaches to.
+#[derive(Clone, Copy)]
+enum LinkOwner {
+    Person(Uuid),
+    Event(Uuid),
+    Family(Uuid),
+}
+
+/// Link each `OBJE` of a record to it, creating the media an inline `OBJE`
+/// describes.
+///
+/// A person's links record the file's order rather than leaving it to the
+/// ids: a person's first picture is the one that represents them when no
+/// portrait is stored, and GEDCOM states a portrait only by writing it first.
+fn import_media_links(
+    multimedia: &[ged_io::types::multimedia::Multimedia],
+    owner: LinkOwner,
+    tree_id: Uuid,
+    now: chrono::DateTime<Utc>,
+    media_map: &HashMap<String, Uuid>,
+    result: &mut ImportResult,
+) {
+    for (index, mm) in multimedia.iter().enumerate() {
+        let Some(media_id) = resolve_or_create_media(mm, tree_id, now, media_map, result) else {
+            continue;
+        };
+        let (person_id, event_id, family_id, sort_order) = match owner {
+            LinkOwner::Person(id) => (
+                Some(id),
+                None,
+                None,
+                i32::try_from(index).unwrap_or(i32::MAX),
+            ),
+            LinkOwner::Event(id) => (None, Some(id), None, 0),
+            LinkOwner::Family(id) => (None, None, Some(id), 0),
+        };
+        result.media_links.push(MediaLink {
+            id: Uuid::now_v7(),
+            media_id,
+            person_id,
+            event_id,
+            source_id: None,
+            family_id,
+            sort_order,
+        });
+    }
+}
+
+/// Pedigree linkage: update each child's `child_type` from the `PEDI` of the
+/// `FAMC` link on their own record.
+fn apply_pedigree_linkage(data: &GedcomData, ctx: &ImportContext, result: &mut ImportResult) {
     for indi in &data.individuals {
-        let xref = match &indi.xref {
-            Some(x) => x,
-            None => {
-                result
-                    .warnings
-                    .push("Skipping individual without xref".into());
-                continue;
-            }
+        let Some(person_id) = indi.xref.as_ref().and_then(|x| ctx.indi_map.get(x)) else {
+            continue;
         };
-        let person_id = indi_map[xref];
-
-        // Sex
-        let sex = indi
-            .sex
-            .as_ref()
-            .map(|g| convert_gender(&g.value))
-            .unwrap_or(Sex::Unknown);
-
-        result.persons.push(Person {
-            id: person_id,
-            tree_id,
-            sex,
-            privacy: Privacy::default(),
-            // A GEDCOM names a person's media but never says which one
-            // represents them: `OBJE` carries no primary flag.
-            portrait_media_id: None,
-            portrait_vignette_id: None,
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
-        });
-
-        // Names (GEDCOM allows {0:M} NAME structures per individual; the
-        // first is primary, the rest import as additional PersonNames).
-        for (i, name) in indi.names.iter().enumerate() {
-            let (person_name, aliases) = convert_name(name, person_id, i == 0, now);
-            result.person_names.push(person_name);
-            result.person_names.extend(aliases);
-        }
-
-        // Events
-        for evt_detail in &indi.events {
-            import_event_detail(
-                evt_detail,
-                tree_id,
-                Some(person_id),
-                None,
-                now,
-                &source_map,
-                &media_map,
-                &indi_map,
-                &mut get_or_create_place,
-                &mut get_or_create_text_source,
-                &mut result,
-            );
-        }
-
-        // Attributes (GEDCOM's INDIVIDUAL_ATTRIBUTE_STRUCTURE: OCCU, RESI,
-        // TITL, ... — distinct from INDIVIDUAL_EVENT_STRUCTURE in both the
-        // 5.5.1 and 7.0 specs, but modeled as `Event`s in our domain).
-        for attr_detail in &indi.attributes {
-            import_attribute_detail(
-                attr_detail,
-                tree_id,
-                person_id,
-                now,
-                &source_map,
-                &media_map,
-                &mut get_or_create_place,
-                &mut get_or_create_text_source,
-                &mut result,
-            );
-        }
-
-        // Source citations on the individual
-        for cite in &indi.source {
-            import_citation(
-                cite,
-                Some(person_id),
-                None,
-                None,
-                &source_map,
-                &mut get_or_create_text_source,
-                &mut result,
-            );
-        }
-
-        // Note on the individual
-        if let Some(ref note) = indi.note {
-            import_note(
-                &note.value,
-                tree_id,
-                now,
-                Some(person_id),
-                None,
-                None,
-                None,
-                &mut result,
-            );
-        }
-
-        // Multimedia links on the individual
-        // The file's order is the gallery's order, recorded rather than left
-        // to the ids: a person's first picture is the one that represents them
-        // when no portrait is stored, and GEDCOM states a portrait only by
-        // writing it first.
-        for (index, mm) in indi.multimedia.iter().enumerate() {
-            let media_id = resolve_or_create_media(mm, tree_id, now, &media_map, &mut result);
-            if let Some(media_id) = media_id {
-                result.media_links.push(MediaLink {
-                    id: Uuid::now_v7(),
-                    media_id,
-                    person_id: Some(person_id),
-                    event_id: None,
-                    source_id: None,
-                    family_id: None,
-                    sort_order: i32::try_from(index).unwrap_or(i32::MAX),
-                });
-            }
-        }
-    }
-
-    // ── Import Families ─────────────────────────────────────────────
-    for fam in &data.families {
-        let xref = match &fam.xref {
-            Some(x) => x,
-            None => {
-                result.warnings.push("Skipping family without xref".into());
-                continue;
-            }
-        };
-        let family_id = fam_map[xref];
-
-        result.families.push(Family {
-            id: family_id,
-            tree_id,
-            privacy: Privacy::default(),
-            created_at: now,
-            updated_at: now,
-            deleted_at: None,
-        });
-
-        // Spouses
-        let mut sort_order = 0i32;
-        if let Some(ref husb_xref) = fam.individual1 {
-            if let Some(&person_id) = indi_map.get(husb_xref) {
-                result.family_spouses.push(FamilySpouse {
-                    id: Uuid::now_v7(),
-                    family_id,
-                    person_id,
-                    role: SpouseRole::Husband,
-                    sort_order,
-                });
-                sort_order += 1;
-            } else {
-                result
-                    .warnings
-                    .push(format!("Family {xref}: HUSB {husb_xref} not found"));
-            }
-        }
-        if let Some(ref wife_xref) = fam.individual2 {
-            if let Some(&person_id) = indi_map.get(wife_xref) {
-                result.family_spouses.push(FamilySpouse {
-                    id: Uuid::now_v7(),
-                    family_id,
-                    person_id,
-                    role: SpouseRole::Wife,
-                    sort_order,
-                });
-            } else {
-                result
-                    .warnings
-                    .push(format!("Family {xref}: WIFE {wife_xref} not found"));
-            }
-        }
-
-        // Children
-        for (idx, child_xref) in fam.children.iter().enumerate() {
-            if let Some(&person_id) = indi_map.get(child_xref) {
-                result.family_children.push(FamilyChild {
-                    id: Uuid::now_v7(),
-                    family_id,
-                    person_id,
-                    child_type: ChildType::Biological, // default; PEDI tag handled below
-                    sort_order: idx as i32,
-                });
-            } else {
-                result
-                    .warnings
-                    .push(format!("Family {xref}: CHIL {child_xref} not found"));
-            }
-        }
-
-        // Family events
-        for evt_detail in &fam.events {
-            import_event_detail(
-                evt_detail,
-                tree_id,
-                None,
-                Some(family_id),
-                now,
-                &source_map,
-                &media_map,
-                &indi_map,
-                &mut get_or_create_place,
-                &mut get_or_create_text_source,
-                &mut result,
-            );
-        }
-        // Some GEDCOM files put family events in family_event field
-        for evt_detail in &fam.family_event {
-            import_event_detail(
-                evt_detail,
-                tree_id,
-                None,
-                Some(family_id),
-                now,
-                &source_map,
-                &media_map,
-                &indi_map,
-                &mut get_or_create_place,
-                &mut get_or_create_text_source,
-                &mut result,
-            );
-        }
-
-        // Source citations on the family
-        for cite in &fam.sources {
-            import_citation(
-                cite,
-                None,
-                None,
-                Some(family_id),
-                &source_map,
-                &mut get_or_create_text_source,
-                &mut result,
-            );
-        }
-
-        // Notes on the family
-        for note in &fam.notes {
-            import_note(
-                &note.value,
-                tree_id,
-                now,
-                None,
-                None,
-                Some(family_id),
-                None,
-                &mut result,
-            );
-        }
-
-        // Multimedia links on the family
-        for mm in &fam.multimedia {
-            let media_id = resolve_or_create_media(mm, tree_id, now, &media_map, &mut result);
-            if let Some(media_id) = media_id {
-                result.media_links.push(MediaLink {
-                    id: Uuid::now_v7(),
-                    media_id,
-                    person_id: None,
-                    event_id: None,
-                    source_id: None,
-                    family_id: Some(family_id),
-                    sort_order: 0,
-                });
-            }
-        }
-    }
-
-    // ── Pedigree linkage (update child_type from FAMC PEDI) ─────────
-    // The FamilyLink on each individual's families vec tells us
-    // the pedigree type. We update the FamilyChild records.
-    for indi in &data.individuals {
-        let indi_xref = match &indi.xref {
-            Some(x) => x,
-            None => continue,
-        };
-        let person_id = match indi_map.get(indi_xref) {
-            Some(&id) => id,
-            None => continue,
-        };
-
         for fl in &indi.families {
             if !matches!(
                 fl.family_link_type,
                 ged_io::types::individual::family_link::FamilyLinkType::Child
-            ) {
+            ) || fl.xref.is_empty()
+            {
                 continue;
             }
-            let fam_xref = &fl.xref;
-            if fam_xref.is_empty() {
+            let Some(ref pedi) = fl.pedigree_linkage_type else {
                 continue;
-            }
-            if let Some(ref pedi) = fl.pedigree_linkage_type {
-                let child_type = convert_pedigree(pedi);
-                // Find and update the matching FamilyChild
-                for fc in &mut result.family_children {
-                    if fc.person_id == person_id
-                        && let Some(&fam_id) = fam_map.get(fam_xref)
-                        && fc.family_id == fam_id
-                    {
-                        fc.child_type = child_type;
-                    }
+            };
+            let child_type = convert_pedigree(pedi);
+            let fam_id = ctx.fam_map.get(&fl.xref);
+            // Find and update the matching FamilyChild
+            for fc in &mut result.family_children {
+                if fc.person_id == *person_id && Some(&fc.family_id) == fam_id {
+                    fc.child_type = child_type;
                 }
             }
         }
     }
+}
 
-    // ── Associations (top-level `1 ASSO` — Gramps' witness/godparent
-    // convention) ─────────────────────────────────────────────────────
-    // Gramps (and the GEDCOM 5.5.1 grammar) places `ASSO` as a direct
-    // child of the INDI record that "owns" the relationship, never nested
-    // inside a specific event. Which direction it describes depends on
-    // what the xref resolves to:
-    //   - target is a FAM: the owner witnessed that family's marriage
-    //     (`1 ASSO @F1@` / `2 RELA witness` on the witness's own record).
-    //   - target is an INDI: the target holds a role (godparent, ...) at
-    //     the owner's own birth/baptism (`1 ASSO @I2@` / `2 RELA GODM` on
-    //     the godchild's own record).
-    // GEDCOM's ASSO has no way to name which specific event it applies to
-    // when the owner has several candidate events, so that case is a
-    // best-effort guess (flagged with a warning), not a guarantee.
-    //
-    // Some exporters (Gramps included) redundantly *also* nest an ASSO
-    // inside the witnessed event's own detail (caught above by
-    // `import_event_detail`'s `detail.associations` loop) for the same
-    // fact this pass would otherwise reconstruct — skip any (event,
-    // person) pair already present in `result.event_witnesses` so the
-    // same witness isn't recorded twice.
-    let mut seen_witnesses: std::collections::HashSet<(Uuid, Uuid)> = result
-        .event_witnesses
-        .iter()
-        .map(|w| (w.event_id, w.person_id))
-        .collect();
-    let mut event_witness_sort: HashMap<Uuid, i32> = HashMap::new();
+/// Associations (top-level `1 ASSO` — Gramps' witness/godparent convention).
+///
+/// Gramps (and the GEDCOM 5.5.1 grammar) places `ASSO` as a direct child of
+/// the INDI record that "owns" the relationship, never nested inside a
+/// specific event. Which direction it describes depends on what the xref
+/// resolves to:
+///   - target is a FAM: the owner witnessed that family's marriage
+///     (`1 ASSO @F1@` / `2 RELA witness` on the witness's own record).
+///   - target is an INDI: the target holds a role (godparent, ...) at
+///     the owner's own birth/baptism (`1 ASSO @I2@` / `2 RELA GODM` on
+///     the godchild's own record).
+///
+/// GEDCOM's ASSO has no way to name which specific event it applies to
+/// when the owner has several candidate events, so that case is a
+/// best-effort guess (flagged with a warning), not a guarantee.
+fn import_associations(data: &GedcomData, ctx: &ImportContext, result: &mut ImportResult) {
+    let mut witnesses = WitnessLog::new(result);
     for indi in &data.individuals {
-        let owner_xref = match &indi.xref {
-            Some(x) => x,
-            None => continue,
-        };
-        let Some(&owner_person_id) = indi_map.get(owner_xref) else {
+        let Some(owner_xref) = &indi.xref else {
             continue;
         };
-
+        let Some(&owner_person_id) = ctx.indi_map.get(owner_xref) else {
+            continue;
+        };
         for assoc in &indi.associations {
-            if let Some(&family_id) = fam_map.get(&assoc.xref) {
-                let target_event = result
-                    .events
-                    .iter()
-                    .filter(|e| e.family_id == Some(family_id))
-                    .find(|e| e.event_type == EventType::Marriage)
-                    .or_else(|| {
-                        result
-                            .events
-                            .iter()
-                            .find(|e| e.family_id == Some(family_id))
-                    });
-
-                match target_event {
-                    Some(evt) if seen_witnesses.contains(&(evt.id, owner_person_id)) => {}
-                    Some(evt) => {
-                        let event_id = evt.id;
-                        seen_witnesses.insert((event_id, owner_person_id));
-                        let sort_order = event_witness_sort.entry(event_id).or_insert(0);
-                        result.event_witnesses.push(EventWitness {
-                            id: Uuid::now_v7(),
-                            event_id,
-                            person_id: owner_person_id,
-                            relation: assoc.relationship.clone(),
-                            sort_order: *sort_order,
-                        });
-                        *sort_order += 1;
-                    }
-                    None => result.warnings.push(format!(
-                        "Individual {owner_xref}: ASSO {} (family) has no event to attach the witness to — skipped",
-                        assoc.xref
-                    )),
-                }
-            } else if let Some(&role_holder_id) = indi_map.get(&assoc.xref) {
-                let candidates: Vec<&Event> = result
-                    .events
-                    .iter()
-                    .filter(|e| e.person_id == Some(owner_person_id))
-                    .collect();
-                // GEDCOM 5.5.1 puts `ASSO` on the individual, not on an event
-                // — Gramps rejects the event-nested form — so the event has to
-                // be inferred. Baptism first, because that is where a
-                // godparent belongs and godparents are most of what this tag
-                // carries; then birth, which stands in for a baptism nobody
-                // recorded.
-                let baptism = candidates
-                    .iter()
-                    .find(|e| e.event_type == EventType::Baptism)
-                    .copied();
-                let birth = candidates
-                    .iter()
-                    .find(|e| e.event_type == EventType::Birth)
-                    .copied();
-                let target_event = baptism.or(birth).or_else(|| candidates.first().copied());
-
-                match target_event {
-                    Some(evt) if seen_witnesses.contains(&(evt.id, role_holder_id)) => {}
-                    Some(evt) => {
-                        // Only when the choice was genuinely arbitrary. An
-                        // earlier version warned whenever the person had more
-                        // than one event, which fired even where a baptism had
-                        // been found and the answer was simply right — so a
-                        // clean import reported warnings nobody could act on,
-                        // and the ones that mattered were lost among them.
-                        if baptism.is_none() && birth.is_none() && candidates.len() > 1 {
-                            result.warnings.push(format!(
-                                "Individual {owner_xref}: ASSO {} attached to its {:?} event — \
-                                 {owner_xref} has several events and none of them is a birth or \
-                                 a baptism, so this is a guess",
-                                assoc.xref, evt.event_type
-                            ));
-                        }
-                        let event_id = evt.id;
-                        seen_witnesses.insert((event_id, role_holder_id));
-                        let sort_order = event_witness_sort.entry(event_id).or_insert(0);
-                        result.event_witnesses.push(EventWitness {
-                            id: Uuid::now_v7(),
-                            event_id,
-                            person_id: role_holder_id,
-                            relation: assoc.relationship.clone(),
-                            sort_order: *sort_order,
-                        });
-                        *sort_order += 1;
-                    }
-                    None => result.warnings.push(format!(
-                        "Individual {owner_xref}: ASSO {} has no individual event to attach to — skipped",
-                        assoc.xref
-                    )),
-                }
+            if let Some(&family_id) = ctx.fam_map.get(&assoc.xref) {
+                witness_family_event(
+                    owner_xref,
+                    owner_person_id,
+                    family_id,
+                    assoc,
+                    &mut witnesses,
+                    result,
+                );
+            } else if let Some(&role_holder_id) = ctx.indi_map.get(&assoc.xref) {
+                witness_individual_event(
+                    owner_xref,
+                    owner_person_id,
+                    role_holder_id,
+                    assoc,
+                    &mut witnesses,
+                    result,
+                );
             } else {
                 result.warnings.push(format!(
                     "Individual {owner_xref}: ASSO {} target not found in file — skipped",
@@ -990,13 +968,150 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             }
         }
     }
+}
 
-    // Handed back so a caller holding links keyed by something outside the
-    // domain model can resolve them to person ids — see the field's docs.
-    result.person_by_xref = indi_map;
-    result.media_by_xref = page_map;
+/// The witnesses recorded so far, and the next sort order of each event's.
+///
+/// Some exporters (Gramps included) redundantly *also* nest an ASSO inside
+/// the witnessed event's own detail (caught by `import_event_detail`'s
+/// `detail.associations` loop) for the same fact the association pass would
+/// otherwise reconstruct — an (event, person) pair already present in
+/// `result.event_witnesses` is not recorded twice.
+struct WitnessLog {
+    seen: std::collections::HashSet<(Uuid, Uuid)>,
+    next_sort: HashMap<Uuid, i32>,
+}
 
-    Ok(result)
+impl WitnessLog {
+    fn new(result: &ImportResult) -> Self {
+        Self {
+            seen: result
+                .event_witnesses
+                .iter()
+                .map(|w| (w.event_id, w.person_id))
+                .collect(),
+            next_sort: HashMap::new(),
+        }
+    }
+
+    fn contains(&self, event_id: Uuid, person_id: Uuid) -> bool {
+        self.seen.contains(&(event_id, person_id))
+    }
+
+    /// Record `person_id` as a witness of `event_id`, after the others.
+    fn record(
+        &mut self,
+        result: &mut ImportResult,
+        event_id: Uuid,
+        person_id: Uuid,
+        relation: Option<String>,
+    ) {
+        self.seen.insert((event_id, person_id));
+        let sort_order = self.next_sort.entry(event_id).or_insert(0);
+        result.event_witnesses.push(EventWitness {
+            id: Uuid::now_v7(),
+            event_id,
+            person_id,
+            relation,
+            sort_order: *sort_order,
+        });
+        *sort_order += 1;
+    }
+}
+
+/// An `ASSO` to a family: the owner witnessed its marriage, or its first
+/// event when it has none.
+fn witness_family_event(
+    owner_xref: &str,
+    owner_person_id: Uuid,
+    family_id: Uuid,
+    assoc: &ged_io::types::individual::association::Association,
+    witnesses: &mut WitnessLog,
+    result: &mut ImportResult,
+) {
+    let family_events = || {
+        result
+            .events
+            .iter()
+            .filter(move |e| e.family_id == Some(family_id))
+    };
+    let target_event = family_events()
+        .find(|e| e.event_type == EventType::Marriage)
+        .or_else(|| family_events().next())
+        .map(|e| e.id);
+    match target_event {
+        Some(event_id) if witnesses.contains(event_id, owner_person_id) => {}
+        Some(event_id) => witnesses.record(
+            result,
+            event_id,
+            owner_person_id,
+            assoc.relationship.clone(),
+        ),
+        None => result.warnings.push(format!(
+            "Individual {owner_xref}: ASSO {} (family) has no event to attach the witness to — skipped",
+            assoc.xref
+        )),
+    }
+}
+
+/// An `ASSO` to an individual: the target holds a role at one of the
+/// owner's own events.
+///
+/// GEDCOM 5.5.1 puts `ASSO` on the individual, not on an event — Gramps
+/// rejects the event-nested form — so the event has to be inferred. Baptism
+/// first, because that is where a godparent belongs and godparents are most
+/// of what this tag carries; then birth, which stands in for a baptism
+/// nobody recorded; then the owner's first event.
+fn witness_individual_event(
+    owner_xref: &str,
+    owner_person_id: Uuid,
+    role_holder_id: Uuid,
+    assoc: &ged_io::types::individual::association::Association,
+    witnesses: &mut WitnessLog,
+    result: &mut ImportResult,
+) {
+    let candidates: Vec<&Event> = result
+        .events
+        .iter()
+        .filter(|e| e.person_id == Some(owner_person_id))
+        .collect();
+    let of_type = |event_type| {
+        candidates
+            .iter()
+            .find(|e| e.event_type == event_type)
+            .copied()
+    };
+    let baptism = of_type(EventType::Baptism);
+    let birth = of_type(EventType::Birth);
+    // Only when the choice was genuinely arbitrary. An earlier version
+    // warned whenever the person had more than one event, which fired even
+    // where a baptism had been found and the answer was simply right — so a
+    // clean import reported warnings nobody could act on, and the ones that
+    // mattered were lost among them.
+    let guessed = baptism.is_none() && birth.is_none() && candidates.len() > 1;
+    let target_event = baptism
+        .or(birth)
+        .or_else(|| candidates.first().copied())
+        .map(|e| (e.id, e.event_type));
+
+    match target_event {
+        Some((event_id, _)) if witnesses.contains(event_id, role_holder_id) => {}
+        Some((event_id, event_type)) => {
+            if guessed {
+                result.warnings.push(format!(
+                    "Individual {owner_xref}: ASSO {} attached to its {:?} event — \
+                     {owner_xref} has several events and none of them is a birth or \
+                     a baptism, so this is a guess",
+                    assoc.xref, event_type
+                ));
+            }
+            witnesses.record(result, event_id, role_holder_id, assoc.relationship.clone());
+        }
+        None => result.warnings.push(format!(
+            "Individual {owner_xref}: ASSO {} has no individual event to attach to — skipped",
+            assoc.xref
+        )),
+    }
 }
 
 /// Restore OxidGene metadata and crop annotations beneath top-level `OBJE`
@@ -2040,20 +2155,14 @@ fn import_event_detail(
     }
 
     // Multimedia on the event
-    for mm in &detail.multimedia {
-        let mid = resolve_or_create_media(mm, tree_id, now, media_map, result);
-        if let Some(media_id) = mid {
-            result.media_links.push(MediaLink {
-                id: Uuid::now_v7(),
-                media_id,
-                person_id: None,
-                event_id: Some(event_id),
-                source_id: None,
-                family_id: None,
-                sort_order: 0,
-            });
-        }
-    }
+    import_media_links(
+        &detail.multimedia,
+        LinkOwner::Event(event_id),
+        tree_id,
+        now,
+        media_map,
+        result,
+    );
 
     // Note on the event
     if let Some(ref note) = detail.note {
@@ -2192,20 +2301,14 @@ fn import_attribute_detail(
         // deed behind a TITL. A value that split into several professions
         // gives each of them the scan, the same way each gets the citations:
         // one line documented them all.
-        for mm in &detail.multimedia {
-            let mid = resolve_or_create_media(mm, tree_id, now, media_map, result);
-            if let Some(media_id) = mid {
-                result.media_links.push(MediaLink {
-                    id: Uuid::now_v7(),
-                    media_id,
-                    person_id: None,
-                    event_id: Some(event_id),
-                    source_id: None,
-                    family_id: None,
-                    sort_order: 0,
-                });
-            }
-        }
+        import_media_links(
+            &detail.multimedia,
+            LinkOwner::Event(event_id),
+            tree_id,
+            now,
+            media_map,
+            result,
+        );
 
         // Note on the attribute
         if let Some(ref note) = detail.note {
@@ -2873,6 +2976,27 @@ mod gedzip_tests {
             .expect("a page was imported")
     }
 
+    /// The document an inline `OBJE` became holds its title and note, and no
+    /// file of its own.
+    fn assert_describing_document(document: &Media) {
+        assert_eq!(document.title.as_deref(), Some("Sample portrait"));
+        assert_eq!(document.description.as_deref(), Some("Sample description"));
+        assert_eq!(document.mime_type, DOCUMENT_MIME);
+        assert!(document.file_path.is_empty());
+        assert_eq!(document.page_count, 1);
+    }
+
+    /// The page names the file and nothing more.
+    fn assert_bare_page_of(page: &Media, document: &Media) {
+        assert_eq!(page.parent_media_id, Some(document.id));
+        assert_eq!(page.page_index, 0);
+        assert_eq!(page.mime_type, "image/jpeg");
+        assert_eq!(page.file_name, "portrait.jpg");
+        assert_eq!(page.file_path, "media/portrait.jpg");
+        assert!(page.title.is_none());
+        assert!(page.description.is_none());
+    }
+
     #[test]
     fn inline_media_imports_as_a_document_with_a_page_and_keeps_its_gedzip_bytes() {
         let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
@@ -2886,18 +3010,8 @@ mod gedzip_tests {
         assert_eq!(result.media.len(), 2);
         let document = result.media.iter().find(|m| m.is_document()).unwrap();
         let page = page_of(result);
-        assert_eq!(document.title.as_deref(), Some("Sample portrait"));
-        assert_eq!(document.description.as_deref(), Some("Sample description"));
-        assert_eq!(document.mime_type, DOCUMENT_MIME);
-        assert!(document.file_path.is_empty());
-        assert_eq!(document.page_count, 1);
-        assert_eq!(page.parent_media_id, Some(document.id));
-        assert_eq!(page.page_index, 0);
-        assert_eq!(page.mime_type, "image/jpeg");
-        assert_eq!(page.file_name, "portrait.jpg");
-        assert_eq!(page.file_path, "media/portrait.jpg");
-        assert!(page.title.is_none());
-        assert!(page.description.is_none());
+        assert_describing_document(document);
+        assert_bare_page_of(page, document);
         assert_eq!(result.media_links.len(), 1);
         assert_eq!(result.media_links[0].media_id, document.id);
         assert_eq!(result.media_links[0].person_id, Some(result.persons[0].id));
