@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
 use crate::place::{Country, Kind, Place, file, fold, unfiled};
+use crate::table::Table;
 use crate::wikidata::{FormerQuery, coordinates, former_municipalities};
 
 /// The DGT's OGC API over the CAOP, mainland only.
@@ -54,29 +55,11 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         parishes.insert(code.to_string(), (name.to_string(), code[..4].to_string()));
     }
 
-    // The islands: Madeira's codes start with 3, the Azores' with 4.
-    let islands = fetcher.sparql(ISLANDS).await?;
-    let (code, label) = (islands.column("code")?, islands.column("label")?);
-    for row in &islands.rows {
-        let code = row[code].as_str();
-        let region = if code.starts_with('3') {
-            "Região Autónoma da Madeira"
-        } else {
-            "Região Autónoma dos Açores"
-        };
-        match code.len() {
-            4 => {
-                municipalities.insert(code.to_string(), (row[label].clone(), region.to_string()));
-            }
-            6 => {
-                parishes.insert(
-                    code.to_string(),
-                    (parish_name(&row[label]).to_string(), code[..4].to_string()),
-                );
-            }
-            _ => {}
-        }
-    }
+    add_islands(
+        &fetcher.sparql(ISLANDS).await?,
+        &mut municipalities,
+        &mut parishes,
+    )?;
 
     let mut places = Vec::new();
     let mut codes: Vec<_> = municipalities.keys().cloned().collect();
@@ -154,6 +137,37 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         places.len() - live
     );
     Ok(places)
+}
+
+/// Adds the municipalities and parishes of the islands, which the CAOP
+/// leaves out: Madeira's codes start with 3, the Azores' with 4.
+fn add_islands(
+    islands: &Table,
+    municipalities: &mut HashMap<String, (String, String)>,
+    parishes: &mut HashMap<String, (String, String)>,
+) -> Result<()> {
+    let (code, label) = (islands.column("code")?, islands.column("label")?);
+    for row in &islands.rows {
+        let code = row[code].as_str();
+        let region = if code.starts_with('3') {
+            "Região Autónoma da Madeira"
+        } else {
+            "Região Autónoma dos Açores"
+        };
+        match code.len() {
+            4 => {
+                municipalities.insert(code.to_string(), (row[label].clone(), region.to_string()));
+            }
+            6 => {
+                parishes.insert(
+                    code.to_string(),
+                    (parish_name(&row[label]).to_string(), code[..4].to_string()),
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// Every feature of a CAOP collection, without geometry, page by page.

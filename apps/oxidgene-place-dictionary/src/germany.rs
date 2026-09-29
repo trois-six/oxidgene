@@ -12,7 +12,7 @@ use crate::fetch::Fetcher;
 use crate::place::{Country, Kind, Place, file, fold, unfiled};
 use crate::table::decode_mixed;
 
-use crate::wikidata::{FormerQuery, coordinates, former_municipalities};
+use crate::wikidata::{Former, FormerQuery, coordinates, former_municipalities};
 
 const DESTATIS_URL: &str = "https://www.destatis.de";
 /// The register's page, which links every edition.
@@ -35,16 +35,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         editions[0].date
     );
 
-    // Each (code, name) with the dates it was listed on and the filings it
-    // was listed under.
-    let mut seen: HashMap<(String, String), Listing> = HashMap::new();
-    for edition in &editions {
-        for m in &edition.municipalities {
-            let listing = seen.entry((m.code.clone(), m.name.clone())).or_default();
-            listing.last.clone_from(&edition.date);
-            listing.filings.insert((m.kreis.clone(), m.land.clone()));
-        }
-    }
+    let seen = listings(&editions);
     let live: HashMap<&str, (&str, &Municipality)> = editions
         .last()
         .map(|e| {
@@ -148,12 +139,42 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let register = places.len();
 
     // Before 1993, only Wikidata remembers them.
+    file_before_register(&mut places, &former, &live, &editions[0].date);
+    eprintln!(
+        "Germany: {register} rows from the register, {} from Wikidata",
+        places.len() - register
+    );
+    Ok(places)
+}
+
+/// Each (code, name) with the date of the last edition that listed it and
+/// the filings it was listed under.
+fn listings(editions: &[Edition]) -> HashMap<(String, String), Listing> {
+    let mut seen: HashMap<(String, String), Listing> = HashMap::new();
+    for edition in editions {
+        for m in &edition.municipalities {
+            let listing = seen.entry((m.code.clone(), m.name.clone())).or_default();
+            listing.last.clone_from(&edition.date);
+            listing.filings.insert((m.kreis.clone(), m.land.clone()));
+        }
+    }
+    seen
+}
+
+/// Files the municipalities merged away before the register's first edition,
+/// which only Wikidata remembers, under the live municipality that absorbed
+/// them, unless the register already knows the name in that Land.
+fn file_before_register(
+    places: &mut Vec<Place>,
+    former: &[Former],
+    live: &HashMap<&str, (&str, &Municipality)>,
+    first_edition: &str,
+) {
     let known: HashSet<(String, String)> = places
         .iter()
         .map(|p| (fold(&p.name), p.region_name().to_string()))
         .collect();
-    let first_edition = editions[0].date.as_str();
-    for commune in &former {
+    for commune in former {
         if commune
             .end
             .as_deref()
@@ -179,18 +200,13 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         base.successor = Some(now.code.clone());
         base.coordinates = commune.coordinates;
         file(
-            &mut places,
+            places,
             &base,
             &subdivision(&commune.name, &now.kreis),
             &now.land,
             false,
         );
     }
-    eprintln!(
-        "Germany: {register} rows from the register, {} from Wikidata",
-        places.len() - register
-    );
-    Ok(places)
 }
 
 /// A kreisfreie Stadt is its own Kreis: the subdivision would repeat the name.

@@ -9,6 +9,7 @@ use anyhow::Result;
 
 use crate::fetch::Fetcher;
 use crate::place::{Coordinates, Country, Kind, Place, file, fold, unfiled};
+use crate::table::Table;
 use crate::wikidata::{FormerQuery, former_municipalities, wikidata_date};
 
 /// Wikidata's property for the NIS code.
@@ -86,8 +87,9 @@ fn local_name(code: &str, nl: &str, fr: &str, de: &str) -> String {
     }
 }
 
-pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
-    let table = fetcher.sparql(MUNICIPALITIES).await?;
+/// The municipalities without an end date, by NIS code, with their local
+/// name and centre.
+fn live_municipalities(table: &Table) -> Result<HashMap<String, (String, Option<Coordinates>)>> {
     let (code, end, nl, fr, de, coord) = (
         table.column("code")?,
         table.column("end")?,
@@ -106,6 +108,11 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
             );
         }
     }
+    Ok(live)
+}
+
+pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
+    let live = live_municipalities(&fetcher.sparql(MUNICIPALITIES).await?)?;
     let mut places = Vec::new();
     let mut codes: Vec<_> = live.keys().cloned().collect();
     codes.sort();
