@@ -4203,17 +4203,25 @@ async fn gql_do(app: &axum::Router, query: &str, variables: Value) {
 async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
     let first = gql_named_person(app, tree_id, "FEMALE", "Élodie", "Fictive").await;
     let second = gql_named_person(app, tree_id, "MALE", "Marc", "Exemple").await;
-    let add_tag = r#"mutation($tree: ID!, $id: ID!, $tag: String!) {
-        addMediaTag(treeId: $tree, id: $id, tag: $tag) { id }
-    }"#;
-    let upload = r#"mutation($tree: ID!, $doc: ID!, $name: String!, $content: String!) {
-        uploadMediaFile(treeId: $tree, input: { documentId: $doc, fileName: $name, contentBase64: $content }) { id }
-    }"#;
+    gql_census_fixture(app, tree_id, &first).await;
+    gql_parish_fixture(app, tree_id, &second).await;
+    gql_photo_fixture(app, tree_id, &second).await;
+}
 
+const GQL_ADD_TAG: &str = r#"mutation($tree: ID!, $id: ID!, $tag: String!) {
+    addMediaTag(treeId: $tree, id: $id, tag: $tag) { id }
+}"#;
+
+const GQL_UPLOAD_PAGE: &str = r#"mutation($tree: ID!, $doc: ID!, $name: String!, $content: String!) {
+    uploadMediaFile(treeId: $tree, input: { documentId: $doc, fileName: $name, contentBase64: $content }) { id }
+}"#;
+
+/// A census scan tagged twice and linked to `person`.
+async fn gql_census_fixture(app: &axum::Router, tree_id: &str, person: &str) {
     let census = gql_document(app, tree_id, "Census sheet").await;
     gql_do(
         app,
-        upload,
+        GQL_UPLOAD_PAGE,
         json!({ "tree": tree_id, "doc": census, "name": "sheet.png", "content": png_base64(40, 30) }),
     )
     .await;
@@ -4228,7 +4236,7 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
     for tag in ["Village Alpha", "Survey"] {
         gql_do(
             app,
-            add_tag,
+            GQL_ADD_TAG,
             json!({ "tree": tree_id, "id": census, "tag": tag }),
         )
         .await;
@@ -4238,10 +4246,13 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
         r#"mutation($tree: ID!, $media: ID!, $person: ID!) {
             createMediaLink(treeId: $tree, input: { mediaId: $media, personId: $person }) { id }
         }"#,
-        json!({ "tree": tree_id, "media": census, "person": first }),
+        json!({ "tree": tree_id, "media": census, "person": person }),
     )
     .await;
+}
 
+/// A parish PDF linked to a dated baptism of `person`.
+async fn gql_parish_fixture(app: &axum::Router, tree_id: &str, person: &str) {
     let parish = gql_document(app, tree_id, "Écrits de paroisse").await;
     gql_do(
         app,
@@ -4253,7 +4264,7 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
     .await;
     gql_do(
         app,
-        add_tag,
+        GQL_ADD_TAG,
         json!({ "tree": tree_id, "id": parish, "tag": "village alpha" }),
     )
     .await;
@@ -4262,7 +4273,7 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
         r#"mutation($tree: ID!, $person: ID!) {
             createEvent(treeId: $tree, input: { eventType: BAPTISM, personId: $person, dateValue: "12 MAR 1890" }) { id }
         }"#,
-        Some(json!({ "tree": tree_id, "person": second })),
+        Some(json!({ "tree": tree_id, "person": person })),
     )
     .await;
     let event = data(&resp)["createEvent"]["id"]
@@ -4277,11 +4288,14 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
         json!({ "tree": tree_id, "media": parish, "event": event }),
     )
     .await;
+}
 
+/// A photograph with a crop identifying `person`.
+async fn gql_photo_fixture(app: &axum::Router, tree_id: &str, person: &str) {
     let photo = gql_document(app, tree_id, "Group photo").await;
     let resp = graphql(
         app.clone(),
-        upload,
+        GQL_UPLOAD_PAGE,
         Some(
             json!({ "tree": tree_id, "doc": photo, "name": "garden.png", "content": png_base64(80, 60) }),
         ),
@@ -4293,7 +4307,7 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
         .to_string();
     gql_do(
         app,
-        add_tag,
+        GQL_ADD_TAG,
         json!({ "tree": tree_id, "id": photo, "tag": "Village Alpha" }),
     )
     .await;
@@ -4302,7 +4316,7 @@ async fn gql_library_fixture(app: &axum::Router, tree_id: &str) {
         r#"mutation($tree: ID!, $page: ID!, $person: ID!) {
             createVignette(treeId: $tree, input: { mediaId: $page, personId: $person, x: 0, y: 0, width: 20, height: 20 }) { id }
         }"#,
-        json!({ "tree": tree_id, "page": page, "person": second }),
+        json!({ "tree": tree_id, "page": page, "person": person }),
     )
     .await;
 }

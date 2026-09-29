@@ -12,6 +12,7 @@ use oxidgene_db::repo::{
     EventRepo, MediaRepo, PersonRepo, PlaceRepo, TreeRepo, UploadedMedia, VignetteRepo, connect,
     run_migrations,
 };
+use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -49,6 +50,19 @@ async fn write_vignette(
             format!("/api/v1/trees/{tree}/vignettes/{target}"),
         )
     };
+    send_write(app, graphql, method, uri, &body).await
+}
+
+/// Sends a write and tells whether it was accepted: a GraphQL response
+/// without errors, or a REST success. A REST refusal must be a validation or
+/// a not-found error.
+async fn send_write(
+    app: &Router,
+    graphql: bool,
+    method: Method,
+    uri: String,
+    body: &Value,
+) -> (bool, Value) {
     let request = Request::builder()
         .method(method)
         .uri(uri)
@@ -73,7 +87,9 @@ async fn write_vignette(
     }
 }
 
-async fn vignette_validation(graphql: bool) {
+/// An app over a fresh in-memory database holding one fictional tree. The
+/// returned directory holds the media and must outlive the app.
+async fn app_with_tree() -> (DatabaseConnection, Router, Uuid, tempfile::TempDir) {
     let db = connect("sqlite::memory:").await.unwrap();
     run_migrations(&db).await.unwrap();
     let root = tempfile::tempdir().unwrap();
@@ -82,13 +98,18 @@ async fn vignette_validation(graphql: bool) {
     TreeRepo::create(&db, tree, "Fictional tree".into(), None)
         .await
         .unwrap();
+    (db, app, tree, root)
+}
+
+/// A document with a single scanned page, returned as `(document, page)`.
+async fn document_with_page(db: &DatabaseConnection, tree: Uuid) -> (Uuid, Uuid) {
     let document = Uuid::now_v7();
-    MediaRepo::create_document(&db, document, tree, None, chrono::Utc::now())
+    MediaRepo::create_document(db, document, tree, None, chrono::Utc::now())
         .await
         .unwrap();
     let page = Uuid::now_v7();
     MediaRepo::create(
-        &db,
+        db,
         page,
         tree,
         Some(document),
@@ -101,28 +122,39 @@ async fn vignette_validation(graphql: bool) {
     )
     .await
     .unwrap();
-    let rect = json!({"x": 0, "y": 0, "width": 10, "height": 10});
+    (document, page)
+}
 
-    let (accepted, response) = write_vignette(&app, graphql, tree, page, true, rect.clone()).await;
+/// A crop is drawn on a page only, within bounds, and a patch cannot empty
+/// its geometry. Returns the one crop accepted.
+async fn check_crop_geometry(
+    app: &Router,
+    db: &DatabaseConnection,
+    graphql: bool,
+    tree: Uuid,
+    (document, page): (Uuid, Uuid),
+    rect: &Value,
+) -> Uuid {
+    let (accepted, response) = write_vignette(app, graphql, tree, page, true, rect.clone()).await;
     assert!(accepted, "valid page rejected: {response}");
-    let crop = VignetteRepo::list_for_media(&db, page)
+    let crop = VignetteRepo::list_for_media(db, page)
         .await
         .unwrap()
         .remove(0);
     assert!(
-        !write_vignette(&app, graphql, tree, document, true, rect.clone())
+        !write_vignette(app, graphql, tree, document, true, rect.clone())
             .await
             .0
     );
     assert!(
-        VignetteRepo::list_for_media(&db, document)
+        VignetteRepo::list_for_media(db, document)
             .await
             .unwrap()
             .is_empty()
     );
     assert!(
         !write_vignette(
-            &app,
+            app,
             graphql,
             tree,
             page,
@@ -133,26 +165,31 @@ async fn vignette_validation(graphql: bool) {
         .0
     );
     assert!(
-        !write_vignette(&app, graphql, tree, crop.id, false, json!({"x": 1}))
+        !write_vignette(app, graphql, tree, crop.id, false, json!({"x": 1}))
             .await
             .0
     );
+    crop.id
+}
 
+/// A person with a birth in `tree` and another in a second tree, returned
+/// as `(people, events)`, the ones of `tree` first.
+async fn attribution_targets(db: &DatabaseConnection, tree: Uuid) -> (Vec<Uuid>, Vec<Uuid>) {
     let mut people = Vec::new();
     let mut events = Vec::new();
     for target_tree in [tree, Uuid::now_v7()] {
         if target_tree != tree {
-            TreeRepo::create(&db, target_tree, "Other fictional tree".into(), None)
+            TreeRepo::create(db, target_tree, "Other fictional tree".into(), None)
                 .await
                 .unwrap();
         }
         let person = Uuid::now_v7();
-        PersonRepo::create(&db, person, target_tree, Sex::Unknown)
+        PersonRepo::create(db, person, target_tree, Sex::Unknown)
             .await
             .unwrap();
         let event = Uuid::now_v7();
         EventRepo::create(
-            &db,
+            db,
             event,
             target_tree,
             EventType::Birth,
@@ -172,46 +209,83 @@ async fn vignette_validation(graphql: bool) {
         people.push(person);
         events.push(event);
     }
-    for (field, ids) in [("person_id", &people), ("event_id", &events)] {
+    (people, events)
+}
+
+/// A crop names a person or an event of its own tree only, on creation and
+/// on update, and can be cleared of either.
+async fn check_attribution(
+    app: &Router,
+    graphql: bool,
+    tree: Uuid,
+    (page, crop): (Uuid, Uuid),
+    rect: &Value,
+    (people, events): (&[Uuid], &[Uuid]),
+) {
+    for (field, ids) in [("person_id", people), ("event_id", events)] {
         let (accepted, response) =
-            write_vignette(&app, graphql, tree, crop.id, false, json!({field: ids[0]})).await;
+            write_vignette(app, graphql, tree, crop, false, json!({field: ids[0]})).await;
         assert!(accepted, "same-tree attribution rejected: {response}");
         for id in [ids[1], Uuid::now_v7()] {
             let mut body = rect.clone();
             body[field] = json!(id);
+            assert!(!write_vignette(app, graphql, tree, page, true, body).await.0);
             assert!(
-                !write_vignette(&app, graphql, tree, page, true, body)
-                    .await
-                    .0
-            );
-            assert!(
-                !write_vignette(&app, graphql, tree, crop.id, false, json!({field: id}))
+                !write_vignette(app, graphql, tree, crop, false, json!({field: id}))
                     .await
                     .0
             );
         }
         assert!(
-            write_vignette(&app, graphql, tree, crop.id, false, json!({field: null}))
+            write_vignette(app, graphql, tree, crop, false, json!({field: null}))
                 .await
                 .0
         );
     }
-    let current = VignetteRepo::get(&db, crop.id).await.unwrap();
+}
+
+/// The crop, cleared of its person and event, is still the page's only one.
+async fn check_cleared(db: &DatabaseConnection, page: Uuid, crop: Uuid) {
+    let current = VignetteRepo::get(db, crop).await.unwrap();
     assert_eq!(current.person_id, None);
     assert_eq!(current.event_id, None);
     assert_eq!(
-        VignetteRepo::list_for_media(&db, page).await.unwrap().len(),
+        VignetteRepo::list_for_media(db, page).await.unwrap().len(),
         1
     );
-    PersonRepo::delete(&db, people[0]).await.unwrap();
-    EventRepo::delete(&db, events[0]).await.unwrap();
-    for (field, id) in [("person_id", people[0]), ("event_id", events[0])] {
+}
+
+/// A crop cannot name a person or an event once deleted.
+async fn check_deleted_targets(
+    app: &Router,
+    db: &DatabaseConnection,
+    graphql: bool,
+    tree: Uuid,
+    crop: Uuid,
+    (person, event): (Uuid, Uuid),
+) {
+    PersonRepo::delete(db, person).await.unwrap();
+    EventRepo::delete(db, event).await.unwrap();
+    for (field, id) in [("person_id", person), ("event_id", event)] {
         assert!(
-            !write_vignette(&app, graphql, tree, crop.id, false, json!({field: id}))
+            !write_vignette(app, graphql, tree, crop, false, json!({field: id}))
                 .await
                 .0
         );
     }
+}
+
+async fn vignette_validation(graphql: bool) {
+    let (db, app, tree, _root) = app_with_tree().await;
+    let (document, page) = document_with_page(&db, tree).await;
+    let rect = json!({"x": 0, "y": 0, "width": 10, "height": 10});
+
+    let crop = check_crop_geometry(&app, &db, graphql, tree, (document, page), &rect).await;
+
+    let (people, events) = attribution_targets(&db, tree).await;
+    check_attribution(&app, graphql, tree, (page, crop), &rect, (&people, &events)).await;
+    check_cleared(&db, page, crop).await;
+    check_deleted_targets(&app, &db, graphql, tree, crop, (people[0], events[0])).await;
     MediaRepo::delete(&db, document).await.unwrap();
     assert!(
         !write_vignette(&app, graphql, tree, page, true, rect)
@@ -219,7 +293,7 @@ async fn vignette_validation(graphql: bool) {
             .0
     );
     assert!(
-        !write_vignette(&app, graphql, tree, crop.id, false, json!({}))
+        !write_vignette(&app, graphql, tree, crop, false, json!({}))
             .await
             .0
     );
@@ -236,22 +310,15 @@ async fn graphql_vignette_validation() {
     vignette_validation(true).await;
 }
 
-async fn media_update_validation(graphql: bool) {
-    let db = connect("sqlite::memory:").await.unwrap();
-    run_migrations(&db).await.unwrap();
-    let root = tempfile::tempdir().unwrap();
-    let app = build_router(AppState::new(db.clone(), root.path()));
-    let tree = Uuid::now_v7();
-    TreeRepo::create(&db, tree, "Fictional tree".into(), None)
-        .await
-        .unwrap();
+/// A document holding one uploaded page, returned as `(document, page)`.
+async fn document_with_upload(db: &DatabaseConnection, tree: Uuid) -> (Uuid, Uuid) {
     let document = Uuid::now_v7();
-    MediaRepo::create_document(&db, document, tree, None, chrono::Utc::now())
+    MediaRepo::create_document(db, document, tree, None, chrono::Utc::now())
         .await
         .unwrap();
     let page = Uuid::now_v7();
     MediaRepo::create_uploaded(
-        &db,
+        db,
         page,
         tree,
         Some(document),
@@ -273,13 +340,18 @@ async fn media_update_validation(graphql: bool) {
     )
     .await
     .unwrap();
+    (document, page)
+}
+
+/// A place of a second tree.
+async fn foreign_place(db: &DatabaseConnection) -> Uuid {
     let foreign_tree = Uuid::now_v7();
-    TreeRepo::create(&db, foreign_tree, "Other fictional tree".into(), None)
+    TreeRepo::create(db, foreign_tree, "Other fictional tree".into(), None)
         .await
         .unwrap();
     let foreign_place = Uuid::now_v7();
     PlaceRepo::create(
-        &db,
+        db,
         foreign_place,
         foreign_tree,
         "Fictional place".into(),
@@ -288,6 +360,48 @@ async fn media_update_validation(graphql: bool) {
     )
     .await
     .unwrap();
+    foreign_place
+}
+
+/// Patches one field of a medium and checks it is `accepted` or refused.
+async fn check_media_update(
+    app: &Router,
+    graphql: bool,
+    tree: Uuid,
+    id: Uuid,
+    (field, value): (&str, Value),
+    accepted: bool,
+) {
+    let (method, uri, body) = if graphql {
+        let field = match field {
+            "file_path" => "filePath",
+            "mime_type" => "mimeType",
+            "place_id" => "placeId",
+            other => other,
+        };
+        (
+            Method::POST,
+            "/graphql".to_string(),
+            json!({
+                "query": "mutation($tree: ID!, $id: ID!, $input: UpdateMediaInput!) { updateMedia(treeId: $tree, id: $id, input: $input) { id } }",
+                "variables": {"tree": tree, "id": id, "input": {field: value}}
+            }),
+        )
+    } else {
+        (
+            Method::PUT,
+            format!("/api/v1/trees/{tree}/media/{id}"),
+            json!({field: value}),
+        )
+    };
+    let (written, response) = send_write(app, graphql, method, uri, &body).await;
+    assert_eq!(written, accepted, "{response}");
+}
+
+async fn media_update_validation(graphql: bool) {
+    let (db, app, tree, _root) = app_with_tree().await;
+    let (document, page) = document_with_upload(&db, tree).await;
+    let foreign_place = foreign_place(&db).await;
 
     for id in [document, page] {
         for (field, value, accepted) in [
@@ -298,49 +412,7 @@ async fn media_update_validation(graphql: bool) {
             ("place_id", json!(Uuid::now_v7()), false),
             ("place_id", Value::Null, true),
         ] {
-            let (method, uri, body) = if graphql {
-                let field = match field {
-                    "file_path" => "filePath",
-                    "mime_type" => "mimeType",
-                    "place_id" => "placeId",
-                    other => other,
-                };
-                (
-                    Method::POST,
-                    "/graphql".to_string(),
-                    json!({
-                        "query": "mutation($tree: ID!, $id: ID!, $input: UpdateMediaInput!) { updateMedia(treeId: $tree, id: $id, input: $input) { id } }",
-                        "variables": {"tree": tree, "id": id, "input": {field: value}}
-                    }),
-                )
-            } else {
-                (
-                    Method::PUT,
-                    format!("/api/v1/trees/{tree}/media/{id}"),
-                    json!({field: value}),
-                )
-            };
-            let request = Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("content-type", "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap();
-            let response = app.clone().oneshot(request).await.unwrap();
-            let status = response.status();
-            let bytes = response.into_body().collect().await.unwrap().to_bytes();
-            let response: Value = serde_json::from_slice(&bytes).unwrap();
-            if graphql {
-                assert_eq!(status, StatusCode::OK);
-                assert_eq!(response.get("errors").is_none(), accepted, "{response}");
-            } else {
-                assert_eq!(status.is_success(), accepted, "{response}");
-                assert!(
-                    status.is_success()
-                        || status == StatusCode::BAD_REQUEST
-                        || status == StatusCode::NOT_FOUND
-                );
-            }
+            check_media_update(&app, graphql, tree, id, (field, value), accepted).await;
         }
         assert!(MediaRepo::get(&db, id).await.unwrap().place_id.is_none());
     }

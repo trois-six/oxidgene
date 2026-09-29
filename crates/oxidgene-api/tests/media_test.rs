@@ -3041,7 +3041,15 @@ async fn library_titles(h: &Harness, query: &str) -> Vec<String> {
 async fn library_fixture(h: &Harness) -> [String; 3] {
     let first = named_person(h, "Élodie", "Fictive").await;
     let second = named_person(h, "Marc", "Exemple").await;
+    [
+        census_fixture(h, &first).await,
+        parish_fixture(h, &second).await,
+        photo_fixture(h, &second).await,
+    ]
+}
 
+/// A census scan tagged twice and linked to `person`.
+async fn census_fixture(h: &Harness, person: &str) -> String {
     let census = new_document(&h.app, h.tree_id, Some("Census sheet")).await;
     let (status, _) = upload(
         &h.app,
@@ -3063,8 +3071,12 @@ async fn library_fixture(h: &Harness) -> [String; 3] {
     assert_eq!(status, StatusCode::OK, "{body}");
     add_tag(h, &census, "Village Alpha").await;
     add_tag(h, &census, "Survey").await;
-    link(h, json!({ "media_id": census, "person_id": first })).await;
+    link(h, json!({ "media_id": census, "person_id": person })).await;
+    census
+}
 
+/// A parish PDF linked to a dated baptism of `person`.
+async fn parish_fixture(h: &Harness, person: &str) -> String {
     let parish = new_document(&h.app, h.tree_id, Some("Écrits de paroisse")).await;
     let (status, body) = json_request(
         &h.app,
@@ -3087,14 +3099,18 @@ async fn library_fixture(h: &Harness) -> [String; 3] {
         &format!("/api/v1/trees/{}/events", h.tree_id),
         Some(json!({
             "event_type": "baptism",
-            "person_id": second,
+            "person_id": person,
             "date_value": "12 MAR 1890"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{event}");
     link(h, json!({ "media_id": parish, "event_id": event["id"] })).await;
+    parish
+}
 
+/// A photograph with a crop identifying `person`.
+async fn photo_fixture(h: &Harness, person: &str) -> String {
     let photo = new_document(&h.app, h.tree_id, Some("Group photo")).await;
     let (_, page) = upload(
         &h.app,
@@ -3114,12 +3130,11 @@ async fn library_fixture(h: &Harness) -> [String; 3] {
             h.tree_id,
             page["id"].as_str().unwrap()
         ),
-        Some(json!({ "x": 0, "y": 0, "width": 20, "height": 20, "person_id": second })),
+        Some(json!({ "x": 0, "y": 0, "width": 20, "height": 20, "person_id": person })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{vignette}");
-
-    [census, parish, photo]
+    photo
 }
 
 #[tokio::test]
