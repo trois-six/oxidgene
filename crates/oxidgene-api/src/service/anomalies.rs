@@ -620,6 +620,18 @@ struct Union<'a> {
 }
 
 fn unions<'a>(sorted: &[&'a PersonProfile], lives: &HashMap<Uuid, Life<'a>>, found: &mut Findings) {
+    let by_family = group_unions(sorted);
+    family_events(sorted, &by_family, lives, found);
+    for union in by_family.values() {
+        union_rules(union, lives, found);
+        siblings(union, lives, found);
+    }
+    spouse_rules(sorted, lives, found);
+}
+
+/// The tree's unions by family, each spouse once with the role of their
+/// first link.
+fn group_unions<'a>(sorted: &[&'a PersonProfile]) -> BTreeMap<Uuid, Union<'a>> {
     let mut by_family: BTreeMap<Uuid, Union<'a>> = BTreeMap::new();
     for profile in sorted {
         for link in &profile.families_as_spouse {
@@ -643,7 +655,16 @@ fn unions<'a>(sorted: &[&'a PersonProfile], lives: &HashMap<Uuid, Life<'a>>, fou
             }
         }
     }
+    by_family
+}
 
+/// The date checks of every family event, once per event.
+fn family_events(
+    sorted: &[&PersonProfile],
+    by_family: &BTreeMap<Uuid, Union<'_>>,
+    lives: &HashMap<Uuid, Life<'_>>,
+    found: &mut Findings,
+) {
     // A family event is on every spouse's link: its dates are checked once,
     // from the first spouse's.
     let mut checked_events = HashSet::new();
@@ -662,77 +683,86 @@ fn unions<'a>(sorted: &[&'a PersonProfile], lives: &HashMap<Uuid, Life<'a>>, fou
             }
         }
     }
+}
 
-    for union in by_family.values() {
-        let spouses: Vec<&Life<'_>> = union
-            .spouses
-            .iter()
-            .filter_map(|(id, _)| lives.get(id))
-            .collect();
-        let everyone = || spouses.iter().map(|l| l.at()).collect::<Vec<_>>();
-        if union.spouses.len() > 2 {
-            found.add(
-                "union_many_spouses",
-                Anomaly::of(everyone()).with_family(union.family_id),
-            );
-        }
-        let husbands = union
-            .spouses
-            .iter()
-            .filter(|(_, r)| *r == SpouseRole::Husband)
-            .count();
-        let wives = union
-            .spouses
-            .iter()
-            .filter(|(_, r)| *r == SpouseRole::Wife)
-            .count();
-        if husbands > 1 || wives > 1 {
-            found.add(
-                "same_role_spouses",
-                Anomaly::of(everyone()).with_family(union.family_id),
-            );
-        }
-        if let Some(date) = union.date {
-            for spouse in &spouses {
-                let at = || Anomaly::of(vec![spouse.at()]).with_family(union.family_id);
-                if let Some(born) = spouse.birth {
-                    if date.before(born) {
-                        found.add("union_before_birth", at());
-                    } else {
-                        let most = born.most_years_to(date);
-                        let least = born.least_years_to(date);
-                        if most < MIN_UNION_AGE_YEARS {
-                            found.add("union_too_young", at().with_value(most));
-                        } else if least > MAX_UNION_AGE_YEARS {
-                            found.add("union_over_100", at().with_value(least));
-                        }
-                    }
-                }
-                if let Some(died) = spouse.death
-                    && died.before(date)
-                {
-                    found.add("union_after_death", at());
-                }
-            }
-        }
-        if let [a, b] = spouses.as_slice()
-            && let (Some(x), Some(y)) = (a.birth, b.birth)
-        {
-            let gap = x.least_years_to(y).max(y.least_years_to(x));
-            if gap > MAX_SPOUSE_GAP_YEARS {
-                found.add(
-                    "spouses_age_gap",
-                    Anomaly::of(everyone())
-                        .with_family(union.family_id)
-                        .with_value(gap),
-                );
-            }
-        }
-        siblings(union, lives, found);
+/// The rules on one union's spouses: how many, their roles, their ages at
+/// the union and the gap between them.
+fn union_rules(union: &Union<'_>, lives: &HashMap<Uuid, Life<'_>>, found: &mut Findings) {
+    let spouses: Vec<&Life<'_>> = union
+        .spouses
+        .iter()
+        .filter_map(|(id, _)| lives.get(id))
+        .collect();
+    let everyone = || spouses.iter().map(|l| l.at()).collect::<Vec<_>>();
+    if union.spouses.len() > 2 {
+        found.add(
+            "union_many_spouses",
+            Anomaly::of(everyone()).with_family(union.family_id),
+        );
     }
+    let husbands = union
+        .spouses
+        .iter()
+        .filter(|(_, r)| *r == SpouseRole::Husband)
+        .count();
+    let wives = union
+        .spouses
+        .iter()
+        .filter(|(_, r)| *r == SpouseRole::Wife)
+        .count();
+    if husbands > 1 || wives > 1 {
+        found.add(
+            "same_role_spouses",
+            Anomaly::of(everyone()).with_family(union.family_id),
+        );
+    }
+    if let Some(date) = union.date {
+        union_dates(date, &spouses, union.family_id, found);
+    }
+    if let [a, b] = spouses.as_slice()
+        && let (Some(x), Some(y)) = (a.birth, b.birth)
+    {
+        let gap = x.least_years_to(y).max(y.least_years_to(x));
+        if gap > MAX_SPOUSE_GAP_YEARS {
+            found.add(
+                "spouses_age_gap",
+                Anomaly::of(everyone())
+                    .with_family(union.family_id)
+                    .with_value(gap),
+            );
+        }
+    }
+}
 
-    // Per person: the same spouse twice, spouses bearing one name, a parent
-    // or a child for a spouse.
+/// A union dated before a spouse's birth or after their death, or at an age
+/// too young or too old for one.
+fn union_dates(date: Span, spouses: &[&Life<'_>], family_id: Uuid, found: &mut Findings) {
+    for spouse in spouses {
+        let at = || Anomaly::of(vec![spouse.at()]).with_family(family_id);
+        if let Some(born) = spouse.birth {
+            if date.before(born) {
+                found.add("union_before_birth", at());
+            } else {
+                let most = born.most_years_to(date);
+                let least = born.least_years_to(date);
+                if most < MIN_UNION_AGE_YEARS {
+                    found.add("union_too_young", at().with_value(most));
+                } else if least > MAX_UNION_AGE_YEARS {
+                    found.add("union_over_100", at().with_value(least));
+                }
+            }
+        }
+        if let Some(died) = spouse.death
+            && died.before(date)
+        {
+            found.add("union_after_death", at());
+        }
+    }
+}
+
+/// The rules on each person's unions: the same spouse twice, spouses
+/// bearing one name, a parent or a child for a spouse.
+fn spouse_rules(sorted: &[&PersonProfile], lives: &HashMap<Uuid, Life<'_>>, found: &mut Findings) {
     let mut repeated = HashSet::new();
     for profile in sorted {
         let me = &lives[&profile.person_id];

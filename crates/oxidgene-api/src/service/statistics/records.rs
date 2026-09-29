@@ -88,6 +88,18 @@ pub(super) fn records(
             (age >= 0.0).then_some((age, p))
         })
         .collect();
+    life_records(tree, &lives, &mut out);
+    union_records(tree, &mut out);
+    descent_records(tree, children_of, &lives, &mut out);
+    place_records(profiles, &mut out);
+
+    out
+}
+
+/// The longest lives of a man and of a woman, and the earliest and latest
+/// births.
+fn life_records(tree: &Tree<'_>, lives: &[(f64, &PersonProfile)], out: &mut Vec<StatRecord>) {
+    let profiles = tree.profiles;
     for (kind, sex) in [
         ("longest_life_man", Sex::Male),
         ("longest_life_woman", Sex::Female),
@@ -116,8 +128,12 @@ pub(super) fn records(
             ));
         }
     }
+}
 
-    // Unions.
+/// The ages at union, the longest union, the most unions, the first and last
+/// unions, the largest spouse gap and the longest widowhood.
+fn union_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
+    let profiles = tree.profiles;
     let at_union: Vec<(f64, (&PersonProfile, &ProfileEvent))> = tree
         .unions
         .iter()
@@ -210,8 +226,17 @@ pub(super) fn records(
             .collect();
         out.push(record("longest_widowhood", persons, Some(length), None));
     }
+}
 
-    // Children and descendants.
+/// The most children, the ages at a first child, the youngest death, the
+/// largest sibling gap and the most generations of descendants.
+fn descent_records(
+    tree: &Tree<'_>,
+    children_of: &HashMap<Uuid, HashSet<Uuid>>,
+    lives: &[(f64, &PersonProfile)],
+    out: &mut Vec<StatRecord>,
+) {
+    let profiles = tree.profiles;
     let parents_of_most = profiles.iter().filter_map(|p| {
         let children = children_of.get(&p.person_id)?;
         Some((children.len() as f64, p))
@@ -297,8 +322,10 @@ pub(super) fn records(
             None,
         ));
     }
+}
 
-    // Places.
+/// The person whose events took place in the most places.
+fn place_records(profiles: &[PersonProfile], out: &mut Vec<StatRecord>) {
     let travelled = profiles.iter().map(|p| {
         let places: HashSet<Uuid> = [&p.birth, &p.baptism, &p.death, &p.burial]
             .into_iter()
@@ -321,8 +348,6 @@ pub(super) fn records(
             None,
         ));
     }
-
-    out
 }
 
 /// How many generations of descendants each parent has, from their

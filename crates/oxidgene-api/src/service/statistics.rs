@@ -730,24 +730,23 @@ pub async fn load(
     .map_err(|e| oxidgene_core::OxidGeneError::Internal(e.to_string()))
 }
 
-/// Computes the statistics of a tree.
-///
-/// `locate` places the tree's place names, with how often each is used, in
-/// the place dictionary; `approximate` lets ages and averages use dates
-/// about, calculated or estimated.
-pub fn compute(
-    profiles: &[PersonProfile],
-    places: &[(Place, i64)],
-    sources: i64,
-    today: NaiveDate,
-    approximate: bool,
-    locate: impl FnOnce(&[(&str, i64)]) -> Vec<PlaceLocation>,
-) -> TreeStatistics {
-    let tree = Tree::new(profiles, Dates { approximate });
-    let unions = &tree.unions;
+/// The figures read from each person's lifespan.
+struct Lives {
+    /// Ages at death by year of death, men then women.
+    age_at_death: (Average, Average),
+    /// Ages at death by year of birth, men then women.
+    life_expectancy: (Average, Average),
+    births_by_month: Distribution,
+    /// The births, and among them the deaths before one and five years.
+    mortality: Distribution,
+    pyramid: BTreeMap<i64, (i64, i64)>,
+    lifespan: BySex,
+}
 
-    // Lives: ages at death by year of death and of birth, the pyramid, and
-    // the deaths of children among the births.
+/// Ages at death by year of death and of birth, the pyramid, and the deaths
+/// of children among the births.
+fn lives(tree: &Tree<'_>) -> Lives {
+    let profiles = tree.profiles;
     let mut age_at_death = (Average::default(), Average::default());
     let mut life_expectancy = (Average::default(), Average::default());
     let mut births_by_month = Distribution::new(12);
@@ -795,8 +794,20 @@ pub fn compute(
             Sex::Unknown => {}
         }
     }
+    Lives {
+        age_at_death,
+        life_expectancy,
+        births_by_month,
+        mortality,
+        pyramid,
+        lifespan,
+    }
+}
 
-    // Events counted by year, whatever their qualifier.
+/// Events counted by year, whatever their qualifier, and births by sex.
+fn dated_events(tree: &Tree<'_>) -> (Distribution, Distribution) {
+    let profiles = tree.profiles;
+    let unions = &tree.unions;
     let sorted = |event: &Option<ProfileEvent>| event.as_ref().and_then(|e| e.date_sort);
     let mut events_by_year = Distribution::new(5);
     let mut births_by_sex = Distribution::new(2);
@@ -824,8 +835,13 @@ pub fn compute(
             events_by_year.add(date, 2);
         }
     }
+    (events_by_year, births_by_sex)
+}
 
-    // Parents' ages at their first, last and every dated child.
+/// Parents' ages at their first, last and every dated child, a father's
+/// then a mother's for each, and every such age for the generation interval.
+fn parent_ages(tree: &Tree<'_>) -> ([Average; 6], Vec<f64>) {
+    let profiles = tree.profiles;
     let mut parents: [Average; 6] = std::array::from_fn(|_| Average::default());
     let mut generation = Vec::new();
     let mut children_born: HashMap<(Uuid, bool), Vec<NaiveDate>> = HashMap::new();
@@ -863,9 +879,28 @@ pub fn compute(
             }
         }
     }
+    (parents, generation)
+}
 
-    // Unions.
-    let mut first_union = (Average::default(), Average::default());
+/// The figures read from each union.
+struct UnionFigures {
+    /// Each spouse's earliest dated union.
+    earliest: HashMap<Uuid, NaiveDate>,
+    unions_by_weekday: Distribution,
+    unions_by_month: Distribution,
+    duration: Average,
+    children_per_union: Average,
+    spacing: Average,
+    first_last: Average,
+    spouse_gap: Average,
+    children_histogram: Vec<i64>,
+    family_sizes: Vec<f64>,
+}
+
+/// Unions by weekday and month, their durations, their children and their
+/// spacing, the spouses' age gaps, and each spouse's earliest union.
+fn union_figures(tree: &Tree<'_>) -> UnionFigures {
+    let unions = &tree.unions;
     let mut earliest: HashMap<Uuid, NaiveDate> = HashMap::new();
     let mut unions_by_weekday = Distribution::new(7);
     let mut unions_by_month = Distribution::new(12);
@@ -922,6 +957,26 @@ pub fn compute(
             first_last.add(*first, months_between(*first, *last));
         }
     }
+    UnionFigures {
+        earliest,
+        unions_by_weekday,
+        unions_by_month,
+        duration,
+        children_per_union,
+        spacing,
+        first_last,
+        spouse_gap,
+        children_histogram,
+        family_sizes,
+    }
+}
+
+/// Ages at a first union, by year of union for men then women, and by sex.
+fn first_unions(
+    tree: &Tree<'_>,
+    earliest: &HashMap<Uuid, NaiveDate>,
+) -> ((Average, Average), BySex) {
+    let mut first_union = (Average::default(), Average::default());
     let mut first_union_ages = BySex::default();
     let mut married: Vec<(&Uuid, &NaiveDate)> = earliest.iter().collect();
     married.sort();
@@ -940,31 +995,12 @@ pub fn compute(
             Sex::Unknown => {}
         }
     }
+    (first_union, first_union_ages)
+}
 
-    // Names and occupations.
-    let surnames = || {
-        profiles
-            .iter()
-            .filter_map(|p| p.primary_name.as_ref().and_then(|n| n.surname.clone()))
-    };
-    let given = |sex: Option<Sex>| {
-        profiles
-            .iter()
-            .filter(move |p| sex.is_none_or(|s| p.sex == s))
-            .filter_map(first_given_name)
-    };
-    let top_occupations = top(profiles.iter().flat_map(|p| {
-        let mut seen = HashSet::new();
-        p.other_events
-            .iter()
-            .filter(|e| e.event_type == EventType::Occupation)
-            .filter_map(|e| e.description.clone())
-            .chain(p.occupation.clone())
-            .filter(move |o| seen.insert(o.trim().to_lowercase()))
-            .collect::<Vec<_>>()
-    }));
-
-    // Event types, each family event once however many spouses carry it.
+/// Event types, each family event once however many spouses carry it, most
+/// frequent first, and the first and last years of any dated event.
+fn count_event_types(profiles: &[PersonProfile]) -> (Vec<CountEntry>, (i32, i32)) {
     let mut types: HashMap<EventType, i64> = HashMap::new();
     let mut family_events = HashSet::new();
     let mut years = (i32::MAX, i32::MIN);
@@ -998,6 +1034,73 @@ pub fn compute(
         })
         .collect();
     event_types.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.label.cmp(&b.label)));
+    (event_types, years)
+}
+
+/// Computes the statistics of a tree.
+///
+/// `locate` places the tree's place names, with how often each is used, in
+/// the place dictionary; `approximate` lets ages and averages use dates
+/// about, calculated or estimated.
+pub fn compute(
+    profiles: &[PersonProfile],
+    places: &[(Place, i64)],
+    sources: i64,
+    today: NaiveDate,
+    approximate: bool,
+    locate: impl FnOnce(&[(&str, i64)]) -> Vec<PlaceLocation>,
+) -> TreeStatistics {
+    let tree = Tree::new(profiles, Dates { approximate });
+    let unions = &tree.unions;
+
+    let Lives {
+        age_at_death,
+        life_expectancy,
+        births_by_month,
+        mortality,
+        pyramid,
+        lifespan,
+    } = lives(&tree);
+    let (events_by_year, births_by_sex) = dated_events(&tree);
+    let (parents, generation) = parent_ages(&tree);
+    let UnionFigures {
+        earliest,
+        unions_by_weekday,
+        unions_by_month,
+        duration,
+        children_per_union,
+        spacing,
+        first_last,
+        spouse_gap,
+        children_histogram,
+        family_sizes,
+    } = union_figures(&tree);
+    let (first_union, first_union_ages) = first_unions(&tree, &earliest);
+
+    // Names and occupations.
+    let surnames = || {
+        profiles
+            .iter()
+            .filter_map(|p| p.primary_name.as_ref().and_then(|n| n.surname.clone()))
+    };
+    let given = |sex: Option<Sex>| {
+        profiles
+            .iter()
+            .filter(move |p| sex.is_none_or(|s| p.sex == s))
+            .filter_map(first_given_name)
+    };
+    let top_occupations = top(profiles.iter().flat_map(|p| {
+        let mut seen = HashSet::new();
+        p.other_events
+            .iter()
+            .filter(|e| e.event_type == EventType::Occupation)
+            .filter_map(|e| e.description.clone())
+            .chain(p.occupation.clone())
+            .filter(move |o| seen.insert(o.trim().to_lowercase()))
+            .collect::<Vec<_>>()
+    }));
+
+    let (event_types, years) = count_event_types(profiles);
 
     // Who has parents, children and a spouse.
     let children_of = tree.children_of();
@@ -1536,6 +1639,11 @@ mod tests {
         assert_eq!(stats.without_parents, 2);
         assert_eq!(stats.without_children, 2);
         assert_eq!(stats.without_union, 2);
+    }
+
+    #[test]
+    fn the_overview_summarizes_lives_and_families() {
+        let stats = stats(&family());
         assert_eq!(stats.lifespan.all.mean, Some(65.0));
         assert_eq!(stats.lifespan.men.max, Some(70.0));
         assert_eq!(stats.lifespan.all.median, Some(65.0));
