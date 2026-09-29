@@ -410,49 +410,71 @@ fn action_span(action: UiAction) -> tracing::Span {
     }
 }
 
+/// Declares a function mapping each variant of a fieldless enum to an INFO
+/// span with a fixed name.
+///
+/// `tracing` takes a span name only as a literal at its own call site, so the
+/// name cannot come from a lookup table at run time: every variant needs its
+/// own `info_span!`. This writes that `match` from a `variant => name` table.
+/// A `root fn` opens each span as a root; a plain `fn` opens it under the
+/// current span.
 #[cfg(feature = "telemetry-client")]
-fn action_step_span(step: UiActionStep) -> tracing::Span {
-    match step {
-        UiActionStep::ImportUpload => tracing::info_span!("ui.import.upload"),
-        UiActionStep::ImportPoll => tracing::info_span!("ui.import.poll"),
-        UiActionStep::GeneanetRead => tracing::info_span!("ui.geneanet_import.read"),
-        UiActionStep::GeneanetWrite => tracing::info_span!("ui.geneanet_import.write"),
-        UiActionStep::GeneanetInspect => tracing::info_span!("ui.geneanet_import.inspect"),
-        UiActionStep::GeneanetIndex => tracing::info_span!("ui.geneanet_import.index"),
-        UiActionStep::GeneanetConnect => tracing::info_span!("ui.geneanet_import.connect"),
-        UiActionStep::GeneanetPreview => tracing::info_span!("ui.geneanet_import.preview"),
-        UiActionStep::GeneanetCollect => tracing::info_span!("ui.geneanet_import.collect"),
-        UiActionStep::GeneanetUpload => tracing::info_span!("ui.geneanet_import.upload"),
-        UiActionStep::GeneanetPoll => tracing::info_span!("ui.geneanet_import.poll"),
-        UiActionStep::GeneanetSessionEncode => {
-            tracing::info_span!("ui.geneanet_import.session_encode")
+macro_rules! span_names {
+    (fn $function:ident($enum:ident) { $($variant:ident => $name:literal,)+ }) => {
+        fn $function(value: $enum) -> tracing::Span {
+            match value {
+                $($enum::$variant => tracing::info_span!($name),)+
+            }
         }
-        UiActionStep::GeneanetSessionDecode => {
-            tracing::info_span!("ui.geneanet_import.session_decode")
+    };
+    (root fn $function:ident($enum:ident) { $($variant:ident => $name:literal,)+ }) => {
+        fn $function(value: $enum) -> tracing::Span {
+            match value {
+                $($enum::$variant => tracing::info_span!(parent: None, $name),)+
+            }
         }
-        UiActionStep::ExportRequest => tracing::info_span!("ui.export.request"),
-        UiActionStep::ExportQueue => tracing::info_span!("ui.export.queue"),
-        UiActionStep::ExportPoll => tracing::info_span!("ui.export.poll"),
-        UiActionStep::ExportSave => tracing::info_span!("ui.export.save"),
+    };
+}
+
+#[cfg(feature = "telemetry-client")]
+span_names! {
+    fn action_step_span(UiActionStep) {
+        ImportUpload => "ui.import.upload",
+        ImportPoll => "ui.import.poll",
+        GeneanetRead => "ui.geneanet_import.read",
+        GeneanetWrite => "ui.geneanet_import.write",
+        GeneanetInspect => "ui.geneanet_import.inspect",
+        GeneanetIndex => "ui.geneanet_import.index",
+        GeneanetConnect => "ui.geneanet_import.connect",
+        GeneanetPreview => "ui.geneanet_import.preview",
+        GeneanetCollect => "ui.geneanet_import.collect",
+        GeneanetUpload => "ui.geneanet_import.upload",
+        GeneanetPoll => "ui.geneanet_import.poll",
+        GeneanetSessionEncode => "ui.geneanet_import.session_encode",
+        GeneanetSessionDecode => "ui.geneanet_import.session_decode",
+        ExportRequest => "ui.export.request",
+        ExportQueue => "ui.export.queue",
+        ExportPoll => "ui.export.poll",
+        ExportSave => "ui.export.save",
     }
 }
 
 #[cfg(feature = "telemetry-client")]
-fn page_span(page: UiPage) -> tracing::Span {
-    match page {
-        UiPage::Home => tracing::info_span!(parent: None, "ui.home.load"),
-        UiPage::Pedigree => tracing::info_span!(parent: None, "ui.pedigree.load"),
-        UiPage::PersonDetail => tracing::info_span!(parent: None, "ui.person_detail.load"),
-        UiPage::CoupleDetail => tracing::info_span!(parent: None, "ui.couple_detail.load"),
-        UiPage::SearchResults => tracing::info_span!(parent: None, "ui.search_results.load"),
-        UiPage::Dictionary => tracing::info_span!(parent: None, "ui.dictionary.load"),
-        UiPage::Kinship => tracing::info_span!(parent: None, "ui.kinship.load"),
-        UiPage::Settings => tracing::info_span!(parent: None, "ui.settings.load"),
-        UiPage::Statistics => tracing::info_span!(parent: None, "ui.statistics.load"),
-        UiPage::Tools => tracing::info_span!(parent: None, "ui.tools.load"),
-        UiPage::AppSettings => tracing::info_span!(parent: None, "ui.app_settings.load"),
-        UiPage::NotFound => tracing::info_span!(parent: None, "ui.not_found.load"),
-        UiPage::Component => tracing::info_span!(parent: None, "ui.component.load"),
+span_names! {
+    root fn page_span(UiPage) {
+        Home => "ui.home.load",
+        Pedigree => "ui.pedigree.load",
+        PersonDetail => "ui.person_detail.load",
+        CoupleDetail => "ui.couple_detail.load",
+        SearchResults => "ui.search_results.load",
+        Dictionary => "ui.dictionary.load",
+        Kinship => "ui.kinship.load",
+        Settings => "ui.settings.load",
+        Statistics => "ui.statistics.load",
+        Tools => "ui.tools.load",
+        AppSettings => "ui.app_settings.load",
+        NotFound => "ui.not_found.load",
+        Component => "ui.component.load",
     }
 }
 
