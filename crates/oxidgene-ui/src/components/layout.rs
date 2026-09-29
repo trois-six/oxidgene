@@ -1426,6 +1426,16 @@ pub const LAYOUT_STYLES: &str = r#"
     .merge-compare-table td { width: 37%; overflow-wrap: anywhere; }
     .merge-compare-table tr.merge-differs td { color: var(--orange); }
 
+    .merge-pick {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        cursor: pointer;
+    }
+
+    .merge-pick > input { flex: none; margin: 3px 0 0; }
+    .merge-compare-table tr.merge-differs .merge-pick { color: var(--orange); }
+
     .merge-list-title { margin: 16px 0 4px; font-size: 0.9rem; }
 
     .merge-list {

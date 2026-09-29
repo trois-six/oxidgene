@@ -178,13 +178,35 @@ pub struct MarkPersonsDistinctRequest {
 pub struct MergePersonRequest {
     /// The record absorbed and soft-deleted; the path's person is kept.
     pub duplicate_id: uuid::Uuid,
-    /// The duplicate's own events not to take: deleted with it.
+    /// What the comparison chose; absent, everything the duplicate carried
+    /// moves and the kept person's name and sex stay.
     #[serde(default)]
+    pub choices: MergeChoicesBody,
+}
+
+/// The choices of a merge (`docs/api.md`, merge).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct MergeChoicesBody {
+    /// Own events of either person left out of the merged record.
     pub left_out_events: Vec<uuid::Uuid>,
-    /// The duplicate's direct media links not to take: removed, the media
-    /// staying in the library.
-    #[serde(default)]
+    /// The duplicate's direct media links not taken.
     pub left_out_media_links: Vec<uuid::Uuid>,
+    pub surname_from_duplicate: bool,
+    pub given_names_from_duplicate: bool,
+    pub sex_from_duplicate: bool,
+}
+
+impl From<MergeChoicesBody> for crate::service::duplicates::MergeChoices {
+    fn from(body: MergeChoicesBody) -> Self {
+        Self {
+            left_out_events: body.left_out_events,
+            left_out_media_links: body.left_out_media_links,
+            surname_from_duplicate: body.surname_from_duplicate,
+            given_names_from_duplicate: body.given_names_from_duplicate,
+            sex_from_duplicate: body.sex_from_duplicate,
+        }
+    }
 }
 
 // ── PersonName DTOs ──────────────────────────────────────────────────

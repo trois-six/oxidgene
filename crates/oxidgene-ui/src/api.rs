@@ -768,10 +768,22 @@ pub struct MarkPersonsDistinctBody {
 
 /// Request body for merging a duplicate into the person it names.
 #[derive(Debug, Serialize)]
-pub struct MergePersonBody {
+pub struct MergePersonBody<'a> {
     pub duplicate_id: Uuid,
+    pub choices: &'a MergeChoices,
+}
+
+/// What the comparison of a merge chose (`docs/api.md`, merge). The default
+/// keeps the kept person's name and sex and moves everything else.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct MergeChoices {
+    /// Own events of either person left out of the merged record.
     pub left_out_events: Vec<Uuid>,
+    /// The duplicate's direct media links not taken.
     pub left_out_media_links: Vec<Uuid>,
+    pub surname_from_duplicate: bool,
+    pub given_names_from_duplicate: bool,
+    pub sex_from_duplicate: bool,
 }
 
 // ── PersonName request bodies ───────────────────────────────────────
@@ -2740,24 +2752,21 @@ impl ApiClient {
         Ok(())
     }
 
-    /// Merge `duplicate` into `kept`, which survives; returns the kept person.
-    /// Merge `duplicate` into `kept`, leaving out the duplicate's own events
-    /// and direct media links named (`docs/api.md`, merge).
+    /// Merge `duplicate` into `kept`, which survives, as `choices` says
+    /// (`docs/api.md`, merge); returns the kept person.
     pub async fn merge_persons(
         &self,
         tree_id: Uuid,
         kept: Uuid,
         duplicate: Uuid,
-        left_out_events: &[Uuid],
-        left_out_media_links: &[Uuid],
+        choices: &MergeChoices,
     ) -> Result<Person, ApiError> {
         let result = self
             .post(
                 &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
                 &MergePersonBody {
                     duplicate_id: duplicate,
-                    left_out_events: left_out_events.to_vec(),
-                    left_out_media_links: left_out_media_links.to_vec(),
+                    choices,
                 },
             )
             .await?;

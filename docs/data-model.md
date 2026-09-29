@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T14:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:10:06Z }
 ---
 
 
@@ -88,11 +88,11 @@ moving everything it carried onto the kept person:
 
 | Data | Rule |
 |---|---|
-| Sex | The kept person's, unless it is `Unknown` and the duplicate's is not |
+| Sex | The duplicate's when the user chose it; otherwise the kept person's, unless it is `Unknown` and the duplicate's is not |
 | Portrait | The kept person's, unless they have none |
 | Privacy | The kept person's |
-| Names | The kept person's primary name stays primary; the duplicate's names become secondary names after theirs, except a name identical in every piece to one the kept person bears — ignoring case, not accents — which is dropped. When the kept person has no name at all, the duplicate's primary stays primary |
-| Events, notes, citations, identification boxes | Re-pointed; nothing is deduplicated, so two births recorded twice stay two events to reconcile by hand |
+| Names | The kept person's primary name stays primary; the duplicate's names become secondary names after theirs, except a name identical in every piece to one the kept person bears — ignoring case, not accents — which is dropped. When the kept person has no name at all, the duplicate's primary stays primary. When the user chose the duplicate's surname, given names or both, the primary name becomes that composition — an existing name promoted, or a new one — and the former primary stays secondary |
+| Events, notes, citations, identification boxes | Re-pointed; the own events of either person the user left out are soft-deleted first. Nothing else is deduplicated |
 | Family links | Re-pointed; a link to a family the kept person is already a spouse (or a child) of is dropped instead of doubled |
 | Witness links | Re-pointed; dropped when the kept person already witnesses that event or the event is now their own |
 | Media links | Re-pointed; dropped when the kept person is already linked to that media |

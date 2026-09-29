@@ -258,17 +258,13 @@ pub async fn merge_persons(
     Json(body): Json<MergePersonRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let left_out = duplicates::MergeLeftOut {
-        events: body.left_out_events,
-        media_links: body.left_out_media_links,
-    };
     let person = duplicates::merge_persons(
         &txn,
         &state.profiles,
         tree_id,
         person_id,
         body.duplicate_id,
-        &left_out,
+        &body.choices.into(),
     )
     .await
     .map_err(ApiError)?;

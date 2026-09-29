@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:19:37Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -71,10 +71,12 @@ Modal](ui-person-edit-modal.md) §13):
 - [x] Offer "Merge with…" on the person profile.
 - [x] Add the potential duplicates tab of [Tools](ui-tools.md), whose
   comparison opens the wizard at Step 2.
-- [ ] Let the wizard choose, field by field, a surname or given names of the
-  absorbed record as the kept record's primary name.
-- [ ] Decide whether a merge should reconcile events recorded twice (two
-  births, say) or keep leaving that to the user.
+- [x] Let the comparison pick, row by row, the surname, the given names, the
+  sex and each once-only event (birth, baptism, death, burial, cremation) of
+  either record.
+- [x] Reconcile events recorded twice in the comparison: one of each
+  once-only event is kept, and a repeatable event the kept record already has
+  is left unticked.
 
 ## 5. Entry suggestions
 

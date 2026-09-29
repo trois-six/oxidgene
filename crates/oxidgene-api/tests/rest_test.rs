@@ -3759,17 +3759,19 @@ async fn event_id_via_api(
 }
 
 /// A merge takes only what the user ticked of the duplicate: the events and
-/// media links left out are dropped, the rest moves; and only the
-/// duplicate's own items can be left out.
+/// media links left out are dropped, the rest moves; and nobody else's
+/// event can be left out.
 #[tokio::test]
 async fn a_merge_leaves_out_the_duplicates_items_not_taken() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
     let kept = create_named_person_via_api(&app, &tree_id, "female", "Anna", "BRANCH_A").await;
     let duplicate = create_named_person_via_api(&app, &tree_id, "female", "Anna", "BRANCH_A").await;
+    let stranger = create_named_person_via_api(&app, &tree_id, "male", "Otto", "BRANCH_B").await;
     let kept_birth = event_id_via_api(&app, &tree_id, &kept, "birth", "12 MAR 1850").await;
     let duplicate_birth = event_id_via_api(&app, &tree_id, &duplicate, "birth", "1850").await;
     let residence = event_id_via_api(&app, &tree_id, &duplicate, "residence", "1880").await;
+    let stranger_birth = event_id_via_api(&app, &tree_id, &stranger, "birth", "1851").await;
     let (status, document) = send_request(
         app.clone(),
         Method::POST,
@@ -3801,17 +3803,19 @@ async fn a_merge_leaves_out_the_duplicates_items_not_taken() {
         }
     };
 
-    // The kept person's own event is not the duplicate's to leave out.
+    // A third person's event is not the merge's to leave out.
     let (status, _) = merge(serde_json::json!({
-        "duplicate_id": duplicate, "left_out_events": [kept_birth]
+        "duplicate_id": duplicate, "choices": { "left_out_events": [stranger_birth] }
     }))
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (status, body) = merge(serde_json::json!({
         "duplicate_id": duplicate,
-        "left_out_events": [duplicate_birth],
-        "left_out_media_links": [link["id"]],
+        "choices": {
+            "left_out_events": [duplicate_birth],
+            "left_out_media_links": [link["id"]],
+        },
     }))
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -4069,4 +4073,95 @@ async fn potential_duplicates_are_listed_until_confirmed_distinct() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// The comparison's other choices: the duplicate's given names on the kept
+/// surname, the duplicate's sex, and the duplicate's birth replacing the
+/// kept one. The former primary name stays as a secondary name.
+#[tokio::test]
+async fn a_merge_takes_the_chosen_name_sex_and_events() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let kept = create_named_person_via_api(&app, &tree_id, "male", "Anna", "BRANCH_A").await;
+    let duplicate =
+        create_named_person_via_api(&app, &tree_id, "female", "Anna Maria", "BRANCH_B").await;
+    let kept_birth = event_id_via_api(&app, &tree_id, &kept, "birth", "1850").await;
+    let duplicate_birth =
+        event_id_via_api(&app, &tree_id, &duplicate, "birth", "12 MAR 1850").await;
+
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
+        Some(serde_json::json!({
+            "duplicate_id": duplicate,
+            "choices": {
+                "left_out_events": [kept_birth],
+                "given_names_from_duplicate": true,
+                "sex_from_duplicate": true,
+            },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["sex"], "female");
+
+    let (_, names) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{kept}/names"),
+        None,
+    )
+    .await;
+    let names: Vec<(bool, String)> = names
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| {
+            (
+                n["is_primary"].as_bool().unwrap(),
+                format!(
+                    "{} {}",
+                    n["given_names"].as_str().unwrap(),
+                    n["surname"].as_str().unwrap()
+                ),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names.iter().filter(|(primary, _)| *primary).count(),
+        1,
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&(true, "Anna Maria BRANCH_A".to_string())),
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&(false, "Anna BRANCH_A".to_string())),
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&(false, "Anna Maria BRANCH_B".to_string())),
+        "{names:?}"
+    );
+
+    let (_, events) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events?person_id={kept}"),
+        None,
+    )
+    .await;
+    let ids: Vec<&str> = events["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["node"]["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![duplicate_birth.as_str()],
+        "the duplicate's birth replaced the kept one"
+    );
 }

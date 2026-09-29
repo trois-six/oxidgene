@@ -1693,13 +1693,14 @@ async fn graphql_homonyms_are_listed_until_confirmed_distinct() {
 }
 
 /// The same left-out items as REST: an event of the duplicate not taken is
-/// dropped, and the kept person's own event cannot be left out.
+/// dropped, and a third person's event cannot be left out.
 #[tokio::test]
 async fn graphql_merge_leaves_out_the_duplicates_items_not_taken() {
     let app = setup_app().await;
     let tree_id = gql_tree(&app).await;
     let kept = gql_named_person(&app, &tree_id, "FEMALE", "Anna", "BRANCH_A").await;
     let duplicate = gql_named_person(&app, &tree_id, "FEMALE", "Anna", "BRANCH_A").await;
+    let stranger = gql_named_person(&app, &tree_id, "MALE", "Otto", "BRANCH_B").await;
     let event = |person: String| {
         let app = app.clone();
         let tree_id = tree_id.clone();
@@ -1720,6 +1721,7 @@ async fn graphql_merge_leaves_out_the_duplicates_items_not_taken() {
     };
     let kept_birth = event(kept.clone()).await;
     let duplicate_birth = event(duplicate.clone()).await;
+    let stranger_birth = event(stranger).await;
     let merge = |left_out: Vec<String>| {
         let app = app.clone();
         let (tree_id, kept, duplicate) = (tree_id.clone(), kept.clone(), duplicate.clone());
@@ -1727,14 +1729,14 @@ async fn graphql_merge_leaves_out_the_duplicates_items_not_taken() {
             graphql(
                 app,
                 r#"mutation($tree: ID!, $kept: ID!, $duplicate: ID!, $out: [ID!]!) {
-                    mergePersons(treeId: $tree, personId: $kept, duplicateId: $duplicate, leftOutEvents: $out) { id }
+                    mergePersons(treeId: $tree, personId: $kept, duplicateId: $duplicate, choices: { leftOutEvents: $out }) { id }
                 }"#,
                 Some(json!({ "tree": tree_id, "kept": kept, "duplicate": duplicate, "out": left_out })),
             )
             .await
         }
     };
-    let resp = merge(vec![kept_birth.clone()]).await;
+    let resp = merge(vec![stranger_birth]).await;
     assert_eq!(error_code(&resp), "VALIDATION_ERROR");
     let resp = merge(vec![duplicate_birth]).await;
     assert_eq!(data(&resp)["mergePersons"]["id"], kept.as_str());
@@ -1749,6 +1751,34 @@ async fn graphql_merge_leaves_out_the_duplicates_items_not_taken() {
     let edges = &data(&resp)["events"]["edges"];
     assert_eq!(edges.as_array().unwrap().len(), 1, "{edges}");
     assert_eq!(edges[0]["node"]["id"], kept_birth.as_str());
+}
+
+/// Both name pieces taken: the duplicate's name, moved as a secondary name,
+/// is promoted rather than written twice; the sex follows the choice.
+#[tokio::test]
+async fn graphql_merge_takes_the_chosen_name_and_sex() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let kept = gql_named_person(&app, &tree_id, "MALE", "Anna", "BRANCH_A").await;
+    let duplicate = gql_named_person(&app, &tree_id, "FEMALE", "Anna Maria", "BRANCH_B").await;
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $kept: ID!, $duplicate: ID!) {
+            mergePersons(treeId: $tree, personId: $kept, duplicateId: $duplicate, choices: {
+                surnameFromDuplicate: true, givenNamesFromDuplicate: true, sexFromDuplicate: true
+            }) { id sex names { givenNames surname isPrimary } }
+        }"#,
+        Some(json!({ "tree": tree_id, "kept": kept, "duplicate": duplicate })),
+    )
+    .await;
+    let merged = &data(&resp)["mergePersons"];
+    assert_eq!(merged["sex"], "FEMALE");
+    let names = merged["names"].as_array().unwrap();
+    assert_eq!(names.len(), 2, "{names:?}");
+    let primary: Vec<&Value> = names.iter().filter(|n| n["isPrimary"] == true).collect();
+    assert_eq!(primary.len(), 1, "{names:?}");
+    assert_eq!(primary[0]["givenNames"], "Anna Maria");
+    assert_eq!(primary[0]["surname"], "BRANCH_B");
 }
 
 #[tokio::test]

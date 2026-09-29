@@ -22,9 +22,9 @@ use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
     CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
     CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
-    PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput, UpdateCitationInput,
-    UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput,
-    UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput,
+    MergeChoicesInput, PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput,
+    UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput,
+    UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput,
     UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
     geneanet_media_paths,
 };
@@ -321,36 +321,25 @@ impl MutationRoot {
     }
 
     /// Merge `duplicateId` into `personId`, which is kept; the duplicate is
-    /// soft-deleted. `leftOutEvents` and `leftOutMediaLinks` name the
-    /// duplicate's own events and direct media links not to take. Returns
-    /// the kept person.
-    #[allow(clippy::too_many_arguments)]
+    /// soft-deleted. `choices` carries what the comparison chose. Returns the
+    /// kept person.
     async fn merge_persons(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         person_id: ID,
         duplicate_id: ID,
-        #[graphql(default)] left_out_events: Vec<ID>,
-        #[graphql(default)] left_out_media_links: Vec<ID>,
+        #[graphql(default)] choices: MergeChoicesInput,
     ) -> Result<GqlPerson> {
         let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let kept = Uuid::parse_str(person_id.as_str())?;
         let duplicate = Uuid::parse_str(duplicate_id.as_str())?;
-        let ids = |ids: Vec<ID>| -> Result<Vec<Uuid>> {
-            ids.iter()
-                .map(|id| Uuid::parse_str(id.as_str()).map_err(Into::into))
-                .collect()
-        };
-        let left_out = duplicates::MergeLeftOut {
-            events: ids(left_out_events)?,
-            media_links: ids(left_out_media_links)?,
-        };
+        let choices = choices.into_choices()?;
         let txn = begin_tx(db).await?;
         let person =
-            duplicates::merge_persons(&txn, profiles, tid, kept, duplicate, &left_out).await?;
+            duplicates::merge_persons(&txn, profiles, tid, kept, duplicate, &choices).await?;
         commit_tx(txn).await?;
         Ok(person.into())
     }

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
 description: "Three-step wizard to find the other record of a person, compare the two, choose the record kept and the events and media taken from the other, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:19:37Z }
 ---
 
 
@@ -60,21 +60,32 @@ and drawn side by side as the search results draw a person (portrait, name,
 dates, relatives, birthplace), the source first.
 
 - **The record kept.** Each card carries a "Keep this record" radio; the
-  source is kept by default. The other record is *absorbed*.
-- **The comparison.** One table row per field — surname, given names, sex,
-  birth, birthplace, death, father, mother, spouses, number of children — the
-  dates written in full with their precision and calendar ("8 Dec 1776",
-  "about 1776"). A row whose two values differ is highlighted in orange.
-- **Events to take.** The absorbed record's own events (not its unions'),
-  one checkbox each, written as type, date, place and description. An event
-  the kept record already has is marked "already on the record kept": one of
-  a type a person has once (birth, baptism, death, burial, cremation), or one
-  of the same type, date and place. Everything else is ticked by default.
+  source is kept by default. The other record is *absorbed*. The record kept
+  keeps its identifier, its links and whatever the rows below do not change.
+- **The comparison.** One table row per field, the source's value on the
+  left; a row whose two values differ is highlighted in orange. Every row
+  where the absorbed record has something to offer carries a radio in each
+  column, and the value picked is the merged record's:
+
+  | Row | Choice | Picked by default |
+  |---|---|---|
+  | Surname (particle included) | When the absorbed record has one that differs | The kept one's, unless it has none |
+  | Given names | When the absorbed record has some that differ | The kept one's, unless it has none |
+  | Sex | When both are known and differ; a sex only one record knows wins without a choice | The kept one's |
+  | Birth, baptism, death, burial, cremation — one row each, shown when either record has one — written as date, place and description | When the absorbed record has one | The one that says more: the pieces of its date, an exact date, a place; the kept one's when equal |
+
+  A person has each of those events once, so the row keeps one record's and
+  leaves out the other's. The father, mother, spouses and number of children
+  follow for reference: every family link moves to the record kept.
+- **Other events.** The absorbed record's own repeatable events (not its
+  unions'), one checkbox each, written as type, date, place and description.
+  One the kept record already has — same type, date and place — is marked
+  "already on the record kept" and left unticked; everything else is ticked.
 - **Media to attach.** The absorbed record's media linked to the person
   directly (not through a union), one checkbox each by title or file name. A
   medium the kept record is already linked to is marked the same way; the
   others are ticked by default.
-- Choosing the other record as kept recomputes both lists' defaults for it.
+- Choosing the other record as kept recomputes every default for it.
 - A note says that names, family links, notes and sources always move to the
   record kept.
 
@@ -84,23 +95,29 @@ dates, relatives, birthplace), the source first.
 
 ## 5. Step 3 — Confirm
 
-A summary — the record kept; the events and media taken from the other,
-counted; those left out, counted — and the warning that the merge cannot be
-undone, naming the record deleted and the record kept. **Merge** is the
-destructive button. Failure leaves the wizard open with an error line.
+A summary — the record kept; the primary name it will bear; the events and
+media taken from the other, counted; those left out of either record,
+counted — and the warning that the merge cannot be undone, naming the record
+deleted and the record kept. **Merge** is the destructive button. Failure
+leaves the wizard open with an error line.
 
 ---
 
 ## 6. Merge execution
 
 **Merge** calls the merge operation —
-`POST /trees/{tree_id}/persons/{kept}/merge` with `{duplicate_id,
-left_out_events, left_out_media_links}`, or `mergePersons`
-([API Contract](api.md)) — naming the absorbed record's unticked events and
-media links. In one transaction it drops what was left out (events
-soft-deleted, media links removed, media kept in the library), moves
-everything else the absorbed record carried onto the kept one and
-soft-deletes it, following [Data Model — Person merge](data-model.md#person-merge):
+`POST /trees/{tree_id}/persons/{kept}/merge` with `{duplicate_id, choices}`,
+or `mergePersons` ([API Contract](api.md)). `choices` names the events left
+out of either record (the absorbed record's unticked or unpicked events, and
+the kept record's events replaced by a row picked from the absorbed one), the
+absorbed record's unticked media links, and whether the surname, the given
+names and the sex come from the absorbed record. In one transaction the
+operation drops what was left out (events soft-deleted, media links removed,
+media kept in the library), moves everything else the absorbed record
+carried onto the kept one, applies the picked sex, and gives the kept record
+the primary name composed of the picked surname and given names — the former
+primary name staying as a secondary one — then soft-deletes the absorbed
+record, following [Data Model — Person merge](data-model.md#person-merge):
 names, events, family links, witness and media links, notes, citations,
 identification boxes, the tree roots and the distinct-person confirmations.
 The projections of both persons' relatives are rebuilt and the history

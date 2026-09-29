@@ -16,10 +16,11 @@ use serde::Serialize;
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
-use oxidgene_core::types::Person;
+use oxidgene_core::types::{Person, PersonName};
 use oxidgene_db::repo::{
     AncestryRepo, EventRepo, EventWitnessRepo, FamilySpouseRepo, MediaLinkRepo, PersonDistinctRepo,
-    PersonMergeRepo, PersonRepo, display_names,
+    PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo,
+    display_names,
 };
 use sea_orm::ConnectionTrait;
 use uuid::Uuid;
@@ -72,14 +73,25 @@ pub async fn mark_distinct(
     Ok(())
 }
 
-/// What a merge leaves out of the duplicate instead of moving it to the kept
-/// person: its own events, deleted with it, and its direct media links,
-/// removed (the media themselves stay in the library). Empty, everything
-/// moves.
+/// What the user chose while comparing the two records. The default keeps
+/// the kept person's name and sex and moves everything the duplicate
+/// carried.
 #[derive(Debug, Clone, Default)]
-pub struct MergeLeftOut {
-    pub events: Vec<Uuid>,
-    pub media_links: Vec<Uuid>,
+pub struct MergeChoices {
+    /// Own events of either person left out of the merged record:
+    /// soft-deleted. The kept person's birth, say, when the duplicate's is
+    /// the one chosen.
+    pub left_out_events: Vec<Uuid>,
+    /// The duplicate's direct media links not taken: removed, the media
+    /// staying in the library.
+    pub left_out_media_links: Vec<Uuid>,
+    /// The merged primary name takes the duplicate's surname, particle
+    /// included.
+    pub surname_from_duplicate: bool,
+    /// The merged primary name takes the duplicate's given names.
+    pub given_names_from_duplicate: bool,
+    /// The merged record takes the duplicate's sex.
+    pub sex_from_duplicate: bool,
 }
 
 /// Merge `duplicate` into `kept`: one individual recorded twice becomes one
@@ -95,15 +107,15 @@ pub struct MergeLeftOut {
 /// `NotFound` if either person is missing from the tree. `Validation` if they
 /// are the same person, spouses of the same union, or one is an ancestor of
 /// the other: each of those would leave a person married to, or descended
-/// from, themselves; and if `left_out` names an event or a media link that is
-/// not the duplicate's own.
+/// from, themselves; and if `choices` leaves out an event that is neither
+/// person's own, or a media link that is not the duplicate's own.
 pub async fn merge_persons(
     conn: &impl ConnectionTrait,
     profiles: &ProfileService,
     tree_id: Uuid,
     kept: Uuid,
     duplicate: Uuid,
-    left_out: &MergeLeftOut,
+    choices: &MergeChoices,
 ) -> Result<Person, OxidGeneError> {
     ensure_mergeable(conn, tree_id, kept, duplicate).await?;
 
@@ -123,9 +135,7 @@ pub async fn merge_persons(
         .map(|witness| witness.event_id)
         .collect();
 
-    drop_left_out(conn, tree_id, duplicate, left_out).await?;
-    PersonMergeRepo::absorb(conn, tree_id, kept, duplicate).await?;
-    PersonRepo::delete(conn, duplicate).await?;
+    write_merge(conn, tree_id, kept, duplicate, choices).await?;
     profiles
         .invalidate_for_person_delete(conn, tree_id, duplicate)
         .await?;
@@ -149,12 +159,39 @@ pub async fn merge_persons(
             other_label: duplicate_label,
             ..AuditDetails::default()
         });
-    for event_id in witnessed.into_iter().chain(left_out.events.iter().copied()) {
+    for event_id in witnessed
+        .into_iter()
+        .chain(choices.left_out_events.iter().copied())
+    {
         change = change.event(event_id);
     }
     change.record(conn).await?;
 
     PersonRepo::get(conn, kept).await
+}
+
+/// The merge's writes: what was left out dropped, the rest moved onto the
+/// kept person, the picked sex and name applied, the duplicate deleted.
+async fn write_merge(
+    conn: &impl ConnectionTrait,
+    tree_id: Uuid,
+    kept: Uuid,
+    duplicate: Uuid,
+    choices: &MergeChoices,
+) -> Result<(), OxidGeneError> {
+    // Read before the absorb moves the duplicate's names onto the kept person.
+    let duplicate_person = PersonRepo::get(conn, duplicate).await?;
+    let duplicate_primary = primary_name(PersonNameRepo::list_by_person(conn, duplicate).await?);
+
+    drop_left_out(conn, tree_id, [kept, duplicate], duplicate, choices).await?;
+    PersonMergeRepo::absorb(conn, tree_id, kept, duplicate).await?;
+    if choices.sex_from_duplicate {
+        PersonRepo::update(conn, kept, Some(duplicate_person.sex), None).await?;
+    }
+    if let Some(taken) = duplicate_primary {
+        choose_primary_name(conn, kept, &taken, choices).await?;
+    }
+    PersonRepo::delete(conn, duplicate).await
 }
 
 /// Refuses a merge that would leave a person married to, or descended from,
@@ -204,26 +241,27 @@ async fn ensure_mergeable(
     Ok(())
 }
 
-/// Removes what a merge leaves out of the duplicate before the rest moves:
-/// its own events, soft-deleted, and its direct media links. Anything that
-/// is not the duplicate's own is refused, so a merge can never drop someone
-/// else's record.
+/// Removes what a merge leaves out before the rest moves: own events of
+/// either person, soft-deleted, and the duplicate's direct media links.
+/// Anything else is refused, so a merge can never drop someone else's
+/// record.
 async fn drop_left_out(
     conn: &impl ConnectionTrait,
     tree_id: Uuid,
+    pair: [Uuid; 2],
     duplicate: Uuid,
-    left_out: &MergeLeftOut,
+    choices: &MergeChoices,
 ) -> Result<(), OxidGeneError> {
-    for &event_id in &left_out.events {
+    for &event_id in &choices.left_out_events {
         let event = EventRepo::get(conn, event_id).await?;
-        if event.tree_id != tree_id || event.person_id != Some(duplicate) {
+        if event.tree_id != tree_id || !event.person_id.is_some_and(|p| pair.contains(&p)) {
             return Err(OxidGeneError::Validation(
-                "only the duplicate's own events can be left out".to_string(),
+                "only the two persons' own events can be left out".to_string(),
             ));
         }
         EventRepo::delete(conn, event_id).await?;
     }
-    for &link_id in &left_out.media_links {
+    for &link_id in &choices.left_out_media_links {
         let link = MediaLinkRepo::get(conn, link_id).await?;
         if link.person_id != Some(duplicate) {
             return Err(OxidGeneError::Validation(
@@ -231,6 +269,94 @@ async fn drop_left_out(
             ));
         }
         MediaLinkRepo::delete(conn, link_id).await?;
+    }
+    Ok(())
+}
+
+fn primary_name(names: Vec<PersonName>) -> Option<PersonName> {
+    names.into_iter().find(|name| name.is_primary)
+}
+
+fn pieces_of(name: &PersonName) -> PersonNamePieces {
+    PersonNamePieces {
+        given_names: name.given_names.clone(),
+        surname: name.surname.clone(),
+        surname_prefix: name.surname_prefix.clone(),
+        prefix: name.prefix.clone(),
+        suffix: name.suffix.clone(),
+        nickname: name.nickname.clone(),
+    }
+}
+
+/// Whether two names read the same, ignoring case as the merge does when it
+/// drops a name the kept person already bears.
+fn same_pieces(a: &PersonNamePieces, b: &PersonNamePieces) -> bool {
+    let same = |x: &Option<String>, y: &Option<String>| {
+        x.as_deref().map(str::to_lowercase) == y.as_deref().map(str::to_lowercase)
+    };
+    same(&a.given_names, &b.given_names)
+        && same(&a.surname, &b.surname)
+        && same(&a.surname_prefix, &b.surname_prefix)
+        && same(&a.prefix, &b.prefix)
+        && same(&a.suffix, &b.suffix)
+        && same(&a.nickname, &b.nickname)
+}
+
+/// Gives the merged record the primary name the user composed: the kept
+/// primary name with the duplicate's surname, given names, or both. The
+/// former primary name stays as a secondary one, so nothing is lost; a name
+/// the person already bears is promoted rather than written twice.
+async fn choose_primary_name(
+    conn: &impl ConnectionTrait,
+    kept: Uuid,
+    taken: &PersonName,
+    choices: &MergeChoices,
+) -> Result<(), OxidGeneError> {
+    let (surname, given_names) = (
+        choices.surname_from_duplicate,
+        choices.given_names_from_duplicate,
+    );
+    if !surname && !given_names {
+        return Ok(());
+    }
+    let names = PersonNameRepo::list_by_person(conn, kept).await?;
+    let Some(current) = names.iter().find(|name| name.is_primary) else {
+        return Ok(());
+    };
+    // All of the duplicate's name when both pieces are taken, otherwise the
+    // kept name with one piece replaced.
+    let (base, name_type) = if surname && given_names {
+        (taken, taken.name_type)
+    } else {
+        (current, current.name_type)
+    };
+    let mut target = pieces_of(base);
+    if surname {
+        target.surname = taken.surname.clone();
+        target.surname_prefix = taken.surname_prefix.clone();
+    }
+    if given_names {
+        target.given_names = taken.given_names.clone();
+    }
+    if same_pieces(&target, &pieces_of(current)) && name_type == current.name_type {
+        return Ok(());
+    }
+
+    let demoted = PersonNamePiecesPatch::default();
+    PersonNameRepo::update(conn, current.id, None, demoted, Some(false), None).await?;
+    let borne = names
+        .iter()
+        .find(|name| name.name_type == name_type && same_pieces(&pieces_of(name), &target));
+    match borne {
+        Some(name) => {
+            let unchanged = PersonNamePiecesPatch::default();
+            PersonNameRepo::update(conn, name.id, None, unchanged, Some(true), None).await?;
+        }
+        None => {
+            let next = names.iter().map(|name| name.sort_order).max().unwrap_or(0) + 1;
+            PersonNameRepo::create(conn, Uuid::now_v7(), kept, name_type, target, true, next)
+                .await?;
+        }
     }
     Ok(())
 }

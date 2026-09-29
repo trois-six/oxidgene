@@ -40,6 +40,43 @@ pub struct UpdateTreeInput {
     pub self_person_id: MaybeUndefined<String>,
 }
 
+// ── Person merge input ───────────────────────────────────────────────
+
+/// What the comparison of a merge chose (`docs/api.md`, merge). Every field
+/// defaults to "as the kept person has it, everything else moves".
+#[derive(Debug, Default, InputObject)]
+pub struct MergeChoicesInput {
+    /// Own events of either person left out of the merged record.
+    #[graphql(default)]
+    pub left_out_events: Vec<ID>,
+    /// The duplicate's direct media links not taken.
+    #[graphql(default)]
+    pub left_out_media_links: Vec<ID>,
+    #[graphql(default)]
+    pub surname_from_duplicate: bool,
+    #[graphql(default)]
+    pub given_names_from_duplicate: bool,
+    #[graphql(default)]
+    pub sex_from_duplicate: bool,
+}
+
+impl MergeChoicesInput {
+    pub fn into_choices(self) -> Result<crate::service::duplicates::MergeChoices> {
+        let ids = |ids: Vec<ID>| -> Result<Vec<uuid::Uuid>> {
+            ids.iter()
+                .map(|id| uuid::Uuid::parse_str(id.as_str()).map_err(Into::into))
+                .collect()
+        };
+        Ok(crate::service::duplicates::MergeChoices {
+            left_out_events: ids(self.left_out_events)?,
+            left_out_media_links: ids(self.left_out_media_links)?,
+            surname_from_duplicate: self.surname_from_duplicate,
+            given_names_from_duplicate: self.given_names_from_duplicate,
+            sex_from_duplicate: self.sex_from_duplicate,
+        })
+    }
+}
+
 // ── Geneanet import wizard inputs ───────────────────────────────────
 
 /// One deposit's byte size, collected by the desktop login window.
