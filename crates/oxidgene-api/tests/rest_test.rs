@@ -3739,6 +3739,115 @@ async fn add_event_via_api(
     assert_eq!(status, StatusCode::CREATED, "{body}");
 }
 
+/// Creates an event and returns its id.
+async fn event_id_via_api(
+    app: &axum::Router,
+    tree_id: &str,
+    person_id: &str,
+    kind: &str,
+    date: &str,
+) -> String {
+    let (status, body) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(serde_json::json!({ "event_type": kind, "date_value": date, "person_id": person_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    body["id"].as_str().unwrap().to_string()
+}
+
+/// A merge takes only what the user ticked of the duplicate: the events and
+/// media links left out are dropped, the rest moves; and only the
+/// duplicate's own items can be left out.
+#[tokio::test]
+async fn a_merge_leaves_out_the_duplicates_items_not_taken() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let kept = create_named_person_via_api(&app, &tree_id, "female", "Anna", "BRANCH_A").await;
+    let duplicate = create_named_person_via_api(&app, &tree_id, "female", "Anna", "BRANCH_A").await;
+    let kept_birth = event_id_via_api(&app, &tree_id, &kept, "birth", "12 MAR 1850").await;
+    let duplicate_birth = event_id_via_api(&app, &tree_id, &duplicate, "birth", "1850").await;
+    let residence = event_id_via_api(&app, &tree_id, &duplicate, "residence", "1880").await;
+    let (status, document) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media/document"),
+        Some(serde_json::json!({ "title": "Scan A" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{document}");
+    let (status, link) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media-links"),
+        Some(serde_json::json!({ "media_id": document["id"], "person_id": duplicate, "sort_order": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{link}");
+    let merge = |body: serde_json::Value| {
+        let app = app.clone();
+        let tree_id = tree_id.clone();
+        let kept = kept.clone();
+        async move {
+            send_request(
+                app,
+                Method::POST,
+                &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
+                Some(body),
+            )
+            .await
+        }
+    };
+
+    // The kept person's own event is not the duplicate's to leave out.
+    let (status, _) = merge(serde_json::json!({
+        "duplicate_id": duplicate, "left_out_events": [kept_birth]
+    }))
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, body) = merge(serde_json::json!({
+        "duplicate_id": duplicate,
+        "left_out_events": [duplicate_birth],
+        "left_out_media_links": [link["id"]],
+    }))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, events) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events?person_id={kept}"),
+        None,
+    )
+    .await;
+    let mut ids: Vec<&str> = events["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["node"]["id"].as_str().unwrap())
+        .collect();
+    ids.sort_unstable();
+    let mut expected = vec![kept_birth.as_str(), residence.as_str()];
+    expected.sort_unstable();
+    assert_eq!(
+        ids, expected,
+        "the residence moved, the duplicate birth did not"
+    );
+    let (_, links) = send_request(
+        app.clone(),
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{tree_id}/media-links?media_id={}",
+            document["id"].as_str().unwrap()
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(links, serde_json::json!([]), "the media was left out");
+}
+
 /// Generation by generation from the SOSA root: found ancestors with their
 /// facts, missing parents listed, their own parents implied.
 #[tokio::test]

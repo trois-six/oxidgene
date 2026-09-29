@@ -18,8 +18,8 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{AuditAction, AuditDetails, AuditEntity};
 use oxidgene_core::types::Person;
 use oxidgene_db::repo::{
-    AncestryRepo, EventWitnessRepo, FamilySpouseRepo, PersonDistinctRepo, PersonMergeRepo,
-    PersonRepo, display_names,
+    AncestryRepo, EventRepo, EventWitnessRepo, FamilySpouseRepo, MediaLinkRepo, PersonDistinctRepo,
+    PersonMergeRepo, PersonRepo, display_names,
 };
 use sea_orm::ConnectionTrait;
 use uuid::Uuid;
@@ -72,6 +72,16 @@ pub async fn mark_distinct(
     Ok(())
 }
 
+/// What a merge leaves out of the duplicate instead of moving it to the kept
+/// person: its own events, deleted with it, and its direct media links,
+/// removed (the media themselves stay in the library). Empty, everything
+/// moves.
+#[derive(Debug, Clone, Default)]
+pub struct MergeLeftOut {
+    pub events: Vec<Uuid>,
+    pub media_links: Vec<Uuid>,
+}
+
 /// Merge `duplicate` into `kept`: one individual recorded twice becomes one
 /// record, the kept one, and the duplicate is soft-deleted.
 ///
@@ -85,14 +95,77 @@ pub async fn mark_distinct(
 /// `NotFound` if either person is missing from the tree. `Validation` if they
 /// are the same person, spouses of the same union, or one is an ancestor of
 /// the other: each of those would leave a person married to, or descended
-/// from, themselves.
+/// from, themselves; and if `left_out` names an event or a media link that is
+/// not the duplicate's own.
 pub async fn merge_persons(
     conn: &impl ConnectionTrait,
     profiles: &ProfileService,
     tree_id: Uuid,
     kept: Uuid,
     duplicate: Uuid,
+    left_out: &MergeLeftOut,
 ) -> Result<Person, OxidGeneError> {
+    ensure_mergeable(conn, tree_id, kept, duplicate).await?;
+
+    // Both relative sets are read while the family links still say who the
+    // duplicate's relatives are.
+    let (kept_affected, duplicate_affected) = tokio::try_join!(
+        invalidation::affected_persons(conn, kept),
+        invalidation::affected_persons(conn, duplicate),
+    )?;
+
+    // Read before the merge re-points them: the duplicate's name, and the
+    // events whose witness lists are about to name the kept person instead.
+    let duplicate_label = display_names(conn, &[duplicate]).await?.remove(&duplicate);
+    let witnessed: Vec<Uuid> = EventWitnessRepo::list_by_person(conn, duplicate)
+        .await?
+        .into_iter()
+        .map(|witness| witness.event_id)
+        .collect();
+
+    drop_left_out(conn, tree_id, duplicate, left_out).await?;
+    PersonMergeRepo::absorb(conn, tree_id, kept, duplicate).await?;
+    PersonRepo::delete(conn, duplicate).await?;
+    profiles
+        .invalidate_for_person_delete(conn, tree_id, duplicate)
+        .await?;
+
+    let mut affected: Vec<Uuid> = kept_affected
+        .into_iter()
+        .chain(duplicate_affected)
+        .filter(|id| *id != duplicate)
+        .collect();
+    affected.sort();
+    affected.dedup();
+    profiles
+        .invalidate_for_mutation(conn, tree_id, &affected)
+        .await?;
+
+    let mut change = Change::new(tree_id, AuditAction::Merge, AuditEntity::Person, kept)
+        .person(kept)
+        .persons([duplicate])
+        .persons(affected)
+        .details(AuditDetails {
+            other_label: duplicate_label,
+            ..AuditDetails::default()
+        });
+    for event_id in witnessed.into_iter().chain(left_out.events.iter().copied()) {
+        change = change.event(event_id);
+    }
+    change.record(conn).await?;
+
+    PersonRepo::get(conn, kept).await
+}
+
+/// Refuses a merge that would leave a person married to, or descended from,
+/// themselves: the same person twice, spouses of one union, or an ancestor
+/// and their descendant. Both must be persons of the tree.
+async fn ensure_mergeable(
+    conn: &impl ConnectionTrait,
+    tree_id: Uuid,
+    kept: Uuid,
+    duplicate: Uuid,
+) -> Result<(), OxidGeneError> {
     if kept == duplicate {
         return Err(OxidGeneError::Validation(
             "a person cannot be merged with themselves".to_string(),
@@ -128,54 +201,38 @@ pub async fn merge_persons(
             "a person cannot be merged with their own ancestor or descendant".to_string(),
         ));
     }
+    Ok(())
+}
 
-    // Both relative sets are read while the family links still say who the
-    // duplicate's relatives are.
-    let (kept_affected, duplicate_affected) = tokio::try_join!(
-        invalidation::affected_persons(conn, kept),
-        invalidation::affected_persons(conn, duplicate),
-    )?;
-
-    // Read before the merge re-points them: the duplicate's name, and the
-    // events whose witness lists are about to name the kept person instead.
-    let duplicate_label = display_names(conn, &[duplicate]).await?.remove(&duplicate);
-    let witnessed: Vec<Uuid> = EventWitnessRepo::list_by_person(conn, duplicate)
-        .await?
-        .into_iter()
-        .map(|witness| witness.event_id)
-        .collect();
-
-    PersonMergeRepo::absorb(conn, tree_id, kept, duplicate).await?;
-    PersonRepo::delete(conn, duplicate).await?;
-    profiles
-        .invalidate_for_person_delete(conn, tree_id, duplicate)
-        .await?;
-
-    let mut affected: Vec<Uuid> = kept_affected
-        .into_iter()
-        .chain(duplicate_affected)
-        .filter(|id| *id != duplicate)
-        .collect();
-    affected.sort();
-    affected.dedup();
-    profiles
-        .invalidate_for_mutation(conn, tree_id, &affected)
-        .await?;
-
-    let mut change = Change::new(tree_id, AuditAction::Merge, AuditEntity::Person, kept)
-        .person(kept)
-        .persons([duplicate])
-        .persons(affected)
-        .details(AuditDetails {
-            other_label: duplicate_label,
-            ..AuditDetails::default()
-        });
-    for event_id in witnessed {
-        change = change.event(event_id);
+/// Removes what a merge leaves out of the duplicate before the rest moves:
+/// its own events, soft-deleted, and its direct media links. Anything that
+/// is not the duplicate's own is refused, so a merge can never drop someone
+/// else's record.
+async fn drop_left_out(
+    conn: &impl ConnectionTrait,
+    tree_id: Uuid,
+    duplicate: Uuid,
+    left_out: &MergeLeftOut,
+) -> Result<(), OxidGeneError> {
+    for &event_id in &left_out.events {
+        let event = EventRepo::get(conn, event_id).await?;
+        if event.tree_id != tree_id || event.person_id != Some(duplicate) {
+            return Err(OxidGeneError::Validation(
+                "only the duplicate's own events can be left out".to_string(),
+            ));
+        }
+        EventRepo::delete(conn, event_id).await?;
     }
-    change.record(conn).await?;
-
-    PersonRepo::get(conn, kept).await
+    for &link_id in &left_out.media_links {
+        let link = MediaLinkRepo::get(conn, link_id).await?;
+        if link.person_id != Some(duplicate) {
+            return Err(OxidGeneError::Validation(
+                "only the duplicate's own media links can be left out".to_string(),
+            ));
+        }
+        MediaLinkRepo::delete(conn, link_id).await?;
+    }
+    Ok(())
 }
 
 // ── Potential duplicates ─────────────────────────────────────────────────

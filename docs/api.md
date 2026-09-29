@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:06:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:24:00Z }
 ---
 
 
@@ -159,7 +159,7 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 | `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Soft-delete a person |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/homonyms` | List the other persons bearing the same name, as `SearchEntry` rows (see below) |
 | `POST` | `/trees/{tree_id}/persons/{person_id}/distinct` | Record that the person differs from `{person_ids}`; `204` |
-| `POST` | `/trees/{tree_id}/persons/{person_id}/merge` | Merge `{duplicate_id}` into the path's person, which is kept; returns the kept `Person` |
+| `POST` | `/trees/{tree_id}/persons/{person_id}/merge` | Merge `{duplicate_id, left_out_events?, left_out_media_links?}` into the path's person, which is kept; returns the kept `Person` |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/ancestors` | Get ancestors (depth param) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/descendants` | Get descendants (depth param) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/kinship/{other_person_id}` | Every way found to go from the person to the other: blood relationships, or the shortest paths through unions (see below) |
@@ -208,6 +208,16 @@ It is refused with `validation_error` when both IDs are the same person, when
 they are spouses of the same family, or when one is an ancestor of the other.
 The projections of both persons' relatives are rebuilt in the same transaction,
 and the duplicate's projection and search row are removed.
+
+`left_out_events` and `left_out_media_links` (both optional, empty by
+default) name what the user chose not to take from the duplicate: its own
+events, soft-deleted with it, and its direct media links, removed — the media
+stay in the library. They are dropped in the same transaction, before the rest
+moves, and the audit entry names the events left out. Any event that is not
+the duplicate's own (`person_id`), or media link that does not link the
+duplicate directly, is refused with `validation_error`, so a merge never drops
+someone else's record. GraphQL's `mergePersons` takes them as `leftOutEvents`
+and `leftOutMediaLinks`.
 
 **Kinship.** `GET …/{person_id}/kinship/{other_person_id}` returns a
 `Kinship`: `from_person_id`, `to_person_id`, `paths`, `truncated`, and
@@ -1273,7 +1283,7 @@ type Mutation {
   updatePerson(treeId: ID!, id: ID!, input: UpdatePersonInput!): Person!
   deletePerson(treeId: ID!, id: ID!): Boolean!
   markPersonsDistinct(treeId: ID!, personId: ID!, otherPersonIds: [ID!]!): Boolean!
-  mergePersons(treeId: ID!, personId: ID!, duplicateId: ID!): Person!
+  mergePersons(treeId: ID!, personId: ID!, duplicateId: ID!, leftOutEvents: [ID!], leftOutMediaLinks: [ID!]): Person!
 
   # Person Names
   addPersonName(treeId: ID!, personId: ID!, input: PersonNameInput!): PersonName!

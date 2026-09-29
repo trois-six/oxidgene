@@ -178,6 +178,13 @@ pub struct MarkPersonsDistinctRequest {
 pub struct MergePersonRequest {
     /// The record absorbed and soft-deleted; the path's person is kept.
     pub duplicate_id: uuid::Uuid,
+    /// The duplicate's own events not to take: deleted with it.
+    #[serde(default)]
+    pub left_out_events: Vec<uuid::Uuid>,
+    /// The duplicate's direct media links not to take: removed, the media
+    /// staying in the library.
+    #[serde(default)]
+    pub left_out_media_links: Vec<uuid::Uuid>,
 }
 
 // ── PersonName DTOs ──────────────────────────────────────────────────

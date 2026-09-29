@@ -1692,6 +1692,65 @@ async fn graphql_homonyms_are_listed_until_confirmed_distinct() {
     assert_eq!(error_code(&resp), "NOT_FOUND");
 }
 
+/// The same left-out items as REST: an event of the duplicate not taken is
+/// dropped, and the kept person's own event cannot be left out.
+#[tokio::test]
+async fn graphql_merge_leaves_out_the_duplicates_items_not_taken() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let kept = gql_named_person(&app, &tree_id, "FEMALE", "Anna", "BRANCH_A").await;
+    let duplicate = gql_named_person(&app, &tree_id, "FEMALE", "Anna", "BRANCH_A").await;
+    let event = |person: String| {
+        let app = app.clone();
+        let tree_id = tree_id.clone();
+        async move {
+            let resp = graphql(
+                app,
+                r#"mutation($tree: ID!, $person: ID!) {
+                    createEvent(treeId: $tree, input: { eventType: BIRTH, personId: $person, dateValue: "1850" }) { id }
+                }"#,
+                Some(json!({ "tree": tree_id, "person": person })),
+            )
+            .await;
+            data(&resp)["createEvent"]["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let kept_birth = event(kept.clone()).await;
+    let duplicate_birth = event(duplicate.clone()).await;
+    let merge = |left_out: Vec<String>| {
+        let app = app.clone();
+        let (tree_id, kept, duplicate) = (tree_id.clone(), kept.clone(), duplicate.clone());
+        async move {
+            graphql(
+                app,
+                r#"mutation($tree: ID!, $kept: ID!, $duplicate: ID!, $out: [ID!]!) {
+                    mergePersons(treeId: $tree, personId: $kept, duplicateId: $duplicate, leftOutEvents: $out) { id }
+                }"#,
+                Some(json!({ "tree": tree_id, "kept": kept, "duplicate": duplicate, "out": left_out })),
+            )
+            .await
+        }
+    };
+    let resp = merge(vec![kept_birth.clone()]).await;
+    assert_eq!(error_code(&resp), "VALIDATION_ERROR");
+    let resp = merge(vec![duplicate_birth]).await;
+    assert_eq!(data(&resp)["mergePersons"]["id"], kept.as_str());
+    let resp = graphql(
+        app.clone(),
+        r#"query($tree: ID!, $person: ID!) {
+            events(treeId: $tree, personId: $person) { edges { node { id } } }
+        }"#,
+        Some(json!({ "tree": tree_id, "person": kept })),
+    )
+    .await;
+    let edges = &data(&resp)["events"]["edges"];
+    assert_eq!(edges.as_array().unwrap().len(), 1, "{edges}");
+    assert_eq!(edges[0]["node"]["id"], kept_birth.as_str());
+}
+
 #[tokio::test]
 async fn graphql_merge_moves_the_duplicate_onto_the_kept_person() {
     let app = setup_app().await;
