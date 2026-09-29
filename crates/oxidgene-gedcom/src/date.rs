@@ -99,10 +99,17 @@ fn sort_date(value: &str, calendar: Calendar) -> Option<NaiveDate> {
         Calendar::Gregorian => value.to_string(),
         other => format!("{} {value}", to_ged_calendar(other).gedcom_escape()),
     };
-    let parsed = ParsedDateTime::from_gedcom_date(&escaped).ok()?;
+    let mut parsed = ParsedDateTime::from_gedcom_date(&escaped).ok()?;
     let parsed = match parsed.calendar {
         GedCalendar::Gregorian => parsed,
-        _ => parsed.convert_to(GedCalendar::Gregorian).ok()?,
+        _ => {
+            // A conversion needs a day. A year or a month alone stands for
+            // its first day, as a partial Gregorian date does below: the
+            // Republican "an VII" sorts from 1 Vendémiaire, 22 September 1798.
+            parsed.month = parsed.month.or(Some(1));
+            parsed.day = parsed.day.or(Some(1));
+            parsed.convert_to(GedCalendar::Gregorian).ok()?
+        }
     };
     // A missing month or day is the first of its period, matching how the UI
     // derives `date_sort` from a partial date.
@@ -405,6 +412,32 @@ mod tests {
                 "for {raw}"
             );
         }
+    }
+
+    /// A year or a month alone, in another calendar, sorts from its first
+    /// day, as a partial Gregorian date does: GeneWeb's `+7F`, the year VII,
+    /// has a place in the chronology.
+    #[test]
+    fn a_partial_date_in_another_calendar_sorts_from_its_first_day() {
+        for (calendar, raw, expected) in [
+            (Calendar::FrenchRepublican, "7", (1798, 9, 22)),
+            (Calendar::FrenchRepublican, "BRUM 8", (1799, 10, 23)),
+            (Calendar::Julian, "1582", (1582, 1, 11)),
+            // A Hebrew year starts on 1 Tishrei.
+            (Calendar::Hebrew, "5784", (2023, 9, 16)),
+            (Calendar::Hebrew, "NSN 5784", (2024, 4, 9)),
+        ] {
+            let (y, m, d) = expected;
+            assert_eq!(
+                sort_key(calendar, Some(raw)),
+                NaiveDate::from_ymd_opt(y, m, d),
+                "for {raw}"
+            );
+        }
+        let imported = parse("@#DFRENCH R@ 7");
+        assert_eq!(imported.calendar, Calendar::FrenchRepublican);
+        assert_eq!(imported.value.as_deref(), Some("7"));
+        assert_eq!(imported.sort, NaiveDate::from_ymd_opt(1798, 9, 22));
     }
 
     /// The other calendars are checked against known dates too.

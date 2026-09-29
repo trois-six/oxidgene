@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T14:20:00Z }
 ---
 
 
@@ -188,7 +188,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `tree_id` | UUID v7 | FK → Tree |
 | `event_type` | EventType | Enum |
 | `date_value` | String? | GEDCOM date phrase (free text, e.g. "ABT 1842") |
-| `date_sort` | Date? | Normalized date for sorting |
+| `date_sort` | Date? | Normalized date for sorting: the Gregorian day the date stands for, whatever its calendar, and the first day of its period for a year or a month alone (the Republican year VII sorts from 22 September 1798) |
 | `date_qualifier` | DateQualifier | Enum — precision/shape of the date (default `Exact`) |
 | `date_value2` | String? | Second date, used by the `Or` and `Between` qualifiers |
 | `calendar` | Calendar | Enum — calendar system the date was recorded in (default `Gregorian`) |

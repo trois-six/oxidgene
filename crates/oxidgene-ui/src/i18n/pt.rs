@@ -263,7 +263,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("person.family.on_date", "a {date}"),
         ("person.family.in_place", "em {place}"),
         ("person.family.with_person", "com {partner}"),
-        ("person.family.divorced_on", "divorciado(a) a {date}"),
+        ("person.family.divorced", "divorciado(a)"),
         ("person.family.and_had", "e tiveram:"),
         ("person.family.side_of", "Do lado de {parent}"),
         ("person.family.unknown_person", "? ?"),
@@ -485,6 +485,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("date.prefix.before", "antes de"),
         ("date.prefix.after", "depois de"),
         ("date.prefix.between", "entre"),
+        ("date.in", "em {date}"),
+        ("date.republican_year", "ano {year}"),
         // ── Union form (modal) ──────────────────────────────────────
         ("union_form.title", "Editar união"),
         ("union_form.children", "Filhos"),

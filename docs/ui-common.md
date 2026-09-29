@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T05:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T14:20:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -290,7 +290,24 @@ rather than relabeling values. Invalid or unrepresentable input remains visible
 with a localized inline error.
 
 Display formatting uses the shared date formatter; year-only surfaces use
-`qualified_year()` so precision is not discarded.
+`qualified_year()` so precision is not discarded. The formatter:
+
+- reads a GEDCOM date as day, month, year, the year being its number of four
+  digits or more, else its last number, so a short year after a month reads
+  as a year (« BRUM 8 », « COMP 7 », a Julian « MAR 850 »);
+- writes a Republican year in Roman numerals, as the calendar's own records
+  do: « an VII », « 18 brumaire an VIII »;
+- follows an event's date written in another calendar by its Gregorian
+  equivalent in parentheses: the day (« 15 mars 1582 (25 mars 1582) »), or,
+  for a year or a month alone, the span it covers (« an VII (entre 22 sept.
+  1798 et 22 sept. 1799) »). A Gregorian date, a range, a free-text phrase
+  and a month the year lacks (Adar II in a common Hebrew year) carry none.
+
+A sentence that reports a date joins it the way its precision allows: « le »
+and the day for a full date (« Né le 8 déc. 1776 »), « en » for a year or a
+month alone (« Marié en an VII »), and nothing but the date for a qualified
+one, whose own word leads it (« Né vers 1776 », « entre 1800 et 1810 ») — in
+each interface language its own way (`date.in`).
 
 ### 4.4 Fields with suggestions
 

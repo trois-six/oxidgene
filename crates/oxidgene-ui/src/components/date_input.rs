@@ -18,7 +18,9 @@
 use chrono::{Datelike, NaiveDate};
 use dioxus::html::input_data::keyboard_types::Key;
 use dioxus::prelude::*;
-use oxidgene_core::calendar::{convert as convert_components, days_in_month, months_in_year};
+use oxidgene_core::calendar::{
+    convert as convert_components, days_in_month, from_jdn, months_in_year, to_jdn,
+};
 use oxidgene_core::enums::{Calendar, DateQualifier};
 use oxidgene_core::types::Event as DomainEvent;
 
@@ -441,14 +443,123 @@ pub fn format_date(
 
 /// [`format_date`] over an event's own columns — the form every view but the
 /// editor needs. Empty when the event carries no date.
+///
+/// A date written in another calendar is followed by its Gregorian
+/// equivalent, as genealogists read it: « 2 brumaire an XIV (24 oct. 1805) »,
+/// and a year or a month alone by the span it covers: « an VII (entre 22 sept.
+/// 1798 et 22 sept. 1799) ».
 pub fn format_event_date(i18n: &I18n, event: &DomainEvent) -> String {
-    format_date(
+    let text = format_date(
         i18n,
         event.calendar,
         event.date_qualifier,
         event.date_value.as_deref(),
         event.date_value2.as_deref(),
-    )
+    );
+    match gregorian_equivalent(i18n, event) {
+        Some(equivalent) if !text.is_empty() => format!("{text} ({equivalent})"),
+        _ => text,
+    }
+}
+
+/// How a date joins the sentence that reports it: « le 8 déc. 1776 » for a
+/// day, « en 1776 » for a year or a month alone, and nothing but the date for
+/// a qualified one, whose own word leads it (« vers 1776 », « entre 1800 et
+/// 1810 ») or a free-text phrase.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DateKind {
+    #[default]
+    Day,
+    Period,
+    Qualified,
+}
+
+/// An event's date as text, with what it needs to be put in a sentence.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DatePhrase {
+    pub text: String,
+    pub kind: DateKind,
+}
+
+impl DatePhrase {
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+}
+
+/// [`format_event_date`] with its [`DateKind`].
+pub fn event_date_phrase(i18n: &I18n, event: &DomainEvent) -> DatePhrase {
+    let kind = if event.date_qualifier != DateQualifier::Exact {
+        DateKind::Qualified
+    } else {
+        match event
+            .date_value
+            .as_deref()
+            .map(|value| parse_components(event.calendar, value))
+        {
+            Some((Some(_), _, Some(_))) => DateKind::Day,
+            Some((Some(_), _, None)) => DateKind::Period,
+            _ => DateKind::Qualified,
+        }
+    };
+    DatePhrase {
+        text: format_event_date(i18n, event),
+        kind,
+    }
+}
+
+/// The Gregorian day, or span of days, a single date written in another
+/// calendar stands for; `None` for a Gregorian date, a range, or a date that
+/// does not convert.
+fn gregorian_equivalent(i18n: &I18n, event: &DomainEvent) -> Option<String> {
+    if event.calendar == Calendar::Gregorian || event.date_qualifier.needs_second_date() {
+        return None;
+    }
+    let (year, month, day) = parse_components(event.calendar, event.date_value.as_deref()?);
+    let (first, last) = gregorian_span(event.calendar, year?, month, day)?;
+    let text = |(y, m, d): GregorianDay| {
+        literal_components(i18n, Calendar::Gregorian, Some(y), Some(m), Some(d))
+    };
+    Some(if first == last {
+        text(first)
+    } else {
+        format!(
+            "{} {} {} {}",
+            i18n.t("date.prefix.between"),
+            text(first),
+            i18n.t("person_form.date2_label_between"),
+            text(last)
+        )
+    })
+}
+
+/// A Gregorian `(year, month, day)`.
+type GregorianDay = (i32, u8, u8);
+
+/// The first and last Gregorian day of a date written in `calendar`: its day,
+/// or the first and last day of its month or year.
+fn gregorian_span(
+    calendar: Calendar,
+    year: i32,
+    month: Option<u8>,
+    day: Option<u8>,
+) -> Option<(GregorianDay, GregorianDay)> {
+    let last_month = months_in_year(calendar);
+    let (start, end) = match (month, day) {
+        (Some(m), Some(d)) => ((m, d), (m, d)),
+        (Some(m), None) => ((m, 1), (m, days_in_month(calendar, year, m))),
+        (None, _) => (
+            (1, 1),
+            (last_month, days_in_month(calendar, year, last_month)),
+        ),
+    };
+    // A month without days that year — Adar II in a common Hebrew year —
+    // has no span to give.
+    if start.1 == 0 || end.1 == 0 || start.1 > days_in_month(calendar, year, start.0) {
+        return None;
+    }
+    let gregorian = |(m, d): (u8, u8)| from_jdn(Calendar::Gregorian, to_jdn(calendar, year, m, d)?);
+    Some((gregorian(start)?, gregorian(end)?))
 }
 
 /// Parse a free-text date into `(year, month, day)`.
@@ -492,24 +603,33 @@ fn parse_components(calendar: Calendar, s: &str) -> (Option<i32>, Option<u8>, Op
     if let Ok(y) = s.parse::<i32>() {
         return (Some(y), None, None);
     }
-    // Token mode: « 23 FEB 1947 », « 2 BRUM 14 », « 15 TSH 5784 ».
-    let mut year = None;
+    // Token mode: « 23 FEB 1947 », « 2 BRUM 14 », « 15 TSH 5784 », « COMP 7 ».
+    // The year is the number of four digits or more, else the last number —
+    // a GEDCOM date ends with its year, which may be short (« BRUM 8 », a
+    // Julian « MAR 850 ») — and a number before it is the day.
     let mut month = None;
-    let mut day = None;
+    let mut numbers: Vec<(usize, i32)> = Vec::new();
     for tok in s.split_whitespace() {
         let up = tok.to_ascii_uppercase();
         if let Some(m) = month_names(calendar).iter().position(|&g| g == up) {
             month = Some((m + 1) as u8);
         } else if let Ok(n) = tok.parse::<i32>() {
-            if tok.len() >= 4 {
-                year = Some(n);
-            } else if day.is_none() && (1..=31).contains(&n) {
-                day = Some(n as u8);
-            } else if year.is_none() {
-                year = Some(n);
-            }
+            numbers.push((tok.len(), n));
         }
     }
+    let Some(year_at) = numbers
+        .iter()
+        .position(|&(len, _)| len >= 4)
+        .or(numbers.len().checked_sub(1))
+    else {
+        return (None, month, None);
+    };
+    let year = Some(numbers[year_at].1);
+    let day = numbers
+        .iter()
+        .enumerate()
+        .find(|&(i, &(_, n))| i != year_at && (1..=31).contains(&n))
+        .map(|(_, &(_, n))| n as u8);
     (year, month, day)
 }
 
@@ -617,7 +737,15 @@ fn literal_components(
     } else {
         String::new()
     };
-    let y = y.abs();
+    // A Republican year reads in Roman numerals, as the calendar's own
+    // records wrote it: « an VII », « 18 brumaire an VIII ».
+    let y = match calendar {
+        Calendar::FrenchRepublican if y > 0 => i18n.t_args(
+            "date.republican_year",
+            &[("year", &crate::date_words::roman(y.unsigned_abs()))],
+        ),
+        _ => y.abs().to_string(),
+    };
     match (day, name) {
         (Some(d), Some(name)) => format!("{d} {name} {y}{era}"),
         (None, Some(name)) => format!("{name} {y}{era}"),
@@ -1108,6 +1236,98 @@ mod tests {
         assert_eq!(p.validate(), None);
     }
 
+    fn republican_event(value: &str, qualifier: DateQualifier) -> DomainEvent {
+        let now = chrono::Utc::now();
+        DomainEvent {
+            id: uuid::Uuid::nil(),
+            tree_id: uuid::Uuid::nil(),
+            event_type: oxidgene_core::EventType::Marriage,
+            date_value: Some(value.to_string()),
+            date_sort: None,
+            date_qualifier: qualifier,
+            date_value2: None,
+            calendar: Calendar::FrenchRepublican,
+            cause: None,
+            place_id: None,
+            person_id: None,
+            family_id: None,
+            description: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        }
+    }
+
+    /// A date in another calendar carries its Gregorian equivalent; a year
+    /// alone, the span it covers, as GeneWeb writes « an VII (entre 22
+    /// septembre 1798 et 22 septembre 1799) ».
+    #[test]
+    fn a_republican_event_date_carries_its_gregorian_equivalent() {
+        let fr = fr();
+        assert_eq!(
+            format_event_date(&fr, &republican_event("7", DateQualifier::Exact)),
+            "an VII (entre 22 sept. 1798 et 22 sept. 1799)"
+        );
+        assert_eq!(
+            format_event_date(&fr, &republican_event("18 BRUM 8", DateQualifier::Exact)),
+            "18 brumaire an VIII (9 nov. 1799)"
+        );
+        let year = event_date_phrase(&fr, &republican_event("7", DateQualifier::Exact));
+        assert_eq!(year.kind, DateKind::Period);
+        let day = event_date_phrase(&fr, &republican_event("18 BRUM 8", DateQualifier::Exact));
+        assert_eq!(day.kind, DateKind::Day);
+        let about = event_date_phrase(&fr, &republican_event("7", DateQualifier::About));
+        assert_eq!(about.kind, DateKind::Qualified);
+    }
+
+    /// Every calendar gets its equivalent, and a date that has none — a month
+    /// that year lacks, an unreadable phrase, a range — is shown alone.
+    #[test]
+    fn every_calendar_gets_its_gregorian_equivalent() {
+        let fr = fr();
+        let written = |calendar: Calendar, value: &str| {
+            let mut event = republican_event(value, DateQualifier::Exact);
+            event.calendar = calendar;
+            format_event_date(&fr, &event)
+        };
+        // Julian: the ten-day shift of 1582, a year's span, a month's.
+        assert_eq!(
+            written(Calendar::Julian, "15 MAR 1582"),
+            "15 mars 1582 (25 mars 1582)"
+        );
+        assert_eq!(
+            written(Calendar::Julian, "1700"),
+            "1700 (entre 11 janv. 1700 et 11 janv. 1701)"
+        );
+        assert_eq!(
+            written(Calendar::Julian, "FEB 1700"),
+            "févr. 1700 (entre 11 févr. 1700 et 11 mars 1700)"
+        );
+        // Hebrew: Rosh Hashanah, a whole year from Tishrei to Elul, and Adar
+        // II, which a common year lacks.
+        assert!(written(Calendar::Hebrew, "1 TSH 5784").ends_with("(16 sept. 2023)"));
+        assert!(
+            written(Calendar::Hebrew, "5784").ends_with("(entre 16 sept. 2023 et 2 oct. 2024)")
+        );
+        assert!(!written(Calendar::Hebrew, "ADS 5783").contains('('));
+        // Republican: a month with a short year, and the complementary days,
+        // a month of five or six days.
+        assert_eq!(
+            written(Calendar::FrenchRepublican, "BRUM 8"),
+            "brumaire an VIII (entre 23 oct. 1799 et 21 nov. 1799)"
+        );
+        assert!(
+            written(Calendar::FrenchRepublican, "COMP 7")
+                .contains("(entre 17 sept. 1799 et 22 sept. 1799)")
+        );
+        // A Gregorian date, a free-text phrase and a range carry none.
+        assert_eq!(written(Calendar::Gregorian, "15 MAR 1582"), "15 mars 1582");
+        assert!(!written(Calendar::Julian, "vers la Saint-Jean").contains('('));
+        let mut range = republican_event("7", DateQualifier::Between);
+        range.date_value2 = Some("8".to_string());
+        assert!(!format_event_date(&fr, &range).contains('('));
+    }
+
     #[test]
     fn literal_localized() {
         let p = DateParts {
@@ -1268,7 +1488,7 @@ mod tests {
     fn a_republican_date_is_written_with_republican_months() {
         let p = republican(14, 2, 2);
         assert_eq!(p.date_value().as_deref(), Some("2 BRUM 14"));
-        assert_eq!(p.literal(&fr()), "2 brumaire 14");
+        assert_eq!(p.literal(&fr()), "2 brumaire an XIV");
     }
 
     /// Picking another calendar says which one the date was recorded in, so
@@ -1284,7 +1504,7 @@ mod tests {
         let p = gregorian.in_calendar(Calendar::FrenchRepublican);
         assert_eq!((p.year, p.month, p.day), (Some(4), Some(6), Some(21)));
         assert_eq!(p.date_value().as_deref(), Some("21 VENT 4"));
-        assert_eq!(p.literal(&fr()), "21 ventôse 4");
+        assert_eq!(p.literal(&fr()), "21 ventôse an IV");
         // And back again, unchanged.
         let back = p.in_calendar(Calendar::Gregorian);
         assert_eq!(

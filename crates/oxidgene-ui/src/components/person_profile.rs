@@ -24,7 +24,7 @@ use crate::api::{
     ApiClient, ApiError, CroppedSource, GalleryBundle, MediaWithLink, PersonDetailBundle,
 };
 use crate::components::cropped_image::CroppedImage;
-use crate::components::date_input::format_event_date;
+use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::pedigree_chart::SharedPedigree;
@@ -71,9 +71,9 @@ pub(crate) struct UnionGroup {
     pub sort_date: Option<NaiveDate>,
     pub partner_ids: Vec<Uuid>,
     pub role: SpouseRole,
-    pub marriage_date: Option<String>,
+    pub marriage_date: Option<DatePhrase>,
     pub marriage_place: Option<String>,
-    pub divorce_date: Option<String>,
+    pub divorce_date: Option<DatePhrase>,
     pub child_ids: Vec<Uuid>,
 }
 
@@ -100,7 +100,7 @@ pub(crate) struct FamilyNarrative {
 pub(crate) enum VitalClause {
     Event {
         event_type: EventType,
-        date: String,
+        date: DatePhrase,
         place: Option<String>,
     },
     Age(AgeSpan),
@@ -256,7 +256,7 @@ fn union_marriage_divorce(
     events: Option<&Vec<&DomainEvent>>,
     places: &HashMap<Uuid, String>,
     i18n: &I18n,
-) -> (Option<String>, Option<String>, Option<String>) {
+) -> (Option<DatePhrase>, Option<String>, Option<DatePhrase>) {
     let mut marriage_date = None;
     let mut marriage_place = None;
     let mut divorce_date = None;
@@ -266,19 +266,29 @@ fn union_marriage_divorce(
         for e in sorted {
             match e.event_type {
                 EventType::Marriage if marriage_date.is_none() => {
-                    marriage_date = opt_str(&format_event_date(i18n, e));
+                    marriage_date = Some(event_date_phrase(i18n, e)).filter(|d| !d.is_empty());
                     marriage_place = e
                         .place_id
                         .map(|id| places.get(&id).cloned().unwrap_or_default());
                 }
                 EventType::Divorce if divorce_date.is_none() => {
-                    divorce_date = opt_str(&format_event_date(i18n, e));
+                    divorce_date = Some(event_date_phrase(i18n, e)).filter(|d| !d.is_empty());
                 }
                 _ => {}
             }
         }
     }
     (marriage_date, marriage_place, divorce_date)
+}
+
+/// A date as a sentence carries it: « le 7 mars 1799 », « en an VII »,
+/// « vers 1799 ».
+fn date_in_sentence(i18n: &I18n, date: &DatePhrase) -> String {
+    match date.kind {
+        DateKind::Day => i18n.t_args("person.family.on_date", &[("date", &date.text)]),
+        DateKind::Period => i18n.t_args("date.in", &[("date", &date.text)]),
+        DateKind::Qualified => date.text.clone(),
+    }
 }
 
 /// The vitals key matching both the displayed event and the person's sex.
@@ -735,7 +745,7 @@ fn vital_clauses(
 
     let mut clauses = Vec::new();
     if let Some(b) = birth {
-        let (date, place) = (format_event_date(i18n, b), b.place_id.map(place_name));
+        let (date, place) = (event_date_phrase(i18n, b), b.place_id.map(place_name));
         // A birth event carrying neither a date nor a place says nothing;
         // rendering it produced the dangling "Né(e) le ".
         if !date.is_empty() || place.is_some() {
@@ -749,7 +759,7 @@ fn vital_clauses(
     if let Some(d) = death {
         clauses.push(VitalClause::Event {
             event_type: d.event_type,
-            date: format_event_date(i18n, d),
+            date: event_date_phrase(i18n, d),
             place: d.place_id.map(place_name),
         });
     }
@@ -1154,7 +1164,18 @@ fn vital_clause(clause: &VitalClause, sex: Sex, i18n: &I18n) -> Element {
                     )
                 })
                 .unwrap_or_default();
-            let label = i18n.t(&vitals_event_key(*event_type, !date.is_empty(), sex));
+            // « Né le 8 déc. 1776 », but « Né en 1776 » and « Né vers 1776 »:
+            // only a day takes the label that ends in « le ».
+            let on_day = date.kind == DateKind::Day;
+            let label = i18n.t(&vitals_event_key(
+                *event_type,
+                on_day && !date.is_empty(),
+                sex,
+            ));
+            let date = match date.kind {
+                DateKind::Period => i18n.t_args("date.in", &[("date", &date.text)]),
+                _ => date.text.clone(),
+            };
             if date.is_empty() {
                 rsx! {
                     b { "{label}" }
@@ -1436,7 +1457,7 @@ pub(crate) fn union_line(
     };
     if let Some(date) = &union.marriage_date {
         prefix.push(' ');
-        prefix.push_str(&i18n.t_args("person.family.on_date", &[("date", date)]));
+        prefix.push_str(&date_in_sentence(&i18n, date));
     }
     if let Some(place) = &union.marriage_place {
         prefix.push(' ');
@@ -1454,7 +1475,9 @@ pub(crate) fn union_line(
     }
     if let Some(ddate) = &union.divorce_date {
         suffix.push_str(", ");
-        suffix.push_str(&i18n.t_args("person.family.divorced_on", &[("date", ddate)]));
+        suffix.push_str(&i18n.t("person.family.divorced"));
+        suffix.push(' ');
+        suffix.push_str(&date_in_sentence(&i18n, ddate));
     }
     if union.child_ids.is_empty() {
         suffix.push('.');

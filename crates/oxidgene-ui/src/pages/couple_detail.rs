@@ -677,7 +677,7 @@ fn spouse_select(
                     .collect::<Vec<_>>()
                     .join(" & ");
                 let label = match &union.marriage_date {
-                    Some(date) => format!("{names} \u{2014} {date}"),
+                    Some(date) => format!("{names} \u{2014} {}", date.text),
                     None => names,
                 };
                 (union.family_id, label)
