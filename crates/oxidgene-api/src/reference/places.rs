@@ -374,27 +374,41 @@ struct Dictionary {
     parts: Vec<Part>,
     /// Entry indexes sorted by folded name, to find a place by its name.
     by_name: Vec<u32>,
+    /// Indexes of the entries with a code, sorted by it, to find a place by
+    /// its official code when a label's name is not known (a hamlet named
+    /// before its municipality's code).
+    by_code: Vec<u32>,
 }
 
 impl Dictionary {
     fn parse(csv: &str) -> Self {
-        Self::parse_keeping(csv, |_| true)
+        Self::parse_keeping(csv, |_, _| true)
     }
 
-    /// The dictionary of the rows sharing a name with one of `labels`: every
+    /// The dictionary of the rows a label of `labels` may be located by: named
+    /// like one of its parts, or bearing one of its parts as a code — every
     /// candidate [`Self::locate_all`] may weigh for them, homonyms included,
     /// so it locates them as the whole dictionary would.
     fn for_labels(csv: &str, labels: &[(&str, i64)]) -> Self {
-        let wanted: HashSet<String> = labels
-            .iter()
-            .filter_map(|(label, _)| label.split(',').map(normalize_key).find(|p| !p.is_empty()))
-            .collect();
-        Self::parse_keeping(csv, |folded| wanted.contains(folded))
+        let mut names: HashSet<String> = HashSet::new();
+        let mut codes: HashSet<String> = HashSet::new();
+        for (label, _) in labels {
+            for part in label.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                names.insert(normalize_key(part));
+                codes.insert(part.to_ascii_uppercase());
+            }
+        }
+        Self::parse_keeping(csv, |folded, line| {
+            names.contains(folded)
+                || second_field(line).is_some_and(|code| {
+                    !code.is_empty() && codes.contains(&code.to_ascii_uppercase())
+                })
+        })
     }
 
-    /// The rows whose folded name `keep` accepts. A row it refuses is not
-    /// split: only its name is read.
-    fn parse_keeping(csv: &str, keep: impl Fn(&str) -> bool) -> Self {
+    /// The rows `keep` accepts, given their folded name and their line. A row
+    /// it refuses is not split: only its first fields are read.
+    fn parse_keeping(csv: &str, keep: impl Fn(&str, &str) -> bool) -> Self {
         let mut text = String::new();
         let mut store = |value: &str| {
             let span = Span {
@@ -415,7 +429,7 @@ impl Dictionary {
         let mut entries = Vec::new();
         for line in csv.lines().filter(|l| !l.is_empty()) {
             let folded = normalize_key(&first_field(line));
-            if !keep(&folded) {
+            if !keep(&folded, line) {
                 continue;
             }
             let fields = split_quoted(line);
@@ -462,6 +476,7 @@ impl Dictionary {
             text,
             parts,
             by_name: Vec::new(),
+            by_code: Vec::new(),
         };
         let mut by_name: Vec<u32> = (0..dictionary.entries.len())
             .map(|i| u32::try_from(i).expect("fewer than 4 billion places"))
@@ -471,7 +486,31 @@ impl Dictionary {
             name(a).cmp(name(b))
         });
         dictionary.by_name = by_name;
+        let mut by_code: Vec<u32> = (0..dictionary.entries.len())
+            .filter(|&i| dictionary.entries[i].code.len > 0)
+            .map(|i| u32::try_from(i).expect("fewer than 4 billion places"))
+            .collect();
+        by_code.sort_by_cached_key(|i| {
+            dictionary
+                .get(dictionary.entries[*i as usize].code)
+                .to_ascii_uppercase()
+        });
+        dictionary.by_code = by_code;
         dictionary
+    }
+
+    /// The entries whose code is `code`, ignoring ASCII case.
+    fn coded(&self, code: &str) -> impl Iterator<Item = &Entry> {
+        let code = code.to_ascii_uppercase();
+        let key = |i: &u32| {
+            self.get(self.entries[*i as usize].code)
+                .to_ascii_uppercase()
+        };
+        let start = self.by_code.partition_point(|i| key(i) < code);
+        self.by_code[start..]
+            .iter()
+            .take_while(move |i| key(i) == code)
+            .map(|i| &self.entries[*i as usize])
     }
 
     /// The entries whose folded name is exactly `folded`.
@@ -560,27 +599,67 @@ impl Dictionary {
 
     /// What a single label says on its own: a spot, or homonyms that only
     /// the rest of the tree can tell apart.
+    ///
+    /// A label whose name the dictionary does not know — a hamlet, a farm, a
+    /// lieu-dit written before its municipality — is located by the first of
+    /// the following parts that places it: a municipality's code (INSEE, BFS…)
+    /// or name, confirmed by what follows it as a name is. It is then put at
+    /// its municipality's spot, which a heat map cannot tell apart.
     fn resolve(&self, label: &str) -> Located<'_> {
-        let mut parts = label
+        let raw: Vec<&str> = label
             .split(',')
-            .map(normalize_key)
-            .filter(|p| !p.is_empty());
-        let Some(name) = parts.next() else {
+            .map(str::trim)
+            .filter(|p| !normalize_key(p).is_empty())
+            .collect();
+        let folded: Vec<String> = raw.iter().map(|p| normalize_key(p)).collect();
+        let Some(name) = folded.first() else {
             return Located::Nowhere;
         };
-        let rest: Vec<String> = parts.collect();
         let located = |e: &&Entry| !e.latitude.is_nan() && !e.longitude.is_nan();
-        let candidates: Vec<&Entry> = self.named(&name).filter(located).collect();
-        let score = |entry: &Entry| {
-            rest.iter()
-                .filter(|part| {
-                    self.get(entry.code).eq_ignore_ascii_case(part)
-                        || [entry.subdivision, entry.region, entry.country]
-                            .iter()
-                            .any(|&i| self.parts[usize::from(i)].folded.contains(part))
-                })
-                .count()
-        };
+        let candidates: Vec<&Entry> = self.named(name).filter(located).collect();
+        if !candidates.is_empty() {
+            return self.read(candidates, &folded[1..]);
+        }
+        // The name is unknown: read the label from its enclosing places. A
+        // code places it on its own, homonyms aside; a name only when a part
+        // after it confirms it — a municipality of the same name elsewhere in
+        // the world is no place to put a hamlet.
+        (1..raw.len())
+            .find_map(|i| {
+                let rest = &folded[i + 1..];
+                let by_code: Vec<&Entry> = self.coded(raw[i]).filter(located).collect();
+                if !by_code.is_empty() {
+                    return match self.read(by_code, rest) {
+                        Located::At(entry) => Some(Located::At(entry)),
+                        _ => None,
+                    };
+                }
+                self.named(&folded[i])
+                    .filter(located)
+                    .max_by_key(|e| (self.score(e, rest), e.current))
+                    .filter(|e| self.score(e, rest) > 0)
+                    .map(Located::At)
+            })
+            .unwrap_or(Located::Nowhere)
+    }
+
+    /// How many of `rest`, the folded parts written after a name, an entry
+    /// answers to: its code, subdivision, region or country.
+    fn score(&self, entry: &Entry, rest: &[String]) -> usize {
+        rest.iter()
+            .filter(|part| {
+                self.get(entry.code).eq_ignore_ascii_case(part)
+                    || [entry.subdivision, entry.region, entry.country]
+                        .iter()
+                        .any(|&i| self.parts[usize::from(i)].folded.contains(part))
+            })
+            .count()
+    }
+
+    /// The candidates for a name, told apart by `rest`: the folded parts
+    /// written after it.
+    fn read<'a>(&'a self, candidates: Vec<&'a Entry>, rest: &[String]) -> Located<'a> {
+        let score = |entry: &Entry| self.score(entry, rest);
         let Some(best) = candidates
             .iter()
             .max_by_key(|e| (score(e), e.current))
@@ -710,6 +789,24 @@ fn first_field(line: &str) -> std::borrow::Cow<'_, str> {
         },
         None => line.split(',').next().unwrap_or_default().into(),
     }
+}
+
+/// The second field of a dictionary line — the code — without splitting
+/// the rest of it.
+fn second_field(line: &str) -> Option<std::borrow::Cow<'_, str>> {
+    let mut quoted = false;
+    let mut chars = line.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '"' if quoted && chars.peek().is_some_and(|&(_, next)| next == '"') => {
+                chars.next();
+            }
+            '"' => quoted = !quoted,
+            ',' if !quoted => return Some(first_field(&line[at + 1..])),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn split_quoted(line: &str) -> Vec<String> {
@@ -864,6 +961,30 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_place_is_located_by_the_municipality_after_it() {
+        let dictionary = Dictionary::parse(ROWS);
+        let bourg = Some((48.1_f32.into(), (-1.5_f32).into()));
+        let found = dictionary.locate_all(
+            &[
+                // A hamlet, then its municipality's name and code.
+                ("Hameau-X, Bourg-A, 99001, Département A, France", 1),
+                // A former name the dictionary lacks, then the code.
+                ("Bourg-A-Ancien-Nom, 99001, Département A", 1),
+                // A municipality's name confirmed by nothing after it.
+                ("Hameau-Y, Bourg-A", 1),
+                // A code nobody bears.
+                ("Hameau-Z, 99999, Département A", 1),
+            ],
+            ReferenceLang::En,
+        );
+        assert_eq!(found[0].spot, bourg);
+        assert_eq!(found[0].subdivision.as_deref(), Some("Département A"));
+        assert_eq!(found[1].spot, bourg);
+        assert_eq!(found[2], PlaceLocation::default());
+        assert_eq!(found[3], PlaceLocation::default());
+    }
+
+    #[test]
     fn a_bare_homonym_is_read_in_the_country_the_tree_uses_most() {
         let dictionary = Dictionary::parse(
             r#""Ville-A","99001","Département A","Région A","France","commune","","","","48.0","-4.0","1"
@@ -904,6 +1025,7 @@ mod tests {
         );
         let labels = [
             ("Bourg-A, 99001, Département A", 2),
+            ("Hameau-X, 99001, Département A", 1),
             ("Ville-A", 1),
             ("Ville \"B\"", 1),
             ("hamlet a, England", 3),

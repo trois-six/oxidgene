@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T20:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:02:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -153,7 +153,15 @@ Three rows of tiles, each a figure with what it counts:
   the tree's located places use most among those where the name exists,
   preferring a living commune to a settlement and a settlement to a former
   name: "Brest" in a mostly French tree is the city in Finistère. A bare
-  name found in none of the tree's countries stays unlocated. The lookup
+  name found in none of the tree's countries stays unlocated.
+- A label whose first part is no dictionary name — a hamlet, a farm, a
+  lieu-dit written before its municipality, or a former name the dictionary
+  lacks — is located by the first following part that places it, at that
+  municipality's spot: a municipality code (INSEE, BFS…) on its own, homonym
+  codes told apart by what follows it; a municipality name only when a part
+  after it confirms it (its code, subdivision, region or country), so a
+  namesake elsewhere never catches a hamlet. "Le Brossais, Vigneux-de-Bretagne,
+  44217, Loire-Atlantique" is put at Vigneux-de-Bretagne. The lookup
   happens at each visit and changes nothing in the tree; it keeps no
   dictionary in memory ([Place dictionary §2.1](place-dictionary.md)).
 

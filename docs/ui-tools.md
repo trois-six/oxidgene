@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T06:50:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:02:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -206,8 +206,9 @@ places, and are listed in the [Roadmap](roadmap.md).
 The places used in the tree (by an event or a media) that the
 [Statistics](ui-statistics.md) map cannot locate, by the very rule of
 [Statistics §4.1](ui-statistics.md): a place is located by its own
-coordinates, else by its label in the [place dictionary](place-dictionary.md);
-the others are listed here (`GET /trees/{id}/unlocated-places`,
+coordinates, else by its label in the [place dictionary](place-dictionary.md),
+a hamlet or lieu-dit by the municipality its label names after it; the others
+are listed here (`GET /trees/{id}/unlocated-places`,
 `unlocatedPlaces`, [API](api.md)), most used first, with their count, the
 same number the statistics report as "N places could not be located".
 
