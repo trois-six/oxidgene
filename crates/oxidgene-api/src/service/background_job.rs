@@ -10,7 +10,7 @@ use oxidgene_db::repo::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, TreeRepo,
 };
 use oxidgene_gedcom::export::GedzipFileWriter;
-use sea_orm::{DatabaseConnection, DbBackend, TransactionTrait};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use tracing::Instrument as _;
 use uuid::Uuid;
@@ -266,38 +266,20 @@ impl BackgroundJobWorker {
                 .await
                 .map_err(|error| OxidGeneError::Database(error.to_string()))?;
             let summary = gedcom::persist_import_result_in(&transaction, parsed).await?;
-            let result_json = serde_json::to_string(&summary)
-                .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-            if !BackgroundJobRepo::checkpoint_import_persisted(
-                &transaction,
-                job.id,
-                &self.worker_id,
-                result_json,
-                chrono::Duration::from_std(self.lease_duration)
-                    .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
-            )
-            .await?
-            {
-                return Err(OxidGeneError::Internal("background job lease lost".into()));
-            }
+            self.checkpoint_import(&transaction, job.id, &summary)
+                .await?;
             transaction
                 .commit()
                 .await
                 .map_err(|error| OxidGeneError::Database(error.to_string()))?;
             Ok(summary)
         };
-        tokio::pin!(import);
-        let period = self.progress_period();
-        let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
-        let summary = loop {
-            tokio::select! {
-                result = &mut import => break result?,
-                _ = heartbeat.tick() => {
-                    let (phase, done, total, _, _) = progress.read();
-                    self.progress(job.id, import_phase(phase), as_i64(done), as_i64(total)).await?;
-                }
-            }
-        };
+        let summary = self
+            .with_progress(job.id, import, || {
+                let (phase, done, total, _, _) = progress.read();
+                (import_phase(phase), done, total)
+            })
+            .await?;
 
         self.finish_import(job, source_key, summary).await?;
         Ok(())
@@ -320,23 +302,7 @@ impl BackgroundJobWorker {
         let source = scratch.path().join("source.gw");
         self.media.get_to_file(source_key, &source).await?;
 
-        let archive_root = scratch.path().join("archives");
-        tokio::fs::create_dir_all(&archive_root).await?;
-        let mut archive_paths = Vec::with_capacity(payload.archives.len());
-        for (index, input) in payload.archives.iter().enumerate() {
-            let path = archive_root.join(format!("{index}-{}", input.file_name));
-            self.media.get_to_file(&input.key, &path).await?;
-            archive_paths.push(path.to_string_lossy().into_owned());
-        }
-
-        let fetched_root = scratch.path().join("fetched");
-        tokio::fs::create_dir_all(&fetched_root).await?;
-        let mut fetched = HashMap::with_capacity(payload.fetched.len());
-        for (index, input) in payload.fetched.iter().enumerate() {
-            let path = fetched_root.join(index.to_string());
-            self.media.get_to_file(&input.key, &path).await?;
-            fetched.insert(input.url.clone(), path.to_string_lossy().into_owned());
-        }
+        let (archive_paths, fetched) = self.stage_geneanet_inputs(scratch.path(), &payload).await?;
 
         let gw = tokio::fs::read(source).await?;
         let origin_file = safe_origin_file(job.original_filename.as_deref());
@@ -354,24 +320,57 @@ impl BackgroundJobWorker {
             payload.media_fidelity,
             &progress,
         );
-        tokio::pin!(import);
-        let period = self.progress_period();
-        let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
-        let summary = loop {
-            tokio::select! {
-                result = &mut import => break result?,
-                _ = heartbeat.tick() => {
-                    let (phase, done, total) = progress.read();
-                    self.progress(job.id, geneanet_phase(phase), as_i64(done), as_i64(total)).await?;
-                }
-            }
-        };
+        let summary = self
+            .with_progress(job.id, import, || {
+                let (phase, done, total) = progress.read();
+                (geneanet_phase(phase), done, total)
+            })
+            .await?;
 
-        let result_json = serde_json::to_string(&summary)
+        self.checkpoint_import(&self.db, job.id, &summary).await?;
+        self.finish_geneanet_import(job, summary).await
+    }
+
+    /// Downloads a Geneanet import's archives and fetched pages next to its
+    /// source, returning the archives' paths and each fetched URL's path.
+    async fn stage_geneanet_inputs(
+        &self,
+        scratch: &Path,
+        payload: &GeneanetJobPayload,
+    ) -> Result<(Vec<String>, HashMap<String, String>), OxidGeneError> {
+        let archive_root = scratch.join("archives");
+        tokio::fs::create_dir_all(&archive_root).await?;
+        let mut archive_paths = Vec::with_capacity(payload.archives.len());
+        for (index, input) in payload.archives.iter().enumerate() {
+            let path = archive_root.join(format!("{index}-{}", input.file_name));
+            self.media.get_to_file(&input.key, &path).await?;
+            archive_paths.push(path.to_string_lossy().into_owned());
+        }
+
+        let fetched_root = scratch.join("fetched");
+        tokio::fs::create_dir_all(&fetched_root).await?;
+        let mut fetched = HashMap::with_capacity(payload.fetched.len());
+        for (index, input) in payload.fetched.iter().enumerate() {
+            let path = fetched_root.join(index.to_string());
+            self.media.get_to_file(&input.key, &path).await?;
+            fetched.insert(input.url.clone(), path.to_string_lossy().into_owned());
+        }
+        Ok((archive_paths, fetched))
+    }
+
+    /// Records on `conn` that an import's rows are persisted, with its
+    /// summary, so that a retry resumes at the projections.
+    async fn checkpoint_import(
+        &self,
+        conn: &impl ConnectionTrait,
+        job_id: Uuid,
+        summary: &impl Serialize,
+    ) -> Result<(), OxidGeneError> {
+        let result_json = serde_json::to_string(summary)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         if !BackgroundJobRepo::checkpoint_import_persisted(
-            &self.db,
-            job.id,
+            conn,
+            job_id,
             &self.worker_id,
             result_json,
             chrono::Duration::from_std(self.lease_duration)
@@ -381,7 +380,7 @@ impl BackgroundJobWorker {
         {
             return Err(OxidGeneError::Internal("background job lease lost".into()));
         }
-        self.finish_geneanet_import(job, summary).await
+        Ok(())
     }
 
     async fn finish_geneanet_import(
@@ -390,6 +389,21 @@ impl BackgroundJobWorker {
         summary: geneanet::GeneanetImportSummary,
     ) -> Result<(), OxidGeneError> {
         self.progress(job.id, "projections", 0, 0).await?;
+        self.complete_import(job, summary.persons_count, &summary)
+            .await?;
+        self.cleanup_import_inputs(job).await;
+        Ok(())
+    }
+
+    /// Rebuilds the tree's projections after an import of `persons_count`
+    /// persons, records it in the history and completes the job with its
+    /// summary.
+    async fn complete_import(
+        &self,
+        job: &BackgroundJob,
+        persons_count: usize,
+        summary: &impl Serialize,
+    ) -> Result<(), OxidGeneError> {
         self.profiles
             .rebuild_tree_full_transactional(&self.db, job.tree_id)
             .instrument(tracing::info_span!("import.projections"))
@@ -399,10 +413,10 @@ impl BackgroundJobWorker {
             job.tree_id,
             &job.format,
             job.original_filename.clone(),
-            summary.persons_count,
+            persons_count,
         )
         .await?;
-        let result = serde_json::to_string(&summary)
+        let result = serde_json::to_string(summary)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         if !BackgroundJobRepo::complete(&self.db, job.id, &self.worker_id, None, Some(result))
             .await?
@@ -410,7 +424,6 @@ impl BackgroundJobWorker {
             return Err(OxidGeneError::Internal("background job lease lost".into()));
         }
         remove_live_job(job.id);
-        self.cleanup_import_inputs(job).await;
         Ok(())
     }
 
@@ -440,26 +453,8 @@ impl BackgroundJobWorker {
         source_key: &str,
         summary: gedcom::ImportSummary,
     ) -> Result<(), OxidGeneError> {
-        self.profiles
-            .rebuild_tree_full_transactional(&self.db, job.tree_id)
-            .instrument(tracing::info_span!("import.projections"))
+        self.complete_import(job, summary.persons_count, &summary)
             .await?;
-        history::record_import(
-            &self.db,
-            job.tree_id,
-            &job.format,
-            job.original_filename.clone(),
-            summary.persons_count,
-        )
-        .await?;
-        let result = serde_json::to_string(&summary)
-            .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-        if !BackgroundJobRepo::complete(&self.db, job.id, &self.worker_id, None, Some(result))
-            .await?
-        {
-            return Err(OxidGeneError::Internal("background job lease lost".into()));
-        }
-        remove_live_job(job.id);
         self.media.delete(source_key).await?;
         Ok(())
     }
@@ -582,13 +577,30 @@ impl BackgroundJobWorker {
     where
         F: std::future::Future<Output = Result<T, OxidGeneError>>,
     {
+        self.with_progress(job_id, future, || (phase, 0, 0)).await
+    }
+
+    /// Drives `future` to its end, reporting the phase, units done and units
+    /// expected that `report` reads at every progress period.
+    async fn with_progress<'p, T, F>(
+        &self,
+        job_id: Uuid,
+        future: F,
+        report: impl Fn() -> (&'p str, usize, usize),
+    ) -> Result<T, OxidGeneError>
+    where
+        F: std::future::Future<Output = Result<T, OxidGeneError>>,
+    {
         tokio::pin!(future);
         let period = self.progress_period();
         let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
         loop {
             tokio::select! {
                 result = &mut future => return result,
-                _ = heartbeat.tick() => self.progress(job_id, phase, 0, 0).await?,
+                _ = heartbeat.tick() => {
+                    let (phase, done, total) = report();
+                    self.progress(job_id, phase, as_i64(done), as_i64(total)).await?;
+                }
             }
         }
     }
