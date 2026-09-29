@@ -749,17 +749,10 @@ impl MutationRoot {
         )
         .await?;
         // Invalidate: person event or family event.
-        if let Some(pid) = person_id {
-            let affected = invalidation::affected_persons(&txn, pid).await?;
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
-                .await?;
-        } else if let Some(fid) = family_id {
-            let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
-                .await?;
-        }
+        let affected = invalidation::affected_persons_for_event(&txn, person_id, family_id).await?;
+        profiles
+            .invalidate_for_mutation(&txn, tid, &affected)
+            .await?;
         Change::create(tid, AuditEntity::Event, id)
             .event(id)
             .record(&txn)
@@ -812,17 +805,12 @@ impl MutationRoot {
         )
         .await?;
         // Invalidate based on event ownership.
-        if let Some(pid) = event.person_id {
-            let affected = invalidation::affected_persons(&txn, pid).await?;
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
+        let affected =
+            invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
                 .await?;
-        } else if let Some(fid) = event.family_id {
-            let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
-                .await?;
-        }
+        profiles
+            .invalidate_for_mutation(&txn, tid, &affected)
+            .await?;
         Change::update(tid, AuditEntity::Event, uuid)
             .event(uuid)
             .record(&txn)
@@ -841,17 +829,12 @@ impl MutationRoot {
         require_tree_resource(&txn, tid, TreeResource::Event, uuid).await?;
         let event = EventRepo::get(&txn, uuid).await?;
         EventRepo::delete(&txn, uuid).await?;
-        if let Some(pid) = event.person_id {
-            let affected = invalidation::affected_persons(&txn, pid).await?;
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
+        let affected =
+            invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
                 .await?;
-        } else if let Some(fid) = event.family_id {
-            let affected = invalidation::affected_persons_for_family(&txn, fid).await?;
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
-                .await?;
-        }
+        profiles
+            .invalidate_for_mutation(&txn, tid, &affected)
+            .await?;
         Change::delete(tid, AuditEntity::Event, uuid)
             .event(uuid)
             .record(&txn)

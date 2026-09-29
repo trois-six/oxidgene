@@ -80,6 +80,24 @@ pub async fn affected_persons_for_family(
     Ok(affected)
 }
 
+/// Compute the affected set for an event mutation from the event's owner.
+///
+/// An individual event affects its person's full set
+/// ([`affected_persons`]), a family event the family's spouses
+/// ([`affected_persons_for_family`]); an event with neither owner affects
+/// nobody. The person wins when both are given.
+pub async fn affected_persons_for_event(
+    db: &impl ConnectionTrait,
+    person_id: Option<Uuid>,
+    family_id: Option<Uuid>,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    match (person_id, family_id) {
+        (Some(person_id), _) => affected_persons(db, person_id).await,
+        (None, Some(family_id)) => affected_persons_for_family(db, family_id).await,
+        (None, None) => Ok(Vec::new()),
+    }
+}
+
 /// Compute the affected set for deleting a family.
 ///
 /// Wider than [`affected_persons_for_family`], which is right for a family

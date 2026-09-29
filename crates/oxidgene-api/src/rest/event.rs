@@ -79,25 +79,14 @@ pub async fn create_event(
     .await
     .map_err(ApiError::from)?;
     // Invalidate: person event or family event.
-    if let Some(pid) = body.person_id {
-        let affected = invalidation::affected_persons(&txn, pid)
-            .await
-            .map_err(ApiError)?;
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &affected)
-            .await
-            .map_err(ApiError)?;
-    } else if let Some(fid) = body.family_id {
-        let affected = invalidation::affected_persons_for_family(&txn, fid)
-            .await
-            .map_err(ApiError)?;
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &affected)
-            .await
-            .map_err(ApiError)?;
-    }
+    let affected = invalidation::affected_persons_for_event(&txn, body.person_id, body.family_id)
+        .await
+        .map_err(ApiError)?;
+    state
+        .profiles
+        .invalidate_for_mutation(&txn, tree_id, &affected)
+        .await
+        .map_err(ApiError)?;
     Change::create(tree_id, AuditEntity::Event, id)
         .event(id)
         .record(&txn)
@@ -161,25 +150,14 @@ pub async fn update_event(
     .await
     .map_err(ApiError::from)?;
     // Invalidate based on event ownership.
-    if let Some(pid) = event.person_id {
-        let affected = invalidation::affected_persons(&txn, pid)
-            .await
-            .map_err(ApiError)?;
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &affected)
-            .await
-            .map_err(ApiError)?;
-    } else if let Some(fid) = event.family_id {
-        let affected = invalidation::affected_persons_for_family(&txn, fid)
-            .await
-            .map_err(ApiError)?;
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &affected)
-            .await
-            .map_err(ApiError)?;
-    }
+    let affected = invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
+        .await
+        .map_err(ApiError)?;
+    state
+        .profiles
+        .invalidate_for_mutation(&txn, tree_id, &affected)
+        .await
+        .map_err(ApiError)?;
     Change::update(tree_id, AuditEntity::Event, event_id)
         .event(event_id)
         .record(&txn)
@@ -204,25 +182,14 @@ pub async fn delete_event(
     EventRepo::delete(&txn, event_id)
         .await
         .map_err(ApiError::from)?;
-    if let Some(pid) = event.person_id {
-        let affected = invalidation::affected_persons(&txn, pid)
-            .await
-            .map_err(ApiError)?;
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &affected)
-            .await
-            .map_err(ApiError)?;
-    } else if let Some(fid) = event.family_id {
-        let affected = invalidation::affected_persons_for_family(&txn, fid)
-            .await
-            .map_err(ApiError)?;
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &affected)
-            .await
-            .map_err(ApiError)?;
-    }
+    let affected = invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
+        .await
+        .map_err(ApiError)?;
+    state
+        .profiles
+        .invalidate_for_mutation(&txn, tree_id, &affected)
+        .await
+        .map_err(ApiError)?;
     Change::delete(tree_id, AuditEntity::Event, event_id)
         .event(event_id)
         .record(&txn)
