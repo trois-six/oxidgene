@@ -790,16 +790,21 @@ fn render_generation(
             && (person.has_death || person.living)
             && (row.generation == 1 || person.has_union)
     };
+    let lacking =
+        |entry: &&crate::api::AncestryEntry| entry.person.as_ref().is_none_or(|p| !complete(p));
+    // Only a generation with something to fill opens by itself: a missing
+    // ancestor, or an ancestor lacking a fact.
+    let open = row.entries.iter().any(|entry| lacking(&entry));
     let entries: Vec<_> = row
         .entries
         .iter()
-        .filter(|entry| !only_missing || entry.person.as_ref().is_none_or(|p| !complete(p)))
+        .filter(|entry| !only_missing || lacking(entry))
         .collect();
     if entries.is_empty() && row.implied_missing == 0 {
         return rsx! {};
     }
     rsx! {
-        details { key: "{row.generation}", class: "tools-generation", open: row.generation <= 3,
+        details { key: "{row.generation}", class: "tools-generation", open,
             summary {
                 {i18n.t_args("tools.ancestry.generation_n", &[("n", &row.generation.to_string())])}
                 span { class: "text-muted", " · {row.found} / {row.expected}" }

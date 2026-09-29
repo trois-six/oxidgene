@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T18:47:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T18:53:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -235,7 +235,7 @@ root, 2n the father and 2n + 1 the mother of n.
   ancestors expected (2^(n − 1) in generation n), the share as a bar (green
   above 70%, orange from 40%, red below), and how many of those found have a
   birth, a death (or may be alive) and a union.
-- **Generations**: below the summary, each generation (the first three open)
+- **Generations**: below the summary, each generation (open by itself only when it has something to fill: a missing ancestor, or an ancestor lacking a key fact; a complete generation stays folded)
   lists by SOSA number either the ancestor, a link to their profile with
   their birth and death dates, and a mark per key fact, recorded (green) or
   missing (red, struck through), or "missing ancestor".
