@@ -109,6 +109,11 @@ pub(super) struct LineageLayout {
     /// Centre of each entry's box, parallel to `entries`.
     pub(super) centres: Vec<(f64, f64)>,
     pub(super) links: Vec<LineageLink>,
+    /// What each entry's box covers, parallel to `entries`, and what each
+    /// link covers, parallel to `links` (`None` when unreadable, which
+    /// culling always draws): only those near the viewport are drawn.
+    pub(super) box_extents: Vec<Area>,
+    pub(super) link_extents: Vec<Option<Area>>,
     /// The root's spouses, in the order of their unions.
     pub(super) spouses: Vec<Uuid>,
     pub(super) children: Vec<ChildLink>,
@@ -281,6 +286,22 @@ pub(super) fn lineage_layout(
         centres.push(centre);
     }
     let links = collect_links(&entries, &centres, rect_w, data);
+    // Every box as large as a card, the badges and the pencil overhanging
+    // it: culling may draw too much, never too little.
+    let (half_w, half_h) = (
+        rect_w / 2.0 + metrics.padding + CARD_OVERHANG,
+        metrics.card_h / 2.0 + metrics.padding + CARD_OVERHANG,
+    );
+    let box_extents = centres
+        .iter()
+        .map(|&(x, y)| Area {
+            x0: x - half_w,
+            y0: y - half_h,
+            x1: x + half_w,
+            y1: y + half_h,
+        })
+        .collect();
+    let link_extents = links.iter().map(|link| path_extent(&link.path)).collect();
     let columns_w = column_x(depth, metrics) + metrics.card_w;
     let rows_h = row_room(0, depth, pitch);
     LineageLayout {
@@ -288,6 +309,8 @@ pub(super) fn lineage_layout(
         sizes,
         centres,
         links,
+        box_extents,
+        link_extents,
         spouses: spouses_of(root_id, data),
         children: children_of(root_id, data),
         box_w: rect_w,
@@ -496,8 +519,15 @@ pub(super) fn LineageCanvas(
     on_empty_slot: EventHandler<(Uuid, bool)>,
     on_family_menu: EventHandler<(f64, f64)>,
     theme: &'static PedigreeTheme,
+    transform: Signal<ViewportTransform>,
+    viewport: Signal<ViewportRect>,
+    animating: Signal<bool>,
 ) -> Element {
     let i18n = use_i18n();
+    // Only the boxes and links near the viewport are drawn, as in every
+    // view; they are placed from the layout's origin.
+    let region = use_culled_region(transform, viewport, animating)
+        .translated(-layout.origin_x, -layout.origin_y);
     let actions = BoxActions {
         selected_person_id,
         on_person_navigate,
@@ -516,7 +546,7 @@ pub(super) fn LineageCanvas(
                 height: "{layout.total_h}",
                 style: "display: block; overflow: visible;",
                 g { transform: "translate({layout.origin_x},{layout.origin_y})",
-                    for (i, link) in layout.links.iter().enumerate() {
+                    for (i, link) in layout.links.iter().enumerate().filter(|(i, _)| in_region(&region, layout.link_extents[*i].as_ref())) {
                         path {
                             key: "ll-{i}",
                             d: "{link.path}",
@@ -527,7 +557,7 @@ pub(super) fn LineageCanvas(
                             path { key: "llc-{i}", d: "{link.path}", class: "pedigree-connector-core", fill: "none" }
                         }
                     }
-                    for (i, entry) in layout.entries.iter().enumerate() {
+                    for (i, entry) in layout.entries.iter().enumerate().filter(|(i, _)| region.intersects(&layout.box_extents[*i])) {
                         {
                             match layout.sizes[i] {
                                 BoxSize::Card => render_pedigree_card(
@@ -867,6 +897,29 @@ mod tests {
         assert_eq!(spouse_only.spouses, vec![id(23)]);
         assert!(spouse_only.children.is_empty());
         assert!(spouse_only.family_button().is_some());
+    }
+
+    /// Culling draws a box when its extent meets the region: every extent
+    /// must hold the card drawn there, and every link have one.
+    #[test]
+    fn every_box_and_link_has_an_extent_that_holds_it() {
+        let data = family_fixture();
+        let theme = &PedigreeTheme::CLASSIC;
+        let layout = lineage_layout(id(1), &data, 4, None, &HashSet::new(), theme);
+        let (rect_w, rect_h) = theme.metrics.rect(false);
+        let pad = theme.metrics.padding;
+        assert_eq!(layout.box_extents.len(), layout.entries.len());
+        for (entry, extent) in layout.entries.iter().zip(&layout.box_extents) {
+            let card = Area {
+                x0: entry.node.x,
+                y0: entry.node.y,
+                x1: entry.node.x + rect_w + 2.0 * pad,
+                y1: entry.node.y + rect_h + 2.0 * pad,
+            };
+            assert!(extent.contains(&card), "sosa {}", entry.sosa);
+        }
+        assert_eq!(layout.link_extents.len(), layout.links.len());
+        assert!(layout.link_extents.iter().all(Option::is_some));
     }
 
     #[test]

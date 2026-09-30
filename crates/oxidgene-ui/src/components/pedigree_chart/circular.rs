@@ -59,10 +59,9 @@ const RADIAL_RING: f64 = 132.0;
 /// Below this chord, a straight line of text no longer fits across a
 /// segment and the ring turns its names to follow the radius.
 const MIN_TANGENTIAL_CHORD: f64 = 110.0;
-/// The narrowest a segment may be at its inner edge: one line of the
-/// smallest type, with a little air. Deep generations push their ring
-/// outwards until it holds, so an eighth generation is still legible.
-pub(super) const MIN_SEGMENT_ARC: f64 = 15.0;
+/// Deepest zoom a circular chart allows, however narrow its segments: past
+/// it the gesture stops, as at [`ZOOM_MAX`] in the tree view.
+const DEEP_ZOOM_MAX: f64 = 16.0;
 /// Air between a line of text and the edge of its segment.
 const LABEL_PAD: f64 = 5.0;
 /// Room around the chart, so strokes at its rim are not cut off.
@@ -109,12 +108,11 @@ fn chord(r: f64, span_deg: f64) -> f64 {
 
 /// The ring of every generation from 1 to `generations`, innermost first.
 ///
-/// Rings touch: each starts where the previous one ends. The first rings
-/// write their names across, until a segment gets too narrow for that; from
-/// there on names follow the radius. A ring whose segments would be thinner
-/// than [`MIN_SEGMENT_ARC`] at its inner edge starts further out instead, the
-/// ring inside it widening to meet it — the extra room only lengthens the
-/// names that ring can hold.
+/// Rings touch: each starts where the previous one ends, and each is as deep
+/// as its names need, so the chart stays compact however many generations it
+/// holds. The first rings write their names across, until a segment gets too
+/// narrow for that; from there on names follow the radius, written smaller
+/// as the segments narrow (see [`radial_label`]).
 pub(super) fn ring_radii(arc: ChartArc, generations: u32) -> Vec<Ring> {
     let mut rings: Vec<Ring> = Vec::new();
     let mut r = arc.root_radius;
@@ -123,13 +121,6 @@ pub(super) fn ring_radii(arc: ChartArc, generations: u32) -> Vec<Ring> {
         let span = arc.sweep / f64::from(1u32 << generation.min(31));
         if flow == LabelFlow::Tangential && chord(r, span) < MIN_TANGENTIAL_CHORD {
             flow = LabelFlow::Radial;
-        }
-        let needed = MIN_SEGMENT_ARC / span.to_radians();
-        if needed > r {
-            if let Some(previous) = rings.last_mut() {
-                previous.r_out = needed;
-            }
-            r = needed;
         }
         let depth = match flow {
             LabelFlow::Tangential => TANGENTIAL_RING,
@@ -210,6 +201,18 @@ pub(super) struct LabelLine {
     pub(super) squeeze: Option<f32>,
 }
 
+impl LabelLine {
+    /// The line at `scale` times its size, in the label's own frame.
+    fn scaled(self, scale: f64) -> Self {
+        Self {
+            y: self.y * scale,
+            font_px: self.font_px * scale as f32,
+            squeeze: self.squeeze.map(|w| w * scale as f32),
+            ..self
+        }
+    }
+}
+
 /// A segment's text: where it is anchored, how it is turned, what it says.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct SegmentLabel {
@@ -217,6 +220,9 @@ pub(super) struct SegmentLabel {
     pub(super) y: f64,
     pub(super) rotate: f64,
     pub(super) lines: Vec<LabelLine>,
+    /// The size the label is written at against its classic size: below 1
+    /// in a segment too narrow for it, which zooming in reads.
+    pub(super) scale: f64,
 }
 
 /// The name pieces a label is made of, as a card writes them.
@@ -372,25 +378,34 @@ fn tangential_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentL
         y,
         rotate: if is_upright { mid } else { mid + 180.0 },
         lines,
+        scale: 1.0,
     }
 }
 
+/// The width across a radial segment that holds the classic label — given
+/// names, surname and lifespan, three lines — at its own type size.
+const RADIAL_LABEL_ACROSS: f64 = 3.0 * RADIAL_LINE + 2.0;
+
 /// A label written along the radius through the segment's middle: outwards
 /// on the right half, inwards on the left, so every name reads left to right.
+///
+/// Every radial segment writes the classic three lines, as the widest ones
+/// do. One too narrow for them at their own size writes them smaller, in
+/// proportion, and with as many more characters as the smaller type leaves
+/// room for along the radius: zooming in on it shows the classic label.
 fn radial_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel {
     let mid = (a0 + a1) / 2.0;
     let r_mid = (ring.r_in + ring.r_out) / 2.0;
     let across = ring.r_in * (a1 - a0).to_radians();
-    let room = ((across - 2.0) / RADIAL_LINE).floor().max(1.0) as usize;
+    let scale = (across / RADIAL_LABEL_ACROSS).min(1.0);
     let length = ring.r_out - ring.r_in - 2.0 * LABEL_PAD;
     let text = LabelText::of(node);
-    let lines = stack_lines(
-        text.lines(room.min(3)),
-        &text,
-        LabelFlow::Radial,
-        RADIAL_LINE,
-        |_| length,
-    );
+    let lines = stack_lines(text.lines(3), &text, LabelFlow::Radial, RADIAL_LINE, |_| {
+        length / scale
+    })
+    .into_iter()
+    .map(|line| line.scaled(scale))
+    .collect();
     let (x, y) = polar(r_mid, mid);
     let right_half = mid.to_radians().sin() >= -1e-9;
     SegmentLabel {
@@ -398,6 +413,7 @@ fn radial_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel
         y,
         rotate: if right_half { mid - 90.0 } else { mid + 90.0 },
         lines,
+        scale,
     }
 }
 
@@ -421,6 +437,7 @@ fn root_label(node: &LayoutNode, arc: ChartArc) -> SegmentLabel {
         y: cy,
         rotate: 0.0,
         lines,
+        scale: 1.0,
     }
 }
 
@@ -438,6 +455,34 @@ pub(super) struct Segment {
     pub(super) label: SegmentLabel,
     /// Where an empty slot's "+" goes.
     pub(super) centroid: (f64, f64),
+    /// What the segment covers, around the chart's centre: culling draws it
+    /// only when this meets the region near the viewport.
+    pub(super) extent: Area,
+}
+
+/// The extent of the ring sector between two radii and two angles: its four
+/// corners, and the outer rim's furthest points where it crosses an axis.
+pub(super) fn sector_extent(r_in: f64, r_out: f64, a0: f64, a1: f64) -> Area {
+    let mut points = vec![
+        polar(r_in, a0),
+        polar(r_in, a1),
+        polar(r_out, a0),
+        polar(r_out, a1),
+    ];
+    let mut axis = (a0 / 90.0).ceil() * 90.0;
+    while axis <= a1 {
+        points.push(polar(r_out, axis));
+        axis += 90.0;
+    }
+    let (xs, ys): (Vec<f64>, Vec<f64>) = points.into_iter().unzip();
+    let min = |v: &[f64]| v.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = |v: &[f64]| v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    Area {
+        x0: min(&xs),
+        y0: min(&ys),
+        x1: max(&xs),
+        y1: max(&ys),
+    }
 }
 
 /// A wheel or a fan, laid out.
@@ -449,6 +494,9 @@ pub(super) struct CircularLayout {
     /// Whether the chart's root is the tree's SOSA 1, which makes every
     /// position its SOSA number.
     pub(super) root_is_sosa_root: bool,
+    /// How far the chart may be zoomed: enough for its most reduced label to
+    /// reach its classic size, and never less than the tree view allows.
+    pub(super) max_zoom: f64,
     /// Where the centre sits on the canvas.
     pub(super) origin_x: f64,
     pub(super) origin_y: f64,
@@ -489,7 +537,18 @@ fn segment(index: usize, entry: &AncestorEntry, arc: ChartArc, rings: &[Ring]) -
         band: arc_path(ring.r_in + 2.0, start, end),
         label,
         centroid: polar((ring.r_in + ring.r_out) / 2.0, (start + end) / 2.0),
+        extent: sector_extent(ring.r_in, ring.r_out, start, end),
     }
+}
+
+/// The zoom at which the most reduced of `segments`' labels reads at its
+/// classic size.
+fn max_zoom_for(segments: &[Segment]) -> f64 {
+    let smallest = segments
+        .iter()
+        .map(|segment| segment.label.scale)
+        .fold(1.0, f64::min);
+    (1.0 / smallest).clamp(ZOOM_MAX, DEEP_ZOOM_MAX)
 }
 
 /// Lays out the wheel or the fan of `root_id`'s ancestors, `generations`
@@ -504,12 +563,13 @@ pub(super) fn circular_layout(
 ) -> CircularLayout {
     let entries = collect_ancestors(root_id, data, generations, sosa_root_id, sosa_ancestors);
     let rings = ring_radii(arc, generations as u32);
-    let segments = entries
+    let segments: Vec<Segment> = entries
         .iter()
         .enumerate()
         .filter(|(_, entry)| entry.sosa > 1)
         .map(|(i, entry)| segment(i, entry, arc, &rings))
         .collect();
+    let max_zoom = max_zoom_for(&segments);
     let root_label = entries
         .first()
         .filter(|entry| entry.sosa == 1)
@@ -527,6 +587,7 @@ pub(super) fn circular_layout(
         root_path: root_path(arc),
         root_label,
         root_is_sosa_root: sosa_root_id.is_some() && sosa_root_id == Some(root_id),
+        max_zoom,
         origin_x: radius + CHART_MARGIN,
         origin_y,
         total_w,
@@ -718,9 +779,8 @@ fn render_root(
 /// The wheel or the fan, drawn.
 ///
 /// A component of its own so that it redraws only when the layout does, as
-/// the tree view's canvas. It draws every segment: even ten generations are
-/// 2,046 of them, and the chart is compact enough that most are on screen
-/// at a fitting zoom anyway.
+/// the tree view's canvas, and, as that canvas, it draws only the segments
+/// near the viewport (see [`use_culled_region`]).
 #[component]
 pub(super) fn CircularCanvas(
     layout: SharedCircular,
@@ -729,7 +789,13 @@ pub(super) fn CircularCanvas(
     on_person_click: EventHandler<(Uuid, f64, f64)>,
     on_empty_slot: EventHandler<(Uuid, bool)>,
     theme: &'static PedigreeTheme,
+    transform: Signal<ViewportTransform>,
+    viewport: Signal<ViewportRect>,
+    animating: Signal<bool>,
 ) -> Element {
+    // Segments are placed around the centre, the region on the canvas.
+    let region = use_culled_region(transform, viewport, animating)
+        .translated(-layout.origin_x, -layout.origin_y);
     let i18n = use_i18n();
     let actions = SegmentActions {
         selected_person_id,
@@ -755,7 +821,7 @@ pub(super) fn CircularCanvas(
                 height: "{layout.total_h}",
                 style: "display: block; overflow: visible;",
                 g { transform: "translate({layout.origin_x},{layout.origin_y})",
-                    for segment in layout.segments.iter() {
+                    for segment in layout.segments.iter().filter(|segment| region.intersects(&segment.extent)) {
                         {
                             let entry = &layout.entries[segment.entry];
                             match entry.node.id {
@@ -872,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn rings_touch_and_stay_wide_enough_ten_generations_out() {
+    fn rings_touch_and_keep_their_own_depth_ten_generations_out() {
         for arc in [ChartArc::WHEEL, ChartArc::FAN] {
             let rings = ring_radii(arc, 10);
             assert_eq!(rings.len(), 10);
@@ -884,14 +950,13 @@ mod tests {
                     g + 1
                 );
             }
-            for (g, ring) in rings.iter().enumerate() {
-                let span = arc.sweep / f64::from(1u32 << (g + 1));
-                assert!(
-                    ring.r_in * span.to_radians() >= MIN_SEGMENT_ARC - EPS,
-                    "{arc:?}: generation {} is {:.1}px wide",
-                    g + 1,
-                    ring.r_in * span.to_radians()
-                );
+            // Compact: no ring is deeper than its names need.
+            for ring in &rings {
+                let depth = match ring.flow {
+                    LabelFlow::Tangential => TANGENTIAL_RING,
+                    LabelFlow::Radial => RADIAL_RING,
+                };
+                assert!((ring.r_out - ring.r_in - depth).abs() < EPS, "{arc:?}");
             }
             // Names turn to follow the radius once, and never turn back.
             let first_radial = rings
@@ -964,7 +1029,7 @@ mod tests {
                     LabelFlow::Radial => RADIAL_LINE,
                 };
                 assert!(
-                    label.lines.len() as f64 * step <= room + 2.0,
+                    label.lines.len() as f64 * step * label.scale <= room + 2.0,
                     "{arc:?} {sosa}: lines overflow across"
                 );
                 for line in &label.lines {
@@ -1006,17 +1071,84 @@ mod tests {
         }
     }
 
+    /// A segment too narrow for the classic label writes it whole, smaller:
+    /// zooming in by the inverse of its scale shows it at its classic size.
     #[test]
-    fn a_narrow_segment_keeps_the_name_and_drops_lines_it_cannot_hold() {
-        let node = named("Given_1", "Branch_A");
+    fn a_narrow_segment_writes_the_classic_label_smaller() {
+        let mut node = named("Given_1", "Branch_A");
+        node.birth_year = Some(QualifiedYear {
+            year: 1849,
+            qualifier: DateQualifier::Exact,
+            year2: None,
+        });
         let rings = ring_radii(ChartArc::FAN, 8);
         let sosa = 256; // first of the eighth generation
-        let ring = rings[7];
         let (a0, a1) = segment_angles(sosa, ChartArc::FAN);
-        let label = radial_label(&node, ring, a0, a1);
-        assert_eq!(label.lines.len(), 1);
-        assert_eq!(label.lines[0].role, LineRole::Name);
-        assert!(label.lines[0].text.starts_with("BRANCH_A"));
+        let label = radial_label(&node, rings[7], a0, a1);
+        let roles: Vec<LineRole> = label.lines.iter().map(|l| l.role).collect();
+        assert_eq!(
+            roles,
+            vec![LineRole::Given, LineRole::Surname, LineRole::Dates]
+        );
+        assert!(label.scale < 1.0);
+        let surname = &label.lines[1];
+        assert_eq!(surname.text, "BRANCH_A");
+        let classic = font_px(LineRole::Surname, LabelFlow::Radial);
+        assert!((f64::from(surname.font_px) - f64::from(classic) * label.scale).abs() < 1e-4);
+        // A wide enough segment writes it at its classic size.
+        let wide = radial_label(
+            &node,
+            rings[2],
+            segment_angles(8, ChartArc::FAN).0,
+            segment_angles(8, ChartArc::FAN).1,
+        );
+        assert!((wide.scale - 1.0).abs() < EPS);
+    }
+
+    /// The chart can be zoomed until its most reduced label reads at its
+    /// classic size, never less far than the tree view.
+    #[test]
+    fn the_zoom_reaches_the_classic_size_of_the_narrowest_label() {
+        let data = full_ancestry(8);
+        for arc in [ChartArc::WHEEL, ChartArc::FAN] {
+            let layout = circular_layout(arc, id(1), &data, 8, None, &HashSet::new());
+            let smallest = layout
+                .segments
+                .iter()
+                .map(|s| s.label.scale)
+                .fold(1.0, f64::min);
+            assert!(layout.max_zoom * smallest >= 1.0 - EPS || layout.max_zoom == DEEP_ZOOM_MAX);
+            assert!(layout.max_zoom >= ZOOM_MAX);
+        }
+        let shallow = circular_layout(ChartArc::WHEEL, id(1), &data, 2, None, &HashSet::new());
+        assert_eq!(shallow.max_zoom, ZOOM_MAX);
+    }
+
+    /// A segment's extent holds every point of its outline, so culling never
+    /// leaves out a segment that shows.
+    #[test]
+    fn a_sector_extent_holds_its_whole_outline() {
+        for (r_in, r_out, a0, a1) in [
+            (10.0, 20.0, 0.0, 90.0),
+            (100.0, 150.0, 170.0, 190.0),
+            (72.0, 136.0, 180.0, 360.0),
+            (300.0, 432.0, 355.0, 365.0),
+        ] {
+            let extent = sector_extent(r_in, r_out, a0, a1);
+            for k in 0..=100 {
+                let a = a0 + (a1 - a0) * f64::from(k) / 100.0;
+                for r in [r_in, r_out] {
+                    let (x, y) = polar(r, a);
+                    assert!(
+                        x >= extent.x0 - EPS
+                            && x <= extent.x1 + EPS
+                            && y >= extent.y0 - EPS
+                            && y <= extent.y1 + EPS,
+                        "({r}, {a}) outside"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

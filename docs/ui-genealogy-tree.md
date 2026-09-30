@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:47:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:02:07Z }
 ---
 
 
@@ -52,8 +52,9 @@ already loaded redraws immediately. The layout is recomputed only when the
 pedigree, focus, SOSA data, drawn depth or theme changes — never for the depth
 popover, the events sidebar or a selection.
 
-Only the cards and connectors near the viewport are in the DOM: everything
-within one viewport of the visible area on each side. Panning or zooming
+Only the cards and connectors near the viewport are in the DOM, in every view
+(the wheel's and the fan's segments, the lineage view's boxes and lines
+alike): everything within one viewport of the visible area on each side. Panning or zooming
 redraws that set once the view comes within three quarters of a viewport of
 its edge, adding only the strip of cards uncovered, so drawn content always
 extends well past what can be seen. An animated move (zoom buttons, fit,
@@ -501,7 +502,7 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Right-click on a card | Opens the same action picker at the pointer |
 | Click on placeholder `+` | Opens add-parent form |
 | Drag on canvas | Free pan — starting on a card, a segment or the root disc as well: a press that moves more than 5 px before its release pans and is not a click, in every view |
-| Scroll wheel / pinch | Zoom about the pointer, range 0.3x-4x |
+| Scroll wheel / pinch | Zoom about the pointer, range 0.3x-4x (up to 16x in the wheel and the fan, as their narrowest labels need) |
 | Zoom in / out buttons | Zoom about the middle of the free canvas, same range |
 | FIT button | Reframes the entire tree in the window; a tree too large to fit at 0.3x is centred on the focus person |
 | Depth selector | Recalculates layout, recenters on current focus |
@@ -796,23 +797,25 @@ circle. The root's disc is filled with `var(--pn-root-bg)` and set in white.
   are wide enough for a straight line (a chord of at least 110 px), text runs
   across the segment, square to its radius, and is turned over on the lower
   half so it never reads upside down. Further out it runs along the radius,
-  outwards on the right half and inwards on the left. A segment that holds
-  fewer than three lines writes `SURNAME Given` on one line, then the
-  lifespan if there is room for a second; each line is truncated with an
-  ellipsis to the room it has, and a lifespan that overruns even in its
-  narrow form is compressed rather than cut. The hover text always has the
-  full name and the spelled-out lifespan.
-- **Legibility at depth.** No segment is narrower than 15 px at its inner
-  edge: a generation whose segments would be thinner starts further out, the
-  ring inside it widening to meet it. Eight generations stay readable at a
-  normal zoom on the wheel; deeper ones and the fan's outer rings are read by
-  zooming, as a deep tree is.
+  outwards on the right half and inwards on the left, always in the classic
+  three lines. Each line is truncated with an ellipsis to the room it has,
+  and a lifespan that overruns even in its narrow form is compressed rather
+  than cut. The hover text always has the full name and the spelled-out
+  lifespan.
+- **Legibility at depth.** Every ring is only as deep as its names need, so
+  the chart stays compact however many generations it holds. A segment too
+  narrow for the three lines at their own size writes them smaller, in
+  proportion, with as many more characters as the smaller type leaves room
+  for along the radius: the deep rings read as a printed wheel does, and
+  zooming in on a part of them shows its segments with the classic label.
+  The chart's zoom therefore goes past the tree view's 4x, as far as its most
+  reduced label needs to reach its classic size (at most 16x).
 - **Interactions.** Clicking an ancestor's segment makes them the focus and
   redraws the chart around them, as clicking a card does; a right click opens
   the action picker. The root's disc has nowhere to navigate to, so clicking
   it opens the action picker.
-- Every segment is drawn: ten generations are at most 2,046 of them, and the
-  chart is compact enough that most are on screen at a fitting zoom.
+- Only the segments near the viewport are drawn, as the tree view's cards
+  are (§1); the root's disc always is.
 
 ### Lineage
 
@@ -856,5 +859,6 @@ and its mother below by right-angled elbow lines.
 - **Interactions.** Clicking a card or a box makes that person the focus — the
   same as Gramps' buttons jumping to a father or mother; a right click, or the
   pencil under the focus card, opens the action picker.
-- Every box is drawn, as every segment of the wheel is; a chart ten
-  generations deep is read by zooming and panning, as a deep tree is.
+- Only the boxes and lines near the viewport are drawn, as the tree view's
+  cards are (§1); a chart ten generations deep is read by zooming and
+  panning, as a deep tree is.

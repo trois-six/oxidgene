@@ -2436,6 +2436,15 @@ enum ChartScene {
 }
 
 impl ChartScene {
+    /// How far the view may be zoomed: [`ZOOM_MAX`], or further for a
+    /// circular chart whose narrowest labels need it to reach their size.
+    fn max_zoom(&self) -> f64 {
+        match self {
+            Self::Circular(layout) => layout.max_zoom,
+            Self::Tree(_) | Self::Lineage(_) => ZOOM_MAX,
+        }
+    }
+
     /// What a fit frames, whichever view is drawn.
     fn fit_target(&self) -> FitTarget {
         match self {
@@ -2976,8 +2985,8 @@ struct ViewportTransform {
 }
 
 /// The scale one step away, or `None` when the zoom is already at its limit.
-fn zoom_step(current: f64, factor: f64) -> Option<f64> {
-    let next = (current * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+fn zoom_step(current: f64, factor: f64, max: f64) -> Option<f64> {
+    let next = (current * factor).clamp(ZOOM_MIN, max.max(ZOOM_MIN));
     ((next - current).abs() > f64::EPSILON).then_some(next)
 }
 
@@ -4328,6 +4337,30 @@ fn cull(previous: Option<Culling>, visible: Area, animating: bool) -> Culling {
     }
 }
 
+/// Hook: the region of the canvas a chart view draws — only what the
+/// viewport can reach is in the DOM, in every view.
+///
+/// The memo re-runs on every pan and zoom but changes — and so redraws the
+/// view that reads it — only when the view nears the edge of what is drawn;
+/// see [`cull`].
+fn use_culled_region(
+    transform: Signal<ViewportTransform>,
+    viewport: Signal<ViewportRect>,
+    animating: Signal<bool>,
+) -> Area {
+    let culling = use_hook(|| Rc::new(Cell::new(None::<Culling>)));
+    let region = use_memo(move || {
+        let next = cull(
+            culling.get(),
+            visible_area(transform(), viewport()),
+            animating(),
+        );
+        culling.set(Some(next));
+        next.region
+    });
+    region()
+}
+
 /// The extent of an SVG path, from every coordinate pair in it.
 ///
 /// Connectors are written as absolute `x,y` pairs (`M`, `L`, `C`, `S`), and a
@@ -4486,20 +4519,7 @@ fn PedigreeCanvas(
     let desc_empty_slot_adapter =
         use_callback(move |(pid, _): (Uuid, bool)| on_add_spouse_slot.call(pid));
 
-    // Only what the viewport can reach is in the DOM. The memo re-runs on
-    // every pan and zoom but changes — and so redraws this component — only
-    // when the view nears the edge of what is drawn; see `cull`.
-    let culling = use_hook(|| Rc::new(Cell::new(None::<Culling>)));
-    let region = use_memo(move || {
-        let next = cull(
-            culling.get(),
-            visible_area(transform(), viewport()),
-            animating(),
-        );
-        culling.set(Some(next));
-        next.region
-    });
-    let region = region();
+    let region = use_culled_region(transform, viewport, animating);
     let extents_cache =
         use_hook(|| Rc::new(RefCell::new(None::<(SharedLayout, Rc<SceneExtents>)>)));
     let extents = {
@@ -4830,6 +4850,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             theme,
         },
     );
+    let max_zoom = scene.max_zoom();
 
     // ── Fit graph in viewport when needed ──
     if needs_fit() && panel_ready() {
@@ -5111,7 +5132,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     // A button has no cursor to anchor to, so it
                     // holds the middle of the viewport still.
                     onclick: move |_| {
-                        if let Some(new_scale) = zoom_step(viewport_transform().scale, ZOOM_FACTOR) {
+                        if let Some(new_scale) = zoom_step(viewport_transform().scale, ZOOM_FACTOR, max_zoom) {
                             zoom_about(
                                 viewport_transform,
                                 viewport_rect().center(),
@@ -5146,7 +5167,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     // A button has no cursor to anchor to, so it
                     // holds the middle of the viewport still.
                     onclick: move |_| {
-                        if let Some(new_scale) = zoom_step(viewport_transform().scale, 1.0 / ZOOM_FACTOR) {
+                        if let Some(new_scale) = zoom_step(viewport_transform().scale, 1.0 / ZOOM_FACTOR, max_zoom) {
                             zoom_about(
                                 viewport_transform,
                                 viewport_rect().center(),
@@ -5298,7 +5319,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                         WheelDelta::Pages(p) => p.y * 400.0,
                     };
                     let factor = if delta_y > 0.0 { 0.9 } else { 1.0 / 0.9 };
-                    let Some(new_scale) = zoom_step(viewport_transform().scale, factor) else {
+                    let Some(new_scale) = zoom_step(viewport_transform().scale, factor, max_zoom) else {
                         return;
                     };
                     // Same reasoning as onpointerdown: a wheel gesture is a
@@ -5354,6 +5375,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                     on_person_click: props.on_person_click,
                                     on_empty_slot: props.on_empty_slot,
                                     theme,
+                                    transform: viewport_transform,
+                                    viewport: viewport_rect,
+                                    animating,
                                 }
                             },
                             ChartScene::Lineage(layout) => rsx! {
@@ -5366,6 +5390,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                     on_empty_slot: props.on_empty_slot,
                                     on_family_menu: move |at| family_menu.set(Some(at)),
                                     theme,
+                                    transform: viewport_transform,
+                                    viewport: viewport_rect,
+                                    animating,
                                 }
                             },
                         }
@@ -5782,7 +5809,7 @@ mod culling_tests {
                     } else {
                         1.0 / ZOOM_FACTOR
                     };
-                    if let Some(scale) = zoom_step(transform.scale, factor) {
+                    if let Some(scale) = zoom_step(transform.scale, factor, ZOOM_MAX) {
                         transform.scale = scale;
                     }
                 }
@@ -5962,11 +5989,11 @@ mod zoom_tests {
     /// Nothing happens at the ends of the range, so the pan is left alone too.
     #[test]
     fn a_zoom_at_its_limit_is_not_a_zoom() {
-        assert_eq!(zoom_step(ZOOM_MAX, ZOOM_FACTOR), None);
-        assert_eq!(zoom_step(ZOOM_MIN, 1.0 / ZOOM_FACTOR), None);
-        assert_eq!(zoom_step(1.0, ZOOM_FACTOR), Some(ZOOM_FACTOR));
+        assert_eq!(zoom_step(ZOOM_MAX, ZOOM_FACTOR, ZOOM_MAX), None);
+        assert_eq!(zoom_step(ZOOM_MIN, 1.0 / ZOOM_FACTOR, ZOOM_MAX), None);
+        assert_eq!(zoom_step(1.0, ZOOM_FACTOR, ZOOM_MAX), Some(ZOOM_FACTOR));
         assert_eq!(
-            zoom_step(ZOOM_MAX / ZOOM_FACTOR * 1.5, ZOOM_FACTOR),
+            zoom_step(ZOOM_MAX / ZOOM_FACTOR * 1.5, ZOOM_FACTOR, ZOOM_MAX),
             Some(ZOOM_MAX),
             "a step past the top must land on the limit, not overshoot it"
         );
