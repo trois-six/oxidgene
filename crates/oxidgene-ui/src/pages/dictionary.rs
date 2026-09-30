@@ -14,11 +14,12 @@ use crate::api::{
     ApiClient, ApiError, DictionaryEntry, PersonUsageEntry, PlaceDictionaryEntry,
     SourceDictionaryEntry, SourceGroupEntry,
 };
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::print::{PrintHeading, PrintPageNote};
 use crate::components::suggest_input::ValueInput;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary_media::DictionaryMedia;
 use crate::prefs::{SortParticles, use_sort_particles};
@@ -56,6 +57,17 @@ enum DictTab {
     Places,
     Occupations,
     Media,
+}
+
+impl DictTab {
+    /// The tabs in their order, each with its label's key.
+    const ALL: [(Self, &'static str); 5] = [
+        (Self::FamilyNames, "dictionary.tab.family_names"),
+        (Self::Sources, "dictionary.tab.sources"),
+        (Self::Places, "dictionary.tab.places"),
+        (Self::Occupations, "dictionary.tab.occupations"),
+        (Self::Media, "dictionary.tab.media"),
+    ];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,11 +123,45 @@ enum UsageKey {
     Occupation(String),
 }
 
+/// The sources level under `query_prefix`: its groups, or its sources when
+/// it has no group left. The backend resolves the drill-down itself,
+/// auto-skipping any forced single-choice levels — the prefix returned may be
+/// longer than `query_prefix`. See ui-dictionary.md §8.10.
+async fn load_sources_view(
+    api: &ApiClient,
+    tid: Uuid,
+    query_prefix: &str,
+) -> Result<SourcesView, ApiError> {
+    let resolved = api.dictionary_source_groups(tid, query_prefix).await?;
+    if !resolved.groups.is_empty() {
+        return Ok(SourcesView::Groups {
+            prefix: resolved.prefix,
+            total: resolved.total,
+            groups: resolved.groups,
+        });
+    }
+    let sources = api.dictionary_sources(tid, &resolved.prefix).await?;
+    Ok(SourcesView::List {
+        prefix: resolved.prefix,
+        sources,
+    })
+}
+
+/// The persons behind a dictionary row; none when they cannot be read.
+async fn load_usage(api: &ApiClient, tid: Uuid, key: &UsageKey) -> Vec<PersonUsageEntry> {
+    match key {
+        UsageKey::FamilyName(value) => api.dictionary_family_name_usage(tid, value).await,
+        UsageKey::Source(id) => api.dictionary_source_usage(tid, *id).await,
+        UsageKey::Place(id) => api.dictionary_place_usage(tid, *id).await,
+        UsageKey::Occupation(value) => api.dictionary_occupation_usage(tid, value).await,
+    }
+    .unwrap_or_default()
+}
+
 #[component]
 pub fn Dictionary(tree_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let nav = use_navigator();
     let tree_cache = use_tree_cache();
     let load_trace = use_ui_load_trace(UiPage::Dictionary);
 
@@ -210,23 +256,7 @@ pub fn Dictionary(tree_id: String) -> Element {
             let Some(tid) = tid else {
                 return Err(ApiError::invalid_tree_id(&i18n));
             };
-            // The backend resolves the drill-down itself, auto-skipping
-            // any forced single-choice levels — `resolved.prefix` may be
-            // longer than `query_prefix`. See ui-dictionary.md §8.10.
-            let resolved = api.dictionary_source_groups(tid, &query_prefix).await?;
-            if resolved.groups.is_empty() {
-                let sources = api.dictionary_sources(tid, &resolved.prefix).await?;
-                Ok(SourcesView::List {
-                    prefix: resolved.prefix,
-                    sources,
-                })
-            } else {
-                Ok(SourcesView::Groups {
-                    prefix: resolved.prefix,
-                    total: resolved.total,
-                    groups: resolved.groups,
-                })
-            }
+            load_sources_view(&api, tid, &query_prefix).await
         }
     });
 
@@ -269,13 +299,7 @@ pub fn Dictionary(tree_id: String) -> Element {
             let (Some(key), Some(tid)) = (key.clone(), tid) else {
                 return (key, Vec::new());
             };
-            let people = match &key {
-                UsageKey::FamilyName(value) => api.dictionary_family_name_usage(tid, value).await,
-                UsageKey::Source(id) => api.dictionary_source_usage(tid, *id).await,
-                UsageKey::Place(id) => api.dictionary_place_usage(tid, *id).await,
-                UsageKey::Occupation(value) => api.dictionary_occupation_usage(tid, value).await,
-            }
-            .unwrap_or_default();
+            let people = load_usage(&api, tid, &key).await;
             (Some(key), people)
         }
     });
@@ -288,21 +312,21 @@ pub fn Dictionary(tree_id: String) -> Element {
 
     // Resolve the name synchronously from the cache while the resource is
     // pending, so the breadcrumb never flashes a loading label.
-    let tree_name = match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => tree.name.clone(),
-        _ => tree_id_parsed()
-            .and_then(|tid| tree_cache.tree(tid))
-            .map(|tree| tree.name)
-            .unwrap_or_default(),
+    let tree = {
+        let loaded = tree_resource.read();
+        let loaded = loaded
+            .as_ref()
+            .and_then(Option::as_ref)
+            .and_then(|tree| tree.as_ref().ok());
+        tree_cache.loaded_or_cached(tree_id_parsed(), loaded)
     };
+    let tree_name = tree
+        .as_ref()
+        .map(|tree| tree.name.clone())
+        .unwrap_or_default();
     // The person last shown in this tree, else its SOSA root.
     let current_person = use_current_person();
-    let sosa_root = match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => tree.sosa_root_person_id,
-        _ => tree_id_parsed()
-            .and_then(|tid| tree_cache.tree(tid))
-            .and_then(|tree| tree.sosa_root_person_id),
-    };
+    let sosa_root = tree.and_then(|tree| tree.sosa_root_person_id);
     let selected_person_id = tree_id_parsed()
         .and_then(|tid| current_person.get(tid))
         .or(sosa_root);
@@ -311,22 +335,9 @@ pub fn Dictionary(tree_id: String) -> Element {
     rsx! {
         div { class: "sub-page",
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
-                    if !tree_name.is_empty() {
-                        Link {
-                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                            class: "td-bc-link",
-                            "{tree_name}"
-                        }
-                        span { class: "td-bc-sep", "/" }
-                    }
+                TreeBreadcrumb {
+                    tree_id: tree_id.clone(),
+                    tree_name: tree_name.clone(),
                     span { class: "td-bc-current", {i18n.t("dictionary.breadcrumb")} }
                 }
                 PrintHeading {
@@ -336,71 +347,21 @@ pub fn Dictionary(tree_id: String) -> Element {
             }
 
             div { class: "pd-page-shell",
-            TreeIconSidebar {
-                active_view: TreeSidebarView::None,
-                selected_person_id: selected_person_id,
-                show_middle_separator: false,
-                show_add_person: false,
+            ToolPageSidebar {
+                tree_id: tree_id.clone(),
+                selected_person_id,
                 show_dictionary: false,
-                show_settings: true,
-                on_profile_view: {
-                    let tree_id = tree_id.clone();
-                    move |pid: Option<Uuid>| {
-                        if let Some(pid) = pid {
-                            nav.push(Route::PersonDetail {
-                                tree_id: tree_id.clone(),
-                                person_id: pid.to_string(),
-                            });
-                        }
-                    }
-                },
-                on_pedigree_view: {
-                    let tree_id = tree_id.clone();
-                    move |pid: Option<Uuid>| {
-                        nav.push(Route::TreeDetail {
-                            tree_id: tree_id.clone(),
-                            person: pid.map(|pid| pid.to_string()),
-                        });
-                    }
-                },
-                on_add_person: move |_| {},
-                on_dictionary: move |_| {},
-                on_settings: {
-                    let tree_id = tree_id.clone();
-                    move |_| {
-                        nav.push(Route::Settings {
-                            tree_id: tree_id.clone(),
-                        });
-                    }
-                },
             }
 
             div { class: "sub-page-content",
                 div { class: "dict-tabs",
-                    button {
-                        class: if active_tab() == DictTab::FamilyNames { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| active_tab.set(DictTab::FamilyNames),
-                        {i18n.t("dictionary.tab.family_names")}
-                    }
-                    button {
-                        class: if active_tab() == DictTab::Sources { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| active_tab.set(DictTab::Sources),
-                        {i18n.t("dictionary.tab.sources")}
-                    }
-                    button {
-                        class: if active_tab() == DictTab::Places { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| active_tab.set(DictTab::Places),
-                        {i18n.t("dictionary.tab.places")}
-                    }
-                    button {
-                        class: if active_tab() == DictTab::Occupations { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| active_tab.set(DictTab::Occupations),
-                        {i18n.t("dictionary.tab.occupations")}
-                    }
-                    button {
-                        class: if active_tab() == DictTab::Media { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| active_tab.set(DictTab::Media),
-                        {i18n.t("dictionary.tab.media")}
+                    for (tab, label) in DictTab::ALL {
+                        button {
+                            key: "{label}",
+                            class: if active_tab() == tab { "dict-tab active" } else { "dict-tab" },
+                            onclick: move |_| active_tab.set(tab),
+                            {i18n.t(label)}
+                        }
                     }
                 }
 
@@ -484,6 +445,82 @@ pub fn Dictionary(tree_id: String) -> Element {
     }
 }
 
+/// The particle the editor shows: the merged name's cut, else what was
+/// typed, else the particle detected in a new name (`renamed_to`), else the
+/// entry's own.
+fn shown_particle(
+    target: Option<&DictionaryEntry>,
+    typed: Option<String>,
+    renamed_to: Option<&str>,
+    edit: &FamilyNameEdit,
+) -> String {
+    match (target, typed, renamed_to) {
+        (Some(target), _, _) => entry_particle_split(target)
+            .map(|(particle, _)| particle)
+            .unwrap_or_default(),
+        (None, Some(typed), _) => typed,
+        (None, None, Some(name)) => split_surname_particle(name).0.unwrap_or_default(),
+        (None, None, None) => edit.current_particle.clone(),
+    }
+}
+
+/// Renames `value` to `new_value`, cut after `particle` when one was typed.
+async fn rename(
+    api: &ApiClient,
+    tree_id: Uuid,
+    value: &str,
+    new_value: &str,
+    particle: Option<&str>,
+) -> Result<(), ApiError> {
+    api.rename_family_name(tree_id, value, new_value, particle)
+        .await
+        .map(|_| ())
+}
+
+/// Cuts `value` after `particle`.
+async fn recut(
+    api: &ApiClient,
+    tree_id: Uuid,
+    value: &str,
+    particle: &str,
+) -> Result<(), ApiError> {
+    api.set_family_name_particle(tree_id, value, particle)
+        .await
+        .map(|_| ())
+}
+
+/// How the name will be cut and filed, or why it cannot be cut so.
+fn cut_preview(i18n: I18n, preview: Option<&(Option<String>, String)>, new_value: &str) -> Element {
+    match preview {
+        Some((particle, root)) => rsx! {
+            div { class: "dict-particle-preview",
+                div { class: "dict-particle-preview-row",
+                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_particle")} }
+                    span { class: "dict-particle-preview-val",
+                        {particle.clone().unwrap_or_else(|| i18n.t("dictionary.particle.none"))}
+                    }
+                }
+                div { class: "dict-particle-preview-row",
+                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_root")} }
+                    span { class: "dict-particle-preview-val", "{root}" }
+                }
+                div { class: "dict-particle-preview-row",
+                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_files_under")} }
+                    span { class: "dict-particle-preview-val",
+                        {root.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()}
+                    }
+                }
+            }
+        },
+        None if new_value.is_empty() => rsx! {},
+        None => rsx! {
+            div { class: "error-msg",
+                {i18n.t_args("dictionary.particle.not_at_head", &[("name", new_value)])}
+            }
+        },
+    }
+}
+
 /// The family-name editor: renames a surname across the persons whose main
 /// name carries it, or re-cuts it between particle and root when the name is
 /// left as it is. See ui-dictionary.md §7.1.
@@ -522,14 +559,12 @@ fn FamilyNameEditor(
                 .cloned()
         })
         .flatten();
-    let particle = match (&target, typed_particle()) {
-        (Some(target), _) => entry_particle_split(target)
-            .map(|(particle, _)| particle)
-            .unwrap_or_default(),
-        (None, Some(typed)) => typed,
-        (None, None) if renaming => split_surname_particle(&new_value).0.unwrap_or_default(),
-        (None, None) => edit.current_particle.clone(),
-    };
+    let particle = shown_particle(
+        target.as_ref(),
+        typed_particle(),
+        renaming.then_some(new_value.as_str()),
+        &edit,
+    );
     // The particle must already sit at the head of the name: the edit only
     // chooses where to cut, so anything else is rejected before it is sent.
     let preview = split_surname_at_head(&new_value, &particle).filter(|_| !new_value.is_empty());
@@ -559,13 +594,9 @@ fn FamilyNameEditor(
             error.set(None);
             spawn(async move {
                 let result = if renaming {
-                    api.rename_family_name(tree_id, &value, &new_value, sent_particle.as_deref())
-                        .await
-                        .map(|_| ())
+                    rename(&api, tree_id, &value, &new_value, sent_particle.as_deref()).await
                 } else {
-                    api.set_family_name_particle(tree_id, &value, &particle)
-                        .await
-                        .map(|_| ())
+                    recut(&api, tree_id, &value, &particle).await
                 };
                 match result {
                     Ok(()) => on_saved.call(()),
@@ -661,34 +692,7 @@ fn FamilyNameEditor(
                         }
                     }
 
-                    match &preview {
-                        Some((particle, root)) => rsx! {
-                            div { class: "dict-particle-preview",
-                                div { class: "dict-particle-preview-row",
-                                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_particle")} }
-                                    span { class: "dict-particle-preview-val",
-                                        {particle.clone().unwrap_or_else(|| i18n.t("dictionary.particle.none"))}
-                                    }
-                                }
-                                div { class: "dict-particle-preview-row",
-                                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_root")} }
-                                    span { class: "dict-particle-preview-val", "{root}" }
-                                }
-                                div { class: "dict-particle-preview-row",
-                                    span { class: "dict-particle-preview-key", {i18n.t("dictionary.particle.preview_files_under")} }
-                                    span { class: "dict-particle-preview-val",
-                                        {root.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default()}
-                                    }
-                                }
-                            }
-                        },
-                        None if new_value.is_empty() => rsx! {},
-                        None => rsx! {
-                            div { class: "error-msg",
-                                {i18n.t_args("dictionary.particle.not_at_head", &[("name", &new_value)])}
-                            }
-                        },
-                    }
+                    {cut_preview(i18n, preview.as_ref(), &new_value)}
 
                     if let Some(err) = error() {
                         div { class: "error-msg", "{err}" }

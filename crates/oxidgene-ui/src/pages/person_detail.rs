@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::media_gallery::MediaOwner;
 use crate::components::merge_dialog::MergeDialog;
@@ -37,18 +38,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     // Reactive IDs: signals kept in sync with the props so resources re-run
     // when navigating to a different person (the router reuses this component
     // instance instead of remounting it, e.g. clicking through to a parent).
-    let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
-    let new_tid = tree_id.parse::<Uuid>().ok();
-    if new_tid != *tree_id_parsed.peek() {
-        *tree_id_parsed.write() = new_tid;
-    }
+    let tree_id_parsed = crate::utils::use_synced(tree_id.parse::<Uuid>().ok());
 
-    let mut person_id_parsed = use_signal(|| person_id.parse::<Uuid>().ok());
-    let new_pid = person_id.parse::<Uuid>().ok();
-    if new_pid != *person_id_parsed.peek() {
-        *person_id_parsed.write() = new_pid;
-    }
-    use_track_current_person(new_tid, new_pid);
+    let person_id_parsed = crate::utils::use_synced(person_id.parse::<Uuid>().ok());
+    use_track_current_person(*tree_id_parsed.peek(), *person_id_parsed.peek());
 
     // The router reuses this component instance across navigations (e.g.
     // clicking a relative in the mini pedigree or family section), so the
@@ -169,13 +162,16 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Resolve the name synchronously from the cache while the resource is
     // pending, so the breadcrumb never flashes a loading label.
-    let tree_name_str = match &*tree_resource.read() {
-        Some(Ok(tree)) => tree.name.clone(),
-        _ => tree_id_parsed()
-            .and_then(|tid| tree_cache.tree(tid))
-            .map(|t| t.name)
-            .unwrap_or_default(),
-    };
+    let tree_name_str = tree_cache
+        .loaded_or_cached(
+            tree_id_parsed(),
+            tree_resource
+                .read()
+                .as_ref()
+                .and_then(|tree| tree.as_ref().ok()),
+        )
+        .map(|tree| tree.name)
+        .unwrap_or_default();
 
     let detail_error = match &*detail_resource.read() {
         Some(Err(error)) => Some(error.to_string()),
@@ -196,8 +192,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     let api_del = api.clone();
     let on_confirm_delete = move |_| {
         let api = api_del.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(pid) = person_id_parsed() else {
+        let (Some(tid), Some(pid)) = (tree_id_parsed(), person_id_parsed()) else {
             return;
         };
         let tree_id_nav = tree_id_nav.clone();
@@ -209,9 +204,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         person: None,
                     });
                 }
-                Err(e) => {
-                    delete_error.set(Some(format!("{e}")));
-                }
+                Err(e) => delete_error.set(Some(format!("{e}"))),
             }
         });
     };
@@ -233,22 +226,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         div { class: "sub-page",
         // Breadcrumb
         div { class: "td-topbar",
-            nav { class: "td-bc",
-                Link { to: Route::Home {}, class: "td-bc-logo",
-                    img {
-                        src: crate::components::layout::LOGO_PNG_B64,
-                        alt: "OxidGene",
-                        class: "td-bc-logo-img",
-                    }
-                }
-                if !tree_name_str.is_empty() {
-                    Link {
-                        to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                        class: "td-bc-link",
-                        "{tree_name_str}"
-                    }
-                    span { class: "td-bc-sep", "/" }
-                }
+            TreeBreadcrumb {
+                tree_id: tree_id.clone(),
+                tree_name: tree_name_str.clone(),
                 span { class: "td-bc-current", "{display_name}" }
             }
             TopbarSearch { tree_id: tree_id.clone(), from_person: true }
@@ -305,39 +285,35 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         div { class: "sub-page-content pd-content",
 
         // Person edit modal (civil status, names, birth/death — see PersonForm).
-        if show_edit_person() {
-            if let Some(tid) = tree_id_parsed() {
-                PersonForm {
-                    tree_id: tid,
-                    person_id: person_id_parsed(),
-                    on_close: move |_| show_edit_person.set(false),
-                    on_saved: move |_| refresh += 1,
-                    // This page's person was merged away: show the one kept.
-                    on_merged: {
-                        let tree_id = tree_id.clone();
-                        move |kept: Uuid| {
-                            tree_cache.invalidate();
-                            nav.replace(Route::PersonDetail {
-                                tree_id: tree_id.clone(),
-                                person_id: kept.to_string(),
-                            });
-                        }
-                    },
-                }
+        if let (true, Some(tid)) = (show_edit_person(), tree_id_parsed()) {
+            PersonForm {
+                tree_id: tid,
+                person_id: person_id_parsed(),
+                on_close: move |_| show_edit_person.set(false),
+                on_saved: move |_| refresh += 1,
+                // This page's person was merged away: show the one kept.
+                on_merged: {
+                    let tree_id = tree_id.clone();
+                    move |kept: Uuid| {
+                        tree_cache.invalidate();
+                        nav.replace(Route::PersonDetail {
+                            tree_id: tree_id.clone(),
+                            person_id: kept.to_string(),
+                        });
+                    }
+                },
             }
         }
 
-        if show_create_person() {
-            if let Some(tid) = tree_id_parsed() {
-                PersonForm {
-                    tree_id: tid,
-                    create_context: PersonFormCreateContext::Standalone,
-                    on_close: move |_| show_create_person.set(false),
-                    on_saved: move |_| {
-                        tree_cache.invalidate();
-                        refresh += 1;
-                    },
-                }
+        if let (true, Some(tid)) = (show_create_person(), tree_id_parsed()) {
+            PersonForm {
+                tree_id: tid,
+                create_context: PersonFormCreateContext::Standalone,
+                on_close: move |_| show_create_person.set(false),
+                on_saved: move |_| {
+                    tree_cache.invalidate();
+                    refresh += 1;
+                },
             }
         }
 

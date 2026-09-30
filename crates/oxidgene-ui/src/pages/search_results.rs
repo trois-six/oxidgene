@@ -12,6 +12,7 @@ use oxidgene_core::{EventType, Sex};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField};
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
 use crate::components::print::{PrintHeading, PrintPageNote, search_print_title};
@@ -19,7 +20,7 @@ use crate::components::search_person::{PersonSearchSummary, render_person_search
 use crate::components::suggest_input::ValueInput;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
@@ -78,26 +79,32 @@ fn parse_event_type(value: &str) -> Option<EventType> {
 }
 
 fn has_search_criteria(search: &PersonSearchParams) -> bool {
+    let texts = [
+        &search.surname,
+        &search.given_names,
+        &search.occupation,
+        &search.spouse_surname,
+        &search.spouse_given_names,
+        &search.father_surname,
+        &search.father_given_names,
+        &search.mother_surname,
+        &search.mother_given_names,
+        &search.place,
+    ];
+    let years = [
+        search.birth_from,
+        search.birth_to,
+        search.death_from,
+        search.death_to,
+        search.event_from,
+        search.event_to,
+    ];
     !search.query.trim().is_empty()
         || search.sex.is_some()
-        || search.surname.is_some()
-        || search.given_names.is_some()
-        || search.occupation.is_some()
-        || search.spouse_surname.is_some()
-        || search.spouse_given_names.is_some()
-        || search.father_surname.is_some()
-        || search.father_given_names.is_some()
-        || search.mother_surname.is_some()
-        || search.mother_given_names.is_some()
-        || search.birth_from.is_some()
-        || search.birth_to.is_some()
-        || search.death_from.is_some()
-        || search.death_to.is_some()
-        || search.place.is_some()
         || search.event_type.is_some()
-        || search.event_from.is_some()
-        || search.event_to.is_some()
         || search.has_media
+        || texts.iter().any(|text| text.is_some())
+        || years.iter().any(Option::is_some)
 }
 
 // ── Component Props ──────────────────────────────────────────────────────
@@ -120,7 +127,6 @@ pub struct SearchResultsProps {
 pub fn SearchResults(props: SearchResultsProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let nav = navigator();
     let load_trace = use_ui_load_trace(UiPage::SearchResults);
 
     let tree_id = Uuid::parse_str(&props.tree_id).ok();
@@ -417,22 +423,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
         div { class: "sub-page search-results-page",
             // ── Topbar (shared td-topbar / td-bc classes per spec §3) ──
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
-                    if !tree_name.is_empty() {
-                        Link {
-                            to: Route::TreeDetail { tree_id: props.tree_id.clone(), person: None },
-                            class: "td-bc-link",
-                            "{tree_name}"
-                        }
-                        span { class: "td-bc-sep", "/" }
-                    }
+                TreeBreadcrumb {
+                    tree_id: props.tree_id.clone(),
+                    tree_name: tree_name.clone(),
                     span { class: "td-bc-current", {i18n.t("search.title")} }
                 }
                 TopbarSearch {
@@ -449,44 +442,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             }
 
             div { class: "pd-page-shell",
-                TreeIconSidebar {
-                    active_view: TreeSidebarView::None,
+                ToolPageSidebar {
+                    tree_id: props.tree_id.clone(),
                     selected_person_id,
-                    show_middle_separator: false,
-                    show_add_person: false,
-                    on_profile_view: {
-                        let tree_id = props.tree_id.clone();
-                        move |person_id: Option<Uuid>| {
-                            if let Some(person_id) = person_id {
-                                nav.push(Route::PersonDetail {
-                                    tree_id: tree_id.clone(),
-                                    person_id: person_id.to_string(),
-                                });
-                            }
-                        }
-                    },
-                    on_pedigree_view: {
-                        let tree_id = props.tree_id.clone();
-                        move |person_id: Option<Uuid>| {
-                            nav.push(Route::TreeDetail {
-                                tree_id: tree_id.clone(),
-                                person: person_id.map(|person_id| person_id.to_string()),
-                            });
-                        }
-                    },
-                    on_add_person: move |_| {},
-                    on_dictionary: {
-                        let tree_id = props.tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Dictionary { tree_id: tree_id.clone() });
-                        }
-                    },
-                    on_settings: {
-                        let tree_id = props.tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Settings { tree_id: tree_id.clone() });
-                        }
-                    },
                 }
 
                 // ── Scrollable content ──

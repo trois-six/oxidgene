@@ -380,39 +380,20 @@ fn elbow(e: &Ends) -> String {
 #[must_use]
 pub fn link_path(spec: &LinkSpec, style: LinkStyle, m: &PedigreeMetrics) -> String {
     let e = endpoints(spec, m);
-    let Ends {
-        sx,
-        sy,
-        ex,
-        ey,
-        mid,
-    } = e;
-
-    // A spouse link is one horizontal run whatever the style.
-    if matches!(spec, LinkSpec::Spouse { .. }) {
-        return format!("M{sx},{sy} L{ex},{ey}");
-    }
-
     let ruled = style == LinkStyle::Ruled;
     let off = m.bezier_ctrl_offset;
+    // Only an edge child whose parent is off to the side curves.
+    let curves = |is_edge: bool| is_edge && (e.sx - e.ex).abs() > 0.5;
 
     match *spec {
-        LinkSpec::Spouse { .. } => unreachable!("handled above"),
-
+        // A spouse link is one horizontal run whatever the style.
+        LinkSpec::Spouse { .. } => format!("M{},{} L{},{}", e.sx, e.sy, e.ex, e.ey),
+        // This one spells out the second `L`, unlike its siblings below.
+        // Same geometry, and kept verbatim so the classic theme stays
+        // byte-for-byte what shipped.
         LinkSpec::SimpleChild { is_edge, .. } => {
-            if ruled || !(is_edge && (sx - ex).abs() > 0.5) {
-                return elbow(&e);
-            }
-            // This one spells out the second `L`, unlike its siblings below.
-            // Same geometry, and kept verbatim so the classic theme stays
-            // byte-for-byte what shipped.
-            let ctrl = ctrl_x_toward(sx, ex, off);
-            format!(
-                "M{sx},{sy} L{sx},{mid} L{ctrl},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
-                mid + off
-            )
+            descending(&e, ruled || !curves(is_edge), off, "L")
         }
-
         LinkSpec::Ancestor {
             from_has_prev_sibling,
             from_has_next_sibling,
@@ -423,30 +404,10 @@ pub fn link_path(spec: &LinkSpec, style: LinkStyle, m: &PedigreeMetrics) -> Stri
             // connector stops on the turning row instead of climbing to the
             // ancestor's edge.
             let would_cross = from_depth == 0
-                && ((from_has_prev_sibling && sx > ex) || (from_has_next_sibling && sx < ex));
-            if would_cross {
-                return if ruled {
-                    format!("M{sx},{sy} L{sx},{mid} {ex},{mid}")
-                } else {
-                    let c1x = ctrl_x_outward(sx, ex, off);
-                    format!(
-                        "M{sx},{sy} L{sx},{} S{sx},{mid} {c1x},{mid} L{ex},{mid}",
-                        sy - m.card_top_indent
-                    )
-                };
-            }
-            if ruled {
-                return elbow(&e);
-            }
-            let c1x = ctrl_x_outward(sx, ex, off);
-            let c2x = ctrl_x_toward(sx, ex, off);
-            format!(
-                "M{sx},{sy} L{sx},{} S{sx},{mid} {c1x},{mid} L{c2x},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
-                sy - m.card_top_indent,
-                ey + m.card_top_indent
-            )
+                && ((from_has_prev_sibling && e.sx > e.ex)
+                    || (from_has_next_sibling && e.sx < e.ex));
+            ascending(&e, ruled, off, m.card_top_indent, would_cross)
         }
-
         LinkSpec::RootSibling {
             index,
             count,
@@ -455,25 +416,58 @@ pub fn link_path(spec: &LinkSpec, style: LinkStyle, m: &PedigreeMetrics) -> Stri
         } => {
             // Only the outermost sibling curves; the ones between it and the
             // root run straight, so the row does not turn into a ripple.
-            let straight = index != count.saturating_sub(1) || (sx - ex).abs() < 0.001 || simple;
-            if ruled || straight {
-                return elbow(&e);
-            }
-            let ctrl = ctrl_x_toward(sx, ex, off);
-            format!(
-                "M{sx},{sy} L{sx},{mid} {ctrl},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
-                mid + off
-            )
+            let straight =
+                index != count.saturating_sub(1) || (e.sx - e.ex).abs() < 0.001 || simple;
+            descending(&e, ruled || straight, off, "")
         }
+        LinkSpec::Child { is_edge, .. } => descending(&e, ruled || !curves(is_edge), off, ""),
+    }
+}
 
-        LinkSpec::Child { is_edge, .. } => {
-            if ruled || !(is_edge && (sx - ex).abs() > 0.5) {
-                return elbow(&e);
-            }
-            let ctrl = ctrl_x_toward(sx, ex, off);
+/// A link down to a child: an elbow when `elbowed`, else a run that curves
+/// into the child's column. `turn` prefixes the curve's control point.
+fn descending(e: &Ends, elbowed: bool, off: f64, turn: &str) -> String {
+    if elbowed {
+        return elbow(e);
+    }
+    let Ends {
+        sx,
+        sy,
+        ex,
+        ey,
+        mid,
+    } = *e;
+    let ctrl = ctrl_x_toward(sx, ex, off);
+    format!(
+        "M{sx},{sy} L{sx},{mid} {turn}{ctrl},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
+        mid + off
+    )
+}
+
+/// A link up to an ancestor, stopping on the turning row when it
+/// `would_cross` the root's siblings.
+fn ascending(e: &Ends, ruled: bool, off: f64, indent: f64, would_cross: bool) -> String {
+    let Ends {
+        sx,
+        sy,
+        ex,
+        ey,
+        mid,
+    } = *e;
+    let c1x = ctrl_x_outward(sx, ex, off);
+    match (would_cross, ruled) {
+        (true, true) => format!("M{sx},{sy} L{sx},{mid} {ex},{mid}"),
+        (true, false) => format!(
+            "M{sx},{sy} L{sx},{} S{sx},{mid} {c1x},{mid} L{ex},{mid}",
+            sy - indent
+        ),
+        (false, true) => elbow(e),
+        (false, false) => {
+            let c2x = ctrl_x_toward(sx, ex, off);
             format!(
-                "M{sx},{sy} L{sx},{mid} {ctrl},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
-                mid + off
+                "M{sx},{sy} L{sx},{} S{sx},{mid} {c1x},{mid} L{c2x},{mid} S{ex},{mid} {ex},{} L{ex},{ey}",
+                sy - indent,
+                ey + indent
             )
         }
     }

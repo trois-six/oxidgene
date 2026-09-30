@@ -9,18 +9,18 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, UpdateTreeBody};
 use crate::components::audit_log::AuditLogSection;
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::{Language, use_i18n};
 use crate::pages::app_settings::{
     AppearanceSection, LanguageSection, NamesSection, PedigreeDefaultsSection,
     SHARED_SETTINGS_STYLES,
 };
 use crate::prefs::{PedigreeDefaults, SortParticles};
-use crate::router::Route;
 use crate::ui_observability::{
     UiAction, UiActionStep, UiLoadTrace, UiPage, trace_ui_action, trace_ui_action_step,
     use_traced_resource, use_ui_load_trace,
@@ -65,7 +65,6 @@ async fn wait_for_export(
 pub fn Settings(tree_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let nav = use_navigator();
     let theme_state = use_context::<Signal<crate::theme::ThemeState>>();
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
@@ -97,21 +96,21 @@ pub fn Settings(tree_id: String) -> Element {
 
     // Resolve the name synchronously from the cache while the resource is
     // pending, so the breadcrumb never flashes a loading label.
-    let tree_name = match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => tree.name.clone(),
-        _ => tree_id_parsed
-            .and_then(|tid| tree_cache.tree(tid))
-            .map(|t| t.name)
-            .unwrap_or_default(),
+    let tree = {
+        let loaded = tree_resource.read();
+        let loaded = loaded
+            .as_ref()
+            .and_then(Option::as_ref)
+            .and_then(|tree| tree.as_ref().ok());
+        tree_cache.loaded_or_cached(tree_id_parsed, loaded)
     };
+    let tree_name = tree
+        .as_ref()
+        .map(|tree| tree.name.clone())
+        .unwrap_or_default();
     // The person last shown in this tree, else its SOSA root.
     let current_person = use_current_person();
-    let sosa_root = match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => tree.sosa_root_person_id,
-        _ => tree_id_parsed
-            .and_then(|tid| tree_cache.tree(tid))
-            .and_then(|tree| tree.sosa_root_person_id),
-    };
+    let sosa_root = tree.and_then(|tree| tree.sosa_root_person_id);
     let selected_person_id = tree_id_parsed
         .and_then(|tid| current_person.get(tid))
         .or(sosa_root);
@@ -277,64 +276,18 @@ pub fn Settings(tree_id: String) -> Element {
         div { class: "sub-page",
             // Breadcrumb
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
-                    if !tree_name.is_empty() {
-                        Link {
-                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                            class: "td-bc-link",
-                            "{tree_name}"
-                        }
-                        span { class: "td-bc-sep", "/" }
-                    }
+                TreeBreadcrumb {
+                    tree_id: tree_id.clone(),
+                    tree_name: tree_name.clone(),
                     span { class: "td-bc-current", {i18n.t("settings.breadcrumb")} }
                 }
             }
 
             div { class: "pd-page-shell",
-            TreeIconSidebar {
-                active_view: TreeSidebarView::None,
-                selected_person_id: selected_person_id,
-                show_middle_separator: false,
-                show_add_person: false,
-                show_dictionary: true,
+            ToolPageSidebar {
+                tree_id: tree_id.clone(),
+                selected_person_id,
                 show_settings: false,
-                on_profile_view: {
-                    let tree_id = tree_id.clone();
-                    move |pid: Option<Uuid>| {
-                        if let Some(pid) = pid {
-                            nav.push(Route::PersonDetail {
-                                tree_id: tree_id.clone(),
-                                person_id: pid.to_string(),
-                            });
-                        }
-                    }
-                },
-                on_pedigree_view: {
-                    let tree_id = tree_id.clone();
-                    move |pid: Option<Uuid>| {
-                        nav.push(Route::TreeDetail {
-                            tree_id: tree_id.clone(),
-                            person: pid.map(|pid| pid.to_string()),
-                        });
-                    }
-                },
-                on_add_person: move |_| {},
-                on_dictionary: {
-                    let tree_id = tree_id.clone();
-                    move |_| {
-                        nav.push(Route::Dictionary {
-                            tree_id: tree_id.clone(),
-                        });
-                    }
-                },
-                on_settings: move |_| {},
             }
 
             div { class: "sub-page-content pd-content",

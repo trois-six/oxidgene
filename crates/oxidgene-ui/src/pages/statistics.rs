@@ -15,6 +15,7 @@ use crate::api::{
     ApiClient, GrowthDay, StatCount, StatDate, StatPerson, StatPersonRef, StatRecord, StatSummary,
     StatYearCounts, StatYearSum, TreeGrowth, TreeStatistics,
 };
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::charts::{
     BarChart, ChartCard, ChartMarker, ChartSeries, DonutChart, HeatMap, LineChart, MapCity,
     MapFocus, PALETTE, Pyramid, YearRuler, basemap_cities, basemap_paths,
@@ -23,7 +24,7 @@ use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
 use crate::components::print::PrintHeading;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::prefs::{store, stored};
 use crate::router::Route;
@@ -98,12 +99,45 @@ enum ListTab {
     LargestFamilies,
 }
 
+/// Marks a request as wanted, once: a later tab asking again changes
+/// nothing, and does not ask it again.
+fn want_once(mut wanted: Signal<bool>) {
+    if !*wanted.peek() {
+        wanted.set(true);
+    }
+}
+
+/// Restores the viewer's tab, interval and dates option, asking for what
+/// the tab needs.
+async fn restore_choices(
+    mut tab: Signal<StatsTab>,
+    mut interval: Signal<i32>,
+    mut approximate: Signal<Option<bool>>,
+    want: impl Fn(StatsTab),
+) {
+    let stored_tab = stored(TAB_STORAGE_KEY)
+        .await
+        .as_deref()
+        .and_then(StatsTab::parse)
+        .unwrap_or(StatsTab::Overview);
+    tab.set(stored_tab);
+    want(stored_tab);
+    if let Some(value) = stored(INTERVAL_STORAGE_KEY)
+        .await
+        .and_then(|s| s.parse::<i32>().ok())
+        .filter(|v| INTERVALS.contains(v))
+    {
+        interval.set(value);
+    }
+    let chosen = stored(APPROXIMATE_STORAGE_KEY).await.as_deref() == Some("true");
+    approximate.set(Some(chosen));
+}
+
 #[component]
 pub fn Statistics(tree_id: String) -> Element {
     let i18n = use_i18n();
     let language: Signal<Language> = use_context();
     let api = use_context::<ApiClient>();
-    let nav = use_navigator();
     let tree_cache = use_tree_cache();
     let load_trace = use_ui_load_trace(UiPage::Statistics);
     let tid = tree_id.parse::<Uuid>().ok();
@@ -122,35 +156,15 @@ pub fn Statistics(tree_id: String) -> Element {
     let statistics_wanted = use_signal(|| false);
     let growth_wanted = use_signal(|| false);
     let want = move |value: StatsTab| {
-        let mut wanted = if value == StatsTab::Growth {
+        let wanted = if value == StatsTab::Growth {
             growth_wanted
         } else {
             statistics_wanted
         };
-        if !*wanted.peek() {
-            wanted.set(true);
-        }
+        want_once(wanted);
     };
     use_effect(move || {
-        let mut interval = interval;
-        spawn(async move {
-            let stored_tab = stored(TAB_STORAGE_KEY)
-                .await
-                .as_deref()
-                .and_then(StatsTab::parse)
-                .unwrap_or(StatsTab::Overview);
-            tab.set(stored_tab);
-            want(stored_tab);
-            if let Some(value) = stored(INTERVAL_STORAGE_KEY)
-                .await
-                .and_then(|s| s.parse::<i32>().ok())
-                .filter(|v| INTERVALS.contains(v))
-            {
-                interval.set(value);
-            }
-            let chosen = stored(APPROXIMATE_STORAGE_KEY).await.as_deref() == Some("true");
-            approximate.set(Some(chosen));
-        });
+        spawn(restore_choices(tab, interval, approximate, want));
     });
     let mut choose_tab = move |value: StatsTab| {
         tab.set(value);
@@ -238,22 +252,9 @@ pub fn Statistics(tree_id: String) -> Element {
     rsx! {
         div { class: "sub-page stats-page",
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
-                    if !tree_name.is_empty() {
-                        Link {
-                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                            class: "td-bc-link",
-                            "{tree_name}"
-                        }
-                        span { class: "td-bc-sep", "/" }
-                    }
+                TreeBreadcrumb {
+                    tree_id: tree_id.clone(),
+                    tree_name: tree_name.clone(),
                     span { class: "td-bc-current", {i18n.t("stats.breadcrumb")} }
                 }
                 label {
@@ -274,44 +275,9 @@ pub fn Statistics(tree_id: String) -> Element {
             }
 
             div { class: "pd-page-shell",
-                TreeIconSidebar {
-                    active_view: TreeSidebarView::None,
+                ToolPageSidebar {
+                    tree_id: tree_id.clone(),
                     selected_person_id,
-                    show_middle_separator: false,
-                    show_add_person: false,
-                    on_profile_view: {
-                        let tree_id = tree_id.clone();
-                        move |pid: Option<Uuid>| {
-                            if let Some(pid) = pid {
-                                nav.push(Route::PersonDetail {
-                                    tree_id: tree_id.clone(),
-                                    person_id: pid.to_string(),
-                                });
-                            }
-                        }
-                    },
-                    on_pedigree_view: {
-                        let tree_id = tree_id.clone();
-                        move |pid: Option<Uuid>| {
-                            nav.push(Route::TreeDetail {
-                                tree_id: tree_id.clone(),
-                                person: pid.map(|pid| pid.to_string()),
-                            });
-                        }
-                    },
-                    on_add_person: move |_| {},
-                    on_dictionary: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Dictionary { tree_id: tree_id.clone() });
-                        }
-                    },
-                    on_settings: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Settings { tree_id: tree_id.clone() });
-                        }
-                    },
                 }
 
                 div { class: "sub-page-content stats-content",

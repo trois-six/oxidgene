@@ -51,6 +51,40 @@ pub struct HomonymPickerProps {
     pub on_decided: EventHandler<HomonymDecision>,
 }
 
+/// Merges `person_id` into `target`, or without one records them distinct
+/// from every homonym; the key of the error message on failure.
+async fn decide(
+    api: &ApiClient,
+    tree_id: Uuid,
+    person_id: Uuid,
+    target: Option<Uuid>,
+    homonym_ids: &[Uuid],
+) -> Result<HomonymDecision, &'static str> {
+    match target {
+        Some(kept) => api
+            .merge_persons(tree_id, kept, person_id, &Default::default())
+            .await
+            .map(|_| HomonymDecision::Merged(kept))
+            .map_err(|_| "homonym.merge_failed"),
+        None => api
+            .mark_persons_distinct(tree_id, person_id, homonym_ids)
+            .await
+            .map(|()| HomonymDecision::Distinct)
+            .map_err(|_| "homonym.distinct_failed"),
+    }
+}
+
+/// A homonym row's class: by sex, and marked when chosen.
+fn row_class(sex: Sex, active: bool) -> String {
+    let sex = match sex {
+        Sex::Male => " male",
+        Sex::Female => " female",
+        Sex::Unknown => "",
+    };
+    let active = if active { " is-active" } else { "" };
+    format!("search-person-result td-suggest-row{sex}{active}")
+}
+
 /// A drop-down of the homonyms, and the button that acts on the choice.
 #[component]
 pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
@@ -97,19 +131,20 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
     let selected = chosen_now().and_then(|id| rows.iter().find(|row| row.person_id() == id));
     let merging = selected.is_some();
 
-    let (separate_label, separate_hint, keep_label) = if props.new_person {
-        (
-            i18n.t("homonym.option_new"),
-            i18n.t("homonym.option_new_hint"),
-            i18n.t("homonym.keep_new"),
-        )
+    let [separate_label, separate_hint, keep_label] = if props.new_person {
+        [
+            "homonym.option_new",
+            "homonym.option_new_hint",
+            "homonym.keep_new",
+        ]
     } else {
-        (
-            i18n.t("homonym.option_distinct"),
-            i18n.t("homonym.option_distinct_hint"),
-            i18n.t("homonym.keep_distinct"),
-        )
-    };
+        [
+            "homonym.option_distinct",
+            "homonym.option_distinct_hint",
+            "homonym.keep_distinct",
+        ]
+    }
+    .map(|key| i18n.t(key));
 
     let on_decided = props.on_decided;
     let on_confirm = move |_| {
@@ -119,22 +154,11 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
         spawn(async move {
             busy.set(true);
             error.set(None);
-            let outcome = match target {
-                Some(kept) => api
-                    .merge_persons(tree_id, kept, person_id, &Default::default())
-                    .await
-                    .map(|_| HomonymDecision::Merged(kept))
-                    .map_err(|_| i18n.t("homonym.merge_failed")),
-                None => api
-                    .mark_persons_distinct(tree_id, person_id, &homonym_ids)
-                    .await
-                    .map(|()| HomonymDecision::Distinct)
-                    .map_err(|_| i18n.t("homonym.distinct_failed")),
-            };
+            let outcome = decide(&api, tree_id, person_id, target, &homonym_ids).await;
             busy.set(false);
             match outcome {
                 Ok(decision) => on_decided.call(decision),
-                Err(message) => error.set(Some(message)),
+                Err(key) => error.set(Some(i18n.t(key))),
             }
         });
     };
@@ -161,7 +185,7 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
                 button {
                     class: "search-person-result homonym-select-trigger",
                     "aria-haspopup": "listbox",
-                    "aria-expanded": if open() { "true" } else { "false" },
+                    "aria-expanded": open().to_string(),
                     disabled: busy(),
                     onclick: move |_| open.toggle(),
                     match selected {
@@ -183,7 +207,7 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
                                 "search-person-result td-suggest-row"
                             },
                             role: "option",
-                            "aria-selected": if chosen().is_none() { "true" } else { "false" },
+                            "aria-selected": chosen().is_none().to_string(),
                             onclick: move |_| {
                                 chosen.set(None);
                                 open.set(false);
@@ -193,21 +217,9 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
                         for row in rows.iter() {
                             button {
                                 key: "{row.person_id()}",
-                                class: {
-                                    let sex = match row.sex() {
-                                        Sex::Male => " male",
-                                        Sex::Female => " female",
-                                        Sex::Unknown => "",
-                                    };
-                                    let active = if chosen() == Some(row.person_id()) {
-                                        " is-active"
-                                    } else {
-                                        ""
-                                    };
-                                    format!("search-person-result td-suggest-row{sex}{active}")
-                                },
+                                class: row_class(row.sex(), chosen() == Some(row.person_id())),
                                 role: "option",
-                                "aria-selected": if chosen() == Some(row.person_id()) { "true" } else { "false" },
+                                "aria-selected": (chosen() == Some(row.person_id())).to_string(),
                                 onclick: {
                                     let id = row.person_id();
                                     move |_| {

@@ -11,6 +11,7 @@ use oxidgene_core::types::{FamilySpouse, Note};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, PersonDetailBundle};
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::media_gallery::MediaOwner;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::{
@@ -58,16 +59,8 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
 
     // Reactive IDs, as on the person page: the router reuses this instance
     // when the spouse selectors move to another couple.
-    let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
-    let new_tid = tree_id.parse::<Uuid>().ok();
-    if new_tid != *tree_id_parsed.peek() {
-        *tree_id_parsed.write() = new_tid;
-    }
-    let mut family_id_parsed = use_signal(|| family_id.parse::<Uuid>().ok());
-    let new_fid = family_id.parse::<Uuid>().ok();
-    if new_fid != *family_id_parsed.peek() {
-        *family_id_parsed.write() = new_fid;
-    }
+    let tree_id_parsed = crate::utils::use_synced(tree_id.parse::<Uuid>().ok());
+    let family_id_parsed = crate::utils::use_synced(family_id.parse::<Uuid>().ok());
 
     use_effect(move || {
         family_id_parsed();
@@ -213,13 +206,16 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
 
     // ── Render ────────────────────────────────────────────────────────
 
-    let tree_name_str = match &*tree_resource.read() {
-        Some(Ok(tree)) => tree.name.clone(),
-        _ => tree_id_parsed()
-            .and_then(|tid| tree_cache.tree(tid))
-            .map(|t| t.name)
-            .unwrap_or_default(),
-    };
+    let tree_name_str = tree_cache
+        .loaded_or_cached(
+            tree_id_parsed(),
+            tree_resource
+                .read()
+                .as_ref()
+                .and_then(|tree| tree.as_ref().ok()),
+        )
+        .map(|tree| tree.name)
+        .unwrap_or_default();
     let self_person_id = match &*tree_resource.read() {
         Some(Ok(tree)) => tree.self_person_id,
         _ => None,
@@ -266,22 +262,9 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     rsx! {
         div { class: "sub-page",
         div { class: "td-topbar",
-            nav { class: "td-bc",
-                Link { to: Route::Home {}, class: "td-bc-logo",
-                    img {
-                        src: crate::components::layout::LOGO_PNG_B64,
-                        alt: "OxidGene",
-                        class: "td-bc-logo-img",
-                    }
-                }
-                if !tree_name_str.is_empty() {
-                    Link {
-                        to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                        class: "td-bc-link",
-                        "{tree_name_str}"
-                    }
-                    span { class: "td-bc-sep", "/" }
-                }
+            TreeBreadcrumb {
+                tree_id: tree_id.clone(),
+                tree_name: tree_name_str.clone(),
                 span { class: "td-bc-current", "{title}" }
             }
             TopbarSearch { tree_id: tree_id.clone(), from_person: true }

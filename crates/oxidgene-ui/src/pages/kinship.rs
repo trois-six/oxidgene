@@ -10,16 +10,35 @@ use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::types::{Kinship as KinshipReport, KinshipPath, KinshipSegment};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, CroppedSource};
+use crate::api::{ApiClient, ApiError, CroppedSource};
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::print::PrintHeading;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
+
+/// The search summaries of the two ends, those that can be read.
+async fn load_ends(
+    api: &ApiClient,
+    tid: Option<Uuid>,
+    ends: [Option<Uuid>; 2],
+) -> HashMap<Uuid, PersonSearchSummary> {
+    let mut summaries = HashMap::new();
+    let Some(tid) = tid else {
+        return summaries;
+    };
+    for id in ends.into_iter().flatten() {
+        if let Ok(profile) = api.get_person_profile(tid, id).await {
+            summaries.insert(id, PersonSearchSummary::from(profile));
+        }
+    }
+    summaries
+}
 
 /// Page rendered at `/trees/:tree_id/kinship?from=...&to=...`.
 #[component]
@@ -56,12 +75,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
         let api = api_tree.clone();
         let _generation = tree_cache.generation();
         let tid = tree_id_parsed();
-        async move {
-            match tid {
-                Some(tid) => fetch_tree_cached(&api, &tree_cache, tid).await.ok(),
-                None => None,
-            }
-        }
+        async move { fetch_tree_cached(&api, &tree_cache, tid?).await.ok() }
     });
 
     // The two ends, shown before and while the paths load.
@@ -69,16 +83,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     let ends_resource = use_traced_resource(load_trace.clone(), "kinship_ends", move || {
         let api = api_ends.clone();
         let (tid, from, to) = (tree_id_parsed(), from_parsed(), to_parsed());
-        async move {
-            let mut ends = HashMap::new();
-            let Some(tid) = tid else { return ends };
-            for id in [from, to].into_iter().flatten() {
-                if let Ok(profile) = api.get_person_profile(tid, id).await {
-                    ends.insert(id, PersonSearchSummary::from(profile));
-                }
-            }
-            ends
-        }
+        async move { load_ends(&api, tid, [from, to]).await }
     });
 
     let api_kinship = api.clone();
@@ -105,20 +110,20 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
         }
         let ids = sorted_unique(ids);
         async move {
-            match tid {
-                Some(tid) => api.portrait_map_for_ids(tid, &ids).await,
-                None => HashMap::new(),
-            }
+            let Some(tid) = tid else {
+                return HashMap::new();
+            };
+            api.portrait_map_for_ids(tid, &ids).await
         }
     });
 
-    let tree_name = match &*tree_resource.read() {
-        Some(Some(tree)) => tree.name.clone(),
-        _ => tree_id_parsed()
-            .and_then(|tid| tree_cache.tree(tid))
-            .map(|tree| tree.name)
-            .unwrap_or_default(),
-    };
+    let tree_name = tree_cache
+        .loaded_or_cached(
+            tree_id_parsed(),
+            tree_resource.read().as_ref().and_then(Option::as_ref),
+        )
+        .map(|tree| tree.name)
+        .unwrap_or_default();
     let ends = ends_resource.read().clone().unwrap_or_default();
     let portraits = portraits_resource.read().clone().unwrap_or_default();
     let choosing_from = picking() == Some(End::From) || from_parsed().is_none();
@@ -155,22 +160,9 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     rsx! {
         div { class: "sub-page",
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
-                    if !tree_name.is_empty() {
-                        Link {
-                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                            class: "td-bc-link",
-                            "{tree_name}"
-                        }
-                        span { class: "td-bc-sep", "/" }
-                    }
+                TreeBreadcrumb {
+                    tree_id: tree_id.clone(),
+                    tree_name: tree_name.clone(),
                     span { class: "td-bc-current", {i18n.t("kinship.breadcrumb")} }
                 }
                 PrintHeading {
@@ -180,44 +172,9 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
             }
 
             div { class: "pd-page-shell",
-                TreeIconSidebar {
-                    active_view: TreeSidebarView::None,
+                ToolPageSidebar {
+                    tree_id: tree_id.clone(),
                     selected_person_id: from_parsed(),
-                    show_middle_separator: false,
-                    show_add_person: false,
-                    on_profile_view: {
-                        let tree_id = tree_id.clone();
-                        move |pid: Option<Uuid>| {
-                            if let Some(pid) = pid {
-                                nav.push(Route::PersonDetail {
-                                    tree_id: tree_id.clone(),
-                                    person_id: pid.to_string(),
-                                });
-                            }
-                        }
-                    },
-                    on_pedigree_view: {
-                        let tree_id = tree_id.clone();
-                        move |pid: Option<Uuid>| {
-                            nav.push(Route::TreeDetail {
-                                tree_id: tree_id.clone(),
-                                person: pid.map(|pid| pid.to_string()),
-                            });
-                        }
-                    },
-                    on_add_person: move |_| {},
-                    on_dictionary: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Dictionary { tree_id: tree_id.clone() });
-                        }
-                    },
-                    on_settings: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Settings { tree_id: tree_id.clone() });
-                        }
-                    },
                 }
 
                 div { class: "sub-page-content kin-content",
@@ -258,29 +215,46 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
                         })}
                     }
 
-                    {
-                        let report = kinship_resource.read();
-                        match &*report {
-                            _ if from_parsed().is_none() || to_parsed().is_none() => rsx! {
-                                p { class: "text-muted kin-status", {i18n.t("kinship.pick_target")} }
-                            },
-                            _ if from_parsed() == to_parsed() => rsx! {
-                                p { class: "text-muted kin-status", {i18n.t("kinship.same_person")} }
-                            },
-                            None | Some(None) => rsx! {
-                                div { class: "loading kin-status", {i18n.t("kinship.loading")} }
-                            },
-                            Some(Some(Err(error))) => rsx! {
-                                div { class: "error-msg kin-status",
-                                    {i18n.t_args("kinship.error", &[("error", &error.to_string())])}
-                                }
-                            },
-                            Some(Some(Ok(report))) => render_report(report, selected, &portraits, &tree_id, &i18n),
-                        }
-                    }
+                    {kinship_status(
+                        kinship_resource.read().as_ref(),
+                        (from_parsed(), to_parsed()),
+                        selected,
+                        &portraits,
+                        &tree_id,
+                        &i18n,
+                    )}
                 }
             }
         }
+    }
+}
+
+/// The relationship found between the two ends, or where the search
+/// stands: waiting for both, the same person twice, loading, failed.
+fn kinship_status(
+    report: Option<&Option<Result<KinshipReport, ApiError>>>,
+    ends: (Option<Uuid>, Option<Uuid>),
+    selected: Signal<usize>,
+    portraits: &HashMap<Uuid, CroppedSource>,
+    tree_id: &str,
+    i18n: &I18n,
+) -> Element {
+    match report {
+        _ if ends.0.is_none() || ends.1.is_none() => rsx! {
+            p { class: "text-muted kin-status", {i18n.t("kinship.pick_target")} }
+        },
+        _ if ends.0 == ends.1 => rsx! {
+            p { class: "text-muted kin-status", {i18n.t("kinship.same_person")} }
+        },
+        None | Some(None) => rsx! {
+            div { class: "loading kin-status", {i18n.t("kinship.loading")} }
+        },
+        Some(Some(Err(error))) => rsx! {
+            div { class: "error-msg kin-status",
+                {i18n.t_args("kinship.error", &[("error", &error.to_string())])}
+            }
+        },
+        Some(Some(Ok(report))) => render_report(report, selected, portraits, tree_id, i18n),
     }
 }
 

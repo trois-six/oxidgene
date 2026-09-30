@@ -1,6 +1,7 @@
 //! Shared UI components.
 
 pub mod audit_log;
+pub mod breadcrumb;
 pub mod charts;
 pub mod confirm_dialog;
 pub mod context_menu;

@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 
 use crate::api::ApiClient;
 use crate::assistant::{AssistantLauncher, use_assistant_launcher};
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::copy_field::CopyField;
 use crate::components::pedigree_chart::PedigreeViewSwatch;
 use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
@@ -13,7 +14,6 @@ use crate::prefs::{
     PedigreeDefaults, SortParticles, set_pedigree_defaults, set_pedigree_theme, set_pedigree_view,
     set_sort_particles,
 };
-use crate::router::Route;
 use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
 use crate::ui_observability::{UiPage, use_ui_load_trace};
 
@@ -45,14 +45,7 @@ pub fn AppSettings() -> Element {
         div { class: "sub-page",
             // ── Topbar breadcrumb ──────────────────────────────────
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
+                TreeBreadcrumb {
                     span { class: "td-bc-current", {i18n.t("app_settings.title")} }
                 }
             }

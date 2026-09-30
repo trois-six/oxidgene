@@ -14,13 +14,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use chrono::NaiveDate;
-use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::CroppedSource;
-use crate::components::cropped_image::{CroppedImage, CroppedSvgImage};
-use crate::components::date_input::format_event_date;
+use crate::components::cropped_image::CroppedSvgImage;
 use crate::components::pedigree_theme::{
     CardFrame, FrameStroke, LinkSpec, PedigreeMetrics, PedigreeTheme, Point, frame_path, link_path,
 };
@@ -44,7 +42,9 @@ use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
 
 mod ancestors;
 mod circular;
+mod controls;
 mod descent;
+mod event_panel;
 mod lineage;
 
 // ── Viewport / zoom ──────────────────────────────────────────────────────
@@ -2693,6 +2693,105 @@ fn root_parent_anchor(asc_arena: &[TreeNode], index: usize) -> Option<(f64, f64,
         .map(|&ci| (asc_arena[ci].x, asc_arena[ci].y, asc_arena[ci].depth))
 }
 
+/// The extent of a layout's cards, before its margin.
+#[derive(Clone, Copy)]
+struct Bounds {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+}
+
+impl Bounds {
+    const EMPTY: Self = Self {
+        min_x: f64::INFINITY,
+        max_x: f64::NEG_INFINITY,
+        min_y: f64::INFINITY,
+        max_y: f64::NEG_INFINITY,
+    };
+
+    /// Grows to hold a card `w` by `h` at `(x, y)`.
+    fn add(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        self.min_x = self.min_x.min(x);
+        self.max_x = self.max_x.max(x + w);
+        self.min_y = self.min_y.min(y);
+        self.max_y = self.max_y.max(y + h);
+    }
+}
+
+/// The root's biological siblings, drawn on the root's row outside the
+/// Reingold–Tilford layout: the elder to the left, linked to the father, the
+/// younger to the right, linked to the mother (or the father when there is
+/// no mother).
+struct SiblingRow<'a> {
+    data: &'a PedigreeData,
+    sosa_root_id: Option<Uuid>,
+    sosa_ancestors: &'a HashSet<Uuid>,
+    theme: &'a PedigreeTheme,
+    last_level: i32,
+}
+
+impl SiblingRow<'_> {
+    /// The siblings' cards; their links are pushed onto `links`.
+    fn place(
+        &self,
+        root_id: Uuid,
+        asc_arena: &[TreeNode],
+        desc_arena: &[TreeNode],
+        links: &mut Vec<String>,
+    ) -> Vec<LayoutNode> {
+        let all_siblings = get_siblings(root_id, self.data);
+        if all_siblings.len() <= 1 {
+            return Vec::new();
+        }
+        let metrics = &self.theme.metrics;
+        let root_sib_idx = all_siblings.iter().position(|&s| s == root_id).unwrap_or(0);
+        let (before, after) = (
+            &all_siblings[..root_sib_idx],
+            &all_siblings[root_sib_idx + 1..],
+        );
+        let (row_y, root_x) = (asc_arena[0].y, asc_arena[0].x);
+        let (sib_min_x, sib_max_x) = root_couple_extent(desc_arena, root_x);
+        // Father: asc_arena[0].children[0], Mother: children[1] (if present).
+        let father = root_parent_anchor(asc_arena, 0);
+        let mother = root_parent_anchor(asc_arena, usize::from(asc_arena[0].children.len() > 1));
+        // Elder siblings count down from the root, so the furthest is "last".
+        let elder = before.iter().enumerate().map(|(i, &id)| {
+            let x = sib_min_x - metrics.sibling_spacing * (before.len() - i) as f64;
+            let simple = father.is_some_and(|(fx, _, _)| x >= fx);
+            (id, x, father, before.len() - i - 1, before.len(), simple)
+        });
+        let younger = after.iter().enumerate().map(|(i, &id)| {
+            let x = sib_max_x + metrics.sibling_spacing * (i + 1) as f64;
+            let simple = mother.is_some_and(|(px, _, _)| x <= px);
+            (id, x, mother, i, after.len(), simple)
+        });
+        let mut nodes = Vec::new();
+        for (sib_id, sib_x, parent, index, count, simple) in elder.chain(younger) {
+            let pn =
+                PersonNode::from_data(sib_id, self.data, self.sosa_root_id, self.sosa_ancestors);
+            nodes.push(pn.card_at(sib_id, sib_x, row_y));
+            let Some((px, py, depth)) = parent else {
+                continue;
+            };
+            links.push(link_path(
+                &LinkSpec::RootSibling {
+                    from: Point::new(px, py),
+                    to: Point::new(sib_x, row_y),
+                    from_depth: depth,
+                    index,
+                    count,
+                    simple,
+                    last_level: self.last_level,
+                },
+                self.theme.link_style,
+                metrics,
+            ));
+        }
+        nodes
+    }
+}
+
 fn compute_layout(
     root_id: Uuid,
     data: &PedigreeData,
@@ -2740,126 +2839,50 @@ fn compute_layout(
     let desc_ty = asc_root_y - desc_root_y; // desc_root_y is 0 after layout_tree
 
     // ── Root biological siblings (placed outside RT layout, same row as root).
-    let mut extra_asc_nodes: Vec<LayoutNode> = Vec::new();
-    {
-        let all_siblings = get_siblings(root_id, data);
-        if options.include_root_siblings && all_siblings.len() > 1 {
-            let root_sib_idx = all_siblings.iter().position(|&s| s == root_id).unwrap_or(0);
-            let sibs_before = &all_siblings[..root_sib_idx];
-            let sibs_after = &all_siblings[root_sib_idx + 1..];
-
-            let (sib_min_x, sib_max_x) = root_couple_extent(&desc_arena, asc_root_x);
-
-            // Father: asc_arena[0].children[0], Mother: children[1] (if present).
-            let father_data = root_parent_anchor(&asc_arena, 0);
-            let parent_idx = if asc_arena[0].children.len() > 1 {
-                1
-            } else {
-                0
-            };
-            let mother_data = root_parent_anchor(&asc_arena, parent_idx);
-
-            let len_before = sibs_before.len();
-            let len_after = sibs_after.len();
-
-            for (i, &sib_id) in sibs_before.iter().enumerate() {
-                let sib_x = sib_min_x - metrics.sibling_spacing * (len_before - i) as f64;
-                let sib_y = asc_root_y;
-                let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
-                extra_asc_nodes.push(pn.card_at(sib_id, sib_x, sib_y));
-                // Link from father node (index reversed so furthest sibling is "last").
-                if let Some((fx, fy, fd)) = father_data {
-                    let rev_idx = len_before - i - 1;
-                    let simple = sib_x >= fx;
-                    asc_links.push(link_path(
-                        &LinkSpec::RootSibling {
-                            from: Point::new(fx, fy),
-                            to: Point::new(sib_x, sib_y),
-                            from_depth: fd,
-                            index: rev_idx,
-                            count: len_before,
-                            simple,
-                            last_level: last_asc_level,
-                        },
-                        theme.link_style,
-                        metrics,
-                    ));
-                }
-            }
-
-            for (i, &sib_id) in sibs_after.iter().enumerate() {
-                let sib_x = sib_max_x + metrics.sibling_spacing * (i + 1) as f64;
-                let sib_y = asc_root_y;
-                let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
-                extra_asc_nodes.push(pn.card_at(sib_id, sib_x, sib_y));
-                // Link from mother (or father if no mother).
-                if let Some((px, py, pd)) = mother_data {
-                    let simple = sib_x <= px;
-                    asc_links.push(link_path(
-                        &LinkSpec::RootSibling {
-                            from: Point::new(px, py),
-                            to: Point::new(sib_x, sib_y),
-                            from_depth: pd,
-                            index: i,
-                            count: len_after,
-                            simple,
-                            last_level: last_asc_level,
-                        },
-                        theme.link_style,
-                        metrics,
-                    ));
-                }
-            }
-        }
-    }
+    let extra_asc_nodes = if options.include_root_siblings {
+        let row = SiblingRow {
+            data,
+            sosa_root_id,
+            sosa_ancestors,
+            theme,
+            last_level: last_asc_level,
+        };
+        row.place(root_id, &asc_arena, &desc_arena, &mut asc_links)
+    } else {
+        Vec::new()
+    };
 
     // ── Global bounding box (descending nodes shifted by desc_tx/ty) ──
     let asc_all = collect_all_nodes(&asc_arena);
     let desc_all = collect_all_nodes(&desc_arena);
-
-    let mut gmin_x = f64::INFINITY;
-    let mut gmax_x = f64::NEG_INFINITY;
-    let mut gmin_y = f64::INFINITY;
-    let mut gmax_y = f64::NEG_INFINITY;
-
-    for &ni in &asc_all {
-        let tn = &asc_arena[ni];
-        let cw = if tn.depth == last_asc_level {
-            metrics.compact_w
+    let mut bounds = Bounds::EMPTY;
+    for tn in asc_all.iter().map(|&ni| &asc_arena[ni]) {
+        let compact = tn.depth == last_asc_level;
+        let (cw, ch) = if compact {
+            (metrics.compact_w, metrics.compact_h)
         } else {
-            metrics.card_w
+            (metrics.card_w, metrics.card_h)
         };
-        let ch = if tn.depth == last_asc_level {
-            metrics.compact_h
-        } else {
-            metrics.card_h
-        };
-        gmin_x = gmin_x.min(tn.x);
-        gmax_x = gmax_x.max(tn.x + cw);
-        gmin_y = gmin_y.min(tn.y);
-        gmax_y = gmax_y.max(tn.y + ch);
+        bounds.add(tn.x, tn.y, cw, ch);
     }
-    for &ni in &desc_all {
-        let tn = &desc_arena[ni];
+    for tn in desc_all.iter().map(|&ni| &desc_arena[ni]) {
         let ch = if tn.depth > 0 {
             metrics.desc_h
         } else {
             metrics.card_h
         };
-        let gx = tn.x + desc_tx;
-        let gy = tn.y + desc_ty;
-        gmin_x = gmin_x.min(gx);
-        gmax_x = gmax_x.max(gx + metrics.card_w);
-        gmin_y = gmin_y.min(gy);
-        gmax_y = gmax_y.max(gy + ch);
+        bounds.add(tn.x + desc_tx, tn.y + desc_ty, metrics.card_w, ch);
     }
     // Include root biological siblings in bounding box.
     for node in &extra_asc_nodes {
-        gmin_x = gmin_x.min(node.x);
-        gmax_x = gmax_x.max(node.x + metrics.card_w);
-        gmin_y = gmin_y.min(node.y);
-        gmax_y = gmax_y.max(node.y + metrics.card_h);
+        bounds.add(node.x, node.y, metrics.card_w, metrics.card_h);
     }
+    let Bounds {
+        min_x: gmin_x,
+        max_x: gmax_x,
+        min_y: gmin_y,
+        max_y: gmax_y,
+    } = bounds;
 
     let margin = metrics.layout_margin;
     // Shift so that no node has a negative coordinate inside the main group.
@@ -3103,31 +3126,6 @@ fn zoom_about(mut transform: Signal<ViewportTransform>, anchor: (f64, f64), new_
 fn offset_holding(anchor: f64, offset: f64, old_scale: f64, new_scale: f64) -> f64 {
     let content_under_anchor = (anchor - offset) / old_scale;
     anchor - content_under_anchor * new_scale
-}
-
-/// Persist a settled view without making the chart render subscribe to the
-/// rapidly changing pan and zoom signals.
-fn save_pedigree_view_state(
-    cache: ViewStateCache,
-    tree_id: Option<Uuid>,
-    root_person_id: Uuid,
-    transform: Signal<ViewportTransform>,
-    ancestor_levels: Signal<usize>,
-    descendant_levels: Signal<usize>,
-) {
-    let Some(tree_id) = tree_id else {
-        return;
-    };
-    let transform = transform();
-    cache.save(PedigreeViewState {
-        tree_id,
-        offset_x: transform.x,
-        offset_y: transform.y,
-        scale: transform.scale,
-        ancestor_levels: ancestor_levels(),
-        descendant_levels: descendant_levels(),
-        selected_root: Some(root_person_id),
-    });
 }
 
 /// What a fit frames: the graph's extent, and the root card it keeps in view.
@@ -3463,6 +3461,52 @@ pub struct MiniPedigreeProps {
     pub theme: Option<&'static PedigreeTheme>,
 }
 
+/// Keeps `viewport` at the element's content size, once it has one.
+fn record_viewport(mut viewport: Signal<Option<(f64, f64)>>, evt: &Event<ResizeData>) {
+    let Ok(size) = evt.get_content_box_size() else {
+        return;
+    };
+    let measured = Some((size.width, size.height));
+    if size.width > 0.0 && size.height > 0.0 && *viewport.peek() != measured {
+        viewport.set(measured);
+    }
+}
+
+/// Moves the tooltip of the hovered person, if any, to the pointer, opening
+/// it towards the larger side of a screen `screen_width` wide.
+fn follow_pointer(
+    mut hovered: Signal<Option<MiniPedigreeTooltipValue>>,
+    screen_width: f64,
+    evt: &Event<MouseData>,
+) {
+    let coordinates = evt.client_coordinates();
+    if let Some(value) = hovered.write().as_mut() {
+        value.pointer = Some(MiniPedigreeTooltipPointer {
+            x: coordinates.x,
+            y: coordinates.y,
+            opens_right: coordinates.x < screen_width / 2.0,
+            opens_below: coordinates.y < 72.0,
+        });
+    }
+}
+
+/// The connectors of one side of a tree, keyed by `side` and their index; a
+/// ruled one drawn twice, as a band with a lighter core.
+fn connector_paths<'a>(
+    links: impl Iterator<Item = (usize, &'a String)>,
+    side: &str,
+    double_ruled: bool,
+) -> Element {
+    rsx! {
+        for (si, path) in links {
+            path { key: "{side}l-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
+            if double_ruled {
+                path { key: "{side}lc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
+            }
+        }
+    }
+}
+
 /// A small static pedigree fragment (e.g. "parents & grandparents"), always
 /// centered on `root_person_id` and fitted to its viewport. Reuses the same
 /// layout engine and card renderer as the full interactive [`PedigreeChart`].
@@ -3484,12 +3528,12 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         y: 0.0,
         scale: preferred_scale,
     });
-    let mut hovered_person = use_signal(|| None::<MiniPedigreeTooltipValue>);
+    let hovered_person = use_signal(|| None::<MiniPedigreeTooltipValue>);
     // This fragment's own viewport, measured by a resize observer: several
     // fragments can share a page, and a column can narrow or widen after
     // the first render, so neither a page-wide lookup nor a one-time
     // measurement fits them.
-    let mut viewport = use_signal(|| None::<(f64, f64)>);
+    let viewport = use_signal(|| None::<(f64, f64)>);
     let mut window_width = use_signal(|| 0.0_f64);
 
     let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
@@ -3509,28 +3553,26 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     // (`desc_nodes` always contains at least the root card itself, even at
     // descendant_levels == 0, so the prop decides the bottom anchoring.)
     let measured = viewport();
-    if let Some((width, height)) = measured {
-        let fitted = mini_pedigree_transform(
+    let fitted = measured.map(|(width, height)| {
+        mini_pedigree_transform(
             width,
             height,
             preferred_scale,
             &layout,
             props.descendant_levels == 0,
             theme,
-        );
-        if *transform.peek() != fitted {
-            transform.set(fitted);
-        }
-    }
-    let viewport_class = if measured.is_some() {
-        format!("mini-pedigree {}", theme.viewport_class)
-    } else {
-        // Hidden until measured, rather than drawn once at the origin.
-        format!(
-            "mini-pedigree mini-pedigree-pending {}",
-            theme.viewport_class
         )
+    });
+    if let Some(fitted) = fitted.filter(|fitted| *transform.peek() != *fitted) {
+        transform.set(fitted);
+    }
+    // Hidden until measured, rather than drawn once at the origin.
+    let pending = if measured.is_some() {
+        ""
+    } else {
+        "mini-pedigree-pending "
     };
+    let viewport_class = format!("mini-pedigree {pending}{}", theme.viewport_class);
 
     rsx! {
         div {
@@ -3542,26 +3584,9 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                     window_width.set(width);
                 }
             },
-            onresize: move |evt: Event<ResizeData>| {
-                if let Ok(size) = evt.get_content_box_size()
-                    && size.width > 0.0
-                    && size.height > 0.0
-                    && viewport.peek().as_ref() != Some(&(size.width, size.height))
-                {
-                    viewport.set(Some((size.width, size.height)));
-                }
-            },
+            onresize: move |evt: Event<ResizeData>| record_viewport(viewport, &evt),
             onmousemove: move |evt: Event<MouseData>| {
-                let coordinates = evt.client_coordinates();
-                let screen_width = window_width();
-                if let Some(value) = hovered_person.write().as_mut() {
-                    value.pointer = Some(MiniPedigreeTooltipPointer {
-                        x: coordinates.x,
-                        y: coordinates.y,
-                        opens_right: coordinates.x < screen_width / 2.0,
-                        opens_below: coordinates.y < 72.0,
-                    });
-                }
+                follow_pointer(hovered_person, window_width(), &evt);
             },
             MiniPedigreeTransform { transform,
                 PedigreeScene {
@@ -3572,12 +3597,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                         style: "display: block; overflow: visible;",
                         g { transform: "translate({layout.main_tx},{layout.main_ty})",
                             g {
-                                for (si, path) in layout.asc_links.iter().enumerate() {
-                                    path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                                            if double_ruled {
-                                                path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                                            }
-                                }
+                                {connector_paths(layout.asc_links.iter().enumerate(), "a", double_ruled)}
                                 for (ni, node) in layout.asc_nodes.iter().enumerate() {
                                     {render_pedigree_card(
                                         node,
@@ -3598,12 +3618,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                             if props.descendant_levels > 0 {
                                 g {
                                     transform: "translate({layout.desc_tx},{layout.desc_ty})",
-                                    for (si, path) in layout.desc_links.iter().enumerate() {
-                                        path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                                                if double_ruled {
-                                                    path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                                                }
-                                            }
+                                    {connector_paths(layout.desc_links.iter().enumerate(), "d", double_ruled)}
                                     for (ni, node) in layout.desc_nodes.iter().enumerate() {
                                         {render_pedigree_card(
                                             node,
@@ -4670,12 +4685,11 @@ fn PedigreeCanvas(
 
                 // ── Ascending tree ──
                 g {
-                    for (si, path) in layout.asc_links.iter().enumerate().filter(|(si, _)| in_region(&region, extents.asc_links[*si].as_ref())) {
-                        path { key: "al-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                        if double_ruled {
-                            path { key: "alc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                        }
-                    }
+                    {connector_paths(
+                        layout.asc_links.iter().enumerate().filter(|(si, _)| in_region(&region, extents.asc_links[*si].as_ref())),
+                        "a",
+                        double_ruled,
+                    )}
                     for ni in (0..layout.asc_nodes.len()).filter(|ni| region.intersects(&extents.asc_cards[*ni])) {
                         PedigreeCard {
                             key: "an-{ni}",
@@ -4695,12 +4709,11 @@ fn PedigreeCanvas(
                 // ── Descending tree ──
                 g {
                     transform: "translate({layout.desc_tx},{layout.desc_ty})",
-                    for (si, path) in layout.desc_links.iter().enumerate().filter(|(si, _)| in_region(&region, extents.desc_links[*si].as_ref())) {
-                        path { key: "dl-{si}", d: "{path}", class: "pedigree-connector-path", fill: "none" }
-                        if double_ruled {
-                            path { key: "dlc-{si}", d: "{path}", class: "pedigree-connector-core", fill: "none" }
-                        }
-                    }
+                    {connector_paths(
+                        layout.desc_links.iter().enumerate().filter(|(si, _)| in_region(&region, extents.desc_links[*si].as_ref())),
+                        "d",
+                        double_ruled,
+                    )}
                     for ni in (0..layout.desc_nodes.len()).filter(|ni| region.intersects(&extents.desc_cards[*ni])) {
                         PedigreeCard {
                             key: "dn-{ni}",
@@ -4722,191 +4735,172 @@ fn PedigreeCanvas(
     }
 }
 
+/// Re-fit the graph when the window is actually resized.
+///
+/// WebKitGTK also fires resize on remapping. Check dimensions to preserve the
+/// reader's pan and zoom when only window focus changes.
+const RESIZE_FIT_JS: &str = r#"
+    if (!window.__oxidgenePedigreeResizeFit) {
+        window.__oxidgenePedigreeResizeFit = {
+            timer: null,
+            w: window.innerWidth,
+            h: window.innerHeight,
+            handler: function () {
+                const state = window.__oxidgenePedigreeResizeFit;
+                clearTimeout(state.timer);
+                state.timer = setTimeout(function () {
+                    if (window.innerWidth === state.w && window.innerHeight === state.h) {
+                        return;
+                    }
+                    state.w = window.innerWidth;
+                    state.h = window.innerHeight;
+                    document.querySelector('.pedigree-resize-fit-trigger')?.click();
+                }, 120);
+            }
+        };
+        window.addEventListener('resize', window.__oxidgenePedigreeResizeFit.handler);
+    }
+"#;
+
+/// Whether `now` differs from what `previous` holds, recording it if so.
+fn changed<T: PartialEq + 'static>(mut previous: Signal<T>, now: T) -> bool {
+    if *previous.peek() == now {
+        return false;
+    }
+    previous.set(now);
+    true
+}
+
+/// Back to scale 1, keeping the pan, before a refit.
+fn reset_scale(mut transform: Signal<ViewportTransform>) {
+    let current = *transform.peek();
+    transform.set(ViewportTransform {
+        scale: 1.0,
+        ..current
+    });
+}
+
+/// The levels actually drawn.
+///
+/// The requested depth runs ahead of the data: raising it fetches a deeper
+/// pedigree, and until that arrives there is nothing more to draw. Laying the
+/// old data out at the new depth drew placeholder slots for a generation
+/// about to load, redrew every card to do it, and held the request back
+/// behind that render.
+fn drawn_levels(data: &PedigreeData, ancestors: usize, descendants: usize) -> (usize, usize) {
+    (
+        data.ancestor_depth_loaded
+            .map_or(ancestors, |loaded| ancestors.min(loaded)),
+        data.descendant_depth_loaded
+            .map_or(descendants, |loaded| descendants.min(loaded)),
+    )
+}
+
+/// The earliest couple of `person` with a known spouse, which the couple view
+/// opens on; none for a person without one.
+fn earliest_couple(data: &PedigreeData, person: Uuid) -> Option<Uuid> {
+    let mut couples: Vec<(Uuid, Option<NaiveDate>)> = data
+        .families_as_spouse
+        .get(&person)
+        .into_iter()
+        .flatten()
+        .filter(|fid| {
+            data.spouses_by_family
+                .get(fid)
+                .is_some_and(|spouses| spouses.iter().any(|s| s.person_id != person))
+        })
+        .map(|fid| {
+            let events = data.events_by_family.get(fid).into_iter().flatten();
+            (*fid, union_sort_date(events))
+        })
+        .collect();
+    sort_unions_chronologically(&mut couples, |couple| couple.1);
+    couples.first().map(|couple| couple.0)
+}
+
 #[component]
 pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
-    let i18n = use_i18n();
     let view_cache = use_view_state_cache();
     let tid_parsed = props.tree_id.parse::<Uuid>().ok();
     let saved = tid_parsed.and_then(|t| view_cache.get_untracked(t));
     let defaults = use_pedigree_defaults().unwrap_or_default();
-
-    // Extract initial values from saved state (or defaults)
-    let init_anc = saved
-        .as_ref()
-        .map_or(defaults.ancestor_levels, |s| s.ancestor_levels);
-    let init_desc = saved
-        .as_ref()
-        .map_or(defaults.descendant_levels, |s| s.descendant_levels);
-    let init_ox = saved.as_ref().map_or(0.0, |s| s.offset_x);
-    let init_oy = saved.as_ref().map_or(0.0, |s| s.offset_y);
-    let init_sc = saved.as_ref().map_or(1.0, |s| s.scale);
-
-    // ── Depth controls (max 10) ──
-    let mut ancestor_levels = use_signal(move || init_anc);
-    let mut descendant_levels = use_signal(move || init_desc);
-    let mut depth_hover = use_signal(|| false);
-    let mut depth_hover_gen = use_signal(|| 0u32);
-
-    // ── Pan and zoom state ──
-    let mut viewport_transform = use_signal(move || ViewportTransform {
-        x: init_ox,
-        y: init_oy,
-        scale: init_sc,
-    });
-    let mut dragging = use_signal(|| false);
-    let mut drag_start_x = use_signal(|| 0.0f64);
-    let mut drag_start_y = use_signal(|| 0.0f64);
-    let mut drag_origin_x = use_signal(|| 0.0f64);
-    let mut drag_origin_y = use_signal(|| 0.0f64);
-
+    // The saved view of this tree, else the default depths at scale 1.
+    let (init_anc, init_desc, init_transform) = saved.as_ref().map_or(
+        (
+            defaults.ancestor_levels,
+            defaults.descendant_levels,
+            ViewportTransform {
+                x: 0.0,
+                y: 0.0,
+                scale: 1.0,
+            },
+        ),
+        |s| {
+            (
+                s.ancestor_levels,
+                s.descendant_levels,
+                ViewportTransform {
+                    x: s.offset_x,
+                    y: s.offset_y,
+                    scale: s.scale,
+                },
+            )
+        },
+    );
+    let ancestor_levels = use_signal(move || init_anc);
+    let descendant_levels = use_signal(move || init_desc);
+    let viewport_transform = use_signal(move || init_transform);
     // Viewport's own page position, cached from each fit measurement so
     // wheel-zoom can convert mouse coordinates without an async round trip
-    // on every tick (see `onwheel` below).
+    // on every tick (see `controls::wheel_zoom`).
     let viewport_rect = use_signal(ViewportRect::assumed);
 
     // ── Selected person (drives event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
     use_track_current_person(tid_parsed, Some(selected_person_id()));
 
-    let mut last_viewport_width = use_signal(|| VIEWPORT_DEFAULT_W);
-
     // ── Event panel collapse (persisted via localStorage) ──
-    let mut panel_collapsed = use_signal(|| false);
-    let mut panel_init = use_signal(|| false);
-    let mut panel_ready = use_signal(|| false);
-    if !panel_init() {
-        panel_init.set(true);
-        spawn(async move {
-            if let Ok(val) = document::eval(&format!(
-                r#"
-                localStorage.removeItem('oxidgene-ev-panel');
-                const transitionGuard = document.createElement('style');
-                transitionGuard.id = 'oxidgene-panel-restore-guard';
-                transitionGuard.textContent = '.ev-panel {{ transition: none !important; }}';
-                document.head.appendChild(transitionGuard);
-                const storedRatio = Number.parseFloat(localStorage.getItem('{EVENT_PANEL_RATIO_STORAGE_KEY}'));
-                if (Number.isFinite(storedRatio) && storedRatio > 0) {{
-                    // Only a panel the reader has dragged is proportional; the
-                    // untouched default stays at the fixed width from the CSS.
-                    const ratio = Math.min({EVENT_PANEL_MAX_RATIO}, storedRatio);
-                    const sidebarWidth = document.querySelector('.pedigree-outer > .isb')?.getBoundingClientRect().width || 46;
-                    document.documentElement.style.setProperty(
-                        '--evw',
-                        `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
-                    );
-                }}
-                const width = window.innerWidth || document.documentElement.clientWidth || 1024;
-                return [localStorage.getItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}') === 'collapsed', width];
-                "#,
-            ))
-            .await
-            {
-                let manual_collapsed = val.get(0).and_then(|value| value.as_bool()).unwrap_or(false);
-                let width = val
-                    .get(1)
-                    .and_then(|value| value.as_f64())
-                    .unwrap_or(VIEWPORT_DEFAULT_W);
-                last_viewport_width.set(width);
-                panel_collapsed.set(manual_collapsed || width <= EVENT_PANEL_AUTO_COLLAPSE_WIDTH);
-            }
-            let _ = document::eval(
-                r#"
-                await new Promise(requestAnimationFrame);
-                await new Promise(requestAnimationFrame);
-                document.getElementById('oxidgene-panel-restore-guard')?.remove();
-                "#,
-            )
-            .await;
-            panel_ready.set(true);
-        });
-    }
+    let last_viewport_width = use_signal(|| VIEWPORT_DEFAULT_W);
+    let panel_collapsed = use_signal(|| false);
+    let panel_ready = event_panel::use_restored_event_panel(panel_collapsed, last_viewport_width);
 
     use_effect(|| {
         document::eval(DRAG_IS_NOT_A_CLICK_JS);
     });
-
-    // Re-fit the graph when the window is actually resized.
-    //
-    // WebKitGTK also fires resize on remapping. Check dimensions to preserve
-    // the reader's pan and zoom when only window focus changes.
-    use_effect(move || {
-        document::eval(
-            r#"
-            if (!window.__oxidgenePedigreeResizeFit) {
-                window.__oxidgenePedigreeResizeFit = {
-                    timer: null,
-                    w: window.innerWidth,
-                    h: window.innerHeight,
-                    handler: function () {
-                        const state = window.__oxidgenePedigreeResizeFit;
-                        clearTimeout(state.timer);
-                        state.timer = setTimeout(function () {
-                            if (window.innerWidth === state.w && window.innerHeight === state.h) {
-                                return;
-                            }
-                            state.w = window.innerWidth;
-                            state.h = window.innerHeight;
-                            document.querySelector('.pedigree-resize-fit-trigger')?.click();
-                        }, 120);
-                    }
-                };
-                window.addEventListener('resize', window.__oxidgenePedigreeResizeFit.handler);
-            }
-            "#,
-        );
+    use_effect(|| {
+        document::eval(RESIZE_FIT_JS);
     });
 
     // ── Disable transition when root changes (avoid flying animation) ──
     let mut animating = use_signal(|| false);
-
     // Where the lineage view's list of the root's children is open, if it is.
     let mut family_menu = use_signal(|| None::<(f64, f64)>);
-
     // ── Fit the graph in the viewport on first load and root/depth changes ──
     // Also fit when explicitly requested via center_gen > 0 (e.g. navigation
     // from search results), even when there is saved pan/zoom state.
     let mut needs_fit = use_signal(|| true);
+    let saver = controls::ViewSaver {
+        cache: view_cache,
+        tree_id: tid_parsed,
+        root: props.root_person_id,
+        transform: viewport_transform,
+        ancestor_levels,
+        descendant_levels,
+    };
 
-    // ── Reset pan/zoom/selection when the root person changes ──
-    let mut prev_root = use_signal(|| props.root_person_id);
-    if prev_root() != props.root_person_id {
-        prev_root.set(props.root_person_id);
-        animating.set(false);
-        let mut current = *viewport_transform.peek();
-        current.scale = 1.0;
-        viewport_transform.set(current);
+    // ── Reset pan/zoom/selection when the root person changes, or when the
+    // parent increments center_gen to force re-centering ──
+    let prev_root = use_signal(|| props.root_person_id);
+    let root_changed = changed(prev_root, props.root_person_id);
+    if root_changed {
         selected_person_id.set(props.root_person_id);
-        needs_fit.set(true);
     }
-
-    // ── Force re-centering when parent increments center_gen ──
-    let mut prev_center_gen = use_signal(|| props.center_gen);
-    if prev_center_gen() != props.center_gen {
-        prev_center_gen.set(props.center_gen);
+    let prev_center_gen = use_signal(|| props.center_gen);
+    if changed(prev_center_gen, props.center_gen) || root_changed {
         animating.set(false);
-        let mut current = *viewport_transform.peek();
-        current.scale = 1.0;
-        viewport_transform.set(current);
+        reset_scale(viewport_transform);
         needs_fit.set(true);
     }
-
-    // ── Levels actually drawn ──
-    //
-    // The requested depth runs ahead of the data: raising it fetches a deeper
-    // pedigree, and until that arrives there is nothing more to draw. Laying
-    // the old data out at the new depth drew placeholder slots for a
-    // generation about to load, redrew every card to do it, and held the
-    // request back behind that render.
-    let anc_now = props
-        .data
-        .ancestor_depth_loaded
-        .map_or(ancestor_levels(), |loaded| ancestor_levels().min(loaded));
-    let desc_now = props
-        .data
-        .descendant_depth_loaded
-        .map_or(descendant_levels(), |loaded| {
-            descendant_levels().min(loaded)
-        });
 
     // ── Fetch as soon as the requested depth changes ──
     //
@@ -4914,47 +4908,20 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // shallower) pedigree; it no longer waits for a re-fit, which only runs
     // once there is something new to fit.
     let requested = (ancestor_levels(), descendant_levels());
-    let mut prev_requested = use_signal(|| requested);
-    if *prev_requested.peek() != requested {
-        prev_requested.set(requested);
-        let root = props.root_person_id;
-        spawn(async move {
-            save_pedigree_view_state(
-                view_cache,
-                tid_parsed,
-                root,
-                viewport_transform,
-                ancestor_levels,
-                descendant_levels,
-            );
-        });
+    let prev_requested = use_signal(|| requested);
+    if changed(prev_requested, requested) {
+        spawn(async move { saver.save() });
     }
 
-    // ── Force re-centering when the drawn depth changes ──
-    let mut prev_anc = use_signal(|| anc_now);
-    let mut prev_desc = use_signal(|| desc_now);
-    if prev_anc() != anc_now || prev_desc() != desc_now {
-        prev_anc.set(anc_now);
-        prev_desc.set(desc_now);
-        animating.set(false);
-        needs_fit.set(true);
-    }
-
-    // ── Theme ──
+    // ── Force re-centering when the drawn depth, the theme or the view
+    // changes ──
+    let (anc_now, desc_now) = drawn_levels(&props.data, requested.0, requested.1);
     let preferred = crate::prefs::use_pedigree_theme();
     let theme = props.theme.unwrap_or_else(|| preferred.theme());
-    let mut previous_theme = use_signal(|| *theme);
-    if *previous_theme.peek() != *theme {
-        previous_theme.set(*theme);
-        animating.set(false);
-        needs_fit.set(true);
-    }
-
-    // ── View: which drawing, refitted whenever it changes ──
     let view = crate::prefs::use_pedigree_view();
-    let mut previous_view = use_signal(|| view);
-    if *previous_view.peek() != view {
-        previous_view.set(view);
+    let shape_now = ((anc_now, desc_now), *theme, view);
+    let prev_shape = use_signal(|| shape_now);
+    if changed(prev_shape, shape_now) {
         animating.set(false);
         needs_fit.set(true);
     }
@@ -4972,198 +4939,22 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         },
     );
     let max_zoom = scene.max_zoom();
+    let fit_target = scene.fit_target();
 
     // ── Fit graph in viewport when needed ──
     if needs_fit() && panel_ready() {
-        let fit_target = scene.fit_target();
         needs_fit.set(false);
-        spawn(async move {
-            // Small delay so the DOM has rendered the viewport element.
-            crate::utils::sleep_ms(30).await;
-            fit_graph_in_viewport(viewport_transform, viewport_rect, fit_target).await;
-            save_pedigree_view_state(
-                view_cache,
-                tid_parsed,
-                props.root_person_id,
-                viewport_transform,
-                ancestor_levels,
-                descendant_levels,
-            );
-            // Re-enable animation after fitting.
-            crate::utils::sleep_ms(20).await;
-            animating.set(true);
-        });
+        spawn(saver.fit(viewport_rect, fit_target, animating));
     }
-
-    // ── Event panel data (selected person) ──
-    let sel_pid = selected_person_id();
-    // The same resolver every other surface uses, so the no-name fallback is
-    // the translated one rather than a hardcoded "Unknown".
-    let sel_full_name = props.data.display_name(sel_pid, &i18n);
-    let sel_portrait = props
-        .data
-        .photos
-        .get(&sel_pid)
-        .cloned()
-        .unwrap_or_else(|| CroppedSource::silhouette(props.data.sex_of(sel_pid)));
-    // The same lifespan the card draws, rather than the old "n. 1620" / "d.
-    // 1691" abbreviations: the panel sits beside the card showing the very
-    // same person, and two spellings of one life read as two different facts.
-    // The events below keep their own full-text dates.
-    // Always the wide form here: this is HTML that wraps, so unlike the card
-    // it never has to give up a range's far end.
-    let sel_dates = format_lifespan(
-        props.data.qualified_birth_year(sel_pid),
-        props.data.qualified_death_year(sel_pid),
-    );
-
-    // Family IDs where the selected person is a spouse — used both to pull in
-    // conjugal-family events below and to flag which rendered events are
-    // "direct" (on the person or their own conjugal family) vs. narrative
-    // context (children, parents, siblings).
-    let spouse_family_ids: Vec<Uuid> = props
-        .data
-        .families_as_spouse
-        .get(&sel_pid)
-        .cloned()
-        .unwrap_or_default();
-
-    // Collect all events relevant to this person:
-    // 1. Individual events (birth, death, occupation, etc.)
-    let mut sel_events: Vec<DomainEvent> = props
-        .data
-        .events_by_person
-        .get(&sel_pid)
-        .cloned()
-        .unwrap_or_default();
-    // 2. Conjugal family events (marriage, divorce, etc.)
-    if let Some(fam_ids) = props.data.families_as_spouse.get(&sel_pid) {
-        for fid in fam_ids {
-            if let Some(fam_events) = props.data.events_by_family.get(fid) {
-                sel_events.extend(fam_events.iter().cloned());
-            }
-            // Also include major life events of children (birth, death, baptism, burial).
-            if let Some(children) = props.data.children_by_family.get(fid) {
-                for child in children {
-                    if let Some(child_events) = props.data.events_by_person.get(&child.person_id) {
-                        for ce in child_events {
-                            if ce.event_type == EventType::Birth
-                                || ce.event_type == EventType::Death
-                                || ce.event_type == EventType::Baptism
-                                || ce.event_type == EventType::Burial
-                            {
-                                sel_events.push(ce.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // 3. Parental family events (sibling birth, parent death, etc.)
-    if let Some(fam_ids) = props.data.families_as_child.get(&sel_pid) {
-        for fid in fam_ids {
-            if let Some(fam_events) = props.data.events_by_family.get(fid) {
-                sel_events.extend(fam_events.iter().cloned());
-            }
-            // Also include individual events of family members (parents, siblings).
-            if let Some(spouses) = props.data.spouses_by_family.get(fid) {
-                for spouse in spouses {
-                    if let Some(parent_events) = props.data.events_by_person.get(&spouse.person_id)
-                    {
-                        for pe in parent_events {
-                            // Include major life events of parents (death, burial).
-                            if pe.event_type == EventType::Death
-                                || pe.event_type == EventType::Burial
-                            {
-                                sel_events.push(pe.clone());
-                            }
-                        }
-                    }
-                }
-            }
-            if let Some(children) = props.data.children_by_family.get(fid) {
-                for child in children {
-                    if child.person_id == sel_pid {
-                        continue; // Skip self.
-                    }
-                    if let Some(sib_events) = props.data.events_by_person.get(&child.person_id) {
-                        for se in sib_events {
-                            // Include major life events of siblings (birth, death).
-                            if se.event_type == EventType::Birth
-                                || se.event_type == EventType::Death
-                                || se.event_type == EventType::Baptism
-                                || se.event_type == EventType::Burial
-                            {
-                                sel_events.push(se.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // Deduplicate by event ID and sort by date.
-    sel_events.sort_by_key(|a| a.id);
-    sel_events.dedup_by_key(|e| e.id);
-    sel_events.sort_by_key(|a| a.date_sort);
-
-    // Group events by year for display.
-    let mut event_groups: Vec<(String, Vec<DomainEvent>)> = Vec::new();
-    for evt in &sel_events {
-        let year = evt
-            .year()
-            .map_or_else(|| i18n.t("pedigree.events_undated"), |y| y.to_string());
-        if let Some(last) = event_groups.last_mut()
-            && last.0 == year
-        {
-            last.1.push(evt.clone());
-            continue;
-        }
-        event_groups.push((year, vec![evt.clone()]));
-    }
-
-    // ── Fit-to-content zoom calculation ──
-    let fit_target = scene.fit_target();
-
-    // The couple view opens on the selected person's earliest couple; a
-    // person with no known spouse has none, and no couple button.
-    let couple_family_id = {
-        let sel = selected_person_id();
-        let mut couples: Vec<(Uuid, Option<NaiveDate>)> = props
-            .data
-            .families_as_spouse
-            .get(&sel)
-            .into_iter()
-            .flatten()
-            .filter(|fid| {
-                props
-                    .data
-                    .spouses_by_family
-                    .get(fid)
-                    .is_some_and(|spouses| spouses.iter().any(|s| s.person_id != sel))
-            })
-            .map(|fid| {
-                let events = props.data.events_by_family.get(fid).into_iter().flatten();
-                (*fid, union_sort_date(events))
-            })
-            .collect();
-        sort_unions_chronologically(&mut couples, |couple| couple.1);
-        couples.first().map(|couple| couple.0)
-    };
 
     rsx! {
         div { class: "pedigree-outer",
-
-            // ══════════════════════════════════
-            // ICON SIDEBAR
-            // ══════════════════════════════════
             TreeIconSidebar {
                 active_view: TreeSidebarView::Pedigree,
                 selected_person_id: Some(selected_person_id()),
-                couple_family_id,
+                couple_family_id: earliest_couple(&props.data, selected_person_id()),
                 on_couple_view: props.on_couple_view,
-                on_profile_view: move |pid| {
+                on_profile_view: move |pid: Option<Uuid>| {
                     if let Some(pid) = pid {
                         props.on_profile_view.call(pid);
                     }
@@ -5172,309 +4963,26 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 on_add_person: props.on_add_person,
                 on_settings: props.on_settings,
                 on_dictionary: props.on_dictionary,
-
-                // Depth selector (hover popover)
-                div {
-                    class: "isb-depth-wrap",
-                    onmouseenter: move |_| {
-                        // Bump generation to cancel any pending close task.
-                        depth_hover_gen += 1;
-                        depth_hover.set(true);
-                    },
-                    onmouseleave: move |_| {
-                        // Close after 200ms unless mouse re-enters (generation changes).
-                        let leave_gen = depth_hover_gen();
-                        spawn(async move {
-                            crate::utils::sleep_ms(200).await;
-                            if depth_hover_gen() == leave_gen {
-                                depth_hover.set(false);
-                            }
-                        });
-                    },
-                    button {
-                        class: "isb-btn",
-                        title: "{i18n.t(\"pedigree.depth\")}",
-                        svg {
-                            width: "16",
-                            height: "16",
-                            fill: "none",
-                            "viewBox": "0 0 24 24",
-                            stroke: "currentColor",
-                            "strokeWidth": "2",
-                            // Layers/depth icon
-                            path { d: "M12 2 2 7l10 5 10-5-10-5z" }
-                            path { d: "M2 17l10 5 10-5" }
-                            path { d: "M2 12l10 5 10-5" }
-                        }
-                    }
-                    if depth_hover() {
-                        div { class: "pedigree-depth-popover",
-                            // A view drawing descendants only has no ancestor
-                            // depth to set.
-                            if view.shows_ancestors() {
-                            div { class: "pedigree-depth-row",
-                                span { class: "pedigree-depth-arrow", "\u{2191}" }
-                                button {
-                                    class: "pedigree-depth-btn",
-                                    onclick: move |_| { if ancestor_levels() > 0 { ancestor_levels -= 1; } },
-                                    "\u{2212}" // −
-                                }
-                                span { class: "pedigree-depth-val", "{ancestor_levels()}" }
-                                button {
-                                    class: "pedigree-depth-btn",
-                                    onclick: move |_| { if ancestor_levels() < 10 { ancestor_levels += 1; } },
-                                    "+"
-                                }
-                            }
-                            }
-                            // A view drawing ancestors only has no descendant
-                            // depth to set.
-                            if view.shows_descendants() {
-                                div { class: "pedigree-depth-row",
-                                    span { class: "pedigree-depth-arrow", "\u{2193}" }
-                                    button {
-                                        class: "pedigree-depth-btn",
-                                        onclick: move |_| { if descendant_levels() > 0 { descendant_levels -= 1; } },
-                                        "\u{2212}"
-                                    }
-                                    span { class: "pedigree-depth-val", "{descendant_levels()}" }
-                                    button {
-                                        class: "pedigree-depth-btn",
-                                        onclick: move |_| { if descendant_levels() < 10 { descendant_levels += 1; } },
-                                        "+"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                div { class: "isb-hr" }
-
-                button {
-                    class: "isb-btn",
-                    title: "{i18n.t(\"pedigree.zoom_in\")}",
-                    // A button has no cursor to anchor to, so it
-                    // holds the middle of the viewport still.
-                    onclick: move |_| {
-                        if let Some(new_scale) = zoom_step(viewport_transform().scale, ZOOM_FACTOR, max_zoom) {
-                            zoom_about(
-                                viewport_transform,
-                                viewport_rect().center(),
-                                new_scale,
-                            );
-                            save_pedigree_view_state(
-                                view_cache,
-                                tid_parsed,
-                                props.root_person_id,
-                                viewport_transform,
-                                ancestor_levels,
-                                descendant_levels,
-                            );
-                        }
-                    },
-                    svg {
-                        width: "16",
-                        height: "16",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        circle { cx: "11", cy: "11", r: "8" }
-                        line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
-                        line { x1: "11", y1: "8", x2: "11", y2: "14" }
-                        line { x1: "8", y1: "11", x2: "14", y2: "11" }
-                    }
-                }
-                button {
-                    class: "isb-btn",
-                    title: "{i18n.t(\"pedigree.zoom_out\")}",
-                    // A button has no cursor to anchor to, so it
-                    // holds the middle of the viewport still.
-                    onclick: move |_| {
-                        if let Some(new_scale) = zoom_step(viewport_transform().scale, 1.0 / ZOOM_FACTOR, max_zoom) {
-                            zoom_about(
-                                viewport_transform,
-                                viewport_rect().center(),
-                                new_scale,
-                            );
-                            save_pedigree_view_state(
-                                view_cache,
-                                tid_parsed,
-                                props.root_person_id,
-                                viewport_transform,
-                                ancestor_levels,
-                                descendant_levels,
-                            );
-                        }
-                    },
-                    svg {
-                        width: "16",
-                        height: "16",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        circle { cx: "11", cy: "11", r: "8" }
-                        line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
-                        line { x1: "8", y1: "11", x2: "14", y2: "11" }
-                    }
-                }
-                PedigreeZoomValue { transform: viewport_transform }
-                button {
-                    class: "isb-btn",
-                    title: "{i18n.t(\"pedigree.fit_screen\")}",
-                    onclick: move |_| {
-                        spawn(async move {
-                            fit_graph_in_viewport(
-                                viewport_transform,
-                                viewport_rect,
-                                fit_target,
-                            )
-                            .await;
-                            save_pedigree_view_state(
-                                view_cache,
-                                tid_parsed,
-                                props.root_person_id,
-                                viewport_transform,
-                                ancestor_levels,
-                                descendant_levels,
-                            );
-                        });
-                    },
-                    svg {
-                        width: "16",
-                        height: "16",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        // Maximize/fit-screen icon (four corners)
-                        path { d: "M3 8V5a2 2 0 0 1 2-2h3" }
-                        path { d: "M16 3h3a2 2 0 0 1 2 2v3" }
-                        path { d: "M21 16v3a2 2 0 0 1-2 2h-3" }
-                        path { d: "M8 21H5a2 2 0 0 1-2-2v-3" }
-                    }
-                }
-
-                div { class: "isb-hr" }
+                controls::PedigreeTools { view, saver, viewport_rect, max_zoom, fit_target }
             }
 
             button {
                 class: "pedigree-resize-fit-trigger",
                 tabindex: "-1",
                 onclick: move |_| {
-                    spawn(async move {
-                        if let Ok(val) = document::eval("return window.innerWidth || document.documentElement.clientWidth || 1024").await {
-                            let width = val.as_f64().unwrap_or(VIEWPORT_DEFAULT_W);
-                            let previous_width = last_viewport_width();
-                            let panel_changed = previous_width > EVENT_PANEL_AUTO_COLLAPSE_WIDTH
-                                && width <= EVENT_PANEL_AUTO_COLLAPSE_WIDTH
-                                && !panel_collapsed();
-                            if panel_changed {
-                                panel_collapsed.set(true);
-                            }
-                            last_viewport_width.set(width);
-                            if panel_changed {
-                                let _ = document::eval(WAIT_FOR_EVENT_PANEL_TRANSITION_JS).await;
-                            }
-                        }
-                        needs_fit.set(true);
-                    });
+                    spawn(controls::refit_after_resize(last_viewport_width, panel_collapsed, needs_fit));
                 },
             }
 
-            // ══════════════════════════════════
-            // CANVAS VIEWPORT
-            // ══════════════════════════════════
-            div {
+            controls::PanZoomViewport {
                 class: "pedigree-viewport {theme.viewport_class}",
-
-                onpointerdown: move |evt| {
-                    // Direct manipulation tracks the pointer 1:1 — the CSS
-                    // transition is only for programmatic jumps (fit/center).
-                    animating.set(false);
-                    let coords = evt.client_coordinates();
-                    drag_start_x.set(coords.x);
-                    drag_start_y.set(coords.y);
-                    let current = viewport_transform();
-                    drag_origin_x.set(current.x);
-                    drag_origin_y.set(current.y);
-                    dragging.set(true);
-                },
-                onpointermove: move |evt| {
-                    if dragging() {
-                        let coords = evt.client_coordinates();
-                        let current = viewport_transform();
-                        viewport_transform.set(ViewportTransform {
-                            x: drag_origin_x() + coords.x - drag_start_x(),
-                            y: drag_origin_y() + coords.y - drag_start_y(),
-                            ..current
-                        });
-                    }
-                },
-                onpointerup: move |_| {
-                    dragging.set(false);
-                    save_pedigree_view_state(
-                        view_cache,
-                        tid_parsed,
-                        props.root_person_id,
-                        viewport_transform,
-                        ancestor_levels,
-                        descendant_levels,
-                    );
-                },
-                onpointerleave: move |_| {
-                    if dragging() {
-                        dragging.set(false);
-                        save_pedigree_view_state(
-                            view_cache,
-                            tid_parsed,
-                            props.root_person_id,
-                            viewport_transform,
-                            ancestor_levels,
-                            descendant_levels,
-                        );
-                    }
-                },
-                onwheel: move |evt| {
-                    let delta_y = match evt.delta() {
-                        WheelDelta::Lines(l) => l.y * 20.0,
-                        WheelDelta::Pixels(p) => p.y,
-                        WheelDelta::Pages(p) => p.y * 400.0,
-                    };
-                    let factor = if delta_y > 0.0 { 0.9 } else { 1.0 / 0.9 };
-                    let Some(new_scale) = zoom_step(viewport_transform().scale, factor, max_zoom) else {
-                        return;
-                    };
-                    // Same reasoning as onpointerdown: a wheel gesture is a
-                    // stream of many small updates, each of which must land
-                    // instantly or they visibly fight the CSS transition and
-                    // the zoom feels laggy. Reading the cached viewport rect
-                    // (refreshed on each fit) instead of an async DOM query
-                    // per tick keeps this handler fully synchronous, so there
-                    // is no round-trip latency and no risk of updates
-                    // applying out of order.
-                    animating.set(false);
-                    let coords = evt.client_coordinates();
-                    let rect = viewport_rect();
-                    // The wheel holds the point under the cursor still.
-                    let anchor = (coords.x - rect.page_x, coords.y - rect.page_y);
-                    zoom_about(viewport_transform, anchor, new_scale);
-                    save_pedigree_view_state(
-                        view_cache,
-                        tid_parsed,
-                        props.root_person_id,
-                        viewport_transform,
-                        ancestor_levels,
-                        descendant_levels,
-                    );
-                },
-
+                saver,
+                viewport_rect,
+                animating,
+                max_zoom,
                 PedigreeTransform {
                     transform: viewport_transform,
                     animating,
-
                     PedigreeScene {
                         match scene {
                             ChartScene::Tree(layout) => rsx! {
@@ -5542,221 +5050,12 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 }
             }
 
-            // ══════════════════════════════════
-            // EVENT PANEL
-            // ══════════════════════════════════
-            if !panel_collapsed() {
-                div {
-                    class: "evp-resize-handle",
-                    role: "separator",
-                    tabindex: "0",
-                    "aria-orientation": "vertical",
-                    "aria-label": i18n.t("pedigree.resize_events"),
-                    title: i18n.t("pedigree.resize_events"),
-                    onpointerdown: move |evt| {
-                        let start_x = evt.client_coordinates().x;
-                        document::eval(&format!(
-                            r#"
-                            const outer = document.querySelector('.pedigree-outer');
-                            const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
-                            if (!outer || !panel || window.innerWidth <= {EVENT_PANEL_AUTO_COLLAPSE_WIDTH}) return;
-
-                            const sidebarWidth = outer.querySelector(':scope > .isb')?.getBoundingClientRect().width || 46;
-                            const availableWidth = Math.max(1, outer.getBoundingClientRect().width - sidebarWidth);
-                            const maxWidth = Math.max(
-                                {EVENT_PANEL_MIN_WIDTH},
-                                Math.min({EVENT_PANEL_MAX_WIDTH}, availableWidth * {EVENT_PANEL_MAX_RATIO}),
-                            );
-                            const startWidth = panel.getBoundingClientRect().width;
-                            const startX = {start_x};
-
-                            let width = startWidth;
-                            const move = (event) => {{
-                                const requested = startWidth + startX - event.clientX;
-                                width = Math.min(maxWidth, Math.max({EVENT_PANEL_MIN_WIDTH}, requested));
-                                document.documentElement.style.setProperty('--evw', `${{width}}px`);
-                            }};
-                            const finish = () => {{
-                                window.removeEventListener('pointermove', move);
-                                window.removeEventListener('pointerup', finish);
-                                window.removeEventListener('pointercancel', finish);
-                                outer.classList.remove('pedigree-is-resizing');
-                                document.body.style.removeProperty('cursor');
-                                document.body.style.removeProperty('user-select');
-
-                                // Store and re-apply the width as a ratio so it
-                                // follows later window resizes.
-                                const ratio = width / availableWidth;
-                                document.documentElement.style.setProperty(
-                                    '--evw',
-                                    `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
-                                );
-                                localStorage.setItem('{EVENT_PANEL_RATIO_STORAGE_KEY}', String(ratio));
-                                document.querySelector('.pedigree-resize-fit-trigger')?.click();
-                            }};
-
-                            outer.classList.add('pedigree-is-resizing');
-                            document.body.style.cursor = 'col-resize';
-                            document.body.style.userSelect = 'none';
-                            window.addEventListener('pointermove', move);
-                            window.addEventListener('pointerup', finish);
-                            window.addEventListener('pointercancel', finish);
-                            "#,
-                        ));
-                    },
-                    onkeydown: move |evt| {
-                        let delta = match evt.key() {
-                            Key::ArrowLeft => EVENT_PANEL_KEYBOARD_STEP,
-                            Key::ArrowRight => -EVENT_PANEL_KEYBOARD_STEP,
-                            _ => return,
-                        };
-                        evt.prevent_default();
-                        document::eval(&format!(
-                            r#"
-                            const outer = document.querySelector('.pedigree-outer');
-                            const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
-                            if (!outer || !panel || window.innerWidth <= {EVENT_PANEL_AUTO_COLLAPSE_WIDTH}) return;
-                            const sidebarWidth = outer.querySelector(':scope > .isb')?.getBoundingClientRect().width || 46;
-                            const availableWidth = Math.max(1, outer.getBoundingClientRect().width - sidebarWidth);
-                            const maxWidth = Math.max(
-                                {EVENT_PANEL_MIN_WIDTH},
-                                Math.min({EVENT_PANEL_MAX_WIDTH}, availableWidth * {EVENT_PANEL_MAX_RATIO}),
-                            );
-                            const width = Math.min(
-                                maxWidth,
-                                Math.max({EVENT_PANEL_MIN_WIDTH}, panel.getBoundingClientRect().width + {delta}),
-                            );
-                            const ratio = width / availableWidth;
-                            document.documentElement.style.setProperty(
-                                '--evw',
-                                `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
-                            );
-                            localStorage.setItem('{EVENT_PANEL_RATIO_STORAGE_KEY}', String(ratio));
-                            document.querySelector('.pedigree-resize-fit-trigger')?.click();
-                            "#,
-                        ));
-                    },
-                }
-            }
-            div {
-                class: if panel_collapsed() { "ev-panel ev-panel-collapsed" } else { "ev-panel" },
-                button {
-                    class: "evp-toggle",
-                    title: if panel_collapsed() { i18n.t("pedigree.events") } else { i18n.t("pedigree.hide_events") },
-                    onclick: move |_| {
-                        let new_val = !panel_collapsed();
-                        panel_collapsed.set(new_val);
-                        let val = if new_val { "collapsed" } else { "open" };
-                        document::eval(&format!(
-                            "localStorage.setItem('{EVENT_PANEL_MANUAL_STORAGE_KEY}', '{}')",
-                            val,
-                        ));
-                        spawn(async move {
-                            let _ = document::eval(WAIT_FOR_EVENT_PANEL_TRANSITION_JS).await;
-                            needs_fit.set(true);
-                        });
-                    },
-                    if panel_collapsed() { "\u{203A}" } else { "\u{2039}" }
-                }
-                if !panel_collapsed() {
-                    div { class: "evp-hd", {i18n.t("pedigree.events")} }
-                    div { class: "evp-person",
-                        div { class: "evp-av",
-                            CroppedImage {
-                                image: sel_portrait,
-                                alt: String::new(),
-                                fallback: CroppedSource::silhouette(props.data.sex_of(sel_pid)),
-                            }
-                        }
-                        div { class: "evp-name",
-                            strong { "{sel_full_name}" }
-                            if !sel_dates.is_empty() {
-                                span { "{sel_dates}" }
-                            }
-                        }
-                    }
-                    div { class: "evp-list",
-                        if sel_events.is_empty() {
-                            div { class: "evp-empty", {i18n.t("person_form.no_other_events")} }
-                        } else {
-                            for (gi, (year, events)) in event_groups.iter().enumerate() {
-                                {
-                                    let year = year.clone();
-                                    let events = events.clone();
-                                    let tree_id = props.tree_id.clone();
-                                    rsx! {
-                                        div { key: "evg-{gi}", class: "ev-year-group",
-                                            div { class: "ev-year-header", "{year}" }
-                                            for (ei, evt) in events.iter().enumerate() {
-                                                {
-                                                    let (icon, ic_class, label_key) = event_ui(evt.event_type);
-                                                    let label = i18n.t(label_key);
-                                                    let date_s = format_event_date(&i18n, evt);
-                                                    let place_s = evt.place_id
-                                                        .and_then(|pid| props.data.place_name(pid).map(String::from))
-                                                        .or_else(|| evt.description.clone())
-                                                        .unwrap_or_default();
-                                                    // Build context label for events from related persons.
-                                                    let context_name: Option<String> = if evt.person_id.is_some() && evt.person_id != Some(sel_pid) {
-                                                        evt.person_id.map(|pid| props.data.display_name(pid, &i18n))
-                                                    } else if evt.family_id.is_some() && evt.person_id.is_none() {
-                                                        // Family event (marriage, divorce…) — show partner name.
-                                                        evt.family_id.and_then(|fid| {
-                                                            props.data.spouses_by_family.get(&fid).and_then(|spouses| {
-                                                                spouses.iter()
-                                                                    .find(|s| s.person_id != sel_pid)
-                                                                    .map(|s| props.data.display_name(s.person_id, &i18n))
-                                                            })
-                                                        })
-                                                    } else {
-                                                        None
-                                                    };
-                                                    let full_label = if let Some(ref ctx) = context_name {
-                                                        format!("{label} ({ctx})")
-                                                    } else {
-                                                        label
-                                                    };
-                                                    let is_direct = evt.person_id == Some(sel_pid)
-                                                        || evt.family_id.is_some_and(|fid| spouse_family_ids.contains(&fid));
-                                                    let item_class = if is_direct {
-                                                        "ev-item ev-item-clickable ev-item-direct"
-                                                    } else {
-                                                        "ev-item ev-item-clickable"
-                                                    };
-                                                    let sel = sel_pid;
-                                                    let tid = tree_id.clone();
-                                                    let nav = use_navigator();
-                                                    rsx! {
-                                                        div {
-                                                            key: "ev-{gi}-{ei}",
-                                                            class: "{item_class}",
-                                                            onclick: move |_| {
-                                                                nav.push(crate::router::Route::PersonDetail {
-                                                                    tree_id: tid.clone(),
-                                                                    person_id: sel.to_string(),
-                                                                });
-                                                            },
-                                                            div { class: ic_class, "{icon}" }
-                                                            div { class: "ev-info",
-                                                                div { class: "ev-type", "{full_label}" }
-                                                                if !date_s.is_empty() {
-                                                                    div { class: "ev-date", "{date_s}" }
-                                                                }
-                                                                if !place_s.is_empty() {
-                                                                    div { class: "ev-place", "{place_s}" }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            event_panel::EventPanel {
+                data: props.data.clone(),
+                selected: selected_person_id(),
+                tree_id: props.tree_id.clone(),
+                collapsed: panel_collapsed,
+                needs_fit,
             }
         }
     }
@@ -7620,238 +6919,274 @@ mod geometry_golden_tests {
     #[test]
     #[ignore = "writes a preview page for a human to look at"]
     fn theme_preview() {
-        use crate::components::layout::LAYOUT_STYLES;
-        use std::fmt::Write as _;
-
         // Colours live in the theme now, not in LAYOUT_STYLES, so the preview
         // has to carry a palette of its own or every var() resolves to
         // nothing and the page renders unstyled.
         let palette = crate::theme::builtin_theme(crate::theme::DEFAULT_THEME_ID)
             .expect("default theme")
             .css();
-
         let data = wide_pedigree();
         let i18n = I18n(crate::i18n::Language::En);
         let out_dir = std::env::var("OXIDGENE_PREVIEW_DIR").unwrap_or_else(|_| ".".to_string());
-
+        let write_page = |name: &str, page: String| {
+            let path = format!("{out_dir}/{name}.html");
+            std::fs::write(&path, page).expect("preview written");
+            println!("wrote {path}");
+        };
         for (name, theme) in [
             ("classic", &PedigreeTheme::CLASSIC),
             ("medieval", &PedigreeTheme::MEDIEVAL),
         ] {
-            let layout = compute_layout(
-                id(ROOT),
-                &data,
-                None,
-                &HashSet::new(),
-                PedigreeLayoutOptions::full(3, 2),
+            let page = chart_preview(&data, theme, &i18n, &palette);
+            write_page(&format!("pedigree-{name}"), page);
+        }
+        write_page("pedigree-swatches", swatches_preview(&palette));
+    }
+
+    /// A page drawing `data` in `theme`, cards and connectors.
+    fn chart_preview(
+        data: &PedigreeData,
+        theme: &PedigreeTheme,
+        i18n: &I18n,
+        palette: &str,
+    ) -> String {
+        use crate::components::layout::LAYOUT_STYLES;
+        use std::fmt::Write as _;
+
+        let layout = compute_layout(
+            id(ROOT),
+            data,
+            None,
+            &HashSet::new(),
+            PedigreeLayoutOptions::full(3, 2),
+            theme,
+        );
+        let mut svg = String::new();
+        let _ = write!(
+            svg,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><g transform="translate({tx},{ty})">"#,
+            w = layout.total_w,
+            h = layout.total_h,
+            tx = layout.main_tx,
+            ty = layout.main_ty,
+        );
+        let ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
+        let link = |svg: &mut String, path: &str| {
+            let _ = write!(svg, r#"<path class="pedigree-connector-path" d="{path}"/>"#);
+            if ruled {
+                let _ = write!(svg, r#"<path class="pedigree-connector-core" d="{path}"/>"#);
+            }
+        };
+        for path in layout.asc_links.iter() {
+            link(&mut svg, path);
+        }
+        let _ = write!(
+            svg,
+            r#"<g transform="translate({},{})">"#,
+            layout.desc_tx, layout.desc_ty
+        );
+        for path in layout.desc_links.iter() {
+            link(&mut svg, path);
+        }
+        let _ = write!(svg, "</g>");
+        for node in layout.asc_nodes.iter() {
+            preview_card(&mut svg, node, (0.0, 0.0), theme, i18n);
+        }
+        for node in layout.desc_nodes.iter() {
+            preview_card(
+                &mut svg,
+                node,
+                (layout.desc_tx, layout.desc_ty),
                 theme,
-            );
-            let mut svg = String::new();
-            let _ = write!(
-                svg,
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}"><g transform="translate({tx},{ty})">"#,
-                w = layout.total_w,
-                h = layout.total_h,
-                tx = layout.main_tx,
-                ty = layout.main_ty,
-            );
-            let ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
-            let link = |svg: &mut String, path: &str| {
-                let _ = write!(svg, r#"<path class="pedigree-connector-path" d="{path}"/>"#);
-                if ruled {
-                    let _ = write!(svg, r#"<path class="pedigree-connector-core" d="{path}"/>"#);
-                }
-            };
-            for path in layout.asc_links.iter() {
-                link(&mut svg, path);
-            }
-            let _ = write!(
-                svg,
-                r#"<g transform="translate({},{})">"#,
-                layout.desc_tx, layout.desc_ty
-            );
-            for path in layout.desc_links.iter() {
-                link(&mut svg, path);
-            }
-            let _ = write!(svg, "</g>");
-
-            let pad = theme.metrics.padding;
-            let radius = theme.metrics.border_radius;
-            let mut card_svg = |node: &LayoutNode, dx: f64, dy: f64| {
-                let geo = card_geometry(node, theme, &i18n);
-                let stroke = match theme.card.frame_stroke {
-                    FrameStroke::Border => "var(--pn-border)",
-                    FrameStroke::Gender => gender_stroke(node.sex),
-                };
-                let is_focus = node.id == Some(id(ROOT));
-                let (bg, fill) = match node.id {
-                    Some(_) if is_focus => (card_bg(true, node.is_sibling), "var(--white)"),
-                    Some(_) => (card_bg(false, node.is_sibling), "var(--pn-text)"),
-                    None => ("var(--pn-bg)", "var(--pn-text)"),
-                };
-                let dash = if node.id.is_none() {
-                    ";stroke-dasharray:4,4"
-                } else {
-                    ""
-                };
-                let _ = write!(
-                    svg,
-                    r#"<g class="ped-card" transform="translate({},{})">"#,
-                    node.x + dx,
-                    node.y + dy,
-                );
-                match &geo.frame_d {
-                    Some(d) => {
-                        let _ = write!(
-                            svg,
-                            r#"<path class="ped-card-rect" d="{d}" style="fill:{bg};stroke:{stroke};stroke-width:{}{dash}"/>"#,
-                            theme.card.frame_width,
-                        );
-                    }
-                    None => {
-                        let _ = write!(
-                            svg,
-                            r#"<rect class="ped-card-rect" x="{pad}" y="{pad}" rx="{radius}" ry="{radius}" width="{}" height="{}" style="fill:{bg};stroke:{stroke};stroke-width:{}{dash}"/>"#,
-                            geo.rect_w, geo.rect_h, theme.card.frame_width,
-                        );
-                    }
-                }
-                if let (Some(d), true) = (&geo.inner_frame_d, node.id.is_some()) {
-                    let _ = write!(
-                        svg,
-                        r#"<path class="ped-card-inner-rule" d="{d}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#
-                    );
-                }
-                if node.id.is_some() {
-                    if let Some(line) = &geo.gender_line {
-                        let _ = write!(
-                            svg,
-                            r#"<path d="{line}" style="stroke:{};stroke-width:{};fill:none"/>"#,
-                            gender_stroke(node.sex),
-                            geo.gender_line_width,
-                        );
-                    }
-                    if geo.photo_mat {
-                        let _ = write!(
-                            svg,
-                            r#"<rect class="ped-card-mat" x="{}" y="{}" rx="{r}" ry="{r}" width="{}" height="{}" style="fill:var(--pn-mat,var(--white))"/>"#,
-                            geo.photo_x,
-                            geo.photo_y,
-                            geo.photo_w,
-                            geo.photo_h,
-                            r = geo.photo_round,
-                        );
-                    }
-                    let _ = write!(
-                        svg,
-                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill};text-anchor:{}">{}</text>"#,
-                        geo.text_x,
-                        geo.given_y,
-                        geo.given_font_px,
-                        geo.body_font,
-                        geo.text_anchor,
-                        escape_xml(&geo.given),
-                    );
-                    let _ = write!(
-                        svg,
-                        r#"<text x="{}" y="{}" style="font-size:{}px;font-weight:{};font-family:{};fill:{fill};text-anchor:{}">{}</text>"#,
-                        geo.text_x,
-                        geo.surname_y,
-                        geo.surname_font_px,
-                        geo.surname_weight,
-                        geo.surname_font,
-                        geo.text_anchor,
-                        escape_xml(&geo.surname),
-                    );
-                    let _ = write!(
-                        svg,
-                        r#"<text x="{}" y="{}" style="font-size:{}px;font-family:{};fill:{fill};text-anchor:{}">{}</text>"#,
-                        geo.text_x,
-                        geo.date_y,
-                        geo.date_font_px,
-                        geo.body_font,
-                        geo.text_anchor,
-                        escape_xml(&geo.date_text),
-                    );
-                }
-                let _ = write!(svg, "</g>");
-            };
-
-            for node in layout.asc_nodes.iter() {
-                card_svg(node, 0.0, 0.0);
-            }
-            for node in layout.desc_nodes.iter() {
-                card_svg(node, layout.desc_tx, layout.desc_ty);
-            }
-            let _ = write!(svg, "</g></svg>");
-
-            let page = format!(
-                "<!doctype html><meta charset=\"utf-8\"><style>{palette}</style>\
-                 <style>{LAYOUT_STYLES}\n\
-                 body{{margin:0}} .preview{{position:relative;overflow:visible}}</style>\
-                 <div class=\"pedigree-viewport preview {}\" style=\"width:{}px;height:{}px\">{svg}</div>",
-                theme.viewport_class, layout.total_w, layout.total_h,
-            );
-            let path = format!("{out_dir}/pedigree-{name}.html");
-            std::fs::write(&path, page).expect("preview written");
-            println!("wrote {path}");
-        }
-
-        // The settings swatches, on the page that shows them, so the two
-        // stylesheets fight in the order the application loads them.
-        let mut row = String::new();
-        for id in crate::components::pedigree_theme::PedigreeThemeId::ALL {
-            let theme = id.theme();
-            let m = theme.metrics;
-            let (rw, rh) = m.rect(false);
-            let link = crate::components::pedigree_theme::link_path(
-                &LinkSpec::SimpleChild {
-                    from: Point::new(0.0, 0.0),
-                    to: Point::new(m.card_w * 0.5, m.card_h),
-                    is_edge: true,
-                },
-                theme.link_style,
-                &m,
-            );
-            let child_dx = m.card_w * 0.5;
-            let vb_w = m.card_w + child_dx;
-            let vb_h = m.card_h + rh + 2.0 * m.padding;
-            let mut cards = String::new();
-            for (x, y) in [(0.0f64, 0.0f64), (child_dx, m.card_h)] {
-                let _ = write!(
-                    cards,
-                    r#"<g transform="translate({x},{y})"><rect class="ped-card-rect" x="{p}" y="{p}" rx="{r}" ry="{r}" width="{rw}" height="{rh}" style="fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:{fw}"/>"#,
-                    p = m.padding,
-                    r = m.border_radius,
-                    fw = theme.card.frame_width,
-                );
-                if let CardFrame::Cartouche { inner_inset } = theme.card.frame {
-                    let _ = write!(
-                        cards,
-                        r#"<rect class="ped-card-inner-rule" x="{0}" y="{0}" width="{1}" height="{2}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#,
-                        m.padding + inner_inset,
-                        rw - 2.0 * inner_inset,
-                        rh - 2.0 * inner_inset,
-                    );
-                }
-                let _ = write!(cards, "</g>");
-            }
-            let _ = write!(
-                row,
-                r#"<button class="theme-picker-option"><svg class="ped-theme-swatch {cls}" viewBox="0 0 {vb_w} {vb_h}" preserveAspectRatio="xMidYMid meet"><rect x="0" y="0" width="{vb_w}" height="{vb_h}" style="fill:var(--pn-swatch-bg,transparent)"/><path d="{link}" class="pedigree-connector-path"/>{cards}</svg><span class="theme-picker-label">{id:?}</span></button>"#,
-                cls = theme.viewport_class,
+                i18n,
             );
         }
-        let page = format!(
+        let _ = write!(svg, "</g></svg>");
+        format!(
+            "<!doctype html><meta charset=\"utf-8\"><style>{palette}</style>\
+             <style>{LAYOUT_STYLES}\n\
+             body{{margin:0}} .preview{{position:relative;overflow:visible}}</style>\
+             <div class=\"pedigree-viewport preview {}\" style=\"width:{}px;height:{}px\">{svg}</div>",
+            theme.viewport_class, layout.total_w, layout.total_h,
+        )
+    }
+
+    /// One card of the preview, moved by `(dx, dy)`.
+    fn preview_card(
+        svg: &mut String,
+        node: &LayoutNode,
+        (dx, dy): (f64, f64),
+        theme: &PedigreeTheme,
+        i18n: &I18n,
+    ) {
+        use std::fmt::Write as _;
+
+        let geo = card_geometry(node, theme, i18n);
+        let stroke = match theme.card.frame_stroke {
+            FrameStroke::Border => "var(--pn-border)",
+            FrameStroke::Gender => gender_stroke(node.sex),
+        };
+        let is_focus = node.id == Some(id(ROOT));
+        let (bg, fill) = match node.id {
+            Some(_) if is_focus => (card_bg(true, node.is_sibling), "var(--white)"),
+            Some(_) => (card_bg(false, node.is_sibling), "var(--pn-text)"),
+            None => ("var(--pn-bg)", "var(--pn-text)"),
+        };
+        let dash = if node.id.is_none() {
+            ";stroke-dasharray:4,4"
+        } else {
+            ""
+        };
+        let _ = write!(
+            svg,
+            r#"<g class="ped-card" transform="translate({},{})">"#,
+            node.x + dx,
+            node.y + dy,
+        );
+        let pad = theme.metrics.padding;
+        let radius = theme.metrics.border_radius;
+        let frame_width = theme.card.frame_width;
+        let _ = match &geo.frame_d {
+            Some(d) => write!(
+                svg,
+                r#"<path class="ped-card-rect" d="{d}" style="fill:{bg};stroke:{stroke};stroke-width:{frame_width}{dash}"/>"#,
+            ),
+            None => write!(
+                svg,
+                r#"<rect class="ped-card-rect" x="{pad}" y="{pad}" rx="{radius}" ry="{radius}" width="{}" height="{}" style="fill:{bg};stroke:{stroke};stroke-width:{frame_width}{dash}"/>"#,
+                geo.rect_w, geo.rect_h,
+            ),
+        };
+        if node.id.is_some() {
+            preview_card_content(svg, node, &geo, fill);
+        }
+        let _ = write!(svg, "</g>");
+    }
+
+    /// What a card of a known person shows inside its frame, in `fill`.
+    fn preview_card_content(svg: &mut String, node: &LayoutNode, geo: &CardGeometry, fill: &str) {
+        use std::fmt::Write as _;
+
+        if let Some(d) = &geo.inner_frame_d {
+            let _ = write!(
+                svg,
+                r#"<path class="ped-card-inner-rule" d="{d}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#
+            );
+        }
+        if let Some(line) = &geo.gender_line {
+            let _ = write!(
+                svg,
+                r#"<path d="{line}" style="stroke:{};stroke-width:{};fill:none"/>"#,
+                gender_stroke(node.sex),
+                geo.gender_line_width,
+            );
+        }
+        if geo.photo_mat {
+            let _ = write!(
+                svg,
+                r#"<rect class="ped-card-mat" x="{}" y="{}" rx="{r}" ry="{r}" width="{}" height="{}" style="fill:var(--pn-mat,var(--white))"/>"#,
+                geo.photo_x,
+                geo.photo_y,
+                geo.photo_w,
+                geo.photo_h,
+                r = geo.photo_round,
+            );
+        }
+        let lines = [
+            (
+                geo.given_y,
+                geo.given_font_px,
+                "",
+                geo.body_font,
+                &geo.given,
+            ),
+            (
+                geo.surname_y,
+                geo.surname_font_px,
+                &*format!("font-weight:{};", geo.surname_weight),
+                geo.surname_font,
+                &geo.surname,
+            ),
+            (
+                geo.date_y,
+                geo.date_font_px,
+                "",
+                geo.body_font,
+                &geo.date_text,
+            ),
+        ];
+        for (y, font_px, weight, font, text) in lines {
+            let _ = write!(
+                svg,
+                r#"<text x="{}" y="{y}" style="font-size:{font_px}px;{weight}font-family:{font};fill:{fill};text-anchor:{}">{}</text>"#,
+                geo.text_x,
+                geo.text_anchor,
+                escape_xml(text),
+            );
+        }
+    }
+
+    /// The settings swatches, on the page that shows them, so the two
+    /// stylesheets fight in the order the application loads them.
+    fn swatches_preview(palette: &str) -> String {
+        use crate::components::layout::LAYOUT_STYLES;
+
+        let row: String = crate::components::pedigree_theme::PedigreeThemeId::ALL
+            .into_iter()
+            .map(swatch_preview)
+            .collect();
+        format!(
             "<!doctype html><meta charset=\"utf-8\"><style>{palette}</style>\
              <style>{LAYOUT_STYLES}</style>\
              <style>{}</style><body style=\"background:var(--bg-deep);padding:24px\">\
              <div class=\"theme-picker\" style=\"max-width:560px\">{row}</div>",
             crate::pages::app_settings::SHARED_SETTINGS_STYLES,
+        )
+    }
+
+    /// One theme's swatch button: two cards and the connector between them.
+    fn swatch_preview(id: crate::components::pedigree_theme::PedigreeThemeId) -> String {
+        use std::fmt::Write as _;
+
+        let theme = id.theme();
+        let m = theme.metrics;
+        let (rw, rh) = m.rect(false);
+        let link = crate::components::pedigree_theme::link_path(
+            &LinkSpec::SimpleChild {
+                from: Point::new(0.0, 0.0),
+                to: Point::new(m.card_w * 0.5, m.card_h),
+                is_edge: true,
+            },
+            theme.link_style,
+            &m,
         );
-        let path = format!("{out_dir}/pedigree-swatches.html");
-        std::fs::write(&path, page).expect("preview written");
-        println!("wrote {path}");
+        let child_dx = m.card_w * 0.5;
+        let vb_w = m.card_w + child_dx;
+        let vb_h = m.card_h + rh + 2.0 * m.padding;
+        let mut cards = String::new();
+        for (x, y) in [(0.0f64, 0.0f64), (child_dx, m.card_h)] {
+            let _ = write!(
+                cards,
+                r#"<g transform="translate({x},{y})"><rect class="ped-card-rect" x="{p}" y="{p}" rx="{r}" ry="{r}" width="{rw}" height="{rh}" style="fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:{fw}"/>"#,
+                p = m.padding,
+                r = m.border_radius,
+                fw = theme.card.frame_width,
+            );
+            if let CardFrame::Cartouche { inner_inset } = theme.card.frame {
+                let _ = write!(
+                    cards,
+                    r#"<rect class="ped-card-inner-rule" x="{0}" y="{0}" width="{1}" height="{2}" style="fill:none;stroke:var(--pn-border);stroke-width:1"/>"#,
+                    m.padding + inner_inset,
+                    rw - 2.0 * inner_inset,
+                    rh - 2.0 * inner_inset,
+                );
+            }
+            let _ = write!(cards, "</g>");
+        }
+        format!(
+            r#"<button class="theme-picker-option"><svg class="ped-theme-swatch {cls}" viewBox="0 0 {vb_w} {vb_h}" preserveAspectRatio="xMidYMid meet"><rect x="0" y="0" width="{vb_w}" height="{vb_h}" style="fill:var(--pn-swatch-bg,transparent)"/><path d="{link}" class="pedigree-connector-path"/>{cards}</svg><span class="theme-picker-label">{id:?}</span></button>"#,
+            cls = theme.viewport_class,
+        )
     }
 
     /// Three lines of text have to fit inside the card that holds them.

@@ -6,13 +6,14 @@ use oxidgene_core::history::{RecordSnapshot, RecordType, RecordVersion};
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
 use crate::components::print::PrintHeading;
 use crate::components::tree_cache::{fetch_tree_cached, use_track_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 
@@ -21,16 +22,12 @@ use crate::router::Route;
 pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let nav = use_navigator();
     let tree_cache = use_tree_cache();
 
     // Kept in step with the props: the router reuses this component when
     // navigating from one person's history to another's.
-    let mut ids = use_signal(|| (tree_id.parse::<Uuid>().ok(), person_id.parse::<Uuid>().ok()));
     let parsed = (tree_id.parse::<Uuid>().ok(), person_id.parse::<Uuid>().ok());
-    if parsed != *ids.peek() {
-        ids.set(parsed);
-    }
+    let ids = crate::utils::use_synced(parsed);
     use_track_current_person(parsed.0, parsed.1);
 
     let mut refresh = use_signal(|| 0u32);
@@ -42,7 +39,6 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     // latest and its predecessor.
     let mut selected = use_signal(|| None::<i32>);
     let mut compare_with = use_signal(|| None::<i32>);
-    let mut changes_only = use_signal(|| true);
     let mut confirm_restore = use_signal(|| false);
     let mut restore_error = use_signal(|| None::<String>);
 
@@ -73,12 +69,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     use_effect(move || {
         if let Some(Ok(page)) = &*first_page.read() {
             more.set(Vec::new());
-            next_cursor.set(
-                page.page_info
-                    .has_next_page
-                    .then(|| page.page_info.end_cursor.clone())
-                    .flatten(),
-            );
+            next_cursor.set(page_end(&page.page_info));
         }
     });
 
@@ -107,15 +98,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
         let loaded = versions();
         let latest = loaded.first().map(|v| v.version);
         let wanted = compare_with().or_else(|| selected().or(latest).map(|n| n - 1));
-        async move {
-            let wanted = wanted.filter(|n| *n >= 1)?;
-            if let Some(found) = loaded.iter().find(|v| v.version == wanted) {
-                return Some(found.clone());
-            }
-            api.get_version(tid?, RecordType::Person, pid?, wanted)
-                .await
-                .ok()
-        }
+        async move { version_numbered(&api, (tid, pid), &loaded, wanted.filter(|n| *n >= 1)?).await }
     });
     let before = before_resource
         .read()
@@ -123,22 +106,16 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
         .flatten()
         .filter(|v| Some(v.version) == before_number);
 
-    let tree_name = match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => tree.name.clone(),
-        _ => ids()
-            .0
-            .and_then(|tid| tree_cache.tree(tid))
-            .map(|tree| tree.name)
-            .unwrap_or_default(),
-    };
-    let person_name = versions
-        .read()
-        .iter()
-        .find_map(|v| match &v.snapshot {
-            RecordSnapshot::Person(person) => snapshot_name(person),
-            _ => None,
-        })
-        .unwrap_or_else(|| i18n.t("common.unnamed"));
+    let loaded = tree_resource.read();
+    let loaded = loaded
+        .as_ref()
+        .and_then(Option::as_ref)
+        .and_then(|tree| tree.as_ref().ok());
+    let tree_name = tree_cache
+        .loaded_or_cached(ids().0, loaded)
+        .map(|tree| tree.name)
+        .unwrap_or_default();
+    let person_name = person_name_in(&versions.read()).unwrap_or_else(|| i18n.t("common.unnamed"));
     let is_deleted = versions.read().first().is_some_and(|v| v.deleted);
 
     let load_more = {
@@ -151,18 +128,13 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
             let Some(cursor) = next_cursor() else { return };
             loading_more.set(true);
             spawn(async move {
-                if let Ok(page) = api
+                let page = api
                     .list_versions(tid, RecordType::Person, pid, Some(&cursor))
-                    .await
-                {
+                    .await;
+                if let Ok(page) = page {
                     more.write()
                         .extend(page.edges.into_iter().map(|edge| edge.node));
-                    next_cursor.set(
-                        page.page_info
-                            .has_next_page
-                            .then_some(page.page_info.end_cursor)
-                            .flatten(),
-                    );
+                    next_cursor.set(page_end(&page.page_info));
                 }
                 loading_more.set(false);
             });
@@ -211,22 +183,9 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
         style { {PERSON_HISTORY_STYLES} }
         div { class: "sub-page",
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
-                    if !tree_name.is_empty() {
-                        Link {
-                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                            class: "td-bc-link",
-                            "{tree_name}"
-                        }
-                        span { class: "td-bc-sep", "/" }
-                    }
+                TreeBreadcrumb {
+                    tree_id: tree_id.clone(),
+                    tree_name: tree_name.clone(),
                     if is_deleted {
                         span { class: "td-bc-link", "{person_name}" }
                     } else {
@@ -246,44 +205,9 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
             }
 
             div { class: "pd-page-shell",
-            TreeIconSidebar {
-                active_view: TreeSidebarView::None,
+            ToolPageSidebar {
+                tree_id: tree_id.clone(),
                 selected_person_id: if is_deleted { None } else { ids().1 },
-                show_middle_separator: false,
-                show_add_person: false,
-                on_profile_view: {
-                    let tree_id = tree_id.clone();
-                    move |pid: Option<Uuid>| {
-                        if let Some(pid) = pid {
-                            nav.push(Route::PersonDetail {
-                                tree_id: tree_id.clone(),
-                                person_id: pid.to_string(),
-                            });
-                        }
-                    }
-                },
-                on_pedigree_view: {
-                    let tree_id = tree_id.clone();
-                    move |pid: Option<Uuid>| {
-                        nav.push(Route::TreeDetail {
-                            tree_id: tree_id.clone(),
-                            person: pid.map(|pid| pid.to_string()),
-                        });
-                    }
-                },
-                on_add_person: move |_| {},
-                on_dictionary: {
-                    let tree_id = tree_id.clone();
-                    move |_| {
-                        nav.push(Route::Dictionary { tree_id: tree_id.clone() });
-                    }
-                },
-                on_settings: {
-                    let tree_id = tree_id.clone();
-                    move |_| {
-                        nav.push(Route::Settings { tree_id: tree_id.clone() });
-                    }
-                },
             }
 
             div { class: "sub-page-content ph-content",
@@ -327,94 +251,175 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
                     },
                     Some(Ok(_)) => rsx! {
                         div { class: "ph-layout",
-                            // Timeline of versions, latest first.
-                            ol { class: "ph-versions",
-                                for version in versions.read().iter() {
-                                    li { key: "{version.id}",
-                                        button {
-                                            class: if Some(version.version) == shown_number { "ph-version active" } else { "ph-version" },
-                                            onclick: {
-                                                let number = version.version;
-                                                move |_| {
-                                                    selected.set(Some(number));
-                                                    compare_with.set(None);
-                                                }
-                                            },
-                                            span { class: "ph-version-number",
-                                                {i18n.t_args("history.version_n", &[("version", &version.version.to_string())])}
-                                            }
-                                            span { class: "ph-version-date", {format_timestamp(&i18n, version.created_at)} }
-                                            span { class: "ph-version-what", {describe_entry(&i18n, &version.entry)} }
-                                            if let Some(details) = entry_details(&i18n, &version.entry) {
-                                                span { class: "ph-version-details", "{details}" }
-                                            }
-                                        }
-                                    }
-                                }
-                                if next_cursor().is_some() {
-                                    li {
-                                        button {
-                                            class: "btn btn-outline btn-sm ph-more",
-                                            disabled: loading_more(),
-                                            onclick: load_more,
-                                            {i18n.t("history.load_more")}
-                                        }
-                                    }
-                                }
+                            VersionTimeline {
+                                versions: versions(),
+                                shown: shown_number,
+                                has_more: next_cursor().is_some(),
+                                loading_more: loading_more(),
+                                on_pick: move |number| {
+                                    selected.set(Some(number));
+                                    compare_with.set(None);
+                                },
+                                on_more: load_more,
                             }
-
                             // Comparison of the selected version.
                             if let Some(shown) = shown.clone() {
-                                div { class: "card ph-diff",
-                                    div { class: "ph-toolbar",
-                                        label { class: "ph-compare",
-                                            span { {i18n.t("history.compare_with")} }
-                                            select {
-                                                value: before_number.map(|n| n.to_string()).unwrap_or_default(),
-                                                onchange: move |event| {
-                                                    compare_with.set(event.value().parse().ok());
-                                                },
-                                                if older_versions.is_empty() {
-                                                    option { value: "", {i18n.t("history.no_previous")} }
-                                                }
-                                                for number in older_versions.iter() {
-                                                    option {
-                                                        value: "{number}",
-                                                        {i18n.t_args("history.version_n", &[("version", &number.to_string())])}
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        label { class: "ph-toggle",
-                                            input {
-                                                r#type: "checkbox",
-                                                checked: changes_only(),
-                                                onchange: move |event| changes_only.set(event.checked()),
-                                            }
-                                            span { {i18n.t("history.changes_only")} }
-                                        }
-                                        if can_restore {
-                                            button {
-                                                class: "btn btn-primary btn-sm",
-                                                onclick: move |_| {
-                                                    restore_error.set(None);
-                                                    confirm_restore.set(true);
-                                                },
-                                                {i18n.t("history.restore")}
-                                            }
-                                        }
-                                    }
-                                    VersionDiff {
-                                        before,
-                                        after: shown,
-                                        changes_only: changes_only(),
-                                    }
+                                VersionComparison {
+                                    shown,
+                                    before,
+                                    before_number,
+                                    older_versions: older_versions.clone(),
+                                    compare_with,
+                                    can_restore,
+                                    on_restore: move |_| {
+                                        restore_error.set(None);
+                                        confirm_restore.set(true);
+                                    },
                                 }
                             }
                         }
                     },
                 }
             }
+            }
+        }
+    }
+}
+
+/// The person's name, as the latest version naming them has it.
+fn person_name_in(versions: &[RecordVersion]) -> Option<String> {
+    versions.iter().find_map(|v| match &v.snapshot {
+        RecordSnapshot::Person(person) => snapshot_name(person),
+        _ => None,
+    })
+}
+
+/// Where the next page of versions starts, if there is one.
+fn page_end(page_info: &oxidgene_core::types::PageInfo) -> Option<String> {
+    page_info
+        .has_next_page
+        .then(|| page_info.end_cursor.clone())
+        .flatten()
+}
+
+/// Version `wanted` of the person: from the pages `loaded`, else fetched.
+async fn version_numbered(
+    api: &ApiClient,
+    (tid, pid): (Option<Uuid>, Option<Uuid>),
+    loaded: &[RecordVersion],
+    wanted: i32,
+) -> Option<RecordVersion> {
+    if let Some(found) = loaded.iter().find(|v| v.version == wanted) {
+        return Some(found.clone());
+    }
+    api.get_version(tid?, RecordType::Person, pid?, wanted)
+        .await
+        .ok()
+}
+
+/// The versions, latest first, the one `shown` highlighted, and the button
+/// loading older ones when there are.
+#[component]
+fn VersionTimeline(
+    versions: Vec<RecordVersion>,
+    shown: Option<i32>,
+    has_more: bool,
+    loading_more: bool,
+    on_pick: EventHandler<i32>,
+    on_more: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        ol { class: "ph-versions",
+            for version in versions.iter() {
+                li { key: "{version.id}",
+                    button {
+                        class: if Some(version.version) == shown { "ph-version active" } else { "ph-version" },
+                        onclick: {
+                            let number = version.version;
+                            move |_| on_pick.call(number)
+                        },
+                        span { class: "ph-version-number",
+                            {i18n.t_args("history.version_n", &[("version", &version.version.to_string())])}
+                        }
+                        span { class: "ph-version-date", {format_timestamp(&i18n, version.created_at)} }
+                        span { class: "ph-version-what", {describe_entry(&i18n, &version.entry)} }
+                        if let Some(details) = entry_details(&i18n, &version.entry) {
+                            span { class: "ph-version-details", "{details}" }
+                        }
+                    }
+                }
+            }
+            if has_more {
+                li {
+                    button {
+                        class: "btn btn-outline btn-sm ph-more",
+                        disabled: loading_more,
+                        onclick: move |_| on_more.call(()),
+                        {i18n.t("history.load_more")}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The version `shown` against `before`, the version chosen among the older
+/// ones, with the changes alone or everything, and the restore button when
+/// it can be restored.
+#[component]
+fn VersionComparison(
+    shown: RecordVersion,
+    before: Option<RecordVersion>,
+    before_number: Option<i32>,
+    older_versions: Vec<i32>,
+    compare_with: Signal<Option<i32>>,
+    can_restore: bool,
+    on_restore: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let mut changes_only = use_signal(|| true);
+    rsx! {
+        div { class: "card ph-diff",
+            div { class: "ph-toolbar",
+                label { class: "ph-compare",
+                    span { {i18n.t("history.compare_with")} }
+                    select {
+                        value: before_number.map(|n| n.to_string()).unwrap_or_default(),
+                        onchange: move |event| {
+                            compare_with.set(event.value().parse().ok());
+                        },
+                        if older_versions.is_empty() {
+                            option { value: "", {i18n.t("history.no_previous")} }
+                        }
+                        for number in older_versions.iter() {
+                            option {
+                                value: "{number}",
+                                {i18n.t_args("history.version_n", &[("version", &number.to_string())])}
+                            }
+                        }
+                    }
+                }
+                label { class: "ph-toggle",
+                    input {
+                        r#type: "checkbox",
+                        checked: changes_only(),
+                        onchange: move |event| changes_only.set(event.checked()),
+                    }
+                    span { {i18n.t("history.changes_only")} }
+                }
+                if can_restore {
+                    button {
+                        class: "btn btn-primary btn-sm",
+                        onclick: move |_| on_restore.call(()),
+                        {i18n.t("history.restore")}
+                    }
+                }
+            }
+            VersionDiff {
+                before,
+                after: shown,
+                changes_only: changes_only(),
             }
         }
     }

@@ -13,6 +13,7 @@ use crate::api::{
     AncestorFacts, AncestryGeneration, Anomaly, AnomalyRule, ApiClient, DuplicatePair,
     StatPersonRef, StatPlace, UpdatePlaceBody,
 };
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::copy_field::CopyField;
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::merge_dialog::MergeDialog;
@@ -21,7 +22,7 @@ use crate::components::place_input::PlaceInput;
 use crate::components::print::PrintHeading;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::date_words::{self, Form, YearStart, Ymd};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::pages::statistics::{date_text, event_type_label, percent};
@@ -77,7 +78,6 @@ impl ToolsTab {
 pub fn Tools(tree_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let nav = use_navigator();
     let tree_cache = use_tree_cache();
     let load_trace = use_ui_load_trace(UiPage::Tools);
     let tid = tree_id.parse::<Uuid>().ok();
@@ -121,22 +121,9 @@ pub fn Tools(tree_id: String) -> Element {
     rsx! {
         div { class: "sub-page tools-page",
             div { class: "td-topbar",
-                nav { class: "td-bc",
-                    Link { to: Route::Home {}, class: "td-bc-logo",
-                        img {
-                            src: crate::components::layout::LOGO_PNG_B64,
-                            alt: "OxidGene",
-                            class: "td-bc-logo-img",
-                        }
-                    }
-                    if !tree_name.is_empty() {
-                        Link {
-                            to: Route::TreeDetail { tree_id: tree_id.clone(), person: None },
-                            class: "td-bc-link",
-                            "{tree_name}"
-                        }
-                        span { class: "td-bc-sep", "/" }
-                    }
+                TreeBreadcrumb {
+                    tree_id: tree_id.clone(),
+                    tree_name: tree_name.clone(),
                     span { class: "td-bc-current", {i18n.t("tools.breadcrumb")} }
                 }
                 PrintHeading {
@@ -146,44 +133,9 @@ pub fn Tools(tree_id: String) -> Element {
             }
 
             div { class: "pd-page-shell",
-                TreeIconSidebar {
-                    active_view: TreeSidebarView::None,
+                ToolPageSidebar {
+                    tree_id: tree_id.clone(),
                     selected_person_id,
-                    show_middle_separator: false,
-                    show_add_person: false,
-                    on_profile_view: {
-                        let tree_id = tree_id.clone();
-                        move |pid: Option<Uuid>| {
-                            if let Some(pid) = pid {
-                                nav.push(Route::PersonDetail {
-                                    tree_id: tree_id.clone(),
-                                    person_id: pid.to_string(),
-                                });
-                            }
-                        }
-                    },
-                    on_pedigree_view: {
-                        let tree_id = tree_id.clone();
-                        move |pid: Option<Uuid>| {
-                            nav.push(Route::TreeDetail {
-                                tree_id: tree_id.clone(),
-                                person: pid.map(|pid| pid.to_string()),
-                            });
-                        }
-                    },
-                    on_add_person: move |_| {},
-                    on_dictionary: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Dictionary { tree_id: tree_id.clone() });
-                        }
-                    },
-                    on_settings: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Settings { tree_id: tree_id.clone() });
-                        }
-                    },
                 }
 
                 div { class: "sub-page-content tools-content",
@@ -781,6 +733,53 @@ fn Ancestry(tree_id: Uuid, tree_route: String) -> Element {
     }
 }
 
+/// Whether an ancestor of `generation` has every fact asked of them: a
+/// birth, a death unless living, and a union above the root.
+fn complete(person: &AncestorFacts, generation: i32) -> bool {
+    person.has_birth && (person.has_death || person.living) && (generation == 1 || person.has_union)
+}
+
+/// A known ancestor's cells: their name and dates, and the facts they have.
+fn ancestor_cells(
+    i18n: &I18n,
+    tree_route: &str,
+    person: &AncestorFacts,
+    generation: i32,
+) -> Element {
+    rsx! {
+        td {
+            Link {
+                to: Route::PersonDetail {
+                    tree_id: tree_route.to_string(),
+                    person_id: person.person_id.to_string(),
+                },
+                "{person.name}"
+            }
+            div { class: "tools-dates text-muted",
+                if person.birth.is_some() {
+                    span { "\u{2726} {date_text(i18n, person.birth.as_ref())}" }
+                }
+                if person.death.is_some() {
+                    span { "\u{271D} {date_text(i18n, person.death.as_ref())}" }
+                }
+            }
+        }
+        // The pills lay out in a box inside the cell: a flex `td` stops being
+        // a table cell and its border leaves the row's.
+        td {
+            div { class: "tools-facts",
+                {fact(i18n, "birth", person.has_birth)}
+                if person.has_death || !person.living {
+                    {fact(i18n, "death", person.has_death)}
+                }
+                if generation > 1 {
+                    {fact(i18n, "union", person.has_union)}
+                }
+            }
+        }
+    }
+}
+
 /// One generation's ancestors, in SOSA order; with `only_missing`, only the
 /// missing ones and those missing a fact.
 fn render_generation(
@@ -789,13 +788,12 @@ fn render_generation(
     row: &AncestryGeneration,
     only_missing: bool,
 ) -> Element {
-    let complete = |person: &AncestorFacts| {
-        person.has_birth
-            && (person.has_death || person.living)
-            && (row.generation == 1 || person.has_union)
+    let lacking = |entry: &&crate::api::AncestryEntry| {
+        entry
+            .person
+            .as_ref()
+            .is_none_or(|p| !complete(p, row.generation))
     };
-    let lacking =
-        |entry: &&crate::api::AncestryEntry| entry.person.as_ref().is_none_or(|p| !complete(p));
     // Only a generation with something to fill opens by itself: a missing
     // ancestor, listed or only counted, or an ancestor lacking a fact.
     let open = row.implied_missing > 0 || row.entries.iter().any(|entry| lacking(&entry));
@@ -819,39 +817,7 @@ fn render_generation(
                         tr { key: "{entry.sosa}",
                             td { class: "tools-sosa", "{entry.sosa}" }
                             match &entry.person {
-                                Some(person) => rsx! {
-                                    td {
-                                        Link {
-                                            to: Route::PersonDetail {
-                                                tree_id: tree_route.to_string(),
-                                                person_id: person.person_id.to_string(),
-                                            },
-                                            "{person.name}"
-                                        }
-                                        div { class: "tools-dates text-muted",
-                                            if person.birth.is_some() {
-                                                span { "\u{2726} {date_text(i18n, person.birth.as_ref())}" }
-                                            }
-                                            if person.death.is_some() {
-                                                span { "\u{271D} {date_text(i18n, person.death.as_ref())}" }
-                                            }
-                                        }
-                                    }
-                                    // The pills lay out in a box inside the
-                                    // cell: a flex `td` stops being a table
-                                    // cell and its border leaves the row's.
-                                    td {
-                                        div { class: "tools-facts",
-                                            {fact(i18n, "birth", person.has_birth)}
-                                            if person.has_death || !person.living {
-                                                {fact(i18n, "death", person.has_death)}
-                                            }
-                                            if row.generation > 1 {
-                                                {fact(i18n, "union", person.has_union)}
-                                            }
-                                        }
-                                    }
-                                },
+                                Some(person) => ancestor_cells(i18n, tree_route, person, row.generation),
                                 None => rsx! {
                                     td { class: "tools-missing", colspan: "2",
                                         {i18n.t("tools.ancestry.missing_ancestor")}
@@ -1115,6 +1081,102 @@ fn words_date(parts: &DateParts) -> Option<(Ymd, Calendar)> {
     ))
 }
 
+/// The date written out in every language and in Latin, with the Latin's
+/// parts; or why it cannot be.
+fn written_dates(
+    i18n: &I18n,
+    entered: &DateParts,
+    styled: Option<(Ymd, Calendar)>,
+    form: Form,
+    start: YearStart,
+) -> Element {
+    let empty = |key: &str| rsx! { p { class: "stats-empty", {i18n.t(key)} } };
+    let Some((ymd, calendar)) = styled else {
+        return empty(if entered.is_empty() {
+            "tools.words.enter"
+        } else {
+            "tools.words.out_of_range"
+        });
+    };
+    let Some(latin) = date_words::latin_parts(ymd) else {
+        return empty("tools.words.out_of_range");
+    };
+    rsx! {
+        div { class: "stats-card copy-card tools-words",
+            for language in Language::ALL {
+                CopyField {
+                    key: "{language.code()}",
+                    label: language.native_name().to_string(),
+                    value: date_words::written(language, ymd, form).unwrap_or_default(),
+                    multiline: false,
+                }
+            }
+            CopyField {
+                label: i18n.t("tools.words.latin"),
+                value: date_words::latin(ymd, form).unwrap_or_default(),
+                multiline: false,
+            }
+            if let Some(reckoning) = date_words::latin_roman_reckoning(calendar, ymd) {
+                CopyField {
+                    label: i18n.t("tools.words.roman_reckoning"),
+                    value: reckoning,
+                    multiline: false,
+                }
+            }
+        }
+        {latin_parts_table(i18n, ymd, calendar, &latin, start)}
+    }
+}
+
+/// How the Latin date is made: each part's figure, word and numeral, and the
+/// calendar and style it is read in.
+fn latin_parts_table(
+    i18n: &I18n,
+    ymd: Ymd,
+    calendar: Calendar,
+    latin: &date_words::LatinParts,
+    start: YearStart,
+) -> Element {
+    let calendar_key = if calendar == Calendar::Julian {
+        "calendar.julian"
+    } else {
+        "calendar.gregorian"
+    };
+    rsx! {
+        table { class: "stats-table tools-words-parts",
+            caption { {i18n.t("tools.words.parts")} }
+            tbody {
+                if let Some((day, word, numeral)) = &latin.day {
+                    tr {
+                        th { {i18n.t("tools.words.part.day")} }
+                        td { "{day} = {word} = {numeral}" }
+                    }
+                }
+                if let (Some((word, numeral)), Some(month)) = (&latin.month, ymd.month) {
+                    tr {
+                        th { {i18n.t("tools.words.part.month")} }
+                        td { "{month} = {word} = {numeral}" }
+                    }
+                }
+                tr {
+                    th { {i18n.t("tools.words.part.year")} }
+                    td { "{ymd.year} = {latin.year.0} = {latin.year.1}" }
+                }
+                tr {
+                    th { {i18n.t("tools.words.part.calendar")} }
+                    td {
+                        {i18n.t(calendar_key)}
+                        if start == YearStart::Annunciation {
+                            " · "
+                            {i18n.t("tools.words.style.annunciation")}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A date written out in every interface language and in Latin, and a
 /// written date read back into the date input (`docs/ui-tools.md` §8).
 #[component]
@@ -1149,70 +1211,7 @@ fn DateWords() -> Element {
         Err(error) => read_error.set(Some(error.key())),
     };
 
-    let outputs = match styled {
-        None if entered.is_empty() => {
-            rsx! { p { class: "stats-empty", {i18n.t("tools.words.enter")} } }
-        }
-        None => rsx! { p { class: "stats-empty", {i18n.t("tools.words.out_of_range")} } },
-        Some((ymd, calendar)) => match date_words::latin_parts(ymd) {
-            None => rsx! { p { class: "stats-empty", {i18n.t("tools.words.out_of_range")} } },
-            Some(latin) => rsx! {
-                div { class: "stats-card copy-card tools-words",
-                    for language in Language::ALL {
-                        CopyField {
-                            key: "{language.code()}",
-                            label: language.native_name().to_string(),
-                            value: date_words::written(language, ymd, form()).unwrap_or_default(),
-                            multiline: false,
-                        }
-                    }
-                    CopyField {
-                        label: i18n.t("tools.words.latin"),
-                        value: date_words::latin(ymd, form()).unwrap_or_default(),
-                        multiline: false,
-                    }
-                    if let Some(reckoning) = date_words::latin_roman_reckoning(calendar, ymd) {
-                        CopyField {
-                            label: i18n.t("tools.words.roman_reckoning"),
-                            value: reckoning,
-                            multiline: false,
-                        }
-                    }
-                }
-                table { class: "stats-table tools-words-parts",
-                    caption { {i18n.t("tools.words.parts")} }
-                    tbody {
-                        if let Some((day, word, numeral)) = &latin.day {
-                            tr {
-                                th { {i18n.t("tools.words.part.day")} }
-                                td { "{day} = {word} = {numeral}" }
-                            }
-                        }
-                        if let (Some((word, numeral)), Some(month)) = (&latin.month, ymd.month) {
-                            tr {
-                                th { {i18n.t("tools.words.part.month")} }
-                                td { "{month} = {word} = {numeral}" }
-                            }
-                        }
-                        tr {
-                            th { {i18n.t("tools.words.part.year")} }
-                            td { "{ymd.year} = {latin.year.0} = {latin.year.1}" }
-                        }
-                        tr {
-                            th { {i18n.t("tools.words.part.calendar")} }
-                            td {
-                                {i18n.t(if calendar == Calendar::Julian { "calendar.julian" } else { "calendar.gregorian" })}
-                                if start() == YearStart::Annunciation {
-                                    " · "
-                                    {i18n.t("tools.words.style.annunciation")}
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-        },
-    };
+    let outputs = written_dates(&i18n, &entered, styled, form(), start());
 
     rsx! {
         section { class: "stats-section",

@@ -10,6 +10,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::merge_dialog::MergeDialog;
@@ -818,18 +819,9 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
             rsx! {
                 div { class: "td-topbar",
-                    nav { class: "td-bc",
-                        Link { to: Route::Home {}, class: "td-bc-logo",
-                            img {
-                                src: crate::components::layout::LOGO_PNG_B64,
-                                alt: "OxidGene",
-                                class: "td-bc-logo-img",
-                            }
-                        }
-                        if !tree_name_str.is_empty() {
-                            span { class: "td-bc-link", "{tree_name_str}" }
-                            span { class: "td-bc-sep", "/" }
-                        }
+                    TreeBreadcrumb {
+                        tree_name: tree_name_str.clone(),
+                        linked: false,
                         span { class: "td-bc-current", {i18n.t("pedigree.breadcrumb")} }
                     }
                     if root_person_id.is_some() {

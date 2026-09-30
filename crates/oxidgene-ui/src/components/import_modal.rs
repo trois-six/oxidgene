@@ -54,8 +54,8 @@ use crate::api::{
     ImportResult, IndexedArchive, MediaFidelity,
 };
 use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
-use crate::geneanet::{Collect, GeneanetEvent, WindowStrings, use_geneanet_bridge};
-use crate::i18n::use_i18n;
+use crate::geneanet::{Collect, GeneanetBridge, GeneanetEvent, WindowStrings, use_geneanet_bridge};
+use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::{
     UiAction, UiActionStep, UiActionTrace, trace_ui_action, trace_ui_action_step,
     use_ui_action_trace, use_ui_resource,
@@ -632,7 +632,7 @@ fn GeneanetTab(
     let mut archives_skipped = use_signal(|| false);
     let archive_error = use_signal(|| None::<String>);
 
-    let mut collected = use_signal(|| None::<Collected>);
+    let collected = use_signal(|| None::<Collected>);
     let mut connecting = use_signal(|| None::<Connecting>);
     let mut connect_error = use_signal(|| None::<String>);
 
@@ -650,11 +650,11 @@ fn GeneanetTab(
     // window has to retrieve media the archives did not cover.
     let mut fetch_progress = use_signal(|| None::<(usize, usize)>);
     let mut import_error = use_signal(|| None::<String>);
-    let mut import_result = use_signal(|| None::<GeneanetImportResult>);
+    let import_result = use_signal(|| None::<GeneanetImportResult>);
 
     // Set once the window has been closed, so neither of the two paths that
     // close it can do so twice.
-    let mut window_closed = use_signal(|| false);
+    let window_closed = use_signal(|| false);
 
     // The window exists for one thing: fetching what the archives cannot
     // account for. The preview is the first moment we know that is nothing —
@@ -663,14 +663,10 @@ fn GeneanetTab(
     {
         let bridge = bridge.clone();
         use_effect(move || {
-            let Some(stats) = preview() else { return };
-            if stats.to_match + stats.to_download > 0 || window_closed() {
-                return;
+            let idle = preview().is_some_and(|stats| stats.to_match + stats.to_download == 0);
+            if idle && !window_closed() {
+                close_window(bridge.as_ref(), window_closed);
             }
-            if let Some(bridge) = &bridge {
-                bridge.close();
-            }
-            window_closed.set(true);
         });
     }
 
@@ -678,19 +674,13 @@ fn GeneanetTab(
     // outlive the modal that opened it, with nothing left able to reach it.
     {
         let bridge = bridge.clone();
-        use_drop(move || {
-            if let Some(bridge) = &bridge {
-                bridge.close();
-            }
-        });
+        use_drop(move || bridge.iter().for_each(GeneanetBridge::close));
     }
 
-    // Step 2 is settled either by adding archives or by explicitly skipping;
-    // both let the flow move on, and the difference is only whether photos get
-    // downloaded. A renditions import has no step 2 to settle.
-    let archives_settled =
-        move || !fidelity().uses_archives() || !archives.read().is_empty() || archives_skipped();
-    let can_connect = move || gw().is_some() && (archives_settled() || !NATIVE);
+    let can_connect = move || {
+        let settled = archives_settled(fidelity(), !archives.read().is_empty(), archives_skipped());
+        gw().is_some() && (settled || !NATIVE)
+    };
     let can_preview = move || collected().is_some();
 
     // Changing the answer to step 1 invalidates every decision that depended
@@ -710,16 +700,7 @@ fn GeneanetTab(
         fetched.write().clear();
 
         if next.uses_archives() {
-            // The archives are matched on exact byte lengths, and a list-only
-            // collection has none. Keeping it would silently match nothing and
-            // download everything, so the collection is taken again.
-            let unmeasured = collected
-                .read()
-                .as_ref()
-                .is_some_and(|c| c.deposit_sizes.is_empty());
-            if unmeasured {
-                collected.set(None);
-            }
+            forget_unmeasured(collected);
         } else {
             archives.write().clear();
             archives_skipped.set(false);
@@ -733,7 +714,7 @@ fn GeneanetTab(
         move |_| {
             let Some(bridge) = bridge.clone() else { return };
             let trace = trace.clone();
-            let (tx, mut rx) = futures_channel::mpsc::unbounded::<GeneanetEvent>();
+            let (tx, rx) = futures_channel::mpsc::unbounded::<GeneanetEvent>();
             connect_error.set(None);
             connecting.set(Some(Connecting::WaitingForLogin));
             // The window shows words, not numbers — the bars below are the
@@ -749,72 +730,15 @@ fn GeneanetTab(
                     cancel_hint: i18n.t("geneanet.window_cancel_hint"),
                     idle: i18n.t("geneanet.window_idle"),
                 },
-                // The sizing pass is one `HEAD` per deposit and exists only to
-                // match the archives. A renditions import never opens one, so
-                // it is several hundred requests nothing would read.
-                if fidelity().uses_archives() {
-                    Collect::ListAndSizes
-                } else {
-                    Collect::ListOnly
-                },
+                collect_for(fidelity()),
             );
 
             spawn(async move {
                 trace
-                    .step(UiActionStep::GeneanetConnect, async {
-                        use futures_util::StreamExt as _;
-                        while let Some(event) = rx.next().await {
-                            match event {
-                                GeneanetEvent::Opened => {
-                                    connecting.set(Some(Connecting::WaitingForLogin));
-                                }
-                                GeneanetEvent::SignedIn => {
-                                    connecting
-                                        .set(Some(Connecting::Collecting { done: 0, total: 0 }));
-                                }
-                                GeneanetEvent::Collecting { done, total } => {
-                                    connecting.set(Some(Connecting::Collecting { done, total }));
-                                }
-                                GeneanetEvent::Sizing { done, total } => {
-                                    connecting.set(Some(Connecting::Sizing { done, total }));
-                                }
-                                GeneanetEvent::Collected {
-                                    collection,
-                                    deposit_sizes,
-                                    cookie,
-                                    account,
-                                    photo_count,
-                                } => {
-                                    collected.set(Some(Collected {
-                                        collection,
-                                        deposit_sizes,
-                                        cookie,
-                                        account,
-                                        photo_count,
-                                    }));
-                                    connecting.set(None);
-                                    open.set(Step::Preview);
-                                    break;
-                                }
-                                // The fetch events belong to the import step, which
-                                // drives its own channel; nothing here reacts to them.
-                                GeneanetEvent::Fetched { .. }
-                                | GeneanetEvent::Fetching { .. }
-                                | GeneanetEvent::FetchDone => {}
-                                // Closing the window before signing in is not an
-                                // error — the step simply returns to where it was.
-                                GeneanetEvent::Cancelled => {
-                                    connecting.set(None);
-                                    break;
-                                }
-                                GeneanetEvent::Failed(message) => {
-                                    connect_error.set(Some(message));
-                                    connecting.set(None);
-                                    break;
-                                }
-                            }
-                        }
-                    })
+                    .step(
+                        UiActionStep::GeneanetConnect,
+                        follow_login(rx, connecting, collected, connect_error, open),
+                    )
                     .await;
             });
         }
@@ -853,38 +777,19 @@ fn GeneanetTab(
                 media_fidelity: fidelity(),
             };
 
-            let needed = match trace
-                .step(UiActionStep::GeneanetPreview, async {
-                    match api.preview_geneanet_import(&body).await {
-                        Ok(stats) => preview.set(Some(stats)),
-                        Err(e) => return Err(e),
-                    }
-
-                    // Anything the server cannot produce from the archives. A session
-                    // loaded from disk may already carry it, in which case nothing
-                    // here touches the network at all.
-                    api.plan_geneanet_import(&body)
-                        .await
-                        .map(|plan| plan.needed)
-                })
-                .await
-            {
-                Ok(needed) => needed,
-                Err(e) => {
-                    preview_error.set(Some(format!("{e}")));
-                    return;
-                }
+            let planned = trace
+                .step(
+                    UiActionStep::GeneanetPreview,
+                    preview_and_plan(&api, &body, preview),
+                )
+                .await;
+            let Some(needed) = planned
+                .map_err(|e| preview_error.set(Some(format!("{e}"))))
+                .ok()
+            else {
+                return;
             };
-
-            let mut urls: Vec<String> = Vec::new();
-            for item in &needed {
-                // Deduplicated: every page of a single-page deposit shares one
-                // original URL, and fetching it twice would double the bytes.
-                if !fetched.read().contains_key(&item.url) && !urls.contains(&item.url) {
-                    urls.push(item.url.clone());
-                }
-            }
-
+            let urls = urls_to_fetch(&needed, &fetched.read());
             if urls.is_empty() {
                 return;
             }
@@ -895,36 +800,14 @@ fn GeneanetTab(
             };
 
             gathering.set(true);
-            let (tx, mut rx) = futures_channel::mpsc::unbounded::<GeneanetEvent>();
+            let (tx, rx) = futures_channel::mpsc::unbounded::<GeneanetEvent>();
             fetch_progress.set(Some((0, urls.len())));
             bridge.fetch(urls, tx);
-
             trace
-                .step(UiActionStep::GeneanetCollect, async {
-                    use futures_util::StreamExt as _;
-                    while let Some(event) = rx.next().await {
-                        match event {
-                            GeneanetEvent::Fetched { url, path, error } => {
-                                if let Some(path) = path {
-                                    fetched.write().insert(url, path);
-                                } else if error.is_some() {
-                                    // One unreachable medium is reported by the import
-                                    // as skipped; it does not end the run.
-                                }
-                            }
-                            GeneanetEvent::Fetching { done, total } => {
-                                fetch_progress.set(Some((done, total)));
-                            }
-                            GeneanetEvent::FetchDone => break,
-                            GeneanetEvent::Failed(message) => {
-                                preview_error.set(Some(message));
-                                break;
-                            }
-                            GeneanetEvent::Cancelled => break,
-                            _ => {}
-                        }
-                    }
-                })
+                .step(
+                    UiActionStep::GeneanetCollect,
+                    gather_media(rx, fetched, fetch_progress, preview_error),
+                )
                 .await;
 
             fetch_progress.set(None);
@@ -968,63 +851,26 @@ fn GeneanetTab(
                 fetched: fetched.read().clone(),
                 media_fidelity: fidelity(),
             };
-            let outcome = async {
-                let started = trace
-                    .step(
-                        UiActionStep::GeneanetUpload,
-                        api.import_geneanet(tree_id, &body),
-                    )
-                    .await?;
-                if let Some(bridge) = &bridge {
-                    bridge.close();
-                }
-                window_closed.set(true);
-
-                trace
-                    .step(UiActionStep::GeneanetPoll, async {
-                        loop {
-                            let status = api.file_import_status(tree_id, started.job_id).await?;
-                            import_progress.set(Some(ImportProgress {
-                                phase: status.phase.clone(),
-                                done: status.done,
-                                total: status.total,
-                            }));
-                            match status.phase.as_str() {
-                                "completed" => {
-                                    break status.geneanet_result.ok_or_else(|| {
-                                        crate::api::ApiError::Api {
-                                            status: 500,
-                                            body: "completed Geneanet import has no result"
-                                                .to_string(),
-                                        }
-                                    });
-                                }
-                                "failed" => {
-                                    break Err(crate::api::ApiError::Api {
-                                        status: 422,
-                                        body: status
-                                            .error
-                                            .unwrap_or_else(|| "import_failed".to_string()),
-                                    });
-                                }
-                                _ => crate::utils::sleep_ms(500).await,
-                            }
-                        }
-                    })
-                    .await
-            }
+            let outcome = upload_and_follow(
+                &api,
+                &trace,
+                tree_id,
+                &body,
+                || close_window(bridge.as_ref(), window_closed),
+                import_progress,
+            )
             .await;
             importing.set(false);
             import_progress.set(None);
 
-            match outcome {
-                Ok(result) => {
-                    api.invalidate_tree(tree_id);
-                    import_result.set(Some(result.clone()));
-                    on_imported.call(ImportOutcome::Geneanet(result));
-                }
-                Err(e) => import_error.set(Some(format!("{e}"))),
-            }
+            settle_import(
+                outcome,
+                &api,
+                tree_id,
+                import_result,
+                import_error,
+                on_imported,
+            );
             // The assistant is over either way: closing the trace here rather
             // than waiting for the tab to unmount keeps the receipt the user
             // is now reading out of the import's duration.
@@ -1079,21 +925,7 @@ fn GeneanetTab(
                 title: i18n.t("geneanet.step2_title"),
                 open: open() == Step::Archives,
                 reachable: gw().is_some(),
-                summary: if archives_skipped() {
-                    Some(i18n.t("geneanet.step2_skipped"))
-                } else if archives.read().is_empty() {
-                    None
-                } else {
-                    Some(i18n.t_args(
-                        "geneanet.step2_summary",
-                        &[
-                            ("archives", &archives.read().len().to_string()),
-                            ("files", &group_digits(
-                                archives.read().iter().map(|a| a.file_count).sum::<usize>()
-                            )),
-                        ],
-                    ))
-                },
+                summary: archives_summary(&i18n, &archives.read(), archives_skipped()),
                 on_open: move |_| open.set(Step::Archives),
                 ArchiveStep {
                     archives,
@@ -1110,16 +942,7 @@ fn GeneanetTab(
                 title: i18n.t("geneanet.step3_title"),
                 open: open() == Step::Connect,
                 reachable: can_connect(),
-                summary: collected().map(|c| {
-                    let photos = group_digits(c.photo_count);
-                    match c.account {
-                        Some(account) => i18n.t_args(
-                            "geneanet.step3_summary_named",
-                            &[("account", &account), ("count", &photos)],
-                        ),
-                        None => i18n.t_args("geneanet.step3_summary", &[("count", &photos)]),
-                    }
-                }),
+                summary: collected().map(|c| collected_summary(&i18n, &c)),
                 on_open: move |_| open.set(Step::Connect),
                 ConnectStep {
                     available: bridge.is_some(),
@@ -1161,7 +984,7 @@ fn GeneanetTab(
                 index: number(Step::Import),
                 title: i18n.t("geneanet.step5_title"),
                 open: open() == Step::Import,
-                reachable: preview().is_some() && (!preview().unwrap_or_default().mismatch || override_mismatch()),
+                reachable: preview().is_some_and(|stats| !stats.mismatch || override_mismatch()),
                 summary: None,
                 on_open: move |_| open.set(Step::Import),
                 ImportStep {
@@ -1175,6 +998,265 @@ fn GeneanetTab(
                 }
             }
         }
+    }
+}
+
+/// Closes the login window, if there is one, for good.
+fn close_window(bridge: Option<&GeneanetBridge>, mut window_closed: Signal<bool>) {
+    if let Some(bridge) = bridge {
+        bridge.close();
+    }
+    window_closed.set(true);
+}
+
+/// Whether step 2 is settled, by adding archives or by explicitly skipping:
+/// both let the flow move on, and the difference is only whether photos get
+/// downloaded. A renditions import has no step 2 to settle.
+fn archives_settled(fidelity: MediaFidelity, has_archives: bool, skipped: bool) -> bool {
+    !fidelity.uses_archives() || has_archives || skipped
+}
+
+/// What the login window collects: the sizing pass is one `HEAD` per deposit
+/// and exists only to match the archives. A renditions import never opens
+/// one, so it is several hundred requests nothing would read.
+fn collect_for(fidelity: MediaFidelity) -> Collect {
+    if fidelity.uses_archives() {
+        Collect::ListAndSizes
+    } else {
+        Collect::ListOnly
+    }
+}
+
+/// The archives are matched on exact byte lengths, and a list-only
+/// collection has none. Keeping it would silently match nothing and download
+/// everything, so the collection is taken again.
+fn forget_unmeasured(mut collected: Signal<Option<Collected>>) {
+    let unmeasured = collected
+        .read()
+        .as_ref()
+        .is_some_and(|c| c.deposit_sizes.is_empty());
+    if unmeasured {
+        collected.set(None);
+    }
+}
+
+/// Follows the login window until it has collected the account's media, is
+/// closed, or fails. Closing it before signing in is not an error — the step
+/// simply returns to where it was.
+async fn follow_login(
+    mut rx: futures_channel::mpsc::UnboundedReceiver<GeneanetEvent>,
+    mut connecting: Signal<Option<Connecting>>,
+    mut collected: Signal<Option<Collected>>,
+    mut connect_error: Signal<Option<String>>,
+    mut open: Signal<Step>,
+) {
+    use futures_util::StreamExt as _;
+    while let Some(event) = rx.next().await {
+        let progress = match event {
+            GeneanetEvent::Opened => Connecting::WaitingForLogin,
+            GeneanetEvent::SignedIn => Connecting::Collecting { done: 0, total: 0 },
+            GeneanetEvent::Collecting { done, total } => Connecting::Collecting { done, total },
+            GeneanetEvent::Sizing { done, total } => Connecting::Sizing { done, total },
+            GeneanetEvent::Collected {
+                collection,
+                deposit_sizes,
+                cookie,
+                account,
+                photo_count,
+            } => {
+                collected.set(Some(Collected {
+                    collection,
+                    deposit_sizes,
+                    cookie,
+                    account,
+                    photo_count,
+                }));
+                connecting.set(None);
+                open.set(Step::Preview);
+                return;
+            }
+            // The fetch events belong to the import step, which drives its
+            // own channel; nothing here reacts to them.
+            GeneanetEvent::Fetched { .. }
+            | GeneanetEvent::Fetching { .. }
+            | GeneanetEvent::FetchDone => continue,
+            GeneanetEvent::Cancelled => {
+                connecting.set(None);
+                return;
+            }
+            GeneanetEvent::Failed(message) => {
+                connect_error.set(Some(message));
+                connecting.set(None);
+                return;
+            }
+        };
+        connecting.set(Some(progress));
+    }
+}
+
+/// The preview of the import, then the media the server cannot produce from
+/// the archives. A session loaded from disk may already carry them, in which
+/// case nothing here touches the network at all.
+async fn preview_and_plan(
+    api: &ApiClient,
+    body: &GeneanetPreviewBody,
+    mut preview: Signal<Option<GeneanetPreview>>,
+) -> Result<Vec<crate::api::NeededMedia>, crate::api::ApiError> {
+    preview.set(Some(api.preview_geneanet_import(body).await?));
+    api.plan_geneanet_import(body).await.map(|plan| plan.needed)
+}
+
+/// The addresses to fetch: those `needed` not fetched yet, each once — every
+/// page of a single-page deposit shares one original URL, and fetching it
+/// twice would double the bytes.
+fn urls_to_fetch(
+    needed: &[crate::api::NeededMedia],
+    fetched: &HashMap<String, String>,
+) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for item in needed {
+        if !fetched.contains_key(&item.url) && !urls.contains(&item.url) {
+            urls.push(item.url.clone());
+        }
+    }
+    urls
+}
+
+/// Records what the login window fetches until it is done. One unreachable
+/// medium is reported by the import as skipped; it does not end the run.
+async fn gather_media(
+    mut rx: futures_channel::mpsc::UnboundedReceiver<GeneanetEvent>,
+    mut fetched: Signal<HashMap<String, String>>,
+    mut fetch_progress: Signal<Option<(usize, usize)>>,
+    mut preview_error: Signal<Option<String>>,
+) {
+    use futures_util::StreamExt as _;
+    while let Some(event) = rx.next().await {
+        match event {
+            GeneanetEvent::Fetched {
+                url,
+                path: Some(path),
+                ..
+            } => {
+                fetched.write().insert(url, path);
+            }
+            GeneanetEvent::Fetching { done, total } => fetch_progress.set(Some((done, total))),
+            GeneanetEvent::FetchDone | GeneanetEvent::Cancelled => break,
+            GeneanetEvent::Failed(message) => {
+                preview_error.set(Some(message));
+                break;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Shows the import's receipt and tells the caller, or shows why it failed.
+fn settle_import(
+    outcome: Result<GeneanetImportResult, crate::api::ApiError>,
+    api: &ApiClient,
+    tree_id: Uuid,
+    mut import_result: Signal<Option<GeneanetImportResult>>,
+    mut import_error: Signal<Option<String>>,
+    on_imported: EventHandler<ImportOutcome>,
+) {
+    match outcome {
+        Ok(result) => {
+            api.invalidate_tree(tree_id);
+            import_result.set(Some(result.clone()));
+            on_imported.call(ImportOutcome::Geneanet(result));
+        }
+        Err(e) => import_error.set(Some(format!("{e}"))),
+    }
+}
+
+/// Uploads the import, then — the login window no longer needed, so
+/// `window_done` runs — follows its job to the end.
+async fn upload_and_follow(
+    api: &ApiClient,
+    trace: &UiActionTrace,
+    tree_id: Uuid,
+    body: &GeneanetImportBody,
+    window_done: impl FnOnce(),
+    import_progress: Signal<Option<ImportProgress>>,
+) -> Result<GeneanetImportResult, crate::api::ApiError> {
+    let started = trace
+        .step(
+            UiActionStep::GeneanetUpload,
+            api.import_geneanet(tree_id, body),
+        )
+        .await?;
+    window_done();
+    trace
+        .step(
+            UiActionStep::GeneanetPoll,
+            poll_geneanet_import(api, tree_id, started.job_id, import_progress),
+        )
+        .await
+}
+
+/// Follows import job `job_id` until it completes or fails, reporting its
+/// progress; the import's result.
+async fn poll_geneanet_import(
+    api: &ApiClient,
+    tree_id: Uuid,
+    job_id: Uuid,
+    mut import_progress: Signal<Option<ImportProgress>>,
+) -> Result<GeneanetImportResult, crate::api::ApiError> {
+    loop {
+        let status = api.file_import_status(tree_id, job_id).await?;
+        import_progress.set(Some(ImportProgress {
+            phase: status.phase.clone(),
+            done: status.done,
+            total: status.total,
+        }));
+        match status.phase.as_str() {
+            "completed" => {
+                return status
+                    .geneanet_result
+                    .ok_or_else(|| crate::api::ApiError::Api {
+                        status: 500,
+                        body: "completed Geneanet import has no result".to_string(),
+                    });
+            }
+            "failed" => {
+                return Err(crate::api::ApiError::Api {
+                    status: 422,
+                    body: status.error.unwrap_or_else(|| "import_failed".to_string()),
+                });
+            }
+            _ => crate::utils::sleep_ms(500).await,
+        }
+    }
+}
+
+/// Step 2's summary: skipped, or how many archives and files.
+fn archives_summary(i18n: &I18n, archives: &[IndexedArchive], skipped: bool) -> Option<String> {
+    if skipped {
+        return Some(i18n.t("geneanet.step2_skipped"));
+    }
+    if archives.is_empty() {
+        return None;
+    }
+    let files: usize = archives.iter().map(|a| a.file_count).sum();
+    Some(i18n.t_args(
+        "geneanet.step2_summary",
+        &[
+            ("archives", &archives.len().to_string()),
+            ("files", &group_digits(files)),
+        ],
+    ))
+}
+
+/// Step 3's summary: how many photographs, and whose.
+fn collected_summary(i18n: &I18n, collected: &Collected) -> String {
+    let photos = group_digits(collected.photo_count);
+    match &collected.account {
+        Some(account) => i18n.t_args(
+            "geneanet.step3_summary_named",
+            &[("account", account), ("count", &photos)],
+        ),
+        None => i18n.t_args("geneanet.step3_summary", &[("count", &photos)]),
     }
 }
 
@@ -1889,6 +1971,107 @@ fn progress_percent(done: usize, total: usize) -> usize {
 
 // ── Step 4 ──────────────────────────────────────────────────────────
 
+/// What the preview found: where the media will come from, the documents,
+/// the pages to match, and the references that found nobody or several.
+fn preview_findings(i18n: &I18n, stats: &GeneanetPreview, fidelity: MediaFidelity) -> Element {
+    rsx! {
+        ul { class: "gn-findings",
+            {media_source_finding(i18n, stats, fidelity)}
+            if stats.documents > 0 {
+                li { class: "is-good",
+                    {i18n.t_args(
+                        "geneanet.finding_documents",
+                        &[
+                            ("documents", &group_digits(stats.documents)),
+                            ("pages", &group_digits(stats.document_pages)),
+                        ],
+                    )}
+                }
+            }
+            if stats.to_match > 0 {
+                li { class: "is-info",
+                    {i18n.t_args(
+                        "geneanet.finding_to_match",
+                        &[("count", &group_digits(stats.to_match))],
+                    )}
+                }
+            }
+            if stats.group_photos > 0 {
+                li { class: "is-info",
+                    {i18n.t_plural("geneanet.finding_group_photos", stats.group_photos)}
+                }
+            }
+            if stats.unlinked_views > 0 {
+                li { class: "is-info",
+                    {i18n.t_plural("geneanet.finding_unlinked", stats.unlinked_views)}
+                }
+            }
+            {named_finding(i18n, "is-info", "geneanet.finding_unlinked_names", stats.unlinked_names, &stats.unlinked_names_sample)}
+            {named_finding(i18n, "is-warn", "geneanet.finding_outside_tree", stats.outside_tree, &stats.outside_tree_names)}
+            {named_finding(i18n, "is-warn", "geneanet.finding_ambiguous", stats.ambiguous, &stats.ambiguous_names)}
+        }
+    }
+}
+
+/// Where the photographs will come from: renditions downloaded, the
+/// archives alone, or the archives and some downloads.
+fn media_source_finding(i18n: &I18n, stats: &GeneanetPreview, fidelity: MediaFidelity) -> Element {
+    let (local, remote) = (
+        group_digits(stats.in_archives),
+        group_digits(stats.to_download),
+    );
+    match (
+        fidelity.uses_archives(),
+        stats.to_download,
+        stats.in_archives,
+    ) {
+        (false, 0, _) | (true, 0, 0) => rsx! {},
+        (false, _, _) => rsx! {
+            li { class: "is-info",
+                {i18n.t_args("geneanet.finding_renditions", &[("count", &remote)])}
+            }
+        },
+        (true, 0, _) => rsx! {
+            li { class: "is-good",
+                {i18n.t_args("geneanet.finding_all_local", &[("count", &local)])}
+            }
+        },
+        (true, _, _) => rsx! {
+            li { class: "is-info",
+                {i18n.t_args(
+                    "geneanet.finding_to_download",
+                    &[("local", &local), ("remote", &remote)],
+                )}
+            }
+        },
+    }
+}
+
+/// `count` references of a kind, `class`, with a sample of their `names`.
+fn named_finding(
+    i18n: &I18n,
+    class: &'static str,
+    key: &str,
+    count: usize,
+    names: &[String],
+) -> Element {
+    if count == 0 {
+        return rsx! {};
+    }
+    rsx! {
+        li { class,
+            details {
+                summary { {i18n.t_plural(key, count)} }
+                ul {
+                    for name in names.iter() {
+                        li { "{name}" }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn PreviewStep(
     preview: Option<GeneanetPreview>,
@@ -1931,106 +2114,7 @@ fn PreviewStep(
             Stat { value: stats.attachment_count, label: i18n.t("geneanet.stat_attachments") }
         }
 
-        ul { class: "gn-findings",
-            if !fidelity.uses_archives() {
-                if stats.to_download > 0 {
-                    li { class: "is-info",
-                        {i18n.t_args(
-                            "geneanet.finding_renditions",
-                            &[("count", &group_digits(stats.to_download))],
-                        )}
-                    }
-                }
-            } else if stats.to_download == 0 && stats.in_archives > 0 {
-                li { class: "is-good",
-                    {i18n.t_args(
-                        "geneanet.finding_all_local",
-                        &[("count", &group_digits(stats.in_archives))],
-                    )}
-                }
-            } else if stats.to_download > 0 {
-                li { class: "is-info",
-                    {i18n.t_args(
-                        "geneanet.finding_to_download",
-                        &[
-                            ("local", &group_digits(stats.in_archives)),
-                            ("remote", &group_digits(stats.to_download)),
-                        ],
-                    )}
-                }
-            }
-            if stats.documents > 0 {
-                li { class: "is-good",
-                    {i18n.t_args(
-                        "geneanet.finding_documents",
-                        &[
-                            ("documents", &group_digits(stats.documents)),
-                            ("pages", &group_digits(stats.document_pages)),
-                        ],
-                    )}
-                }
-            }
-            if stats.to_match > 0 {
-                li { class: "is-info",
-                    {i18n.t_args(
-                        "geneanet.finding_to_match",
-                        &[("count", &group_digits(stats.to_match))],
-                    )}
-                }
-            }
-            if stats.group_photos > 0 {
-                li { class: "is-info",
-                    {i18n.t_plural("geneanet.finding_group_photos", stats.group_photos)}
-                }
-            }
-            if stats.unlinked_views > 0 {
-                li { class: "is-info",
-                    {i18n.t_plural("geneanet.finding_unlinked", stats.unlinked_views)}
-                }
-            }
-            if stats.unlinked_names > 0 {
-                li { class: "is-info",
-                    details {
-                        summary {
-                            {i18n.t_plural("geneanet.finding_unlinked_names", stats.unlinked_names)}
-                        }
-                        ul {
-                            for name in stats.unlinked_names_sample.iter() {
-                                li { "{name}" }
-                            }
-                        }
-                    }
-                }
-            }
-            if stats.outside_tree > 0 {
-                li { class: "is-warn",
-                    details {
-                        summary {
-                            {i18n.t_plural("geneanet.finding_outside_tree", stats.outside_tree)}
-                        }
-                        ul {
-                            for name in stats.outside_tree_names.iter() {
-                                li { "{name}" }
-                            }
-                        }
-                    }
-                }
-            }
-            if stats.ambiguous > 0 {
-                li { class: "is-warn",
-                    details {
-                        summary {
-                            {i18n.t_plural("geneanet.finding_ambiguous", stats.ambiguous)}
-                        }
-                        ul {
-                            for name in stats.ambiguous_names.iter() {
-                                li { "{name}" }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        {preview_findings(&i18n, &stats, fidelity)}
 
         // Offered here as well as in step 3, and this is the more valuable of
         // the two: once the gathering is done the file needs no Geneanet

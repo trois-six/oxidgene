@@ -50,104 +50,52 @@ pub fn Home() -> Element {
     });
     let api_poll = api.clone();
     use_effect(move || {
-        if !imports_active() {
-            return;
+        if imports_active() {
+            spawn(poll_imports(
+                api_poll.clone(),
+                imports_active,
+                refresh_counter,
+            ));
         }
-        let api = api_poll.clone();
-        spawn(async move {
-            while imports_active() {
-                crate::utils::sleep_ms(1_000).await;
-                api.invalidate_tree_list();
-                refresh_counter += 1;
-            }
-        });
     });
 
-    // Create form state.
     let mut show_create = use_signal(|| false);
-    let mut new_name = use_signal(String::new);
-    let mut new_desc = use_signal(String::new);
-    let mut form_error = use_signal(|| None::<String>);
-
-    // Delete confirmation state.
-    let mut confirm_delete_id = use_signal(|| None::<Uuid>);
-    let mut confirm_delete_name = use_signal(String::new);
+    // Delete confirmation state: the tree and its name.
+    let mut confirm_delete = use_signal(|| None::<(Uuid, String)>);
     let mut delete_error = use_signal(|| None::<String>);
     // Set while the delete request is in flight, so the dialog can show a
     // spinner instead of sitting there looking hung.
     let mut deleting = use_signal(|| false);
-
     // Import state: which tree the modal is importing into, and its name for
     // the modal's title. The modal owns everything else about the run.
-    let mut import_tree_id = use_signal(|| None::<Uuid>);
-    let mut import_tree_name = use_signal(String::new);
-
+    let mut importing = use_signal(|| None::<(Uuid, String)>);
     // Errors from the card actions that have nowhere of their own to show one.
-    let mut action_error = use_signal(|| None::<String>);
-
-    // Rename state.
-    let mut rename_tree_id = use_signal(|| None::<Uuid>);
-    let mut rename_name = use_signal(String::new);
-    let mut rename_error = use_signal(|| None::<String>);
-
-    // Duplicate state.
-    let mut duplicating_tree_id = use_signal(|| None::<Uuid>);
-
+    let action_error = use_signal(|| None::<String>);
+    let mut renaming = use_signal(|| None::<(Uuid, String)>);
+    let duplicating_tree_id = use_signal(|| None::<Uuid>);
     // Tree card whose action menu is open, with the fixed menu's viewport
     // coordinates. Only one card menu may be open at a time.
     let open_menu = use_signal(|| None::<(String, f64, f64)>);
-
-    // Search & sort state.
-    let mut search_query = use_signal(String::new);
-    let mut sort_mode = use_signal(|| "recent".to_string());
+    let search_query = use_signal(String::new);
+    let sort_mode = use_signal(|| "recent".to_string());
 
     let i18n = use_i18n();
-
-    let api_create = api.clone();
-    let on_create = move |_| {
-        let api = api_create.clone();
-        let name = new_name().trim().to_string();
-        let desc = new_desc().trim().to_string();
-        spawn(async move {
-            if name.is_empty() {
-                form_error.set(Some(i18n.t("tree.form.name_required")));
-                return;
-            }
-            let body = CreateTreeBody {
-                name,
-                description: if desc.is_empty() { None } else { Some(desc) },
-            };
-            match api.create_tree(&body).await {
-                Ok(_) => {
-                    new_name.set(String::new());
-                    new_desc.set(String::new());
-                    show_create.set(false);
-                    form_error.set(None);
-                    refresh_counter += 1;
-                }
-                Err(e) => form_error.set(Some(format!("{e}"))),
-            }
-        });
-    };
 
     let api_del = api.clone();
     let on_confirm_delete = move |_| {
         let api = api_del.clone();
-        let Some(id) = confirm_delete_id() else {
-            return;
-        };
         // Guard against a second click landing before the first request
         // returns — the dialog stays open for the whole round-trip.
-        if deleting() {
+        let Some((id, _)) = confirm_delete().filter(|_| !deleting()) else {
             return;
-        }
+        };
         deleting.set(true);
         spawn(async move {
             let result = api.delete_tree(id).await;
             deleting.set(false);
             match result {
                 Ok(_) => {
-                    confirm_delete_id.set(None);
+                    confirm_delete.set(None);
                     delete_error.set(None);
                     tree_cache.forget(id);
                     refresh_counter += 1;
@@ -155,6 +103,18 @@ pub fn Home() -> Element {
                 Err(e) => delete_error.set(Some(format!("{e}"))),
             }
         });
+    };
+    let api_dup = api.clone();
+    let on_duplicate = move |(tid, name): (Uuid, String)| {
+        let name = format!("{name}{}", i18n.t("home.duplicate_suffix"));
+        spawn(duplicate_tree(
+            api_dup.clone(),
+            tid,
+            name,
+            duplicating_tree_id,
+            refresh_counter,
+            action_error,
+        ));
     };
 
     rsx! {
@@ -164,220 +124,30 @@ pub fn Home() -> Element {
 
         div { class: "home-page",
             div { class: "home-main",
-
-                // ── Page header ──────────────────────────────────────
-                div { class: "home-page-header",
-                    div { class: "home-page-header-row",
-                        h1 {
-                            {i18n.t("home.title_prefix")}
-                            span { class: "home-title-accent", {i18n.t("home.title_accent")} }
-                        }
-                        Link {
-                            to: Route::AppSettings {},
-                            class: "home-settings-btn",
-                            title: "{i18n.t(\"app_settings.title\")}",
-                            svg {
-                                width: "20",
-                                height: "20",
-                                fill: "none",
-                                "viewBox": "0 0 24 24",
-                                stroke: "currentColor",
-                                "strokeWidth": "1.8",
-                                // Gear icon
-                                path { d: "M12 15a3 3 0 100-6 3 3 0 000 6z" }
-                                path { d: "M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" }
-                            }
-                        }
-                    }
-                    p { class: "home-subtitle",
-                        {i18n.t("home.subtitle")}
-                    }
-                }
-
-                // ── Toolbar: search + sort + new tree ───────────────
-                div { class: "home-toolbar",
-                    div { class: "home-search-box",
-                        svg {
-                            class: "home-search-icon",
-                            width: "15",
-                            height: "15",
-                            fill: "none",
-                            "viewBox": "0 0 24 24",
-                            stroke: "currentColor",
-                            "strokeWidth": "2",
-                            circle { cx: "11", cy: "11", r: "8" }
-                            path { d: "M21 21l-4.35-4.35" }
-                        }
-                        input {
-                            r#type: "text",
-                            class: "home-search-input",
-                            placeholder: i18n.t("home.search_placeholder"),
-                            value: "{search_query}",
-                            oninput: move |e: Event<FormData>| search_query.set(e.value()),
-                        }
-                    }
-                    select {
-                        class: "home-sort-select",
-                        value: "{sort_mode}",
-                        onchange: move |e: Event<FormData>| sort_mode.set(e.value()),
-                        option { value: "recent", {i18n.t("home.sort_recent")} }
-                        option { value: "name", {i18n.t("home.sort_name")} }
-                    }
-                    button {
-                        class: "home-btn-new home-btn-new-toolbar",
-                        title: "{i18n.t(\"home.new_tree\")}",
-                        "aria-label": "{i18n.t(\"home.new_tree\")}",
-                        onclick: move |_| show_create.set(true),
-                        svg {
-                            width: "13",
-                            height: "13",
-                            fill: "none",
-                            "viewBox": "0 0 24 24",
-                            stroke: "currentColor",
-                            "strokeWidth": "2.5",
-                            path { d: "M12 5v14M5 12h14" }
-                        }
-                        span { class: "home-btn-new-label", {i18n.t("home.new_tree")} }
-                    }
-                }
+                HomeHeader {}
+                HomeToolbar { search_query, sort_mode, show_create }
 
                 // ── Trees grid ───────────────────────────────────────
                 match &*trees_resource.read() {
-                    Some(Ok(conn)) => {
-                        let query = search_query().to_lowercase();
-                        let sort = sort_mode();
-
-                        // Filter by search query
-                        let mut filtered: Vec<_> = conn.edges.iter().filter(|edge| {
-                            if query.is_empty() {
-                                return true;
-                            }
-                            let name_match = edge.node.name.to_lowercase().contains(&query);
-                            let desc_match = edge.node.description.as_deref()
-                                .unwrap_or("")
-                                .to_lowercase()
-                                .contains(&query);
-                            name_match || desc_match
-                        }).collect();
-
-                        // Sort
-                        match sort.as_str() {
-                            "name" => filtered.sort_by_cached_key(|a| a.node.name.to_lowercase()),
-                            _ => filtered.sort_by_key(|b| std::cmp::Reverse(b.node.updated_at)),
-                        }
-
-                        if conn.edges.is_empty() {
-                            rsx! {
-                                div { class: "home-empty",
-                                    div { class: "home-empty-icon", "🌳" }
-                                    h3 { {i18n.t("home.no_trees")} }
-                                    p { {i18n.t("home.no_trees_hint")} }
-                                    button {
-                                        class: "home-btn-new",
-                                        style: "margin-top: 0.5rem;",
-                                        onclick: move |_| show_create.set(true),
-                                        {i18n.t("home.new_tree")}
-                                    }
-                                }
-                            }
-                        } else if filtered.is_empty() {
-                            rsx! {
-                                div { class: "home-empty",
-                                    div { class: "home-empty-icon",
-                                        svg {
-                                            width: "48",
-                                            height: "48",
-                                            fill: "none",
-                                            "viewBox": "0 0 24 24",
-                                            stroke: "var(--text-muted)",
-                                            "strokeWidth": "1.5",
-                                            circle { cx: "11", cy: "11", r: "8" }
-                                            path { d: "M21 21l-4.35-4.35" }
-                                        }
-                                    }
-                                    h3 { {i18n.t("home.no_search_results")} }
-                                    p { {i18n.t("home.no_search_results_hint")} }
-                                }
-                            }
-                        } else {
-                            rsx! {
-                                div { class: "trees-grid",
-                                    for edge in filtered.iter() {{
-                                        let tree = &edge.node;
-                                        let tid = tree.id;
-                                        let tid_str = tid.to_string();
-                                        let tree_name = tree.name.clone();
-                                        let tree_name_del = tree_name.clone();
-                                        let tree_name_rename = tree_name.clone();
-                                        let tree_name_import = tree_name.clone();
-                                        let tree_name_dup = tree_name.clone();
-                                        let desc = tree.description.clone().unwrap_or_default();
-                                        let updated_at = tree.updated_at;
-                                        let is_duplicating = duplicating_tree_id() == Some(tid);
-                                        let is_importing = tree.import_in_progress;
-                                        let api_dup = api.clone();
-                                        rsx! {
-                                            TreeCard {
-                                                key: "{tid}",
-                                                name: tree_name,
-                                                description: desc,
-                                                updated_at,
-                                                tree_id: tid_str,
-                                                duplicating: is_duplicating,
-                                                importing: is_importing,
-                                                open_menu,
-                                                on_rename: move |_| {
-                                                    rename_tree_id.set(Some(tid));
-                                                    rename_name.set(tree_name_rename.clone());
-                                                    rename_error.set(None);
-                                                },
-                                                on_duplicate: move |_| {
-                                                    let api = api_dup.clone();
-                                                    let dup_name = format!("{}{}", tree_name_dup, i18n.t("home.duplicate_suffix"));
-                                                    spawn(async move {
-                                                        duplicating_tree_id.set(Some(tid));
-                                                        let body = DuplicateTreeBody { name: dup_name };
-                                                        match api.duplicate_tree(tid, &body).await {
-                                                            Ok(_) => {
-                                                                duplicating_tree_id.set(None);
-                                                                refresh_counter += 1;
-                                                            }
-                                                            Err(e) => {
-                                                                duplicating_tree_id.set(None);
-                                                                action_error.set(Some(format!("{e}")));
-                                                            }
-                                                        }
-                                                    });
-                                                },
-                                                on_delete: move |_| {
-                                                    confirm_delete_id.set(Some(tid));
-                                                    confirm_delete_name.set(tree_name_del.clone());
-                                                    delete_error.set(None);
-                                                },
-                                                // Opens the import modal rather than a native
-                                                // file picker: a Geneanet import needs three
-                                                // inputs and a login, none of which a file
-                                                // dialog can ask for.
-                                                on_import: move |_| {
-                                                    import_tree_id.set(Some(tid));
-                                                    import_tree_name.set(tree_name_import.clone());
-                                                },
-                                            }
-                                        }
-                                    }}
-
-                                    // Add-new card
-                                    div {
-                                        class: "tree-card tree-card-add",
-                                        onclick: move |_| show_create.set(true),
-                                        div { class: "tree-card-add-icon", "＋" }
-                                        div { class: "tree-card-add-text", {i18n.t("home.add_card_title")} }
-                                        div { class: "tree-card-add-sub",
-                                            {i18n.t("home.add_card_subtitle")}
-                                        }
-                                    }
-                                }
-                            }
+                    Some(Ok(conn)) => rsx! {
+                        TreesGrid {
+                            trees: conn.edges.iter().map(|edge| TreeSummary::of(&edge.node)).collect::<Vec<_>>(),
+                            query: search_query(),
+                            sort: sort_mode(),
+                            open_menu,
+                            duplicating: duplicating_tree_id(),
+                            on_create: move |_| show_create.set(true),
+                            on_rename: move |tree| renaming.set(Some(tree)),
+                            on_duplicate,
+                            on_delete: move |tree| {
+                                confirm_delete.set(Some(tree));
+                                delete_error.set(None);
+                            },
+                            // Opens the import modal rather than a native
+                            // file picker: a Geneanet import needs three
+                            // inputs and a login, none of which a file
+                            // dialog can ask for.
+                            on_import: move |tree| importing.set(Some(tree)),
                         }
                     },
                     Some(Err(_)) => rsx! {
@@ -390,175 +160,42 @@ pub fn Home() -> Element {
             }
         }
 
-        // ── Create tree modal ─────────────────────────────────────────
         if show_create() {
-            div {
-                class: "modal-backdrop",
-                // Dismiss on press (not click): a click fires on the common ancestor of
-                // mousedown/mouseup, so selecting text then releasing outside would close.
-                onmousedown: move |_| {
+            CreateTreeModal {
+                on_close: move |_| show_create.set(false),
+                on_created: move |_| {
                     show_create.set(false);
-                    form_error.set(None);
+                    refresh_counter += 1;
                 },
-                div {
-                    class: "home-create-modal",
-                    onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
-
-                    div { class: "home-create-modal-header",
-                        h2 { {i18n.t("home.new_tree")} }
-                        button {
-                            class: "person-form-close",
-                            onclick: move |_| {
-                                show_create.set(false);
-                                form_error.set(None);
-                            },
-                            "✕"
-                        }
-                    }
-
-                    div { class: "home-create-modal-body",
-                        if let Some(err) = form_error() {
-                            div { class: "error-msg", "{err}" }
-                        }
-                        div { class: "form-group",
-                            label { {i18n.t("tree.form.name_label")} }
-                            input {
-                                r#type: "text",
-                                placeholder: i18n.t("tree.form.name_placeholder"),
-                                value: "{new_name}",
-                                oninput: move |e: Event<FormData>| new_name.set(e.value()),
-                            }
-                        }
-                        div { class: "form-group",
-                            label { {i18n.t("tree.form.description_label")} }
-                            textarea {
-                                rows: 3,
-                                placeholder: i18n.t("tree.form.description_placeholder"),
-                                value: "{new_desc}",
-                                oninput: move |e: Event<FormData>| new_desc.set(e.value()),
-                            }
-                        }
-                        div { class: "modal-actions",
-                            button {
-                                class: "btn btn-outline",
-                                onclick: move |_| {
-                                    show_create.set(false);
-                                    form_error.set(None);
-                                },
-                                {i18n.t("common.cancel")}
-                            }
-                            button {
-                                class: "btn btn-primary",
-                                onclick: on_create,
-                                {i18n.t("common.create")}
-                            }
-                        }
-                    }
-                }
             }
         }
 
         // ── Delete confirmation ───────────────────────────────────────
-        if confirm_delete_id().is_some() {
+        if let Some((_, name)) = confirm_delete() {
             ConfirmDialog {
                 title: i18n.t("confirm.delete_tree.title"),
-                message: i18n.t_args("confirm.delete_tree.message_name", &[("name", &confirm_delete_name())]),
+                message: i18n.t_args("confirm.delete_tree.message_name", &[("name", &name)]),
                 confirm_label: if deleting() { i18n.t("common.deleting") } else { i18n.t("common.delete") },
                 confirm_class: "btn btn-danger",
                 error: delete_error(),
                 busy: deleting(),
                 on_confirm: on_confirm_delete,
                 on_cancel: move |_| {
-                    confirm_delete_id.set(None);
+                    confirm_delete.set(None);
                     delete_error.set(None);
                 },
             }
         }
 
-        // ── Rename modal ────────────────────────────────────────────
-        if rename_tree_id().is_some() {
-            div {
-                class: "modal-backdrop",
-                onmousedown: move |_| {
-                    rename_tree_id.set(None);
-                    rename_error.set(None);
+        if let Some((tid, name)) = renaming() {
+            RenameTreeModal {
+                tree_id: tid,
+                name,
+                on_close: move |_| renaming.set(None),
+                on_renamed: move |_| {
+                    renaming.set(None);
+                    refresh_counter += 1;
                 },
-                div {
-                    class: "home-create-modal",
-                    onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
-
-                    div { class: "home-create-modal-header",
-                        h2 { {i18n.t("home.rename_tree")} }
-                        button {
-                            class: "person-form-close",
-                            onclick: move |_| {
-                                rename_tree_id.set(None);
-                                rename_error.set(None);
-                            },
-                            "\u{2715}"
-                        }
-                    }
-
-                    div { class: "home-create-modal-body",
-                        if let Some(err) = rename_error() {
-                            div { class: "error-msg", "{err}" }
-                        }
-                        div { class: "form-group",
-                            label { {i18n.t("tree.form.name_label")} }
-                            input {
-                                r#type: "text",
-                                placeholder: i18n.t("tree.form.name_placeholder"),
-                                value: "{rename_name}",
-                                oninput: move |e: Event<FormData>| rename_name.set(e.value()),
-                            }
-                        }
-                        div { class: "modal-actions",
-                            button {
-                                class: "btn btn-outline",
-                                onclick: move |_| {
-                                    rename_tree_id.set(None);
-                                    rename_error.set(None);
-                                },
-                                {i18n.t("common.cancel")}
-                            }
-                            button {
-                                class: "btn btn-primary",
-                                onclick: {
-                                    let api = api.clone();
-                                    move |_| {
-                                        let api = api.clone();
-                                        let name = rename_name().trim().to_string();
-                                        spawn(async move {
-                                            if name.is_empty() {
-                                                rename_error.set(Some(i18n.t("tree.form.name_required").to_string()));
-                                                return;
-                                            }
-                                            let Some(tid) = rename_tree_id() else { return };
-                                            let body = UpdateTreeBody {
-                            default_privacy: None,
-                            entry_suggestions: None,
-                                                name: Some(name),
-                                                description: None,
-                                                sosa_root_person_id: None,
-                                                self_person_id: None,
-                                            };
-                                            match api.update_tree(tid, &body).await {
-                                                Ok(tree) => {
-                                                    rename_tree_id.set(None);
-                                                    rename_error.set(None);
-                                                    tree_cache.refresh_tree(tid, tree);
-                                                    refresh_counter += 1;
-                                                }
-                                                Err(e) => rename_error.set(Some(format!("{e}"))),
-                                            }
-                                        });
-                                    }
-                                },
-                                {i18n.t("common.save")}
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -571,11 +208,11 @@ pub fn Home() -> Element {
         }
 
         // ── Import modal ────────────────────────────────────────────
-        if let Some(tid) = import_tree_id() {
+        if let Some((tid, name)) = importing() {
             ImportModal {
                 tree_id: tid,
-                tree_name: import_tree_name(),
-                on_close: move |_| import_tree_id.set(None),
+                tree_name: name,
+                on_close: move |_| importing.set(None),
                 // The modal stays open on its result screen; what Home has to
                 // do is forget the stale snapshot and re-read the list, since
                 // an import changes the tree's counts and its updated_at.
@@ -592,6 +229,456 @@ pub fn Home() -> Element {
         }
 
         style { {HOME_STYLES} }
+    }
+}
+
+/// Re-reads the tree list every second while an import runs.
+async fn poll_imports(
+    api: ApiClient,
+    imports_active: Memo<bool>,
+    mut refresh_counter: Signal<u32>,
+) {
+    while imports_active() {
+        crate::utils::sleep_ms(1_000).await;
+        api.invalidate_tree_list();
+        refresh_counter += 1;
+    }
+}
+
+/// Duplicates tree `tid` as `name`, blocking the page meanwhile.
+async fn duplicate_tree(
+    api: ApiClient,
+    tid: Uuid,
+    name: String,
+    mut duplicating: Signal<Option<Uuid>>,
+    mut refresh_counter: Signal<u32>,
+    mut action_error: Signal<Option<String>>,
+) {
+    duplicating.set(Some(tid));
+    let result = api.duplicate_tree(tid, &DuplicateTreeBody { name }).await;
+    duplicating.set(None);
+    match result {
+        Ok(_) => refresh_counter += 1,
+        Err(e) => action_error.set(Some(format!("{e}"))),
+    }
+}
+
+/// What a tree card shows of a tree.
+#[derive(Clone, PartialEq)]
+struct TreeSummary {
+    id: Uuid,
+    name: String,
+    description: String,
+    updated_at: chrono::DateTime<Utc>,
+    importing: bool,
+}
+
+impl TreeSummary {
+    fn of(tree: &crate::api::TreeListItem) -> Self {
+        Self {
+            id: tree.id,
+            name: tree.name.clone(),
+            description: tree.description.clone().unwrap_or_default(),
+            updated_at: tree.updated_at,
+            importing: tree.import_in_progress,
+        }
+    }
+}
+
+/// The page title and the link to the application settings.
+#[component]
+fn HomeHeader() -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "home-page-header",
+            div { class: "home-page-header-row",
+                h1 {
+                    {i18n.t("home.title_prefix")}
+                    span { class: "home-title-accent", {i18n.t("home.title_accent")} }
+                }
+                Link {
+                    to: Route::AppSettings {},
+                    class: "home-settings-btn",
+                    title: "{i18n.t(\"app_settings.title\")}",
+                    svg {
+                        width: "20",
+                        height: "20",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "currentColor",
+                        "strokeWidth": "1.8",
+                        // Gear icon
+                        path { d: "M12 15a3 3 0 100-6 3 3 0 000 6z" }
+                        path { d: "M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" }
+                    }
+                }
+            }
+            p { class: "home-subtitle",
+                {i18n.t("home.subtitle")}
+            }
+        }
+    }
+}
+
+/// Search, sort and the new-tree button.
+#[component]
+fn HomeToolbar(
+    search_query: Signal<String>,
+    sort_mode: Signal<String>,
+    show_create: Signal<bool>,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "home-toolbar",
+            div { class: "home-search-box",
+                svg {
+                    class: "home-search-icon",
+                    width: "15",
+                    height: "15",
+                    fill: "none",
+                    "viewBox": "0 0 24 24",
+                    stroke: "currentColor",
+                    "strokeWidth": "2",
+                    circle { cx: "11", cy: "11", r: "8" }
+                    path { d: "M21 21l-4.35-4.35" }
+                }
+                input {
+                    r#type: "text",
+                    class: "home-search-input",
+                    placeholder: i18n.t("home.search_placeholder"),
+                    value: "{search_query}",
+                    oninput: move |e: Event<FormData>| search_query.set(e.value()),
+                }
+            }
+            select {
+                class: "home-sort-select",
+                value: "{sort_mode}",
+                onchange: move |e: Event<FormData>| sort_mode.set(e.value()),
+                option { value: "recent", {i18n.t("home.sort_recent")} }
+                option { value: "name", {i18n.t("home.sort_name")} }
+            }
+            button {
+                class: "home-btn-new home-btn-new-toolbar",
+                title: "{i18n.t(\"home.new_tree\")}",
+                "aria-label": "{i18n.t(\"home.new_tree\")}",
+                onclick: move |_| show_create.set(true),
+                svg {
+                    width: "13",
+                    height: "13",
+                    fill: "none",
+                    "viewBox": "0 0 24 24",
+                    stroke: "currentColor",
+                    "strokeWidth": "2.5",
+                    path { d: "M12 5v14M5 12h14" }
+                }
+                span { class: "home-btn-new-label", {i18n.t("home.new_tree")} }
+            }
+        }
+    }
+}
+
+/// The trees matching `query` in their name or description, sorted by name
+/// or else by last change, newest first.
+fn visible_trees(trees: &[TreeSummary], query: &str, sort: &str) -> Vec<TreeSummary> {
+    let query = query.to_lowercase();
+    let mut visible: Vec<TreeSummary> = trees
+        .iter()
+        .filter(|tree| {
+            query.is_empty()
+                || tree.name.to_lowercase().contains(&query)
+                || tree.description.to_lowercase().contains(&query)
+        })
+        .cloned()
+        .collect();
+    match sort {
+        "name" => visible.sort_by_cached_key(|tree| tree.name.to_lowercase()),
+        _ => visible.sort_by_key(|tree| std::cmp::Reverse(tree.updated_at)),
+    }
+    visible
+}
+
+/// The tree cards and the add card; an invitation when there is no tree,
+/// a note when none matches the search.
+#[component]
+fn TreesGrid(
+    trees: Vec<TreeSummary>,
+    query: String,
+    sort: String,
+    open_menu: Signal<Option<(String, f64, f64)>>,
+    duplicating: Option<Uuid>,
+    on_create: EventHandler<()>,
+    on_rename: EventHandler<(Uuid, String)>,
+    on_duplicate: EventHandler<(Uuid, String)>,
+    on_delete: EventHandler<(Uuid, String)>,
+    on_import: EventHandler<(Uuid, String)>,
+) -> Element {
+    let i18n = use_i18n();
+    let visible = visible_trees(&trees, &query, &sort);
+    if trees.is_empty() {
+        return rsx! {
+            div { class: "home-empty",
+                div { class: "home-empty-icon", "🌳" }
+                h3 { {i18n.t("home.no_trees")} }
+                p { {i18n.t("home.no_trees_hint")} }
+                button {
+                    class: "home-btn-new",
+                    style: "margin-top: 0.5rem;",
+                    onclick: move |_| on_create.call(()),
+                    {i18n.t("home.new_tree")}
+                }
+            }
+        };
+    }
+    if visible.is_empty() {
+        return rsx! {
+            div { class: "home-empty",
+                div { class: "home-empty-icon",
+                    svg {
+                        width: "48",
+                        height: "48",
+                        fill: "none",
+                        "viewBox": "0 0 24 24",
+                        stroke: "var(--text-muted)",
+                        "strokeWidth": "1.5",
+                        circle { cx: "11", cy: "11", r: "8" }
+                        path { d: "M21 21l-4.35-4.35" }
+                    }
+                }
+                h3 { {i18n.t("home.no_search_results")} }
+                p { {i18n.t("home.no_search_results_hint")} }
+            }
+        };
+    }
+    rsx! {
+        div { class: "trees-grid",
+            for tree in visible {
+                TreeCard {
+                    key: "{tree.id}",
+                    name: tree.name.clone(),
+                    description: tree.description.clone(),
+                    updated_at: tree.updated_at,
+                    tree_id: tree.id.to_string(),
+                    duplicating: duplicating == Some(tree.id),
+                    importing: tree.importing,
+                    open_menu,
+                    on_rename: {
+                        let tree = (tree.id, tree.name.clone());
+                        move |_| on_rename.call(tree.clone())
+                    },
+                    on_duplicate: {
+                        let tree = (tree.id, tree.name.clone());
+                        move |_| on_duplicate.call(tree.clone())
+                    },
+                    on_delete: {
+                        let tree = (tree.id, tree.name.clone());
+                        move |_| on_delete.call(tree.clone())
+                    },
+                    on_import: {
+                        let tree = (tree.id, tree.name.clone());
+                        move |_| on_import.call(tree.clone())
+                    },
+                }
+            }
+
+            // Add-new card
+            div {
+                class: "tree-card tree-card-add",
+                onclick: move |_| on_create.call(()),
+                div { class: "tree-card-add-icon", "＋" }
+                div { class: "tree-card-add-text", {i18n.t("home.add_card_title")} }
+                div { class: "tree-card-add-sub",
+                    {i18n.t("home.add_card_subtitle")}
+                }
+            }
+        }
+    }
+}
+
+/// The modal creating a tree from a name and a description.
+#[component]
+fn CreateTreeModal(on_close: EventHandler<()>, on_created: EventHandler<()>) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut new_name = use_signal(String::new);
+    let mut new_desc = use_signal(String::new);
+    let mut form_error = use_signal(|| None::<String>);
+    let on_create = move |_| {
+        let api = api.clone();
+        let name = new_name().trim().to_string();
+        let desc = new_desc().trim().to_string();
+        if name.is_empty() {
+            form_error.set(Some(i18n.t("tree.form.name_required")));
+            return;
+        }
+        spawn(async move {
+            let body = CreateTreeBody {
+                name,
+                description: Some(desc).filter(|desc| !desc.is_empty()),
+            };
+            match api.create_tree(&body).await {
+                Ok(_) => on_created.call(()),
+                Err(e) => form_error.set(Some(format!("{e}"))),
+            }
+        });
+    };
+    rsx! {
+        div {
+            class: "modal-backdrop",
+            // Dismiss on press (not click): a click fires on the common ancestor of
+            // mousedown/mouseup, so selecting text then releasing outside would close.
+            onmousedown: move |_| on_close.call(()),
+            div {
+                class: "home-create-modal",
+                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+
+                div { class: "home-create-modal-header",
+                    h2 { {i18n.t("home.new_tree")} }
+                    button {
+                        class: "person-form-close",
+                        onclick: move |_| on_close.call(()),
+                        "✕"
+                    }
+                }
+
+                div { class: "home-create-modal-body",
+                    if let Some(err) = form_error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+                    div { class: "form-group",
+                        label { {i18n.t("tree.form.name_label")} }
+                        input {
+                            r#type: "text",
+                            placeholder: i18n.t("tree.form.name_placeholder"),
+                            value: "{new_name}",
+                            oninput: move |e: Event<FormData>| new_name.set(e.value()),
+                        }
+                    }
+                    div { class: "form-group",
+                        label { {i18n.t("tree.form.description_label")} }
+                        textarea {
+                            rows: 3,
+                            placeholder: i18n.t("tree.form.description_placeholder"),
+                            value: "{new_desc}",
+                            oninput: move |e: Event<FormData>| new_desc.set(e.value()),
+                        }
+                    }
+                    div { class: "modal-actions",
+                        button {
+                            class: "btn btn-outline",
+                            onclick: move |_| on_close.call(()),
+                            {i18n.t("common.cancel")}
+                        }
+                        button {
+                            class: "btn btn-primary",
+                            onclick: on_create,
+                            {i18n.t("common.create")}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The modal renaming tree `tree_id`, now called `name`.
+#[component]
+fn RenameTreeModal(
+    tree_id: Uuid,
+    name: String,
+    on_close: EventHandler<()>,
+    on_renamed: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let mut rename_name = use_signal(|| name.clone());
+    let mut rename_error = use_signal(|| None::<String>);
+    let on_save = move |_| {
+        let api = api.clone();
+        let name = rename_name().trim().to_string();
+        if name.is_empty() {
+            rename_error.set(Some(i18n.t("tree.form.name_required").to_string()));
+            return;
+        }
+        spawn(async move {
+            let body = UpdateTreeBody {
+                default_privacy: None,
+                entry_suggestions: None,
+                name: Some(name),
+                description: None,
+                sosa_root_person_id: None,
+                self_person_id: None,
+            };
+            match api.update_tree(tree_id, &body).await {
+                Ok(tree) => {
+                    tree_cache.refresh_tree(tree_id, tree);
+                    on_renamed.call(());
+                }
+                Err(e) => rename_error.set(Some(format!("{e}"))),
+            }
+        });
+    };
+    rsx! {
+        div {
+            class: "modal-backdrop",
+            onmousedown: move |_| on_close.call(()),
+            div {
+                class: "home-create-modal",
+                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+
+                div { class: "home-create-modal-header",
+                    h2 { {i18n.t("home.rename_tree")} }
+                    button {
+                        class: "person-form-close",
+                        onclick: move |_| on_close.call(()),
+                        "\u{2715}"
+                    }
+                }
+
+                div { class: "home-create-modal-body",
+                    if let Some(err) = rename_error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+                    div { class: "form-group",
+                        label { {i18n.t("tree.form.name_label")} }
+                        input {
+                            r#type: "text",
+                            placeholder: i18n.t("tree.form.name_placeholder"),
+                            value: "{rename_name}",
+                            oninput: move |e: Event<FormData>| rename_name.set(e.value()),
+                        }
+                    }
+                    div { class: "modal-actions",
+                        button {
+                            class: "btn btn-outline",
+                            onclick: move |_| on_close.call(()),
+                            {i18n.t("common.cancel")}
+                        }
+                        button {
+                            class: "btn btn-primary",
+                            onclick: on_save,
+                            {i18n.t("common.save")}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// How long ago a tree changed, `diff` ago: today, yesterday, in days,
+/// weeks, then months.
+fn modified_ago(i18n: &crate::i18n::I18n, diff: chrono::TimeDelta) -> String {
+    let days = diff.num_days();
+    let with = |key: &str, n: i64| i18n.t_args(key, &[("count", &n.to_string())]);
+    match days {
+        0 => i18n.t("home.modified_today"),
+        1 => i18n.t("home.modified_1day"),
+        ..30 => with("home.modified_days", days),
+        30..365 if diff.num_weeks() == 1 => with("home.modified_weeks_one", 1),
+        30..365 => with("home.modified_weeks_other", diff.num_weeks()),
+        _ if days / 30 == 1 => with("home.modified_months_one", 1),
+        _ => with("home.modified_months_other", days / 30),
     }
 }
 
@@ -626,32 +713,8 @@ fn TreeCard(
     let menu_open = menu_position.is_some();
     let toggle_id = tree_id.clone();
 
-    let now = Utc::now();
-    let diff = now.signed_duration_since(updated_at);
-    let time_ago = if diff.num_days() == 0 {
-        i18n.t("home.modified_today")
-    } else if diff.num_days() == 1 {
-        i18n.t("home.modified_1day")
-    } else if diff.num_days() < 30 {
-        i18n.t_args(
-            "home.modified_days",
-            &[("count", &diff.num_days().to_string())],
-        )
-    } else if diff.num_days() < 365 {
-        let w = diff.num_weeks();
-        if w == 1 {
-            i18n.t_args("home.modified_weeks_one", &[("count", &w.to_string())])
-        } else {
-            i18n.t_args("home.modified_weeks_other", &[("count", &w.to_string())])
-        }
-    } else {
-        let m = diff.num_days() / 30;
-        if m == 1 {
-            i18n.t_args("home.modified_months_one", &[("count", &m.to_string())])
-        } else {
-            i18n.t_args("home.modified_months_other", &[("count", &m.to_string())])
-        }
-    };
+    let diff = Utc::now().signed_duration_since(updated_at);
+    let time_ago = modified_ago(&i18n, diff);
 
     let is_recent = diff.num_hours() < 24;
 

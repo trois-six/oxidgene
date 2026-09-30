@@ -8,6 +8,18 @@ use crate::i18n::I18n;
 
 use oxidgene_core::{ChildType, EventType, NameType, Privacy, Sex};
 
+/// A signal following `value`, a prop: written when the props bring a new
+/// one, so resources reading it re-run. The router reuses a page's instance
+/// across navigations, which changes its props without remounting it.
+pub fn use_synced<T: PartialEq + Clone + 'static>(value: T) -> dioxus::prelude::Signal<T> {
+    use dioxus::prelude::*;
+    let mut signal = use_signal(|| value.clone());
+    if *signal.peek() != value {
+        signal.set(value);
+    }
+    signal
+}
+
 pub async fn sleep_ms(milliseconds: u32) {
     #[cfg(target_arch = "wasm32")]
     gloo_timers::future::TimeoutFuture::new(milliseconds).await;

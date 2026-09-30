@@ -36,6 +36,13 @@ impl TreeCache {
         }
     }
 
+    /// Tree `tid` as `loaded`, else as cached: resolved synchronously while
+    /// its resource is pending, so a breadcrumb never flashes a loading
+    /// label.
+    pub fn loaded_or_cached(&self, tid: Option<Uuid>, loaded: Option<&Tree>) -> Option<Tree> {
+        loaded.cloned().or_else(|| self.tree(tid?))
+    }
+
     /// Return the cached tree without subscribing the current reactive scope.
     fn tree_untracked(&self, tid: Uuid) -> Option<Tree> {
         if *self.tree_tid.peek() == Some(tid) {
@@ -140,7 +147,7 @@ pub struct PedigreeViewState {
 }
 
 /// Global signal holding the last pedigree view state.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ViewStateCache {
     state: Signal<Option<PedigreeViewState>>,
     depth_generation: Signal<u64>,

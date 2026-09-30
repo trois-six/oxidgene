@@ -149,84 +149,26 @@ pub fn LineChart(
         .copied()
         .fold(0.0_f64, f64::max);
     let ticks = axis_ticks(max);
-    let top = ticks.last().copied().unwrap_or(1.0);
-    let count = periods.len().max(1);
-    let x = |i: usize| {
-        if count == 1 {
-            LEFT + (WIDTH - LEFT - RIGHT) / 2.0
+    let plot = Plot {
+        count: periods.len().max(1),
+        // Marker badges sit in a band of their own above the plot, clear of
+        // the value axis labels.
+        top: if markers.is_empty() {
+            TOP
         } else {
-            LEFT + (WIDTH - LEFT - RIGHT) * i as f64 / (count - 1) as f64
-        }
+            TOP + MARKER_BAND
+        },
+        max: ticks.last().copied().unwrap_or(1.0),
     };
-    // Marker badges sit in a band of their own above the plot, clear of
-    // the value axis labels.
-    let plot_top = if markers.is_empty() {
-        TOP
-    } else {
-        TOP + MARKER_BAND
-    };
-    let y = |v: f64| plot_top + (HEIGHT - plot_top - BOTTOM) * (1.0 - v / top);
-    let label_every = (count / 8).max(1);
-    let filled = series.len() <= FILLED_SERIES;
-    // Each series as its runs of consecutive values: a period without a
-    // value breaks the curve rather than being drawn as zero.
-    let lines: Vec<(String, String, &'static str)> = series
-        .iter()
-        .map(|s| {
-            let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
-            let mut open = false;
-            for (i, value) in s.values.iter().enumerate() {
-                match value {
-                    Some(v) => {
-                        if !open {
-                            runs.push(Vec::new());
-                            open = true;
-                        }
-                        if let Some(run) = runs.last_mut() {
-                            run.push((x(i), y(*v)));
-                        }
-                    }
-                    None => open = false,
-                }
-            }
-            let runs: Vec<&Vec<(f64, f64)>> = runs.iter().filter(|run| run.len() > 1).collect();
-            let stroke: String = runs.iter().map(|run| curve(run)).collect();
-            let area: String = if filled {
-                let base = y(0.0);
-                runs.iter()
-                    .map(|run| {
-                        let (first, last) = (run[0].0, run[run.len() - 1].0);
-                        format!(
-                            "{}L{last:.1} {base:.1} L{first:.1} {base:.1} Z ",
-                            curve(run)
-                        )
-                    })
-                    .collect()
-            } else {
-                String::new()
-            };
-            (stroke, area, s.color)
-        })
-        .collect();
-    let marker_text = hovered_marker().and_then(|k| markers.get(k)).map(|marker| {
-        format!(
-            "{} · {}",
-            periods.get(marker.index).cloned().unwrap_or_default(),
-            marker.label
-        )
-    });
-    let hover_text = marker_text.or_else(|| {
-        hovered().and_then(|(s, i)| {
-            let value = series.get(s)?.values.get(i).copied().flatten()?;
-            Some(format!(
-                "{} · {}: {} {}",
-                periods.get(i)?,
-                series[s].label,
-                format_value(value),
-                unit
-            ))
-        })
-    });
+    let lines = line_paths(&series, plot, series.len() <= FILLED_SERIES);
+    let hover_text = hover_label(
+        &periods,
+        &series,
+        &markers,
+        &unit,
+        hovered(),
+        hovered_marker(),
+    );
     rsx! {
         div { class: "stats-lines",
             svg {
@@ -237,34 +179,7 @@ pub fn LineChart(
                     hovered.set(None);
                     hovered_marker.set(None);
                 },
-                for (k, tick) in ticks.iter().enumerate() {
-                    g { key: "t{k}",
-                        line {
-                            class: "stats-grid",
-                            x1: "{LEFT}",
-                            x2: "{WIDTH - RIGHT}",
-                            y1: "{y(*tick)}",
-                            y2: "{y(*tick)}",
-                        }
-                        text { class: "stats-axis", x: "{LEFT - 6.0}", y: "{y(*tick) + 4.0}", "text-anchor": "end",
-                            "{format_value(*tick)}"
-                        }
-                    }
-                }
-                for (i, period) in periods.iter().enumerate() {
-                    if i % label_every == 0 {
-                        text {
-                            key: "p{i}",
-                            // Every other label gives way on a phone, where
-                            // the axis text is drawn larger (see the CSS).
-                            class: if (i / label_every) % 2 == 1 { "stats-axis stats-axis-alt" } else { "stats-axis" },
-                            x: "{x(i)}",
-                            y: "{HEIGHT - 8.0}",
-                            "text-anchor": "middle",
-                            "{period}"
-                        }
-                    }
-                }
+                LineAxes { plot, ticks, periods: periods.clone() }
                 for (s, (_, area, color)) in lines.iter().enumerate() {
                     if !area.is_empty() {
                         path { key: "a{s}", class: "stats-area", d: "{area}", style: "fill: {color}" }
@@ -274,8 +189,8 @@ pub fn LineChart(
                     line {
                         key: "m{k}",
                         class: "stats-marker",
-                        x1: "{x(marker.index)}",
-                        x2: "{x(marker.index)}",
+                        x1: "{plot.x(marker.index)}",
+                        x2: "{plot.x(marker.index)}",
                         y1: "{TOP + MARKER_RADIUS}",
                         y2: "{HEIGHT - BOTTOM}",
                     }
@@ -283,53 +198,213 @@ pub fn LineChart(
                 for (s, (d, _, color)) in lines.iter().enumerate() {
                     path { key: "l{s}", class: "stats-line", d: "{d}", style: "stroke: {color}" }
                 }
-                for (k, marker) in markers.iter().enumerate() {
-                    g {
-                        key: "b{k}",
-                        class: "stats-marker-badge",
-                        onmouseenter: move |_| hovered_marker.set(Some(k)),
-                        onmouseleave: move |_| hovered_marker.set(None),
-                        circle {
-                            cx: "{x(marker.index)}",
-                            cy: "{TOP}",
-                            r: "{MARKER_RADIUS}",
-                        }
-                        text {
-                            class: "stats-marker-text",
-                            x: "{x(marker.index)}",
-                            y: "{TOP}",
-                            "text-anchor": "middle",
-                            "{marker.number}"
-                        }
-                    }
-                }
-                for (s, line) in series.iter().enumerate() {
-                    for (i, value) in line.values.iter().enumerate() {
-                        if let Some(v) = value {
-                            circle {
-                                key: "c{s}-{i}",
-                                class: "stats-point",
-                                cx: "{x(i)}",
-                                cy: "{y(*v)}",
-                                r: if hovered() == Some((s, i)) { "4" } else { "2.2" },
-                                style: "fill: {line.color}",
-                                onmouseenter: move |_| hovered.set(Some((s, i))),
-                            }
-                        }
-                    }
-                }
+                LineMarkers { plot, markers: markers.clone(), hovered_marker }
+                LinePoints { plot, series: series.clone(), hovered }
             }
             p { class: "stats-hover", "{hover_text.clone().unwrap_or_default()}" }
             // A single line is already named by the card title.
             if series.len() > 1 {
                 ul { class: "stats-legend stats-legend-inline",
                     for (index, line) in series.iter().enumerate() {
-                    li { key: "{index}",
-                        span { class: "stats-swatch", style: "background: {line.color}" }
+                        li { key: "{index}",
+                            span { class: "stats-swatch", style: "background: {line.color}" }
                             span { class: "stats-legend-label", "{line.label}" }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Where a [`LineChart`] draws: `count` periods across, values up to `max`
+/// from the plot's `top` down to its base.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Plot {
+    count: usize,
+    top: f64,
+    max: f64,
+}
+
+impl Plot {
+    /// The abscissa of period `i`.
+    fn x(self, i: usize) -> f64 {
+        if self.count == 1 {
+            LEFT + (WIDTH - LEFT - RIGHT) / 2.0
+        } else {
+            LEFT + (WIDTH - LEFT - RIGHT) * i as f64 / (self.count - 1) as f64
+        }
+    }
+
+    /// The ordinate of value `v`.
+    fn y(self, v: f64) -> f64 {
+        self.top + (HEIGHT - self.top - BOTTOM) * (1.0 - v / self.max)
+    }
+}
+
+/// Each series' curve, its filled area when `filled`, and its colour.
+///
+/// A series is drawn as its runs of consecutive values: a period without a
+/// value breaks the curve rather than being drawn as zero.
+fn line_paths(
+    series: &[ChartSeries],
+    plot: Plot,
+    filled: bool,
+) -> Vec<(String, String, &'static str)> {
+    series
+        .iter()
+        .map(|s| {
+            let runs = value_runs(&s.values, plot);
+            let stroke: String = runs.iter().map(|run| curve(run)).collect();
+            let base = plot.y(0.0);
+            let area: String = runs
+                .iter()
+                .filter(|_| filled)
+                .map(|run| {
+                    let (first, last) = (run[0].0, run[run.len() - 1].0);
+                    format!(
+                        "{}L{last:.1} {base:.1} L{first:.1} {base:.1} Z ",
+                        curve(run)
+                    )
+                })
+                .collect();
+            (stroke, area, s.color)
+        })
+        .collect()
+}
+
+/// The runs of two or more consecutive values, as points.
+fn value_runs(values: &[Option<f64>], plot: Plot) -> Vec<Vec<(f64, f64)>> {
+    let mut runs: Vec<Vec<(f64, f64)>> = vec![Vec::new()];
+    for (i, value) in values.iter().enumerate() {
+        match (value, runs.last_mut()) {
+            (Some(v), Some(run)) => run.push((plot.x(i), plot.y(*v))),
+            (None, Some(run)) if !run.is_empty() => runs.push(Vec::new()),
+            _ => {}
+        }
+    }
+    runs.retain(|run| run.len() > 1);
+    runs
+}
+
+/// What the hovered marker, or else the hovered point, says.
+fn hover_label(
+    periods: &[String],
+    series: &[ChartSeries],
+    markers: &[ChartMarker],
+    unit: &str,
+    hovered: Option<(usize, usize)>,
+    hovered_marker: Option<usize>,
+) -> Option<String> {
+    let marker_text = hovered_marker.and_then(|k| markers.get(k)).map(|marker| {
+        format!(
+            "{} · {}",
+            periods.get(marker.index).cloned().unwrap_or_default(),
+            marker.label
+        )
+    });
+    marker_text.or_else(|| {
+        let (s, i) = hovered?;
+        let line = series.get(s)?;
+        let value = line.values.get(i).copied().flatten()?;
+        Some(format!(
+            "{} · {}: {} {unit}",
+            periods.get(i)?,
+            line.label,
+            format_value(value),
+        ))
+    })
+}
+
+/// The value grid with its labels, and the period labels, a few of them
+/// when there are many.
+#[component]
+fn LineAxes(plot: Plot, ticks: Vec<f64>, periods: Vec<String>) -> Element {
+    let label_every = (plot.count / 8).max(1);
+    rsx! {
+        for (k, tick) in ticks.iter().enumerate() {
+            g { key: "t{k}",
+                line {
+                    class: "stats-grid",
+                    x1: "{LEFT}",
+                    x2: "{WIDTH - RIGHT}",
+                    y1: "{plot.y(*tick)}",
+                    y2: "{plot.y(*tick)}",
+                }
+                text { class: "stats-axis", x: "{LEFT - 6.0}", y: "{plot.y(*tick) + 4.0}", "text-anchor": "end",
+                    "{format_value(*tick)}"
+                }
+            }
+        }
+        for (i, period) in periods.iter().enumerate().step_by(label_every) {
+            text {
+                key: "p{i}",
+                // Every other label gives way on a phone, where
+                // the axis text is drawn larger (see the CSS).
+                class: if (i / label_every) % 2 == 1 { "stats-axis stats-axis-alt" } else { "stats-axis" },
+                x: "{plot.x(i)}",
+                y: "{HEIGHT - 8.0}",
+                "text-anchor": "middle",
+                "{period}"
+            }
+        }
+    }
+}
+
+/// The numbered badges of the markers, each naming its moment on hover.
+#[component]
+fn LineMarkers(
+    plot: Plot,
+    markers: Vec<ChartMarker>,
+    hovered_marker: Signal<Option<usize>>,
+) -> Element {
+    rsx! {
+        for (k, marker) in markers.iter().enumerate() {
+            g {
+                key: "b{k}",
+                class: "stats-marker-badge",
+                onmouseenter: move |_| hovered_marker.set(Some(k)),
+                onmouseleave: move |_| hovered_marker.set(None),
+                circle {
+                    cx: "{plot.x(marker.index)}",
+                    cy: "{TOP}",
+                    r: "{MARKER_RADIUS}",
+                }
+                text {
+                    class: "stats-marker-text",
+                    x: "{plot.x(marker.index)}",
+                    y: "{TOP}",
+                    "text-anchor": "middle",
+                    "{marker.number}"
+                }
+            }
+        }
+    }
+}
+
+/// A point on every value, larger when hovered.
+#[component]
+fn LinePoints(
+    plot: Plot,
+    series: Vec<ChartSeries>,
+    hovered: Signal<Option<(usize, usize)>>,
+) -> Element {
+    let points = series.iter().enumerate().flat_map(|(s, line)| {
+        line.values
+            .iter()
+            .enumerate()
+            .filter_map(move |(i, value)| Some((s, i, (*value)?, line.color)))
+    });
+    rsx! {
+        for (s, i, v, color) in points {
+            circle {
+                key: "c{s}-{i}",
+                class: "stats-point",
+                cx: "{plot.x(i)}",
+                cy: "{plot.y(v)}",
+                r: if hovered() == Some((s, i)) { "4" } else { "2.2" },
+                style: "fill: {color}",
+                onmouseenter: move |_| hovered.set(Some((s, i))),
             }
         }
     }
