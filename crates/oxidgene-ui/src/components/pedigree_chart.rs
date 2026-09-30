@@ -2865,6 +2865,43 @@ const MEASURE_PEDIGREE_VIEWPORT_JS: &str = r#"
     return [Math.max(1, availableRight - availableLeft), rect.height, availableLeft, rect.left, rect.top];
 "#;
 
+/// A press dragged across the chart pans it; it is not a click.
+///
+/// Installed once per window, in the capture phase on the document: Dioxus
+/// listens for clicks on its root while they bubble, so a click stopped here
+/// never reaches any card, segment or root disc of any chart view — one rule
+/// for every view instead of a check in each handler. A press that moved
+/// less than `DRAG_CLICK_SLOP` pixels is still a click, so a trembling hand
+/// can select a card.
+const DRAG_IS_NOT_A_CLICK_JS: &str = r#"
+    if (!window.__oxDragIsNotAClick) {
+        window.__oxDragIsNotAClick = true;
+        const DRAG_CLICK_SLOP = 5;
+        let start = null;
+        let moved = false;
+        document.addEventListener('pointerdown', event => {
+            start = [event.clientX, event.clientY];
+            moved = false;
+        }, true);
+        document.addEventListener('pointermove', event => {
+            if (start && event.buttons
+                && Math.hypot(event.clientX - start[0], event.clientY - start[1]) > DRAG_CLICK_SLOP) {
+                moved = true;
+            }
+        }, true);
+        document.addEventListener('click', event => {
+            const onChart = event.target instanceof Element
+                && event.target.closest('.pedigree-viewport');
+            if (moved && onChart) {
+                event.stopPropagation();
+                event.preventDefault();
+            }
+            start = null;
+            moved = false;
+        }, true);
+    }
+"#;
+
 const WAIT_FOR_EVENT_PANEL_TRANSITION_JS: &str = r#"
     const panel = document.querySelector('.ev-panel');
     if (!panel) return;
@@ -4638,6 +4675,10 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             panel_ready.set(true);
         });
     }
+
+    use_effect(|| {
+        document::eval(DRAG_IS_NOT_A_CLICK_JS);
+    });
 
     // Re-fit the graph when the window is actually resized.
     //

@@ -500,7 +500,7 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Click on a card | New focus + pencil icon + events sidebar updated |
 | Right-click on a card | Opens the same action picker at the pointer |
 | Click on placeholder `+` | Opens add-parent form |
-| Drag on canvas | Free pan |
+| Drag on canvas | Free pan — starting on a card, a segment or the root disc as well: a press that moves more than 5 px before its release pans and is not a click, in every view |
 | Scroll wheel / pinch | Zoom about the pointer, range 0.3x-4x |
 | Zoom in / out buttons | Zoom about the middle of the free canvas, same range |
 | FIT button | Reframes the entire tree in the window; a tree too large to fit at 0.3x is centred on the focus person |
