@@ -2476,6 +2476,22 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
     // the badge marking the SOSA root's ancestors would say nothing there; it
     // keeps the SOSA root's own mark and the user's.
     let no_ancestor_badges = HashSet::new();
+    // A descendant chart keeps them: among the descendants, the badge traces
+    // the line that leads to the SOSA root.
+    let descendant_circular = |arc| {
+        ChartScene::Circular(circular::SharedCircular(Rc::new(
+            crate::ui_observability::measure_ui("pedigree_layout", || {
+                circular::descendant_circular_layout(
+                    arc,
+                    props.root_person_id,
+                    &props.data,
+                    shape.descendant_levels,
+                    props.sosa_root_person_id,
+                    &sosa_ancestors,
+                )
+            }),
+        )))
+    };
     let circular = |arc| {
         ChartScene::Circular(circular::SharedCircular(Rc::new(
             crate::ui_observability::measure_ui("pedigree_layout", || {
@@ -2505,6 +2521,8 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
         ))),
         PedigreeView::Wheel => circular(circular::ChartArc::WHEEL),
         PedigreeView::Fan => circular(circular::ChartArc::FAN),
+        PedigreeView::DescendantWheel => descendant_circular(circular::ChartArc::DESCENDANT_WHEEL),
+        PedigreeView::DescendantFan => descendant_circular(circular::ChartArc::DESCENDANT_FAN),
         PedigreeView::Lineage => ChartScene::Lineage(lineage::SharedLineage(Rc::new(
             crate::ui_observability::measure_ui("pedigree_layout", || {
                 lineage::lineage_layout(
@@ -3552,6 +3570,8 @@ pub fn PedigreeViewSwatch(view: PedigreeView) -> Element {
         },
         PedigreeView::Wheel => circular::swatch(circular::ChartArc::WHEEL),
         PedigreeView::Fan => circular::swatch(circular::ChartArc::FAN),
+        PedigreeView::DescendantWheel => circular::swatch(circular::ChartArc::DESCENDANT_WHEEL),
+        PedigreeView::DescendantFan => circular::swatch(circular::ChartArc::DESCENDANT_FAN),
         PedigreeView::Lineage => lineage::swatch(),
     }
 }
@@ -5088,6 +5108,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     }
                     if depth_hover() {
                         div { class: "pedigree-depth-popover",
+                            // A view drawing descendants only has no ancestor
+                            // depth to set.
+                            if view.shows_ancestors() {
                             div { class: "pedigree-depth-row",
                                 span { class: "pedigree-depth-arrow", "\u{2191}" }
                                 button {
@@ -5101,6 +5124,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                     onclick: move |_| { if ancestor_levels() < 10 { ancestor_levels += 1; } },
                                     "+"
                                 }
+                            }
                             }
                             // A view drawing ancestors only has no descendant
                             // depth to set.

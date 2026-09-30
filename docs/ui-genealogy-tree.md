@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:02:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:10:58Z }
 ---
 
 
@@ -765,7 +765,9 @@ palette and the pedigree theme's colours and type, and prints like the tree.
 | Tree | Ancestors above, descendants below (§1–§9) | yes | yes |
 | Ancestor wheel | Ancestors only, a full circle | yes | hidden |
 | Fan chart | Ancestors only, the upper half circle | yes | hidden |
-| Lineage | Ancestors only, one column per generation; children listed from a button (Gramps) | yes | hidden |
+| Descendant wheel | Descendants only, a full circle, their unions between the generations | hidden | yes |
+| Descendant fan | Descendants only, the lower half circle, their unions between the generations | hidden | yes |
+| Lineage | Ancestors only, one column per generation; spouses and children listed from a button (Gramps) | yes | hidden |
 
 ### Ancestor wheel and fan chart
 
@@ -816,6 +818,40 @@ circle. The root's disc is filled with `var(--pn-root-bg)` and set in white.
   it opens the action picker.
 - Only the segments near the viewport are drawn, as the tree view's cards
   are (§1); the root's disc always is.
+
+### Descendant wheel and descendant fan
+
+The focus person sits in the disc at the centre — a half disc hanging from
+the top of the descendant fan, which opens downwards as descendants sit below
+the root in the tree — and each generation of descendants is a ring further
+out: the children on the first, the grandchildren on the next, as deep as the
+descendant depth. The descendant wheel starts at twelve o'clock and runs
+clockwise; the fan runs from nine o'clock round to three, so siblings read
+left to right as in the tree.
+
+- **Unions.** Between a generation and the next, a 20 px ring holds the
+  unions of the persons inside it, in the order of their families: one
+  neutral segment per couple, spanning the children it had and naming the
+  spouse (`SURNAME Given`), as Gramps' descendant fan does. A union with no
+  children is drawn too, a union's children always together under it. An
+  unknown spouse is named *Unknown spouse* on hover and leads nowhere.
+- **Shares.** A person's arc is divided among their unions, and a union's
+  among its children, in proportion to how many descendants each holds within
+  the depth drawn (a person or a childless union counts one), so a large
+  family gets room and an empty one does not take it.
+- **Segments and text** follow the ancestor wheel: tinted by sex, written
+  across a segment with room for a straight line and along the radius
+  otherwise, the classic three lines reduced in a narrow segment and read by
+  zooming in, the zoom going as far as that needs. A union's name is reduced
+  the same way when its band is short. The SOSA 1 and self marks are drawn,
+  and so is the direct-ancestor mark: among descendants it traces the line
+  that leads to the tree's SOSA 1.
+- **Interactions.** Clicking a person makes them the focus; clicking a
+  union makes the spouse the focus; a right click opens the action picker;
+  the root's disc opens the action picker. Only the segments near the
+  viewport are drawn.
+- A person who turns out to be their own descendant, in erroneous data, is
+  not expanded again, so the chart always ends.
 
 ### Lineage
 

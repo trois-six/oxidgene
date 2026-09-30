@@ -1569,7 +1569,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .ped-card:hover .ped-card-rect { fill: var(--pn-hover-bg) !important; stroke: var(--pn-root-bg) !important; }
     .ped-card-focus:hover .ped-card-name-text, .ped-card-focus:hover .ped-card-name-text tspan { fill: var(--pn-text) !important; }
 
-    /* ── Ancestor wheel and fan chart ─────────────────────────────────
+    /* ── Wheel and fan charts, ancestor and descendant ───────────────
        A segment is tinted by sex from the same tokens as a card's rule, a
        direct ancestor's inner edge carries the SOSA colour, and a missing
        parent is a dashed outline, as the empty card is. */
@@ -1603,6 +1603,15 @@ pub const LAYOUT_STYLES: &str = r#"
         text-anchor: middle;
         pointer-events: none;
     }
+    /* A union of a descendant chart: a neutral band between two
+       generations, naming the spouse. */
+    .fan-union { cursor: pointer; }
+    .fan-union-shape {
+        fill: color-mix(in srgb, var(--pn-border) 18%, var(--pn-bg));
+        stroke: var(--pn-border);
+        stroke-width: 1;
+    }
+    .fan-union:hover .fan-union-shape { fill: var(--pn-hover-bg); stroke: var(--pn-root-bg); }
 
     /* ── Lineage view (Gramps' Pedigree) ─────────────────────────────
        A non-birth link is dashed, as Gramps draws it; the button left of

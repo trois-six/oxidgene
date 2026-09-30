@@ -1,10 +1,11 @@
-//! The ancestor wheel and the fan chart.
+//! The circular charts: the ancestor wheel and fan, and their descendant
+//! counterparts (see [`descendants`]).
 //!
-//! Both put the root at the centre and each generation of ancestors on a
-//! ring around it, split into one segment per SOSA position: the wheel over a
-//! full circle, the fan over its upper half with the root at the base. The
-//! father's side takes the first half of every arc, the mother's the second,
-//! so the two lines never cross.
+//! Each puts the root at the centre and each generation on a ring around it.
+//! The ancestor charts split a ring into one segment per SOSA position: the
+//! wheel over a full circle, the fan over its upper half with the root at the
+//! base. The father's side takes the first half of every arc, the mother's
+//! the second, so the two lines never cross.
 //!
 //! Angles are in degrees, clockwise from twelve o'clock, which is how SVG's
 //! `rotate()` turns as well. Everything here is pure geometry and text
@@ -17,6 +18,18 @@ use super::ancestors::{
 };
 use super::*;
 
+mod descendants;
+pub(super) use descendants::descendant_circular_layout;
+
+/// The root's own disc: a whole circle, or the half on the chart's side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Disc {
+    Full,
+    /// The chart spreads above the root, which sits on its base.
+    Upper,
+    /// The chart spreads below the root, which hangs from its top edge.
+    Lower,
+}
 /// The part of a circle a chart spreads its generations over.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ChartArc {
@@ -26,8 +39,9 @@ pub(super) struct ChartArc {
     pub(super) sweep: f64,
     /// Radius of the root's own disc.
     pub(super) root_radius: f64,
-    /// Whether the root's disc is a whole circle or only its upper half.
-    pub(super) full_circle: bool,
+    /// Whether the root's disc is a whole circle or the half the chart
+    /// spreads from.
+    pub(super) disc: Disc,
 }
 
 impl ChartArc {
@@ -37,7 +51,7 @@ impl ChartArc {
         start: 180.0,
         sweep: 360.0,
         root_radius: 72.0,
-        full_circle: true,
+        disc: Disc::Full,
     };
 
     /// The upper half circle, from nine o'clock to three: father's side on
@@ -47,7 +61,25 @@ impl ChartArc {
         start: 270.0,
         sweep: 180.0,
         root_radius: 96.0,
-        full_circle: false,
+        disc: Disc::Upper,
+    };
+
+    /// The descendant wheel: the first child at twelve o'clock, the others
+    /// clockwise round the root.
+    pub(super) const DESCENDANT_WHEEL: Self = Self {
+        start: 0.0,
+        sweep: 360.0,
+        root_radius: 72.0,
+        disc: Disc::Full,
+    };
+
+    /// The descendant fan opens downwards, as descendants sit below the root
+    /// in the tree view: from three o'clock round through six to nine.
+    pub(super) const DESCENDANT_FAN: Self = Self {
+        start: 90.0,
+        sweep: 180.0,
+        root_radius: 96.0,
+        disc: Disc::Lower,
     };
 }
 
@@ -164,16 +196,16 @@ fn arc_path(r: f64, a0: f64, a1: f64) -> String {
     )
 }
 
-/// The root's disc: a whole circle for the wheel, the upper half for the fan.
+/// The root's disc: a whole circle for a wheel, the half a fan spreads from.
 fn root_path(arc: ChartArc) -> String {
     let r = arc.root_radius;
-    if arc.full_circle {
-        format!(
+    match arc.disc {
+        Disc::Full => format!(
             "M{r:.2},0 A{r:.2},{r:.2} 0 1 0 {:.2},0 A{r:.2},{r:.2} 0 1 0 {r:.2},0 Z",
             -r
-        )
-    } else {
-        format!("M{:.2},0 A{r:.2},{r:.2} 0 0 1 {r:.2},0 Z", -r)
+        ),
+        Disc::Upper => format!("M{:.2},0 A{r:.2},{r:.2} 0 0 1 {r:.2},0 Z", -r),
+        Disc::Lower => format!("M{:.2},0 A{r:.2},{r:.2} 0 0 0 {r:.2},0 Z", -r),
     }
 }
 
@@ -420,7 +452,11 @@ fn radial_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel
 /// The root's label, level and centred in its disc (or half disc).
 fn root_label(node: &LayoutNode, arc: ChartArc) -> SegmentLabel {
     let r = arc.root_radius;
-    let cy = if arc.full_circle { 0.0 } else { -r * 0.42 };
+    let cy = match arc.disc {
+        Disc::Full => 0.0,
+        Disc::Upper => -r * 0.42,
+        Disc::Lower => r * 0.42,
+    };
     let text = LabelText::of(node);
     let lines = stack_lines(
         text.lines(3),
@@ -455,6 +491,9 @@ pub(super) struct Segment {
     pub(super) label: SegmentLabel,
     /// Where an empty slot's "+" goes.
     pub(super) centroid: (f64, f64),
+    /// A union of the person inside it, in a descendant chart: the entry is
+    /// the spouse, the segment spans the couple's children.
+    pub(super) union: bool,
     /// What the segment covers, around the chart's centre: culling draws it
     /// only when this meets the region near the viewport.
     pub(super) extent: Area,
@@ -537,6 +576,7 @@ fn segment(index: usize, entry: &AncestorEntry, arc: ChartArc, rings: &[Ring]) -
         band: arc_path(ring.r_in + 2.0, start, end),
         label,
         centroid: polar((ring.r_in + ring.r_out) / 2.0, (start + end) / 2.0),
+        union: false,
         extent: sector_extent(ring.r_in, ring.r_out, start, end),
     }
 }
@@ -575,12 +615,6 @@ pub(super) fn circular_layout(
         .filter(|entry| entry.sosa == 1)
         .map(|entry| root_label(&entry.node, arc));
     let radius = rings.last().map_or(arc.root_radius, |ring| ring.r_out);
-    let total_w = 2.0 * (radius + CHART_MARGIN);
-    let (total_h, origin_y) = if arc.full_circle {
-        (total_w, radius + CHART_MARGIN)
-    } else {
-        (radius + 2.0 * CHART_MARGIN, radius + CHART_MARGIN)
-    };
     CircularLayout {
         entries,
         segments,
@@ -588,10 +622,33 @@ pub(super) fn circular_layout(
         root_label,
         root_is_sosa_root: sosa_root_id.is_some() && sosa_root_id == Some(root_id),
         max_zoom,
-        origin_x: radius + CHART_MARGIN,
-        origin_y,
-        total_w,
-        total_h,
+        ..CircularLayout::framed(arc, radius)
+    }
+}
+
+impl CircularLayout {
+    /// An empty chart of `radius` around the root, framed on its canvas: a
+    /// wheel square around its centre, a fan as deep as its radius, the
+    /// centre on its base (upper fan) or its top edge (lower fan).
+    fn framed(arc: ChartArc, radius: f64) -> Self {
+        let total_w = 2.0 * (radius + CHART_MARGIN);
+        let (total_h, origin_y) = match arc.disc {
+            Disc::Full => (total_w, radius + CHART_MARGIN),
+            Disc::Upper => (radius + 2.0 * CHART_MARGIN, radius + CHART_MARGIN),
+            Disc::Lower => (radius + 2.0 * CHART_MARGIN, CHART_MARGIN),
+        };
+        Self {
+            entries: Vec::new(),
+            segments: Vec::new(),
+            root_path: String::new(),
+            root_label: None,
+            root_is_sosa_root: false,
+            max_zoom: ZOOM_MAX,
+            origin_x: radius + CHART_MARGIN,
+            origin_y,
+            total_w,
+            total_h,
+        }
     }
 }
 
@@ -699,6 +756,58 @@ fn render_person_segment(
             }
             {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
         }
+    }
+}
+
+/// A union in a descendant chart: the spouse's name across the band that
+/// spans the couple's children. Clicking it makes the spouse the focus, a
+/// right click opens their action picker; an unknown spouse only names
+/// itself.
+fn render_union_segment(
+    segment: &Segment,
+    entry: &AncestorEntry,
+    title: String,
+    theme: &PedigreeTheme,
+    actions: SegmentActions,
+) -> Element {
+    let SegmentActions {
+        mut selected_person_id,
+        on_person_navigate,
+        on_person_click,
+        ..
+    } = actions;
+    let spouse = entry.node.id;
+    rsx! {
+        g {
+            key: "fu-{entry.sosa}",
+            class: "fan-union",
+            onclick: move |_| {
+                if let Some(pid) = spouse {
+                    selected_person_id.set(pid);
+                    on_person_navigate.call(pid);
+                }
+            },
+            oncontextmenu: move |evt: Event<MouseData>| {
+                evt.prevent_default();
+                evt.stop_propagation();
+                if let Some(pid) = spouse {
+                    selected_person_id.set(pid);
+                    let coords = evt.client_coordinates();
+                    on_person_click.call((pid, coords.x, coords.y));
+                }
+            },
+            path { class: "fan-union-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
+            {render_label(&segment.label, theme, "var(--pn-text)", "var(--pn-text-muted)")}
+        }
+    }
+}
+
+/// What a hover over a union says: the spouse, or that they are unknown.
+fn union_tooltip(entry: &AncestorEntry, i18n: &I18n) -> String {
+    if entry.node.id.is_some() {
+        ancestor_tooltip(entry, false, i18n)
+    } else {
+        i18n.t("couple.unknown_spouse")
     }
 }
 
@@ -825,6 +934,13 @@ pub(super) fn CircularCanvas(
                         {
                             let entry = &layout.entries[segment.entry];
                             match entry.node.id {
+                                _ if segment.union => render_union_segment(
+                                    segment,
+                                    entry,
+                                    svg_title(&union_tooltip(entry, &i18n)),
+                                    theme,
+                                    actions,
+                                ),
                                 Some(pid) => render_person_segment(
                                     segment,
                                     entry,
@@ -851,10 +967,10 @@ pub(super) fn swatch(arc: ChartArc) -> Element {
     const GENERATIONS: u32 = 3;
     let rings = ring_radii(arc, GENERATIONS);
     let radius = rings.last().map_or(arc.root_radius, |ring| ring.r_out) + 6.0;
-    let (y0, height) = if arc.full_circle {
-        (-radius, 2.0 * radius)
-    } else {
-        (-radius, radius + 6.0)
+    let (y0, height) = match arc.disc {
+        Disc::Full => (-radius, 2.0 * radius),
+        Disc::Upper => (-radius, radius + 6.0),
+        Disc::Lower => (-6.0, radius + 6.0),
     };
     let segments: Vec<(u64, String)> = (2u64..(1 << (GENERATIONS + 1)))
         .map(|sosa| {

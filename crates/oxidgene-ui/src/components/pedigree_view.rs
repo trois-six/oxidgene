@@ -22,6 +22,12 @@ pub enum PedigreeView {
     Wheel,
     /// The wheel's principle on a half circle, the root at its base.
     Fan,
+    /// The root at the centre of a full circle, each generation of
+    /// descendants one ring further out, their unions between.
+    DescendantWheel,
+    /// The descendant wheel on a half circle opening downwards, the root at
+    /// its top edge.
+    DescendantFan,
     /// Gramps' *Pedigree* view: the root on the left, one column of
     /// ancestors per generation to its right, joined by elbow lines.
     Lineage,
@@ -29,13 +35,30 @@ pub enum PedigreeView {
 
 impl PedigreeView {
     /// Every view, in the order the selector offers them.
-    pub const ALL: [Self; 4] = [Self::Tree, Self::Wheel, Self::Fan, Self::Lineage];
+    pub const ALL: [Self; 6] = [
+        Self::Tree,
+        Self::Wheel,
+        Self::Fan,
+        Self::DescendantWheel,
+        Self::DescendantFan,
+        Self::Lineage,
+    ];
 
     /// Whether the view draws descendants, and so whether the descendant
     /// depth control means anything while it is shown.
     #[must_use]
     pub const fn shows_descendants(self) -> bool {
-        matches!(self, Self::Tree)
+        matches!(
+            self,
+            Self::Tree | Self::DescendantWheel | Self::DescendantFan
+        )
+    }
+
+    /// Whether the view draws ancestors, and so whether the ancestor depth
+    /// control means anything while it is shown.
+    #[must_use]
+    pub const fn shows_ancestors(self) -> bool {
+        !matches!(self, Self::DescendantWheel | Self::DescendantFan)
     }
 
     /// Translation key for the view's name.
@@ -45,6 +68,8 @@ impl PedigreeView {
             Self::Tree => "app_settings.pedigree_view_tree",
             Self::Wheel => "app_settings.pedigree_view_wheel",
             Self::Fan => "app_settings.pedigree_view_fan",
+            Self::DescendantWheel => "app_settings.pedigree_view_descendant_wheel",
+            Self::DescendantFan => "app_settings.pedigree_view_descendant_fan",
             Self::Lineage => "app_settings.pedigree_view_lineage",
         }
     }
@@ -56,6 +81,8 @@ impl PedigreeView {
             Self::Tree => "app_settings.pedigree_view_tree_hint",
             Self::Wheel => "app_settings.pedigree_view_wheel_hint",
             Self::Fan => "app_settings.pedigree_view_fan_hint",
+            Self::DescendantWheel => "app_settings.pedigree_view_descendant_wheel_hint",
+            Self::DescendantFan => "app_settings.pedigree_view_descendant_fan_hint",
             Self::Lineage => "app_settings.pedigree_view_lineage_hint",
         }
     }
@@ -92,6 +119,14 @@ mod tests {
         assert_eq!(PedigreeView::Wheel.to_stored(), "\"wheel\"");
         assert_eq!(PedigreeView::Fan.to_stored(), "\"fan\"");
         assert_eq!(PedigreeView::Lineage.to_stored(), "\"lineage\"");
+        assert_eq!(
+            PedigreeView::DescendantWheel.to_stored(),
+            "\"descendant-wheel\""
+        );
+        assert_eq!(
+            PedigreeView::DescendantFan.to_stored(),
+            "\"descendant-fan\""
+        );
     }
 
     #[test]
@@ -102,14 +137,18 @@ mod tests {
     }
 
     #[test]
-    fn only_the_tree_draws_descendants() {
-        assert!(PedigreeView::Tree.shows_descendants());
-        for view in [
-            PedigreeView::Wheel,
-            PedigreeView::Fan,
-            PedigreeView::Lineage,
+    fn each_view_offers_the_depths_it_draws() {
+        use PedigreeView::*;
+        for (view, ancestors, descendants) in [
+            (Tree, true, true),
+            (Wheel, true, false),
+            (Fan, true, false),
+            (Lineage, true, false),
+            (DescendantWheel, false, true),
+            (DescendantFan, false, true),
         ] {
-            assert!(!view.shows_descendants(), "{view:?}");
+            assert_eq!(view.shows_ancestors(), ancestors, "{view:?}");
+            assert_eq!(view.shows_descendants(), descendants, "{view:?}");
         }
     }
 

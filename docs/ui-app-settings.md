@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:32:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:10:58Z }
 ---
 
 
@@ -204,16 +204,16 @@ The Pedigree section controls how the pedigree is drawn and how deep it opens.
 ### Chart
 
 A stacked option listing every way the tree view can draw the pedigree — the
-tree, the ancestor wheel, the fan chart, the lineage — as tiles of the same picker as the
+tree, the ancestor wheel and fan chart, the descendant wheel and fan, the lineage — as tiles of the same picker as the
 themes: a miniature, a name and a one-line description. The miniatures of the
-wheel and the fan are drawn from the chart's own rings and segments three
+wheels and the fans are drawn from the chart's own rings and segments three
 generations deep, and the lineage's from its own rows and elbow lines, in the
 current pedigree theme's colours; the tree's is a
 schematic of parents above the root and children below it.
 
 Choosing a view applies immediately, with no save step, to the tree view on
 this device. It is persisted in `localStorage('oxidgene-pedigree-view')` as
-the view's own name (`tree`, `wheel`, `fan`, `lineage`); the tree is the default and an
+the view's own name (`tree`, `wheel`, `fan`, `descendant-wheel`, `descendant-fan`, `lineage`); the tree is the default and an
 unknown name falls back to it. It is a display preference like the theme, not
 a property of any tree, so it is not stored on the server. See
 [Views](ui-genealogy-tree.md#10-views) for what each one draws and which
