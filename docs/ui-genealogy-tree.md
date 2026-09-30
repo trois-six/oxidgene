@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:32:32Z }
 ---
 
 
@@ -19,7 +19,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
 ### Layout
 
 This is the default drawing, the **tree**. The viewer can choose another one
-in the settings — an ancestor wheel or a fan chart — described in
+in the settings — an ancestor wheel, a fan chart, or the lineage of Gramps' Pedigree view — described in
 [§10 Views](#10-views); everything below describes the tree unless it says
 otherwise.
 
@@ -759,6 +759,7 @@ palette and the pedigree theme's colours and type, and prints like the tree.
 | Tree | Ancestors above, descendants below (§1–§9) | yes | yes |
 | Ancestor wheel | Ancestors only, a full circle | yes | hidden |
 | Fan chart | Ancestors only, the upper half circle | yes | hidden |
+| Lineage | Ancestors only, one column per generation; children listed from a button (Gramps) | yes | hidden |
 
 ### Ancestor wheel and fan chart
 
@@ -806,3 +807,46 @@ circle. The root's disc is filled with `var(--pn-root-bg)` and set in white.
   it opens the action picker.
 - Every segment is drawn: ten generations are at most 2,046 of them, and the
   chart is compact enough that most are on screen at a fitting zoom.
+
+### Lineage
+
+The lineage view reproduces the principle of the *Pedigree* view Gramps opens
+its Charts category on: the focus person on the left, ancestors extending to
+the right one column per generation, each child joined to its father above
+and its mother below by right-angled elbow lines.
+
+- **Fixed rows.** As in Gramps, a position does not move with what is known
+  about the others. The last column is divided evenly and every child is
+  centred halfway between its two parents' rows, so the focus person sits in
+  the middle of the first column and SOSA *n* in row *n* − 2^*g* of column
+  *g*.
+- **Boxes.** A column whose rows have room for them holds the pedigree
+  theme's own cards (§3): portrait, names, lifespan with its precision marks,
+  SOSA and self badges, the pencil under the focus card and the dashed empty
+  card for a missing parent. While the whole chart stays within 1,600 px at
+  full cards, every column holds them. Deeper, the last column's rows tighten
+  to 30 px and the columns without room for a card hold slim boxes instead,
+  the way Gramps' boxes shrink with the generations: two lines (name, then
+  lifespan) where a row has room for them, one line (name) beyond. A slim box
+  keeps the sex-coded rule on its left edge and carries the SOSA or self mark
+  as a dot on its right; its hover gives the full name, the spelled-out
+  lifespan and, when the focus person is the SOSA 1, the SOSA number.
+- **Lines.** Connectors use the pedigree theme's connector style class. A
+  child who is not the birth child of the family it descends through —
+  adopted, fostered — is joined by a dashed line, as Gramps draws a non-birth
+  relationship.
+- **Descendants.** Gramps draws no descendants in this view: a button beside
+  the active person lists their children, children who have children of their
+  own set in bold, and picking one makes them the active person. The lineage
+  view does the same. The button, `‹`, stands left of the focus card when the
+  focus person has children; it opens a menu of their children, in the order
+  of the unions and then of births, with their lifespans. Choosing one makes
+  them the focus. The children listed are those the pedigree already carries
+  for the focus person's own families, which it always does whatever the
+  descendant depth. The descendant depth control is therefore hidden, as in
+  the wheel and the fan.
+- **Interactions.** Clicking a card or a box makes that person the focus — the
+  same as Gramps' buttons jumping to a father or mother; a right click, or the
+  pencil under the focus card, opens the action picker.
+- Every box is drawn, as every segment of the wheel is; a chart ten
+  generations deep is read by zooming and panning, as a deep tree is.

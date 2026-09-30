@@ -1597,6 +1597,27 @@ pub const LAYOUT_STYLES: &str = r#"
         pointer-events: none;
     }
 
+    /* ── Lineage view (Gramps' Pedigree) ─────────────────────────────
+       A non-birth link is dashed, as Gramps draws it; the button left of
+       the root lists its children, those with children of their own in
+       bold. */
+
+    .lineage-link-non-birth { stroke-dasharray: 5 4; }
+    .lineage-children { cursor: pointer; }
+    .lineage-children circle {
+        fill: var(--pn-bg);
+        stroke: var(--pn-border);
+        stroke-width: 1;
+    }
+    .lineage-children:hover circle { fill: var(--pn-hover-bg); stroke: var(--pn-root-bg); }
+    .lineage-children text {
+        fill: var(--pn-text);
+        font: 700 18px sans-serif;
+        text-anchor: middle;
+        pointer-events: none;
+    }
+    .context-menu-item.lineage-child-with-children { font-weight: 700; font-style: italic; }
+
     .pedigree-inner {
         position: absolute;
         top: 0;

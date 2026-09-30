@@ -44,6 +44,7 @@ use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
 
 mod ancestors;
 mod circular;
+mod lineage;
 
 // ── Viewport / zoom ──────────────────────────────────────────────────────
 
@@ -2453,6 +2454,7 @@ impl LayoutKey {
 enum ChartScene {
     Tree(SharedLayout),
     Circular(circular::SharedCircular),
+    Lineage(lineage::SharedLineage),
 }
 
 impl ChartScene {
@@ -2461,6 +2463,7 @@ impl ChartScene {
         match self {
             Self::Tree(layout) => FitTarget::of(layout),
             Self::Circular(layout) => layout.fit_target(),
+            Self::Lineage(layout) => layout.fit_target(),
         }
     }
 }
@@ -2511,6 +2514,18 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
         ))),
         PedigreeView::Wheel => circular(circular::ChartArc::WHEEL),
         PedigreeView::Fan => circular(circular::ChartArc::FAN),
+        PedigreeView::Lineage => ChartScene::Lineage(lineage::SharedLineage(Rc::new(
+            crate::ui_observability::measure_ui("pedigree_layout", || {
+                lineage::lineage_layout(
+                    props.root_person_id,
+                    &props.data,
+                    shape.ancestor_levels,
+                    props.sosa_root_person_id,
+                    &sosa_ancestors,
+                    shape.theme,
+                )
+            }),
+        ))),
     }
 }
 
@@ -3509,6 +3524,7 @@ pub fn PedigreeViewSwatch(view: PedigreeView) -> Element {
         },
         PedigreeView::Wheel => circular::swatch(circular::ChartArc::WHEEL),
         PedigreeView::Fan => circular::swatch(circular::ChartArc::FAN),
+        PedigreeView::Lineage => lineage::swatch(),
     }
 }
 
@@ -4679,6 +4695,9 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Disable transition when root changes (avoid flying animation) ──
     let mut animating = use_signal(|| false);
 
+    // Where the lineage view's list of the root's children is open, if it is.
+    let mut children_menu = use_signal(|| None::<(f64, f64)>);
+
     // ── Fit the graph in the viewport on first load and root/depth changes ──
     // Also fit when explicitly requested via center_gen > 0 (e.g. navigation
     // from search results), even when there is saved pan/zoom state.
@@ -5316,8 +5335,37 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                     theme,
                                 }
                             },
+                            ChartScene::Lineage(layout) => rsx! {
+                                lineage::LineageCanvas {
+                                    layout,
+                                    root_person_id: props.root_person_id,
+                                    selected_person_id,
+                                    on_person_navigate: props.on_person_navigate,
+                                    on_person_click: props.on_person_click,
+                                    on_empty_slot: props.on_empty_slot,
+                                    on_children_menu: move |at| children_menu.set(Some(at)),
+                                    theme,
+                                }
+                            },
                         }
                     }
+                }
+            }
+
+            // The lineage view's list of the root's children, outside the
+            // transformed canvas so it stays where it was opened.
+            if let Some((x, y)) = children_menu() {
+                lineage::LineageChildrenMenu {
+                    data: props.data.clone(),
+                    root_person_id: props.root_person_id,
+                    x,
+                    y,
+                    on_pick: move |child: Uuid| {
+                        children_menu.set(None);
+                        selected_person_id.set(child);
+                        props.on_person_navigate.call(child);
+                    },
+                    on_close: move |_| children_menu.set(None),
                 }
             }
 

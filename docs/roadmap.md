@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:32:32Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -27,7 +27,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
 |---|---|---|---|
 | A | Foundation, persistence, APIs, server, desktop | Complete | [Architecture](architecture.md), [Data](data-model.md), [API](api.md) |
 | B | GEDCOM, GEDZIP, and GeneWeb | Complete | [API](api.md), [Import](ui-import.md) |
-| C | Tree browsing and editing | Complete; the kinship page traces how any two persons are related; the tree view can also be drawn as an ancestor wheel or a fan chart | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Kinship](ui-kinship.md), [Person Edit](ui-person-edit-modal.md) |
+| C | Tree browsing and editing | Complete; the kinship page traces how any two persons are related; the tree view can also be drawn as an ancestor wheel, a fan chart or a Gramps-style lineage | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Kinship](ui-kinship.md), [Person Edit](ui-person-edit-modal.md) |
 | D | Shared UX, themes, languages, runtime settings, printing | Complete; every content page prints, the pedigree on one landscape sheet | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md) |
 | E | Read projections, search, dictionary | Complete except dictionary descent; search results now name each person's close relatives, the topbar suggests matches as you type, `relevance` ranks, and the dictionary renames and merges family names | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |

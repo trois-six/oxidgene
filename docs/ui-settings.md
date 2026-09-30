@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:32:32Z }
 ---
 
 
@@ -372,7 +372,7 @@ Changing them from the tree settings page immediately updates the same global
 preference; they are not stored on the current tree.
 
 The Pedigree section is the one [App Settings](ui-app-settings.md#7-section-pedigree)
-shows: the chart the tree view draws (tree, ancestor wheel or fan chart), the
+shows: the chart the tree view draws (tree, ancestor wheel, fan chart or lineage), the
 pedigree theme, and the shared ancestor and descendant depth controls. The
 chart is a per-device display preference like the theme, never a tree
 setting, so nothing about it reaches the server.

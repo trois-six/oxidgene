@@ -22,11 +22,14 @@ pub enum PedigreeView {
     Wheel,
     /// The wheel's principle on a half circle, the root at its base.
     Fan,
+    /// Gramps' *Pedigree* view: the root on the left, one column of
+    /// ancestors per generation to its right, joined by elbow lines.
+    Lineage,
 }
 
 impl PedigreeView {
     /// Every view, in the order the selector offers them.
-    pub const ALL: [Self; 3] = [Self::Tree, Self::Wheel, Self::Fan];
+    pub const ALL: [Self; 4] = [Self::Tree, Self::Wheel, Self::Fan, Self::Lineage];
 
     /// Whether the view draws descendants, and so whether the descendant
     /// depth control means anything while it is shown.
@@ -42,6 +45,7 @@ impl PedigreeView {
             Self::Tree => "app_settings.pedigree_view_tree",
             Self::Wheel => "app_settings.pedigree_view_wheel",
             Self::Fan => "app_settings.pedigree_view_fan",
+            Self::Lineage => "app_settings.pedigree_view_lineage",
         }
     }
 
@@ -52,6 +56,7 @@ impl PedigreeView {
             Self::Tree => "app_settings.pedigree_view_tree_hint",
             Self::Wheel => "app_settings.pedigree_view_wheel_hint",
             Self::Fan => "app_settings.pedigree_view_fan_hint",
+            Self::Lineage => "app_settings.pedigree_view_lineage_hint",
         }
     }
 
@@ -86,6 +91,7 @@ mod tests {
         // The name in storage is the view's own, not its position.
         assert_eq!(PedigreeView::Wheel.to_stored(), "\"wheel\"");
         assert_eq!(PedigreeView::Fan.to_stored(), "\"fan\"");
+        assert_eq!(PedigreeView::Lineage.to_stored(), "\"lineage\"");
     }
 
     #[test]
@@ -98,7 +104,11 @@ mod tests {
     #[test]
     fn only_the_tree_draws_descendants() {
         assert!(PedigreeView::Tree.shows_descendants());
-        for view in [PedigreeView::Wheel, PedigreeView::Fan] {
+        for view in [
+            PedigreeView::Wheel,
+            PedigreeView::Fan,
+            PedigreeView::Lineage,
+        ] {
             assert!(!view.shows_descendants(), "{view:?}");
         }
     }

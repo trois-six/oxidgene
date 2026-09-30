@@ -98,6 +98,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("app_settings.pedigree_view_wheel_hint", "The person at the centre, each generation of ancestors a ring around them."),
         ("app_settings.pedigree_view_fan", "Fan chart"),
         ("app_settings.pedigree_view_fan_hint", "The ancestors spread over a half circle, the person at its base."),
+        ("app_settings.pedigree_view_lineage", "Lineage"),
+        ("app_settings.pedigree_view_lineage_hint", "The person on the left, one column of ancestors per generation, as in Gramps."),
         ("app_settings.ancestor_levels", "Ancestor generations"),
         ("app_settings.ancestor_levels_hint", "Generations displayed above the focus person."),
         ("app_settings.descendant_levels", "Descendant generations"),
@@ -222,6 +224,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("pedigree.profile_view", "Profile view"),
         ("pedigree.couple_view", "Couple view"),
         ("pedigree.add_person", "Add person"),
+        ("pedigree.children", "Children"),
+        ("pedigree.jump_to_child", "Go to a child"),
         // ── Person detail page ──────────────────────────────────────
         ("person.loading", "Loading person..."),
         ("person.load_error", "Failed to load person: {error}"),
