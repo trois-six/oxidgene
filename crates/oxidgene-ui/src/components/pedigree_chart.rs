@@ -68,11 +68,6 @@ const ZOOM_MIN: f64 = 0.3;
 /// Four steps past the 200 % the chart used to stop at: close enough to read
 /// the smallest line of a compact card on a large screen.
 const ZOOM_MAX: f64 = 4.0;
-// ── Year extraction ──────────────────────────────────────────────────────
-
-const YEAR_MIN: u32 = 1000;
-const YEAR_MAX: u32 = 2099;
-
 // ── Default portraits (embedded as data URIs) ────────────────────────────
 
 const PORTRAIT_MALE: &str = include_str!(concat!(
@@ -127,24 +122,6 @@ pub fn silhouette_png(sex: Sex) -> &'static [u8] {
 }
 
 // ── Helper functions ─────────────────────────────────────────────────────
-
-/// Extract a 4-digit year from a GEDCOM date string (e.g. "ABT 1842", "1 JAN 1900").
-fn fmt_year(date: &str) -> String {
-    for word in date.split_whitespace() {
-        if word.len() == 4
-            && word
-                .parse::<u32>()
-                .is_ok_and(|y| (YEAR_MIN..=YEAR_MAX).contains(&y))
-        {
-            return word.to_string();
-        }
-    }
-    if date.len() > 12 {
-        format!("{}...", &date[..10])
-    } else {
-        date.to_string()
-    }
-}
 
 /// Format a "birth-death" lifespan string from optional years.
 ///
@@ -801,7 +778,8 @@ impl PedigreeData {
         events
             .iter()
             .find(|e| e.event_type == EventType::Marriage)
-            .and_then(|e| e.date_value.as_deref().map(fmt_year))
+            .and_then(DomainEvent::qualified_year)
+            .map(|year| year.to_string())
     }
 
     /// Resolve a place_id to its name.
@@ -4947,10 +4925,8 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut event_groups: Vec<(String, Vec<DomainEvent>)> = Vec::new();
     for evt in &sel_events {
         let year = evt
-            .date_value
-            .as_deref()
-            .map(fmt_year)
-            .unwrap_or_else(|| "Unknown".to_string());
+            .year()
+            .map_or_else(|| i18n.t("pedigree.events_undated"), |y| y.to_string());
         if let Some(last) = event_groups.last_mut()
             && last.0 == year
         {
@@ -6989,6 +6965,38 @@ mod geometry_golden_tests {
     /// never too small a one. Every card's real drawing — frame, edit button
     /// and all — and every connector must lie inside the extent culling tests,
     /// so anything touching the view is in the DOM.
+    /// A union's marriage year keeps its precision mark, as every year shown
+    /// alone does: an approximate marriage reads "ca 1870", not "1870".
+    #[test]
+    fn a_marriage_year_keeps_its_precision() {
+        let mut data = wide_pedigree();
+        let family = id(103);
+        data.events_by_family.insert(
+            family,
+            vec![DomainEvent {
+                id: id(90_000),
+                tree_id: id(0),
+                event_type: EventType::Marriage,
+                date_value: Some("ABT 1870".to_string()),
+                date_sort: None,
+                date_qualifier: DateQualifier::About,
+                date_value2: None,
+                calendar: Calendar::Gregorian,
+                cause: None,
+                place_id: None,
+                person_id: None,
+                family_id: Some(family),
+                description: None,
+                created_at: epoch(),
+                updated_at: epoch(),
+                deleted_at: None,
+            }],
+        );
+        let unions = data.unions_for_person(id(ROOT));
+        let (_, _, year) = unions.iter().find(|(fid, _, _)| *fid == family).unwrap();
+        assert_eq!(year, "ca 1870");
+    }
+
     #[test]
     fn culling_extents_contain_everything_a_card_or_connector_draws() {
         let data = wide_pedigree();

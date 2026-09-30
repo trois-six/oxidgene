@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:47:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:59:29Z }
 ---
 
 
@@ -537,7 +537,7 @@ which is why zooming does not drift sideways when the panel is open.
 
 ### Content
 
-Header with avatar (default portrait or profile photo), full name and dates of the selected person. Then a chronological list of their events, grouped by year.
+Header with avatar (default portrait or profile photo), full name and dates of the selected person. Then a chronological list of their events, grouped by year — the year of the normalized date, in any calendar — with the undated events first under *Undated*.
 
 The header's dates are **the same lifespan string the card draws** — precision
 marks and all — not the `n. 1620` / `d. 1691` abbreviations it used to carry.

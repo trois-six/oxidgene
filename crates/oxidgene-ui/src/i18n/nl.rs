@@ -213,6 +213,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("context.kinship", "Verwantschap met…"),
         // ── Pedigree chart / sidebar ────────────────────────────────
         ("pedigree.events", "Gebeurtenissen"),
+        ("pedigree.events_undated", "Zonder datum"),
         ("pedigree.hide_events", "Gebeurtenissen verbergen"),
         ("pedigree.resize_events", "Grootte van het gebeurtenissenpaneel aanpassen"),
         ("pedigree.depth", "Aantal generaties"),
