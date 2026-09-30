@@ -24,7 +24,7 @@
 //! pages, tags, notes and links with it, so one call undoes all of it.
 
 use dioxus::prelude::*;
-use oxidgene_core::enums::{DocumentCategory, SourceMediaType};
+use oxidgene_core::enums::{DocumentCategory, Privacy, SourceMediaType};
 use uuid::Uuid;
 
 use crate::api::{
@@ -32,12 +32,13 @@ use crate::api::{
     MediaUpload, UpdateMediaBody,
 };
 use crate::components::date_input::{DateInput, DateParts};
-use crate::components::media_gallery::{MediaOwner, MediaTagForm};
+use crate::components::media_gallery::{
+    MediaClassification, MediaEventsChecklist, MediaOwner, MediaTagForm,
+};
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
-use crate::utils::parse_privacy;
 
 /// A page the user has chosen but that has not been written yet.
 #[derive(Clone, PartialEq)]
@@ -148,16 +149,13 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
     let on_created = props.on_created;
     let on_close = props.on_close;
 
-    let mut pages = use_signal(Vec::<PendingPage>::new);
-    let mut url_draft = use_signal(String::new);
-    let mut editing_url = use_signal(|| None::<UrlEdit>);
+    let pages = use_signal(Vec::<PendingPage>::new);
     let mut title = use_signal(String::new);
     let mut description = use_signal(String::new);
-    let mut tags = use_signal(Vec::<String>::new);
-    let mut show_tag_form = use_signal(|| false);
-    let mut document_category = use_signal(|| None::<DocumentCategory>);
-    let mut source_media_type = use_signal(SourceMediaType::default);
-    let mut privacy_value = use_signal(|| "Default".to_string());
+    let tags = use_signal(Vec::<String>::new);
+    let document_category = use_signal(|| None::<DocumentCategory>);
+    let source_media_type = use_signal(SourceMediaType::default);
+    let privacy = use_signal(Privacy::default);
     let date_parts = use_signal(DateParts::default);
     let place_id = use_signal(String::new);
     let mut note_text = use_signal(String::new);
@@ -181,136 +179,52 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
         _ => Vec::new(),
     };
 
-    // One handler for both "add an address" and "correct that address": the
-    // difference is a position, and a typo in a URL is found after it has been
-    // added far more often than while it is being typed.
-    let commit_url = use_callback(move |()| {
-        let url = url_draft().trim().to_string();
-        if url.is_empty() {
-            return;
-        }
-        let file_name = url_file_name(&url);
-        let page = PendingPage::Remote { url, file_name };
-        match editing_url() {
-            Some(UrlEdit::Existing(index)) => {
-                if let Some(slot) = pages.write().get_mut(index) {
-                    *slot = page;
-                }
-            }
-            // Appended, not inserted: the address is the page the user has
-            // just described, and it belongs after the ones already listed.
-            Some(UrlEdit::New) | None => pages.write().push(page),
-        }
-        url_draft.set(String::new());
-        editing_url.set(None);
-    });
-
     let save = {
         let api = api.clone();
         move |_| {
             let api = api.clone();
             let title_value = title().trim().to_string();
-            let description_value = description().trim().to_string();
-            let note_value = note_text().trim().to_string();
             let place_text = place_id();
-            let privacy = parse_privacy(&privacy_value());
-            let medium = source_media_type();
-            let category = document_category();
-            let resolved = date_parts().resolved();
-            let tag_list = tags();
-            let event_ids = selected_events();
+            let request = WriteRequest {
+                pages,
+                progress,
+                description: description().trim().to_string(),
+                note: note_text().trim().to_string(),
+                place_id: None,
+                privacy: privacy(),
+                medium: source_media_type(),
+                category: document_category(),
+                date: date_parts().resolved(),
+                tags: tags(),
+                event_ids: selected_events(),
+            };
             spawn(async move {
                 saving.set(true);
                 error.set(None);
-
-                // Before anything is written: a place that cannot be
-                // resolved leaves nothing to undo.
-                let place_value =
-                    match resolve_place(&api, tree_id, &place_text, i18n.0.code()).await {
-                        Ok(place_value) => place_value,
-                        Err(err) => {
-                            error.set(Some(err.to_string()));
-                            saving.set(false);
-                            return;
-                        }
-                    };
-
-                // Step one, and the only one that can fail without leaving
-                // anything behind.
-                let document = match api
-                    .create_media_document(
-                        tree_id,
-                        (!title_value.is_empty()).then_some(title_value.as_str()),
-                    )
-                    .await
-                {
-                    Ok(document) => document,
-                    Err(err) => {
-                        error.set(Some(err.to_string()));
-                        saving.set(false);
-                        return;
-                    }
-                };
-
-                // From here on a failure has something to undo. `write` returns
-                // the message to show; the document is purged either way, so
-                // the user sees the form they were filling in rather than a
-                // half-written record in the gallery behind it.
-                let outcome = write_document(
+                let created = create_document(
                     &api,
                     tree_id,
-                    document.id,
                     owner,
-                    WriteRequest {
-                        pages,
-                        progress,
-                        description: description_value,
-                        note: note_value,
-                        place_id: place_value,
-                        privacy,
-                        medium,
-                        category,
-                        date: resolved,
-                        tags: tag_list,
-                        event_ids,
-                    },
+                    (title_value, place_text),
+                    request,
                     &i18n,
                 )
                 .await;
-
                 progress.set(None);
-                match outcome {
+                saving.set(false);
+                match created {
                     Ok(()) => {
-                        saving.set(false);
                         on_created.call(());
                         on_close.call(());
                     }
-                    Err(message) => {
-                        // Best effort: if the rollback itself fails the
-                        // original error is still the one worth reporting.
-                        let _ = api.delete_media(tree_id, document.id).await;
-                        error.set(Some(message));
-                        saving.set(false);
-                    }
+                    Err(message) => error.set(Some(message)),
                 }
             });
         }
     };
 
-    let rows: Vec<PageRow> = pages
-        .read()
-        .iter()
-        .enumerate()
-        .map(|(index, page)| PageRow {
-            index,
-            label: page.label().to_string(),
-            preview: page.preview_url().map(str::to_string),
-            remote: matches!(page, PendingPage::Remote { .. }),
-        })
-        .collect();
-    let total = rows.len();
+    let total = pages.read().len();
     let busy = saving();
-    let url_open = editing_url().is_some();
 
     rsx! {
         div {
@@ -351,114 +265,12 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                             }
                         }
 
-                        div { class: "pf-subblock media-tags-editor",
-                            div { class: "pf-block-label",
-                                button {
-                                    class: if show_tag_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                                    r#type: "button",
-                                    disabled: busy,
-                                    onclick: move |_| {
-                                        let opening = !show_tag_form();
-                                        show_tag_form.set(opening);
-                                    },
-                                    {i18n.t("media.add_tag")}
-                                }
-                            }
-                            if show_tag_form() {
-                                MediaTagForm {
-                                    on_add: move |value: String| {
-                                        if value.is_empty()
-                                            || tags().iter().any(|tag| tag.eq_ignore_ascii_case(&value))
-                                        {
-                                            return;
-                                        }
-                                        show_tag_form.set(false);
-                                        tags.write().push(value);
-                                    },
-                                }
-                            }
-                            if !tags().is_empty() {
-                                div { class: "media-fact-tags media-edit-tags",
-                                    for (index , tag) in tags().iter().enumerate() {
-                                        span { key: "{tag}", class: "media-fact-tag is-editable",
-                                            "{tag}"
-                                            button {
-                                                class: "media-tag-remove",
-                                                r#type: "button",
-                                                title: i18n.t("common.delete"),
-                                                onclick: move |_| { tags.write().remove(index); },
-                                                "\u{00D7}"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        div { class: "form-group",
-                            label { {i18n.t("media.document_category")} }
-                            select {
-                                class: "td-select",
-                                disabled: busy,
-                                onchange: move |e: Event<FormData>| {
-                                    document_category.set(DocumentCategory::parse(&e.value()));
-                                },
-                                option {
-                                    value: "",
-                                    selected: document_category().is_none(),
-                                    {i18n.t("media.category_none")}
-                                }
-                                for category in DocumentCategory::all() {
-                                    option {
-                                        key: "{category.as_str()}",
-                                        value: "{category.as_str()}",
-                                        selected: document_category() == Some(*category),
-                                        {i18n.t(&format!("media.category.{}", category.as_str()))}
-                                    }
-                                }
-                            }
-                            p { class: "pf-ns-hint", {i18n.t("media.document_category_hint")} }
-                        }
-                        div { class: "form-group",
-                            label { {i18n.t("media.source_media_type")} }
-                            select {
-                                class: "td-select",
-                                disabled: busy,
-                                onchange: move |e: Event<FormData>| {
-                                    source_media_type
-                                        .set(SourceMediaType::parse(&e.value()).unwrap_or_default());
-                                },
-                                for medium in SourceMediaType::all() {
-                                    option {
-                                        key: "{medium.as_str()}",
-                                        value: "{medium.as_str()}",
-                                        selected: source_media_type() == *medium,
-                                        {i18n.t(&format!("media.medium.{}", medium.as_str()))}
-                                    }
-                                }
-                            }
-                            p { class: "pf-ns-hint", {i18n.t("media.source_media_type_hint")} }
-                        }
-                        div { class: "form-group",
-                            label { {i18n.t("media.privacy")} }
-                            select {
-                                class: "td-select",
-                                disabled: busy,
-                                onchange: move |e: Event<FormData>| privacy_value.set(e.value()),
-                                for (value , label) in [
-                                    ("Default", i18n.t("privacy.default")),
-                                    ("Public", i18n.t("privacy.public")),
-                                    ("Private", i18n.t("privacy.private")),
-                                ] {
-                                    option {
-                                        key: "{value}",
-                                        value: "{value}",
-                                        selected: privacy_value() == value,
-                                        "{label}"
-                                    }
-                                }
-                            }
-                            p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
+                        PendingTagsEditor { tags, disabled: busy }
+                        MediaClassification {
+                            document_category,
+                            source_media_type,
+                            privacy,
+                            disabled: busy,
                         }
 
                         div { class: "form-group",
@@ -479,36 +291,17 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                         }
 
                         if !events.is_empty() {
-                            div { class: "media-panel-section",
-                                label { {i18n.t("media.documents_events")} }
-                                div { class: "media-events",
-                                    for (id , label) in events.iter() {
-                                        {
-                                            let event_id = *id;
-                                            let checked = selected_events().contains(&event_id);
-                                            rsx! {
-                                                label { key: "{event_id}", class: "media-event-row",
-                                                    input {
-                                                        r#type: "checkbox",
-                                                        checked,
-                                                        disabled: busy,
-                                                        onchange: move |e: Event<FormData>| {
-                                                            let mut list = selected_events.write();
-                                                            if e.checked() {
-                                                                if !list.contains(&event_id) {
-                                                                    list.push(event_id);
-                                                                }
-                                                            } else {
-                                                                list.retain(|id| *id != event_id);
-                                                            }
-                                                        },
-                                                    }
-                                                    span { "{label}" }
-                                                }
-                                            }
-                                        }
+                            MediaEventsChecklist {
+                                events: events.clone(),
+                                attached: selected_events(),
+                                disabled: busy,
+                                on_toggle: move |(event_id, on): (Uuid, bool)| {
+                                    let mut list = selected_events.write();
+                                    list.retain(|id| *id != event_id);
+                                    if on {
+                                        list.push(event_id);
                                     }
-                                }
+                                },
                             }
                         }
 
@@ -516,151 +309,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                         // describe the document; this is the document itself,
                         // and it is the last thing the user assembles before
                         // committing.
-                        div { class: "media-panel-section",
-                            label { {i18n.t("media.pages")} }
-                            p { class: "pf-ns-hint", {i18n.t("media.new_document_pages_hint")} }
-                            div { class: "doc-pages",
-                                for row in rows {
-                                    {
-                                        let PageRow { index, label, preview, remote } = row;
-                                        let address = label.clone();
-                                        rsx! {
-                                            div { key: "{index}-{label}", class: "doc-page",
-                                                span { class: "doc-page-number", "{index + 1}" }
-                                                div { class: "doc-page-thumb",
-                                                    if let Some(preview) = preview {
-                                                        img { src: "{preview}", alt: "{label}", loading: "lazy" }
-                                                    } else if remote {
-                                                        span { class: "media-glyph", "\u{1F517}" }
-                                                    } else {
-                                                        span { class: "media-glyph", "\u{1F4C4}" }
-                                                    }
-                                                }
-                                                span { class: "doc-page-name", title: "{label}", "{label}" }
-                                                div { class: "doc-page-actions",
-                                                    button {
-                                                        class: "pf-row-btn",
-                                                        r#type: "button",
-                                                        disabled: index == 0 || busy,
-                                                        title: i18n.t("media.page_move_up"),
-                                                        onclick: move |_| pages.write().swap(index, index - 1),
-                                                        "\u{2191}"
-                                                    }
-                                                    button {
-                                                        class: "pf-row-btn",
-                                                        r#type: "button",
-                                                        disabled: index + 1 >= total || busy,
-                                                        title: i18n.t("media.page_move_down"),
-                                                        onclick: move |_| pages.write().swap(index, index + 1),
-                                                        "\u{2193}"
-                                                    }
-                                                    // Only an address can be retyped, so
-                                                    // only an address offers the pencil.
-                                                    if remote {
-                                                        button {
-                                                            class: "pf-row-btn",
-                                                            r#type: "button",
-                                                            disabled: busy,
-                                                            title: i18n.t("media.edit_url"),
-                                                            onclick: move |_| {
-                                                                url_draft.set(address.clone());
-                                                                editing_url.set(Some(UrlEdit::Existing(index)));
-                                                            },
-                                                            "\u{270E}"
-                                                        }
-                                                    }
-                                                    button {
-                                                        class: "pf-row-btn is-danger",
-                                                        r#type: "button",
-                                                        disabled: busy,
-                                                        title: i18n.t("media.page_remove"),
-                                                        onclick: move |_| {
-                                                            pages.write().remove(index);
-                                                            // The position the field
-                                                            // was standing in for has
-                                                            // moved.
-                                                            editing_url.set(None);
-                                                        },
-                                                        "\u{2715}"
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // The canonical upload cell, told to hand the
-                                // bytes over instead of sending them.
-                                MediaInput {
-                                    tree_id,
-                                    label: i18n.t("media.add_pages"),
-                                    on_files: move |files: Vec<PickedFile>| {
-                                        let mut list = pages.write();
-                                        for (name, bytes) in files {
-                                            list.push(PendingPage::File { name, bytes });
-                                        }
-                                    },
-                                }
-
-                                // The other half of "a page is a file or an
-                                // address", drawn as the same kind of cell: a
-                                // page somebody else serves is a page, and
-                                // adding one is the same gesture as adding a
-                                // file, not a different control in a different
-                                // place.
-                                div { class: if url_open { "media-drop is-open" } else { "media-drop" },
-                                    button {
-                                        class: "media-drop-btn",
-                                        r#type: "button",
-                                        disabled: busy,
-                                        title: i18n.t("media.link_url"),
-                                        onclick: move |_| {
-                                            url_draft.set(String::new());
-                                            editing_url.set(Some(UrlEdit::New));
-                                        },
-                                        span { class: "media-drop-icon", "\u{1F517}" }
-                                        span { class: "media-drop-label", {i18n.t("media.link_url")} }
-                                        span { class: "media-drop-hint", {i18n.t("media.link_url_hint")} }
-                                    }
-                                }
-                            }
-
-                            if url_open {
-                                form {
-                                    class: "doc-page-url",
-                                    onsubmit: move |event: Event<FormData>| {
-                                        event.prevent_default();
-                                        commit_url.call(());
-                                    },
-                                    input {
-                                        r#type: "text",
-                                        value: "{url_draft}",
-                                        placeholder: "https://\u{2026}",
-                                        autocomplete: "off",
-                                        spellcheck: "false",
-                                        disabled: busy,
-                                        oninput: move |e: Event<FormData>| url_draft.set(e.value()),
-                                    }
-                                    button {
-                                        class: "pf-confirm-btn btn-sm",
-                                        r#type: "submit",
-                                        disabled: busy || url_draft().trim().is_empty(),
-                                        {i18n.t("common.save")}
-                                    }
-                                    button {
-                                        class: "btn btn-outline btn-sm",
-                                        r#type: "button",
-                                        disabled: busy,
-                                        onclick: move |_| {
-                                            url_draft.set(String::new());
-                                            editing_url.set(None);
-                                        },
-                                        {i18n.t("common.cancel")}
-                                    }
-                                }
-                                p { class: "pf-ns-hint", {i18n.t("media.url_hint")} }
-                            }
-                        }
+                        PendingPagesEditor { tree_id, pages, busy }
 
                         if let Some(err) = error() {
                             div { class: "error-msg", "{err}" }
@@ -696,6 +345,309 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                             p { class: "pf-ns-hint", {i18n.t("media.new_document_needs_a_page")} }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Creates the document titled `title`, at the place named `place`, and
+/// fills it in; the message to show on failure.
+///
+/// The place is resolved before anything is written, so a place that cannot
+/// be resolved leaves nothing to undo. Creating the document is the only
+/// step that can fail without leaving anything behind; after it, a failure
+/// purges the document — best effort: if the rollback itself fails the
+/// original error is still the one worth reporting — so the user sees the
+/// form they were filling in rather than a half-written record in the
+/// gallery behind it.
+async fn create_document(
+    api: &ApiClient,
+    tree_id: Uuid,
+    owner: MediaOwner,
+    (title, place): (String, String),
+    mut request: WriteRequest,
+    i18n: &crate::i18n::I18n,
+) -> Result<(), String> {
+    request.place_id = resolve_place(api, tree_id, &place, i18n.0.code())
+        .await
+        .map_err(|err| err.to_string())?;
+    let title = Some(title.as_str()).filter(|title| !title.is_empty());
+    let document = api
+        .create_media_document(tree_id, title)
+        .await
+        .map_err(|err| err.to_string())?;
+    let written = write_document(api, tree_id, document.id, owner, request, i18n).await;
+    if written.is_err() {
+        let _ = api.delete_media(tree_id, document.id).await;
+    }
+    written
+}
+
+/// The document's tags, each removable, and the form adding one — held
+/// here until the document is written.
+#[component]
+fn PendingTagsEditor(tags: Signal<Vec<String>>, disabled: bool) -> Element {
+    let i18n = use_i18n();
+    let mut show_tag_form = use_signal(|| false);
+    rsx! {
+        div { class: "pf-subblock media-tags-editor",
+            div { class: "pf-block-label",
+                button {
+                    class: if show_tag_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                    r#type: "button",
+                    disabled,
+                    onclick: move |_| show_tag_form.toggle(),
+                    {i18n.t("media.add_tag")}
+                }
+            }
+            if show_tag_form() {
+                MediaTagForm {
+                    on_add: move |value: String| {
+                        let known = tags().iter().any(|tag| tag.eq_ignore_ascii_case(&value));
+                        if !value.is_empty() && !known {
+                            show_tag_form.set(false);
+                            tags.write().push(value);
+                        }
+                    },
+                }
+            }
+            if !tags().is_empty() {
+                div { class: "media-fact-tags media-edit-tags",
+                    for (index , tag) in tags().iter().enumerate() {
+                        span { key: "{tag}", class: "media-fact-tag is-editable",
+                            "{tag}"
+                            button {
+                                class: "media-tag-remove",
+                                r#type: "button",
+                                title: i18n.t("common.delete"),
+                                onclick: move |_| {
+                                    tags.write().remove(index);
+                                },
+                                "\u{00D7}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The document's pages: moved, retyped when they are addresses, removed,
+/// and added as files or as addresses.
+#[component]
+fn PendingPagesEditor(tree_id: Uuid, pages: Signal<Vec<PendingPage>>, busy: bool) -> Element {
+    let i18n = use_i18n();
+    let mut url_draft = use_signal(String::new);
+    let mut editing_url = use_signal(|| None::<UrlEdit>);
+    // One handler for both "add an address" and "correct that address": the
+    // difference is a position, and a typo in a URL is found after it has
+    // been added far more often than while it is being typed.
+    let commit_url = use_callback(move |()| {
+        let url = url_draft().trim().to_string();
+        if url.is_empty() {
+            return;
+        }
+        let file_name = url_file_name(&url);
+        place_page(pages, editing_url(), PendingPage::Remote { url, file_name });
+        url_draft.set(String::new());
+        editing_url.set(None);
+    });
+    let rows: Vec<PageRow> = pages
+        .read()
+        .iter()
+        .enumerate()
+        .map(|(index, page)| PageRow {
+            index,
+            label: page.label().to_string(),
+            preview: page.preview_url().map(str::to_string),
+            remote: matches!(page, PendingPage::Remote { .. }),
+        })
+        .collect();
+    let total = rows.len();
+    let url_open = editing_url().is_some();
+    rsx! {
+        div { class: "media-panel-section",
+            label { {i18n.t("media.pages")} }
+            p { class: "pf-ns-hint", {i18n.t("media.new_document_pages_hint")} }
+            div { class: "doc-pages",
+                for row in rows {
+                    PendingPageRow {
+                        key: "{row.index}-{row.label}",
+                        index: row.index,
+                        label: row.label.clone(),
+                        preview: row.preview.clone(),
+                        remote: row.remote,
+                        last: row.index + 1 >= total,
+                        busy,
+                        on_move: move |(from, to): (usize, usize)| pages.write().swap(from, to),
+                        on_retype: move |(index, address): (usize, String)| {
+                            url_draft.set(address);
+                            editing_url.set(Some(UrlEdit::Existing(index)));
+                        },
+                        on_remove: move |index: usize| {
+                            pages.write().remove(index);
+                            // The position the field was standing in for has
+                            // moved.
+                            editing_url.set(None);
+                        },
+                    }
+                }
+
+                // The canonical upload cell, told to hand the bytes over
+                // instead of sending them.
+                MediaInput {
+                    tree_id,
+                    label: i18n.t("media.add_pages"),
+                    on_files: move |files: Vec<PickedFile>| {
+                        pages
+                            .write()
+                            .extend(files.into_iter().map(|(name, bytes)| PendingPage::File { name, bytes }));
+                    },
+                }
+
+                // The other half of "a page is a file or an address", drawn
+                // as the same kind of cell: a page somebody else serves is a
+                // page, and adding one is the same gesture as adding a file,
+                // not a different control in a different place.
+                div { class: if url_open { "media-drop is-open" } else { "media-drop" },
+                    button {
+                        class: "media-drop-btn",
+                        r#type: "button",
+                        disabled: busy,
+                        title: i18n.t("media.link_url"),
+                        onclick: move |_| {
+                            url_draft.set(String::new());
+                            editing_url.set(Some(UrlEdit::New));
+                        },
+                        span { class: "media-drop-icon", "\u{1F517}" }
+                        span { class: "media-drop-label", {i18n.t("media.link_url")} }
+                        span { class: "media-drop-hint", {i18n.t("media.link_url_hint")} }
+                    }
+                }
+            }
+
+            if url_open {
+                form {
+                    class: "doc-page-url",
+                    onsubmit: move |event: Event<FormData>| {
+                        event.prevent_default();
+                        commit_url.call(());
+                    },
+                    input {
+                        r#type: "text",
+                        value: "{url_draft}",
+                        placeholder: "https://\u{2026}",
+                        autocomplete: "off",
+                        spellcheck: "false",
+                        disabled: busy,
+                        oninput: move |e: Event<FormData>| url_draft.set(e.value()),
+                    }
+                    button {
+                        class: "pf-confirm-btn btn-sm",
+                        r#type: "submit",
+                        disabled: busy || url_draft().trim().is_empty(),
+                        {i18n.t("common.save")}
+                    }
+                    button {
+                        class: "btn btn-outline btn-sm",
+                        r#type: "button",
+                        disabled: busy,
+                        onclick: move |_| {
+                            url_draft.set(String::new());
+                            editing_url.set(None);
+                        },
+                        {i18n.t("common.cancel")}
+                    }
+                }
+                p { class: "pf-ns-hint", {i18n.t("media.url_hint")} }
+            }
+        }
+    }
+}
+
+/// Puts `page` where the address field was standing: over the page it
+/// corrects, or — appended, not inserted: the address is the page the user
+/// has just described, and it belongs after the ones already listed — at the
+/// end.
+fn place_page(mut pages: Signal<Vec<PendingPage>>, at: Option<UrlEdit>, page: PendingPage) {
+    let mut pages = pages.write();
+    match at {
+        Some(UrlEdit::Existing(index)) => {
+            if let Some(slot) = pages.get_mut(index) {
+                *slot = page;
+            }
+        }
+        Some(UrlEdit::New) | None => pages.push(page),
+    }
+}
+
+/// One page of the document: its number, its thumbnail, its name, and its
+/// moves.
+#[component]
+fn PendingPageRow(
+    index: usize,
+    label: String,
+    preview: Option<String>,
+    remote: bool,
+    last: bool,
+    busy: bool,
+    on_move: EventHandler<(usize, usize)>,
+    on_retype: EventHandler<(usize, String)>,
+    on_remove: EventHandler<usize>,
+) -> Element {
+    let i18n = use_i18n();
+    let address = label.clone();
+    rsx! {
+        div { class: "doc-page",
+            span { class: "doc-page-number", "{index + 1}" }
+            div { class: "doc-page-thumb",
+                if let Some(preview) = preview {
+                    img { src: "{preview}", alt: "{label}", loading: "lazy" }
+                } else if remote {
+                    span { class: "media-glyph", "\u{1F517}" }
+                } else {
+                    span { class: "media-glyph", "\u{1F4C4}" }
+                }
+            }
+            span { class: "doc-page-name", title: "{label}", "{label}" }
+            div { class: "doc-page-actions",
+                button {
+                    class: "pf-row-btn",
+                    r#type: "button",
+                    disabled: index == 0 || busy,
+                    title: i18n.t("media.page_move_up"),
+                    onclick: move |_| on_move.call((index, index - 1)),
+                    "\u{2191}"
+                }
+                button {
+                    class: "pf-row-btn",
+                    r#type: "button",
+                    disabled: last || busy,
+                    title: i18n.t("media.page_move_down"),
+                    onclick: move |_| on_move.call((index, index + 1)),
+                    "\u{2193}"
+                }
+                // Only an address can be retyped, so only an address offers
+                // the pencil.
+                if remote {
+                    button {
+                        class: "pf-row-btn",
+                        r#type: "button",
+                        disabled: busy,
+                        title: i18n.t("media.edit_url"),
+                        onclick: move |_| on_retype.call((index, address.clone())),
+                        "\u{270E}"
+                    }
+                }
+                button {
+                    class: "pf-row-btn is-danger",
+                    r#type: "button",
+                    disabled: busy,
+                    title: i18n.t("media.page_remove"),
+                    onclick: move |_| on_remove.call(index),
+                    "\u{2715}"
                 }
             }
         }

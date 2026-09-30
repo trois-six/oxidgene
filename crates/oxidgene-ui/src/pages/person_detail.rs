@@ -20,7 +20,7 @@ use crate::components::person_profile::{
 use crate::components::print::PrintHeading;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
@@ -239,47 +239,12 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         }
 
         div { class: "pd-page-shell",
-        TreeIconSidebar {
+        ProfilePageSidebar {
+            tree_id: tree_id.clone(),
             active_view: TreeSidebarView::Profile,
             selected_person_id: person_id_parsed(),
             couple_family_id,
-            on_profile_view: move |_| {},
-            on_couple_view: {
-                let tree_id = tree_id.clone();
-                move |family_id: Uuid| {
-                    nav.push(Route::CoupleDetail {
-                        tree_id: tree_id.clone(),
-                        family_id: family_id.to_string(),
-                    });
-                }
-            },
-            on_pedigree_view: {
-                let tree_id = tree_id.clone();
-                let person_id = person_id.clone();
-                move |_| {
-                    nav.push(Route::TreeDetail {
-                        tree_id: tree_id.clone(),
-                        person: Some(person_id.clone()),
-                    });
-                }
-            },
             on_add_person: move |_| show_create_person.set(true),
-            on_settings: {
-                let tree_id = tree_id.clone();
-                move |_| {
-                    nav.push(Route::Settings {
-                        tree_id: tree_id.clone(),
-                    });
-                }
-            },
-            on_dictionary: {
-                let tree_id = tree_id.clone();
-                move |_| {
-                    nav.push(Route::Dictionary {
-                        tree_id: tree_id.clone(),
-                    });
-                }
-            },
         }
 
         div { class: "sub-page-content pd-content",

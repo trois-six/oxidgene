@@ -66,6 +66,220 @@ pub struct ImageCropperProps {
     pub on_close: EventHandler<()>,
 }
 
+/// The drag `(x, y, width, height)` in displayed pixels, at `scale`
+/// displayed pixels per source pixel, as a rectangle of the `source` image —
+/// clamped to it, and `None` when too small to be a crop.
+fn crop_in_source(
+    (x, y, w, h): (f64, f64, f64, f64),
+    scale: f64,
+    source: (i32, i32),
+) -> Option<CropRect> {
+    if scale <= 0.0 {
+        return None;
+    }
+    let left = ((x / scale).round() as i32).clamp(0, source.0);
+    let top = ((y / scale).round() as i32).clamp(0, source.1);
+    // Clamp the extent too: a drag released past the edge of the image
+    // would otherwise produce a rectangle the server has to reject.
+    let rect = CropRect {
+        x: left,
+        y: top,
+        width: ((w / scale).round() as i32).min(source.0 - left),
+        height: ((h / scale).round() as i32).min(source.1 - top),
+    };
+    (rect.width >= MIN_CROP_EDGE && rect.height >= MIN_CROP_EDGE).then_some(rect)
+}
+
+/// The rectangle between where a drag started and where the pointer is,
+/// normalised so dragging up-left works the same as down-right: a negative
+/// width is not a rectangle.
+fn spanned((sx, sy): (f64, f64), (px, py): (f64, f64)) -> (f64, f64, f64, f64) {
+    (sx.min(px), sy.min(py), (px - sx).abs(), (py - sy).abs())
+}
+
+/// The natural size of the image `script` finds, once it has decoded.
+async fn natural_size(script: &str) -> Option<(i32, i32)> {
+    let value = document::eval(script).await.ok()?;
+    let side = |index: usize| value.get(index).and_then(|item| item.as_i64());
+    let (width, height) = (side(0)?, side(1)?);
+    (width > 0 && height > 0).then_some((width as i32, height as i32))
+}
+
+/// Records the size the browser `learnt` of a remote picture, then saves the
+/// crop. A rectangle in pixels means nothing without the size it was
+/// measured against, and nothing else will ever open this file.
+async fn measure_then_crop(
+    api: &ApiClient,
+    tree_id: Uuid,
+    media_id: Uuid,
+    learnt: Option<(i32, i32)>,
+    body: &CreateVignetteBody,
+) -> Result<Vignette, crate::api::ApiError> {
+    if let Some((width, height)) = learnt {
+        let size = crate::api::UpdateMediaBody {
+            width: Some(width),
+            height: Some(height),
+            ..crate::api::UpdateMediaBody::default()
+        };
+        api.update_media(tree_id, media_id, &size).await?;
+    }
+    api.create_vignette(tree_id, media_id, body).await
+}
+
+/// The image, the crops already on it, and the rectangle being dragged,
+/// in displayed pixels — `scale` of them per source pixel. The image's
+/// displayed size is kept in `displayed`; with a `measure` script, its
+/// natural size is learnt into `measured` once it has decoded.
+#[component]
+fn CropStage(
+    image_url: Option<String>,
+    image_element_id: String,
+    file_name: String,
+    existing: Vec<Vignette>,
+    scale: f64,
+    displayed: Signal<(f64, f64)>,
+    drag_rect: Signal<Option<(f64, f64, f64, f64)>>,
+    measure: Option<String>,
+    measured: Signal<Option<(i32, i32)>>,
+) -> Element {
+    let mut drag_start = use_signal(|| None::<(f64, f64)>);
+    let s = scale;
+    rsx! {
+        div {
+            class: "cropper-stage",
+            // Measured rather than assumed: the image is laid out by
+            // CSS (`max-height`, aspect ratio), so only the engine
+            // knows what size it ended up.
+            onmounted: move |e| async move {
+                if let Ok(rect) = e.get_client_rect().await {
+                    displayed.set((rect.size.width, rect.size.height));
+                }
+            },
+            onresize: move |e| {
+                let size = e.get_content_box_size().unwrap_or_default();
+                if size.width > 0.0 {
+                    displayed.set((size.width, size.height));
+                }
+            },
+            onmousedown: move |e: Event<MouseData>| {
+                let p = e.element_coordinates();
+                drag_start.set(Some((p.x, p.y)));
+                drag_rect.set(None);
+            },
+            onmousemove: move |e: Event<MouseData>| {
+                let Some(start) = drag_start() else { return };
+                let p = e.element_coordinates();
+                drag_rect.set(Some(spanned(start, (p.x, p.y))));
+            },
+            onmouseup: move |_| drag_start.set(None),
+            onmouseleave: move |_| drag_start.set(None),
+
+            if let Some(image_url) = image_url {
+                img {
+                    id: "{image_element_id}",
+                    class: "cropper-image",
+                    src: "{image_url}",
+                    alt: "{file_name}",
+                    // The browser would otherwise start its own drag of the
+                    // image, which cancels ours halfway through.
+                    draggable: "false",
+                    // The only place a remote picture's pixel size can
+                    // be learnt: it has just been decoded, right here.
+                    onload: move |_| {
+                        let Some(script) = measure.clone() else { return };
+                        spawn(async move {
+                            if let Some(size) = natural_size(&script).await {
+                                measured.set(Some(size));
+                            }
+                        });
+                    },
+                }
+            }
+
+            // Crops already on this page, so the user can see what is
+            // covered while drawing the next one.
+            for existing in existing.iter().filter(|_| s > 0.0) {
+                div {
+                    key: "{existing.id}",
+                    class: "cropper-existing",
+                    style: "left:{existing.x as f64 * s}px;top:{existing.y as f64 * s}px;\
+                            width:{existing.width as f64 * s}px;height:{existing.height as f64 * s}px",
+                }
+            }
+
+            if let Some((x, y, w, h)) = drag_rect() {
+                div {
+                    class: "cropper-selection",
+                    style: "left:{x}px;top:{y}px;width:{w}px;height:{h}px",
+                }
+            }
+        }
+    }
+}
+
+/// The crop drawn so far, in source pixels, and the event it may be
+/// attached to; a hint while nothing is drawn.
+#[component]
+fn CropDraft(
+    pending: Option<CropRect>,
+    events: Vec<(Uuid, String)>,
+    event_id: Signal<String>,
+) -> Element {
+    let i18n = use_i18n();
+    let Some(rect) = pending else {
+        return rsx! {
+            div { class: "cropper-status", {i18n.t("media.crop_hint")} }
+        };
+    };
+    rsx! {
+        div { class: "cropper-status",
+            {i18n.t_args(
+                "media.crop_readout",
+                &[
+                    ("width", &rect.width.to_string()),
+                    ("height", &rect.height.to_string()),
+                    ("x", &rect.x.to_string()),
+                    ("y", &rect.y.to_string()),
+                ],
+            )}
+        }
+        if !events.is_empty() {
+            div { class: "cropper-fields",
+                div { class: "form-group",
+                    label { {i18n.t("media.crop_event")} }
+                    select {
+                        value: "{event_id}",
+                        oninput: move |e: Event<FormData>| event_id.set(e.value()),
+                        option { value: "", {i18n.t("media.crop_no_event")} }
+                        for (id, label) in events.iter() {
+                            option { key: "{id}", value: "{id}", "{label}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Nothing to draw a rectangle on, said so.
+#[component]
+fn CropUnavailable(on_close: EventHandler<()>) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
+            div { class: "cropper-panel", onclick: move |e| e.stop_propagation(),
+                div { class: "cropper-empty", {i18n.t("media.cannot_crop")} }
+                button {
+                    class: "btn btn-outline",
+                    r#type: "button",
+                    onclick: move |_| on_close.call(()),
+                    {i18n.t("common.close")}
+                }
+            }
+        }
+    }
+}
+
 /// Interactive crop overlay: drag a rectangle, name it, save it as a vignette.
 #[component]
 pub fn ImageCropper(props: ImageCropperProps) -> Element {
@@ -74,8 +288,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
 
     // Where the image actually sits on screen, in CSS pixels. Zero until the
     // element mounts; the drag maths is skipped while it is.
-    let mut displayed = use_signal(|| (0.0_f64, 0.0_f64));
-    let mut drag_start = use_signal(|| None::<(f64, f64)>);
+    let displayed = use_signal(|| (0.0_f64, 0.0_f64));
     // The live rectangle, in *displayed* pixels — converted only on save, so
     // dragging never accumulates rounding error.
     let mut drag_rect = use_signal(|| None::<(f64, f64, f64, f64)>);
@@ -116,7 +329,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     // a remote one has never been opened here, so the browser that just drew
     // it is the only witness — and what it reports is recorded on save, so
     // every later reader can cut the same region without measuring again.
-    let mut measured = use_signal(|| None::<(i32, i32)>);
+    let measured = use_signal(|| None::<(i32, i32)>);
     let source = match (media.width, media.height) {
         (Some(width), Some(height)) => (width, height),
         _ => measured().unwrap_or((0, 0)),
@@ -137,19 +350,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     // either. Saying so beats showing a canvas where dragging does nothing.
     let no_file = remote_url.is_none() && matches!(&*stored_image.read_unchecked(), Some(None));
     if !oxidgene_core::types::is_image_mime(&media.mime_type) || no_file {
-        return rsx! {
-            div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
-                div { class: "cropper-panel", onclick: move |e| e.stop_propagation(),
-                    div { class: "cropper-empty", {i18n.t("media.cannot_crop")} }
-                    button {
-                        class: "btn btn-outline",
-                        r#type: "button",
-                        onclick: move |_| on_close.call(()),
-                        {i18n.t("common.close")}
-                    }
-                }
-            }
-        };
+        return rsx! { CropUnavailable { on_close } };
     }
 
     let scale = move || {
@@ -158,27 +359,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     };
 
     // The drag, converted into source pixels and clamped to the image.
-    let to_source = move || -> Option<CropRect> {
-        let (x, y, w, h) = drag_rect()?;
-        let s = scale();
-        if s <= 0.0 {
-            return None;
-        }
-        let rect = CropRect {
-            x: ((x / s).round() as i32).clamp(0, source.0),
-            y: ((y / s).round() as i32).clamp(0, source.1),
-            width: (w / s).round() as i32,
-            height: (h / s).round() as i32,
-        };
-        // Clamp the extent too: a drag released past the edge of the image
-        // would otherwise produce a rectangle the server has to reject.
-        let rect = CropRect {
-            width: rect.width.min(source.0 - rect.x),
-            height: rect.height.min(source.1 - rect.y),
-            ..rect
-        };
-        (rect.width >= MIN_CROP_EDGE && rect.height >= MIN_CROP_EDGE).then_some(rect)
-    };
+    let to_source = move || crop_in_source(drag_rect()?, scale(), source);
 
     let pending = to_source();
 
@@ -190,26 +371,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
         spawn(async move {
             saving.set(true);
             error.set(None);
-            // Record what the browser measured before the region that depends
-            // on it. A rectangle in pixels means nothing without the size it
-            // was measured against, and nothing else will ever open this file.
-            if let Some((width, height)) = learnt
-                && let Err(err) = api
-                    .update_media(
-                        tree_id,
-                        media_id,
-                        &crate::api::UpdateMediaBody {
-                            width: Some(width),
-                            height: Some(height),
-                            ..crate::api::UpdateMediaBody::default()
-                        },
-                    )
-                    .await
-            {
-                error.set(Some(err.to_string()));
-                saving.set(false);
-                return;
-            }
             let body = CreateVignetteBody {
                 x: rect.x,
                 y: rect.y,
@@ -218,7 +379,7 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                 person_id,
                 event_id: event,
             };
-            match api.create_vignette(tree_id, media_id, &body).await {
+            match measure_then_crop(&api, tree_id, media_id, learnt, &body).await {
                 Ok(vignette) => {
                     // Clear the draft, keep the cropper open: a page with four
                     // entries is four crops in a row, and closing after each
@@ -248,126 +409,20 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                     }
                 }
 
-                div {
-                    class: "cropper-stage",
-                    // Measured rather than assumed: the image is laid out by
-                    // CSS (`max-height`, aspect ratio), so only the engine
-                    // knows what size it ended up.
-                    onmounted: move |e| async move {
-                        if let Ok(rect) = e.get_client_rect().await {
-                            displayed.set((rect.size.width, rect.size.height));
-                        }
-                    },
-                    onresize: move |e| {
-                        let size = e.get_content_box_size().unwrap_or_default();
-                        if size.width > 0.0 {
-                            displayed.set((size.width, size.height));
-                        }
-                    },
-                    onmousedown: move |e: Event<MouseData>| {
-                        let p = e.element_coordinates();
-                        drag_start.set(Some((p.x, p.y)));
-                        drag_rect.set(None);
-                    },
-                    onmousemove: move |e: Event<MouseData>| {
-                        let Some((sx, sy)) = drag_start() else { return };
-                        let p = e.element_coordinates();
-                        // Normalised so dragging up-left works the same as
-                        // down-right; a negative width is not a rectangle.
-                        drag_rect.set(Some((
-                            sx.min(p.x),
-                            sy.min(p.y),
-                            (p.x - sx).abs(),
-                            (p.y - sy).abs(),
-                        )));
-                    },
-                    onmouseup: move |_| drag_start.set(None),
-                    onmouseleave: move |_| drag_start.set(None),
-
-                    if let Some(image_url) = image_url {
-                        img {
-                            id: "{image_element_id}",
-                            class: "cropper-image",
-                            src: "{image_url}",
-                            alt: "{media.file_name}",
-                            // The browser would otherwise start its own drag of the
-                            // image, which cancels ours halfway through.
-                            draggable: "false",
-                            // The only place a remote picture's pixel size can
-                            // be learnt: it has just been decoded, right here.
-                            onload: move |_| {
-                                if !record_measured {
-                                    return;
-                                }
-                                let script = measure_script.clone();
-                                spawn(async move {
-                                    if let Ok(value) = document::eval(&script).await
-                                        && let (Some(width), Some(height)) = (
-                                            value.get(0).and_then(|item| item.as_i64()),
-                                            value.get(1).and_then(|item| item.as_i64()),
-                                        )
-                                        && width > 0
-                                        && height > 0
-                                    {
-                                        measured.set(Some((width as i32, height as i32)));
-                                    }
-                                });
-                            },
-                        }
-                    }
-
-                    // Crops already on this page, so the user can see what is
-                    // covered while drawing the next one.
-                    if s > 0.0 {
-                        for existing in props.existing.iter() {
-                            div {
-                                key: "{existing.id}",
-                                class: "cropper-existing",
-                                style: "left:{existing.x as f64 * s}px;top:{existing.y as f64 * s}px;\
-                                        width:{existing.width as f64 * s}px;height:{existing.height as f64 * s}px",
-                            }
-                        }
-                    }
-
-                    if let Some((x, y, w, h)) = drag_rect() {
-                        div {
-                            class: "cropper-selection",
-                            style: "left:{x}px;top:{y}px;width:{w}px;height:{h}px",
-                        }
-                    }
+                CropStage {
+                    image_url,
+                    image_element_id,
+                    file_name: media.file_name.clone(),
+                    existing: props.existing.clone(),
+                    scale: s,
+                    displayed,
+                    drag_rect,
+                    measure: record_measured.then_some(measure_script),
+                    measured,
                 }
 
                 div { class: "cropper-foot",
-                    if let Some(rect) = pending {
-                        div { class: "cropper-status",
-                            {i18n.t_args(
-                                "media.crop_readout",
-                                &[
-                                    ("width", &rect.width.to_string()),
-                                    ("height", &rect.height.to_string()),
-                                    ("x", &rect.x.to_string()),
-                                    ("y", &rect.y.to_string()),
-                                ],
-                            )}
-                        }
-                        if !events.is_empty() {
-                            div { class: "cropper-fields",
-                                div { class: "form-group",
-                                    label { {i18n.t("media.crop_event")} }
-                                    select {
-                                        value: "{event_id}",
-                                        oninput: move |e: Event<FormData>| event_id.set(e.value()),
-                                        option { value: "", {i18n.t("media.crop_no_event")} }
-                                        for (id, label) in events.iter() {
-                                            option { key: "{id}", value: "{id}", "{label}" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        div { class: "cropper-status", {i18n.t("media.crop_hint")} }
-                    }
+                    CropDraft { pending, events: events.clone(), event_id }
 
                     if let Some(err) = error() {
                         div { class: "error-msg", "{err}" }

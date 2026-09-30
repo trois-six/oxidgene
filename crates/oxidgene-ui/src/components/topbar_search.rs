@@ -112,16 +112,17 @@ pub fn TopbarSearch(
     let mut anchor_el = use_signal(|| None::<std::rc::Rc<MountedData>>);
 
     let remeasure = use_callback(move |()| {
-        if let Some(element) = anchor_el() {
-            spawn(async move {
-                if let Ok(rect) = element.get_client_rect().await {
-                    anchor.set((
-                        rect.origin.x + rect.size.width,
-                        rect.origin.y + rect.size.height + 4.0,
-                    ));
-                }
-            });
-        }
+        let Some(element) = anchor_el() else {
+            return;
+        };
+        spawn(async move {
+            if let Ok(rect) = element.get_client_rect().await {
+                anchor.set((
+                    rect.origin.x + rect.size.width,
+                    rect.origin.y + rect.size.height + 4.0,
+                ));
+            }
+        });
     });
 
     let tid = Uuid::parse_str(&tree_id).ok();
@@ -144,35 +145,7 @@ pub fn TopbarSearch(
         let api = api_suggest.clone();
         let (last, first) = debounced();
         let wanted = open();
-        async move {
-            let tid = tid.filter(|_| wanted)?;
-            match classify(&last, &first) {
-                Intent::Idle => None,
-                // Resolving the number is the same lookup Enter already
-                // performs, so the panel previews exactly where Enter lands.
-                Intent::Sosa(number) => {
-                    let person = api.get_person_by_sosa(tid, number).await.ok()?;
-                    let profile = api.get_person_profile(tid, person.id).await.ok()?;
-                    Some((vec![PersonSearchSummary::from(profile)], 1, Some(number)))
-                }
-                Intent::Name(last, first) => {
-                    let params = PersonSearchParams {
-                        limit: SUGGESTION_LIMIT,
-                        surname: (!last.is_empty()).then_some(last),
-                        given_names: (!first.is_empty()).then_some(first),
-                        sort: PersonSearchSort::Relevance,
-                        ..Default::default()
-                    };
-                    let result = api.search_persons_filtered(tid, &params).await.ok()?;
-                    let summaries = result
-                        .entries
-                        .iter()
-                        .map(PersonSearchSummary::from)
-                        .collect::<Vec<_>>();
-                    Some((summaries, result.total_count, None))
-                }
-            }
-        }
+        async move { suggest_persons(&api, tid.filter(|_| wanted)?, &last, &first).await }
     });
 
     let (rows, total_count, sosa_number) = match &*suggestions.read() {
@@ -226,17 +199,11 @@ pub fn TopbarSearch(
         NAME_SUGGESTION_LIMIT,
         with_last,
     );
-    let (name_field, values) = if !typed_last().is_empty() {
-        (SuggestionField::FamilyNames, last_values)
-    } else {
-        (SuggestionField::GivenNames, first_values)
-    };
-    let names = if typed_last().is_empty() && typed_first().is_empty() {
-        Vec::new()
-    } else {
-        // A search criterion no record carries would find nobody.
-        suggestions_shown(values.read().as_deref().unwrap_or_default(), false, true)
-    };
+    let (name_field, names) = typed_names(
+        (&typed_last(), &typed_first()),
+        last_values.read().as_deref(),
+        first_values.read().as_deref(),
+    );
     let name_rows = suggest_rows(&names, name_field, &i18n);
     let name_count = name_rows.len();
 
@@ -267,14 +234,7 @@ pub fn TopbarSearch(
             let person_id = person_id.to_string();
             open.set(false);
             highlight.set(None);
-            if from_person {
-                nav.push(Route::PersonDetail { tree_id, person_id });
-            } else {
-                nav.push(Route::TreeDetail {
-                    tree_id,
-                    person: Some(person_id),
-                });
-            }
+            nav.push(person_route(tree_id, person_id, from_person));
         }
     });
 
@@ -295,96 +255,44 @@ pub fn TopbarSearch(
                 return;
             }
 
-            let origin = if from_person {
-                "person".to_string()
-            } else {
-                String::new()
-            };
+            let origin = if from_person { "person" } else { "" }.to_string();
 
             // A bare number is tried as a SOSA-Stradonitz number first — jump
             // straight to that person, falling back to a name search when the
             // tree has no SOSA root or nobody sits at that number.
-            if let (Intent::Sosa(number), Some(tid)) = (classify(&last, &first), tid) {
-                let api = api.clone();
-                let tree_id = tree_id.clone();
-                spawn(async move {
-                    match api.get_person_by_sosa(tid, number).await {
-                        Ok(person) => {
-                            let person_id = person.id.to_string();
-                            if from_person {
-                                nav.push(Route::PersonDetail { tree_id, person_id });
-                            } else {
-                                nav.push(Route::TreeDetail {
-                                    tree_id,
-                                    person: Some(person_id),
-                                });
-                            }
-                        }
-                        Err(_) => {
-                            nav.push(Route::SearchResults {
-                                tree_id,
-                                last,
-                                first,
-                                origin,
-                            });
-                        }
-                    }
-                });
-                return;
-            }
-
-            nav.push(Route::SearchResults {
+            let results = Route::SearchResults {
                 tree_id: tree_id.clone(),
-                last,
-                first,
+                last: last.clone(),
+                first: first.clone(),
                 origin,
+            };
+            let (Intent::Sosa(number), Some(tid)) = (classify(&last, &first), tid) else {
+                nav.push(results);
+                return;
+            };
+            let api = api.clone();
+            let tree_id = tree_id.clone();
+            spawn(async move {
+                let found = api.get_person_by_sosa(tid, number).await;
+                nav.push(match found {
+                    Ok(person) => person_route(tree_id, person.id.to_string(), from_person),
+                    Err(_) => results,
+                });
             });
         }
     });
 
     // ── Keyboard ──
-    //
-    // The names and the persons are one list for the arrows, names first.
-    // Enter on a highlighted name completes its field, on a highlighted person
-    // opens that person; Enter with nothing highlighted keeps the behaviour
-    // the bar has always had.
-    let row_count = name_count + rows.len();
-    let row_ids: Vec<Uuid> = rows.iter().map(PersonSearchSummary::person_id).collect();
-    let on_key = use_callback(move |e: Event<KeyboardData>| match e.key() {
-        Key::Enter => match highlight().filter(|&index| open() && index < row_count) {
-            Some(index) if index < name_count => pick_name.call(index),
-            Some(index) => go_to_person.call(row_ids[index - name_count]),
-            None => show_all.call(()),
-        },
-        Key::Escape => {
-            open.set(false);
-            highlight.set(None);
-        }
-        // A closed panel has nothing loaded yet: the first press opens it,
-        // which fetches the suggestions, and the next ones move through them.
-        Key::ArrowDown if row_count == 0 => {
-            e.prevent_default();
-            open.set(true);
-        }
-        Key::ArrowDown => {
-            e.prevent_default();
-            open.set(true);
-            highlight.set(Some(match highlight() {
-                Some(index) if index + 1 < row_count => index + 1,
-                Some(_) => 0,
-                None => 0,
-            }));
-        }
-        Key::ArrowUp if row_count > 0 => {
-            e.prevent_default();
-            open.set(true);
-            highlight.set(Some(match highlight() {
-                Some(0) | None => row_count - 1,
-                Some(index) => index - 1,
-            }));
-        }
-        _ => {}
-    });
+    let keys = PanelKeys {
+        open,
+        highlight,
+        name_count,
+        row_ids: rows.iter().map(PersonSearchSummary::person_id).collect(),
+        pick_name,
+        go_to_person,
+        show_all,
+    };
+    let on_key = use_callback(move |e: Event<KeyboardData>| keys.handle(&e));
 
     rsx! {
         div {
@@ -453,61 +361,236 @@ pub fn TopbarSearch(
                         open.set(false);
                         highlight.set(None);
                     },
-                    if name_count > 0 {
-                        div { class: "td-suggest-names",
-                            for (index, row) in name_rows.iter().enumerate() {
-                                button {
-                                    key: "{index}",
-                                    r#type: "button",
-                                    class: if highlight() == Some(index) {
-                                        "context-menu-item td-suggest-row suggest-input-row is-active"
-                                    } else {
-                                        "context-menu-item td-suggest-row suggest-input-row"
-                                    },
-                                    // Keep the focus in the field, to go on typing.
-                                    onmousedown: move |e: Event<MouseData>| e.prevent_default(),
-                                    onclick: move |_| pick_name.call(index),
-                                    onmouseenter: move |_| highlight.set(Some(index)),
-                                    {render_suggest_row(row, &i18n)}
-                                }
-                            }
-                        }
-                    }
-                    for (index, row) in rows.iter().enumerate().map(|(i, row)| (name_count + i, row)) {
-                        button {
-                            key: "{row.person_id()}",
-                            class: if highlight() == Some(index) {
-                                "search-person-result td-suggest-row is-active"
-                            } else {
-                                "search-person-result td-suggest-row"
-                            },
-                            onclick: {
-                                let id = row.person_id();
-                                move |_| go_to_person.call(id)
-                            },
-                            onmouseenter: move |_| highlight.set(Some(index)),
-                            {render_person_search_summary(
-                                row,
-                                portraits.get(&row.person_id()).cloned(),
-                                &i18n,
-                            )}
-                            if let Some(number) = sosa_number {
-                                span { class: "td-suggest-sosa",
-                                    {i18n.t_args("search.sosa_badge", &[("number", &number.to_string())])}
-                                }
-                            }
-                        }
-                    }
-                    // Only worth offering when there is more to see than the
-                    // panel already shows.
-                    if total_count > rows.len() {
-                        button {
-                            class: "td-suggest-more",
-                            onclick: move |_| show_all.call(()),
-                            {i18n.t_args("search.see_all_results", &[("count", &total_count.to_string())])}
-                        }
+                    {suggest_panel(SuggestPanel {
+                        name_rows: &name_rows,
+                        rows: &rows,
+                        portraits: &portraits,
+                        sosa_number,
+                        total_count,
+                        highlight,
+                        on_name: pick_name,
+                        on_person: go_to_person,
+                        on_more: show_all,
+                    }, &i18n)}
+                }
+            }
+        }
+    }
+}
+
+/// The field being typed in, and the names completing it: none until one
+/// is typed in. A search criterion no record carries would find nobody, so
+/// only names the tree holds are listed.
+fn typed_names(
+    (typed_last, typed_first): (&str, &str),
+    last_values: Option<&[crate::api::ValueSuggestion]>,
+    first_values: Option<&[crate::api::ValueSuggestion]>,
+) -> (SuggestionField, Vec<crate::api::ValueSuggestion>) {
+    let (field, values) = if typed_last.is_empty() {
+        (SuggestionField::GivenNames, first_values)
+    } else {
+        (SuggestionField::FamilyNames, last_values)
+    };
+    if typed_last.is_empty() && typed_first.is_empty() {
+        return (field, Vec::new());
+    }
+    (
+        field,
+        suggestions_shown(values.unwrap_or_default(), false, true),
+    )
+}
+
+/// What the keys do in the fields.
+///
+/// The names and the persons are one list for the arrows, names first.
+/// Enter on a highlighted name completes its field, on a highlighted person
+/// opens that person; Enter with nothing highlighted keeps the behaviour the
+/// bar has always had.
+#[derive(Clone)]
+struct PanelKeys {
+    open: Signal<bool>,
+    highlight: Signal<Option<usize>>,
+    name_count: usize,
+    row_ids: Vec<Uuid>,
+    pick_name: Callback<usize>,
+    go_to_person: Callback<Uuid>,
+    show_all: Callback<()>,
+}
+
+impl PanelKeys {
+    fn handle(&self, e: &Event<KeyboardData>) {
+        let (mut open, mut highlight) = (self.open, self.highlight);
+        let row_count = self.name_count + self.row_ids.len();
+        match e.key() {
+            Key::Enter => self.enter(highlight().filter(|&index| open() && index < row_count)),
+            Key::Escape => {
+                open.set(false);
+                highlight.set(None);
+            }
+            // A closed panel has nothing loaded yet: the first press opens
+            // it, which fetches the suggestions, and the next ones move
+            // through them.
+            Key::ArrowDown if row_count == 0 => {
+                e.prevent_default();
+                open.set(true);
+            }
+            Key::ArrowDown | Key::ArrowUp if row_count > 0 => {
+                e.prevent_default();
+                open.set(true);
+                let down = e.key() == Key::ArrowDown;
+                highlight.set(Some(step_highlight(highlight(), row_count, down)));
+            }
+            _ => {}
+        }
+    }
+
+    /// Enter, on the row `highlighted` if any.
+    fn enter(&self, highlighted: Option<usize>) {
+        match highlighted {
+            Some(index) if index < self.name_count => self.pick_name.call(index),
+            Some(index) => self
+                .go_to_person
+                .call(self.row_ids[index - self.name_count]),
+            None => self.show_all.call(()),
+        }
+    }
+}
+
+/// The persons the fields find: the one at a SOSA number — the same lookup
+/// Enter performs, so the panel previews exactly where Enter lands — or the
+/// best matches of a name search; with how many there are, and the number.
+async fn suggest_persons(
+    api: &ApiClient,
+    tid: Uuid,
+    last: &str,
+    first: &str,
+) -> Option<(Vec<PersonSearchSummary>, usize, Option<u64>)> {
+    match classify(last, first) {
+        Intent::Idle => None,
+        Intent::Sosa(number) => {
+            let person = api.get_person_by_sosa(tid, number).await.ok()?;
+            let profile = api.get_person_profile(tid, person.id).await.ok()?;
+            Some((vec![PersonSearchSummary::from(profile)], 1, Some(number)))
+        }
+        Intent::Name(last, first) => {
+            let params = PersonSearchParams {
+                limit: SUGGESTION_LIMIT,
+                surname: Some(last).filter(|last| !last.is_empty()),
+                given_names: Some(first).filter(|first| !first.is_empty()),
+                sort: PersonSearchSort::Relevance,
+                ..Default::default()
+            };
+            let result = api.search_persons_filtered(tid, &params).await.ok()?;
+            let summaries = result
+                .entries
+                .iter()
+                .map(PersonSearchSummary::from)
+                .collect();
+            Some((summaries, result.total_count, None))
+        }
+    }
+}
+
+/// Where a person found leads: their profile from the person page, else
+/// the pedigree around them.
+fn person_route(tree_id: String, person_id: String, from_person: bool) -> Route {
+    if from_person {
+        Route::PersonDetail { tree_id, person_id }
+    } else {
+        Route::TreeDetail {
+            tree_id,
+            person: Some(person_id),
+        }
+    }
+}
+
+/// The row an arrow key moves the highlight to among `count`, going round.
+fn step_highlight(current: Option<usize>, count: usize, down: bool) -> usize {
+    match (current, down) {
+        (Some(index), true) if index + 1 < count => index + 1,
+        (_, true) => 0,
+        (Some(0) | None, false) => count - 1,
+        (Some(index), false) => index - 1,
+    }
+}
+
+/// What the suggestion panel lists and does.
+struct SuggestPanel<'a> {
+    name_rows: &'a [crate::components::suggest_input::SuggestRow],
+    rows: &'a [PersonSearchSummary],
+    portraits: &'a std::collections::HashMap<Uuid, crate::api::CroppedSource>,
+    sosa_number: Option<u64>,
+    total_count: usize,
+    highlight: Signal<Option<usize>>,
+    on_name: Callback<usize>,
+    on_person: Callback<Uuid>,
+    on_more: Callback<()>,
+}
+
+/// The names completing the field, then the persons, then a way to all the
+/// results when there are more; one highlight runs through the lot.
+fn suggest_panel(panel: SuggestPanel<'_>, i18n: &crate::i18n::I18n) -> Element {
+    let SuggestPanel {
+        name_rows,
+        rows,
+        portraits,
+        sosa_number,
+        total_count,
+        mut highlight,
+        on_name,
+        on_person,
+        on_more,
+    } = panel;
+    let name_count = name_rows.len();
+    let class = |index: usize, base: &str| {
+        let active = if highlight() == Some(index) {
+            " is-active"
+        } else {
+            ""
+        };
+        format!("{base}{active}")
+    };
+    rsx! {
+        if name_count > 0 {
+            div { class: "td-suggest-names",
+                for (index, row) in name_rows.iter().enumerate() {
+                    button {
+                        key: "{index}",
+                        r#type: "button",
+                        class: class(index, "context-menu-item td-suggest-row suggest-input-row"),
+                        // Keep the focus in the field, to go on typing.
+                        onmousedown: move |e: Event<MouseData>| e.prevent_default(),
+                        onclick: move |_| on_name.call(index),
+                        onmouseenter: move |_| highlight.set(Some(index)),
+                        {render_suggest_row(row, i18n)}
                     }
                 }
+            }
+        }
+        for (index, row) in rows.iter().enumerate().map(|(i, row)| (name_count + i, row)) {
+            button {
+                key: "{row.person_id()}",
+                class: class(index, "search-person-result td-suggest-row"),
+                onclick: {
+                    let id = row.person_id();
+                    move |_| on_person.call(id)
+                },
+                onmouseenter: move |_| highlight.set(Some(index)),
+                {render_person_search_summary(row, portraits.get(&row.person_id()).cloned(), i18n)}
+                if let Some(number) = sosa_number {
+                    span { class: "td-suggest-sosa",
+                        {i18n.t_args("search.sosa_badge", &[("number", &number.to_string())])}
+                    }
+                }
+            }
+        }
+        // Only worth offering when there is more to see than the panel
+        // already shows.
+        if total_count > rows.len() {
+            button {
+                class: "td-suggest-more",
+                onclick: move |_| on_more.call(()),
+                {i18n.t_args("search.see_all_results", &[("count", &total_count.to_string())])}
             }
         }
     }

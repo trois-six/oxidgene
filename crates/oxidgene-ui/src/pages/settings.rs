@@ -15,7 +15,7 @@ use crate::components::search_person::{
 };
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::ToolPageSidebar;
-use crate::i18n::{Language, use_i18n};
+use crate::i18n::{I18n, Language, use_i18n};
 use crate::pages::app_settings::{
     AppearanceSection, LanguageSection, NamesSection, PedigreeDefaultsSection,
     SHARED_SETTINGS_STYLES,
@@ -58,6 +58,187 @@ async fn wait_for_export(
         }
     })
     .await
+}
+
+/// The settings' sections, by group: each group's label and its sections'
+/// ids and labels.
+const SETTINGS_NAV: [(&str, &[(&str, &str)]); 4] = [
+    (
+        "settings.breadcrumb",
+        &[
+            ("tree-roots", "settings.tree_roots"),
+            ("privacy", "settings.privacy"),
+            ("date-display", "settings.date_display"),
+            ("entry-options", "settings.entry_options"),
+        ],
+    ),
+    ("settings.tools", &[("history", "settings.history")]),
+    ("common.export", &[("export", "settings.export_tree")]),
+    (
+        "settings.global_preferences",
+        &[
+            ("appearance", "app_settings.appearance"),
+            ("language", "app_settings.language"),
+            ("pedigree", "app_settings.pedigree"),
+            ("names", "app_settings.names"),
+        ],
+    ),
+];
+
+/// Where a GEDZIP export is saved: in the browser, the save picker, opened
+/// during the click, before any network await.
+#[cfg(target_arch = "wasm32")]
+type SaveTarget = Option<crate::api::BrowserDownload>;
+/// Where a GEDZIP export is saved: on the desktop, a dialog asked afterwards,
+/// so there is nothing to open on the click.
+#[cfg(not(target_arch = "wasm32"))]
+struct SaveTarget;
+
+#[cfg(target_arch = "wasm32")]
+fn save_target(file_name: &str, is_gedzip: bool) -> SaveTarget {
+    is_gedzip.then(|| crate::api::BrowserDownload::new(file_name))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_target(_file_name: &str, _is_gedzip: bool) -> SaveTarget {
+    SaveTarget
+}
+
+/// What an export ended with: the message to show on success, none when the
+/// user cancelled the save, or the error to show.
+type ExportOutcome = Result<Option<String>, String>;
+
+/// Exports the tree as a GEDZIP, packed by a server job, into the save
+/// picker opened on the click.
+#[cfg(target_arch = "wasm32")]
+async fn export_gedzip(
+    api: &ApiClient,
+    tid: Uuid,
+    (merge_occupations, merge_names): (bool, bool),
+    _file_name: &str,
+    i18n: &I18n,
+    target: SaveTarget,
+) -> ExportOutcome {
+    let mut destination = target.expect("GEDZIP save session");
+    match destination.ready().await {
+        Ok(true) => {}
+        Ok(false) => return Ok(None),
+        Err(_) => return Err(i18n.t("media.save_failed")),
+    }
+    let download_path = wait_for_export(api, tid, merge_occupations, merge_names)
+        .await
+        .map_err(|error| error.to_string())?;
+    api.download_in_browser(destination, &download_path)
+        .await
+        .map(|()| Some(i18n.t("settings.export_success")))
+        .map_err(|_| i18n.t("media.download_failed"))
+}
+
+/// Exports the tree as a GEDZIP, packed by a server job, to the file the
+/// user picks.
+#[cfg(not(target_arch = "wasm32"))]
+async fn export_gedzip(
+    api: &ApiClient,
+    tid: Uuid,
+    (merge_occupations, merge_names): (bool, bool),
+    file_name: &str,
+    i18n: &I18n,
+    _target: SaveTarget,
+) -> ExportOutcome {
+    let download_path = wait_for_export(api, tid, merge_occupations, merge_names)
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .set_title(i18n.t("gedcom.save_file"))
+        .set_file_name(file_name)
+        .add_filter("GEDZIP", &["gdz"])
+        .add_filter("All files", &["*"])
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let path = file.path().to_path_buf();
+    trace_ui_action_step(
+        UiActionStep::ExportSave,
+        api.download_to_file(&download_path, &path),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let path_display = path.display().to_string();
+    Ok(Some(i18n.t_args(
+        "settings.export_saved_to",
+        &[("path", &path_display)],
+    )))
+}
+
+/// Exports the tree as a GEDCOM file.
+async fn export_gedcom(
+    api: &ApiClient,
+    tid: Uuid,
+    (merge_occupations, merge_names): (bool, bool),
+    file_name: &str,
+    i18n: &I18n,
+) -> ExportOutcome {
+    let exported = trace_ui_action_step(
+        UiActionStep::ExportRequest,
+        api.export_gedcom(tid, merge_occupations, merge_names),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    save_gedcom(exported.gedcom.into_bytes(), file_name, i18n).await
+}
+
+/// Hands the GEDCOM to the browser as a download.
+#[cfg(target_arch = "wasm32")]
+async fn save_gedcom(bytes: Vec<u8>, file_name: &str, i18n: &I18n) -> ExportOutcome {
+    let byte_array = serde_json::to_string(&bytes).unwrap_or_else(|_| "[]".to_string());
+    let download_name =
+        serde_json::to_string(file_name).unwrap_or_else(|_| "\"export.ged\"".to_string());
+    document::eval(&format!(
+        r#"
+        const bytes = new Uint8Array({byte_array});
+        const blob = new Blob([bytes], {{ type: 'text/plain' }});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = {download_name};
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        "#
+    ));
+    Ok(Some(i18n.t("settings.export_success")))
+}
+
+/// Writes the GEDCOM to the file the user picks.
+#[cfg(not(target_arch = "wasm32"))]
+async fn save_gedcom(bytes: Vec<u8>, file_name: &str, i18n: &I18n) -> ExportOutcome {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        .set_title(i18n.t("gedcom.save_file"))
+        .set_file_name(file_name)
+        .add_filter("GEDCOM", &["ged"])
+        .add_filter("All files", &["*"])
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let path = file.path().to_path_buf();
+    trace_ui_action_step(UiActionStep::ExportSave, tokio::fs::write(&path, bytes))
+        .await
+        .map_err(|error| {
+            i18n.t_args(
+                "settings.export_write_error",
+                &[("error", &error.to_string())],
+            )
+        })?;
+    let path_display = path.display().to_string();
+    Ok(Some(i18n.t_args(
+        "settings.export_saved_to",
+        &[("path", &path_display)],
+    )))
 }
 
 /// Settings page for a tree.
@@ -119,151 +300,35 @@ pub fn Settings(tree_id: String) -> Element {
     let api_export = api.clone();
     let export_base_name = safe_export_file_name(&tree_name);
     let on_export = move |_| {
+        let Some(tid) = tree_id_parsed else {
+            return;
+        };
         let api = api_export.clone();
-        let base_name = export_base_name.clone();
         let is_gedzip = export_format() == "gedzip";
-        let merge_occupations = !is_gedzip && export_merge_occupations();
-        let merge_names = !is_gedzip && export_merge_names();
+        let merges = (
+            !is_gedzip && export_merge_occupations(),
+            !is_gedzip && export_merge_names(),
+        );
+        let extension = if is_gedzip { "gdz" } else { "ged" };
+        let file_name = format!("{export_base_name}.{extension}");
         export_loading.set(true);
         export_error.set(None);
         export_success.set(None);
-        #[cfg(target_arch = "wasm32")]
-        let browser_download =
-            is_gedzip.then(|| crate::api::BrowserDownload::new(&format!("{base_name}.gdz")));
+        // Opened during the click, before any network await.
+        let target = save_target(&file_name, is_gedzip);
         let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
         spawn(trace_ui_action(action, async move {
-            if let Some(tid) = tree_id_parsed {
-                let extension = if is_gedzip { "gdz" } else { "ged" };
-                let file_name = format!("{base_name}.{extension}");
-                if is_gedzip {
-                    #[cfg(target_arch = "wasm32")]
-                    let destination = {
-                        let mut destination = browser_download.expect("GEDZIP save session");
-                        match destination.ready().await {
-                            Ok(true) => destination,
-                            result => {
-                                if result.is_err() {
-                                    export_error.set(Some(i18n.t("media.save_failed")));
-                                }
-                                export_loading.set(false);
-                                return;
-                            }
-                        }
-                    };
-                    match wait_for_export(&api, tid, merge_occupations, merge_names).await {
-                        Ok(download_path) => {
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                match api.download_in_browser(destination, &download_path).await {
-                                    Ok(()) => {
-                                        export_success.set(Some(i18n.t("settings.export_success")))
-                                    }
-                                    Err(_) => {
-                                        export_error.set(Some(i18n.t("media.download_failed")))
-                                    }
-                                }
-                            }
-                            #[cfg(not(target_arch = "wasm32"))]
-                            {
-                                let file = rfd::AsyncFileDialog::new()
-                                    .set_title(i18n.t("gedcom.save_file"))
-                                    .set_file_name(&file_name)
-                                    .add_filter("GEDZIP", &["gdz"])
-                                    .add_filter("All files", &["*"])
-                                    .save_file()
-                                    .await;
-                                if let Some(file) = file {
-                                    let path = file.path().to_path_buf();
-                                    let saved = trace_ui_action_step(
-                                        UiActionStep::ExportSave,
-                                        api.download_to_file(&download_path, &path),
-                                    )
-                                    .await;
-                                    match saved {
-                                        Ok(()) => {
-                                            let path_display = path.display().to_string();
-                                            export_success.set(Some(i18n.t_args(
-                                                "settings.export_saved_to",
-                                                &[("path", &path_display)],
-                                            )));
-                                        }
-                                        Err(error) => export_error.set(Some(error.to_string())),
-                                    }
-                                }
-                            }
-                        }
-                        Err(error) => export_error.set(Some(error.to_string())),
-                    }
-                    export_loading.set(false);
-                    return;
-                }
-
-                let exported = trace_ui_action_step(
-                    UiActionStep::ExportRequest,
-                    api.export_gedcom(tid, merge_occupations, merge_names),
-                )
-                .await;
-                match exported {
-                    Ok(result) => {
-                        let bytes = result.gedcom.into_bytes();
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            let byte_array =
-                                serde_json::to_string(&bytes).unwrap_or_else(|_| "[]".to_string());
-                            let download_name = serde_json::to_string(&file_name)
-                                .unwrap_or_else(|_| "\"export.ged\"".to_string());
-                            document::eval(&format!(
-                                r#"
-                                const bytes = new Uint8Array({byte_array});
-                                const blob = new Blob([bytes], {{ type: 'text/plain' }});
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = {download_name};
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                URL.revokeObjectURL(url);
-                                "#
-                            ));
-                            export_success.set(Some(i18n.t("settings.export_success")));
-                        }
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            let file = rfd::AsyncFileDialog::new()
-                                .set_title(i18n.t("gedcom.save_file"))
-                                .set_file_name(&file_name)
-                                .add_filter("GEDCOM", &["ged"])
-                                .add_filter("All files", &["*"])
-                                .save_file()
-                                .await;
-                            if let Some(file) = file {
-                                let path = file.path().to_path_buf();
-                                let saved = trace_ui_action_step(
-                                    UiActionStep::ExportSave,
-                                    tokio::fs::write(&path, bytes),
-                                )
-                                .await;
-                                match saved {
-                                    Ok(()) => {
-                                        let path_display = path.display().to_string();
-                                        export_success.set(Some(i18n.t_args(
-                                            "settings.export_saved_to",
-                                            &[("path", &path_display)],
-                                        )));
-                                    }
-                                    Err(error) => export_error.set(Some(i18n.t_args(
-                                        "settings.export_write_error",
-                                        &[("error", &error.to_string())],
-                                    ))),
-                                }
-                            }
-                        }
-                    }
-                    Err(error) => export_error.set(Some(error.to_string())),
-                }
-                export_loading.set(false);
+            let outcome = if is_gedzip {
+                export_gedzip(&api, tid, merges, &file_name, &i18n, target).await
+            } else {
+                export_gedcom(&api, tid, merges, &file_name, &i18n).await
+            };
+            match outcome {
+                Ok(Some(message)) => export_success.set(Some(message)),
+                Ok(None) => {}
+                Err(message) => export_error.set(Some(message)),
             }
+            export_loading.set(false);
         }));
     };
 
@@ -294,109 +359,51 @@ pub fn Settings(tree_id: String) -> Element {
             div { class: "settings-layout",
                 // Left navigation
                 nav { class: "settings-nav",
-                    div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", {i18n.t("settings.breadcrumb")} }
-                        button {
-                            class: if sec == "tree-roots" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("tree-roots".to_string()),
-                            {i18n.t("settings.tree_roots")}
-                        }
-                        button {
-                            class: if sec == "privacy" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("privacy".to_string()),
-                            {i18n.t("settings.privacy")}
-                        }
-                        button {
-                            class: if sec == "date-display" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("date-display".to_string()),
-                            {i18n.t("settings.date_display")}
-                        }
-                        button {
-                            class: if sec == "entry-options" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("entry-options".to_string()),
-                            {i18n.t("settings.entry_options")}
-                        }
-                    }
-                    div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", {i18n.t("settings.tools")} }
-                        button {
-                            class: if sec == "history" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("history".to_string()),
-                            {i18n.t("settings.history")}
-                        }
-                    }
-                    div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", {i18n.t("common.export")} }
-                        button {
-                            class: if sec == "export" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("export".to_string()),
-                            {i18n.t("settings.export_tree")}
-                        }
-                    }
-                    div { class: "settings-nav-group",
-                        div { class: "settings-nav-group-label", {i18n.t("settings.global_preferences")} }
-                        button {
-                            class: if sec == "appearance" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("appearance".to_string()),
-                            {i18n.t("app_settings.appearance")}
-                        }
-                        button {
-                            class: if sec == "language" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("language".to_string()),
-                            {i18n.t("app_settings.language")}
-                        }
-                        button {
-                            class: if sec == "pedigree" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("pedigree".to_string()),
-                            {i18n.t("app_settings.pedigree")}
-                        }
-                        button {
-                            class: if sec == "names" { "settings-nav-item active" } else { "settings-nav-item" },
-                            onclick: move |_| active_section.set("names".to_string()),
-                            {i18n.t("app_settings.names")}
+                    for (group, entries) in SETTINGS_NAV {
+                        div { class: "settings-nav-group",
+                            div { class: "settings-nav-group-label", {i18n.t(group)} }
+                            for (section, label) in entries {
+                                button {
+                                    class: if sec == *section { "settings-nav-item active" } else { "settings-nav-item" },
+                                    onclick: move |_| active_section.set(section.to_string()),
+                                    {i18n.t(label)}
+                                }
+                            }
                         }
                     }
                 }
 
                 // Content area
                 div { class: "settings-content",
-                    if sec == "tree-roots" {
-                        TreeRootsSection {
-                            tree_id: tree_id.clone(),
-                            tree_resource: tree_resource,
-                        }
-                    } else if sec == "privacy" {
-                        PrivacySection {
-                            tree_id: tree_id.clone(),
-                            tree_resource: tree_resource,
-                        }
-                    } else if sec == "entry-options" {
-                        EntryOptionsSection {
-                            tree_id: tree_id.clone(),
-                            tree_resource: tree_resource,
-                        }
-                    } else if sec == "export" {
-                        ExportSection {
-                            on_export: on_export,
-                            loading: export_loading(),
-                            error: export_error(),
-                            success: export_success(),
-                            format: export_format,
-                            merge_occupations: export_merge_occupations,
-                            merge_names: export_merge_names,
-                        }
-                    } else if sec == "appearance" {
-                        AppearanceSection { theme_state }
-                    } else if sec == "language" {
-                        LanguageSection { lang_signal }
-                    } else if sec == "pedigree" {
-                        PedigreeDefaultsSection { pedigree_defaults }
-                    } else if sec == "names" {
-                        NamesSection { sort_particles }
-                    } else if let (true, Ok(tid)) = (sec == "history", tree_id.parse::<Uuid>()) {
-                        AuditLogSection { tree_id: tid }
-                    } else {
-                        PlaceholderSection { section_name: sec.clone() }
+                    match sec.as_str() {
+                        "tree-roots" => rsx! {
+                            TreeRootsSection { tree_id: tree_id.clone(), tree_resource }
+                        },
+                        "privacy" => rsx! {
+                            PrivacySection { tree_id: tree_id.clone(), tree_resource }
+                        },
+                        "entry-options" => rsx! {
+                            EntryOptionsSection { tree_id: tree_id.clone(), tree_resource }
+                        },
+                        "export" => rsx! {
+                            ExportSection {
+                                on_export,
+                                loading: export_loading(),
+                                error: export_error(),
+                                success: export_success(),
+                                format: export_format,
+                                merge_occupations: export_merge_occupations,
+                                merge_names: export_merge_names,
+                            }
+                        },
+                        "appearance" => rsx! { AppearanceSection { theme_state } },
+                        "language" => rsx! { LanguageSection { lang_signal } },
+                        "pedigree" => rsx! { PedigreeDefaultsSection { pedigree_defaults } },
+                        "names" => rsx! { NamesSection { sort_particles } },
+                        "history" if tree_id_parsed.is_some() => rsx! {
+                            AuditLogSection { tree_id: tree_id_parsed.unwrap_or_default() }
+                        },
+                        _ => rsx! { PlaceholderSection { section_name: sec.clone() } },
                     }
                 }
             }
@@ -412,318 +419,20 @@ fn TreeRootsSection(
     tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
 ) -> Element {
     let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
-    let load_trace = use_context::<UiLoadTrace>();
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
-    let mut show_search = use_signal(|| false);
-    let mut save_message = use_signal(|| None::<String>);
-    let mut save_error = use_signal(|| None::<String>);
-    let mut local_tree_name = use_signal(|| None::<String>);
-    let mut rename_loading = use_signal(|| false);
-    let mut rename_error = use_signal(|| None::<String>);
-    let mut rename_success = use_signal(|| None::<String>);
-    // Local override so the UI updates immediately after save/clear,
-    // without waiting for tree_resource to re-fetch.
-    // None = use tree_resource value, Some(x) = override with x.
-    let mut local_sosa_override = use_signal(|| None::<Option<Uuid>>);
-    let mut show_self_search = use_signal(|| false);
-    let mut self_save_message = use_signal(|| None::<String>);
-    let mut self_save_error = use_signal(|| None::<String>);
-    let mut local_self_override = use_signal(|| None::<Option<Uuid>>);
-
-    // Current sosa_root_person_id: local override takes precedence
-    let current_sosa_root = match local_sosa_override() {
-        Some(val) => val,
-        None => match &*tree_resource.read() {
-            Some(Some(Ok(tree))) => tree.sosa_root_person_id,
-            _ => None,
-        },
-    };
-    let current_self_person = match local_self_override() {
-        Some(value) => value,
-        None => match &*tree_resource.read() {
-            Some(Some(Ok(tree))) => tree.self_person_id,
-            _ => None,
-        },
-    };
-    let api_portraits = api.clone();
-    let portraits_tree_resource = tree_resource;
-    let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
-        let api = api_portraits.clone();
-        let root = match local_sosa_override() {
-            Some(value) => value,
-            None => match &*portraits_tree_resource.read() {
-                Some(Some(Ok(tree))) => tree.sosa_root_person_id,
-                _ => None,
-            },
-        };
-        let self_person = match local_self_override() {
-            Some(value) => value,
-            None => match &*portraits_tree_resource.read() {
-                Some(Some(Ok(tree))) => tree.self_person_id,
-                _ => None,
-            },
-        };
-        let mut person_ids = [root, self_person]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        person_ids.sort_unstable();
-        person_ids.dedup();
-        async move {
-            match tree_id_parsed {
-                Some(tree_id) => api.portrait_map_for_ids(tree_id, &person_ids).await,
-                None => Default::default(),
-            }
-        }
+    let loaded = tree_resource.read();
+    let tree = loaded
+        .as_ref()
+        .and_then(Option::as_ref)
+        .and_then(|tree| tree.as_ref().ok());
+    let name = tree.map(|tree| tree.name.clone()).unwrap_or_default();
+    let (sosa_root, self_person) = tree.map_or((None, None), |tree| {
+        (tree.sosa_root_person_id, tree.self_person_id)
     });
-    let current_tree_name = local_tree_name().unwrap_or_else(|| match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => tree.name.clone(),
-        _ => String::new(),
-    });
-
-    let api_rename = api.clone();
-    let tree_name_for_rename = current_tree_name.clone();
-    let on_rename = move |_| {
-        let api = api_rename.clone();
-        let name = local_tree_name()
-            .unwrap_or_else(|| tree_name_for_rename.clone())
-            .trim()
-            .to_string();
-        rename_error.set(None);
-        rename_success.set(None);
-        if name.is_empty() {
-            rename_error.set(Some(i18n.t("tree.form.name_required").to_string()));
-            return;
-        }
-        rename_loading.set(true);
-        spawn(async move {
-            let Some(tid) = tree_id_parsed else {
-                rename_loading.set(false);
-                return;
-            };
-            let body = UpdateTreeBody {
-                name: Some(name),
-                ..Default::default()
-            };
-            match api.update_tree(tid, &body).await {
-                Ok(tree) => {
-                    local_tree_name.set(Some(tree.name.clone()));
-                    tree_cache.refresh_tree(tid, tree);
-                    rename_success.set(Some(i18n.t("settings.tree_name_saved").to_string()));
-                }
-                Err(e) => rename_error.set(Some(e.to_string())),
-            }
-            rename_loading.set(false);
-        });
+    drop(loaded);
+    let Some(tree_id) = tree_id_parsed else {
+        return rsx! {};
     };
-
-    // Fetch root person's identity directly (no full tree snapshot needed).
-    // Reactive reads MUST happen inside the closure so use_resource re-runs
-    // when tree_resource or local_sosa_override change.
-    let api_root_person = api.clone();
-    let root_person_resource = use_traced_resource(load_trace.clone(), "root_person", move || {
-        let api = api_root_person.clone();
-        let root_id = match local_sosa_override() {
-            Some(val) => val,
-            None => match &*tree_resource.read() {
-                Some(Some(Ok(tree))) => tree.sosa_root_person_id,
-                _ => None,
-            },
-        };
-        let tid = tree_id_parsed;
-        async move {
-            let (Some(rid), Some(tid)) = (root_id, tid) else {
-                return None;
-            };
-            api.get_person_profile(tid, rid)
-                .await
-                .ok()
-                .map(PersonSearchSummary::from)
-        }
-    });
-
-    // Resolve the current root person's search summary.
-    let root_person_summary = {
-        if let Some(root_id) = current_sosa_root {
-            let data = root_person_resource.read();
-            match &*data {
-                Some(Some(summary)) => Some(summary.clone()),
-                Some(None) => Some(PersonSearchSummary::placeholder(
-                    root_id,
-                    i18n.t("common.unknown"),
-                )),
-                None => Some(PersonSearchSummary::placeholder(
-                    root_id,
-                    i18n.t("common.loading"),
-                )),
-            }
-        } else {
-            None
-        }
-    };
-
-    let api_self_person = api.clone();
-    let self_person_resource = use_traced_resource(load_trace, "self_person", move || {
-        let api = api_self_person.clone();
-        let self_person_id = match local_self_override() {
-            Some(value) => value,
-            None => match &*tree_resource.read() {
-                Some(Some(Ok(tree))) => tree.self_person_id,
-                _ => None,
-            },
-        };
-        let tid = tree_id_parsed;
-        async move {
-            let (Some(person_id), Some(tid)) = (self_person_id, tid) else {
-                return None;
-            };
-            api.get_person_profile(tid, person_id)
-                .await
-                .ok()
-                .map(PersonSearchSummary::from)
-        }
-    });
-
-    let self_person_summary = {
-        if let Some(person_id) = current_self_person {
-            let data = self_person_resource.read();
-            match &*data {
-                Some(Some(summary)) => Some(summary.clone()),
-                Some(None) => Some(PersonSearchSummary::placeholder(
-                    person_id,
-                    i18n.t("common.unknown"),
-                )),
-                None => Some(PersonSearchSummary::placeholder(
-                    person_id,
-                    i18n.t("common.loading"),
-                )),
-            }
-        } else {
-            None
-        }
-    };
-    let portrait_urls = {
-        let data = portraits_resource.read();
-        match &*data {
-            Some(urls) => urls.clone(),
-            None => Default::default(),
-        }
-    };
-    let root_person_portrait =
-        current_sosa_root.and_then(|person_id| portrait_urls.get(&person_id).cloned());
-    let self_person_portrait =
-        current_self_person.and_then(|person_id| portrait_urls.get(&person_id).cloned());
-
-    // Handler: save the selected person as sosa root
-    let api_save = api.clone();
-    let on_select_root = move |person_id: Uuid| {
-        let api = api_save.clone();
-        show_search.set(false);
-        save_message.set(None);
-        save_error.set(None);
-        spawn(async move {
-            if let Some(tid) = tree_id_parsed {
-                let body = UpdateTreeBody {
-                    default_privacy: None,
-                    entry_suggestions: None,
-                    name: None,
-                    description: None,
-                    sosa_root_person_id: Some(Some(person_id)),
-                    self_person_id: None,
-                };
-                match api.update_tree(tid, &body).await {
-                    Ok(_) => {
-                        tree_cache.invalidate();
-                        local_sosa_override.set(Some(Some(person_id)));
-                        save_message.set(Some("saved".to_string()));
-                    }
-                    Err(e) => {
-                        save_error.set(Some(format!("{e}")));
-                    }
-                }
-            }
-        });
-    };
-
-    // Handler: clear the root person
-    let api_clear = api.clone();
-    let on_clear_root = move |_| {
-        let api = api_clear.clone();
-        save_message.set(None);
-        save_error.set(None);
-        spawn(async move {
-            if let Some(tid) = tree_id_parsed {
-                let body = UpdateTreeBody {
-                    default_privacy: None,
-                    entry_suggestions: None,
-                    name: None,
-                    description: None,
-                    sosa_root_person_id: Some(None),
-                    self_person_id: None,
-                };
-                match api.update_tree(tid, &body).await {
-                    Ok(_) => {
-                        tree_cache.invalidate();
-                        local_sosa_override.set(Some(None));
-                        save_message.set(Some("saved".to_string()));
-                    }
-                    Err(e) => {
-                        save_error.set(Some(format!("{e}")));
-                    }
-                }
-            }
-        });
-    };
-
-    let api_save_self = api.clone();
-    let on_select_self = move |person_id: Uuid| {
-        let api = api_save_self.clone();
-        show_self_search.set(false);
-        self_save_message.set(None);
-        self_save_error.set(None);
-        spawn(async move {
-            if let Some(tid) = tree_id_parsed {
-                let body = UpdateTreeBody {
-                    self_person_id: Some(Some(person_id)),
-                    ..Default::default()
-                };
-                match api.update_tree(tid, &body).await {
-                    Ok(_) => {
-                        tree_cache.invalidate();
-                        local_self_override.set(Some(Some(person_id)));
-                        self_save_message.set(Some("saved".to_string()));
-                    }
-                    Err(e) => self_save_error.set(Some(e.to_string())),
-                }
-            }
-        });
-    };
-
-    let api_clear_self = api.clone();
-    let on_clear_self = move |_| {
-        let api = api_clear_self.clone();
-        self_save_message.set(None);
-        self_save_error.set(None);
-        spawn(async move {
-            if let Some(tid) = tree_id_parsed {
-                let body = UpdateTreeBody {
-                    self_person_id: Some(None),
-                    ..Default::default()
-                };
-                match api.update_tree(tid, &body).await {
-                    Ok(_) => {
-                        tree_cache.invalidate();
-                        local_self_override.set(Some(None));
-                        self_save_message.set(Some("saved".to_string()));
-                    }
-                    Err(e) => self_save_error.set(Some(e.to_string())),
-                }
-            }
-        });
-    };
-
     rsx! {
         div { class: "settings-section",
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
@@ -731,164 +440,277 @@ fn TreeRootsSection(
             p { class: "settings-section-subtitle",
                 {i18n.t("settings.tree_roots_desc")}
             }
+            TreeNameCard { tree_id, name }
+            TreePersonCard { tree_id, setting: TreePerson::SosaRoot, stored: sosa_root }
+            TreePersonCard { tree_id, setting: TreePerson::SelfPerson, stored: self_person }
+        }
+    }
+}
 
-            div { class: "card", style: "margin-top: 16px;",
-                h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
-                    {i18n.t("settings.tree_name")}
-                }
-                p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
-                    {i18n.t("settings.tree_name_desc")}
-                }
-                div { class: "settings-tree-name-form",
-                    input {
-                        r#type: "text",
-                        value: "{current_tree_name}",
-                        placeholder: i18n.t("tree.form.name_placeholder"),
-                        disabled: rename_loading(),
-                        oninput: move |e: Event<FormData>| local_tree_name.set(Some(e.value())),
+/// The tree's name, and the form renaming it.
+#[component]
+fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let mut local_name = use_signal(|| None::<String>);
+    let mut loading = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut success = use_signal(|| None::<String>);
+    let current = local_name().unwrap_or(name);
+    let on_rename = {
+        let current = current.clone();
+        move |_| {
+            let api = api.clone();
+            let name = current.trim().to_string();
+            error.set(None);
+            success.set(None);
+            if name.is_empty() {
+                error.set(Some(i18n.t("tree.form.name_required").to_string()));
+                return;
+            }
+            loading.set(true);
+            spawn(async move {
+                let body = UpdateTreeBody {
+                    name: Some(name),
+                    ..Default::default()
+                };
+                match api.update_tree(tree_id, &body).await {
+                    Ok(tree) => {
+                        local_name.set(Some(tree.name.clone()));
+                        tree_cache.refresh_tree(tree_id, tree);
+                        success.set(Some(i18n.t("settings.tree_name_saved").to_string()));
                     }
-                    button {
-                        class: "btn btn-primary settings-tree-name-save",
-                        title: if rename_loading() { i18n.t("common.saving") } else { i18n.t("common.save") },
-                        "aria-label": if rename_loading() { i18n.t("common.saving") } else { i18n.t("common.save") },
-                        "aria-busy": rename_loading(),
-                        disabled: rename_loading(),
-                        onclick: on_rename,
-                        if rename_loading() {
-                            span { class: "btn-spinner" }
-                        } else {
-                            svg {
-                                width: "18",
-                                height: "18",
-                                fill: "none",
-                                "viewBox": "0 0 24 24",
-                                stroke: "currentColor",
-                                "strokeWidth": "2",
-                                polyline { points: "17 21 17 13 7 13 7 21" }
-                                polyline { points: "7 3 7 8 15 8" }
-                                path { d: "M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" }
-                            }
+                    Err(e) => error.set(Some(e.to_string())),
+                }
+                loading.set(false);
+            });
+        }
+    };
+    let save_label = if loading() {
+        i18n.t("common.saving")
+    } else {
+        i18n.t("common.save")
+    };
+    rsx! {
+        div { class: "card", style: "margin-top: 16px;",
+            h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
+                {i18n.t("settings.tree_name")}
+            }
+            p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
+                {i18n.t("settings.tree_name_desc")}
+            }
+            div { class: "settings-tree-name-form",
+                input {
+                    r#type: "text",
+                    value: "{current}",
+                    placeholder: i18n.t("tree.form.name_placeholder"),
+                    disabled: loading(),
+                    oninput: move |e: Event<FormData>| local_name.set(Some(e.value())),
+                }
+                button {
+                    class: "btn btn-primary settings-tree-name-save",
+                    title: "{save_label}",
+                    "aria-label": "{save_label}",
+                    "aria-busy": loading(),
+                    disabled: loading(),
+                    onclick: on_rename,
+                    if loading() {
+                        span { class: "btn-spinner" }
+                    } else {
+                        svg {
+                            width: "18",
+                            height: "18",
+                            fill: "none",
+                            "viewBox": "0 0 24 24",
+                            stroke: "currentColor",
+                            "strokeWidth": "2",
+                            polyline { points: "17 21 17 13 7 13 7 21" }
+                            polyline { points: "7 3 7 8 15 8" }
+                            path { d: "M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" }
                         }
                     }
-                }
-                if let Some(message) = rename_success() {
-                    div { class: "success-msg", style: "margin-top: 12px;", "{message}" }
-                }
-                if let Some(error) = rename_error() {
-                    div { class: "error-msg", style: "margin-top: 12px;", "{error}" }
                 }
             }
+            if let Some(message) = success() {
+                div { class: "success-msg", style: "margin-top: 12px;", "{message}" }
+            }
+            if let Some(error) = error() {
+                div { class: "error-msg", style: "margin-top: 12px;", "{error}" }
+            }
+        }
+    }
+}
 
-            div { class: "card", style: "margin-top: 16px;",
-                h3 { style: "font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary);",
-                    {i18n.t("settings.root_person")}
-                }
-                p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
-                    {i18n.t("settings.root_person_desc")}
-                }
+/// A person the tree names in its settings.
+#[derive(Clone, Copy, PartialEq)]
+enum TreePerson {
+    /// Whom the SOSA numbers count from.
+    SosaRoot,
+    /// Who the user is in the tree.
+    SelfPerson,
+}
 
-                if show_search() {
-                    if let Some(tid) = tree_id_parsed {
-                        SearchPerson {
-                            tree_id: tid,
-                            placeholder: i18n.t("settings.root_person_search"),
-                            on_select: on_select_root,
-                            on_cancel: move |_| show_search.set(false),
-                        }
+impl TreePerson {
+    /// The card's texts: title, description, search placeholder, change,
+    /// clear, none chosen, and saved.
+    const fn keys(self) -> [&'static str; 7] {
+        match self {
+            Self::SosaRoot => [
+                "settings.root_person",
+                "settings.root_person_desc",
+                "settings.root_person_search",
+                "settings.root_person_change",
+                "settings.root_person_clear",
+                "settings.root_person_none",
+                "settings.root_person_saved",
+            ],
+            Self::SelfPerson => [
+                "settings.who_am_i",
+                "settings.who_am_i_desc",
+                "settings.self_person_search",
+                "settings.self_person_change",
+                "settings.self_person_clear",
+                "settings.self_person_none",
+                "settings.self_person_saved",
+            ],
+        }
+    }
+
+    /// The update setting this person to `person`, or clearing it.
+    fn update(self, person: Option<Uuid>) -> UpdateTreeBody {
+        match self {
+            Self::SosaRoot => UpdateTreeBody {
+                sosa_root_person_id: Some(person),
+                ..Default::default()
+            },
+            Self::SelfPerson => UpdateTreeBody {
+                self_person_id: Some(person),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+/// One of the tree's persons: who is chosen, with their portrait, and the
+/// search changing it or the button clearing it.
+#[component]
+fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let load_trace = use_context::<UiLoadTrace>();
+    let [title, description, search, change, clear, none, saved] = setting.keys();
+    let mut show_search = use_signal(|| false);
+    let mut message = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    // Local override so the UI updates immediately after save/clear, without
+    // waiting for the tree to be read again.
+    let mut local = use_signal(|| None::<Option<Uuid>>);
+    let stored_now = crate::utils::use_synced(stored);
+    let current = local().unwrap_or(stored);
+
+    let api_person = api.clone();
+    let person = use_traced_resource(load_trace, "tree_person", move || {
+        let api = api_person.clone();
+        let person_id = local().unwrap_or(stored_now());
+        async move {
+            let person_id = person_id?;
+            let profile = api.get_person_profile(tree_id, person_id).await.ok();
+            let portrait = api.portrait_map_for_ids(tree_id, &[person_id]).await;
+            Some((
+                profile.map(PersonSearchSummary::from),
+                portrait.get(&person_id).cloned(),
+            ))
+        }
+    });
+
+    let set_person = use_callback(move |person: Option<Uuid>| {
+        let api = api.clone();
+        show_search.set(false);
+        message.set(false);
+        error.set(None);
+        spawn(async move {
+            match api.update_tree(tree_id, &setting.update(person)).await {
+                Ok(_) => {
+                    tree_cache.invalidate();
+                    local.set(Some(person));
+                    message.set(true);
+                }
+                Err(e) => error.set(Some(e.to_string())),
+            }
+        });
+    });
+
+    let (summary, portrait) = match (current, &*person.read()) {
+        (None, _) => (None, None),
+        (Some(_), Some(Some((Some(summary), portrait)))) => {
+            (Some(summary.clone()), portrait.clone())
+        }
+        (Some(id), Some(_)) => (
+            Some(PersonSearchSummary::placeholder(
+                id,
+                i18n.t("common.unknown"),
+            )),
+            None,
+        ),
+        (Some(id), None) => (
+            Some(PersonSearchSummary::placeholder(
+                id,
+                i18n.t("common.loading"),
+            )),
+            None,
+        ),
+    };
+
+    rsx! {
+        div { class: "card", style: "margin-top: 16px;",
+            h3 { style: "font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary);",
+                {i18n.t(title)}
+            }
+            p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
+                {i18n.t(description)}
+            }
+            if show_search() {
+                SearchPerson {
+                    tree_id,
+                    placeholder: i18n.t(search),
+                    on_select: move |person_id: Uuid| set_person.call(Some(person_id)),
+                    on_cancel: move |_| show_search.set(false),
+                }
+            } else if let Some(summary) = &summary {
+                div { class: "sosa-root-display",
+                    div { class: "sosa-root-person",
+                        {render_person_search_summary(summary, portrait.clone(), &i18n)}
                     }
-                } else if let Some(summary) = &root_person_summary {
-                    // Show current root person
-                    div { class: "sosa-root-display",
-                        div { class: "sosa-root-person",
-                            {render_person_search_summary(summary, root_person_portrait.clone(), &i18n)}
-                        }
-                        div { class: "sosa-root-actions",
-                            button {
-                                class: "btn btn-outline btn-sm",
-                                onclick: move |_| show_search.set(true),
-                                {i18n.t("settings.root_person_change")}
-                            }
-                            button {
-                                class: "btn btn-outline btn-sm btn-danger-outline",
-                                onclick: on_clear_root,
-                                {i18n.t("settings.root_person_clear")}
-                            }
-                        }
-                    }
-                } else {
-                    // No root person set
-                    div { class: "sosa-root-empty",
-                        p { class: "text-muted", {i18n.t("settings.root_person_none")} }
+                    div { class: "sosa-root-actions",
                         button {
-                            class: "btn btn-primary btn-sm",
+                            class: "btn btn-outline btn-sm",
                             onclick: move |_| show_search.set(true),
-                            {i18n.t("settings.root_person_change")}
+                            {i18n.t(change)}
+                        }
+                        button {
+                            class: "btn btn-outline btn-sm btn-danger-outline",
+                            onclick: move |_| set_person.call(None),
+                            {i18n.t(clear)}
                         }
                     }
                 }
-
-                if let Some(_msg) = &save_message() {
-                    div { class: "success-msg", style: "margin-top: 12px;",
-                        {i18n.t("settings.root_person_saved")}
+            } else {
+                div { class: "sosa-root-empty",
+                    p { class: "text-muted", {i18n.t(none)} }
+                    button {
+                        class: "btn btn-primary btn-sm",
+                        onclick: move |_| show_search.set(true),
+                        {i18n.t(change)}
                     }
-                }
-                if let Some(err) = &save_error() {
-                    div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
                 }
             }
-
-            div { class: "card", style: "margin-top: 16px;",
-                h3 { style: "font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary);",
-                    {i18n.t("settings.who_am_i")}
-                }
-                p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
-                    {i18n.t("settings.who_am_i_desc")}
-                }
-                if show_self_search() {
-                    if let Some(tid) = tree_id_parsed {
-                        SearchPerson {
-                            tree_id: tid,
-                            placeholder: i18n.t("settings.self_person_search"),
-                            on_select: on_select_self,
-                            on_cancel: move |_| show_self_search.set(false),
-                        }
-                    }
-                } else if let Some(summary) = &self_person_summary {
-                    div { class: "sosa-root-display",
-                        div { class: "sosa-root-person",
-                            {render_person_search_summary(summary, self_person_portrait.clone(), &i18n)}
-                        }
-                        div { class: "sosa-root-actions",
-                            button {
-                                class: "btn btn-outline btn-sm",
-                                onclick: move |_| show_self_search.set(true),
-                                {i18n.t("settings.self_person_change")}
-                            }
-                            button {
-                                class: "btn btn-outline btn-sm btn-danger-outline",
-                                onclick: on_clear_self,
-                                {i18n.t("settings.self_person_clear")}
-                            }
-                        }
-                    }
-                } else {
-                    div { class: "sosa-root-empty",
-                        p { class: "text-muted", {i18n.t("settings.self_person_none")} }
-                        button {
-                            class: "btn btn-primary btn-sm",
-                            onclick: move |_| show_self_search.set(true),
-                            {i18n.t("settings.self_person_change")}
-                        }
-                    }
-                }
-                if self_save_message().is_some() {
-                    div { class: "success-msg", style: "margin-top: 12px;",
-                        {i18n.t("settings.self_person_saved")}
-                    }
-                }
-                if let Some(error) = self_save_error() {
-                    div { class: "error-msg", style: "margin-top: 12px;", "{error}" }
-                }
+            if message() {
+                div { class: "success-msg", style: "margin-top: 12px;", {i18n.t(saved)} }
+            }
+            if let Some(err) = error() {
+                div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
             }
         }
     }

@@ -186,51 +186,15 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         draft.set(Draft::default());
     };
 
-    // ── Tag cloud ──
-    let (min, max) = facets_value
-        .tags
-        .iter()
-        .fold((i64::MAX, 0_i64), |(min, max), tag| {
-            (min.min(tag.count), max.max(tag.count))
-        });
-    let is_selected = |tag: &MediaTagFacet| {
-        current
-            .tags
-            .iter()
-            .any(|selected| selected.to_lowercase() == tag.tag.to_lowercase())
-    };
-
     // ── List state ──
     let per_page = page_size();
     let page = cursors.read().len() + 1;
-    let list_read = list.read_unchecked();
-    let (items, total, next_cursor, error) = match &*list_read {
-        Some(Ok(connection)) => (
-            Some(
-                connection
-                    .edges
-                    .iter()
-                    .map(|edge| edge.node.clone())
-                    .collect::<Vec<_>>(),
-            ),
-            connection.total_count.max(0) as usize,
-            connection
-                .page_info
-                .has_next_page
-                .then(|| connection.page_info.end_cursor.clone())
-                .flatten(),
-            None,
-        ),
-        Some(Err(ApiError::Api { status: 400, .. })) => (
-            None,
-            0,
-            None,
-            Some(i18n.t("dictionary.media.invalid_range")),
-        ),
-        Some(Err(_)) => (None, 0, None, Some(i18n.t("dictionary.error"))),
-        None => (None, 0, None, None),
-    };
-    drop(list_read);
+    let ListState {
+        items,
+        total,
+        next_cursor,
+        error,
+    } = ListState::of(list.read_unchecked().as_ref(), &i18n);
     let pages = total.div_ceil(per_page as usize).max(1);
     let tiles: Vec<MediaLibraryTile> = items
         .as_deref()
@@ -244,44 +208,7 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
 
     rsx! {
         if !facets_value.tags.is_empty() {
-            div {
-                class: "dict-media-cloud",
-                role: "group",
-                aria_label: i18n.t("dictionary.media.tags"),
-                button {
-                    class: if current.tags.is_empty() { "dict-letter-btn active" } else { "dict-letter-btn" },
-                    onclick: move |_| draft.write().tags.clear(),
-                    {i18n.t("dictionary.letter_all")}
-                }
-                for tag in facets_value.tags.iter() {
-                    {
-                        let active = is_selected(tag);
-                        let value = tag.tag.clone();
-                        let title = i18n.t_plural("dictionary.media.count", tag.count as usize);
-                        rsx! {
-                            button {
-                                key: "{tag.tag}",
-                                class: if active { "dict-media-tag active" } else { "dict-media-tag" },
-                                style: cloud_style(tag.count, min, max),
-                                title: "{title}",
-                                aria_pressed: active,
-                                // A click adds the tag to the selection, or
-                                // takes a selected one back out.
-                                onclick: move |_| {
-                                    let mut draft = draft.write();
-                                    if active {
-                                        draft.tags.retain(|t| t.to_lowercase() != value.to_lowercase());
-                                    } else {
-                                        draft.tags.push(value.clone());
-                                    }
-                                },
-                                "{tag.tag}"
-                                span { class: "dict-media-tag-count", "{tag.count}" }
-                            }
-                        }
-                    }
-                }
-            }
+            MediaTagCloud { tags: facets_value.tags.clone(), draft }
         }
 
         div { class: "dict-filter-row",
@@ -318,166 +245,11 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
             }
         }
         if show_filters() {
-            div { class: "sr-filters pf-embedded",
-                div { class: "sr-filter-grid sr-filter-grid-event",
-                    div { class: "sr-filter-group",
-                        label { {i18n.t("dictionary.media.kind")} }
-                        select {
-                            value: current.kind.map(|kind| kind.as_str()).unwrap_or_default(),
-                            onchange: move |e: Event<FormData>| draft.write().kind = MediaFileKind::parse(&e.value()),
-                            option { value: "", {i18n.t("dictionary.media.kind_any")} }
-                            for facet in facets_value.kinds.iter() {
-                                option {
-                                    value: facet.kind.as_str(),
-                                    {format!("{} ({})", i18n.t(&format!("dictionary.media.kind.{}", facet.kind.as_str())), facet.count)}
-                                }
-                            }
-                        }
-                    }
-                    div { class: "sr-filter-group",
-                        label { {i18n.t("dictionary.media.category")} }
-                        select {
-                            value: current.category.map(|category| category.as_str()).unwrap_or_default(),
-                            onchange: move |e: Event<FormData>| draft.write().category = DocumentCategory::parse(&e.value()),
-                            option { value: "", {i18n.t("dictionary.media.category_any")} }
-                            for facet in facets_value.categories.iter() {
-                                option {
-                                    value: facet.category.as_str(),
-                                    {format!("{} ({})", i18n.t(&format!("media.category.{}", facet.category.as_str())), facet.count)}
-                                }
-                            }
-                        }
-                    }
-                    div { class: "sr-filter-group",
-                        label { {i18n.t("dictionary.media.linked_name")} }
-                        input {
-                            r#type: "text",
-                            placeholder: "{i18n.t(\"dictionary.media.linked_name_placeholder\")}",
-                            value: "{current.linked_name}",
-                            oninput: move |e: Event<FormData>| draft.write().linked_name = e.value(),
-                        }
-                    }
-                    div { class: "sr-filter-group",
-                        label { {i18n.t("dictionary.media.event_years")} }
-                        div { class: "sr-date-range",
-                            input {
-                                r#type: "number",
-                                placeholder: "1800",
-                                aria_label: i18n.t("dictionary.media.from"),
-                                value: "{current.event_from}",
-                                oninput: move |e: Event<FormData>| draft.write().event_from = e.value(),
-                            }
-                            span { "\u{2013}" }
-                            input {
-                                r#type: "number",
-                                placeholder: "1900",
-                                aria_label: i18n.t("dictionary.media.to"),
-                                value: "{current.event_to}",
-                                oninput: move |e: Event<FormData>| draft.write().event_to = e.value(),
-                            }
-                        }
-                    }
-                    div { class: "sr-filter-group",
-                        label { {i18n.t("dictionary.media.added")} }
-                        div { class: "sr-date-range",
-                            // A calendar day on the server's clock, not a
-                            // genealogical date: the browser's own picker is
-                            // the right control, not the date-phrase input.
-                            input {
-                                r#type: "date",
-                                aria_label: i18n.t("dictionary.media.from"),
-                                value: "{current.added_from}",
-                                oninput: move |e: Event<FormData>| draft.write().added_from = e.value(),
-                            }
-                            span { "\u{2013}" }
-                            input {
-                                r#type: "date",
-                                aria_label: i18n.t("dictionary.media.to"),
-                                value: "{current.added_to}",
-                                oninput: move |e: Event<FormData>| draft.write().added_to = e.value(),
-                            }
-                        }
-                    }
-                }
-            }
+            MediaFilterPanel { facets: facets_value.clone(), draft }
         }
 
         if has_filters {
-            div { class: "sr-active-filters",
-                for tag in current.tags.clone() {
-                    button {
-                        key: "tag-{tag}",
-                        class: "sr-filter-chip",
-                        onclick: {
-                            let tag = tag.clone();
-                            move |_| draft.write().tags.retain(|t| *t != tag)
-                        },
-                        {format!("{}: {tag}", i18n.t("dictionary.media.tag"))}
-                        span { " \u{00D7}" }
-                    }
-                }
-                if !current.name.trim().is_empty() {
-                    button {
-                        class: "sr-filter-chip",
-                        onclick: move |_| draft.write().name.clear(),
-                        {format!("{}: {}", i18n.t("dictionary.media.name"), current.name.trim())}
-                        span { " \u{00D7}" }
-                    }
-                }
-                if let Some(kind) = current.kind {
-                    button {
-                        class: "sr-filter-chip",
-                        onclick: move |_| draft.write().kind = None,
-                        {format!("{}: {}", i18n.t("dictionary.media.kind"), i18n.t(&format!("dictionary.media.kind.{}", kind.as_str())))}
-                        span { " \u{00D7}" }
-                    }
-                }
-                if let Some(category) = current.category {
-                    button {
-                        class: "sr-filter-chip",
-                        onclick: move |_| draft.write().category = None,
-                        {format!("{}: {}", i18n.t("dictionary.media.category"), i18n.t(&format!("media.category.{}", category.as_str())))}
-                        span { " \u{00D7}" }
-                    }
-                }
-                if !current.linked_name.trim().is_empty() {
-                    button {
-                        class: "sr-filter-chip",
-                        onclick: move |_| draft.write().linked_name.clear(),
-                        {format!("{}: {}", i18n.t("dictionary.media.linked_name"), current.linked_name.trim())}
-                        span { " \u{00D7}" }
-                    }
-                }
-                if !current.event_from.trim().is_empty() || !current.event_to.trim().is_empty() {
-                    button {
-                        class: "sr-filter-chip",
-                        onclick: move |_| {
-                            let mut draft = draft.write();
-                            draft.event_from.clear();
-                            draft.event_to.clear();
-                        },
-                        {format!("{}: {}", i18n.t("dictionary.media.event_years"), range_label(&current.event_from, &current.event_to))}
-                        span { " \u{00D7}" }
-                    }
-                }
-                if !current.added_from.is_empty() || !current.added_to.is_empty() {
-                    button {
-                        class: "sr-filter-chip",
-                        onclick: move |_| {
-                            let mut draft = draft.write();
-                            draft.added_from.clear();
-                            draft.added_to.clear();
-                        },
-                        {format!("{}: {}", i18n.t("dictionary.media.added"), range_label(&current.added_from, &current.added_to))}
-                        span { " \u{00D7}" }
-                    }
-                }
-                button {
-                    class: "pf-row-btn",
-                    onclick: clear_all,
-                    {i18n.t("dictionary.media.clear_all")}
-                }
-            }
+            ActiveMediaFilters { draft }
         }
 
         if let Some(message) = error {
@@ -524,6 +296,295 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
                     },
                     "\u{25B6}"
                 }
+            }
+        }
+    }
+}
+
+/// The media list as last loaded: its page, its size, where the next page
+/// starts, and why it could not be read.
+struct ListState {
+    items: Option<Vec<MediaListItem>>,
+    total: usize,
+    next_cursor: Option<String>,
+    error: Option<String>,
+}
+
+impl ListState {
+    fn of(
+        list: Option<&Result<oxidgene_core::types::Connection<MediaListItem>, ApiError>>,
+        i18n: &I18n,
+    ) -> Self {
+        let failed = |key: &str| Self {
+            items: None,
+            total: 0,
+            next_cursor: None,
+            error: Some(i18n.t(key)),
+        };
+        match list {
+            Some(Ok(connection)) => Self {
+                items: Some(
+                    connection
+                        .edges
+                        .iter()
+                        .map(|edge| edge.node.clone())
+                        .collect(),
+                ),
+                total: connection.total_count.max(0) as usize,
+                next_cursor: connection
+                    .page_info
+                    .has_next_page
+                    .then(|| connection.page_info.end_cursor.clone())
+                    .flatten(),
+                error: None,
+            },
+            Some(Err(ApiError::Api { status: 400, .. })) => {
+                failed("dictionary.media.invalid_range")
+            }
+            Some(Err(_)) => failed("dictionary.error"),
+            None => Self {
+                items: None,
+                total: 0,
+                next_cursor: None,
+                error: None,
+            },
+        }
+    }
+}
+
+/// The tags, each sized by how many documents carry it; a click adds one to
+/// the selection, or takes a selected one back out.
+#[component]
+fn MediaTagCloud(tags: Vec<MediaTagFacet>, draft: Signal<Draft>) -> Element {
+    let i18n = use_i18n();
+    let (min, max) = tags.iter().fold((i64::MAX, 0_i64), |(min, max), tag| {
+        (min.min(tag.count), max.max(tag.count))
+    });
+    let selected = draft.read().tags.clone();
+    let is_selected = |tag: &MediaTagFacet| {
+        selected
+            .iter()
+            .any(|chosen| chosen.to_lowercase() == tag.tag.to_lowercase())
+    };
+    rsx! {
+        div {
+            class: "dict-media-cloud",
+            role: "group",
+            aria_label: i18n.t("dictionary.media.tags"),
+            button {
+                class: if selected.is_empty() { "dict-letter-btn active" } else { "dict-letter-btn" },
+                onclick: move |_| draft.write().tags.clear(),
+                {i18n.t("dictionary.letter_all")}
+            }
+            for tag in tags.iter() {
+                {
+                    let active = is_selected(tag);
+                    let value = tag.tag.clone();
+                    let title = i18n.t_plural("dictionary.media.count", tag.count as usize);
+                    rsx! {
+                        button {
+                            key: "{tag.tag}",
+                            class: if active { "dict-media-tag active" } else { "dict-media-tag" },
+                            style: cloud_style(tag.count, min, max),
+                            title: "{title}",
+                            aria_pressed: active,
+                            onclick: move |_| toggle_tag(draft, &value, active),
+                            "{tag.tag}"
+                            span { class: "dict-media-tag-count", "{tag.count}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Takes `tag` out of the selection when `selected`, else adds it.
+fn toggle_tag(mut draft: Signal<Draft>, tag: &str, selected: bool) {
+    let mut draft = draft.write();
+    if selected {
+        draft
+            .tags
+            .retain(|t| t.to_lowercase() != tag.to_lowercase());
+    } else {
+        draft.tags.push(tag.to_string());
+    }
+}
+
+/// The filters beyond the name: the kind of file, the category, a linked
+/// name, the years of the events and the days the documents were added.
+#[component]
+fn MediaFilterPanel(facets: crate::api::MediaFacets, draft: Signal<Draft>) -> Element {
+    let i18n = use_i18n();
+    let current = draft();
+    rsx! {
+        div { class: "sr-filters pf-embedded",
+            div { class: "sr-filter-grid sr-filter-grid-event",
+                div { class: "sr-filter-group",
+                    label { {i18n.t("dictionary.media.kind")} }
+                    select {
+                        value: current.kind.map(|kind| kind.as_str()).unwrap_or_default(),
+                        onchange: move |e: Event<FormData>| draft.write().kind = MediaFileKind::parse(&e.value()),
+                        option { value: "", {i18n.t("dictionary.media.kind_any")} }
+                        for facet in facets.kinds.iter() {
+                            option {
+                                value: facet.kind.as_str(),
+                                {format!("{} ({})", i18n.t(&format!("dictionary.media.kind.{}", facet.kind.as_str())), facet.count)}
+                            }
+                        }
+                    }
+                }
+                div { class: "sr-filter-group",
+                    label { {i18n.t("dictionary.media.category")} }
+                    select {
+                        value: current.category.map(|category| category.as_str()).unwrap_or_default(),
+                        onchange: move |e: Event<FormData>| draft.write().category = DocumentCategory::parse(&e.value()),
+                        option { value: "", {i18n.t("dictionary.media.category_any")} }
+                        for facet in facets.categories.iter() {
+                            option {
+                                value: facet.category.as_str(),
+                                {format!("{} ({})", i18n.t(&format!("media.category.{}", facet.category.as_str())), facet.count)}
+                            }
+                        }
+                    }
+                }
+                div { class: "sr-filter-group",
+                    label { {i18n.t("dictionary.media.linked_name")} }
+                    input {
+                        r#type: "text",
+                        placeholder: "{i18n.t(\"dictionary.media.linked_name_placeholder\")}",
+                        value: "{current.linked_name}",
+                        oninput: move |e: Event<FormData>| draft.write().linked_name = e.value(),
+                    }
+                }
+                div { class: "sr-filter-group",
+                    label { {i18n.t("dictionary.media.event_years")} }
+                    div { class: "sr-date-range",
+                        input {
+                            r#type: "number",
+                            placeholder: "1800",
+                            aria_label: i18n.t("dictionary.media.from"),
+                            value: "{current.event_from}",
+                            oninput: move |e: Event<FormData>| draft.write().event_from = e.value(),
+                        }
+                        span { "\u{2013}" }
+                        input {
+                            r#type: "number",
+                            placeholder: "1900",
+                            aria_label: i18n.t("dictionary.media.to"),
+                            value: "{current.event_to}",
+                            oninput: move |e: Event<FormData>| draft.write().event_to = e.value(),
+                        }
+                    }
+                }
+                div { class: "sr-filter-group",
+                    label { {i18n.t("dictionary.media.added")} }
+                    div { class: "sr-date-range",
+                        // A calendar day on the server's clock, not a
+                        // genealogical date: the browser's own picker is
+                        // the right control, not the date-phrase input.
+                        input {
+                            r#type: "date",
+                            aria_label: i18n.t("dictionary.media.from"),
+                            value: "{current.added_from}",
+                            oninput: move |e: Event<FormData>| draft.write().added_from = e.value(),
+                        }
+                        span { "\u{2013}" }
+                        input {
+                            r#type: "date",
+                            aria_label: i18n.t("dictionary.media.to"),
+                            value: "{current.added_to}",
+                            oninput: move |e: Event<FormData>| draft.write().added_to = e.value(),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A chip per filter in force, each taking it off, and one to clear them
+/// all.
+#[component]
+fn ActiveMediaFilters(draft: Signal<Draft>) -> Element {
+    let i18n = use_i18n();
+    let current = draft();
+    let events = !current.event_from.trim().is_empty() || !current.event_to.trim().is_empty();
+    let added = !current.added_from.is_empty() || !current.added_to.is_empty();
+    rsx! {
+        div { class: "sr-active-filters",
+            for tag in current.tags.clone() {
+                button {
+                    key: "tag-{tag}",
+                    class: "sr-filter-chip",
+                    onclick: {
+                        let tag = tag.clone();
+                        move |_| draft.write().tags.retain(|t| *t != tag)
+                    },
+                    {format!("{}: {tag}", i18n.t("dictionary.media.tag"))}
+                    span { " \u{00D7}" }
+                }
+            }
+            if !current.name.trim().is_empty() {
+                button {
+                    class: "sr-filter-chip",
+                    onclick: move |_| draft.write().name.clear(),
+                    {format!("{}: {}", i18n.t("dictionary.media.name"), current.name.trim())}
+                    span { " \u{00D7}" }
+                }
+            }
+            if let Some(kind) = current.kind {
+                button {
+                    class: "sr-filter-chip",
+                    onclick: move |_| draft.write().kind = None,
+                    {format!("{}: {}", i18n.t("dictionary.media.kind"), i18n.t(&format!("dictionary.media.kind.{}", kind.as_str())))}
+                    span { " \u{00D7}" }
+                }
+            }
+            if let Some(category) = current.category {
+                button {
+                    class: "sr-filter-chip",
+                    onclick: move |_| draft.write().category = None,
+                    {format!("{}: {}", i18n.t("dictionary.media.category"), i18n.t(&format!("media.category.{}", category.as_str())))}
+                    span { " \u{00D7}" }
+                }
+            }
+            if !current.linked_name.trim().is_empty() {
+                button {
+                    class: "sr-filter-chip",
+                    onclick: move |_| draft.write().linked_name.clear(),
+                    {format!("{}: {}", i18n.t("dictionary.media.linked_name"), current.linked_name.trim())}
+                    span { " \u{00D7}" }
+                }
+            }
+            if events {
+                button {
+                    class: "sr-filter-chip",
+                    onclick: move |_| {
+                        let mut draft = draft.write();
+                        draft.event_from.clear();
+                        draft.event_to.clear();
+                    },
+                    {format!("{}: {}", i18n.t("dictionary.media.event_years"), range_label(&current.event_from, &current.event_to))}
+                    span { " \u{00D7}" }
+                }
+            }
+            if added {
+                button {
+                    class: "sr-filter-chip",
+                    onclick: move |_| {
+                        let mut draft = draft.write();
+                        draft.added_from.clear();
+                        draft.added_to.clear();
+                    },
+                    {format!("{}: {}", i18n.t("dictionary.media.added"), range_label(&current.added_from, &current.added_to))}
+                    span { " \u{00D7}" }
+                }
+            }
+            button {
+                class: "pf-row-btn",
+                onclick: move |_| draft.set(Draft::default()),
+                {i18n.t("dictionary.media.clear_all")}
             }
         }
     }

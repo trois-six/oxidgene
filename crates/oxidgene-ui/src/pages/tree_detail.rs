@@ -4,12 +4,18 @@
 //! main view, a context menu for person actions (including search-or-create
 //! flows for AddSpouse/AddParents/AddChild), and union editing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use dioxus::prelude::*;
+use dioxus::router::Navigator;
+use oxidgene_core::projection::Pedigree;
+use oxidgene_core::types::Tree;
+use oxidgene_core::{ChildType, SpouseRole};
 use uuid::Uuid;
 
-use crate::api::ApiClient;
+use crate::api::{
+    AddChildBody, AddSpouseBody, ApiClient, ApiError, CreatePersonBody, CroppedSource,
+};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
@@ -19,12 +25,14 @@ use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::print::PrintHeading;
 use crate::components::search_person::SearchPerson;
 use crate::components::topbar_search::TopbarSearch;
-use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache, use_view_state_cache};
+use crate::components::tree_cache::{
+    TreeCache, fetch_tree_cached, use_tree_cache, use_view_state_cache,
+};
 use crate::components::union_form::UnionForm;
-use crate::i18n::use_i18n;
+use crate::i18n::{I18n, use_i18n};
 use crate::prefs::PedigreeDefaults;
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 use crate::utils::resolve_name;
 
 /// Describes which linking flow is active.
@@ -42,6 +50,422 @@ enum LinkingMode {
     Kinship(Uuid),
 }
 
+/// How a person belongs to a family, with their place in its order.
+#[derive(Debug, Clone, Copy)]
+enum Membership {
+    Spouse(i32),
+    Child(i32),
+}
+
+impl Membership {
+    /// Adds `person_id` to the family `fid`.
+    async fn join(self, api: &ApiClient, tid: Uuid, fid: Uuid, person_id: Uuid) {
+        let _ = match self {
+            Membership::Spouse(sort_order) => {
+                let body = AddSpouseBody {
+                    person_id,
+                    role: SpouseRole::Partner,
+                    sort_order,
+                };
+                api.add_spouse(tid, fid, &body).await.map(drop)
+            }
+            Membership::Child(sort_order) => {
+                let body = AddChildBody {
+                    person_id,
+                    child_type: ChildType::Biological,
+                    sort_order,
+                };
+                api.add_child(tid, fid, &body).await.map(drop)
+            }
+        };
+    }
+}
+
+/// A relative being added to a person: the family they join, and how each
+/// of the two belongs to it.
+#[derive(Debug, Clone, Copy)]
+struct Relation {
+    /// The person the relative is added to.
+    anchor: Uuid,
+    /// How the person belongs to the family — the one they are already in,
+    /// or a new one.
+    anchor_joins: Membership,
+    /// How the relative joins it.
+    relative_joins: Membership,
+}
+
+impl LinkingMode {
+    /// The relative this flow adds, or `None` for the kinship pick.
+    fn relation(&self) -> Option<Relation> {
+        let (anchor, anchor_joins, relative_joins) = match *self {
+            LinkingMode::Spouse(pid) => (pid, Membership::Spouse(0), Membership::Spouse(1)),
+            LinkingMode::Parents(pid) => (pid, Membership::Child(0), Membership::Spouse(0)),
+            LinkingMode::Child(pid) => (pid, Membership::Spouse(0), Membership::Child(0)),
+            LinkingMode::Sibling(pid) => (pid, Membership::Child(0), Membership::Child(1)),
+            LinkingMode::Kinship(_) => return None,
+        };
+        Some(Relation {
+            anchor,
+            anchor_joins,
+            relative_joins,
+        })
+    }
+
+    /// The panel's title, search placeholder and create button, by i18n key.
+    fn label_keys(&self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            LinkingMode::Spouse(_) => (
+                "linking.add_spouse",
+                "linking.search_spouse",
+                "linking.create_spouse",
+            ),
+            LinkingMode::Parents(_) => (
+                "linking.add_parent",
+                "linking.search_parent",
+                "linking.create_parent",
+            ),
+            LinkingMode::Child(_) => (
+                "linking.add_child",
+                "linking.search_child",
+                "linking.create_child",
+            ),
+            LinkingMode::Sibling(_) => (
+                "linking.add_sibling",
+                "linking.search_sibling",
+                "linking.create_sibling",
+            ),
+            LinkingMode::Kinship(_) => ("context.kinship", "kinship.choose", ""),
+        }
+    }
+}
+
+impl Relation {
+    /// The family the anchor already belongs to in the right way, if any.
+    fn existing_family(&self, data: Option<&SharedPedigree>) -> Option<Uuid> {
+        let families = match self.anchor_joins {
+            Membership::Spouse(_) => &data?.families_as_spouse,
+            Membership::Child(_) => &data?.families_as_child,
+        };
+        families.get(&self.anchor)?.first().copied()
+    }
+
+    /// Adds the relative — `relative`, or a new person — to the anchor's
+    /// family, founding it first when there is none. `None` when the family
+    /// could not be created.
+    async fn add(
+        self,
+        api: &ApiClient,
+        tid: Uuid,
+        family: Option<Uuid>,
+        relative: Option<Uuid>,
+    ) -> Option<()> {
+        let fid = match family {
+            Some(fid) => fid,
+            None => {
+                let family = api.create_family(tid).await.ok()?;
+                self.anchor_joins
+                    .join(api, tid, family.id, self.anchor)
+                    .await;
+                family.id
+            }
+        };
+        let relative = match relative {
+            Some(relative) => Some(relative),
+            None => new_person(api, tid).await,
+        };
+        if let Some(relative) = relative {
+            self.relative_joins.join(api, tid, fid, relative).await;
+        }
+        Some(())
+    }
+}
+
+/// Creates a blank person, handing back their id.
+async fn new_person(api: &ApiClient, tid: Uuid) -> Option<Uuid> {
+    api.create_person(
+        tid,
+        &CreatePersonBody {
+            sex: oxidgene_core::Sex::Unknown,
+        },
+    )
+    .await
+    .ok()
+    .map(|person| person.id)
+}
+
+/// The dialogs and panels the page opens over the chart.
+#[derive(Clone, Copy)]
+struct Overlays {
+    context_menu: Signal<Option<(Uuid, f64, f64)>>,
+    editing_person: Signal<Option<Uuid>>,
+    creating_person: Signal<Option<PersonFormCreateContext>>,
+    editing_union: Signal<Option<Uuid>>,
+    linking: Signal<Option<LinkingMode>>,
+    /// The person "Merge with…" was chosen on, while the wizard is open.
+    merging: Signal<Option<Uuid>>,
+    confirm_delete: Signal<Option<Uuid>>,
+    delete_error: Signal<Option<String>>,
+}
+
+fn use_overlays() -> Overlays {
+    Overlays {
+        context_menu: use_signal(|| None),
+        editing_person: use_signal(|| None),
+        creating_person: use_signal(|| None),
+        editing_union: use_signal(|| None),
+        linking: use_signal(|| None),
+        merging: use_signal(|| None),
+        confirm_delete: use_signal(|| None),
+        delete_error: use_signal(|| None),
+    }
+}
+
+impl Overlays {
+    /// Runs a context menu action on the person the menu was opened on.
+    fn act(
+        mut self,
+        action: PersonAction,
+        data: Option<&SharedPedigree>,
+        mut selected_root: Signal<Option<Uuid>>,
+    ) {
+        let Some((pid, _, _)) = (self.context_menu)() else {
+            return;
+        };
+        self.context_menu.set(None);
+        match action {
+            PersonAction::Edit => self.editing_person.set(Some(pid)),
+            PersonAction::Merge => self.merging.set(Some(pid)),
+            PersonAction::AddParents => self.linking.set(Some(LinkingMode::Parents(pid))),
+            PersonAction::AddSpouse => self.linking.set(Some(LinkingMode::Spouse(pid))),
+            PersonAction::AddChild => self.linking.set(Some(LinkingMode::Child(pid))),
+            PersonAction::AddSibling => self.linking.set(Some(LinkingMode::Sibling(pid))),
+            PersonAction::EditUnion => {
+                let family_id = data
+                    .and_then(|data| data.families_as_spouse.get(&pid))
+                    .and_then(|fids| fids.first().copied());
+                if family_id.is_some() {
+                    self.editing_union.set(family_id);
+                }
+            }
+            PersonAction::EditSpecificUnion(fid) => self.editing_union.set(Some(fid)),
+            PersonAction::Kinship => self.linking.set(Some(LinkingMode::Kinship(pid))),
+            PersonAction::GoTo(relative) => selected_root.set(Some(relative)),
+            PersonAction::Delete => {
+                self.confirm_delete.set(Some(pid));
+                self.delete_error.set(None);
+            }
+        }
+    }
+}
+
+/// What the page's writes need: the API, the tree, and the cache to
+/// invalidate once they land.
+#[derive(Clone)]
+struct TreeWrites {
+    api: ApiClient,
+    tree_id: Signal<Option<Uuid>>,
+    tree_cache: TreeCache,
+    overlays: Overlays,
+    selected_root: Signal<Option<Uuid>>,
+}
+
+impl TreeWrites {
+    /// Adds a relative in the open linking flow: `relative`, or a new person.
+    fn link(&self, relative: Option<Uuid>, data: Option<&SharedPedigree>) {
+        let Some(tid) = (self.tree_id)() else { return };
+        let Some(relation) = (self.overlays.linking)().and_then(|mode| mode.relation()) else {
+            return;
+        };
+        let family = relation.existing_family(data);
+        let (api, tree_cache, mut linking) =
+            (self.api.clone(), self.tree_cache, self.overlays.linking);
+        spawn(async move {
+            if relation.add(&api, tid, family, relative).await.is_some() {
+                linking.set(None);
+                tree_cache.invalidate();
+            }
+        });
+    }
+
+    /// Deletes the person whose deletion was confirmed.
+    fn delete_confirmed(&self) {
+        let Some(tid) = (self.tree_id)() else { return };
+        let Some(pid) = (self.overlays.confirm_delete)() else {
+            return;
+        };
+        let Self {
+            api,
+            tree_cache,
+            overlays,
+            mut selected_root,
+            ..
+        } = self.clone();
+        let Overlays {
+            mut confirm_delete,
+            mut delete_error,
+            ..
+        } = overlays;
+        spawn(async move {
+            match api.delete_person(tid, pid).await {
+                Ok(_) => {
+                    confirm_delete.set(None);
+                    delete_error.set(None);
+                    if selected_root() == Some(pid) {
+                        selected_root.set(None);
+                    }
+                    tree_cache.invalidate();
+                }
+                Err(e) => delete_error.set(Some(format!("{e}"))),
+            }
+        });
+    }
+
+    /// Creates the tree's first person and opens them for editing.
+    fn add_first_person(&self) {
+        let Some(tid) = (self.tree_id)() else { return };
+        let (api, tree_cache, mut editing) = (
+            self.api.clone(),
+            self.tree_cache,
+            self.overlays.editing_person,
+        );
+        spawn(async move {
+            if let Some(person) = new_person(&api, tid).await {
+                editing.set(Some(person));
+                tree_cache.invalidate();
+            }
+        });
+    }
+}
+
+/// Which person the chart is drawn around, kept in step with the route.
+#[derive(Clone, Copy)]
+struct RootSelection {
+    tree_id: Signal<Option<Uuid>>,
+    selected_root: Signal<Option<Uuid>>,
+    /// Incremented every time the route names a person, so the chart
+    /// re-centres even when the root has not changed.
+    center_gen: Signal<u32>,
+    /// Whether this render moved to another tree.
+    tree_changed: bool,
+}
+
+fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
+    let view_cache = use_view_state_cache();
+
+    // Reactive tree_id: a signal always in sync with the prop so resources re-run.
+    let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
+    // Synchronously overwrite — write() updates in place for the current render.
+    let new_parsed = tree_id.parse::<Uuid>().ok();
+    let tree_changed = new_parsed != *tree_id_parsed.peek();
+    if tree_changed {
+        *tree_id_parsed.write() = new_parsed;
+    }
+
+    // Root person — from query param, view-state cache, or first person.
+    let initial_person = person.and_then(|p| p.parse::<Uuid>().ok()).or_else(|| {
+        tree_id_parsed()
+            .and_then(|tid| view_cache.get_untracked(tid))
+            .and_then(|vs| vs.selected_root)
+    });
+    let mut selected_root = use_signal(move || initial_person);
+
+    // Start at 1 when a person param is present on mount, so centering
+    // triggers even though prev_person_raw is initialized to the same value.
+    let has_person_param = person.is_some();
+    let mut center_gen = use_signal(move || u32::from(has_person_param));
+
+    // Reset state when navigating to a different tree (component is reused by the router).
+    let mut prev_tree_id = use_signal(|| tree_id.to_string());
+    if tree_id != *prev_tree_id.peek() {
+        *prev_tree_id.write() = tree_id.to_string();
+        selected_root.set(None);
+        center_gen += 1;
+    }
+
+    // Sync selected_root when navigating with a (possibly identical) person query param.
+    // We compare the raw string to detect re-navigation to the same person.
+    let person_raw = person.cloned();
+    let mut prev_person_raw = use_signal(|| person_raw.clone());
+    if person_raw != prev_person_raw() {
+        prev_person_raw.set(person_raw);
+        if initial_person.is_some() {
+            selected_root.set(initial_person);
+        }
+        center_gen += 1;
+    }
+
+    RootSelection {
+        tree_id: tree_id_parsed,
+        selected_root,
+        center_gen,
+        tree_changed,
+    }
+}
+
+/// The ancestors of the tree's SOSA root: the green badge on their cards,
+/// even when jumping to a distant ancestor outside the pedigree window.
+async fn sosa_ancestor_ids(
+    api: &ApiClient,
+    tid: Option<Uuid>,
+    sosa_root: Option<Uuid>,
+) -> HashSet<Uuid> {
+    let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
+        return HashSet::new();
+    };
+    match api.get_ancestors(tid, sosa_id, None).await {
+        Ok(entries) => entries.into_iter().map(|a| a.person_id).collect(),
+        Err(_) => HashSet::new(),
+    }
+}
+
+/// The chart's root: the selected person, else the tree's SOSA root, else
+/// its first person.
+async fn pedigree_root(
+    api: &ApiClient,
+    tree_cache: &TreeCache,
+    tid: Uuid,
+    selected: Option<Uuid>,
+) -> Option<Uuid> {
+    if selected.is_some() {
+        return selected;
+    }
+    // Goes through the same TreeCache as the tree resource instead of a raw
+    // `get_tree` call, avoiding a duplicate `GET /trees/:id` request.
+    if let Some(root) = fetch_tree_cached(api, tree_cache, tid)
+        .await
+        .ok()
+        .and_then(|tree| tree.sosa_root_person_id)
+    {
+        return Some(root);
+    }
+    let first = api.list_persons(tid, Some(1), None).await.ok()?;
+    first.edges.first().map(|e| e.node.id)
+}
+
+/// The pedigree around the chosen root, `levels` generations up and down.
+async fn load_pedigree(
+    api: &ApiClient,
+    tree_cache: &TreeCache,
+    tid: Uuid,
+    selected: Option<Uuid>,
+    (ancestor_levels, descendant_levels): (usize, usize),
+) -> Result<Pedigree, ApiError> {
+    let Some(root_id) = pedigree_root(api, tree_cache, tid, selected).await else {
+        // Empty tree — no persons at all.
+        return Err(ApiError::Api {
+            status: 404,
+            body: "No persons in tree".to_string(),
+        });
+    };
+    api.get_pedigree(
+        tid,
+        root_id,
+        ancestor_levels as u32,
+        descendant_levels as u32,
+    )
+    .await
+}
+
 /// Page rendered at `/trees/:tree_id?person=...`.
 #[component]
 pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
@@ -55,71 +479,19 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let view_cache = use_view_state_cache();
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
 
-    // Reactive tree_id: a signal always in sync with the prop so resources re-run.
-    let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
-    // Synchronously overwrite — write() updates in place for the current render.
-    let new_parsed = tree_id.parse::<Uuid>().ok();
-    let tree_changed = new_parsed != *tree_id_parsed.peek();
-    if tree_changed {
-        *tree_id_parsed.write() = new_parsed;
-    }
-
-    // ── Root person — from query param, view-state cache, or first person ──
-    let initial_person = person
-        .as_deref()
-        .and_then(|p| p.parse::<Uuid>().ok())
-        .or_else(|| {
-            tree_id_parsed()
-                .and_then(|tid| view_cache.get_untracked(tid))
-                .and_then(|vs| vs.selected_root)
-        });
-    let mut selected_root = use_signal(move || initial_person);
-
-    // Generation counter: incremented every time we navigate with a ?person param
-    // so PedigreeChart re-centers even when the root person hasn't changed.
-    // Start at 1 when a person param is present on mount, so centering triggers
-    // even though prev_person_raw is initialized to the same value.
-    let has_person_param = person.is_some();
-    let mut center_gen = use_signal(move || if has_person_param { 1u32 } else { 0u32 });
-
-    // Reset state when navigating to a different tree (component is reused by the router).
-    let mut prev_tree_id = use_signal(|| tree_id.clone());
-    if tree_id != *prev_tree_id.peek() {
-        *prev_tree_id.write() = tree_id.clone();
-        selected_root.set(None);
-        center_gen += 1;
-    }
-
-    // Sync selected_root when navigating with a (possibly identical) person query param.
-    // We compare the raw string to detect re-navigation to the same person.
-    let person_raw = person.clone();
-    let mut prev_person_raw = use_signal(move || person_raw);
-    if person != prev_person_raw() {
-        prev_person_raw.set(person.clone());
-        if let Some(pid) = initial_person {
-            selected_root.set(Some(pid));
-        }
-        center_gen += 1;
-    }
-
-    // ── Context menu state ──
-    let mut context_menu_person = use_signal(|| None::<(Uuid, f64, f64)>);
-
-    // ── Person edit modal ──
-    let mut editing_person_id = use_signal(|| None::<Uuid>);
-    let mut creating_person_ctx = use_signal(|| None::<PersonFormCreateContext>);
-
-    // ── Union edit modal ──
-    let mut editing_union_id = use_signal(|| None::<Uuid>);
-
-    // ── Linking mode (search-or-create panel) ──
-    let mut linking_mode = use_signal(|| None::<LinkingMode>);
-    // The person "Merge with…" was chosen on, while the wizard is open.
-    let mut merging = use_signal(|| None::<Uuid>);
-
-    // ── Delete person confirmation ──
-    let mut confirm_delete_person_id = use_signal(|| None::<Uuid>);
-    let mut delete_person_error = use_signal(|| None::<String>);
+    let RootSelection {
+        tree_id: tree_id_parsed,
+        mut selected_root,
+        center_gen,
+        tree_changed,
+    } = use_root_selection(&tree_id, person.as_ref());
+    let overlays = use_overlays();
+    let Overlays {
+        mut context_menu,
+        mut creating_person,
+        mut linking,
+        ..
+    } = overlays;
 
     // ── Fetch tree details (cache-backed) ──
     let api_tree = api.clone();
@@ -129,15 +501,16 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
-                return Err(crate::api::ApiError::invalid_tree_id(&i18n));
+                return Err(ApiError::invalid_tree_id(&i18n));
             };
             fetch_tree_cached(&api, &tree_cache, tid).await
         }
     });
+    let tree = match &*tree_resource.read() {
+        Some(Ok(tree)) => Some(tree.clone()),
+        _ => None,
+    };
 
-    // Fetch SOSA ancestor IDs from the family graph.
-    // This set is used to display the green SOSA badge on ancestor cards,
-    // even when jumping to a distant ancestor outside the pedigree window.
     let api_sosa = api.clone();
     let sosa_ancestors_resource =
         use_traced_resource(load_trace.clone(), "sosa_ancestors", move || {
@@ -149,18 +522,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 Some(Ok(tree)) => tree.sosa_root_person_id,
                 _ => None,
             };
-            async move {
-                let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
-                    return std::collections::HashSet::new();
-                };
-                match api.get_ancestors(tid, sosa_id, None).await {
-                    Ok(entries) => entries
-                        .into_iter()
-                        .map(|a| a.person_id)
-                        .collect::<std::collections::HashSet<Uuid>>(),
-                    Err(_) => std::collections::HashSet::new(),
-                }
-            }
+            async move { sosa_ancestor_ids(&api, tid, sosa_root).await }
         });
 
     // ── Fetch pedigree from the API ──
@@ -178,54 +540,13 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 return std::future::pending().await;
             };
             let Some(tid) = tid else {
-                return Err(crate::api::ApiError::invalid_tree_id(&i18n));
+                return Err(ApiError::invalid_tree_id(&i18n));
             };
-            let ancestor_levels = vs
-                .as_ref()
-                .map(|view| view.ancestor_levels)
-                .unwrap_or(defaults.ancestor_levels);
-            let descendant_levels = vs
-                .as_ref()
-                .map(|view| view.descendant_levels)
-                .unwrap_or(defaults.descendant_levels);
-
-            // Resolve root person: selected > sosa_root from tree > first person.
-            let root_id = if let Some(sel) = sel_root {
-                Some(sel)
-            } else {
-                // Try sosa_root from tree settings — goes through the same
-                // TreeCache as `tree_resource` instead of a raw `get_tree`
-                // call, avoiding a duplicate `GET /trees/:id` request.
-                let tree_root = match fetch_tree_cached(&api, &tree_cache, tid).await {
-                    Ok(tree) => tree.sosa_root_person_id,
-                    Err(_) => None,
-                };
-                if tree_root.is_some() {
-                    tree_root
-                } else {
-                    // Fall back to first person in tree.
-                    match api.list_persons(tid, Some(1), None).await {
-                        Ok(list) => list.edges.first().map(|e| e.node.id),
-                        Err(_) => None,
-                    }
-                }
-            };
-
-            let Some(root_id) = root_id else {
-                // Empty tree — no persons at all.
-                return Err(crate::api::ApiError::Api {
-                    status: 404,
-                    body: "No persons in tree".to_string(),
-                });
-            };
-
-            api.get_pedigree(
-                tid,
-                root_id,
-                ancestor_levels as u32,
-                descendant_levels as u32,
-            )
-            .await
+            let levels = vs.as_ref().map_or(
+                (defaults.ancestor_levels, defaults.descendant_levels),
+                |view| (view.ancestor_levels, view.descendant_levels),
+            );
+            load_pedigree(&api, &tree_cache, tid, sel_root, levels).await
         }
     });
 
@@ -241,7 +562,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         };
         async move {
             let Some(tid) = tid.filter(|_| !person_ids.is_empty()) else {
-                return std::collections::HashMap::new();
+                return HashMap::new();
             };
             api.portrait_map_for_ids(tid, &person_ids).await
         }
@@ -253,551 +574,36 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         pedigree_resource.restart();
     }
 
-    // ── Build pedigree data from the fetched pedigree ──
-    //
-    // Assembled once per change and shared from there. Every person, name,
-    // event, place and portrait the pedigree pulled in lives in here, and a
-    // dozen handlers below read it; rebuilt inline it was rebuilt — and deep
-    // copied once per handler — on every render, including the render that
-    // merely opened a context menu.
-    let pedigree_view = use_memo(move || {
-        load_trace.measure("pedigree_data", || {
-            let ped_data = pedigree_resource.read();
-            let Some(Ok(pedigree)) = &*ped_data else {
-                return (None, selected_root());
-            };
-            let mut pd = PedigreeData::from_pedigree(pedigree);
-            if let Some(photos) = &*photos_resource.read() {
-                pd.photos = photos.clone();
-            }
-            pd.self_person_id = match &*tree_resource.read() {
-                Some(Ok(tree)) => tree.self_person_id,
-                _ => None,
-            };
-            (Some(SharedPedigree::new(pd)), Some(pedigree.root_person_id))
-        })
-    });
+    let pedigree_view = use_pedigree_view(
+        load_trace,
+        pedigree_resource,
+        photos_resource,
+        tree_resource,
+        selected_root,
+    );
     let (pedigree_data, root_person_id) = pedigree_view();
 
-    // Context menu person name.
-    let ctx_person_name: String = match context_menu_person() {
-        Some((pid, _, _)) => match pedigree_data.as_ref() {
-            Some(data) => resolve_name(pid, &data.names, &i18n),
-            None => resolve_name(pid, &HashMap::new(), &i18n),
-        },
-        None => String::new(),
+    let writes = TreeWrites {
+        api: api.clone(),
+        tree_id: tree_id_parsed,
+        tree_cache,
+        overlays,
+        selected_root,
     };
-
-    // Check if context menu person has a union (is a spouse in some family).
-    let ctx_person_has_union: bool = match context_menu_person() {
-        Some((pid, _, _)) => pedigree_data
-            .as_ref()
-            .and_then(|d| d.families_as_spouse.get(&pid))
-            .is_some_and(|fids| !fids.is_empty()),
-        None => false,
-    };
-
-    // Union list for context menu multi-union sub-list.
-    let ctx_unions: Vec<(Uuid, String, String)> = match context_menu_person() {
-        Some((pid, _, _)) => pedigree_data
-            .as_ref()
-            .map(|d| d.unions_for_person(pid, &i18n))
-            .unwrap_or_default(),
-        None => vec![],
-    };
-
-    // Relatives the chart does not draw around the person, to go to from
-    // the action picker: spouses and children in an ancestor chart, parents
-    // and spouses in a descendant one.
     let view = crate::prefs::use_pedigree_view();
-    let ctx_go_to: Vec<(String, Vec<(Uuid, String)>)> =
-        match (context_menu_person(), pedigree_data.as_ref()) {
-            (Some((pid, _, _)), Some(data)) => {
-                go_to_relatives(data, pid, root_person_id, view, &i18n)
-            }
-            _ => Vec::new(),
-        };
-
-    // ── Handlers ──
-
-    // Context menu action handler.
-    let pedigree_data_ctx = pedigree_data.clone();
-    let on_context_action = move |action: PersonAction| {
-        let Some((pid, _, _)) = context_menu_person() else {
-            return;
-        };
-        context_menu_person.set(None);
-
-        match action {
-            PersonAction::Edit => {
-                editing_person_id.set(Some(pid));
-            }
-            PersonAction::Merge => {
-                merging.set(Some(pid));
-            }
-            PersonAction::AddParents => {
-                linking_mode.set(Some(LinkingMode::Parents(pid)));
-            }
-            PersonAction::AddSpouse => {
-                linking_mode.set(Some(LinkingMode::Spouse(pid)));
-            }
-            PersonAction::AddChild => {
-                linking_mode.set(Some(LinkingMode::Child(pid)));
-            }
-            PersonAction::AddSibling => {
-                linking_mode.set(Some(LinkingMode::Sibling(pid)));
-            }
-            PersonAction::EditUnion => {
-                let family_id = pedigree_data_ctx
-                    .as_ref()
-                    .and_then(|data| data.families_as_spouse.get(&pid))
-                    .and_then(|fids| fids.first().copied());
-                if let Some(fid) = family_id {
-                    editing_union_id.set(Some(fid));
-                }
-            }
-            PersonAction::EditSpecificUnion(fid) => {
-                editing_union_id.set(Some(fid));
-            }
-            PersonAction::Kinship => {
-                linking_mode.set(Some(LinkingMode::Kinship(pid)));
-            }
-            PersonAction::GoTo(relative) => {
-                selected_root.set(Some(relative));
-            }
-            PersonAction::Delete => {
-                confirm_delete_person_id.set(Some(pid));
-                delete_person_error.set(None);
-            }
-        }
+    let tree_name_str = tree
+        .as_ref()
+        .map(|t| t.name.clone())
+        .or_else(|| {
+            tree_id_parsed()
+                .and_then(|tid| tree_cache.tree(tid))
+                .map(|t| t.name)
+        })
+        .unwrap_or_default();
+    let routes = TreeRoutes {
+        nav,
+        tree_id: tree_id.clone(),
     };
-
-    // Delete person handler.
-    let api_del_person = api.clone();
-    let on_confirm_delete_person = move |_| {
-        let api = api_del_person.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(pid) = confirm_delete_person_id() else {
-            return;
-        };
-        spawn(async move {
-            match api.delete_person(tid, pid).await {
-                Ok(_) => {
-                    confirm_delete_person_id.set(None);
-                    delete_person_error.set(None);
-                    if selected_root() == Some(pid) {
-                        selected_root.set(None);
-                    }
-                    tree_cache.invalidate();
-                }
-                Err(e) => delete_person_error.set(Some(format!("{e}"))),
-            }
-        });
-    };
-
-    let pedigree_data_empty = pedigree_data.clone();
-
-    // ── Linking mode handlers ──
-
-    // AddSpouse: link existing person as spouse.
-    let api_link_spouse = api.clone();
-    let pedigree_data_spouse = pedigree_data.clone();
-    let on_link_spouse = move |person_id: Uuid| {
-        let api = api_link_spouse.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Spouse(for_pid)) = linking_mode() else {
-            return;
-        };
-        // Find or create a family for this person.
-        let existing_family_id = pedigree_data_spouse
-            .as_ref()
-            .and_then(|data| data.families_as_spouse.get(&for_pid))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = existing_family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddSpouseBody {
-                    person_id: for_pid,
-                    role: oxidgene_core::SpouseRole::Partner,
-                    sort_order: 0,
-                };
-                let _ = api.add_spouse(tid, family.id, &body).await;
-                family.id
-            };
-            let body = crate::api::AddSpouseBody {
-                person_id,
-                role: oxidgene_core::SpouseRole::Partner,
-                sort_order: 1,
-            };
-            let _ = api.add_spouse(tid, fid, &body).await;
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // AddSpouse: create new person as spouse.
-    let api_new_spouse = api.clone();
-    let pedigree_data_new_spouse = pedigree_data.clone();
-    let on_create_new_spouse = move |_| {
-        let api = api_new_spouse.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Spouse(for_pid)) = linking_mode() else {
-            return;
-        };
-        let existing_family_id = pedigree_data_new_spouse
-            .as_ref()
-            .and_then(|data| data.families_as_spouse.get(&for_pid))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = existing_family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddSpouseBody {
-                    person_id: for_pid,
-                    role: oxidgene_core::SpouseRole::Partner,
-                    sort_order: 0,
-                };
-                let _ = api.add_spouse(tid, family.id, &body).await;
-                family.id
-            };
-            if let Ok(new_person) = api
-                .create_person(
-                    tid,
-                    &crate::api::CreatePersonBody {
-                        sex: oxidgene_core::Sex::Unknown,
-                    },
-                )
-                .await
-            {
-                let body = crate::api::AddSpouseBody {
-                    person_id: new_person.id,
-                    role: oxidgene_core::SpouseRole::Partner,
-                    sort_order: 1,
-                };
-                let _ = api.add_spouse(tid, fid, &body).await;
-            }
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // AddParents: link existing person as parent.
-    let api_link_parent = api.clone();
-    let pedigree_data_parent = pedigree_data.clone();
-    let on_link_parent = move |person_id: Uuid| {
-        let api = api_link_parent.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Parents(child_id)) = linking_mode() else {
-            return;
-        };
-        // Find or create a family where child_id is a child.
-        let existing_family_id = pedigree_data_parent
-            .as_ref()
-            .and_then(|data| data.families_as_child.get(&child_id))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = existing_family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddChildBody {
-                    person_id: child_id,
-                    child_type: oxidgene_core::ChildType::Biological,
-                    sort_order: 0,
-                };
-                let _ = api.add_child(tid, family.id, &body).await;
-                family.id
-            };
-            let body = crate::api::AddSpouseBody {
-                person_id,
-                role: oxidgene_core::SpouseRole::Partner,
-                sort_order: 0,
-            };
-            let _ = api.add_spouse(tid, fid, &body).await;
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // AddParents: create new person as parent.
-    let api_new_parent = api.clone();
-    let pedigree_data_new_parent = pedigree_data.clone();
-    let on_create_new_parent = move |_| {
-        let api = api_new_parent.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Parents(child_id)) = linking_mode() else {
-            return;
-        };
-        let existing_family_id = pedigree_data_new_parent
-            .as_ref()
-            .and_then(|data| data.families_as_child.get(&child_id))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = existing_family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddChildBody {
-                    person_id: child_id,
-                    child_type: oxidgene_core::ChildType::Biological,
-                    sort_order: 0,
-                };
-                let _ = api.add_child(tid, family.id, &body).await;
-                family.id
-            };
-            if let Ok(new_person) = api
-                .create_person(
-                    tid,
-                    &crate::api::CreatePersonBody {
-                        sex: oxidgene_core::Sex::Unknown,
-                    },
-                )
-                .await
-            {
-                let body = crate::api::AddSpouseBody {
-                    person_id: new_person.id,
-                    role: oxidgene_core::SpouseRole::Partner,
-                    sort_order: 0,
-                };
-                let _ = api.add_spouse(tid, fid, &body).await;
-            }
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // AddChild: link existing person as child.
-    let api_link_child = api.clone();
-    let pedigree_data_child = pedigree_data.clone();
-    let on_link_child = move |person_id: Uuid| {
-        let api = api_link_child.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Child(parent_id)) = linking_mode() else {
-            return;
-        };
-        let existing_family_id = pedigree_data_child
-            .as_ref()
-            .and_then(|data| data.families_as_spouse.get(&parent_id))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = existing_family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddSpouseBody {
-                    person_id: parent_id,
-                    role: oxidgene_core::SpouseRole::Partner,
-                    sort_order: 0,
-                };
-                let _ = api.add_spouse(tid, family.id, &body).await;
-                family.id
-            };
-            let body = crate::api::AddChildBody {
-                person_id,
-                child_type: oxidgene_core::ChildType::Biological,
-                sort_order: 0,
-            };
-            let _ = api.add_child(tid, fid, &body).await;
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // AddChild: create new person as child.
-    let api_new_child = api.clone();
-    let pedigree_data_new_child = pedigree_data.clone();
-    let on_create_new_child = move |_| {
-        let api = api_new_child.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Child(parent_id)) = linking_mode() else {
-            return;
-        };
-        let existing_family_id = pedigree_data_new_child
-            .as_ref()
-            .and_then(|data| data.families_as_spouse.get(&parent_id))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = existing_family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddSpouseBody {
-                    person_id: parent_id,
-                    role: oxidgene_core::SpouseRole::Partner,
-                    sort_order: 0,
-                };
-                let _ = api.add_spouse(tid, family.id, &body).await;
-                family.id
-            };
-            if let Ok(new_person) = api
-                .create_person(
-                    tid,
-                    &crate::api::CreatePersonBody {
-                        sex: oxidgene_core::Sex::Unknown,
-                    },
-                )
-                .await
-            {
-                let body = crate::api::AddChildBody {
-                    person_id: new_person.id,
-                    child_type: oxidgene_core::ChildType::Biological,
-                    sort_order: 0,
-                };
-                let _ = api.add_child(tid, fid, &body).await;
-            }
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // AddSibling: link existing person as sibling (add them to the same parent family).
-    let api_link_sibling = api.clone();
-    let pedigree_data_sibling = pedigree_data.clone();
-    let on_link_sibling = move |person_id: Uuid| {
-        let api = api_link_sibling.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Sibling(for_pid)) = linking_mode() else {
-            return;
-        };
-        // Find the parent family of the person we want to add a sibling to.
-        let parent_family_id = pedigree_data_sibling
-            .as_ref()
-            .and_then(|data| data.families_as_child.get(&for_pid))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = parent_family_id {
-                fid
-            } else {
-                // No parent family exists yet — create one and add the original person as child.
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddChildBody {
-                    person_id: for_pid,
-                    child_type: oxidgene_core::ChildType::Biological,
-                    sort_order: 0,
-                };
-                let _ = api.add_child(tid, family.id, &body).await;
-                family.id
-            };
-            let body = crate::api::AddChildBody {
-                person_id,
-                child_type: oxidgene_core::ChildType::Biological,
-                sort_order: 1,
-            };
-            let _ = api.add_child(tid, fid, &body).await;
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // AddSibling: create new person as sibling.
-    let api_new_sibling = api.clone();
-    let pedigree_data_new_sibling = pedigree_data.clone();
-    let on_create_new_sibling = move |_| {
-        let api = api_new_sibling.clone();
-        let Some(tid) = tree_id_parsed() else { return };
-        let Some(LinkingMode::Sibling(for_pid)) = linking_mode() else {
-            return;
-        };
-        let parent_family_id = pedigree_data_new_sibling
-            .as_ref()
-            .and_then(|data| data.families_as_child.get(&for_pid))
-            .and_then(|fids| fids.first().copied());
-        spawn(async move {
-            let fid = if let Some(fid) = parent_family_id {
-                fid
-            } else {
-                let Ok(family) = api.create_family(tid).await else {
-                    return;
-                };
-                let body = crate::api::AddChildBody {
-                    person_id: for_pid,
-                    child_type: oxidgene_core::ChildType::Biological,
-                    sort_order: 0,
-                };
-                let _ = api.add_child(tid, family.id, &body).await;
-                family.id
-            };
-            if let Ok(new_person) = api
-                .create_person(
-                    tid,
-                    &crate::api::CreatePersonBody {
-                        sex: oxidgene_core::Sex::Unknown,
-                    },
-                )
-                .await
-            {
-                let body = crate::api::AddChildBody {
-                    person_id: new_person.id,
-                    child_type: oxidgene_core::ChildType::Biological,
-                    sort_order: 1,
-                };
-                let _ = api.add_child(tid, fid, &body).await;
-            }
-            linking_mode.set(None);
-            tree_cache.invalidate();
-        });
-    };
-
-    // Merge: link existing person to merge with.
-    // Kinship: open the relationship page between the two persons.
-    let tree_id_kinship = tree_id.clone();
-    let on_pick_kinship = move |other: Uuid| {
-        let Some(LinkingMode::Kinship(from)) = linking_mode() else {
-            return;
-        };
-        linking_mode.set(None);
-        if other != from {
-            nav.push(Route::Kinship {
-                tree_id: tree_id_kinship.clone(),
-                from: from.to_string(),
-                to: other.to_string(),
-            });
-        }
-    };
-    // The persons most often asked about, offered before any search: the
-    // user themself and the tree's SOSA root.
-    let kinship_shortcuts: Vec<(Uuid, String)> = match (linking_mode(), &*tree_resource.read()) {
-        (Some(LinkingMode::Kinship(from)), Some(Ok(tree))) => [
-            (tree.self_person_id, "kinship.pick_self"),
-            (tree.sosa_root_person_id, "kinship.pick_sosa_root"),
-        ]
-        .into_iter()
-        .filter_map(|(id, key)| Some((id?, key)))
-        .filter(|&(id, _)| id != from)
-        .fold(Vec::new(), |mut picks, (id, key)| {
-            if !picks.iter().any(|&(seen, _)| seen == id) {
-                picks.push((id, i18n.t(key)));
-            }
-            picks
-        }),
-        _ => Vec::new(),
-    };
-
-    // Linking mode label for the panel header.
-    let linking_label: Option<String> = linking_mode().map(|mode| match &mode {
-        LinkingMode::Spouse(_) => i18n.t("linking.add_spouse"),
-        LinkingMode::Parents(_) => i18n.t("linking.add_parent"),
-        LinkingMode::Child(_) => i18n.t("linking.add_child"),
-        LinkingMode::Sibling(_) => i18n.t("linking.add_sibling"),
-        LinkingMode::Kinship(_) => i18n.t("context.kinship"),
-    });
 
     // ── Render ──
 
@@ -805,38 +611,120 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         div { class: "tree-detail-page",
 
         // ── Topbar: breadcrumb + search ──
-        {
-            let tree_name_str = {
-                let guard = tree_resource.read();
-                match &*guard {
-                    Some(Ok(t)) => t.name.clone(),
-                    _ => tree_id_parsed()
-                        .and_then(|tid| tree_cache.tree(tid))
-                        .map(|t| t.name)
-                        .unwrap_or_default(),
-                }
-            };
-
-            rsx! {
-                div { class: "td-topbar",
-                    TreeBreadcrumb {
-                        tree_name: tree_name_str.clone(),
-                        linked: false,
-                        span { class: "td-bc-current", {i18n.t("pedigree.breadcrumb")} }
-                    }
-                    if root_person_id.is_some() {
-                        TopbarSearch { tree_id: tree_id.clone() }
-                    }
-                    PrintHeading {
-                        tree_name: tree_name_str.clone(),
-                        title: i18n.t("pedigree.breadcrumb"),
-                    }
-                }
+        div { class: "td-topbar",
+            TreeBreadcrumb {
+                tree_name: tree_name_str.clone(),
+                linked: false,
+                span { class: "td-bc-current", {i18n.t("pedigree.breadcrumb")} }
+            }
+            if root_person_id.is_some() {
+                TopbarSearch { tree_id: tree_id.clone() }
+            }
+            PrintHeading {
+                tree_name: tree_name_str.clone(),
+                title: i18n.t("pedigree.breadcrumb"),
             }
         }
 
+        {overlay_dialogs(&i18n, &writes, &routes)}
+
+        // Context menu
+        if let (Some((pid, x, y)), Some(data)) = (context_menu(), pedigree_data.as_ref()) {
+            ContextMenu {
+                person_name: resolve_name(pid, &data.names, &i18n),
+                x,
+                y,
+                has_union: data.families_as_spouse.get(&pid).is_some_and(|fids| !fids.is_empty()),
+                unions: data.unions_for_person(pid, &i18n),
+                // Relatives the chart does not draw around the person, to go
+                // to from the action picker: spouses and children in an
+                // ancestor chart, parents and spouses in a descendant one.
+                go_to: go_to_relatives(data, pid, root_person_id, view, &i18n),
+                on_action: {
+                    let data = pedigree_data.clone();
+                    move |action| overlays.act(action, data.as_ref(), selected_root)
+                },
+                on_close: move |_| context_menu.set(None),
+            }
+        }
+
+        // ── Pedigree chart (fills remaining space) ──
+        div { class: "pedigree-card",
+            match (pedigree_data.clone(), root_person_id) {
+                (Some(data), Some(root_id)) => rsx! {
+                    PedigreeChart {
+                        root_person_id: root_id,
+                        data: data.clone(),
+                        tree_id: tree_id.clone(),
+                        sosa_root_person_id: tree.as_ref().and_then(|tree| tree.sosa_root_person_id),
+                        sosa_ancestor_ids: sosa_ancestors_resource.read().clone().filter(|set| !set.is_empty()),
+                        center_gen: center_gen(),
+                        on_person_click: move |(pid, x, y)| {
+                            context_menu.set(Some((pid, x, y)));
+                        },
+                        on_person_navigate: move |pid| {
+                            selected_root.set(Some(pid));
+                        },
+                        on_empty_slot: move |(child_id, is_father)| {
+                            creating_person.set(Some(add_parent_context(&data, child_id, is_father)));
+                        },
+                        on_add_spouse_slot: move |person_id| {
+                            linking.set(Some(LinkingMode::Spouse(person_id)));
+                        },
+                        on_add_person: move |_| {
+                            creating_person.set(Some(PersonFormCreateContext::Standalone));
+                        },
+                        on_profile_view: routes.push(|tree_id, pid: Uuid| Route::PersonDetail {
+                            tree_id,
+                            person_id: pid.to_string(),
+                        }),
+                        on_couple_view: routes.push(|tree_id, family_id: Uuid| Route::CoupleDetail {
+                            tree_id,
+                            family_id: family_id.to_string(),
+                        }),
+                        on_settings: routes.push(|tree_id, ()| Route::Settings { tree_id }),
+                        on_dictionary: routes.push(|tree_id, ()| Route::Dictionary { tree_id }),
+                    }
+                },
+                // Show the empty-tree UI once the pedigree has loaded without
+                // one: an error means no persons, or a network failure.
+                _ if pedigree_resource.read().is_some() => empty_tree(&i18n, writes.clone()),
+                _ => rsx! {
+                    div { class: "loading", {i18n.t("tree.loading_pedigree")} }
+                },
+            }
+        }
+
+        // ── Linking panel (search-or-create for AddSpouse/AddParents/AddChild) ──
+        if let (Some(mode), Some(tid)) = (linking(), tree_id_parsed()) {
+            {linking_panel(&i18n, tid, &mode, &writes, pedigree_data.clone(), tree.as_ref(), &routes)}
+        }
+
+        } // close .tree-detail-page
+    }
+}
+
+/// The dialogs opened over the chart: merging, deleting, and the person and
+/// union forms.
+fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, routes: &TreeRoutes) -> Element {
+    let Some(tid) = (writes.tree_id)() else {
+        return rsx! {};
+    };
+    let tree_cache = writes.tree_cache;
+    let mut selected_root = writes.selected_root;
+    let Overlays {
+        mut editing_person,
+        mut creating_person,
+        mut editing_union,
+        mut merging,
+        mut confirm_delete,
+        mut delete_error,
+        ..
+    } = writes.overlays;
+    let delete = writes.clone();
+    rsx! {
         // "Merge with…": the wizard, from the search for the other record.
-        if let (Some(pid), Some(tid)) = (merging(), tree_id_parsed()) {
+        if let Some(pid) = merging() {
             MergeDialog {
                 tree_id: tid,
                 person_id: pid,
@@ -852,336 +740,274 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         }
 
         // Delete person confirmation
-        if confirm_delete_person_id().is_some() {
+        if confirm_delete().is_some() {
             ConfirmDialog {
                 title: i18n.t("confirm.delete_person.title"),
                 message: i18n.t("confirm.delete_person.message"),
                 confirm_label: i18n.t("common.delete"),
                 confirm_class: "btn btn-danger",
-                error: delete_person_error(),
-                on_confirm: move |_| on_confirm_delete_person(()),
+                error: delete_error(),
+                on_confirm: move |_| delete.delete_confirmed(),
                 on_cancel: move |_| {
-                    confirm_delete_person_id.set(None);
-                    delete_person_error.set(None);
+                    confirm_delete.set(None);
+                    delete_error.set(None);
                 },
             }
         }
 
-        // Context menu
-        if let Some((_pid, x, y)) = context_menu_person() {
-            ContextMenu {
-                person_name: ctx_person_name.clone(),
-                x: x,
-                y: y,
-                has_union: ctx_person_has_union,
-                unions: ctx_unions.clone(),
-                go_to: ctx_go_to.clone(),
-                on_action: on_context_action,
-                on_close: move |_| context_menu_person.set(None),
-            }
-        }
-
         // Person edit modal
-        if let Some(edit_pid) = editing_person_id() {
-            if let Some(tid) = tree_id_parsed() {
-                PersonForm {
-                    tree_id: tid,
-                    person_id: Some(edit_pid),
-                    on_close: move |_| editing_person_id.set(None),
-                    on_saved: move |_| tree_cache.invalidate(),
-                    // The edited person may be the chart's root, and no longer
-                    // exists: centre the chart on the one they were merged into.
-                    on_merged: {
-                        let tree_id = tree_id.clone();
-                        move |kept: Uuid| {
-                            nav.replace(Route::TreeDetail {
-                                tree_id: tree_id.clone(),
-                                person: Some(kept.to_string()),
-                            });
-                        }
-                    },
-                }
+        if let Some(edit_pid) = editing_person() {
+            PersonForm {
+                tree_id: tid,
+                person_id: Some(edit_pid),
+                on_close: move |_| editing_person.set(None),
+                on_saved: move |_| tree_cache.invalidate(),
+                // The edited person may be the chart's root, and no longer
+                // exists: centre the chart on the one they were merged into.
+                on_merged: routes.replace(|tree_id, kept: Uuid| Route::TreeDetail {
+                    tree_id,
+                    person: Some(kept.to_string()),
+                }),
             }
         }
 
         // Person create modal
-        if let Some(ctx) = creating_person_ctx() {
-            if let Some(tid) = tree_id_parsed() {
-                PersonForm {
-                    tree_id: tid,
-                    create_context: ctx,
-                    on_close: move |_| creating_person_ctx.set(None),
-                    on_saved: move |_| tree_cache.invalidate(),
-                }
+        if let Some(ctx) = creating_person() {
+            PersonForm {
+                tree_id: tid,
+                create_context: ctx,
+                on_close: move |_| creating_person.set(None),
+                on_saved: move |_| tree_cache.invalidate(),
             }
         }
 
         // Union edit modal
-        if let Some(union_fid) = editing_union_id() {
-            if let Some(tid) = tree_id_parsed() {
-                UnionForm {
-                    tree_id: tid,
-                    family_id: union_fid,
-                    on_close: move |_| editing_union_id.set(None),
-                    on_saved: move |_| tree_cache.invalidate(),
-                }
+        if let Some(union_fid) = editing_union() {
+            UnionForm {
+                tree_id: tid,
+                family_id: union_fid,
+                on_close: move |_| editing_union.set(None),
+                on_saved: move |_| tree_cache.invalidate(),
             }
         }
+    }
+}
 
-        // ── Pedigree chart (fills remaining space) ──
-        div { class: "pedigree-card",
+/// The chart's data, assembled from the pedigree, its portraits and the tree,
+/// and the root it is drawn around.
+fn use_pedigree_view(
+    load_trace: UiLoadTrace,
+    pedigree_resource: Resource<Result<Pedigree, ApiError>>,
+    photos_resource: Resource<HashMap<Uuid, CroppedSource>>,
+    tree_resource: Resource<Result<Tree, ApiError>>,
+    selected_root: Signal<Option<Uuid>>,
+) -> Memo<(Option<SharedPedigree>, Option<Uuid>)> {
+    // ── Build pedigree data from the fetched pedigree ──
+    //
+    // Assembled once per change and shared from there. Every person, name,
+    // event, place and portrait the pedigree pulled in lives in here, and a
+    // dozen handlers below read it; rebuilt inline it was rebuilt — and deep
+    // copied once per handler — on every render, including the render that
+    // merely opened a context menu.
+    use_memo(move || {
+        load_trace.measure("pedigree_data", || {
+            let ped_data = pedigree_resource.read();
+            let Some(Ok(pedigree)) = &*ped_data else {
+                return (None, selected_root());
+            };
+            let mut pd = PedigreeData::from_pedigree(pedigree);
+            if let Some(photos) = &*photos_resource.read() {
+                pd.photos = photos.clone();
+            }
+            pd.self_person_id = match &*tree_resource.read() {
+                Some(Ok(tree)) => tree.self_person_id,
+                _ => None,
+            };
+            (Some(SharedPedigree::new(pd)), Some(pedigree.root_person_id))
+        })
+    })
+}
 
-            // Chart
-            if let (Some(data), Some(root_id)) = (pedigree_data.clone(), root_person_id) {
-                PedigreeChart {
-                    root_person_id: root_id,
-                    data: data,
-                    tree_id: tree_id.clone(),
-                    sosa_root_person_id: {
-                        let guard = tree_resource.read();
-                        match &*guard {
-                            Some(Ok(tree)) => tree.sosa_root_person_id,
-                            _ => None,
-                        }
-                    },
-                    sosa_ancestor_ids: {
-                        let guard = sosa_ancestors_resource.read();
-                        match &*guard {
-                            Some(set) if !set.is_empty() => Some(set.clone()),
-                            _ => None,
-                        }
-                    },
-                    center_gen: center_gen(),
-                    on_person_click: move |(pid, x, y)| {
-                        context_menu_person.set(Some((pid, x, y)));
-                    },
-                    on_person_navigate: move |pid| {
-                        selected_root.set(Some(pid));
-                    },
-                    on_empty_slot: move |(child_id, is_father)| {
-                        let family_id = pedigree_data_empty
-                            .as_ref()
-                            .and_then(|data| data.families_as_child.get(&child_id))
-                            .and_then(|fids| fids.first().copied());
-                        let child_surname = pedigree_data_empty
-                            .as_ref()
-                            .and_then(|data| data.names.get(&child_id))
-                            .and_then(|names| {
-                                names
-                                    .iter()
-                                    .find(|name| name.is_primary)
-                                    .or_else(|| names.first())
-                            })
-                            .and_then(|name| name.full_surname())
-                            .filter(|surname| !surname.trim().is_empty());
-                        creating_person_ctx.set(Some(PersonFormCreateContext::AddParent {
-                            child_id,
-                            family_id,
-                            is_father,
-                            child_surname,
-                        }));
-                    },
-                    on_add_spouse_slot: move |person_id| {
-                        linking_mode.set(Some(LinkingMode::Spouse(person_id)));
-                    },
-                    on_add_person: move |_| {
-                        creating_person_ctx.set(Some(PersonFormCreateContext::Standalone));
-                    },
-                    on_profile_view: {
-                        let tree_id = tree_id.clone();
-                        move |pid: Uuid| {
-                            nav.push(Route::PersonDetail {
-                                tree_id: tree_id.clone(),
-                                person_id: pid.to_string(),
-                            });
-                        }
-                    },
-                    on_couple_view: {
-                        let tree_id = tree_id.clone();
-                        move |family_id: Uuid| {
-                            nav.push(Route::CoupleDetail {
-                                tree_id: tree_id.clone(),
-                                family_id: family_id.to_string(),
-                            });
-                        }
-                    },
-                    on_settings: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Settings {
-                                tree_id: tree_id.clone(),
-                            });
-                        }
-                    },
-                    on_dictionary: {
-                        let tree_id = tree_id.clone();
-                        move |_| {
-                            nav.push(Route::Dictionary {
-                                tree_id: tree_id.clone(),
-                            });
-                        }
-                    },
+/// Handlers opening another page of this tree.
+#[derive(Clone)]
+struct TreeRoutes {
+    nav: Navigator,
+    tree_id: String,
+}
+
+impl TreeRoutes {
+    /// A handler pushing the route `route` makes of this tree and its input.
+    fn push<T: 'static>(&self, route: fn(String, T) -> Route) -> EventHandler<T> {
+        let Self { nav, tree_id } = self.clone();
+        EventHandler::new(move |input| {
+            nav.push(route(tree_id.clone(), input));
+        })
+    }
+
+    /// As [`Self::push`], replacing the current entry of the history.
+    fn replace<T: 'static>(&self, route: fn(String, T) -> Route) -> EventHandler<T> {
+        let Self { nav, tree_id } = self.clone();
+        EventHandler::new(move |input| {
+            nav.replace(route(tree_id.clone(), input));
+        })
+    }
+}
+
+/// Creating a parent from an empty slot of the chart: the child's family,
+/// if they have one, and their surname to start from.
+fn add_parent_context(
+    data: &PedigreeData,
+    child_id: Uuid,
+    is_father: bool,
+) -> PersonFormCreateContext {
+    let family_id = data
+        .families_as_child
+        .get(&child_id)
+        .and_then(|fids| fids.first().copied());
+    let child_surname = data
+        .names
+        .get(&child_id)
+        .and_then(|names| {
+            names
+                .iter()
+                .find(|name| name.is_primary)
+                .or_else(|| names.first())
+        })
+        .and_then(|name| name.full_surname())
+        .filter(|surname| !surname.trim().is_empty());
+    PersonFormCreateContext::AddParent {
+        child_id,
+        family_id,
+        is_father,
+        child_surname,
+    }
+}
+
+/// A tree with no one yet: the button creating its first person.
+fn empty_tree(i18n: &I18n, writes: TreeWrites) -> Element {
+    rsx! {
+        div { class: "empty-tree-container",
+            button {
+                class: "empty-tree-slot",
+                title: "{i18n.t(\"tree.no_persons_hint\")}",
+                onclick: move |_| writes.add_first_person(),
+                svg {
+                    width: "32",
+                    height: "32",
+                    fill: "none",
+                    "viewBox": "0 0 24 24",
+                    stroke: "currentColor",
+                    "strokeWidth": "1.5",
+                    line { x1: "12", y1: "5", x2: "12", y2: "19" }
+                    line { x1: "5", y1: "12", x2: "19", y2: "12" }
                 }
-            } else {
-                // Loading or empty state
-                {
-                    let ped_data = pedigree_resource.read();
-                    // Show empty-tree UI when pedigree loaded but tree has no persons,
-                    // or when the cache API returned a 404 (no persons in tree).
-                    let all_loaded = match &*ped_data {
-                        Some(Ok(_)) => true, // Has data but no pedigree_data (shouldn't happen)
-                        Some(Err(_)) => true, // Error = either no persons or network error
-                        None => false,        // Still loading
-                    };
+                span { {i18n.t("tree.add_first_person")} }
+            }
+        }
+    }
+}
 
-                    if all_loaded {
-                        rsx! {
-                            div { class: "empty-tree-container",
-                                button {
-                                    class: "empty-tree-slot",
-                                    title: "{i18n.t(\"tree.no_persons_hint\")}",
-                                    onclick: move |_| {
-                                        let api = api.clone();
-                                        let Some(tid) = tree_id_parsed() else { return };
-                                        spawn(async move {
-                                            if let Ok(new_person) = api.create_person(tid, &crate::api::CreatePersonBody { sex: oxidgene_core::Sex::Unknown }).await {
-                                                editing_person_id.set(Some(new_person.id));
-                                                tree_cache.invalidate();
-                                            }
-                                        });
-                                    },
-                                    svg {
-                                        width: "32",
-                                        height: "32",
-                                        fill: "none",
-                                        "viewBox": "0 0 24 24",
-                                        stroke: "currentColor",
-                                        "strokeWidth": "1.5",
-                                        line { x1: "12", y1: "5", x2: "12", y2: "19" }
-                                        line { x1: "5", y1: "12", x2: "19", y2: "12" }
-                                    }
-                                    span { {i18n.t("tree.add_first_person")} }
-                                }
+/// The persons most often asked about, offered before any search: the user
+/// themself and the tree's SOSA root — neither being `from`, and each once.
+fn kinship_shortcuts(from: Uuid, tree: Option<&Tree>, i18n: &I18n) -> Vec<(Uuid, String)> {
+    let Some(tree) = tree else {
+        return Vec::new();
+    };
+    let mut picks: Vec<(Uuid, String)> = Vec::new();
+    for (id, key) in [
+        (tree.self_person_id, "kinship.pick_self"),
+        (tree.sosa_root_person_id, "kinship.pick_sosa_root"),
+    ] {
+        if let Some(id) = id.filter(|&id| id != from && !picks.iter().any(|&(seen, _)| seen == id))
+        {
+            picks.push((id, i18n.t(key)));
+        }
+    }
+    picks
+}
+
+/// The search-or-create panel of a linking flow, or the kinship pick.
+fn linking_panel(
+    i18n: &I18n,
+    tid: Uuid,
+    mode: &LinkingMode,
+    writes: &TreeWrites,
+    data: Option<SharedPedigree>,
+    tree: Option<&Tree>,
+    routes: &TreeRoutes,
+) -> Element {
+    let mut linking = writes.overlays.linking;
+    let (title_key, search_key, create_key) = mode.label_keys();
+    let body = match *mode {
+        LinkingMode::Kinship(from) => {
+            let (nav, tree_id) = (routes.nav, routes.tree_id.clone());
+            let pick = EventHandler::new(move |other: Uuid| {
+                linking.set(None);
+                if other != from {
+                    nav.push(Route::Kinship {
+                        tree_id: tree_id.clone(),
+                        from: from.to_string(),
+                        to: other.to_string(),
+                    });
+                }
+            });
+            let shortcuts = kinship_shortcuts(from, tree, i18n);
+            rsx! {
+                if !shortcuts.is_empty() {
+                    div { class: "linking-shortcuts",
+                        for (id, label) in shortcuts {
+                            button {
+                                class: "btn btn-outline btn-sm",
+                                onclick: move |_| pick.call(id),
+                                "{label}"
                             }
                         }
-                    } else {
-                        rsx! {
-                            div { class: "loading", {i18n.t("tree.loading_pedigree")} }
-                        }
                     }
+                }
+                SearchPerson {
+                    tree_id: tid,
+                    placeholder: i18n.t(search_key),
+                    on_select: pick,
+                    on_cancel: move |_| linking.set(None),
                 }
             }
         }
-
-        // ── Linking panel (search-or-create for AddSpouse/AddParents/AddChild) ──
-        if let (Some(label), Some(tid)) = (linking_label, tree_id_parsed()) {
-            div { class: "card linking-card",
-                div { class: "section-header",
-                    h2 { style: "font-size: 1.1rem;", "{label}" }
-                    button {
-                        class: "btn btn-outline btn-sm",
-                        onclick: move |_| linking_mode.set(None),
-                        {i18n.t("common.cancel")}
-                    }
+        _ => {
+            let (select, create) = (writes.clone(), writes.clone());
+            let (select_data, create_data) = (data.clone(), data);
+            rsx! {
+                SearchPerson {
+                    tree_id: tid,
+                    placeholder: i18n.t(search_key),
+                    on_select: move |person_id| select.link(Some(person_id), select_data.as_ref()),
+                    on_cancel: move |_| linking.set(None),
                 }
-
-                div { class: "linking-panel",
-                    p { class: "linking-panel-title",
-                        {i18n.t("linking.search_existing")}
-                    }
-
-                    // Determine which handler to use based on mode.
-                    {
-                        let mode = linking_mode();
-                        match mode {
-                            Some(LinkingMode::Spouse(_)) => rsx! {
-                                SearchPerson {
-                                    tree_id: tid,
-                                    placeholder: i18n.t("linking.search_spouse"),
-                                    on_select: on_link_spouse,
-                                    on_cancel: move |_| linking_mode.set(None),
-                                }
-                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: on_create_new_spouse,
-                                    {i18n.t("linking.create_spouse")}
-                                }
-                            },
-                            Some(LinkingMode::Parents(_)) => rsx! {
-                                SearchPerson {
-                                    tree_id: tid,
-                                    placeholder: i18n.t("linking.search_parent"),
-                                    on_select: on_link_parent,
-                                    on_cancel: move |_| linking_mode.set(None),
-                                }
-                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: on_create_new_parent,
-                                    {i18n.t("linking.create_parent")}
-                                }
-                            },
-                            Some(LinkingMode::Child(_)) => rsx! {
-                                SearchPerson {
-                                    tree_id: tid,
-                                    placeholder: i18n.t("linking.search_child"),
-                                    on_select: on_link_child,
-                                    on_cancel: move |_| linking_mode.set(None),
-                                }
-                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: on_create_new_child,
-                                    {i18n.t("linking.create_child")}
-                                }
-                            },
-                            Some(LinkingMode::Sibling(_)) => rsx! {
-                                SearchPerson {
-                                    tree_id: tid,
-                                    placeholder: i18n.t("linking.search_sibling"),
-                                    on_select: on_link_sibling,
-                                    on_cancel: move |_| linking_mode.set(None),
-                                }
-                                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
-                                button {
-                                    class: "btn btn-outline",
-                                    onclick: on_create_new_sibling,
-                                    {i18n.t("linking.create_sibling")}
-                                }
-                            },
-                            Some(LinkingMode::Kinship(_)) => rsx! {
-                                if !kinship_shortcuts.is_empty() {
-                                    div { class: "linking-shortcuts",
-                                        for (id, label) in kinship_shortcuts.iter().cloned() {
-                                            {
-                                                let mut pick = on_pick_kinship.clone();
-                                                rsx! {
-                                                    button {
-                                                        class: "btn btn-outline btn-sm",
-                                                        onclick: move |_| pick(id),
-                                                        "{label}"
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                SearchPerson {
-                                    tree_id: tid,
-                                    placeholder: i18n.t("kinship.choose"),
-                                    on_select: on_pick_kinship,
-                                    on_cancel: move |_| linking_mode.set(None),
-                                }
-                            },
-                            None => rsx! {},
-                        }
-                    }
+                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
+                button {
+                    class: "btn btn-outline",
+                    onclick: move |_| create.link(None, create_data.as_ref()),
+                    {i18n.t(create_key)}
                 }
             }
         }
-
-        } // close .tree-detail-page
+    };
+    rsx! {
+        div { class: "card linking-card",
+            div { class: "section-header",
+                h2 { style: "font-size: 1.1rem;", {i18n.t(title_key)} }
+                button {
+                    class: "btn btn-outline btn-sm",
+                    onclick: move |_| linking.set(None),
+                    {i18n.t("common.cancel")}
+                }
+            }
+            div { class: "linking-panel",
+                p { class: "linking-panel-title",
+                    {i18n.t("linking.search_existing")}
+                }
+                {body}
+            }
+        }
     }
 }
 

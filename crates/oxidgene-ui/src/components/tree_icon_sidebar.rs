@@ -228,6 +228,62 @@ pub fn ToolPageSidebar(
     }
 }
 
+/// The sidebar of the person and couple pages: the view on screen stays put,
+/// the others open on `selected_person_id` — the couple view on
+/// `couple_family_id` — and adding a person is left to the page.
+#[component]
+pub fn ProfilePageSidebar(
+    tree_id: String,
+    active_view: TreeSidebarView,
+    selected_person_id: Option<Uuid>,
+    couple_family_id: Option<Uuid>,
+    on_add_person: EventHandler<()>,
+) -> Element {
+    let nav = use_navigator();
+    let (profile_tree, couple_tree, pedigree_tree, dictionary_tree) = (
+        tree_id.clone(),
+        tree_id.clone(),
+        tree_id.clone(),
+        tree_id.clone(),
+    );
+    rsx! {
+        TreeIconSidebar {
+            active_view,
+            selected_person_id,
+            couple_family_id,
+            on_profile_view: move |pid: Option<Uuid>| {
+                if let (false, Some(pid)) = (active_view == TreeSidebarView::Profile, pid) {
+                    nav.push(Route::PersonDetail {
+                        tree_id: profile_tree.clone(),
+                        person_id: pid.to_string(),
+                    });
+                }
+            },
+            on_couple_view: move |family_id: Uuid| {
+                if active_view != TreeSidebarView::Couple {
+                    nav.push(Route::CoupleDetail {
+                        tree_id: couple_tree.clone(),
+                        family_id: family_id.to_string(),
+                    });
+                }
+            },
+            on_pedigree_view: move |pid: Option<Uuid>| {
+                nav.push(Route::TreeDetail {
+                    tree_id: pedigree_tree.clone(),
+                    person: pid.map(|pid| pid.to_string()),
+                });
+            },
+            on_add_person,
+            on_dictionary: move |_| {
+                nav.push(Route::Dictionary { tree_id: dictionary_tree.clone() });
+            },
+            on_settings: move |_| {
+                nav.push(Route::Settings { tree_id: tree_id.clone() });
+            },
+        }
+    }
+}
+
 /// A sidebar button's class, highlighted when `active`.
 fn button_class(active: bool) -> &'static str {
     if active {

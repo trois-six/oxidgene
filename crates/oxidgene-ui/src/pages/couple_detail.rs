@@ -10,9 +10,10 @@ use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{FamilySpouse, Note};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, PersonDetailBundle};
+use crate::api::{ApiClient, ApiError, CroppedSource, PersonDetailBundle};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::media_gallery::MediaOwner;
+use crate::components::pedigree_chart::SharedPedigree;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::{
     EnrichedEvent, EventOrigin, Profile, ProfileMediaCard, SHOW_MANUAL_REFRESH, SectionContext,
@@ -23,7 +24,7 @@ use crate::components::person_profile::{
 use crate::components::print::PrintHeading;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
+use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
 use crate::components::union_form::UnionForm;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
@@ -53,7 +54,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     let tree_cache = use_tree_cache();
     let load_trace = use_ui_load_trace(UiPage::CoupleDetail);
     let mut refresh = use_signal(|| 0u32);
-    let mut media_revision = use_signal(|| 0_u32);
+    let media_revision = use_signal(|| 0_u32);
     let mut show_edit_couple = use_signal(|| false);
     let mut show_create_person = use_signal(|| false);
 
@@ -71,8 +72,6 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
 
     // ── Resources ────────────────────────────────────────────────────
 
-    // The family (which fails once the couple is deleted), its spouses, and
-    // both spouses' bundles, fetched concurrently.
     let api_couple = api.clone();
     let couple_resource = use_traced_resource(load_trace.clone(), "couple", move || {
         let api = api_couple.clone();
@@ -83,25 +82,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
             let (Some(tid), Some(fid)) = (tid, fid) else {
                 return Err(ApiError::invalid_ids(&i18n));
             };
-            let (_family, spouses) = futures_util::future::try_join(
-                api.get_family(tid, fid),
-                api.list_family_spouses(tid, fid),
-            )
-            .await?;
-            let bundles = futures_util::future::try_join_all(spouses.iter().map(|spouse| {
-                let api = api.clone();
-                let pid = spouse.person_id;
-                async move {
-                    api.get_person_detail_bundle(tid, pid)
-                        .await
-                        .map(|bundle| (pid, Arc::new(bundle)))
-                }
-            }))
-            .await?;
-            Ok(Arc::new(CoupleData {
-                spouses,
-                bundles: bundles.into_iter().collect(),
-            }))
+            load_couple(api, tid, fid).await
         }
     });
 
@@ -111,28 +92,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     });
     let left_id = use_memo(move || sides().0);
     let right_id = use_memo(move || sides().1);
-
-    // Deleting the couple from its edit modal leaves nothing to show: go back
-    // to the tree, on whichever spouse was on screen.
-    let mut last_person = use_signal(|| None::<Uuid>);
-    use_effect(move || {
-        if let Some(person) = left_id().or(right_id()) {
-            last_person.set(Some(person));
-        }
-    });
-    use_effect({
-        let tree_id = tree_id.clone();
-        move || {
-            if let Some(Err(ApiError::Api { status: 404, .. })) = &*couple_resource.read()
-                && let Some(person) = *last_person.peek()
-            {
-                nav.replace(Route::TreeDetail {
-                    tree_id: tree_id.clone(),
-                    person: Some(person.to_string()),
-                });
-            }
-        }
-    });
+    use_back_to_tree_when_deleted(&tree_id, couple_resource, left_id, right_id);
 
     let tree_resource = use_tree_resource(
         load_trace.clone(),
@@ -162,20 +122,6 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         }
     });
 
-    let left_notes = use_notes(
-        load_trace.clone(),
-        &api,
-        tree_id_parsed,
-        refresh,
-        NotesOf::Person(left_id),
-    );
-    let right_notes = use_notes(
-        load_trace.clone(),
-        &api,
-        tree_id_parsed,
-        refresh,
-        NotesOf::Person(right_id),
-    );
     let couple_notes = use_notes(
         load_trace.clone(),
         &api,
@@ -183,26 +129,22 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         refresh,
         NotesOf::Family(family_id_parsed),
     );
-
-    let left_pedigree = use_ancestor_pedigree(
+    let left = use_side(
         load_trace.clone(),
-        api.clone(),
-        tree_id_parsed,
-        left_id.into(),
-        i18n,
+        &api,
+        (tree_id_parsed, refresh, i18n),
+        couple_resource,
+        photos_resource,
+        left_id,
     );
-    let right_pedigree = use_ancestor_pedigree(
+    let right = use_side(
         load_trace.clone(),
-        api.clone(),
-        tree_id_parsed,
-        right_id.into(),
-        i18n,
+        &api,
+        (tree_id_parsed, refresh, i18n),
+        couple_resource,
+        photos_resource,
+        right_id,
     );
-    let left_mini = use_mini_pedigree(left_pedigree, photos_resource);
-    let right_mini = use_mini_pedigree(right_pedigree, photos_resource);
-
-    let left_profile = use_side_profile(couple_resource, left_id, left_pedigree, i18n);
-    let right_profile = use_side_profile(couple_resource, right_id, right_pedigree, i18n);
 
     // ── Render ────────────────────────────────────────────────────────
 
@@ -226,18 +168,15 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         Some(Err(error)) => (false, Some(error.to_string())),
         None => (false, None),
     };
-    let left = left_profile();
-    let right = right_profile();
+    let columns = [left.column(left_id()), right.column(right_id())];
     let unknown = i18n.t("couple.unknown_spouse");
-    let side_name = |profile: &Option<SharedProfile>| {
-        profile
-            .as_ref()
-            .map_or_else(|| unknown.clone(), |p| p.name.display_name.clone())
-    };
     let title = if loaded {
         i18n.t_args(
             "couple.title",
-            &[("left", &side_name(&left)), ("right", &side_name(&right))],
+            &[
+                ("left", &columns[0].name(&unknown)),
+                ("right", &columns[1].name(&unknown)),
+            ],
         )
     } else {
         String::new()
@@ -252,11 +191,9 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     });
     let selected_person_id = left_id().or(right_id());
     use_track_current_person(tree_id_parsed(), selected_person_id);
-    let photo_of = |person_id: Uuid| {
-        photos_resource
-            .read()
-            .as_ref()
-            .and_then(|photos| photos.get(&person_id).cloned())
+    let on_saved = move |_| {
+        tree_cache.invalidate();
+        refresh += 1;
     };
 
     rsx! {
@@ -275,286 +212,53 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         }
 
         div { class: "pd-page-shell",
-        TreeIconSidebar {
+        ProfilePageSidebar {
+            tree_id: tree_id.clone(),
             active_view: TreeSidebarView::Couple,
             selected_person_id,
             couple_family_id: family_id_parsed(),
-            on_couple_view: move |_| {},
-            on_profile_view: {
-                let tree_id = tree_id.clone();
-                move |pid: Option<Uuid>| {
-                    if let Some(pid) = pid {
-                        nav.push(Route::PersonDetail {
-                            tree_id: tree_id.clone(),
-                            person_id: pid.to_string(),
-                        });
-                    }
-                }
-            },
-            on_pedigree_view: {
-                let tree_id = tree_id.clone();
-                move |pid: Option<Uuid>| {
-                    nav.push(Route::TreeDetail {
-                        tree_id: tree_id.clone(),
-                        person: pid.map(|pid| pid.to_string()),
-                    });
-                }
-            },
             on_add_person: move |_| show_create_person.set(true),
-            on_settings: {
-                let tree_id = tree_id.clone();
-                move |_| {
-                    nav.push(Route::Settings { tree_id: tree_id.clone() });
-                }
-            },
-            on_dictionary: {
-                let tree_id = tree_id.clone();
-                move |_| {
-                    nav.push(Route::Dictionary { tree_id: tree_id.clone() });
-                }
-            },
         }
 
         div { class: "sub-page-content pd-content cp-content",
 
         // The existing couple edit modal: both spouses, the union's events,
         // its children (detachable), its media — and deleting the couple.
-        if show_edit_couple() {
-            if let (Some(tid), Some(fid)) = (tree_id_parsed(), family_id_parsed()) {
-                UnionForm {
-                    tree_id: tid,
-                    family_id: fid,
-                    on_close: move |_| show_edit_couple.set(false),
-                    on_saved: move |_| {
-                        tree_cache.invalidate();
-                        refresh += 1;
-                    },
-                }
+        if let (true, Some(tid), Some(fid)) = (show_edit_couple(), tree_id_parsed(), family_id_parsed()) {
+            UnionForm {
+                tree_id: tid,
+                family_id: fid,
+                on_close: move |_| show_edit_couple.set(false),
+                on_saved,
             }
         }
 
-        if show_create_person() {
-            if let Some(tid) = tree_id_parsed() {
-                PersonForm {
-                    tree_id: tid,
-                    create_context: PersonFormCreateContext::Standalone,
-                    on_close: move |_| show_create_person.set(false),
-                    on_saved: move |_| {
-                        tree_cache.invalidate();
-                        refresh += 1;
-                    },
-                }
+        if let (true, Some(tid)) = (show_create_person(), tree_id_parsed()) {
+            PersonForm {
+                tree_id: tid,
+                create_context: PersonFormCreateContext::Standalone,
+                on_close: move |_| show_create_person.set(false),
+                on_saved,
             }
         }
 
         match (loaded, ctx.as_ref(), family_id_parsed()) {
-            (true, Some(ctx), Some(fid)) => {
-                let anchor = left.as_ref().or(right.as_ref());
-                let union = anchor.and_then(|profile| {
-                    profile
-                        .family
-                        .unions
-                        .iter()
-                        .find(|union| union.family_id == fid)
-                        .map(|union| (profile, union))
-                });
-                // What the couple shares: the union's own events and its
-                // children's, told once rather than from each spouse's side.
-                let couple_events: Vec<EnrichedEvent> = anchor
-                    .map(|profile| {
-                        profile
-                            .events
-                            .iter()
-                            .filter(|entry| entry.union_id == Some(fid))
-                            .map(|entry| {
-                                let mut entry = entry.clone();
-                                if entry.origin == EventOrigin::ConjugalFamily {
-                                    entry.context = None;
-                                }
-                                entry
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let couple_event_refs: Vec<&EnrichedEvent> = couple_events.iter().collect();
-                let has_person_notes = shows_notes(&left_notes) || shows_notes(&right_notes);
-                let open_profile = |profile: &Profile| {
-                    let tree_id = tree_id.clone();
-                    let person_id = profile.person_id;
-                    open_profile_button(&i18n, move || {
-                        nav.push(Route::PersonDetail {
-                            tree_id: tree_id.clone(),
-                            person_id: person_id.to_string(),
-                        });
-                    })
+            (true, Some(ctx), Some(family_id)) => {
+                let view = CoupleView {
+                    ctx,
+                    tree_id: &tree_id,
+                    family_id,
+                    nav,
+                    self_person_id,
+                    photos: photos_resource,
+                    couple_notes,
+                    columns: &columns,
+                    unknown: &unknown,
                 };
-                let on_self_badge = {
-                    let tree_id = tree_id.clone();
-                    EventHandler::new(move |()| {
-                        nav.push(Route::Settings { tree_id: tree_id.clone() });
-                    })
-                };
-                let on_navigate = {
-                    let tree_id = tree_id.clone();
-                    EventHandler::new(move |pid: Uuid| {
-                        nav.push(Route::PersonDetail { tree_id: tree_id.clone(), person_id: pid.to_string() });
-                    })
-                };
-                let columns = [
-                    (left_id(), &left, left_notes, left_pedigree, left_mini()),
-                    (right_id(), &right, right_notes, right_pedigree, right_mini()),
-                ];
-
                 rsx! {
-                    div { class: "cp-actions",
-                        button {
-                            class: "btn btn-outline pd-header-action-btn",
-                            title: i18n.t("couple.edit"),
-                            aria_label: i18n.t("couple.edit"),
-                            onclick: move |_| show_edit_couple.set(true),
-                            svg {
-                                class: "pd-header-action-icon",
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                path { d: "M12 20h9" }
-                                path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
-                            }
-                        }
-                        if SHOW_MANUAL_REFRESH {
-                            {refresh_button(&i18n, move || refresh += 1)}
-                        }
-                    }
-
-                    div { class: "card cp-bar",
-                        {spouse_select(&i18n, nav, &tree_id, fid, right.as_deref(), side_name(&left))}
-                        span { class: "cp-ring", aria_hidden: "true", "\u{26AD}" }
-                        {spouse_select(&i18n, nav, &tree_id, fid, left.as_deref(), side_name(&right))}
-                    }
-
-                    div { class: "cp-grid",
-                        // ── Identity ──
-                        for (person_id, profile, ..) in columns.iter() {
-                            div { class: "cp-cell",
-                                match (person_id, profile) {
-                                    (Some(_), Some(profile)) => header_section(
-                                        ctx,
-                                        profile,
-                                        photo_of(profile.person_id),
-                                        self_person_id == Some(profile.person_id),
-                                        on_self_badge,
-                                        open_profile(profile),
-                                    ),
-                                    (Some(_), None) => rsx! {
-                                        div { class: "card page-header loading", {i18n.t("couple.loading")} }
-                                    },
-                                    (None, _) => rsx! {
-                                        div { class: "card page-header cp-unknown",
-                                            p { class: "text-muted", "{unknown}" }
-                                        }
-                                    },
-                                }
-                            }
-                        }
-
-                        // ── Notes ──
-                        if shows_notes(&couple_notes) {
-                            div { class: "cp-span",
-                                {notes_section(&i18n, "couple.notes_section", couple_notes.read().as_ref().and_then(Option::as_ref))}
-                            }
-                        }
-                        if has_person_notes {
-                            for (_, _, notes, ..) in columns.iter() {
-                                div { class: "cp-cell",
-                                    {notes_section(&i18n, "person.notes_section", notes.read().as_ref().and_then(Option::as_ref))}
-                                }
-                            }
-                        }
-
-                        // ── Media ──
-                        div { class: "cp-span",
-                            ProfileMediaCard {
-                                tree_id: ctx.tree_id,
-                                owner: MediaOwner::Family(fid),
-                                title: i18n.t("couple.media_section"),
-                                event_links: media_event_links(couple_events.iter(), &i18n),
-                                revision: media_revision(),
-                                on_changed: move |()| media_revision += 1,
-                            }
-                        }
-                        for (_, profile, ..) in columns.iter() {
-                            div { class: "cp-cell",
-                                if let Some(profile) = profile {
-                                    ProfileMediaCard {
-                                        key: "{profile.person_id}",
-                                        tree_id: ctx.tree_id,
-                                        owner: MediaOwner::Person(profile.person_id),
-                                        title: i18n.t("media.section"),
-                                        event_links: media_event_links(
-                                            profile.events.iter().filter(|entry| entry.union_id != Some(fid)),
-                                            &i18n,
-                                        ),
-                                        preloaded_tiles: Some(profile.profile_tiles(false)),
-                                        preloaded_bundle: Some(Arc::clone(&profile.bundle.gallery)),
-                                        preloaded_portrait: profile.person.as_ref().map(|person| (
-                                            person.portrait_media_id,
-                                            person.portrait_vignette_id,
-                                        )),
-                                        preloaded_vignettes: Some(profile.bundle.profile_vignettes.clone()),
-                                        revision: media_revision(),
-                                        on_changed: move |()| media_revision += 1,
-                                    }
-                                }
-                            }
-                        }
-
-                        // ── Family ──
-                        if let Some((profile, union)) = union {
-                            div { class: "cp-span",
-                                div { class: "card pd-family-card",
-                                    h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t("couple.union_section")} }
-                                    p { class: "pd-union-line", {union_line(ctx, profile, union, false)} }
-                                    {children_list(ctx, profile, &union.child_ids)}
-                                }
-                            }
-                        }
-                        for (_, profile, ..) in columns.iter() {
-                            div { class: "cp-cell",
-                                if let Some(profile) = profile {
-                                    {family_section(ctx, profile, Some(fid))}
-                                }
-                            }
-                        }
-
-                        // ── Events ──
-                        if let Some(profile) = anchor {
-                            div { class: "cp-span",
-                                {timeline_section(ctx, profile, i18n.t("couple.events_section"), &couple_event_refs)}
-                            }
-                        }
-                        for (_, profile, ..) in columns.iter() {
-                            div { class: "cp-cell",
-                                if let Some(profile) = profile {
-                                    {
-                                        let own: Vec<&EnrichedEvent> = profile
-                                            .events
-                                            .iter()
-                                            .filter(|entry| entry.union_id != Some(fid))
-                                            .collect();
-                                        timeline_section(ctx, profile, i18n.t("person.events_section"), &own)
-                                    }
-                                }
-                            }
-                        }
-
-                        // ── Ancestors ──
-                        for (person_id, _, _, pedigree, mini) in columns.iter() {
-                            div { class: "cp-cell",
-                                if person_id.is_some() {
-                                    {ancestors_section(&i18n, pedigree, mini.clone(), on_navigate)}
-                                }
-                            }
-                        }
-                    }
+                    {couple_actions(&i18n, show_edit_couple, refresh)}
+                    {view.spouse_bar()}
+                    {view.grid()}
                 }
             }
             _ => match load_error {
@@ -572,6 +276,409 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     }
 }
 
+/// Loads the family (which fails once the couple is deleted), its spouses,
+/// and both spouses' bundles, fetched concurrently.
+async fn load_couple(api: ApiClient, tid: Uuid, fid: Uuid) -> Result<Arc<CoupleData>, ApiError> {
+    let (_family, spouses) =
+        futures_util::future::try_join(api.get_family(tid, fid), api.list_family_spouses(tid, fid))
+            .await?;
+    let bundles = futures_util::future::try_join_all(spouses.iter().map(|spouse| {
+        let api = api.clone();
+        let pid = spouse.person_id;
+        async move {
+            api.get_person_detail_bundle(tid, pid)
+                .await
+                .map(|bundle| (pid, Arc::new(bundle)))
+        }
+    }))
+    .await?;
+    Ok(Arc::new(CoupleData {
+        spouses,
+        bundles: bundles.into_iter().collect(),
+    }))
+}
+
+/// Deleting the couple from its edit modal leaves nothing to show: go back
+/// to the tree, on whichever spouse was on screen.
+fn use_back_to_tree_when_deleted(
+    tree_id: &str,
+    couple: Resource<Result<Arc<CoupleData>, ApiError>>,
+    left_id: Memo<Option<Uuid>>,
+    right_id: Memo<Option<Uuid>>,
+) {
+    let nav = use_navigator();
+    let mut last_person = use_signal(|| None::<Uuid>);
+    use_effect(move || {
+        if let Some(person) = left_id().or(right_id()) {
+            last_person.set(Some(person));
+        }
+    });
+    let tree_id = tree_id.to_string();
+    use_effect(move || {
+        if let Some(Err(ApiError::Api { status: 404, .. })) = &*couple.read()
+            && let Some(person) = *last_person.peek()
+        {
+            nav.replace(Route::TreeDetail {
+                tree_id: tree_id.clone(),
+                person: Some(person.to_string()),
+            });
+        }
+    });
+}
+
+/// The notes list a notes resource loads.
+type NotesResource = Resource<Option<Result<Vec<Note>, ApiError>>>;
+
+/// One spouse's loads: their notes, ancestors and profile.
+struct Side {
+    notes: NotesResource,
+    pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
+    mini: Memo<Option<(Uuid, SharedPedigree)>>,
+    profile: Memo<Option<SharedProfile>>,
+}
+
+impl Side {
+    /// What this side shows in a render.
+    fn column(&self, person_id: Option<Uuid>) -> Column {
+        Column {
+            person_id,
+            profile: (self.profile)(),
+            notes: self.notes,
+            pedigree: self.pedigree,
+            mini: (self.mini)(),
+        }
+    }
+}
+
+/// One spouse's column of the couple grid.
+struct Column {
+    person_id: Option<Uuid>,
+    profile: Option<SharedProfile>,
+    notes: NotesResource,
+    pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
+    mini: Option<(Uuid, SharedPedigree)>,
+}
+
+impl Column {
+    /// The spouse's name, or `unknown` for a missing spouse.
+    fn name(&self, unknown: &str) -> String {
+        self.profile
+            .as_ref()
+            .map_or_else(|| unknown.to_string(), |p| p.name.display_name.clone())
+    }
+}
+
+/// Starts one spouse's loads.
+fn use_side(
+    load_trace: UiLoadTrace,
+    api: &ApiClient,
+    (tree_id, refresh, i18n): (Signal<Option<Uuid>>, Signal<u32>, I18n),
+    couple: Resource<Result<Arc<CoupleData>, ApiError>>,
+    photos: Resource<HashMap<Uuid, CroppedSource>>,
+    person_id: Memo<Option<Uuid>>,
+) -> Side {
+    let notes = use_notes(
+        load_trace.clone(),
+        api,
+        tree_id,
+        refresh,
+        NotesOf::Person(person_id),
+    );
+    let pedigree = use_ancestor_pedigree(load_trace, api.clone(), tree_id, person_id.into(), i18n);
+    Side {
+        notes,
+        pedigree,
+        mini: use_mini_pedigree(pedigree, photos),
+        profile: use_side_profile(couple, person_id, pedigree, i18n),
+    }
+}
+
+/// The couple's own actions: editing it, and refreshing the page.
+fn couple_actions(i18n: &I18n, mut show_edit: Signal<bool>, mut refresh: Signal<u32>) -> Element {
+    rsx! {
+        div { class: "cp-actions",
+            button {
+                class: "btn btn-outline pd-header-action-btn",
+                title: i18n.t("couple.edit"),
+                aria_label: i18n.t("couple.edit"),
+                onclick: move |_| show_edit.set(true),
+                svg {
+                    class: "pd-header-action-icon",
+                    width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                    stroke: "currentColor", "strokeWidth": "2",
+                    path { d: "M12 20h9" }
+                    path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
+                }
+            }
+            if SHOW_MANUAL_REFRESH {
+                {refresh_button(i18n, move || refresh += 1)}
+            }
+        }
+    }
+}
+
+/// A loaded couple, drawn as rows of the grid: what the couple shares spans
+/// both columns, and what is each spouse's own sits in their column.
+struct CoupleView<'a> {
+    ctx: &'a SectionContext<'a>,
+    tree_id: &'a str,
+    family_id: Uuid,
+    nav: dioxus::router::Navigator,
+    self_person_id: Option<Uuid>,
+    photos: Resource<HashMap<Uuid, CroppedSource>>,
+    couple_notes: NotesResource,
+    columns: &'a [Column; 2],
+    unknown: &'a str,
+}
+
+impl CoupleView<'_> {
+    /// The profile the couple's own rows are read from.
+    fn anchor(&self) -> Option<&SharedProfile> {
+        self.columns
+            .iter()
+            .find_map(|column| column.profile.as_ref())
+    }
+
+    /// Each spouse's profile, where known.
+    fn profiles(&self) -> impl Iterator<Item = Option<&SharedProfile>> {
+        self.columns.iter().map(|column| column.profile.as_ref())
+    }
+
+    /// What the couple shares: the union's own events and its children's,
+    /// told once rather than from each spouse's side.
+    fn couple_events(&self) -> Vec<EnrichedEvent> {
+        let Some(anchor) = self.anchor() else {
+            return Vec::new();
+        };
+        anchor
+            .events
+            .iter()
+            .filter(|entry| entry.union_id == Some(self.family_id))
+            .map(|entry| {
+                let mut entry = entry.clone();
+                if entry.origin == EventOrigin::ConjugalFamily {
+                    entry.context = None;
+                }
+                entry
+            })
+            .collect()
+    }
+
+    /// A spouse's events outside this couple.
+    fn own_events<'p>(&self, profile: &'p Profile) -> impl Iterator<Item = &'p EnrichedEvent> {
+        let family_id = self.family_id;
+        profile
+            .events
+            .iter()
+            .filter(move |entry| entry.union_id != Some(family_id))
+    }
+
+    /// The two spouse selectors around the wedding rings.
+    fn spouse_bar(&self) -> Element {
+        let i18n = &self.ctx.i18n;
+        let [left, right] = self.columns;
+        rsx! {
+            div { class: "card cp-bar",
+                {spouse_select(i18n, self.nav, self.tree_id, self.family_id, right.profile.as_deref(), left.name(self.unknown))}
+                span { class: "cp-ring", aria_hidden: "true", "\u{26AD}" }
+                {spouse_select(i18n, self.nav, self.tree_id, self.family_id, left.profile.as_deref(), right.name(self.unknown))}
+            }
+        }
+    }
+
+    fn grid(&self) -> Element {
+        let couple_events = self.couple_events();
+        rsx! {
+            div { class: "cp-grid",
+                {self.identity_row()}
+                {self.notes_rows()}
+                {self.media_rows(&couple_events)}
+                {self.family_rows()}
+                {self.event_rows(&couple_events)}
+                {self.ancestor_row()}
+            }
+        }
+    }
+
+    fn identity_row(&self) -> Element {
+        rsx! {
+            for column in self.columns.iter() {
+                div { class: "cp-cell", {self.identity(column)} }
+            }
+        }
+    }
+
+    /// A spouse's header, or why there is none yet.
+    fn identity(&self, column: &Column) -> Element {
+        let i18n = &self.ctx.i18n;
+        match (column.person_id, &column.profile) {
+            (Some(_), Some(profile)) => header_section(
+                self.ctx,
+                profile,
+                self.photos
+                    .read()
+                    .as_ref()
+                    .and_then(|photos| photos.get(&profile.person_id).cloned()),
+                self.self_person_id == Some(profile.person_id),
+                self.route_handler(|tree_id, ()| Route::Settings { tree_id }),
+                self.open_profile(profile.person_id),
+            ),
+            (Some(_), None) => rsx! {
+                div { class: "card page-header loading", {i18n.t("couple.loading")} }
+            },
+            (None, _) => rsx! {
+                div { class: "card page-header cp-unknown",
+                    p { class: "text-muted", "{self.unknown}" }
+                }
+            },
+        }
+    }
+
+    /// A handler opening the route `route` makes of this tree and its input.
+    fn route_handler<T: 'static>(&self, route: fn(String, T) -> Route) -> EventHandler<T> {
+        let (nav, tree_id) = (self.nav, self.tree_id.to_string());
+        EventHandler::new(move |input| {
+            nav.push(route(tree_id.clone(), input));
+        })
+    }
+
+    fn open_profile(&self, person_id: Uuid) -> Element {
+        let open = self.route_handler(person_route);
+        open_profile_button(&self.ctx.i18n, move || open.call(person_id))
+    }
+
+    fn notes_rows(&self) -> Element {
+        let i18n = &self.ctx.i18n;
+        let has_person_notes = self.columns.iter().any(|column| shows_notes(&column.notes));
+        rsx! {
+            if shows_notes(&self.couple_notes) {
+                div { class: "cp-span",
+                    {notes_section(i18n, "couple.notes_section", self.couple_notes.read().as_ref().and_then(Option::as_ref))}
+                }
+            }
+            if has_person_notes {
+                for column in self.columns.iter() {
+                    div { class: "cp-cell",
+                        {notes_section(i18n, "person.notes_section", column.notes.read().as_ref().and_then(Option::as_ref))}
+                    }
+                }
+            }
+        }
+    }
+
+    fn media_rows(&self, couple_events: &[EnrichedEvent]) -> Element {
+        let i18n = &self.ctx.i18n;
+        let mut media_revision = self.ctx.media_revision;
+        rsx! {
+            div { class: "cp-span",
+                ProfileMediaCard {
+                    tree_id: self.ctx.tree_id,
+                    owner: MediaOwner::Family(self.family_id),
+                    title: i18n.t("couple.media_section"),
+                    event_links: media_event_links(couple_events.iter(), i18n),
+                    revision: media_revision(),
+                    on_changed: move |()| media_revision += 1,
+                }
+            }
+            for profile in self.profiles() {
+                div { class: "cp-cell",
+                    if let Some(profile) = profile {
+                        ProfileMediaCard {
+                            key: "{profile.person_id}",
+                            tree_id: self.ctx.tree_id,
+                            owner: MediaOwner::Person(profile.person_id),
+                            title: i18n.t("media.section"),
+                            event_links: media_event_links(self.own_events(profile), i18n),
+                            preloaded_tiles: Some(profile.profile_tiles(false)),
+                            preloaded_bundle: Some(Arc::clone(&profile.bundle.gallery)),
+                            preloaded_portrait: profile.person.as_ref().map(|person| (
+                                person.portrait_media_id,
+                                person.portrait_vignette_id,
+                            )),
+                            preloaded_vignettes: Some(profile.bundle.profile_vignettes.clone()),
+                            revision: media_revision(),
+                            on_changed: move |()| media_revision += 1,
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn family_rows(&self) -> Element {
+        let ctx = self.ctx;
+        let union = self.anchor().and_then(|profile| {
+            profile
+                .family
+                .unions
+                .iter()
+                .find(|union| union.family_id == self.family_id)
+                .map(|union| (profile, union))
+        });
+        rsx! {
+            if let Some((profile, union)) = union {
+                div { class: "cp-span",
+                    div { class: "card pd-family-card",
+                        h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {ctx.i18n.t("couple.union_section")} }
+                        p { class: "pd-union-line", {union_line(ctx, profile, union, false)} }
+                        {children_list(ctx, profile, &union.child_ids)}
+                    }
+                }
+            }
+            for profile in self.profiles() {
+                div { class: "cp-cell",
+                    if let Some(profile) = profile {
+                        {family_section(ctx, profile, Some(self.family_id))}
+                    }
+                }
+            }
+        }
+    }
+
+    fn event_rows(&self, couple_events: &[EnrichedEvent]) -> Element {
+        let ctx = self.ctx;
+        let couple_event_refs: Vec<&EnrichedEvent> = couple_events.iter().collect();
+        rsx! {
+            if let Some(profile) = self.anchor() {
+                div { class: "cp-span",
+                    {timeline_section(ctx, profile, ctx.i18n.t("couple.events_section"), &couple_event_refs)}
+                }
+            }
+            for profile in self.profiles() {
+                div { class: "cp-cell",
+                    if let Some(profile) = profile {
+                        {
+                            let own: Vec<&EnrichedEvent> = self.own_events(profile).collect();
+                            timeline_section(ctx, profile, ctx.i18n.t("person.events_section"), &own)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn ancestor_row(&self) -> Element {
+        let on_navigate = self.route_handler(person_route);
+        rsx! {
+            for column in self.columns.iter() {
+                div { class: "cp-cell",
+                    if column.person_id.is_some() {
+                        {ancestors_section(&self.ctx.i18n, &column.pedigree, column.mini.clone(), on_navigate)}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A person's profile in a tree.
+fn person_route(tree_id: String, person_id: Uuid) -> Route {
+    Route::PersonDetail {
+        tree_id,
+        person_id: person_id.to_string(),
+    }
+}
+
 /// Whose notes a notes resource loads.
 enum NotesOf {
     Person(Memo<Option<Uuid>>),
@@ -585,7 +692,7 @@ fn use_notes(
     tree_id: Signal<Option<Uuid>>,
     refresh: Signal<u32>,
     of: NotesOf,
-) -> Resource<Option<Result<Vec<Note>, ApiError>>> {
+) -> NotesResource {
     let api = api.clone();
     use_traced_resource(load_trace, "notes", move || {
         let api = api.clone();
@@ -606,7 +713,7 @@ fn use_notes(
 }
 
 /// Whether a notes card has anything to say: notes, or why they failed.
-fn shows_notes(notes: &Resource<Option<Result<Vec<Note>, ApiError>>>) -> bool {
+fn shows_notes(notes: &NotesResource) -> bool {
     match &*notes.read() {
         Some(Some(Ok(notes))) => !notes.is_empty(),
         Some(Some(Err(_))) => true,

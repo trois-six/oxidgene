@@ -18,6 +18,8 @@
 //! draws a labelled file icon in that case instead of a broken image, which is
 //! what an `<img>` onto a 404 gives you.
 
+use std::collections::HashSet;
+
 use chrono::NaiveDate;
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
@@ -39,10 +41,11 @@ use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
-use crate::i18n::use_i18n;
+use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::parse_privacy;
+use crate::utils::use_synced;
 
 /// What the gallery's media are attached to.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -236,6 +239,14 @@ impl MediaOwner {
         }
     }
 
+    /// The person owning the gallery, when a person does.
+    fn person(&self) -> Option<Uuid> {
+        match self {
+            Self::Person(id) => Some(*id),
+            Self::Family(_) | Self::Event(_) => None,
+        }
+    }
+
     /// Only a person has a profile photo — a family's card shows its spouses',
     /// and an event has no portrait to be.
     fn supports_profile(&self) -> bool {
@@ -299,6 +310,91 @@ pub struct MediaGalleryProps {
     pub on_changed: Option<EventHandler<()>>,
 }
 
+/// Whether a reader's full gallery, loaded, holds neither a medium nor a
+/// crop.
+fn reads_empty(
+    compact: bool,
+    read_only: bool,
+    loaded: bool,
+    items: &[MediaWithLink],
+    vignettes: &[Vignette],
+) -> bool {
+    !compact && read_only && loaded && items.is_empty() && vignettes.is_empty()
+}
+
+/// `preloaded` when there is, else what `load` finds — only then run.
+async fn or_load<T>(preloaded: Option<T>, load: impl Future<Output = Option<T>>) -> Option<T> {
+    match preloaded {
+        Some(value) => Some(value),
+        None => load.await,
+    }
+}
+
+/// The portrait `person`, if any, has chosen: a whole medium, or a crop.
+async fn load_portrait(
+    api: &ApiClient,
+    tree_id: Uuid,
+    person: Option<Uuid>,
+) -> Option<(Option<Uuid>, Option<Uuid>)> {
+    let person = api.get_person(tree_id, person?).await.ok()?;
+    Some((person.portrait_media_id, person.portrait_vignette_id))
+}
+
+/// The regions of media where `person`, if any, has been identified.
+async fn load_person_vignettes(
+    api: &ApiClient,
+    tree_id: Uuid,
+    person: Option<Uuid>,
+) -> Option<Vec<Vignette>> {
+    api.list_person_vignettes(tree_id, person?).await.ok()
+}
+
+/// The media of `owner`, then those of the related families it does not
+/// already show.
+async fn load_tiles(
+    api: &ApiClient,
+    tree_id: Uuid,
+    owner: MediaOwner,
+    related_family_ids: Vec<Uuid>,
+) -> Result<Vec<MediaWithLink>, ApiError> {
+    let mut items = api
+        .list_entity_media(tree_id, owner.entity_type(), owner.id())
+        .await?;
+    let family_results = futures_util::future::join_all(
+        related_family_ids
+            .into_iter()
+            .map(|family_id| api.list_entity_media(tree_id, "family", family_id)),
+    )
+    .await;
+    let mut shown: HashSet<Uuid> = items.iter().map(|item| item.media.id).collect();
+    for family_items in family_results {
+        items.extend(
+            family_items?
+                .into_iter()
+                .filter(|item| shown.insert(item.media.id)),
+        );
+    }
+    Ok(items)
+}
+
+/// What the viewer opens on for `tile`: a page opens its document, at that
+/// page.
+async fn viewer_selection(
+    api: &ApiClient,
+    tree_id: Uuid,
+    mut tile: MediaWithLink,
+) -> Result<MediaViewerSelection, ApiError> {
+    let (viewer_media_id, initial_page) = viewer_target(
+        tile.media.id,
+        tile.media.parent_media_id,
+        tile.media.page_index,
+    );
+    if viewer_media_id != tile.media.id {
+        tile.media = api.get_media(tree_id, viewer_media_id).await?;
+    }
+    Ok(MediaViewerSelection { tile, initial_page })
+}
+
 /// Thumbnail grid + upload cell + inline edit panel.
 #[component]
 pub fn MediaGallery(props: MediaGalleryProps) -> Element {
@@ -311,26 +407,11 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let read_only = props.read_only;
     let compact = props.compact;
     let related_family_ids = props.related_family_ids.clone();
-    let mut preloaded_tiles = use_signal(|| props.preloaded_tiles.clone());
-    if *preloaded_tiles.peek() != props.preloaded_tiles {
-        preloaded_tiles.set(props.preloaded_tiles.clone());
-    }
-    let mut preloaded_bundle = use_signal(|| props.preloaded_bundle.clone());
-    if *preloaded_bundle.peek() != props.preloaded_bundle {
-        preloaded_bundle.set(props.preloaded_bundle.clone());
-    }
-    let mut preloaded_portrait = use_signal(|| props.preloaded_portrait);
-    if *preloaded_portrait.peek() != props.preloaded_portrait {
-        preloaded_portrait.set(props.preloaded_portrait);
-    }
-    let mut preloaded_vignettes = use_signal(|| props.preloaded_vignettes.clone());
-    if *preloaded_vignettes.peek() != props.preloaded_vignettes {
-        preloaded_vignettes.set(props.preloaded_vignettes.clone());
-    }
-    let mut external_revision = use_signal(|| props.external_revision);
-    if *external_revision.peek() != props.external_revision {
-        external_revision.set(props.external_revision);
-    }
+    let preloaded_tiles = use_synced(props.preloaded_tiles.clone());
+    let preloaded_bundle = use_synced(props.preloaded_bundle.clone());
+    let preloaded_portrait = use_synced(props.preloaded_portrait);
+    let preloaded_vignettes = use_synced(props.preloaded_vignettes.clone());
+    let external_revision = use_synced(props.external_revision);
 
     // Bumped after every write; the resource re-runs when it changes. Cheaper
     // and less error-prone than mutating a local list in eight handlers and
@@ -339,26 +420,14 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let on_changed = props.on_changed;
     // Which media (or crop) represents this person, if the gallery belongs to
     // one. Portrait assignment is stored on the person.
-    let portrait_owner = match owner {
-        MediaOwner::Person(id) => Some(id),
-        MediaOwner::Family(_) | MediaOwner::Event(_) => None,
-    };
+    let portrait_owner = owner.person();
     let portrait = use_ui_resource("portrait", {
         let api = api.clone();
         move || {
             let api = api.clone();
             let _ = revision();
             let preloaded = preloaded_portrait();
-            async move {
-                if preloaded.is_some() {
-                    return preloaded;
-                }
-                let person_id = portrait_owner?;
-                api.get_person(tree_id, person_id)
-                    .await
-                    .ok()
-                    .map(|p| (p.portrait_media_id, p.portrait_vignette_id))
-            }
+            async move { or_load(preloaded, load_portrait(&api, tree_id, portrait_owner)).await }
         }
     });
     let portrait_read = portrait.read_unchecked();
@@ -375,11 +444,11 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             let _ = revision();
             let preloaded = preloaded_vignettes();
             async move {
-                if preloaded.is_some() {
-                    return preloaded;
-                }
-                let person_id = portrait_owner?;
-                api.list_person_vignettes(tree_id, person_id).await.ok()
+                or_load(
+                    preloaded,
+                    load_person_vignettes(&api, tree_id, portrait_owner),
+                )
+                .await
             }
         }
     });
@@ -403,24 +472,13 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
 
     let open_viewer = use_callback({
         let api = api.clone();
-        move |mut tile: MediaWithLink| {
+        move |tile: MediaWithLink| {
             let api = api.clone();
             spawn(async move {
-                let (viewer_media_id, initial_page) = viewer_target(
-                    tile.media.id,
-                    tile.media.parent_media_id,
-                    tile.media.page_index,
-                );
-                if viewer_media_id != tile.media.id {
-                    match api.get_media(tree_id, viewer_media_id).await {
-                        Ok(document) => tile.media = document,
-                        Err(err) => {
-                            error.set(Some(err.to_string()));
-                            return;
-                        }
-                    }
+                match viewer_selection(&api, tree_id, tile).await {
+                    Ok(selection) => viewing.set(Some(selection)),
+                    Err(err) => error.set(Some(err.to_string())),
                 }
-                viewing.set(Some(MediaViewerSelection { tile, initial_page }));
             });
         }
     });
@@ -431,10 +489,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     // is not only stale, it is somebody else's photographs. Mirroring the prop
     // into a signal makes the read inside the resource reactive, which is what
     // re-runs it — the same shape `person_detail` uses for its person id.
-    let mut showing = use_signal(|| (tree_id, owner, related_family_ids.clone()));
-    if *showing.peek() != (tree_id, owner, related_family_ids.clone()) {
-        showing.set((tree_id, owner, related_family_ids));
-    }
+    let showing = use_synced((tree_id, owner, related_family_ids));
 
     let tiles = use_ui_resource("media_tiles", {
         let api = api.clone();
@@ -445,29 +500,10 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             let (tree_id, owner, related_family_ids) = showing();
             let preloaded = preloaded_tiles();
             async move {
-                if let Some(items) = preloaded {
-                    return Ok(items);
+                match preloaded {
+                    Some(items) => Ok(items),
+                    None => load_tiles(&api, tree_id, owner, related_family_ids).await,
                 }
-                let mut items = api
-                    .list_entity_media(tree_id, owner.entity_type(), owner.id())
-                    .await?;
-                let family_results = futures_util::future::join_all(
-                    related_family_ids
-                        .into_iter()
-                        .map(|family_id| api.list_entity_media(tree_id, "family", family_id)),
-                )
-                .await;
-                for family_items in family_results {
-                    for item in family_items? {
-                        if !items
-                            .iter()
-                            .any(|existing| existing.media.id == item.media.id)
-                        {
-                            items.push(item);
-                        }
-                    }
-                }
-                Ok::<Vec<MediaWithLink>, ApiError>(items)
             }
         }
     });
@@ -488,12 +524,11 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
                 .unwrap_or_default();
             let preloaded = preloaded_bundle();
             async move {
-                match preloaded {
-                    Some(bundle) => bundle,
-                    None => std::sync::Arc::new(
-                        api.gallery_bundle(tree_id, &media_ids, &vignette_ids).await,
-                    ),
-                }
+                let Some(bundle) = preloaded else {
+                    let bundle = api.gallery_bundle(tree_id, &media_ids, &vignette_ids).await;
+                    return std::sync::Arc::new(bundle);
+                };
+                bundle
             }
         }
     });
@@ -534,6 +569,10 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         .collect::<Vec<_>>();
 
     let open_tile = editing().and_then(|id| items.iter().find(|t| t.media.id == id).cloned());
+    // A reader looking at a person with no photographs should be told so,
+    // not left with an empty rectangle that could equally mean "loading".
+    let loaded = tiles.read_unchecked().is_some();
+    let nothing_to_read = reads_empty(compact, read_only, loaded, &items, &person_vignettes);
 
     rsx! {
         div { class: if compact { "media-grid media-grid-compact" } else { "media-grid" },
@@ -589,14 +628,7 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             }
         }
 
-        // A reader looking at a person with no photographs should be told so,
-        // not left with an empty rectangle that could equally mean "loading".
-        if !compact
-            && read_only
-            && items.is_empty()
-            && person_vignettes.is_empty()
-            && tiles.read_unchecked().is_some()
-        {
+        if nothing_to_read {
             div { class: "media-empty", {use_i18n().t("media.none")} }
         }
 
@@ -604,6 +636,37 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
             div { class: "error-msg", "{err}" }
         }
 
+        GalleryDialogs {
+            tree_id,
+            owner,
+            events: events.clone(),
+            read_only,
+            creating,
+            open_tile,
+            editing,
+            viewing,
+            cropping,
+            changed,
+        }
+    }
+}
+
+/// The gallery's dialogs: a new document, the edit panel of the open tile,
+/// the viewer, and the cropper. Each change reaches `changed`.
+#[component]
+fn GalleryDialogs(
+    tree_id: Uuid,
+    owner: MediaOwner,
+    events: Vec<(Uuid, String)>,
+    read_only: bool,
+    creating: Signal<bool>,
+    open_tile: Option<MediaWithLink>,
+    editing: Signal<Option<Uuid>>,
+    viewing: Signal<Option<MediaViewerSelection>>,
+    cropping: Signal<Option<MediaWithLink>>,
+    changed: Callback<()>,
+) -> Element {
+    rsx! {
         if creating() {
             DocumentForm {
                 tree_id,
@@ -627,8 +690,8 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         if let Some(selection) = viewing() {
             MediaViewer {
                 tree_id,
-            tile: selection.tile,
-            initial_page: selection.initial_page,
+                tile: selection.tile,
+                initial_page: selection.initial_page,
                 events: events.clone(),
                 read_only,
                 on_changed: move |()| changed.call(()),
@@ -778,8 +841,8 @@ fn MediaTile(
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
 
-    let mut confirming = use_signal(|| false);
-    let mut busy = use_signal(|| false);
+    let confirming = use_signal(|| false);
+    let busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut delete_confirming = use_signal(|| false);
     let mut checking_delete = use_signal(|| false);
@@ -792,56 +855,13 @@ fn MediaTile(
 
     let media_id = tile.media.id;
     let link_id = tile.link_id;
-    let source = tile.source();
-    let kind = tile.kind();
-    let kind_label = tile.kind_label();
-    let caption = tile.caption().to_string();
-    let pages = tile.media.page_count;
-    // A document holds no bytes of its own, so what the tile draws — and what
-    // it may therefore say about where the file lives, or offer as somebody's
-    // portrait — is decided by its pages, which is what the previews are.
-    let remote_preview = (source == MediaSource::Remote
-        && oxidgene_core::types::may_draw_as_image(&tile.media.mime_type))
-    .then(|| tile.media.file_path.clone());
-    let draws_a_picture =
-        !document_previews.is_empty() || remote_preview.is_some() || kind == MediaKind::Image;
-    let draws_remote = source == MediaSource::Remote
-        || document_previews
-            .iter()
-            .any(|preview| oxidgene_core::types::is_remote_url(preview));
-
-    let has_event_link = !media_event_ids.is_empty();
+    let look = TileLook::of(&tile, &document_previews);
+    let caption = look.caption.clone();
     let linked_events: Vec<MediaEventLinkOption> = profile_event_links
         .iter()
         .filter(|event| media_event_ids.contains(&event.event_id))
         .cloned()
         .collect();
-    let menu_mode = event_menu();
-    let mut menu_events: Vec<MediaEventLinkOption> = menu_mode
-        .map(|_| {
-            profile_event_links
-                .iter()
-                .filter(|event| {
-                    let linked = linked_events
-                        .iter()
-                        .any(|linked| linked.event_id == event.event_id);
-                    !linked
-                })
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
-    // Dated events come first in their natural chronology; incomplete facts
-    // remain available but cannot jump ahead of a known date.
-    menu_events.sort_by_key(|event| (event.date_sort.is_none(), event.date_sort));
-    let max_event_menu_offset = menu_events.len().saturating_sub(5);
-    let current_event_menu_offset = event_menu_offset().min(max_event_menu_offset);
-    let visible_menu_events = menu_events
-        .iter()
-        .skip(current_event_menu_offset)
-        .take(5)
-        .cloned()
-        .collect::<Vec<_>>();
 
     // Called from two places — the hover button and the right-click menu —
     // so it takes no ownership of anything it cannot clone.
@@ -852,46 +872,19 @@ fn MediaTile(
             let Some(person_id) = person_id else {
                 return;
             };
-            spawn(async move {
-                busy.set(true);
-                // Clearing is sending neither id, which is how "use the
-                // silhouette again" is said.
-                let body = if is_portrait {
-                    SetPortraitBody::default()
-                } else {
-                    SetPortraitBody {
-                        media_id: Some(media_id),
-                        vignette_id: None,
-                    }
-                };
-                match api.set_person_portrait(tree_id, person_id, body).await {
-                    Ok(_) => on_changed.call(()),
-                    Err(e) => error.set(Some(e.to_string())),
-                }
-                busy.set(false);
-            });
+            // Clearing is sending neither id, which is how "use the
+            // silhouette again" is said.
+            let body = SetPortraitBody {
+                media_id: (!is_portrait).then_some(media_id),
+                vignette_id: None,
+            };
+            spawn(tile_action(busy, error, on_changed, async move {
+                api.set_person_portrait(tree_id, person_id, body)
+                    .await
+                    .map(|_| ())
+            }));
         }
     });
-
-    // Detach, not delete: the file may document three other people, and the
-    // trash on a person's tile means "not this person's", never "gone".
-    let detach = {
-        let api = api.clone();
-        move |_| {
-            let api = api.clone();
-            spawn(async move {
-                busy.set(true);
-                match api.delete_media_link(tree_id, link_id).await {
-                    Ok(()) => {
-                        confirming.set(false);
-                        on_changed.call(());
-                    }
-                    Err(e) => error.set(Some(e.to_string())),
-                }
-                busy.set(false);
-            });
-        }
-    };
 
     let delete_if_unreferenced_elsewhere = {
         let api = api.clone();
@@ -902,18 +895,18 @@ fn MediaTile(
             spawn(async move {
                 deleting.set(true);
                 delete_error.set(None);
-                match api
+                let deleted = api
                     .delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
-                    .await
-                {
-                    Ok(true) => {
+                    .await;
+                match deleted {
+                    Ok(deleted) => {
                         delete_confirming.set(false);
                         menu_at.set(None);
-                        on_changed.call(());
-                    }
-                    Ok(false) => {
-                        delete_confirming.set(false);
-                        error.set(Some(retained_message.clone()));
+                        if deleted {
+                            on_changed.call(());
+                        } else {
+                            error.set(Some(retained_message.clone()));
+                        }
                     }
                     Err(err) => delete_error.set(Some(err.to_string())),
                 }
@@ -925,17 +918,17 @@ fn MediaTile(
     let request_delete_confirmation = {
         let api = api.clone();
         let retained_message = i18n.t("media.delete_kept_referenced");
-        move |_| {
+        move |()| {
             let api = api.clone();
             let retained_message = retained_message.clone();
             spawn(async move {
                 checking_delete.set(true);
                 error.set(None);
                 menu_at.set(None);
-                match api
+                let deletable = api
                     .can_delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
-                    .await
-                {
+                    .await;
+                match deletable {
                     Ok(true) => {
                         delete_error.set(None);
                         delete_confirming.set(true);
@@ -952,22 +945,20 @@ fn MediaTile(
         let api = api.clone();
         move |(event_id, attach): (Uuid, bool)| {
             let api = api.clone();
-            spawn(async move {
-                busy.set(true);
-                let result = set_event_link(&api, tree_id, media_id, event_id, attach).await;
-                match result {
-                    Ok(()) => {
-                        on_changed.call(());
-                    }
-                    Err(err) => error.set(Some(err.to_string())),
-                }
-                busy.set(false);
-            });
+            spawn(tile_action(busy, error, on_changed, async move {
+                set_event_link(&api, tree_id, media_id, event_id, attach).await
+            }));
         }
     });
 
-    let tile_for_crop = tile.clone();
-    let is_profile = is_portrait;
+    let menu = TileMenuOffer::of(
+        read_only,
+        show_profile,
+        &look,
+        is_portrait,
+        !profile_event_links.is_empty(),
+        media_event_ids.is_empty(),
+    );
 
     rsx! {
         div { class: if is_open { "media-tile is-open" } else { "media-tile" },
@@ -986,244 +977,96 @@ fn MediaTile(
                 // them to the edit modal to do it means leaving the page that
                 // prompted it. Every other action stays behind the modal.
                 oncontextmenu: move |e: Event<MouseData>| {
-                    if !read_only && !show_profile && profile_event_links.is_empty() {
-                        return;
+                    if menu.any {
+                        e.prevent_default();
+                        let point = e.client_coordinates();
+                        event_menu.set(None);
+                        event_menu_offset.set(0);
+                        menu_at.set(Some((point.x, point.y)));
                     }
-                    e.prevent_default();
-                    let point = e.client_coordinates();
-                    event_menu.set(None);
-                    event_menu_offset.set(0);
-                    menu_at.set(Some((point.x, point.y)));
                 },
-                if !document_previews.is_empty() {
-                    DocumentMosaic { sources: document_previews.clone() }
-                } else if source == MediaSource::Stored && tile.media.thumbnail_key.is_some() {
-                    BundledThumbnail { source: thumbnail_source.clone(), alt: caption.clone() }
-                } else if let Some(preview) = remote_preview.clone() {
-                    img { src: "{preview}", alt: "{caption}", loading: "lazy" }
-                } else {
-                    // An icon that says what the file is, rather than the
-                    // broken image an `<img>` onto a 404 would draw.
-                    div { class: "media-thumb-icon",
-                        span { class: "media-glyph", {kind.icon()} }
-                        span { class: "media-kind", "{kind_label}" }
-                    }
-                }
-                if draws_remote {
-                    span { class: "media-remote", title: i18n.t("media.source_remote"), "\u{1F517}" }
-                }
-                if is_portrait {
-                    span { class: "media-star", title: i18n.t("media.profile_image"), "\u{2605}" }
-                }
-                if pages > 1 {
-                    span { class: "media-pages",
-                        {i18n.t_args("media.page_count", &[("count", &pages.to_string())])}
-                    }
-                }
-                div {
-                    class: "media-tile-actions",
-                    onclick: move |e| e.stop_propagation(),
-                    if !read_only && show_profile && draws_a_picture {
-                        button {
-                            class: if is_portrait { "media-act is-on" } else { "media-act" },
-                            r#type: "button",
-                            disabled: busy(),
-                            title: i18n.t("media.set_profile_image"),
-                            onclick: move |_| toggle_profile.call(()),
-                            "\u{2605}"
-                        }
-                    }
-                    if !read_only && tile.is_croppable() {
-                        button {
-                            class: "media-act",
-                            r#type: "button",
-                            title: i18n.t("media.crop"),
-                            onclick: move |_| on_crop.call(tile_for_crop.clone()),
-                            "\u{2702}"
-                        }
-                    }
-                    if !read_only {
-                        button {
-                            class: "media-act",
-                            r#type: "button",
-                            title: i18n.t("common.edit"),
-                            onclick: move |_| on_edit.call(media_id),
-                            "\u{270E}"
-                        }
-                    }
-                    // No "open the file" link here any more. It navigated
-                    // straight to the API's own URL in a new tab, which put
-                    // the backend's surface in front of the user for something
-                    // the viewer already does better — and the viewer's own
-                    // download covers the formats a browser will not render.
-                    if !read_only {
-                        button {
-                            class: "media-act is-danger",
-                            r#type: "button",
-                            disabled: busy(),
-                            title: i18n.t("media.detach"),
-                            onclick: move |_| confirming.set(true),
-                            "\u{1F5D1}"
-                        }
-                    }
-                }
-                if confirming() {
-                    div { class: "media-confirm",
-                        span { {i18n.t("media.detach_confirm")} }
-                        div { class: "media-confirm-actions",
-                            button {
-                                class: "pf-row-btn is-danger",
-                                r#type: "button",
-                                disabled: busy(),
-                                onclick: detach,
-                                {i18n.t("common.confirm")}
+                {tile_picture(&look, &document_previews, thumbnail_source.clone(), tile.media.thumbnail_key.is_some())}
+                {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
+                if !read_only {
+                    TileActions {
+                        tile: tile.clone(),
+                        show_profile: menu.profile_button,
+                        is_portrait,
+                        busy: busy(),
+                        confirming,
+                        on_profile: move |_| toggle_profile.call(()),
+                        on_crop,
+                        on_edit,
+                        on_detach: {
+                            let api = api.clone();
+                            move |_| {
+                                let api = api.clone();
+                                let mut confirming = confirming;
+                                spawn(tile_action(busy, error, on_changed, async move {
+                                    api.delete_media_link(tree_id, link_id).await?;
+                                    confirming.set(false);
+                                    Ok(())
+                                }));
                             }
-                            button {
-                                class: "pf-row-btn",
-                                r#type: "button",
-                                onclick: move |_| confirming.set(false),
-                                {i18n.t("common.cancel")}
-                            }
-                        }
+                        },
                     }
                 }
             }
-            div { class: "media-caption", title: "{caption}", "{caption}" }
-            for (index, line) in footnotes.iter().enumerate() {
-                div { key: "note-{index}", class: "media-footnote", title: "{line}", "{line}" }
-            }
-            for event in linked_events.iter() {
-                div { key: "{event.event_id}", class: "media-event-link",
-                    if let Some(date) = &event.date {
-                        div { class: "media-event-date", "{date}" }
-                    }
-                    div { class: "media-event-type", "{event.label}" }
-                }
-            }
-            if let Some(err) = error() {
-                div { class: "error-msg", "{err}" }
+            TileCaption {
+                caption,
+                footnotes,
+                linked_events: linked_events.clone(),
+                error: error(),
             }
 
             if let Some((x, y)) = menu_at() {
                 ContextMenuSurface {
                     x,
                     y,
-                    menu_class: if menu_mode.is_some() { "context-menu-events".to_string() } else { String::new() },
+                    menu_class: if event_menu().is_some() { "context-menu-events".to_string() } else { String::new() },
                     on_close: move |_| menu_at.set(None),
-                    if menu_mode.is_some() {
-                        button {
-                            class: "context-menu-item context-menu-back",
-                            r#type: "button",
-                            onclick: move |_| {
+                    if event_menu().is_some() {
+                        TileEventPicker {
+                            events: unlinked_events(&profile_event_links, &linked_events),
+                            offset: event_menu_offset,
+                            busy: busy(),
+                            on_back: move |_| {
                                 event_menu.set(None);
                                 event_menu_offset.set(0);
                             },
-                            "\u{2190} {i18n.t(\"common.back\")}"
-                        }
-                        hr { class: "context-menu-divider" }
-                        div { class: "context-menu-event-picker",
-                            if current_event_menu_offset > 0 {
-                                button {
-                                    class: "context-menu-event-scroll",
-                                    r#type: "button",
-                                    title: i18n.t("media.previous_events"),
-                                    aria_label: i18n.t("media.previous_events"),
-                                    onclick: move |_| event_menu_offset.set(current_event_menu_offset - 1),
-                                    "\u{25B2}"
-                                }
-                            }
-                            div { class: "context-menu-event-list",
-                                for event in &visible_menu_events {
-                                    {
-                                        let event_id = event.event_id;
-                                        let label = match &event.date {
-                                            Some(date) if !date.is_empty() => {
-                                                format!("{date} - {}", event.label)
-                                            }
-                                            _ => event.label.clone(),
-                                        };
-                                        rsx! {
-                                            button {
-                                                key: "{event_id}",
-                                                class: "context-menu-item context-menu-event-item",
-                                                r#type: "button",
-                                                disabled: busy(),
-                                                title: "{label}",
-                                                onclick: move |_| {
-                                                    toggle_event_link.call((event_id, true));
-                                                    event_menu.set(None);
-                                                    menu_at.set(None);
-                                                },
-                                                "{label}"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if current_event_menu_offset < max_event_menu_offset {
-                                button {
-                                    class: "context-menu-event-scroll",
-                                    r#type: "button",
-                                    title: i18n.t("media.next_events"),
-                                    aria_label: i18n.t("media.next_events"),
-                                    onclick: move |_| event_menu_offset.set(current_event_menu_offset + 1),
-                                    "\u{25BC}"
-                                }
-                            }
+                            on_pick: move |event_id| {
+                                toggle_event_link.call((event_id, true));
+                                event_menu.set(None);
+                                menu_at.set(None);
+                            },
                         }
                     } else {
-                        // Offered for anything that draws a picture, and for
-                        // whatever is already the portrait so a bad choice can
-                        // be taken back. A PDF cannot represent somebody: the
-                        // card would draw the silhouette anyway.
-                        if show_profile && (draws_a_picture || is_profile) {
-                            button {
-                                class: "context-menu-item",
-                                r#type: "button",
-                                disabled: busy(),
-                                onclick: move |_| {
-                                    menu_at.set(None);
-                                    toggle_profile.call(());
-                                },
-                                if is_profile {
-                                    {i18n.t("media.clear_profile_image")}
-                                } else {
-                                    {i18n.t("media.set_profile_image")}
-                                }
-                            }
-                        }
-                        if !profile_event_links.is_empty() && !has_event_link {
-                            button {
-                                class: "context-menu-item",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    event_menu_offset.set(0);
-                                    event_menu.set(Some(MediaEventMenu::Link));
-                                },
-                                {i18n.t("media.link_event")}
-                            }
-                        }
-                        if let Some(event_id) = media_event_ids.first().copied() {
-                            button {
-                                class: "context-menu-item context-menu-danger",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    toggle_event_link.call((event_id, false));
-                                    menu_at.set(None);
-                                },
-                                {i18n.t("media.unlink_event")}
-                            }
-                        }
-                        if read_only {
-                            button {
-                                class: "context-menu-item context-menu-danger",
-                                r#type: "button",
-                                disabled: checking_delete(),
-                                onclick: move |_| {
-                                    request_delete_confirmation(());
-                                },
-                                {i18n.t("media.delete")}
-                            }
+                        TileMenu {
+                            // Offered for anything that draws a picture, and
+                            // for whatever is already the portrait so a bad
+                            // choice can be taken back. A PDF cannot represent
+                            // somebody: the card would draw the silhouette
+                            // anyway.
+                            profile: menu.profile,
+                            is_portrait,
+                            can_link_event: menu.link_event,
+                            linked_event: media_event_ids.first().copied(),
+                            can_delete: read_only,
+                            busy: busy(),
+                            checking_delete: checking_delete(),
+                            on_profile: move |_| {
+                                menu_at.set(None);
+                                toggle_profile.call(());
+                            },
+                            on_link_event: move |_| {
+                                event_menu_offset.set(0);
+                                event_menu.set(Some(MediaEventMenu::Link));
+                            },
+                            on_unlink_event: move |event_id| {
+                                toggle_event_link.call((event_id, false));
+                                menu_at.set(None);
+                            },
+                            on_delete: request_delete_confirmation,
                         }
                     }
                 }
@@ -1241,6 +1084,404 @@ fn MediaTile(
                         delete_error.set(None);
                     },
                 }
+            }
+        }
+    }
+}
+
+/// Which of a tile's portrait and event actions it offers.
+#[derive(Clone, Copy)]
+struct TileMenuOffer {
+    /// Whether the right-click menu opens at all.
+    any: bool,
+    /// The portrait in the menu: offered for anything that draws a picture,
+    /// and for whatever is already the portrait so a bad choice can be taken
+    /// back. A PDF cannot represent somebody: the card would draw the
+    /// silhouette anyway.
+    profile: bool,
+    /// The portrait button over an editable tile.
+    profile_button: bool,
+    /// Linking an event, when there are events and none is linked yet.
+    link_event: bool,
+}
+
+impl TileMenuOffer {
+    fn of(
+        read_only: bool,
+        show_profile: bool,
+        look: &TileLook,
+        is_portrait: bool,
+        has_events: bool,
+        unlinked: bool,
+    ) -> Self {
+        Self {
+            any: read_only || show_profile || has_events,
+            profile: show_profile && (look.draws_a_picture || is_portrait),
+            profile_button: show_profile && look.draws_a_picture,
+            link_event: has_events && unlinked,
+        }
+    }
+}
+
+/// What is written under a tile: its caption, the listing's notes, its
+/// linked events, and the last error.
+#[component]
+fn TileCaption(
+    caption: String,
+    footnotes: Vec<String>,
+    linked_events: Vec<MediaEventLinkOption>,
+    error: Option<String>,
+) -> Element {
+    rsx! {
+        div { class: "media-caption", title: "{caption}", "{caption}" }
+        for (index, line) in footnotes.iter().enumerate() {
+            div { key: "note-{index}", class: "media-footnote", title: "{line}", "{line}" }
+        }
+        for event in linked_events.iter() {
+            div { key: "{event.event_id}", class: "media-event-link",
+                if let Some(date) = &event.date {
+                    div { class: "media-event-date", "{date}" }
+                }
+                div { class: "media-event-type", "{event.label}" }
+            }
+        }
+        if let Some(err) = error {
+            div { class: "error-msg", "{err}" }
+        }
+    }
+}
+
+/// Runs a tile's `action` with the tile marked busy: `on_changed` once it
+/// succeeds, its error shown when it fails.
+async fn tile_action(
+    mut busy: Signal<bool>,
+    mut error: Signal<Option<String>>,
+    on_changed: EventHandler<()>,
+    action: impl Future<Output = Result<(), ApiError>>,
+) {
+    busy.set(true);
+    match action.await {
+        Ok(()) => on_changed.call(()),
+        Err(e) => error.set(Some(e.to_string())),
+    }
+    busy.set(false);
+}
+
+/// What a tile draws and says of its file.
+struct TileLook {
+    source: MediaSource,
+    kind: MediaKind,
+    kind_label: String,
+    caption: String,
+    /// A remote page's own address, when the browser can draw it.
+    remote_preview: Option<String>,
+    /// Whether the tile shows a picture, which alone can be a portrait.
+    draws_a_picture: bool,
+    /// Whether what it shows is somebody else's file.
+    draws_remote: bool,
+}
+
+impl TileLook {
+    /// A document holds no bytes of its own, so what the tile draws — and
+    /// what it may therefore say about where the file lives, or offer as
+    /// somebody's portrait — is decided by its pages, which is what the
+    /// `previews` are.
+    fn of(tile: &MediaWithLink, previews: &[String]) -> Self {
+        let source = tile.source();
+        let kind = tile.kind();
+        let remote_preview = (source == MediaSource::Remote
+            && oxidgene_core::types::may_draw_as_image(&tile.media.mime_type))
+        .then(|| tile.media.file_path.clone());
+        let draws_a_picture =
+            !previews.is_empty() || remote_preview.is_some() || kind == MediaKind::Image;
+        let draws_remote = source == MediaSource::Remote
+            || previews
+                .iter()
+                .any(|preview| oxidgene_core::types::is_remote_url(preview));
+        Self {
+            source,
+            kind,
+            kind_label: tile.kind_label(),
+            caption: tile.caption().to_string(),
+            remote_preview,
+            draws_a_picture,
+            draws_remote,
+        }
+    }
+}
+
+/// The tile's picture: its pages, its thumbnail, its remote address, or an
+/// icon saying what the file is — rather than the broken image an `<img>`
+/// onto a 404 would draw.
+fn tile_picture(
+    look: &TileLook,
+    previews: &[String],
+    thumbnail_source: Option<String>,
+    has_thumbnail: bool,
+) -> Element {
+    if !previews.is_empty() {
+        return rsx! { DocumentMosaic { sources: previews.to_vec() } };
+    }
+    if look.source == MediaSource::Stored && has_thumbnail {
+        return rsx! { BundledThumbnail { source: thumbnail_source, alt: look.caption.clone() } };
+    }
+    if let Some(preview) = &look.remote_preview {
+        return rsx! { img { src: "{preview}", alt: "{look.caption}", loading: "lazy" } };
+    }
+    rsx! {
+        div { class: "media-thumb-icon",
+            span { class: "media-glyph", {look.kind.icon()} }
+            span { class: "media-kind", "{look.kind_label}" }
+        }
+    }
+}
+
+/// The marks over a tile: a remote file, the portrait, the page count.
+fn tile_badges(i18n: &I18n, remote: bool, portrait: bool, pages: i32) -> Element {
+    rsx! {
+        if remote {
+            span { class: "media-remote", title: i18n.t("media.source_remote"), "\u{1F517}" }
+        }
+        if portrait {
+            span { class: "media-star", title: i18n.t("media.profile_image"), "\u{2605}" }
+        }
+        if pages > 1 {
+            span { class: "media-pages",
+                {i18n.t_args("media.page_count", &[("count", &pages.to_string())])}
+            }
+        }
+    }
+}
+
+/// The events a medium can still be linked to, dated ones first in their
+/// natural chronology; incomplete facts remain available but cannot jump
+/// ahead of a known date.
+fn unlinked_events(
+    options: &[MediaEventLinkOption],
+    linked: &[MediaEventLinkOption],
+) -> Vec<MediaEventLinkOption> {
+    let mut events: Vec<MediaEventLinkOption> = options
+        .iter()
+        .filter(|event| !linked.iter().any(|l| l.event_id == event.event_id))
+        .cloned()
+        .collect();
+    events.sort_by_key(|event| (event.date_sort.is_none(), event.date_sort));
+    events
+}
+
+/// The editing buttons over a tile: portrait, crop, edit and detach, with the
+/// detach asked again before it happens.
+#[component]
+fn TileActions(
+    tile: MediaWithLink,
+    show_profile: bool,
+    is_portrait: bool,
+    busy: bool,
+    confirming: Signal<bool>,
+    on_profile: EventHandler<()>,
+    on_crop: EventHandler<MediaWithLink>,
+    on_edit: EventHandler<Uuid>,
+    on_detach: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let media_id = tile.media.id;
+    let croppable = tile.is_croppable();
+    rsx! {
+        div {
+            class: "media-tile-actions",
+            onclick: move |e| e.stop_propagation(),
+            if show_profile {
+                button {
+                    class: if is_portrait { "media-act is-on" } else { "media-act" },
+                    r#type: "button",
+                    disabled: busy,
+                    title: i18n.t("media.set_profile_image"),
+                    onclick: move |_| on_profile.call(()),
+                    "\u{2605}"
+                }
+            }
+            if croppable {
+                button {
+                    class: "media-act",
+                    r#type: "button",
+                    title: i18n.t("media.crop"),
+                    onclick: move |_| on_crop.call(tile.clone()),
+                    "\u{2702}"
+                }
+            }
+            button {
+                class: "media-act",
+                r#type: "button",
+                title: i18n.t("common.edit"),
+                onclick: move |_| on_edit.call(media_id),
+                "\u{270E}"
+            }
+            // No "open the file" link here any more. It navigated straight
+            // to the API's own URL in a new tab, which put the backend's
+            // surface in front of the user for something the viewer already
+            // does better — and the viewer's own download covers the formats
+            // a browser will not render.
+            button {
+                class: "media-act is-danger",
+                r#type: "button",
+                disabled: busy,
+                title: i18n.t("media.detach"),
+                onclick: move |_| confirming.set(true),
+                "\u{1F5D1}"
+            }
+        }
+        if confirming() {
+            div { class: "media-confirm",
+                span { {i18n.t("media.detach_confirm")} }
+                div { class: "media-confirm-actions",
+                    button {
+                        class: "pf-row-btn is-danger",
+                        r#type: "button",
+                        disabled: busy,
+                        onclick: move |_| on_detach.call(()),
+                        {i18n.t("common.confirm")}
+                    }
+                    button {
+                        class: "pf-row-btn",
+                        r#type: "button",
+                        onclick: move |_| confirming.set(false),
+                        {i18n.t("common.cancel")}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// How many events the picker lists at once.
+const EVENT_PICKER_ROWS: usize = 5;
+
+/// The events a medium can be linked to, a few at a time, with a way back to
+/// the menu.
+#[component]
+fn TileEventPicker(
+    events: Vec<MediaEventLinkOption>,
+    offset: Signal<usize>,
+    busy: bool,
+    on_back: EventHandler<()>,
+    on_pick: EventHandler<Uuid>,
+) -> Element {
+    let i18n = use_i18n();
+    let max_offset = events.len().saturating_sub(EVENT_PICKER_ROWS);
+    let current = offset().min(max_offset);
+    let visible = events
+        .iter()
+        .skip(current)
+        .take(EVENT_PICKER_ROWS)
+        .map(|event| {
+            let label = match &event.date {
+                Some(date) if !date.is_empty() => format!("{date} - {}", event.label),
+                _ => event.label.clone(),
+            };
+            (event.event_id, label)
+        })
+        .collect::<Vec<_>>();
+    rsx! {
+        button {
+            class: "context-menu-item context-menu-back",
+            r#type: "button",
+            onclick: move |_| on_back.call(()),
+            "\u{2190} {i18n.t(\"common.back\")}"
+        }
+        hr { class: "context-menu-divider" }
+        div { class: "context-menu-event-picker",
+            if current > 0 {
+                button {
+                    class: "context-menu-event-scroll",
+                    r#type: "button",
+                    title: i18n.t("media.previous_events"),
+                    aria_label: i18n.t("media.previous_events"),
+                    onclick: move |_| offset.set(current - 1),
+                    "\u{25B2}"
+                }
+            }
+            div { class: "context-menu-event-list",
+                for (event_id, label) in visible {
+                    button {
+                        key: "{event_id}",
+                        class: "context-menu-item context-menu-event-item",
+                        r#type: "button",
+                        disabled: busy,
+                        title: "{label}",
+                        onclick: move |_| on_pick.call(event_id),
+                        "{label}"
+                    }
+                }
+            }
+            if current < max_offset {
+                button {
+                    class: "context-menu-event-scroll",
+                    r#type: "button",
+                    title: i18n.t("media.next_events"),
+                    aria_label: i18n.t("media.next_events"),
+                    onclick: move |_| offset.set(current + 1),
+                    "\u{25BC}"
+                }
+            }
+        }
+    }
+}
+
+/// A tile's right-click menu: the portrait, the event link, and — in a
+/// reader's gallery — deleting a medium nothing else references.
+#[component]
+fn TileMenu(
+    profile: bool,
+    is_portrait: bool,
+    can_link_event: bool,
+    linked_event: Option<Uuid>,
+    can_delete: bool,
+    busy: bool,
+    checking_delete: bool,
+    on_profile: EventHandler<()>,
+    on_link_event: EventHandler<()>,
+    on_unlink_event: EventHandler<Uuid>,
+    on_delete: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let profile_label = if is_portrait {
+        "media.clear_profile_image"
+    } else {
+        "media.set_profile_image"
+    };
+    rsx! {
+        if profile {
+            button {
+                class: "context-menu-item",
+                r#type: "button",
+                disabled: busy,
+                onclick: move |_| on_profile.call(()),
+                {i18n.t(profile_label)}
+            }
+        }
+        if can_link_event {
+            button {
+                class: "context-menu-item",
+                r#type: "button",
+                onclick: move |_| on_link_event.call(()),
+                {i18n.t("media.link_event")}
+            }
+        }
+        if let Some(event_id) = linked_event {
+            button {
+                class: "context-menu-item context-menu-danger",
+                r#type: "button",
+                onclick: move |_| on_unlink_event.call(event_id),
+                {i18n.t("media.unlink_event")}
+            }
+        }
+        if can_delete {
+            button {
+                class: "context-menu-item context-menu-danger",
+                r#type: "button",
+                disabled: checking_delete,
+                onclick: move |_| on_delete.call(()),
+                {i18n.t("media.delete")}
             }
         }
     }
@@ -1490,16 +1731,15 @@ fn MediaEditPanel(
             tile.media.date_value2.as_deref(),
         )
     });
-    let mut privacy = use_signal(|| tile.media.privacy);
-    let mut source_media_type = use_signal(|| tile.media.source_media_type);
-    let mut document_category = use_signal(|| tile.media.document_category);
-    let mut tags = use_signal(|| tile.media.tags.clone());
-    let mut show_tag_form = use_signal(|| false);
+    let privacy = use_signal(|| tile.media.privacy);
+    let source_media_type = use_signal(|| tile.media.source_media_type);
+    let document_category = use_signal(|| tile.media.document_category);
+    let tags = use_signal(|| tile.media.tags.clone());
     let mut note_text = use_signal(String::new);
-    let mut note_id = use_signal(|| None::<Uuid>);
+    let note_id = use_signal(|| None::<Uuid>);
     let mut loaded_note = use_signal(|| false);
     let mut page_note_text = use_signal(String::new);
-    let mut page_note_id = use_signal(|| None::<Uuid>);
+    let page_note_id = use_signal(|| None::<Uuid>);
     let mut loaded_page_note = use_signal(|| false);
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
@@ -1530,13 +1770,12 @@ fn MediaEditPanel(
         move || {
             let api = api.clone();
             async move {
-                match page_note_media_id {
-                    Some(page_id) => api
-                        .list_notes(tree_id, None, None, None, None, Some(page_id))
-                        .await
-                        .map(Some),
-                    None => Ok(None),
-                }
+                let Some(page_id) = page_note_media_id else {
+                    return Ok(None);
+                };
+                api.list_notes(tree_id, None, None, None, None, Some(page_id))
+                    .await
+                    .map(Some)
             }
         }
     });
@@ -1554,22 +1793,12 @@ fn MediaEditPanel(
 
     // Seed the note field once, and only once: re-seeding on every render
     // would overwrite what the user is typing.
-    if !loaded_note()
-        && let Some(Ok(list)) = &*notes.read_unchecked()
-    {
-        if let Some(first) = list.first() {
-            note_text.set(first.text.clone());
-            note_id.set(Some(first.id));
-        }
+    if let (false, Some(Ok(list))) = (loaded_note(), &*notes.read_unchecked()) {
+        seed_note(list, note_text, note_id);
         loaded_note.set(true);
     }
-    if !loaded_page_note()
-        && let Some(Ok(Some(list))) = &*page_notes.read_unchecked()
-    {
-        if let Some(first) = list.first() {
-            page_note_text.set(first.text.clone());
-            page_note_id.set(Some(first.id));
-        }
+    if let (false, Some(Ok(Some(list)))) = (loaded_page_note(), &*page_notes.read_unchecked()) {
+        seed_note(list, page_note_text, page_note_id);
         loaded_page_note.set(true);
     }
 
@@ -1585,45 +1814,6 @@ fn MediaEditPanel(
         Some(Ok(list)) => list.iter().filter_map(|l| l.event_id).collect(),
         _ => Vec::new(),
     };
-
-    let add_tag = {
-        let api = api.clone();
-        move |value: String| {
-            if value.is_empty() || tags().iter().any(|tag| tag.eq_ignore_ascii_case(&value)) {
-                return;
-            }
-            show_tag_form.set(false);
-            let api = api.clone();
-            spawn(async move {
-                match api.add_media_tag(tree_id, media_id, value).await {
-                    Ok(media) => {
-                        tags.set(media.tags);
-                        on_changed.call(());
-                    }
-                    Err(err) => error.set(Some(err.to_string())),
-                }
-            });
-        }
-    };
-
-    let remove_tag = use_callback({
-        let api = api.clone();
-        move |tag: String| {
-            let api = api.clone();
-            spawn(async move {
-                match api.remove_media_tag(tree_id, media_id, tag).await {
-                    Ok(()) => {
-                        match api.get_media(tree_id, media_id).await {
-                            Ok(media) => tags.set(media.tags),
-                            Err(err) => error.set(Some(err.to_string())),
-                        }
-                        on_changed.call(());
-                    }
-                    Err(err) => error.set(Some(err.to_string())),
-                }
-            });
-        }
-    });
 
     let save = {
         let api = api.clone();
@@ -1642,80 +1832,40 @@ fn MediaEditPanel(
             let existing_page_note = page_note_id();
             let resolved = date_parts().resolved();
             let previous_url = stored_url.clone();
+            let target = EditTarget {
+                media_id,
+                file_media_id,
+                page_note_media_id,
+                source,
+                previous_url,
+            };
+            let edit = MediaEditValues {
+                title: title_value,
+                description: description_value,
+                url: url_value,
+                place: place_text,
+                note: note_value,
+                page_note: page_note_value,
+                note_id: existing_note,
+                page_note_id: existing_page_note,
+                privacy: privacy_value,
+                medium: medium_value,
+                category: category_value,
+                date: resolved,
+            };
             spawn(async move {
                 saving.set(true);
                 error.set(None);
-                let place_value =
-                    match resolve_place(&api, tree_id, &place_text, i18n.0.code()).await {
-                        Ok(place_value) => place_value,
-                        Err(err) => {
-                            error.set(Some(err.to_string()));
-                            saving.set(false);
-                            return;
-                        }
-                    };
-                // Only a media whose bytes we do not hold owns its path, and
-                // only the row that names a file has one at all. Sent when it
-                // actually changed, so re-saving a description does not
-                // repoint anything.
-                let repoint = (source != MediaSource::Stored
-                    && !url_value.is_empty()
-                    && url_value != previous_url)
-                    .then_some(url_value);
-                // An emptied field clears the column rather than storing "",
-                // so "no title" is one state in the database, not two.
-                let body = UpdateMediaBody {
-                    title: Some((!title_value.is_empty()).then_some(title_value)),
-                    description: Some((!description_value.is_empty()).then_some(description_value)),
-                    date_value: Some(resolved.date_value()),
-                    date_value2: Some(resolved.date_value2()),
-                    date_qualifier: Some(resolved.qualifier),
-                    calendar: Some(resolved.calendar),
-                    place_id: Some(place_value),
-                    file_path: (file_media_id == media_id)
-                        .then_some(repoint.clone())
-                        .flatten(),
-                    mime_type: None,
-                    // Measured by whoever draws the picture, never typed here.
-                    width: None,
-                    height: None,
-                    privacy: Some(privacy_value),
-                    source_media_type: Some(medium_value),
-                    document_category: Some(category_value),
-                };
-                let mut outcome = api.update_media(tree_id, media_id, &body).await;
-                // The URL lives on the page, which is a different row from the
-                // document this panel otherwise describes.
-                if outcome.is_ok()
-                    && file_media_id != media_id
-                    && let Some(url_value) = repoint
-                {
-                    outcome = api
-                        .update_media(
-                            tree_id,
-                            file_media_id,
-                            &UpdateMediaBody {
-                                file_path: Some(url_value),
-                                ..UpdateMediaBody::default()
-                            },
-                        )
-                        .await;
-                }
-
-                let note_outcome =
-                    save_media_note(&api, tree_id, media_id, existing_note, note_value)
-                        .await
-                        .map(|saved_id| note_id.set(saved_id));
-                let page_note_outcome = match page_note_media_id {
-                    Some(page_id) => {
-                        save_media_note(&api, tree_id, page_id, existing_page_note, page_note_value)
-                            .await
-                            .map(|saved_id| page_note_id.set(saved_id))
-                    }
-                    None => Ok(()),
-                };
-
-                match outcome.map(|_| ()).and(note_outcome).and(page_note_outcome) {
+                let saved = save_media_edit(
+                    &api,
+                    tree_id,
+                    i18n.0.code(),
+                    target,
+                    edit,
+                    (note_id, page_note_id),
+                )
+                .await;
+                match saved {
                     Ok(()) => {
                         on_changed.call(());
                         on_close.call(());
@@ -1743,16 +1893,6 @@ fn MediaEditPanel(
         }
     });
 
-    // The technical facts belong to the file, so they are read from the row
-    // that holds it. A document is a description, not a file: reading its own
-    // columns reports no format, no size and no dimensions for a scan that
-    // has all three.
-    let dimensions = match (file_media.width, file_media.height) {
-        (Some(w), Some(h)) => Some(format!("{w} × {h}")),
-        _ => None,
-    };
-    let file_size = file_media.file_size;
-    let file_kind_label = crate::api::media_kind_label(&file_media.mime_type);
     // Only a page names a file, and only a file has an address to correct.
     let editable_url = source != MediaSource::Stored && !file_media.is_document();
 
@@ -1771,30 +1911,7 @@ fn MediaEditPanel(
                 }
             }
 
-            div { class: "media-panel-meta",
-                span { "{file_kind_label}" }
-                span {
-                    {match source {
-                        MediaSource::Stored => i18n.t("media.source_stored"),
-                        MediaSource::Remote => i18n.t("media.source_remote"),
-                        MediaSource::Unheld => i18n.t("media.source_unheld"),
-                    }}
-                }
-                if let Some(dimensions) = dimensions {
-                    span { "{dimensions}" }
-                }
-                if file_size > 0 {
-                    span { {format_size(file_size)} }
-                }
-                if tile.media.page_count > 1 {
-                    span {
-                        {i18n.t_args(
-                            "media.page_count",
-                            &[("count", &tile.media.page_count.to_string())],
-                        )}
-                    }
-                }
-            }
+            MediaFileMeta { file_media: file_media.clone(), page_count: tile.media.page_count }
 
             // Only a media we do not store owns its path. For a stored one the
             // path is the GEDCOM value an export writes back, and repointing it
@@ -1828,43 +1945,7 @@ fn MediaEditPanel(
                     oninput: move |e: Event<FormData>| description.set(e.value()),
                 }
             }
-            div { class: "pf-subblock media-tags-editor",
-                div { class: "pf-block-label",
-                    button {
-                        class: if show_tag_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
-                        r#type: "button",
-                        onclick: move |_| {
-                            let opening = !show_tag_form();
-                            show_tag_form.set(opening);
-                        },
-                        {i18n.t("media.add_tag")}
-                    }
-                }
-                if show_tag_form() {
-                    MediaTagForm { on_add: add_tag }
-                }
-                if !tags().is_empty() {
-                    div { class: "media-fact-tags media-edit-tags",
-                        for tag in tags().iter() {
-                            {
-                                let tag = tag.clone();
-                                rsx! {
-                                    span { key: "{tag}", class: "media-fact-tag is-editable",
-                                        "{tag}"
-                                        button {
-                                            class: "media-tag-remove",
-                                            r#type: "button",
-                                            title: i18n.t("common.delete"),
-                                            onclick: move |_| remove_tag(tag.clone()),
-                                            "\u{00D7}"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            MediaTagsEditor { tree_id, media_id, tags, error, on_changed }
 
             // Two fields for what looks like one question, because it is two.
             //
@@ -1875,73 +1956,7 @@ fn MediaEditPanel(
             // writes, and other genealogy software reads. Leaving the medium
             // alone lets the category decide it, which is why the placeholder
             // says so rather than reading as an empty required field.
-            div { class: "form-group",
-                label { {i18n.t("media.document_category")} }
-                select {
-                    class: "td-select",
-                    onchange: move |e: Event<FormData>| {
-                        document_category.set(DocumentCategory::parse(&e.value()));
-                    },
-                    option {
-                        value: "",
-                        selected: document_category().is_none(),
-                        {i18n.t("media.category_none")}
-                    }
-                    for category in DocumentCategory::all() {
-                        option {
-                            key: "{category.as_str()}",
-                            value: "{category.as_str()}",
-                            selected: document_category() == Some(*category),
-                            {i18n.t(&format!("media.category.{}", category.as_str()))}
-                        }
-                    }
-                }
-                p { class: "pf-ns-hint", {i18n.t("media.document_category_hint")} }
-            }
-            div { class: "form-group",
-                label { {i18n.t("media.source_media_type")} }
-                select {
-                    class: "td-select",
-                    onchange: move |e: Event<FormData>| {
-                        source_media_type
-                            .set(SourceMediaType::parse(&e.value()).unwrap_or_default());
-                    },
-                    for medium in SourceMediaType::all() {
-                        option {
-                            key: "{medium.as_str()}",
-                            value: "{medium.as_str()}",
-                            selected: source_media_type() == *medium,
-                            {i18n.t(&format!("media.medium.{}", medium.as_str()))}
-                        }
-                    }
-                }
-                p { class: "pf-ns-hint", {i18n.t("media.source_media_type_hint")} }
-            }
-
-            // Recorded, not yet enforced — the hint says so rather than
-            // letting the control imply a protection that does not exist.
-            div { class: "form-group",
-                label { {i18n.t("media.privacy")} }
-                select {
-                    class: "td-select",
-                    onchange: move |e: Event<FormData>| {
-                        privacy.set(parse_privacy(&e.value()));
-                    },
-                    for (value , label) in [
-                        ("Default", i18n.t("privacy.default")),
-                        ("Public", i18n.t("privacy.public")),
-                        ("Private", i18n.t("privacy.private")),
-                    ] {
-                        option {
-                            key: "{value}",
-                            value: "{value}",
-                            selected: format!("{:?}", privacy()) == value,
-                            "{label}"
-                        }
-                    }
-                }
-                p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
-            }
+            MediaClassification { document_category, source_media_type, privacy }
 
             // The same date widget every fact uses, so a photograph taken
             // "around 1890" is written the way a birth around 1890 is.
@@ -1987,28 +2002,10 @@ fn MediaEditPanel(
             // asks it to cite itself.
 
             if !events.is_empty() {
-                div { class: "media-panel-section",
-                    label { {i18n.t("media.documents_events")} }
-                    div { class: "media-events",
-                        for (id, label) in events.iter() {
-                            {
-                                let event_id = *id;
-                                let attached = attached_events.contains(&event_id);
-                                rsx! {
-                                    label { key: "{event_id}", class: "media-event-row",
-                                        input {
-                                            r#type: "checkbox",
-                                            checked: attached,
-                                            onchange: move |e: Event<FormData>| {
-                                                toggle_event.call((event_id, e.checked()));
-                                            },
-                                        }
-                                        span { "{label}" }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                MediaEventsChecklist {
+                    events: events.clone(),
+                    attached: attached_events.clone(),
+                    on_toggle: toggle_event,
                 }
             }
 
@@ -2029,6 +2026,363 @@ fn MediaEditPanel(
                     disabled: saving(),
                     onclick: save,
                     if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                }
+            }
+        }
+    }
+}
+
+/// The first note of a list into the note field and its id.
+fn seed_note(
+    notes: &[oxidgene_core::types::Note],
+    mut text: Signal<String>,
+    mut id: Signal<Option<Uuid>>,
+) {
+    if let Some(first) = notes.first() {
+        text.set(first.text.clone());
+        id.set(Some(first.id));
+    }
+}
+
+/// Which rows an edit writes: the medium, the page holding its file, and the
+/// page whose transcript is edited too.
+struct EditTarget {
+    media_id: Uuid,
+    file_media_id: Uuid,
+    page_note_media_id: Option<Uuid>,
+    source: MediaSource,
+    previous_url: String,
+}
+
+/// The edit panel's fields, as typed.
+struct MediaEditValues {
+    title: String,
+    description: String,
+    url: String,
+    place: String,
+    note: String,
+    page_note: String,
+    note_id: Option<Uuid>,
+    page_note_id: Option<Uuid>,
+    privacy: Privacy,
+    medium: SourceMediaType,
+    category: Option<DocumentCategory>,
+    date: DateParts,
+}
+
+/// Saves an edit: the medium, its file's address when it changed, its note
+/// and its page's transcript, each note's id kept in `note_ids` once it is
+/// saved. The notes are saved even when the medium could not be, so a note
+/// just created is not created again by the next attempt.
+async fn save_media_edit(
+    api: &ApiClient,
+    tree_id: Uuid,
+    lang: &str,
+    target: EditTarget,
+    edit: MediaEditValues,
+    (mut note_id, mut page_note_id): (Signal<Option<Uuid>>, Signal<Option<Uuid>>),
+) -> Result<(), ApiError> {
+    let place = resolve_place(api, tree_id, &edit.place, lang).await?;
+    let medium = save_media_row(api, tree_id, &target, &edit, place).await;
+    let note = save_media_note(api, tree_id, target.media_id, edit.note_id, edit.note)
+        .await
+        .map(|saved| note_id.set(saved));
+    let page_note = match target.page_note_media_id {
+        Some(page_id) => save_media_note(api, tree_id, page_id, edit.page_note_id, edit.page_note)
+            .await
+            .map(|saved| page_note_id.set(saved)),
+        None => Ok(()),
+    };
+    medium.and(note).and(page_note)
+}
+
+/// Writes the medium's own fields, and its file's address on the page that
+/// holds it when that changed.
+async fn save_media_row(
+    api: &ApiClient,
+    tree_id: Uuid,
+    target: &EditTarget,
+    edit: &MediaEditValues,
+    place: Option<Uuid>,
+) -> Result<(), ApiError> {
+    // Only a media whose bytes we do not hold owns its path, and only the
+    // row that names a file has one at all. Sent when it actually changed,
+    // so re-saving a description does not repoint anything.
+    let repoint = (target.source != MediaSource::Stored
+        && !edit.url.is_empty()
+        && edit.url != target.previous_url)
+        .then(|| edit.url.clone());
+    let own_file = target.file_media_id == target.media_id;
+    // An emptied field clears the column rather than storing "", so "no
+    // title" is one state in the database, not two.
+    let text = |value: &str| Some(Some(value.to_string()).filter(|v| !v.is_empty()));
+    let body = UpdateMediaBody {
+        title: text(&edit.title),
+        description: text(&edit.description),
+        date_value: Some(edit.date.date_value()),
+        date_value2: Some(edit.date.date_value2()),
+        date_qualifier: Some(edit.date.qualifier),
+        calendar: Some(edit.date.calendar),
+        place_id: Some(place),
+        file_path: repoint.clone().filter(|_| own_file),
+        mime_type: None,
+        // Measured by whoever draws the picture, never typed here.
+        width: None,
+        height: None,
+        privacy: Some(edit.privacy),
+        source_media_type: Some(edit.medium),
+        document_category: Some(edit.category),
+    };
+    api.update_media(tree_id, target.media_id, &body).await?;
+    // The URL lives on the page, which is a different row from the document
+    // this panel otherwise describes.
+    if let Some(url) = repoint.filter(|_| !own_file) {
+        let body = UpdateMediaBody {
+            file_path: Some(url),
+            ..UpdateMediaBody::default()
+        };
+        api.update_media(tree_id, target.file_media_id, &body)
+            .await?;
+    }
+    Ok(())
+}
+
+/// The file's technical facts, read from the row that holds it: a document
+/// is a description, not a file, and reading its own columns reports no
+/// format, no size and no dimensions for a scan that has all three.
+#[component]
+fn MediaFileMeta(file_media: oxidgene_core::types::Media, page_count: i32) -> Element {
+    let i18n = use_i18n();
+    let source_key = match crate::api::media_source(&file_media) {
+        MediaSource::Stored => "media.source_stored",
+        MediaSource::Remote => "media.source_remote",
+        MediaSource::Unheld => "media.source_unheld",
+    };
+    rsx! {
+        div { class: "media-panel-meta",
+            span { {crate::api::media_kind_label(&file_media.mime_type)} }
+            span { {i18n.t(source_key)} }
+            if let (Some(w), Some(h)) = (file_media.width, file_media.height) {
+                span { "{w} × {h}" }
+            }
+            if file_media.file_size > 0 {
+                span { {format_size(file_media.file_size)} }
+            }
+            if page_count > 1 {
+                span {
+                    {i18n.t_args("media.page_count", &[("count", &page_count.to_string())])}
+                }
+            }
+        }
+    }
+}
+
+/// A medium's tags, each removable, and the form adding one.
+#[component]
+fn MediaTagsEditor(
+    tree_id: Uuid,
+    media_id: Uuid,
+    tags: Signal<Vec<String>>,
+    error: Signal<Option<String>>,
+    on_changed: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut show_tag_form = use_signal(|| false);
+    let add_tag = {
+        let api = api.clone();
+        move |value: String| {
+            if value.is_empty() || tags().iter().any(|tag| tag.eq_ignore_ascii_case(&value)) {
+                return;
+            }
+            show_tag_form.set(false);
+            let api = api.clone();
+            spawn(async move {
+                let added = api.add_media_tag(tree_id, media_id, value).await;
+                settle_tags(added.map(|media| media.tags), tags, error, on_changed);
+            });
+        }
+    };
+    let remove_tag = use_callback(move |tag: String| {
+        let api = api.clone();
+        spawn(async move {
+            let left = match api.remove_media_tag(tree_id, media_id, tag).await {
+                Ok(()) => api
+                    .get_media(tree_id, media_id)
+                    .await
+                    .map(|media| media.tags),
+                Err(err) => Err(err),
+            };
+            settle_tags(left, tags, error, on_changed);
+        });
+    });
+    rsx! {
+        div { class: "pf-subblock media-tags-editor",
+            div { class: "pf-block-label",
+                button {
+                    class: if show_tag_form() { "pf-add-btn is-open" } else { "pf-add-btn" },
+                    r#type: "button",
+                    onclick: move |_| show_tag_form.toggle(),
+                    {i18n.t("media.add_tag")}
+                }
+            }
+            if show_tag_form() {
+                MediaTagForm { on_add: add_tag }
+            }
+            if !tags().is_empty() {
+                div { class: "media-fact-tags media-edit-tags",
+                    for tag in tags().iter().cloned() {
+                        span { key: "{tag}", class: "media-fact-tag is-editable",
+                            "{tag}"
+                            button {
+                                class: "media-tag-remove",
+                                r#type: "button",
+                                title: i18n.t("common.delete"),
+                                onclick: move |_| remove_tag(tag.clone()),
+                                "\u{00D7}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Shows the medium's tags after a change, or why it failed.
+fn settle_tags(
+    result: Result<Vec<String>, ApiError>,
+    mut tags: Signal<Vec<String>>,
+    mut error: Signal<Option<String>>,
+    on_changed: EventHandler<()>,
+) {
+    match result {
+        Ok(now) => {
+            tags.set(now);
+            on_changed.call(());
+        }
+        Err(err) => error.set(Some(err.to_string())),
+    }
+}
+
+/// What kind of document a medium is, in the two vocabularies, and its
+/// privacy.
+#[component]
+pub(crate) fn MediaClassification(
+    document_category: Signal<Option<DocumentCategory>>,
+    source_media_type: Signal<SourceMediaType>,
+    privacy: Signal<Privacy>,
+    #[props(default)] disabled: bool,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        // Two fields for what looks like one question, because it is two.
+        //
+        // The category is what a user can actually answer about a scan —
+        // "this is a census return" — and is the one they will reach for.
+        // The medium is GEDCOM's own vocabulary, which has no word for a
+        // census return and calls it a manuscript; it is what an export
+        // writes, and other genealogy software reads. Leaving the medium
+        // alone lets the category decide it, which is why the placeholder
+        // says so rather than reading as an empty required field.
+        div { class: "form-group",
+            label { {i18n.t("media.document_category")} }
+            select {
+                class: "td-select",
+                disabled,
+                onchange: move |e: Event<FormData>| {
+                    document_category.set(DocumentCategory::parse(&e.value()));
+                },
+                option {
+                    value: "",
+                    selected: document_category().is_none(),
+                    {i18n.t("media.category_none")}
+                }
+                for category in DocumentCategory::all() {
+                    option {
+                        key: "{category.as_str()}",
+                        value: "{category.as_str()}",
+                        selected: document_category() == Some(*category),
+                        {i18n.t(&format!("media.category.{}", category.as_str()))}
+                    }
+                }
+            }
+            p { class: "pf-ns-hint", {i18n.t("media.document_category_hint")} }
+        }
+        div { class: "form-group",
+            label { {i18n.t("media.source_media_type")} }
+            select {
+                class: "td-select",
+                disabled,
+                onchange: move |e: Event<FormData>| {
+                    source_media_type
+                        .set(SourceMediaType::parse(&e.value()).unwrap_or_default());
+                },
+                for medium in SourceMediaType::all() {
+                    option {
+                        key: "{medium.as_str()}",
+                        value: "{medium.as_str()}",
+                        selected: source_media_type() == *medium,
+                        {i18n.t(&format!("media.medium.{}", medium.as_str()))}
+                    }
+                }
+            }
+            p { class: "pf-ns-hint", {i18n.t("media.source_media_type_hint")} }
+        }
+
+        // Recorded, not yet enforced — the hint says so rather than
+        // letting the control imply a protection that does not exist.
+        div { class: "form-group",
+            label { {i18n.t("media.privacy")} }
+            select {
+                class: "td-select",
+                disabled,
+                onchange: move |e: Event<FormData>| {
+                    privacy.set(parse_privacy(&e.value()));
+                },
+                for (value , label) in [
+                    ("Default", i18n.t("privacy.default")),
+                    ("Public", i18n.t("privacy.public")),
+                    ("Private", i18n.t("privacy.private")),
+                ] {
+                    option {
+                        key: "{value}",
+                        value: "{value}",
+                        selected: format!("{:?}", privacy()) == value,
+                        "{label}"
+                    }
+                }
+            }
+            p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
+        }
+    }
+}
+
+/// The events a medium documents, each a checkbox linking or unlinking it.
+#[component]
+pub(crate) fn MediaEventsChecklist(
+    events: Vec<(Uuid, String)>,
+    attached: Vec<Uuid>,
+    on_toggle: Callback<(Uuid, bool)>,
+    #[props(default)] disabled: bool,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "media-panel-section",
+            label { {i18n.t("media.documents_events")} }
+            div { class: "media-events",
+                for (event_id, label) in events.iter().cloned() {
+                    label { key: "{event_id}", class: "media-event-row",
+                        input {
+                            r#type: "checkbox",
+                            checked: attached.contains(&event_id),
+                            disabled,
+                            onchange: move |e: Event<FormData>| {
+                                on_toggle.call((event_id, e.checked()));
+                            },
+                        }
+                        span { "{label}" }
+                    }
                 }
             }
         }
@@ -2431,7 +2785,6 @@ enum MediaRelation {
     },
     CoupleAttachment {
         link_id: Uuid,
-        family_id: Uuid,
         label: String,
         scope: MediaAttachmentScope,
         thumbnail_media_id: Uuid,
@@ -2479,117 +2832,16 @@ fn MediaRelations(
         move || {
             let api = api.clone();
             let _ = revision();
-            async move {
-                let mut links = Vec::new();
-                if let Some(document_media_id) = document_media_id {
-                    links.extend(
-                        api.list_media_links_of(tree_id, document_media_id)
-                            .await
-                            .ok()?
-                            .into_iter()
-                            .map(|link| (MediaAttachmentScope::Document, link)),
-                    );
-                }
-                links.extend(
-                    api.list_media_links_of(tree_id, displayed_media_id)
-                        .await
-                        .ok()?
-                        .into_iter()
-                        .map(|link| (MediaAttachmentScope::Page, link)),
-                );
-                let person_ids = links
-                    .iter()
-                    .filter_map(|(_, link)| link.person_id)
-                    .collect::<Vec<_>>();
-                let family_ids = links
-                    .iter()
-                    .filter_map(|(_, link)| link.family_id)
-                    .collect::<Vec<_>>();
-                let labels = api
-                    .relation_labels(tree_id, &person_ids, &family_ids)
-                    .await
-                    .ok()?;
-                Some((links, labels))
-            }
+            async move { relation_links(&api, tree_id, document_media_id, displayed_media_id).await }
         }
     });
-    let data = data.read_unchecked();
-    let mut relations = Vec::new();
-    if let Some(Some((links, labels))) = data.as_ref() {
-        for (scope, link) in links.iter().filter(|(_, link)| {
-            link.person_id
-                .is_some_and(|person_id| !has_person_identification(&vignettes, person_id))
-        }) {
-            let person_id = link.person_id.expect("filtered person link");
-            if relations.iter().any(|relation| {
-                matches!(
-                    relation,
-                    MediaRelation::PersonAttachment {
-                        person_id: attached_id,
-                        scope: attached_scope,
-                        ..
-                    } if *attached_id == person_id && attached_scope == scope
-                )
-            }) {
-                continue;
-            }
-            if let Some(name) = primary_person_name(&labels.names, person_id) {
-                relations.push(MediaRelation::PersonAttachment {
-                    link_id: link.id,
-                    person_id,
-                    name,
-                    scope: *scope,
-                    thumbnail_media_id: displayed_media_id,
-                });
-            }
+    let mut relations = match data.read_unchecked().as_ref() {
+        Some(Some((links, labels))) => {
+            attachments(links, labels, &vignettes, displayed_media_id, &i18n)
         }
-
-        for (scope, link) in links.iter().filter(|(_, link)| link.family_id.is_some()) {
-            let family_id = link.family_id.expect("filtered family link");
-            if relations.iter().any(|relation| {
-                matches!(
-                    relation,
-                    MediaRelation::CoupleAttachment {
-                        family_id: attached_id,
-                        scope: attached_scope,
-                        ..
-                    } if *attached_id == family_id && attached_scope == scope
-                )
-            }) {
-                continue;
-            }
-            let spouse_names = labels
-                .spouses
-                .iter()
-                .filter(|spouse| spouse.family_id == family_id)
-                .filter_map(|spouse| primary_person_name(&labels.names, spouse.person_id))
-                .collect::<Vec<_>>();
-            let people = if spouse_names.is_empty() {
-                i18n.t("media.attach_unknown_spouse")
-            } else {
-                spouse_names.join(" & ")
-            };
-            relations.push(MediaRelation::CoupleAttachment {
-                link_id: link.id,
-                family_id,
-                label: i18n.t_args("media.attached_couple", &[("people", &people)]),
-                scope: *scope,
-                thumbnail_media_id: displayed_media_id,
-            });
-        }
-    }
-
-    relations.extend(
-        vignettes
-            .iter()
-            .filter(|vignette| vignette.person_id.is_some())
-            .map(|vignette| MediaRelation::Identification {
-                vignette: vignette.clone(),
-                name: vignette
-                    .person_id
-                    .and_then(|person_id| primary_person_name(&person_names, person_id)),
-            }),
-    );
+        _ => Vec::new(),
+    };
+    relations.extend(identifications(&vignettes, &person_names));
 
     let relation_count = relations.len();
     let range = relation_page_range(relation_page(), relation_count);
@@ -2651,6 +2903,17 @@ fn MediaRelations(
     if relation_count == 0 {
         return rsx! {};
     }
+    // Where each relation sits, said only for a document's page.
+    let page_label = i18n.t_args(
+        "media.scope_page",
+        &[("page", &page_number.unwrap_or(1).to_string())],
+    );
+    let scope_label = move |scope: MediaAttachmentScope| {
+        document_media_id.map(|_| match scope {
+            MediaAttachmentScope::Document => i18n.t("media.scope_document"),
+            MediaAttachmentScope::Page => page_label.clone(),
+        })
+    };
 
     rsx! {
         div { class: "form-group media-fact is-relations",
@@ -2666,12 +2929,14 @@ fn MediaRelations(
                                 scope,
                                 thumbnail_media_id,
                             } => rsx! {
-                                div { key: "person-{link_id}", class: "media-vignette-item",
-                                    AttachmentThumbnail {
-                                        tree_id,
-                                        media_id: thumbnail_media_id,
-                                        remote: remote_thumbnail.clone(),
-                                    }
+                                AttachmentRow {
+                                    key: "person-{link_id}",
+                                    tree_id,
+                                    thumbnail_media_id,
+                                    remote_thumbnail: remote_thumbnail.clone(),
+                                    scope: scope_label(scope),
+                                    busy: busy(),
+                                    on_delete: move |_| delete_attachment.call(link_id),
                                     Link {
                                         to: Route::PersonDetail {
                                             tree_id: tree_id.to_string(),
@@ -2681,109 +2946,37 @@ fn MediaRelations(
                                         title: "{name}",
                                         "{name}"
                                     }
-                                    if document_media_id.is_some() {
-                                        span { class: "media-relation-scope",
-                                            {match scope {
-                                                MediaAttachmentScope::Document => i18n.t("media.scope_document"),
-                                                MediaAttachmentScope::Page => i18n.t_args(
-                                                    "media.scope_page",
-                                                    &[("page", &page_number.unwrap_or(1).to_string())],
-                                                ),
-                                            }}
-                                        }
-                                    }
-                                    button {
-                                        class: "media-identification-delete",
-                                        r#type: "button",
-                                        disabled: busy(),
-                                        title: i18n.t("media.delete_attachment"),
-                                        aria_label: i18n.t("media.delete_attachment"),
-                                        onclick: move |_| delete_attachment.call(link_id),
-                                        "\u{00D7}"
-                                    }
                                 }
                             },
                             MediaRelation::CoupleAttachment {
                                 link_id,
-                                family_id: _,
                                 label,
                                 scope,
                                 thumbnail_media_id,
                             } => rsx! {
-                                div { key: "family-{link_id}", class: "media-vignette-item",
-                                    AttachmentThumbnail {
-                                        tree_id,
-                                        media_id: thumbnail_media_id,
-                                        remote: remote_thumbnail.clone(),
-                                    }
+                                AttachmentRow {
+                                    key: "family-{link_id}",
+                                    tree_id,
+                                    thumbnail_media_id,
+                                    remote_thumbnail: remote_thumbnail.clone(),
+                                    scope: scope_label(scope),
+                                    busy: busy(),
+                                    on_delete: move |_| delete_attachment.call(link_id),
                                     span { class: "media-attachment-couple", title: "{label}", "{label}" }
-                                    if document_media_id.is_some() {
-                                        span { class: "media-relation-scope",
-                                            {match scope {
-                                                MediaAttachmentScope::Document => i18n.t("media.scope_document"),
-                                                MediaAttachmentScope::Page => i18n.t_args(
-                                                    "media.scope_page",
-                                                    &[("page", &page_number.unwrap_or(1).to_string())],
-                                                ),
-                                            }}
-                                        }
-                                    }
-                                    button {
-                                        class: "media-identification-delete",
-                                        r#type: "button",
-                                        disabled: busy(),
-                                        title: i18n.t("media.delete_attachment"),
-                                        aria_label: i18n.t("media.delete_attachment"),
-                                        onclick: move |_| delete_attachment.call(link_id),
-                                        "\u{00D7}"
-                                    }
                                 }
                             },
-                            MediaRelation::Identification { vignette, name } => {
-                              let vignette_id = vignette.id;
-                              rsx! {
-                                div {
-                                    key: "vignette-{vignette_id}",
-                                    class: "media-identification",
-                                    onpointerenter: move |_| on_identification_hover.call(Some(vignette_id)),
-                                    onpointerleave: move |_| on_identification_hover.call(None),
-                                    onfocusin: move |_| on_identification_hover.call(Some(vignette_id)),
-                                    onfocusout: move |_| on_identification_hover.call(None),
-                                    div { class: "media-vignette-item",
-                                        div { class: "media-identification-target",
-                                            PrivateVignetteImage {
-                                                tree_id,
-                                                vignette: vignette.clone(),
-                                                page: Some(source_media.clone()),
-                                                alt: String::new(),
-                                                class: "media-vignette-thumbnail",
-                                            }
-                                            if let Some(name) = name.as_ref() {
-                                                span { class: "media-identification-person", title: "{name}", "{name}" }
-                                            }
-                                            if document_media_id.is_some() {
-                                                span { class: "media-relation-scope",
-                                                    {i18n.t_args(
-                                                        "media.scope_page",
-                                                        &[("page", &page_number.unwrap_or(1).to_string())],
-                                                    )}
-                                                }
-                                            }
-                                        }
-                                        if name.is_some() {
-                                            button {
-                                                class: "media-identification-delete",
-                                                r#type: "button",
-                                                disabled: busy(),
-                                                title: i18n.t("media.delete_identification"),
-                                                aria_label: i18n.t("media.delete_identification"),
-                                                onclick: move |_| delete_identification.call(vignette_id),
-                                                "\u{00D7}"
-                                            }
-                                        }
-                                    }
+                            MediaRelation::Identification { vignette, name } => rsx! {
+                                IdentificationRow {
+                                    key: "vignette-{vignette.id}",
+                                    tree_id,
+                                    vignette,
+                                    name,
+                                    page: source_media.clone(),
+                                    scope: scope_label(MediaAttachmentScope::Page),
+                                    busy: busy(),
+                                    on_hover: on_identification_hover,
+                                    on_delete: move |id| delete_identification.call(id),
                                 }
-                              }
                             },
                         }
                     }
@@ -2826,6 +3019,213 @@ fn MediaRelations(
             }
             if let Some(message) = error() {
                 div { class: "error-msg", "{message}" }
+            }
+        }
+    }
+}
+
+/// The links of the page shown and of its document, if any, with the names
+/// of the persons and couples they name.
+async fn relation_links(
+    api: &ApiClient,
+    tree_id: Uuid,
+    document_media_id: Option<Uuid>,
+    displayed_media_id: Uuid,
+) -> Option<(
+    Vec<(MediaAttachmentScope, oxidgene_core::types::MediaLink)>,
+    crate::api::RelationLabels,
+)> {
+    let mut links = Vec::new();
+    if let Some(document_media_id) = document_media_id {
+        let of_document = api
+            .list_media_links_of(tree_id, document_media_id)
+            .await
+            .ok()?;
+        links.extend(
+            of_document
+                .into_iter()
+                .map(|link| (MediaAttachmentScope::Document, link)),
+        );
+    }
+    let of_page = api
+        .list_media_links_of(tree_id, displayed_media_id)
+        .await
+        .ok()?;
+    links.extend(
+        of_page
+            .into_iter()
+            .map(|link| (MediaAttachmentScope::Page, link)),
+    );
+    let person_ids: Vec<Uuid> = links
+        .iter()
+        .filter_map(|(_, link)| link.person_id)
+        .collect();
+    let family_ids: Vec<Uuid> = links
+        .iter()
+        .filter_map(|(_, link)| link.family_id)
+        .collect();
+    let labels = api
+        .relation_labels(tree_id, &person_ids, &family_ids)
+        .await
+        .ok()?;
+    Some((links, labels))
+}
+
+/// The persons and couples attached to the page or its document, once per
+/// scope each; a person identified on the page is listed by the
+/// identification instead.
+fn attachments(
+    links: &[(MediaAttachmentScope, oxidgene_core::types::MediaLink)],
+    labels: &crate::api::RelationLabels,
+    vignettes: &[Vignette],
+    displayed_media_id: Uuid,
+    i18n: &I18n,
+) -> Vec<MediaRelation> {
+    let mut relations = Vec::new();
+    let mut listed: HashSet<(Uuid, MediaAttachmentScope)> = HashSet::new();
+    for (scope, link) in links {
+        let Some(person_id) = link.person_id else {
+            continue;
+        };
+        let identified = has_person_identification(vignettes, person_id);
+        if identified || !listed.insert((person_id, *scope)) {
+            continue;
+        }
+        if let Some(name) = primary_person_name(&labels.names, person_id) {
+            relations.push(MediaRelation::PersonAttachment {
+                link_id: link.id,
+                person_id,
+                name,
+                scope: *scope,
+                thumbnail_media_id: displayed_media_id,
+            });
+        }
+    }
+    for (scope, link) in links {
+        let Some(family_id) = link.family_id.filter(|id| listed.insert((*id, *scope))) else {
+            continue;
+        };
+        let spouse_names = labels
+            .spouses
+            .iter()
+            .filter(|spouse| spouse.family_id == family_id)
+            .filter_map(|spouse| primary_person_name(&labels.names, spouse.person_id))
+            .collect::<Vec<_>>();
+        let people = if spouse_names.is_empty() {
+            i18n.t("media.attach_unknown_spouse")
+        } else {
+            spouse_names.join(" & ")
+        };
+        relations.push(MediaRelation::CoupleAttachment {
+            link_id: link.id,
+            label: i18n.t_args("media.attached_couple", &[("people", &people)]),
+            scope: *scope,
+            thumbnail_media_id: displayed_media_id,
+        });
+    }
+    relations
+}
+
+/// The persons identified on the page, each by their box.
+fn identifications(vignettes: &[Vignette], person_names: &[PersonName]) -> Vec<MediaRelation> {
+    vignettes
+        .iter()
+        .filter(|vignette| vignette.person_id.is_some())
+        .map(|vignette| MediaRelation::Identification {
+            vignette: vignette.clone(),
+            name: vignette
+                .person_id
+                .and_then(|person_id| primary_person_name(person_names, person_id)),
+        })
+        .collect()
+}
+
+/// A person or couple attached to the page or its document: its thumbnail,
+/// `children` naming it, where it is attached, and its delete button.
+#[component]
+fn AttachmentRow(
+    tree_id: Uuid,
+    thumbnail_media_id: Uuid,
+    remote_thumbnail: Option<String>,
+    scope: Option<String>,
+    busy: bool,
+    on_delete: EventHandler<()>,
+    children: Element,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "media-vignette-item",
+            AttachmentThumbnail {
+                tree_id,
+                media_id: thumbnail_media_id,
+                remote: remote_thumbnail,
+            }
+            {children}
+            if let Some(scope) = scope {
+                span { class: "media-relation-scope", "{scope}" }
+            }
+            button {
+                class: "media-identification-delete",
+                r#type: "button",
+                disabled: busy,
+                title: i18n.t("media.delete_attachment"),
+                aria_label: i18n.t("media.delete_attachment"),
+                onclick: move |_| on_delete.call(()),
+                "\u{00D7}"
+            }
+        }
+    }
+}
+
+/// A person identified by a box on the page, highlighted on the page while
+/// hovered; an unnamed box cannot be deleted from here.
+#[component]
+fn IdentificationRow(
+    tree_id: Uuid,
+    vignette: Vignette,
+    name: Option<String>,
+    page: oxidgene_core::types::Media,
+    scope: Option<String>,
+    busy: bool,
+    on_hover: EventHandler<Option<Uuid>>,
+    on_delete: EventHandler<Uuid>,
+) -> Element {
+    let i18n = use_i18n();
+    let vignette_id = vignette.id;
+    rsx! {
+        div {
+            class: "media-identification",
+            onpointerenter: move |_| on_hover.call(Some(vignette_id)),
+            onpointerleave: move |_| on_hover.call(None),
+            onfocusin: move |_| on_hover.call(Some(vignette_id)),
+            onfocusout: move |_| on_hover.call(None),
+            div { class: "media-vignette-item",
+                div { class: "media-identification-target",
+                    PrivateVignetteImage {
+                        tree_id,
+                        vignette: vignette.clone(),
+                        page: Some(page),
+                        alt: String::new(),
+                        class: "media-vignette-thumbnail",
+                    }
+                    if let Some(name) = name.as_ref() {
+                        span { class: "media-identification-person", title: "{name}", "{name}" }
+                    }
+                    if let Some(scope) = scope {
+                        span { class: "media-relation-scope", "{scope}" }
+                    }
+                }
+                if name.is_some() {
+                    button {
+                        class: "media-identification-delete",
+                        r#type: "button",
+                        disabled: busy,
+                        title: i18n.t("media.delete_identification"),
+                        aria_label: i18n.t("media.delete_identification"),
+                        onclick: move |_| on_delete.call(vignette_id),
+                        "\u{00D7}"
+                    }
+                }
             }
         }
     }
@@ -2936,7 +3336,7 @@ enum MediaAttachmentMode {
     CoupleFamily,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum MediaAttachmentScope {
     Document,
     Page,
