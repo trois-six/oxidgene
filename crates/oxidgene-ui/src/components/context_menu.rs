@@ -89,6 +89,8 @@ pub enum PersonAction {
     EditSpecificUnion(Uuid),
     /// Trace how the person is related to somebody else.
     Kinship,
+    /// Make a relative the chart's focus.
+    GoTo(Uuid),
     Delete,
 }
 
@@ -103,6 +105,10 @@ pub struct ContextMenuProps {
     /// List of unions: (family_id, partner_name, marriage_year).
     #[props(default)]
     pub unions: Vec<(Uuid, String, String)>,
+    /// Relatives the chart does not draw around the person, to go to: a
+    /// heading per kind, then (person, label) for each. Empty, no "Go to…".
+    #[props(default)]
+    pub go_to: Vec<(String, Vec<(Uuid, String)>)>,
     pub on_action: EventHandler<PersonAction>,
     pub on_close: EventHandler<()>,
 }
@@ -111,6 +117,7 @@ pub struct ContextMenuProps {
 pub fn ContextMenu(props: ContextMenuProps) -> Element {
     let i18n = use_i18n();
     let mut show_union_sub = use_signal(|| false);
+    let mut show_go_to = use_signal(|| false);
 
     let union_count = props.unions.len();
 
@@ -121,7 +128,33 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
             on_close: props.on_close,
             div { class: "context-menu-header", "{props.person_name}" }
 
-            if show_union_sub() {
+            if show_go_to() {
+                button {
+                    class: "context-menu-item context-menu-back",
+                    onclick: move |_| show_go_to.set(false),
+                    "\u{2190} {i18n.t(\"common.back\")}"
+                }
+                for (k, (heading, people)) in props.go_to.iter().enumerate() {
+                    div { key: "g-{k}",
+                        hr { class: "context-menu-divider" }
+                        div { class: "context-menu-subheader", "{heading}" }
+                        for (pid, label) in people.iter() {
+                            {
+                                let pid = *pid;
+                                let on_action = props.on_action;
+                                rsx! {
+                                    button {
+                                        key: "{pid}",
+                                        class: "context-menu-item",
+                                        onclick: move |_| on_action.call(PersonAction::GoTo(pid)),
+                                        "{label}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if show_union_sub() {
                 // Union sub-list: back arrow + union entries.
                 button {
                     class: "context-menu-item context-menu-back",
@@ -188,6 +221,14 @@ pub fn ContextMenu(props: ContextMenuProps) -> Element {
                     class: "context-menu-item",
                     onclick: move |_| props.on_action.call(PersonAction::AddSibling),
                     {i18n.t("context.add_sibling")}
+                }
+                if !props.go_to.is_empty() {
+                    hr { class: "context-menu-divider" }
+                    button {
+                        class: "context-menu-item",
+                        onclick: move |_| show_go_to.set(true),
+                        {i18n.t("context.go_to")}
+                    }
                 }
                 hr { class: "context-menu-divider" }
                 button {

@@ -1912,6 +1912,16 @@ pub const LAYOUT_STYLES: &str = r#"
         border-bottom: 1px solid var(--border);
     }
 
+    /* A heading inside a menu's list, as "Spouses" above the spouses. */
+    .context-menu-subheader {
+        padding: 6px 14px 2px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+    }
+
     .context-menu-item {
         display: block;
         width: 100%;

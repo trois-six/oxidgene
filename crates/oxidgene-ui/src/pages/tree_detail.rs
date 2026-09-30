@@ -305,6 +305,18 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         None => vec![],
     };
 
+    // Relatives the chart does not draw around the person, to go to from
+    // the action picker: spouses and children in an ancestor chart, parents
+    // and spouses in a descendant one.
+    let view = crate::prefs::use_pedigree_view();
+    let ctx_go_to: Vec<(String, Vec<(Uuid, String)>)> =
+        match (context_menu_person(), pedigree_data.as_ref()) {
+            (Some((pid, _, _)), Some(data)) => {
+                go_to_relatives(data, pid, root_person_id, view, &i18n)
+            }
+            _ => Vec::new(),
+        };
+
     // ── Handlers ──
 
     // Context menu action handler.
@@ -348,6 +360,9 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             }
             PersonAction::Kinship => {
                 linking_mode.set(Some(LinkingMode::Kinship(pid)));
+            }
+            PersonAction::GoTo(relative) => {
+                selected_root.set(Some(relative));
             }
             PersonAction::Delete => {
                 confirm_delete_person_id.set(Some(pid));
@@ -868,6 +883,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 y: y,
                 has_union: ctx_person_has_union,
                 unions: ctx_unions.clone(),
+                go_to: ctx_go_to.clone(),
                 on_action: on_context_action,
                 on_close: move |_| context_menu_person.set(None),
             }
@@ -1175,4 +1191,48 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
         } // close .tree-detail-page
     }
+}
+
+/// The relatives `view` lists to go to from `pid`'s action picker, grouped
+/// under their heading, each named with their lifespan. The chart's focus
+/// is left out — it is already there — and so are kinds with nobody.
+fn go_to_relatives(
+    data: &PedigreeData,
+    pid: Uuid,
+    focus: Option<Uuid>,
+    view: crate::components::pedigree_view::PedigreeView,
+    i18n: &crate::i18n::I18n,
+) -> Vec<(String, Vec<(Uuid, String)>)> {
+    use crate::components::pedigree_chart::format_lifespan;
+    use crate::components::pedigree_view::Relatives;
+
+    let label = |id: Uuid| {
+        let name = data.display_name(id, i18n);
+        let dates = format_lifespan(data.qualified_birth_year(id), data.qualified_death_year(id));
+        if dates.is_empty() {
+            name
+        } else {
+            format!("{name}  {dates}")
+        }
+    };
+    view.relatives_to_reach()
+        .iter()
+        .filter_map(|kind| {
+            let people = match kind {
+                Relatives::Parents => {
+                    let (father, mother) = data.parents_of(pid);
+                    [father, mother].into_iter().flatten().collect()
+                }
+                Relatives::Spouses => data.spouses_of(pid),
+                Relatives::Children => data.children_of(pid),
+            };
+            let people: Vec<Uuid> = people.into_iter().filter(|id| Some(*id) != focus).collect();
+            (!people.is_empty()).then(|| {
+                (
+                    i18n.t(kind.heading_key()),
+                    people.into_iter().map(|id| (id, label(id))).collect(),
+                )
+            })
+        })
+        .collect()
 }

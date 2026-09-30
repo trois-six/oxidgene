@@ -671,7 +671,44 @@ impl PedigreeData {
         result
     }
 
-    fn parents_of(&self, person_id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
+    /// The person's spouses, in the order of their unions, each once.
+    pub(crate) fn spouses_of(&self, person_id: Uuid) -> Vec<Uuid> {
+        let mut seen = HashSet::new();
+        self.families_as_spouse
+            .get(&person_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|fid| self.spouses_by_family.get(fid))
+            .flatten()
+            .map(|spouse| spouse.person_id)
+            .filter(|pid| *pid != person_id && seen.insert(*pid))
+            .collect()
+    }
+
+    /// The person's children, in the order of their unions and of births,
+    /// each once.
+    pub(crate) fn children_of(&self, person_id: Uuid) -> Vec<Uuid> {
+        let mut seen = HashSet::new();
+        self.families_as_spouse
+            .get(&person_id)
+            .into_iter()
+            .flatten()
+            .flat_map(|fid| {
+                let mut children = self
+                    .children_by_family
+                    .get(fid)
+                    .cloned()
+                    .unwrap_or_default();
+                children.sort_by_key(|child| child.sort_order);
+                children
+            })
+            .map(|child| child.person_id)
+            .filter(|pid| seen.insert(*pid))
+            .collect()
+    }
+
+    /// The person's father and mother, as far as the tree records them.
+    pub(crate) fn parents_of(&self, person_id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
         let Some(family_ids) = self.families_as_child.get(&person_id) else {
             return (None, None);
         };

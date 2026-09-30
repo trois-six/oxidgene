@@ -148,49 +148,14 @@ impl LineageLayout {
     }
 }
 
-/// The root's spouses, in the order of its unions, each once.
-fn spouses_of(root_id: Uuid, data: &PedigreeData) -> Vec<Uuid> {
-    let mut seen = HashSet::new();
-    data.families_as_spouse
-        .get(&root_id)
-        .into_iter()
-        .flatten()
-        .filter_map(|fid| data.spouses_by_family.get(fid))
-        .flatten()
-        .map(|spouse| spouse.person_id)
-        .filter(|pid| *pid != root_id && seen.insert(*pid))
-        .collect()
-}
-
-/// The root's children, in the order of its unions and of their births.
+/// The root's children, as [`PedigreeData::children_of`] orders them, each
+/// marked when they have children of their own.
 fn children_of(root_id: Uuid, data: &PedigreeData) -> Vec<ChildLink> {
-    let has_children = |pid: Uuid| {
-        data.families_as_spouse.get(&pid).is_some_and(|families| {
-            families.iter().any(|fid| {
-                data.children_by_family
-                    .get(fid)
-                    .is_some_and(|c| !c.is_empty())
-            })
-        })
-    };
-    let mut seen = HashSet::new();
-    data.families_as_spouse
-        .get(&root_id)
+    data.children_of(root_id)
         .into_iter()
-        .flatten()
-        .flat_map(|fid| {
-            let mut children = data
-                .children_by_family
-                .get(fid)
-                .cloned()
-                .unwrap_or_default();
-            children.sort_by_key(|child| child.sort_order);
-            children
-        })
-        .filter(|child| seen.insert(child.person_id))
-        .map(|child| ChildLink {
-            id: child.person_id,
-            has_children: has_children(child.person_id),
+        .map(|id| ChildLink {
+            id,
+            has_children: !data.children_of(id).is_empty(),
         })
         .collect()
 }
@@ -311,7 +276,7 @@ pub(super) fn lineage_layout(
         links,
         box_extents,
         link_extents,
-        spouses: spouses_of(root_id, data),
+        spouses: data.spouses_of(root_id),
         children: children_of(root_id, data),
         box_w: rect_w,
         root_is_sosa_root: sosa_root_id.is_some() && sosa_root_id == Some(root_id),
@@ -609,7 +574,7 @@ pub(super) fn LineageFamilyMenu(
     on_close: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
-    let spouses = spouses_of(root_person_id, &data);
+    let spouses = data.spouses_of(root_person_id);
     let children = children_of(root_person_id, &data);
     let label = |id: Uuid| {
         let name = data.display_name(id, &i18n);

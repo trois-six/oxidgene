@@ -9,6 +9,26 @@
 
 use serde::{Deserialize, Serialize};
 
+/// A kind of relative a chart's action picker offers to go to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relatives {
+    Parents,
+    Spouses,
+    Children,
+}
+
+impl Relatives {
+    /// Translation key for the heading of the list.
+    #[must_use]
+    pub const fn heading_key(self) -> &'static str {
+        match self {
+            Self::Parents => "pedigree.parents",
+            Self::Spouses => "pedigree.spouses",
+            Self::Children => "pedigree.children",
+        }
+    }
+}
+
 /// One way of drawing the tree view.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -59,6 +79,21 @@ impl PedigreeView {
     #[must_use]
     pub const fn shows_ancestors(self) -> bool {
         !matches!(self, Self::DescendantWheel | Self::DescendantFan)
+    }
+
+    /// The relatives the view does not draw around a person, which its
+    /// action picker lists to go to: spouses and children in an ancestor
+    /// chart, parents and spouses in a descendant one. The tree draws them
+    /// all.
+    #[must_use]
+    pub const fn relatives_to_reach(self) -> &'static [Relatives] {
+        match self {
+            Self::Tree => &[],
+            Self::Wheel | Self::Fan | Self::Lineage => &[Relatives::Spouses, Relatives::Children],
+            Self::DescendantWheel | Self::DescendantFan => {
+                &[Relatives::Parents, Relatives::Spouses]
+            }
+        }
     }
 
     /// Translation key for the view's name.
@@ -134,6 +169,24 @@ mod tests {
         assert_eq!(PedigreeView::from_stored("\"hourglass\""), None);
         assert_eq!(PedigreeView::from_stored("wheel"), None);
         assert_eq!(PedigreeView::from_stored(""), None);
+    }
+
+    #[test]
+    fn each_chart_offers_the_relatives_it_does_not_draw() {
+        use PedigreeView::*;
+        assert!(Tree.relatives_to_reach().is_empty());
+        for view in [Wheel, Fan, Lineage] {
+            assert_eq!(
+                view.relatives_to_reach(),
+                &[Relatives::Spouses, Relatives::Children]
+            );
+        }
+        for view in [DescendantWheel, DescendantFan] {
+            assert_eq!(
+                view.relatives_to_reach(),
+                &[Relatives::Parents, Relatives::Spouses]
+            );
+        }
     }
 
     #[test]

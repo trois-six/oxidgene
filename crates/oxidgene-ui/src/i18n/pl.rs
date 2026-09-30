@@ -218,6 +218,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("context.add_spouse", "Dodaj małżonka"),
         ("context.add_child", "Dodaj dziecko"),
         ("context.add_sibling", "Dodaj rodzeństwo"),
+        ("context.go_to", "Przejdź do…"),
         ("context.kinship", "Pokrewieństwo z…"),
         // ── Pedigree chart / sidebar ────────────────────────────────
         ("pedigree.events", "Wydarzenia"),
@@ -233,6 +234,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("pedigree.profile_view", "Widok profilu"),
         ("pedigree.couple_view", "Widok pary"),
         ("pedigree.add_person", "Dodaj osobę"),
+        ("pedigree.parents", "Rodzice"),
         ("pedigree.spouses", "Małżonkowie"),
         ("pedigree.children", "Dzieci"),
         ("pedigree.jump_to_family", "Przejdź do małżonka lub dziecka"),
