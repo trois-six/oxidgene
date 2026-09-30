@@ -136,6 +136,7 @@ impl LineageLayout {
             content_h: self.total_h - 2.0 * MARGIN,
             root_cx: self.origin_x + root_x,
             root_cy: self.origin_y + root_y,
+            root_at_left: true,
         }
     }
 

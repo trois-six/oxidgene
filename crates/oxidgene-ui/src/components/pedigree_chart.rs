@@ -3104,6 +3104,11 @@ struct FitTarget {
     content_h: f64,
     root_cx: f64,
     root_cy: f64,
+    /// Whether the root is at the graph's left edge, as in the lineage view:
+    /// a graph too large to frame whole then starts at the left margin
+    /// rather than centring the root, which would leave half the screen
+    /// empty.
+    root_at_left: bool,
 }
 
 impl FitTarget {
@@ -3115,6 +3120,7 @@ impl FitTarget {
             content_h: layout.content_h,
             root_cx: layout.root_cx,
             root_cy: layout.root_cy,
+            root_at_left: false,
         }
     }
 }
@@ -3124,20 +3130,30 @@ impl FitTarget {
 /// A graph that fits is framed whole. One that does not — a deep pedigree
 /// already at the smallest scale — is centred on the root card instead: that
 /// person is who the user asked to see, and centring the graph's middle could
-/// leave them off screen entirely.
+/// leave them off screen entirely. A graph whose root is its left edge (the
+/// lineage view) keeps the root centred vertically only: if it is wider than
+/// the screen it starts at the left margin, else it is centred across.
 fn fit_transform(rect: ViewportRect, target: FitTarget) -> ViewportTransform {
     let side_padding = rect.width * FIT_SIDE_PADDING_RATIO;
     let fit_w = (rect.width - 2.0 * side_padding).max(1.0);
     let whole = (fit_w / target.content_w).min(rect.height / target.content_h);
     let scale = whole.clamp(ZOOM_MIN, ZOOM_MAX);
-    let (focus_x, focus_y) = if whole < ZOOM_MIN {
-        (target.root_cx, target.root_cy)
-    } else {
-        (target.content_cx, target.content_cy)
-    };
     let (center_x, center_y) = rect.center();
+    let (x, focus_y) = if whole >= ZOOM_MIN {
+        (center_x - target.content_cx * scale, target.content_cy)
+    } else if !target.root_at_left {
+        (center_x - target.root_cx * scale, target.root_cy)
+    } else if target.content_w * scale <= fit_w {
+        (center_x - target.content_cx * scale, target.root_cy)
+    } else {
+        let content_left = target.content_cx - target.content_w / 2.0;
+        (
+            rect.left + side_padding - content_left * scale,
+            target.root_cy,
+        )
+    };
     ViewportTransform {
-        x: center_x - focus_x * scale,
+        x,
         y: center_y - focus_y * scale,
         scale,
     }
@@ -5965,6 +5981,7 @@ mod zoom_tests {
             content_h: 600.0,
             root_cx: 900.0,
             root_cy: 550.0,
+            root_at_left: false,
         };
         let fit = fit_transform(fit_rect(), target);
         let (cx, cy) = fit_rect().center();
@@ -5984,12 +6001,49 @@ mod zoom_tests {
             content_h: 1_400.0,
             root_cx: 61_234.0,
             root_cy: 1_100.0,
+            root_at_left: false,
         };
         let fit = fit_transform(fit_rect(), target);
         assert_eq!(fit.scale, ZOOM_MIN);
         let (cx, cy) = fit_rect().center();
         assert!((fit.x + target.root_cx * fit.scale - cx).abs() < 1e-9);
         assert!((fit.y + target.root_cy * fit.scale - cy).abs() < 1e-9);
+    }
+
+    /// A lineage too tall to frame whole keeps its root centred vertically,
+    /// but its left edge — where the root is — starts at the left margin
+    /// when it is wider than the screen, and is centred when it is not.
+    #[test]
+    fn a_graph_rooted_at_its_left_edge_starts_at_the_left_margin() {
+        let rect = fit_rect();
+        let wide = FitTarget {
+            content_cx: 3_000.0,
+            content_cy: 20_000.0,
+            content_w: 6_000.0,
+            content_h: 40_000.0,
+            root_cx: 100.0,
+            root_cy: 20_000.0,
+            root_at_left: true,
+        };
+        let fit = fit_transform(rect, wide);
+        assert_eq!(fit.scale, ZOOM_MIN);
+        let margin = rect.width * FIT_SIDE_PADDING_RATIO;
+        assert!(
+            (fit.x - rect.left - margin).abs() < 1e-9,
+            "left edge at the margin"
+        );
+        let (cx, cy) = rect.center();
+        assert!((fit.y + wide.root_cy * fit.scale - cy).abs() < 1e-9);
+        let narrow = FitTarget {
+            content_w: 3_000.0,
+            content_cx: 1_500.0,
+            ..wide
+        };
+        let fit = fit_transform(rect, narrow);
+        assert!(
+            (fit.x + narrow.content_cx * fit.scale - cx).abs() < 1e-9,
+            "centred across"
+        );
     }
 
     /// A zoom holds one point still — that is the whole of what it promises.

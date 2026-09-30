@@ -555,6 +555,7 @@ impl CircularLayout {
             content_h: self.total_h,
             root_cx: self.origin_x + root_dx,
             root_cy: self.origin_y + root_dy,
+            root_at_left: false,
         }
     }
 }
