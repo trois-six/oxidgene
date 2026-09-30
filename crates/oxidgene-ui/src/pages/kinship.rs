@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use oxidgene_core::Sex;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::types::{Kinship as KinshipReport, KinshipPath, KinshipSegment};
 use uuid::Uuid;
@@ -102,8 +103,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
         if let Some(Some(Ok(kinship))) = &*kinship_resource.read() {
             ids.extend(kinship.persons.iter().map(|person| person.person_id));
         }
-        ids.sort_unstable();
-        ids.dedup();
+        let ids = sorted_unique(ids);
         async move {
             match tid {
                 Some(tid) => api.portrait_map_for_ids(tid, &ids).await,

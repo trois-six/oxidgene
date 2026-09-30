@@ -12,6 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::projection::{
     Pedigree, PedigreeDelta, PedigreeDirection, PedigreeEdge, PedigreeFamily, PedigreeFamilyMember,
@@ -524,13 +525,12 @@ impl ProfileService {
             FamilySpouseRepo::list_by_persons(conn, targets),
             FamilyChildRepo::list_by_persons(conn, targets),
         )?;
-        let mut family_ids: Vec<Uuid> = as_spouse
-            .iter()
-            .map(|s| s.family_id)
-            .chain(as_child.iter().map(|c| c.family_id))
-            .collect();
-        family_ids.sort();
-        family_ids.dedup();
+        let family_ids = sorted_unique(
+            as_spouse
+                .iter()
+                .map(|s| s.family_id)
+                .chain(as_child.iter().map(|c| c.family_id)),
+        );
         // Deleting a family is a soft delete and leaves its membership rows
         // behind, so reaching families through them would resurrect one. The
         // whole-tree path gets this for free from `FamilyRepo::list_all`;
@@ -551,17 +551,17 @@ impl ProfileService {
         )?;
 
         // 3. Related person rows + names, places, media.
-        let mut person_ids: Vec<Uuid> = targets.to_vec();
-        person_ids.extend(spouses.iter().map(|s| s.person_id));
-        person_ids.extend(children.iter().map(|c| c.person_id));
-        person_ids.sort();
-        person_ids.dedup();
+        let person_ids = sorted_unique(
+            targets
+                .iter()
+                .copied()
+                .chain(spouses.iter().map(|s| s.person_id))
+                .chain(children.iter().map(|c| c.person_id)),
+        );
 
         let mut events = person_events;
         events.extend(family_events);
-        let mut place_ids: Vec<Uuid> = events.iter().filter_map(|e| e.place_id).collect();
-        place_ids.sort();
-        place_ids.dedup();
+        let place_ids = sorted_unique(events.iter().filter_map(|e| e.place_id));
         let media_ids: Vec<Uuid> = media_links.iter().map(|l| l.media_id).collect();
 
         let (persons, names, places, media) = tokio::try_join!(
@@ -593,13 +593,12 @@ impl ProfileService {
             .filter_map(|p| p.portrait_vignette_id)
             .collect();
         let portrait_vignettes = VignetteRepo::get_many(conn, &vignette_ids).await?;
-        let mut scan_ids: Vec<Uuid> = portrait_vignettes
-            .iter()
-            .map(|v| v.media_id)
-            .filter(|id| !media.iter().any(|m| m.id == *id))
-            .collect();
-        scan_ids.sort();
-        scan_ids.dedup();
+        let scan_ids = sorted_unique(
+            portrait_vignettes
+                .iter()
+                .map(|v| v.media_id)
+                .filter(|id| !media.iter().any(|m| m.id == *id)),
+        );
         media.extend(MediaRepo::get_many(conn, &scan_ids).await?);
 
         Ok(TreeData {
@@ -723,11 +722,11 @@ impl ProfileService {
         )?;
 
         // 2. Collect all person IDs we need.
-        let mut person_ids: Vec<Uuid> = vec![root_person_id];
-        person_ids.extend(ancestors.iter().map(|a| a.person_id));
-        person_ids.extend(descendants.iter().map(|d| d.person_id));
-        person_ids.sort();
-        person_ids.dedup();
+        let mut person_ids = sorted_unique(
+            std::iter::once(root_person_id)
+                .chain(ancestors.iter().map(|a| a.person_id))
+                .chain(descendants.iter().map(|d| d.person_id)),
+        );
 
         // 3. Build a depth map: person_id -> generation (negative for
         //    ancestors, positive for descendants, 0 for root).

@@ -31,10 +31,3 @@ where
     }
     Ok(rows)
 }
-
-/// The ids in ascending order, each once.
-pub(crate) fn sorted_unique(mut ids: Vec<Uuid>) -> Vec<Uuid> {
-    ids.sort();
-    ids.dedup();
-    ids
-}

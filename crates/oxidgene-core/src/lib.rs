@@ -4,6 +4,7 @@
 //! It has no internal dependencies on other workspace crates.
 
 pub mod calendar;
+pub mod collections;
 pub mod enums;
 pub mod error;
 pub mod history;

@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::types::{
     Citation, Event, FamilyChild, FamilySpouse, Media, Person, PersonName, Place, Source, Vignette,
 };
@@ -74,8 +75,8 @@ pub async fn load_person_detail_bundle(
         FamilySpouseRepo::list_by_person(db, person_id),
         FamilyChildRepo::list_by_person(db, person_id),
     )?;
-    let profile_family_ids = unique_ids(own_spouse_links.iter().map(|link| link.family_id));
-    let direct_family_ids = unique_ids(
+    let profile_family_ids = sorted_unique(own_spouse_links.iter().map(|link| link.family_id));
+    let direct_family_ids = sorted_unique(
         own_spouse_links
             .iter()
             .map(|link| link.family_id)
@@ -87,14 +88,14 @@ pub async fn load_person_detail_bundle(
         .iter()
         .map(|link| link.family_id)
         .collect::<HashSet<_>>();
-    let parent_ids = unique_ids(
+    let parent_ids = sorted_unique(
         direct_spouses
             .iter()
             .filter(|link| child_family_ids.contains(&link.family_id))
             .map(|link| link.person_id),
     );
     let parent_spouse_links = FamilySpouseRepo::list_by_persons(db, &parent_ids).await?;
-    let family_ids = unique_ids(
+    let family_ids = sorted_unique(
         direct_family_ids
             .iter()
             .copied()
@@ -105,7 +106,7 @@ pub async fn load_person_detail_bundle(
         FamilyChildRepo::list_by_families(db, &family_ids),
     )?;
 
-    let person_ids = unique_ids(
+    let person_ids = sorted_unique(
         std::iter::once(person_id)
             .chain(spouses.iter().map(|link| link.person_id))
             .chain(children.iter().map(|link| link.person_id)),
@@ -117,7 +118,7 @@ pub async fn load_person_detail_bundle(
         .collect::<Vec<_>>();
     let direct_family_ids = direct_family_ids.into_iter().collect::<HashSet<_>>();
     let direct_family_id_list = direct_family_ids.iter().copied().collect::<Vec<_>>();
-    let timeline_person_ids = unique_ids(
+    let timeline_person_ids = sorted_unique(
         std::iter::once(person_id)
             .chain(parent_ids.iter().copied())
             .chain(children.iter().map(|link| link.person_id)),
@@ -135,7 +136,7 @@ pub async fn load_person_detail_bundle(
     events.sort_by_key(|event| event.id);
     events.dedup_by_key(|event| event.id);
 
-    let place_ids = unique_ids(events.iter().filter_map(|event| event.place_id));
+    let place_ids = sorted_unique(events.iter().filter_map(|event| event.place_id));
     let event_ids = events.iter().map(|event| event.id).collect::<Vec<_>>();
     let (places, citations, media_rows, mut profile_media_rows, profile_vignettes) = tokio::try_join!(
         PlaceRepo::get_many(db, &place_ids),
@@ -144,7 +145,7 @@ pub async fn load_person_detail_bundle(
         MediaLinkRepo::list_with_media_for_profile(db, person_id, &profile_family_ids),
         VignetteRepo::list_for_person(db, person_id),
     )?;
-    let source_ids = unique_ids(citations.iter().map(|citation| citation.source_id));
+    let source_ids = sorted_unique(citations.iter().map(|citation| citation.source_id));
     let sources = SourceRepo::get_many(db, tree_id, &source_ids).await?;
 
     let event_media = media_rows
@@ -174,13 +175,13 @@ pub async fn load_person_detail_bundle(
                 })
         })
         .collect::<Vec<_>>();
-    let media_ids = unique_ids(
+    let media_ids = sorted_unique(
         event_media
             .iter()
             .map(|item| item.media.id)
             .chain(profile_media.iter().map(|item| item.media.id)),
     );
-    let vignette_ids = unique_ids(profile_vignettes.iter().map(|item| item.id));
+    let vignette_ids = sorted_unique(profile_vignettes.iter().map(|item| item.id));
     let mut gallery = GalleryBundle {
         media: Vec::new(),
         vignettes: Vec::new(),
@@ -231,13 +232,6 @@ pub async fn compute_sosa_number(
         return Ok(None);
     };
     AncestryRepo::sosa_number(db, root, person_id).await
-}
-
-fn unique_ids(ids: impl IntoIterator<Item = Uuid>) -> Vec<Uuid> {
-    let mut ids = ids.into_iter().collect::<Vec<_>>();
-    ids.sort_unstable();
-    ids.dedup();
-    ids
 }
 
 #[cfg(test)]

@@ -13,6 +13,7 @@
 //! spelled exactly like its full surname, particle included.
 
 use chrono::Utc;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::{
     enums::{DateQualifier, EventType},
@@ -32,7 +33,7 @@ use crate::entities::{
     citation, event, family_spouse, media, media_link, person, person_name, place, sea_enums,
     source, vignette,
 };
-use crate::repo::batch::{in_chunks, sorted_unique};
+use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 
 /// A distinct free-text value (surname, occupation label) plus the number of
@@ -649,7 +650,7 @@ impl DictionaryRepo {
             .map_err(db_err)?;
 
         Ok(sorted_unique(
-            events.into_iter().filter_map(|e| e.person_id).collect(),
+            events.into_iter().filter_map(|e| e.person_id),
         ))
     }
 
@@ -680,8 +681,7 @@ impl DictionaryRepo {
             names
                 .into_iter()
                 .filter(|n| is_spelled(n, value))
-                .map(|n| n.person_id)
-                .collect(),
+                .map(|n| n.person_id),
         ))
     }
 

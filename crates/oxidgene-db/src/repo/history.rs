@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
     AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, RecordLabel, RecordSnapshot,
@@ -22,7 +23,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use super::batch::{in_chunks, sorted_unique};
+use super::batch::in_chunks;
 use super::pagination::{PaginationParams, encode_cursor};
 use crate::entities::{audit_entry, record_version};
 use crate::repo::db_err;
@@ -280,7 +281,7 @@ impl HistoryRepo {
                 .filter(audit_entry::Column::Action.eq(AuditAction::Revert.as_str()))
                 .filter(audit_entry::Column::Entity.eq(AuditEntity::Person.as_str()))
                 .filter(audit_entry::Column::EntityId.is_not_null())
-                .into_tuple()
+                .into_tuple::<Uuid>()
                 .all(db)
                 .await
                 .map_err(db_err)?,
@@ -582,7 +583,7 @@ async fn with_entries(
     db: &impl ConnectionTrait,
     rows: Vec<record_version::Model>,
 ) -> Result<Vec<RecordVersion>, OxidGeneError> {
-    let entry_ids = sorted_unique(rows.iter().map(|row| row.audit_entry_id).collect());
+    let entry_ids = sorted_unique(rows.iter().map(|row| row.audit_entry_id));
     let entry_rows = in_chunks(&entry_ids, |chunk| async move {
         audit_entry::Entity::find()
             .filter(audit_entry::Column::Id.is_in(chunk))

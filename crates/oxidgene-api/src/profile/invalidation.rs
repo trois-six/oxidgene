@@ -8,6 +8,7 @@
 //! This is the piece that survived the removal of the cache layer unchanged:
 //! "who is affected by this change" is a domain question, not a caching one.
 
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{FamilyChildRepo, FamilySpouseRepo, db_err};
 use oxidgene_db::sea_orm::ConnectionTrait;
@@ -51,13 +52,13 @@ pub async fn affected_persons_of_all(
         FamilyChildRepo::list_by_families(db, &spouse_families),
     )?;
 
-    let mut affected = person_ids.to_vec();
-    affected.extend(spouses.iter().map(|s| s.person_id));
-    affected.extend(children.iter().map(|c| c.person_id));
-    affected.sort();
-    affected.dedup();
-
-    Ok(affected)
+    Ok(sorted_unique(
+        person_ids
+            .iter()
+            .copied()
+            .chain(spouses.iter().map(|s| s.person_id))
+            .chain(children.iter().map(|c| c.person_id)),
+    ))
 }
 
 /// Compute the affected set for a family event mutation.
@@ -69,15 +70,11 @@ pub async fn affected_persons_for_family(
     family_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     let spouses = FamilySpouseRepo::list_by_families(db, &[family_id]).await?;
-    let mut affected: Vec<Uuid> = spouses.iter().map(|s| s.person_id).collect();
 
     // Each spouse's full affected set includes their other families' members.
     // But for a family event, we only need to rebuild the two spouses — their
     // PersonProfile includes the family's marriage event.
-    affected.sort();
-    affected.dedup();
-
-    Ok(affected)
+    Ok(sorted_unique(spouses.iter().map(|s| s.person_id)))
 }
 
 /// Compute the affected set for an event mutation from the event's owner.
@@ -112,14 +109,14 @@ pub async fn affected_persons_for_family_delete(
     db: &impl ConnectionTrait,
     family_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
-    let mut affected = affected_persons_for_family(db, family_id).await?;
+    let spouses = affected_persons_for_family(db, family_id).await?;
     let children = FamilyChildRepo::list_by_families(db, &[family_id]).await?;
-    affected.extend(children.iter().map(|child| child.person_id));
 
-    affected.sort();
-    affected.dedup();
-
-    Ok(affected)
+    Ok(sorted_unique(
+        spouses
+            .into_iter()
+            .chain(children.iter().map(|child| child.person_id)),
+    ))
 }
 
 /// Compute the persons whose individual or family events reference a place.
@@ -137,19 +134,18 @@ pub async fn affected_persons_for_place(
         .await
         .map_err(db_err)?;
 
-    let mut affected: Vec<Uuid> = events.iter().filter_map(|event| event.person_id).collect();
     let family_ids: Vec<Uuid> = events.iter().filter_map(|event| event.family_id).collect();
-    if !family_ids.is_empty() {
-        affected.extend(
-            FamilySpouseRepo::list_by_families(db, &family_ids)
-                .await?
-                .into_iter()
-                .map(|spouse| spouse.person_id),
-        );
-    }
-    affected.sort();
-    affected.dedup();
-    Ok(affected)
+    let spouses = if family_ids.is_empty() {
+        Vec::new()
+    } else {
+        FamilySpouseRepo::list_by_families(db, &family_ids).await?
+    };
+    Ok(sorted_unique(
+        events
+            .iter()
+            .filter_map(|event| event.person_id)
+            .chain(spouses.iter().map(|spouse| spouse.person_id)),
+    ))
 }
 
 /// Compute affected persons when a family membership changes (spouse added/removed).
@@ -163,23 +159,18 @@ pub async fn affected_persons_for_family_spouse_change(
     changed_person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     // Start with the full affected set of the changed person.
-    let mut affected = affected_persons(db, changed_person_id).await?;
+    let affected = affected_persons(db, changed_person_id).await?;
 
     // Also include all members of the target family (the other spouse + children).
     let spouses = FamilySpouseRepo::list_by_families(db, &[family_id]).await?;
-    for spouse in &spouses {
-        affected.push(spouse.person_id);
-    }
-
     let children = FamilyChildRepo::list_by_families(db, &[family_id]).await?;
-    for child in &children {
-        affected.push(child.person_id);
-    }
 
-    affected.sort();
-    affected.dedup();
-
-    Ok(affected)
+    Ok(sorted_unique(
+        affected
+            .into_iter()
+            .chain(spouses.iter().map(|spouse| spouse.person_id))
+            .chain(children.iter().map(|child| child.person_id)),
+    ))
 }
 
 /// Compute affected persons when a family child link changes (child added/removed).
@@ -192,16 +183,14 @@ pub async fn affected_persons_for_family_child_change(
     child_person_id: Uuid,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     // The child + all persons referencing them.
-    let mut affected = affected_persons(db, child_person_id).await?;
+    let affected = affected_persons(db, child_person_id).await?;
 
     // Also ensure the parents in the family are included.
     let parents = FamilySpouseRepo::list_by_families(db, &[family_id]).await?;
-    for parent in &parents {
-        affected.push(parent.person_id);
-    }
 
-    affected.sort();
-    affected.dedup();
-
-    Ok(affected)
+    Ok(sorted_unique(
+        affected
+            .into_iter()
+            .chain(parents.iter().map(|parent| parent.person_id)),
+    ))
 }

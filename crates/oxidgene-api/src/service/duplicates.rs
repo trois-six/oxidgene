@@ -10,6 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Datelike;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent, SearchEntry};
 use oxidgene_core::search::normalize_for_search;
 use serde::Serialize;
@@ -140,13 +141,12 @@ pub async fn merge_persons(
         .invalidate_for_person_delete(conn, tree_id, duplicate)
         .await?;
 
-    let mut affected: Vec<Uuid> = kept_affected
-        .into_iter()
-        .chain(duplicate_affected)
-        .filter(|id| *id != duplicate)
-        .collect();
-    affected.sort();
-    affected.dedup();
+    let affected = sorted_unique(
+        kept_affected
+            .into_iter()
+            .chain(duplicate_affected)
+            .filter(|id| *id != duplicate),
+    );
     profiles
         .invalidate_for_mutation(conn, tree_id, &affected)
         .await?;

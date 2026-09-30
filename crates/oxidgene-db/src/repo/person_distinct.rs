@@ -8,13 +8,13 @@
 use std::collections::HashSet;
 
 use chrono::Utc;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use sea_orm::entity::prelude::*;
 use sea_orm::{Condition, ConnectionTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::person_distinct::{self, Column, Entity};
-use crate::repo::batch::sorted_unique;
 use crate::repo::db_err;
 
 /// Repository for distinct-person confirmations.
@@ -36,8 +36,7 @@ impl PersonDistinctRepo {
             others
                 .iter()
                 .copied()
-                .filter(|other| *other != person_id && !known.contains(other))
-                .collect(),
+                .filter(|other| *other != person_id && !known.contains(other)),
         );
         if missing.is_empty() {
             return Ok(());

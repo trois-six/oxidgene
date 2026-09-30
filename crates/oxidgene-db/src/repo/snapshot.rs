@@ -19,6 +19,7 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
     ChildLinkSnapshot, CitationSnapshot, EventSnapshot, NameSnapshot, NoteSnapshot, PersonSnapshot,
@@ -32,7 +33,7 @@ use sea_orm::{ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySe
 use uuid::Uuid;
 
 use super::HistoryRepo;
-use super::batch::{in_chunks, sorted_unique};
+use super::batch::in_chunks;
 use crate::entities::{
     citation, event, event_witness, family, family_child, family_spouse, note, person, person_name,
     place, source, tree,
@@ -435,8 +436,7 @@ impl PersonRows {
             as_child
                 .iter()
                 .map(|c| c.family_id)
-                .chain(as_spouse.iter().map(|s| s.family_id))
-                .collect(),
+                .chain(as_spouse.iter().map(|s| s.family_id)),
         );
         let families: HashMap<Uuid, family::Model> = live_families(db, &family_ids)
             .await?
@@ -478,17 +478,15 @@ impl PersonRows {
             person_events
                 .iter()
                 .chain(family_events.iter())
-                .filter_map(|e| e.place_id)
-                .collect(),
+                .filter_map(|e| e.place_id),
         );
-        let source_ids = sorted_unique(citations.rows.iter().map(|c| c.source_id).collect());
+        let source_ids = sorted_unique(citations.rows.iter().map(|c| c.source_id));
         let named = sorted_unique(
             witnesses
                 .iter()
                 .map(|w| w.person_id)
                 .chain(family_spouses.iter().map(|s| s.person_id))
-                .chain(family_children.iter().map(|c| c.person_id))
-                .collect(),
+                .chain(family_children.iter().map(|c| c.person_id)),
         );
         let place_labels = place_names(db, &place_ids).await?;
         let source_labels = source_titles(db, &source_ids).await?;
