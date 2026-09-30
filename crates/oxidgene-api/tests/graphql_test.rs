@@ -728,6 +728,42 @@ async fn test_sosa_and_portraits_are_available_over_graphql() {
     );
 }
 
+/// A portrait names a media of the person's own tree; the REST twin is in
+/// `media_test.rs`.
+#[tokio::test]
+async fn a_portrait_is_a_media_of_the_persons_own_tree_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
+    let other_tree = tree_id_for(&app).await;
+    let stranger = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ createPerson(treeId: "{other_tree}", input: {{ sex: MALE }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["createPerson"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ setPersonPortrait(treeId: "{other_tree}", personId: "{stranger}", mediaId: "{document_id}") {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(
+        response["errors"][0]["extensions"]["code"], "NOT_FOUND",
+        "{response}"
+    );
+}
+
 #[tokio::test]
 async fn a_remote_portrait_is_drawn_and_chosen_through_its_document_over_graphql() {
     // The REST twin of this lives in `media_test.rs`. Both surfaces have to

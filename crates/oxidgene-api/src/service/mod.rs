@@ -5,6 +5,7 @@ pub mod anomalies;
 pub mod background_job;
 pub mod citation;
 pub mod duplicates;
+pub mod event;
 pub mod event_date;
 pub mod family_names;
 pub mod gallery;

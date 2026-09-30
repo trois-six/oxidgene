@@ -408,27 +408,15 @@ pub async fn set_person_portrait(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<super::dto::SetPortraitRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let portrait = body
-        .portrait()
-        .map_err(|e| ApiError(OxidGeneError::Validation(e)))?;
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let person = PersonRepo::set_portrait(&txn, person_id, portrait)
-        .await
-        .map_err(ApiError::from)?;
-
-    // The portrait is embedded in `person_denorm`, so the projection has to be
-    // rebuilt or the tree keeps drawing the old one.
-    state
-        .profiles
-        .rebuild_person(&txn, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
-    Change::update(tree_id, AuditEntity::Portrait, person_id)
-        .person(person_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    let person = crate::service::portrait::set_person_portrait(
+        &state.db,
+        &state.profiles,
+        tree_id,
+        person_id,
+        body,
+    )
+    .await
+    .map_err(ApiError)?;
     Ok(Json(serde_json::to_value(person).unwrap()))
 }
 

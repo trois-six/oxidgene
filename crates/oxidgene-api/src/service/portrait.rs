@@ -1,4 +1,5 @@
-//! Batched portrait resolution shared by REST and GraphQL.
+//! Portraits: choosing one, and the batched resolution shared by REST and
+//! GraphQL.
 //!
 //! Addresses, not pictures. A pedigree asks for every person on screen at once,
 //! and this used to read and cut each of their portraits and return the lot
@@ -7,13 +8,51 @@
 //! neither cache one nor skip one that never scrolled into view.
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{ImageCrop, ImageSource, is_remote_url};
+use oxidgene_core::history::AuditEntity;
+use oxidgene_core::types::{ImageCrop, ImageSource, Person, is_remote_url};
 use oxidgene_db::repo::{PersonRepo, PortraitRow};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::profile::ProfileService;
+use crate::rest::dto::SetPortraitRequest;
+use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::history::Change;
+
 const MAX_PORTRAITS_PER_REQUEST: usize = 1_024;
+
+/// Choose what represents person `person_id` of `tree_id`: a whole media, a
+/// region of one, or nothing. Every record named must belong to the tree.
+pub async fn set_person_portrait(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    person_id: Uuid,
+    request: SetPortraitRequest,
+) -> Result<Person, OxidGeneError> {
+    let portrait = request.portrait().map_err(OxidGeneError::Validation)?;
+    let txn = begin_tx(db).await?;
+    for (resource, id) in [
+        (TreeResource::Person, Some(person_id)),
+        (TreeResource::Media, request.media_id),
+        (TreeResource::Vignette, request.vignette_id),
+    ] {
+        if let Some(id) = id {
+            require_tree_resource(&txn, tree_id, resource, id).await?;
+        }
+    }
+    let person = PersonRepo::set_portrait(&txn, person_id, portrait).await?;
+    // The portrait is embedded in `person_denorm`, so the projection has to be
+    // rebuilt or the tree keeps drawing the old one.
+    profiles.rebuild_person(&txn, tree_id, person_id).await?;
+    Change::update(tree_id, AuditEntity::Portrait, person_id)
+        .person(person_id)
+        .record(&txn)
+        .await?;
+    commit_tx(txn).await?;
+    Ok(person)
+}
 
 /// Where one person's portrait comes from.
 #[derive(Debug, Clone, Serialize)]

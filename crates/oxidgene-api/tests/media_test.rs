@@ -1412,6 +1412,49 @@ async fn choosing_a_portrait_replaces_the_previous_one() {
     assert_eq!(rows[0]["media_id"], second_page.as_str(), "{portraits}");
 }
 
+/// A portrait names a person, a media and a crop of the tree it is set in;
+/// the GraphQL twin is in `graphql_test.rs`.
+#[tokio::test]
+async fn a_portrait_is_a_media_of_the_persons_own_tree() {
+    let h = setup().await;
+    let owner = person(&h).await;
+    let (media_id, _page, _) = attach_photo(&h, &owner, "photo.png").await;
+    let (_, other_tree) = send(
+        &h.app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({"name": "Other"})),
+    )
+    .await;
+    let other_tree = other_tree["id"].as_str().unwrap().to_string();
+    let (_, stranger) = send(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{other_tree}/persons"),
+        Some(json!({"sex": "male"})),
+    )
+    .await;
+    let stranger = stranger["id"].as_str().unwrap();
+
+    let (status, body) = send(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{other_tree}/persons/{stranger}/portrait"),
+        Some(json!({"media_id": media_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    // Nor a person of another tree through this one.
+    let (status, body) = send(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/persons/{stranger}/portrait", h.tree_id),
+        Some(json!({"media_id": media_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
 #[tokio::test]
 async fn a_portrait_can_be_a_face_in_a_group_photograph() {
     let h = setup().await;

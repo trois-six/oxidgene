@@ -694,61 +694,27 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateEventInput,
     ) -> Result<GqlEvent> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
+        let parse = |id: Option<String>| id.as_deref().map(Uuid::parse_str).transpose();
+        let request = crate::rest::dto::CreateEventRequest {
+            event_type: input.event_type.into(),
+            date_value: input.date_value,
+            date_qualifier: input.date_qualifier.map(Into::into).unwrap_or_default(),
+            date_value2: input.date_value2,
+            calendar: input.calendar.map(Into::into).unwrap_or_default(),
+            cause: input.cause,
+            place_id: parse(input.place_id)?,
+            person_id: parse(input.person_id)?,
+            family_id: parse(input.family_id)?,
+            description: input.description,
+        };
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let id = Uuid::now_v7();
-        let place_id = input.place_id.as_deref().map(Uuid::parse_str).transpose()?;
-        let person_id = input
-            .person_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let family_id = input
-            .family_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let calendar = input.calendar.map(Into::into).unwrap_or_default();
-        // Derived here, never taken from the input — see `service::event_date`.
-        let date_sort = event_date::derive(calendar, input.date_value.as_deref());
-        let txn = begin_tx(db).await?;
-        if let Some(place_id) = place_id {
-            require_tree_resource(&txn, tid, TreeResource::Place, place_id).await?;
-        }
-        if let Some(person_id) = person_id {
-            require_tree_resource(&txn, tid, TreeResource::Person, person_id).await?;
-        }
-        if let Some(family_id) = family_id {
-            require_tree_resource(&txn, tid, TreeResource::Family, family_id).await?;
-        }
-        let event = EventRepo::create(
-            &txn,
-            id,
+        let event = crate::service::event::create_event(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
             tid,
-            input.event_type.into(),
-            input.date_value,
-            date_sort,
-            place_id,
-            person_id,
-            family_id,
-            input.description,
-            input.date_qualifier.map(Into::into).unwrap_or_default(),
-            input.date_value2,
-            calendar,
-            input.cause,
+            request,
         )
         .await?;
-        // Invalidate: person event or family event.
-        let affected = invalidation::affected_persons_for_event(&txn, person_id, family_id).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::create(tid, AuditEntity::Event, id)
-            .event(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(event.into())
     }
 
@@ -1388,37 +1354,19 @@ impl MutationRoot {
         media_id: Option<ID>,
         vignette_id: Option<ID>,
     ) -> Result<GqlPerson> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = Uuid::parse_str(tree_id.as_str())?;
-        let pid = Uuid::parse_str(person_id.as_str())?;
-        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
-
+        let parse = |id: Option<ID>| id.map(|id| Uuid::parse_str(id.as_str())).transpose();
         let request = crate::rest::dto::SetPortraitRequest {
-            media_id: media_id
-                .map(|id| Uuid::parse_str(id.as_str()))
-                .transpose()?,
-            vignette_id: vignette_id
-                .map(|id| Uuid::parse_str(id.as_str()))
-                .transpose()?,
+            media_id: parse(media_id)?,
+            vignette_id: parse(vignette_id)?,
         };
-        if let Some(media_id) = request.media_id {
-            require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-        }
-        if let Some(vignette_id) = request.vignette_id {
-            require_tree_resource(db, tid, TreeResource::Vignette, vignette_id).await?;
-        }
-        let portrait = request.portrait().map_err(async_graphql::Error::new)?;
-        let txn = begin_tx(db).await?;
-        let person = PersonRepo::set_portrait(&txn, pid, portrait).await?;
-        // The portrait is embedded in `person_denorm`, so the projection has
-        // to be rebuilt or the tree keeps drawing the old one.
-        profiles.rebuild_person(&txn, tid, pid).await?;
-        Change::update(tid, AuditEntity::Portrait, pid)
-            .person(pid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let person = crate::service::portrait::set_person_portrait(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            Uuid::parse_str(tree_id.as_str())?,
+            Uuid::parse_str(person_id.as_str())?,
+            request,
+        )
+        .await?;
         Ok(person.into())
     }
 

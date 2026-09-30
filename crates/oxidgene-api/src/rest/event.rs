@@ -1,8 +1,8 @@
 //! REST handlers for Event CRUD operations.
 
 use crate::profile::invalidation;
-use crate::service::event_date;
 use crate::service::history::Change;
+use crate::service::{self, event_date};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -41,58 +41,9 @@ pub async fn create_event(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateEventRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let id = Uuid::now_v7();
-    // Derived here, never taken from the request — see `service::event_date`.
-    let date_sort = event_date::derive(body.calendar, body.date_value.as_deref());
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    if let Some(place_id) = body.place_id {
-        require_tree_resource(&txn, tree_id, TreeResource::Place, place_id)
-            .await
-            .map_err(ApiError)?;
-    }
-    if let Some(person_id) = body.person_id {
-        require_tree_resource(&txn, tree_id, TreeResource::Person, person_id)
-            .await
-            .map_err(ApiError)?;
-    }
-    if let Some(family_id) = body.family_id {
-        require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
-            .await
-            .map_err(ApiError)?;
-    }
-    let event = EventRepo::create(
-        &txn,
-        id,
-        tree_id,
-        body.event_type,
-        body.date_value,
-        date_sort,
-        body.place_id,
-        body.person_id,
-        body.family_id,
-        body.description,
-        body.date_qualifier,
-        body.date_value2,
-        body.calendar,
-        body.cause,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    // Invalidate: person event or family event.
-    let affected = invalidation::affected_persons_for_event(&txn, body.person_id, body.family_id)
+    let event = service::event::create_event(&state.db, &state.profiles, tree_id, body)
         .await
         .map_err(ApiError)?;
-    state
-        .profiles
-        .invalidate_for_mutation(&txn, tree_id, &affected)
-        .await
-        .map_err(ApiError)?;
-    Change::create(tree_id, AuditEntity::Event, id)
-        .event(id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(event).unwrap()),
