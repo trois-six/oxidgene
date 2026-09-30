@@ -788,7 +788,7 @@ impl PedigreeData {
     }
 
     /// Get unions for a person: Vec<(family_id, partner_name, marriage_year)>.
-    pub fn unions_for_person(&self, person_id: Uuid) -> Vec<(Uuid, String, String)> {
+    pub fn unions_for_person(&self, person_id: Uuid, i18n: &I18n) -> Vec<(Uuid, String, String)> {
         let Some(family_ids) = self.families_as_spouse.get(&person_id) else {
             return vec![];
         };
@@ -808,12 +808,12 @@ impl PedigreeData {
                         let gs = g.unwrap_or_default();
                         let ss = s.unwrap_or_default();
                         if gs.is_empty() && ss.is_empty() {
-                            "Unknown".to_string()
+                            i18n.t("couple.unknown_spouse")
                         } else {
                             format!("{} {}", gs, ss).trim().to_string()
                         }
                     })
-                    .unwrap_or_else(|| "Unknown".to_string());
+                    .unwrap_or_else(|| i18n.t("couple.unknown_spouse"));
                 let marriage_year = self.marriage_date_for_family(fid).unwrap_or_default();
                 (fid, partner_name, marriage_year)
             })
@@ -2463,6 +2463,10 @@ fn resolve_sosa_ancestors(props: &PedigreeChartProps) -> HashSet<Uuid> {
 /// Lays the chart out in `shape`'s view.
 fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
     let sosa_ancestors = resolve_sosa_ancestors(props);
+    // Every person an ancestor-only view draws is an ancestor of its root, so
+    // the badge marking the SOSA root's ancestors would say nothing there; it
+    // keeps the SOSA root's own mark and the user's.
+    let no_ancestor_badges = HashSet::new();
     let circular = |arc| {
         ChartScene::Circular(circular::SharedCircular(Rc::new(
             crate::ui_observability::measure_ui("pedigree_layout", || {
@@ -2472,7 +2476,7 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
                     &props.data,
                     shape.ancestor_levels,
                     props.sosa_root_person_id,
-                    &sosa_ancestors,
+                    &no_ancestor_badges,
                 )
             }),
         )))
@@ -2499,7 +2503,7 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
                     &props.data,
                     shape.ancestor_levels,
                     props.sosa_root_person_id,
-                    &sosa_ancestors,
+                    &no_ancestor_badges,
                     shape.theme,
                 )
             }),
@@ -4715,7 +4719,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let mut animating = use_signal(|| false);
 
     // Where the lineage view's list of the root's children is open, if it is.
-    let mut children_menu = use_signal(|| None::<(f64, f64)>);
+    let mut family_menu = use_signal(|| None::<(f64, f64)>);
 
     // ── Fit the graph in the viewport on first load and root/depth changes ──
     // Also fit when explicitly requested via center_gen > 0 (e.g. navigation
@@ -5360,7 +5364,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                     on_person_navigate: props.on_person_navigate,
                                     on_person_click: props.on_person_click,
                                     on_empty_slot: props.on_empty_slot,
-                                    on_children_menu: move |at| children_menu.set(Some(at)),
+                                    on_family_menu: move |at| family_menu.set(Some(at)),
                                     theme,
                                 }
                             },
@@ -5369,20 +5373,20 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 }
             }
 
-            // The lineage view's list of the root's children, outside the
-            // transformed canvas so it stays where it was opened.
-            if let Some((x, y)) = children_menu() {
-                lineage::LineageChildrenMenu {
+            // The lineage view's list of the root's spouses and children,
+            // outside the transformed canvas so it stays where it was opened.
+            if let Some((x, y)) = family_menu() {
+                lineage::LineageFamilyMenu {
                     data: props.data.clone(),
                     root_person_id: props.root_person_id,
                     x,
                     y,
-                    on_pick: move |child: Uuid| {
-                        children_menu.set(None);
-                        selected_person_id.set(child);
-                        props.on_person_navigate.call(child);
+                    on_pick: move |person: Uuid| {
+                        family_menu.set(None);
+                        selected_person_id.set(person);
+                        props.on_person_navigate.call(person);
                     },
-                    on_close: move |_| children_menu.set(None),
+                    on_close: move |_| family_menu.set(None),
                 }
             }
 
@@ -7033,7 +7037,7 @@ mod geometry_golden_tests {
                 deleted_at: None,
             }],
         );
-        let unions = data.unions_for_person(id(ROOT));
+        let unions = data.unions_for_person(id(ROOT), &I18n(crate::i18n::Language::En));
         let (_, _, year) = unions.iter().find(|(fid, _, _)| *fid == family).unwrap();
         assert_eq!(year, "ca 1870");
     }

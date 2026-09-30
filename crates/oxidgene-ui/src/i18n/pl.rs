@@ -229,8 +229,9 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("pedigree.profile_view", "Widok profilu"),
         ("pedigree.couple_view", "Widok pary"),
         ("pedigree.add_person", "Dodaj osobę"),
+        ("pedigree.spouses", "Małżonkowie"),
         ("pedigree.children", "Dzieci"),
-        ("pedigree.jump_to_child", "Przejdź do dziecka"),
+        ("pedigree.jump_to_family", "Przejdź do małżonka lub dziecka"),
         // ── Person detail page ──────────────────────────────────────
         ("person.loading", "Wczytywanie osoby…"),
         ("person.load_error", "Nie udało się wczytać osoby: {error}"),

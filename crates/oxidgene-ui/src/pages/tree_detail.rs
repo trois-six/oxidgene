@@ -300,7 +300,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let ctx_unions: Vec<(Uuid, String, String)> = match context_menu_person() {
         Some((pid, _, _)) => pedigree_data
             .as_ref()
-            .map(|d| d.unions_for_person(pid))
+            .map(|d| d.unions_for_person(pid, &i18n))
             .unwrap_or_default(),
         None => vec![],
     };

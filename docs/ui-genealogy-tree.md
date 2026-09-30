@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:59:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:47:37Z }
 ---
 
 
@@ -781,10 +781,11 @@ circle. The root's disc is filled with `var(--pn-root-bg)` and set in white.
 - **Segments.** Tinted by sex from `var(--pn-male-line)` and
   `var(--pn-female-line)` mixed into `var(--pn-bg)`, outlined in
   `var(--pn-border)`, hovered in `var(--pn-hover-bg)`.
-- **SOSA and self marks.** A direct ancestor of the tree's SOSA 1 carries a
-  band in `var(--pn-sosa)` along the inner edge of its segment, the SOSA 1
-  itself in `var(--pn-sosa-root)`, the user's own person in `var(--pn-self)`
-  (which wins, as on the card). When the focus person *is* the SOSA 1, a
+- **SOSA and self marks.** The SOSA 1 carries a band in `var(--pn-sosa-root)`
+  along the inner edge of its segment, the user's own person one in
+  `var(--pn-self)` (which wins, as on the card). A direct ancestor of the SOSA
+  1 carries no mark here: everyone an ancestor view draws is an ancestor of
+  its focus person, so that mark would say nothing. When the focus person *is* the SOSA 1, a
   segment's hover also gives its SOSA number, which is then its position.
 - **Missing parents.** A person short of the last generation whose father or
   mother the tree does not record gets a dashed empty segment in that
@@ -827,7 +828,8 @@ and its mother below by right-angled elbow lines.
   *g*.
 - **Boxes.** A column whose rows have room for them holds the pedigree
   theme's own cards (§3): portrait, names, lifespan with its precision marks,
-  SOSA and self badges, the pencil under the focus card and the dashed empty
+  the SOSA 1 and self badges (not the direct-ancestor badge, which every box
+  would carry, as in the wheel), the pencil under the focus card and the dashed empty
   card for a missing parent. While the whole chart stays within 1,600 px at
   full cards, every column holds them. Deeper, the last column's rows tighten
   to 30 px and the columns without room for a card hold slim boxes instead,
@@ -840,13 +842,14 @@ and its mother below by right-angled elbow lines.
   child who is not the birth child of the family it descends through —
   adopted, fostered — is joined by a dashed line, as Gramps draws a non-birth
   relationship.
-- **Descendants.** Gramps draws no descendants in this view: a button beside
-  the active person lists their children, children who have children of their
-  own set in bold, and picking one makes them the active person. The lineage
-  view does the same. The button, `‹`, stands left of the focus card when the
-  focus person has children; it opens a menu of their children, in the order
-  of the unions and then of births, with their lifespans. Choosing one makes
-  them the focus. The children listed are those the pedigree already carries
+- **Spouses and descendants.** Gramps draws neither in this view: a button
+  beside the active person lists their children, children who have children
+  of their own set in bold, and picking one makes them the active person. The
+  lineage view does the same, spouses included. The button, `‹`, stands left
+  of the focus card when the focus person has a spouse or a child; it opens a
+  menu of their spouses, in the order of their unions, then of their
+  children, in the order of the unions and then of births, each with their
+  lifespan. Choosing one makes them the focus. The children listed are those the pedigree already carries
   for the focus person's own families, which it always does whatever the
   descendant depth. The descendant depth control is therefore hidden, as in
   the wheel and the fan.

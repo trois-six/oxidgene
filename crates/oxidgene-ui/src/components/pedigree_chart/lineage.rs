@@ -109,6 +109,8 @@ pub(super) struct LineageLayout {
     /// Centre of each entry's box, parallel to `entries`.
     pub(super) centres: Vec<(f64, f64)>,
     pub(super) links: Vec<LineageLink>,
+    /// The root's spouses, in the order of their unions.
+    pub(super) spouses: Vec<Uuid>,
     pub(super) children: Vec<ChildLink>,
     /// Width of every box.
     pub(super) box_w: f64,
@@ -132,11 +134,27 @@ impl LineageLayout {
         }
     }
 
-    /// The button beside the root that lists its children, when it has any.
-    pub(super) fn children_button(&self) -> Option<(f64, f64)> {
+    /// The button beside the root that lists its spouses and children, when
+    /// it has any: the view draws neither, only the root's ancestors.
+    pub(super) fn family_button(&self) -> Option<(f64, f64)> {
         let (x, y) = *self.centres.first()?;
-        (!self.children.is_empty()).then(|| (x - self.box_w / 2.0 - CHILDREN_BUTTON_ROOM / 2.0, y))
+        (!self.spouses.is_empty() || !self.children.is_empty())
+            .then(|| (x - self.box_w / 2.0 - CHILDREN_BUTTON_ROOM / 2.0, y))
     }
+}
+
+/// The root's spouses, in the order of its unions, each once.
+fn spouses_of(root_id: Uuid, data: &PedigreeData) -> Vec<Uuid> {
+    let mut seen = HashSet::new();
+    data.families_as_spouse
+        .get(&root_id)
+        .into_iter()
+        .flatten()
+        .filter_map(|fid| data.spouses_by_family.get(fid))
+        .flatten()
+        .map(|spouse| spouse.person_id)
+        .filter(|pid| *pid != root_id && seen.insert(*pid))
+        .collect()
 }
 
 /// The root's children, in the order of its unions and of their births.
@@ -270,6 +288,7 @@ pub(super) fn lineage_layout(
         sizes,
         centres,
         links,
+        spouses: spouses_of(root_id, data),
         children: children_of(root_id, data),
         box_w: rect_w,
         root_is_sosa_root: sosa_root_id.is_some() && sosa_root_id == Some(root_id),
@@ -442,11 +461,11 @@ fn render_slim_slot(
     }
 }
 
-/// The button beside the root listing its children.
-fn render_children_button(
+/// The button beside the root listing its spouses and children.
+fn render_family_button(
     at: (f64, f64),
     label: String,
-    on_children_menu: EventHandler<(f64, f64)>,
+    on_family_menu: EventHandler<(f64, f64)>,
 ) -> Element {
     let (x, y) = at;
     rsx! {
@@ -458,7 +477,7 @@ fn render_children_button(
             onclick: move |evt: Event<MouseData>| {
                 evt.stop_propagation();
                 let coords = evt.client_coordinates();
-                on_children_menu.call((coords.x, coords.y));
+                on_family_menu.call((coords.x, coords.y));
             },
             circle { r: "{CHILDREN_BUTTON_R}", dangerous_inner_html: "{svg_title(&label)}" }
             text { x: "-1", y: "5", "\u{2039}" }
@@ -475,7 +494,7 @@ pub(super) fn LineageCanvas(
     on_person_navigate: EventHandler<Uuid>,
     on_person_click: EventHandler<(Uuid, f64, f64)>,
     on_empty_slot: EventHandler<(Uuid, bool)>,
-    on_children_menu: EventHandler<(f64, f64)>,
+    on_family_menu: EventHandler<(f64, f64)>,
     theme: &'static PedigreeTheme,
 ) -> Element {
     let i18n = use_i18n();
@@ -537,8 +556,8 @@ pub(super) fn LineageCanvas(
                             }
                         }
                     }
-                    if let Some(at) = layout.children_button() {
-                        {render_children_button(at, i18n.t("pedigree.jump_to_child"), on_children_menu)}
+                    if let Some(at) = layout.family_button() {
+                        {render_family_button(at, i18n.t("pedigree.jump_to_family"), on_family_menu)}
                     }
                 }
             }
@@ -546,11 +565,12 @@ pub(super) fn LineageCanvas(
     }
 }
 
-/// The root's children, listed from the button beside it; picking one makes
-/// them the focus. Drawn outside the pannable canvas, whose transform would
-/// otherwise carry a fixed-position menu with it.
+/// The root's spouses and children, listed from the button beside it —
+/// the view draws only ancestors, so this is how it reaches them. Picking one
+/// makes them the focus. Drawn outside the pannable canvas, whose transform
+/// would otherwise carry a fixed-position menu with it.
 #[component]
-pub(super) fn LineageChildrenMenu(
+pub(super) fn LineageFamilyMenu(
     data: SharedPedigree,
     root_person_id: Uuid,
     x: f64,
@@ -559,26 +579,42 @@ pub(super) fn LineageChildrenMenu(
     on_close: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
+    let spouses = spouses_of(root_person_id, &data);
     let children = children_of(root_person_id, &data);
+    let label = |id: Uuid| {
+        let name = data.display_name(id, &i18n);
+        let dates = format_lifespan(data.qualified_birth_year(id), data.qualified_death_year(id));
+        if dates.is_empty() {
+            name
+        } else {
+            format!("{name}  {dates}")
+        }
+    };
     rsx! {
         ContextMenuSurface {
             x,
             y,
             on_close,
-            div { class: "context-menu-header", {i18n.t("pedigree.children")} }
+            if !spouses.is_empty() {
+                div { class: "context-menu-header", {i18n.t("pedigree.spouses")} }
+            }
+            for spouse in spouses {
+                button {
+                    key: "s-{spouse}",
+                    class: "context-menu-item",
+                    onclick: move |_| on_pick.call(spouse),
+                    {label(spouse)}
+                }
+            }
+            if !children.is_empty() {
+                div { class: "context-menu-header", {i18n.t("pedigree.children")} }
+            }
             for child in children {
-                {
-                    let name = data.display_name(child.id, &i18n);
-                    let dates = format_lifespan(data.qualified_birth_year(child.id), data.qualified_death_year(child.id));
-                    let label = if dates.is_empty() { name } else { format!("{name}  {dates}") };
-                    rsx! {
-                        button {
-                            key: "{child.id}",
-                            class: if child.has_children { "context-menu-item lineage-child-with-children" } else { "context-menu-item" },
-                            onclick: move |_| on_pick.call(child.id),
-                            "{label}"
-                        }
-                    }
+                button {
+                    key: "c-{child.id}",
+                    class: if child.has_children { "context-menu-item lineage-child-with-children" } else { "context-menu-item" },
+                    onclick: move |_| on_pick.call(child.id),
+                    {label(child.id)}
                 }
             }
         }
@@ -639,6 +675,7 @@ pub(super) fn swatch() -> Element {
 mod tests {
     use super::*;
     use crate::components::pedigree_chart::geometry_golden_tests::{Fixture, id};
+    use oxidgene_core::types::FamilySpouse;
 
     const EPS: f64 = 1e-9;
 
@@ -778,7 +815,8 @@ mod tests {
                 },
             ]
         );
-        let (bx, by) = layout.children_button().expect("a button");
+        assert_eq!(layout.spouses, vec![id(20)]);
+        let (bx, by) = layout.family_button().expect("a button");
         let (rx, ry) = layout.centres[0];
         assert!(bx < rx - layout.box_w / 2.0, "left of the root");
         assert!((by - ry).abs() < EPS);
@@ -786,7 +824,8 @@ mod tests {
             bx - CHILDREN_BUTTON_R + layout.origin_x >= 0.0,
             "inside the canvas"
         );
-        // A person with no children gets no button.
+        // A person with neither spouse nor children gets no button; a spouse
+        // alone is enough for one.
         let childless = lineage_layout(
             id(21),
             &data,
@@ -795,7 +834,39 @@ mod tests {
             &HashSet::new(),
             &PedigreeTheme::CLASSIC,
         );
-        assert!(childless.children_button().is_none());
+        assert!(childless.family_button().is_none());
+        let mut married = family_fixture();
+        married
+            .families_as_spouse
+            .entry(id(21))
+            .or_default()
+            .push(id(104));
+        married.spouses_by_family.insert(
+            id(104),
+            married.spouses_by_family[&id(102)]
+                .iter()
+                .map(|link| FamilySpouse {
+                    family_id: id(104),
+                    person_id: if link.person_id == id(1) {
+                        id(21)
+                    } else {
+                        id(23)
+                    },
+                    ..link.clone()
+                })
+                .collect(),
+        );
+        let spouse_only = lineage_layout(
+            id(21),
+            &married,
+            1,
+            None,
+            &HashSet::new(),
+            &PedigreeTheme::CLASSIC,
+        );
+        assert_eq!(spouse_only.spouses, vec![id(23)]);
+        assert!(spouse_only.children.is_empty());
+        assert!(spouse_only.family_button().is_some());
     }
 
     #[test]
