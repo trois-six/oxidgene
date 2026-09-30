@@ -3,6 +3,8 @@
 //! Each test gets its own SQLite database and its own media directory, so an
 //! upload in one cannot be observed by another, and nothing is left on disk.
 
+mod common;
+
 use std::io::Cursor;
 use std::path::PathBuf;
 
@@ -10,10 +12,11 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use http_body_util::BodyExt;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
+
+use common::{send, setup_db};
 
 // ── Harness ─────────────────────────────────────────────────────────
 
@@ -43,12 +46,11 @@ struct Harness {
 }
 
 async fn setup() -> Harness {
-    let db = connect("sqlite::memory:").await.expect("connect");
-    run_migrations(&db).await.expect("migrations");
+    let db = setup_db().await;
     let root = TempRoot::new();
     let app = build_router(AppState::new(db.clone(), &root.0));
 
-    let (status, tree) = json_request(
+    let (status, tree) = send(
         &app,
         Method::POST,
         "/api/v1/trees",
@@ -64,33 +66,6 @@ async fn setup() -> Harness {
         root,
         tree_id,
     }
-}
-
-async fn json_request(
-    app: &axum::Router,
-    method: Method,
-    uri: &str,
-    body: Option<Value>,
-) -> (StatusCode, Value) {
-    let body = match body {
-        Some(json) => Body::from(serde_json::to_vec(&json).unwrap()),
-        None => Body::empty(),
-    };
-    let request = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(body)
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let value = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
-    (status, value)
 }
 
 /// Build a multipart body by hand — there is no multipart writer in the dev
@@ -121,7 +96,7 @@ fn multipart(parts: &[(&str, Option<&str>, &[u8])]) -> (String, Vec<u8>) {
 
 /// Create an empty document, the container every set of bytes is a page of.
 async fn new_document(app: &axum::Router, tree_id: Uuid, title: Option<&str>) -> String {
-    let (status, document) = json_request(
+    let (status, document) = send(
         app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media/document"),
@@ -231,7 +206,7 @@ async fn download_access(
         } else {
             "mediaDownload"
         };
-        let (_, result) = json_request(
+        let (_, result) = send(
             &h.app,
             Method::POST,
             "/graphql",
@@ -331,7 +306,7 @@ async fn a_stored_file_keeps_the_type_its_bytes_were_sniffed_as() {
     let url = format!("/api/v1/trees/{}/media/{id}", h.tree_id);
 
     // Relabelled, a crafted image would be served — and rendered — as a page.
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::PUT,
         &url,
@@ -368,7 +343,7 @@ async fn document_downloads_are_complete_stored_zips_in_reading_order() {
         assert_eq!(status, StatusCode::CREATED, "{page}");
         ids.push(page["id"].as_str().unwrap().to_string());
     }
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/media/{doc}/pages", h.tree_id),
@@ -404,7 +379,7 @@ async fn media_downloads_reject_missing_foreign_and_deleted_records() {
     let h = setup().await;
     let doc = document(&h, "Example document").await;
     let id = add_page(&h, &doc, "page.png").await;
-    let (_, other) = json_request(
+    let (_, other) = send(
         &h.app,
         Method::POST,
         "/api/v1/trees",
@@ -431,7 +406,7 @@ async fn media_downloads_reject_missing_foreign_and_deleted_records() {
         )
         .await;
     }
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("/api/v1/trees/{}/media/{doc}", h.tree_id),
@@ -450,7 +425,7 @@ async fn media_downloads_never_fetch_remote_pages_or_skip_unheld_pages() {
     download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
     download_access(&h, h.tree_id, &doc, false, StatusCode::NOT_FOUND).await;
     add_page(&h, &doc, "held.png").await;
-    let (status, stub) = json_request(
+    let (status, stub) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -483,7 +458,7 @@ async fn a_remote_page_travels_in_the_archive_as_a_shortcut() {
     let doc = document(&h, "Example document").await;
     add_page(&h, &doc, "held.png").await;
     let url = "https://archives.example.invalid/scan/42.jpg";
-    let (status, remote) = json_request(
+    let (status, remote) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -561,7 +536,7 @@ async fn media_downloads_reject_cross_tree_storage_keys_and_page_rows() {
     let h = setup().await;
     let doc = document(&h, "Example document").await;
     let page = add_page(&h, &doc, "page.png").await;
-    let (_, other) = json_request(
+    let (_, other) = send(
         &h.app,
         Method::POST,
         "/api/v1/trees",
@@ -744,7 +719,7 @@ async fn bytes_can_be_attached_to_a_record_that_had_none() {
 
     // The state a GEDCOM import leaves behind: a name, a path, no file.
     let doc = new_document(&h.app, h.tree_id, None).await;
-    let (status, stub) = json_request(
+    let (status, stub) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -911,7 +886,7 @@ async fn a_pdf_has_no_thumbnail_to_serve() {
 #[tokio::test]
 async fn a_record_with_no_bytes_has_no_file_to_serve() {
     let h = setup().await;
-    let (_, stub) = json_request(
+    let (_, stub) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -967,7 +942,7 @@ async fn several_entries_on_one_page_are_several_vignettes_over_one_scan() {
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     for (index, y) in [0, 200, 400].iter().enumerate() {
-        let (status, vignette) = json_request(
+        let (status, vignette) = send(
             &h.app,
             Method::POST,
             &format!("{base}/media/{media_id}/vignettes"),
@@ -978,7 +953,7 @@ async fn several_entries_on_one_page_are_several_vignettes_over_one_scan() {
         assert_eq!(status, StatusCode::CREATED, "{vignette}");
     }
 
-    let (status, listed) = json_request(
+    let (status, listed) = send(
         &h.app,
         Method::GET,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -994,7 +969,7 @@ async fn a_crop_larger_than_its_scan_is_refused() {
     let h = setup().await;
     let media_id = scan(&h, 400, 300).await;
 
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/{media_id}/vignettes", h.tree_id),
@@ -1013,7 +988,7 @@ async fn a_vignette_serves_the_cropped_region_as_its_own_image() {
     let h = setup().await;
     let media_id = scan(&h, 800, 600).await;
 
-    let (_, vignette) = json_request(
+    let (_, vignette) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/{media_id}/vignettes", h.tree_id),
@@ -1041,7 +1016,7 @@ async fn moving_a_vignette_re_checks_it_against_the_scan() {
     let media_id = scan(&h, 500, 500).await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (_, vignette) = json_request(
+    let (_, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1050,7 +1025,7 @@ async fn moving_a_vignette_re_checks_it_against_the_scan() {
     .await;
     let id = vignette["id"].as_str().unwrap();
 
-    let (status, moved) = json_request(
+    let (status, moved) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/vignettes/{id}"),
@@ -1060,7 +1035,7 @@ async fn moving_a_vignette_re_checks_it_against_the_scan() {
     assert_eq!(status, StatusCode::OK, "{moved}");
     assert_eq!(moved["x"], 400);
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/vignettes/{id}"),
@@ -1080,7 +1055,7 @@ async fn half_a_rectangle_is_not_a_move() {
     let media_id = scan(&h, 500, 500).await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (_, vignette) = json_request(
+    let (_, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1089,7 +1064,7 @@ async fn half_a_rectangle_is_not_a_move() {
     .await;
     let id = vignette["id"].as_str().unwrap();
 
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/vignettes/{id}"),
@@ -1105,7 +1080,7 @@ async fn vignettes_can_be_listed_by_who_they_show() {
     let media_id = scan(&h, 600, 600).await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (status, person) = json_request(
+    let (status, person) = send(
         &h.app,
         Method::POST,
         &format!("{base}/persons"),
@@ -1115,14 +1090,14 @@ async fn vignettes_can_be_listed_by_who_they_show() {
     assert_eq!(status, StatusCode::CREATED, "{person}");
     let person_id = person["id"].as_str().unwrap().to_string();
 
-    json_request(
+    send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
         Some(json!({"x": 0, "y": 0, "width": 100, "height": 100, "person_id": person_id})),
     )
     .await;
-    json_request(
+    send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1130,7 +1105,7 @@ async fn vignettes_can_be_listed_by_who_they_show() {
     )
     .await;
 
-    let (status, listed) = json_request(
+    let (status, listed) = send(
         &h.app,
         Method::GET,
         &format!("{base}/vignettes?person_id={person_id}"),
@@ -1149,7 +1124,7 @@ async fn vignettes_can_be_listed_by_who_they_show() {
 #[tokio::test]
 async fn listing_vignettes_without_a_filter_is_refused() {
     let h = setup().await;
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/vignettes", h.tree_id),
@@ -1165,7 +1140,7 @@ async fn deleting_a_vignette_leaves_the_scan_intact() {
     let media_id = scan(&h, 400, 400).await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (_, vignette) = json_request(
+    let (_, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1174,7 +1149,7 @@ async fn deleting_a_vignette_leaves_the_scan_intact() {
     .await;
     let id = vignette["id"].as_str().unwrap();
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("{base}/vignettes/{id}"),
@@ -1199,7 +1174,7 @@ async fn a_pdf_cannot_be_cropped() {
     let media_id = media["id"].as_str().unwrap();
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (_, vignette) = json_request(
+    let (_, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1233,7 +1208,7 @@ async fn deleting_an_isolated_media_removes_its_record_and_files() {
     assert!(h.root.0.join(storage_key).exists());
     assert!(h.root.0.join(thumbnail_key).exists());
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
@@ -1244,7 +1219,7 @@ async fn deleting_an_isolated_media_removes_its_record_and_files() {
 
     assert!(!h.root.0.join(storage_key).exists());
     assert!(!h.root.0.join(thumbnail_key).exists());
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
@@ -1266,7 +1241,7 @@ async fn deleting_a_tree_takes_its_media_files_with_it() {
     let key = media["storage_key"].as_str().unwrap().to_string();
     assert!(h.root.0.join(&key).exists());
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("/api/v1/trees/{}", h.tree_id),
@@ -1293,7 +1268,7 @@ async fn deleting_a_tree_takes_its_media_files_with_it() {
 
 /// Create a person and return its id.
 async fn person(h: &Harness) -> String {
-    let (status, person) = json_request(
+    let (status, person) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/persons", h.tree_id),
@@ -1314,7 +1289,7 @@ async fn attach_photo(h: &Harness, person_id: &str, name: &str) -> (String, Stri
     let media_id = document_of(&media);
     let page_id = media["id"].as_str().unwrap().to_string();
 
-    let (status, link) = json_request(
+    let (status, link) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media-links", h.tree_id),
@@ -1331,7 +1306,7 @@ async fn one_request_returns_a_person_gallery_with_everything_a_tile_needs() {
     let person_id = person(&h).await;
     let (media_id, _page, link_id) = attach_photo(&h, &person_id, "portrait.png").await;
 
-    let (status, listed) = json_request(
+    let (status, listed) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -1362,7 +1337,7 @@ async fn a_gallery_does_not_show_another_persons_photos() {
     let b = person(&h).await;
     attach_photo(&h, &a, "a.png").await;
 
-    let (_, listed) = json_request(
+    let (_, listed) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -1381,7 +1356,7 @@ async fn a_soft_deleted_media_leaves_the_gallery() {
     let person_id = person(&h).await;
     let (media_id, _page, _) = attach_photo(&h, &person_id, "photo.png").await;
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
@@ -1390,7 +1365,7 @@ async fn a_soft_deleted_media_leaves_the_gallery() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
-    let (_, listed) = json_request(
+    let (_, listed) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -1416,7 +1391,7 @@ async fn choosing_a_portrait_replaces_the_previous_one() {
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
     for media in [&first_media, &second_media] {
-        let (status, body) = json_request(
+        let (status, body) = send(
             &h.app,
             Method::PUT,
             &format!("{base}/persons/{person_id}/portrait"),
@@ -1428,8 +1403,7 @@ async fn choosing_a_portrait_replaces_the_previous_one() {
 
     // One column, so "at most one portrait" needs no clearing pass and cannot
     // be left half-done by a failure between two statements.
-    let (_, portraits) =
-        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    let (_, portraits) = send(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
     let rows = portraits.as_array().unwrap();
     assert_eq!(rows.len(), 1, "{portraits}");
     assert_eq!(rows[0]["person_id"], person_id.as_str());
@@ -1447,7 +1421,7 @@ async fn a_portrait_can_be_a_face_in_a_group_photograph() {
 
     // The portrait most people in an old family archive actually have: a
     // region of a larger scan, stored as coordinates rather than as a copy.
-    let (status, vignette) = json_request(
+    let (status, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1456,7 +1430,7 @@ async fn a_portrait_can_be_a_face_in_a_group_photograph() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{vignette}");
 
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -1465,8 +1439,7 @@ async fn a_portrait_can_be_a_face_in_a_group_photograph() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 
-    let (_, portraits) =
-        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    let (_, portraits) = send(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
     let row = &portraits.as_array().unwrap()[0];
     assert_eq!(row["vignette_id"], vignette["id"]);
     assert!(row["media_id"].is_null(), "one or the other, never both");
@@ -1487,7 +1460,7 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
     let (_group_document, media_id, _) = attach_photo(&h, &vignette_person, "group.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (status, vignette) = json_request(
+    let (status, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1501,7 +1474,7 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{vignette}");
-    let (status, selected) = json_request(
+    let (status, selected) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{vignette_person}/portrait"),
@@ -1510,7 +1483,7 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
     .await;
     assert_eq!(status, StatusCode::OK, "{selected}");
 
-    let (status, images) = json_request(
+    let (status, images) = send(
         &h.app,
         Method::POST,
         &format!("{base}/portrait-images"),
@@ -1537,7 +1510,7 @@ async fn portrait_images_are_loaded_and_filtered_in_one_request() {
             .all(|image| image["person_id"] != unselected_person)
     );
 
-    let (status, bundle) = json_request(
+    let (status, bundle) = send(
         &h.app,
         Method::POST,
         &format!("{base}/gallery-bundle"),
@@ -1569,7 +1542,7 @@ async fn a_portrait_can_be_cleared() {
     let media_id = page_id;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    json_request(
+    send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -1577,7 +1550,7 @@ async fn a_portrait_can_be_cleared() {
     )
     .await;
     // Sending neither id is how "use the silhouette again" is said.
-    let (status, cleared) = json_request(
+    let (status, cleared) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -1590,8 +1563,7 @@ async fn a_portrait_can_be_cleared() {
 
     // Cleared means "no explicit choice", not "draw nothing": the fallback
     // takes over, exactly as it does for a person who never chose.
-    let (_, portraits) =
-        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    let (_, portraits) = send(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
     let rows = portraits.as_array().unwrap();
     assert_eq!(rows.len(), 1, "{portraits}");
     assert_eq!(rows[0]["media_id"], media_id.as_str());
@@ -1604,7 +1576,7 @@ async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
     let (_, media_id, _) = attach_photo(&h, &person_id, "photo.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (status, vignette) = json_request(
+    let (status, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -1614,7 +1586,7 @@ async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
     assert_eq!(status, StatusCode::CREATED, "{vignette}");
     assert_eq!(vignette["media_id"], media_id);
 
-    let (status, chosen) = json_request(
+    let (status, chosen) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -1626,7 +1598,7 @@ async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
     // Refused rather than resolved: the model holds one answer, and silently
     // picking one of two would make the stored portrait differ from the one
     // that was asked for.
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -1635,7 +1607,7 @@ async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 
-    let (status, unchanged) = json_request(
+    let (status, unchanged) = send(
         &h.app,
         Method::GET,
         &format!("{base}/persons/{person_id}"),
@@ -1650,7 +1622,7 @@ async fn a_portrait_is_a_media_or_a_crop_but_never_both() {
 #[tokio::test]
 async fn an_unknown_entity_type_is_refused() {
     let h = setup().await;
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -1669,7 +1641,7 @@ async fn the_unfiltered_list_is_still_the_tree_wide_one() {
     let person_id = person(&h).await;
     attach_photo(&h, &person_id, "photo.png").await;
 
-    let (status, listed) = json_request(
+    let (status, listed) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media-links", h.tree_id),
@@ -1693,7 +1665,7 @@ async fn detaching_a_media_leaves_the_file_alone() {
     let (_document_id, media_id, link_id) = attach_photo(&h, &person_id, "shared.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("{base}/media-links/{link_id}"),
@@ -1714,7 +1686,7 @@ async fn detaching_a_media_leaves_the_file_alone() {
 
 /// Create a document and return its id.
 async fn document(h: &Harness, title: &str) -> String {
-    let (status, doc) = json_request(
+    let (status, doc) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/document", h.tree_id),
@@ -1747,7 +1719,7 @@ async fn add_page(h: &Harness, document_id: &str, name: &str) -> String {
 }
 
 async fn pages_of(h: &Harness, document_id: &str) -> Vec<Value> {
-    let (status, pages) = json_request(
+    let (status, pages) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media/{document_id}/pages", h.tree_id),
@@ -1779,7 +1751,7 @@ async fn pages_arrive_in_upload_order_and_count_themselves() {
         .collect();
     assert_eq!(indexes, [0, 1, 2]);
 
-    let (_, doc_row) = json_request(
+    let (_, doc_row) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media/{doc}", h.tree_id),
@@ -1796,7 +1768,7 @@ async fn pages_arrive_in_upload_order_and_count_themselves() {
 async fn a_page_held_by_somebody_else_counts_like_one_we_store() {
     let h = setup().await;
     let doc = document(&h, "Archive dossier").await;
-    let (status, page) = json_request(
+    let (status, page) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -1812,7 +1784,7 @@ async fn a_page_held_by_somebody_else_counts_like_one_we_store() {
     assert_eq!(status, StatusCode::CREATED, "{page}");
     assert_eq!(page["parent_media_id"], doc);
 
-    let (_, doc_row) = json_request(
+    let (_, doc_row) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media/{doc}", h.tree_id),
@@ -1833,7 +1805,7 @@ async fn a_gallery_shows_the_document_not_its_pages() {
     add_page(&h, &doc, "a.png").await;
     add_page(&h, &doc, "b.png").await;
 
-    json_request(
+    send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media-links", h.tree_id),
@@ -1841,7 +1813,7 @@ async fn a_gallery_shows_the_document_not_its_pages() {
     )
     .await;
 
-    let (_, listed) = json_request(
+    let (_, listed) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -1858,7 +1830,7 @@ async fn a_gallery_shows_the_document_not_its_pages() {
     );
 
     // The tree-wide media list must not show the pages loose either.
-    let (_, all) = json_request(
+    let (_, all) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -1875,7 +1847,7 @@ async fn pages_can_be_reordered() {
     let first = add_page(&h, &doc, "first.png").await;
     let second = add_page(&h, &doc, "second.png").await;
 
-    let (status, reordered) = json_request(
+    let (status, reordered) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/media/{doc}/pages", h.tree_id),
@@ -1900,7 +1872,7 @@ async fn a_partial_page_order_is_refused() {
     let first = add_page(&h, &doc, "a.png").await;
     add_page(&h, &doc, "b.png").await;
 
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/media/{doc}/pages", h.tree_id),
@@ -1923,21 +1895,21 @@ async fn removing_a_page_destroys_it_and_closes_the_gap() {
     let middle = add_page(&h, &doc, "b.png").await;
     add_page(&h, &doc, "c.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
-    json_request(
+    send(
         &h.app,
         Method::POST,
         &format!("{base}/media-links"),
         Some(json!({"media_id": middle, "person_id": person_id, "sort_order": 0})),
     )
     .await;
-    let (_, vignette) = json_request(
+    let (_, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{middle}/vignettes"),
         Some(json!({"x": 10, "y": 10, "width": 50, "height": 60, "person_id": person_id})),
     )
     .await;
-    json_request(
+    send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -1945,7 +1917,7 @@ async fn removing_a_page_destroys_it_and_closes_the_gap() {
     )
     .await;
 
-    let (status, removed) = json_request(
+    let (status, removed) = send(
         &h.app,
         Method::DELETE,
         &format!("/api/v1/trees/{}/media/{doc}/pages/{middle}", h.tree_id),
@@ -1971,7 +1943,7 @@ async fn removing_a_page_destroys_it_and_closes_the_gap() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
-    let (_, links) = json_request(
+    let (_, links) = send(
         &h.app,
         Method::GET,
         &format!("{base}/media-links?person_id={person_id}"),
@@ -1982,7 +1954,7 @@ async fn removing_a_page_destroys_it_and_closes_the_gap() {
         links.as_array().unwrap().is_empty(),
         "the removed page took its links with it: {links}"
     );
-    let (_, vignettes) = json_request(
+    let (_, vignettes) = send(
         &h.app,
         Method::GET,
         &format!("{base}/vignettes?person_id={person_id}"),
@@ -1990,7 +1962,7 @@ async fn removing_a_page_destroys_it_and_closes_the_gap() {
     )
     .await;
     assert!(vignettes.as_array().unwrap().is_empty(), "{vignettes}");
-    let (_, person) = json_request(
+    let (_, person) = send(
         &h.app,
         Method::GET,
         &format!("{base}/persons/{person_id}"),
@@ -2007,14 +1979,14 @@ async fn deleting_a_simple_media_removes_all_attachments_and_identifications() {
     let person_id = person(&h).await;
     let (media_id, _page, _) = attach_photo(&h, &person_id, "portrait.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
-    let (_, vignette) = json_request(
+    let (_, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
         Some(json!({"x": 10, "y": 10, "width": 50, "height": 60, "person_id": person_id})),
     )
     .await;
-    json_request(
+    send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -2022,7 +1994,7 @@ async fn deleting_a_simple_media_removes_all_attachments_and_identifications() {
     )
     .await;
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("{base}/media/{media_id}"),
@@ -2031,7 +2003,7 @@ async fn deleting_a_simple_media_removes_all_attachments_and_identifications() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
-    let (_, gallery) = json_request(
+    let (_, gallery) = send(
         &h.app,
         Method::GET,
         &format!("{base}/media-links?entity_type=person&entity_id={person_id}"),
@@ -2039,7 +2011,7 @@ async fn deleting_a_simple_media_removes_all_attachments_and_identifications() {
     )
     .await;
     assert!(gallery.as_array().unwrap().is_empty(), "{gallery}");
-    let (_, vignettes) = json_request(
+    let (_, vignettes) = send(
         &h.app,
         Method::GET,
         &format!("{base}/vignettes?person_id={person_id}"),
@@ -2062,7 +2034,7 @@ async fn a_media_carries_a_date_with_its_qualifier_and_calendar() {
     .await;
     let media_id = media["id"].as_str().unwrap();
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
@@ -2095,7 +2067,7 @@ async fn media_tags_are_added_and_removed_independently() {
     .await;
     let media_id = document_of(&media);
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
@@ -2106,7 +2078,7 @@ async fn media_tags_are_added_and_removed_independently() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["tags"], json!(["archives"]));
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
@@ -2116,7 +2088,7 @@ async fn media_tags_are_added_and_removed_independently() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["tags"], json!(["archives", "Civil record"]));
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
@@ -2126,7 +2098,7 @@ async fn media_tags_are_added_and_removed_independently() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["tags"], json!(["archives", "Civil record"]));
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::DELETE,
         &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
@@ -2135,7 +2107,7 @@ async fn media_tags_are_added_and_removed_independently() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
@@ -2150,7 +2122,7 @@ async fn media_tags_are_added_and_removed_independently() {
 async fn a_record_with_no_bytes_can_be_repointed_at_a_url() {
     let h = setup().await;
     let doc = new_document(&h.app, h.tree_id, None).await;
-    let (_, stub) = json_request(
+    let (_, stub) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -2165,7 +2137,7 @@ async fn a_record_with_no_bytes_can_be_repointed_at_a_url() {
     .await;
     let media_id = stub["id"].as_str().unwrap();
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
@@ -2196,7 +2168,7 @@ async fn a_document_tile_previews_a_page_we_only_have_a_url_for() {
     let h = setup().await;
     let document = new_document(&h.app, h.tree_id, None).await;
     let url = "https://archives.example.invalid/scan/42.jpg";
-    let (status, page) = json_request(
+    let (status, page) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -2211,7 +2183,7 @@ async fn a_document_tile_previews_a_page_we_only_have_a_url_for() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{page}");
 
-    let (status, bundle) = json_request(
+    let (status, bundle) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
@@ -2240,7 +2212,7 @@ async fn a_page_whose_url_names_no_extension_is_still_previewed() {
     let h = setup().await;
     let document = new_document(&h.app, h.tree_id, None).await;
     let url = "https://images.example.invalid/ogw/AF2bZyPortrait=s64-c-mo";
-    let (status, page) = json_request(
+    let (status, page) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -2256,7 +2228,7 @@ async fn a_page_whose_url_names_no_extension_is_still_previewed() {
     assert_eq!(status, StatusCode::CREATED, "{page}");
     assert_eq!(page["mime_type"], "application/octet-stream", "{page}");
 
-    let (status, bundle) = json_request(
+    let (status, bundle) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
@@ -2287,7 +2259,7 @@ async fn image_sources_resolve_to_inline_data_in_one_request() {
     assert_eq!(status, StatusCode::CREATED, "{page}");
     let media_id = page["id"].as_str().unwrap().to_string();
 
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::POST,
         &format!("{base}/image-data"),
@@ -2331,7 +2303,7 @@ async fn remote_identification(
     measured: Option<(i64, i64)>,
 ) -> (String, String, String) {
     let document = new_document(&h.app, h.tree_id, None).await;
-    let (_, page) = json_request(
+    let (_, page) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -2346,7 +2318,7 @@ async fn remote_identification(
     .await;
     let page_id = page["id"].as_str().unwrap().to_string();
     if let Some((width, height)) = measured {
-        let (status, sized) = json_request(
+        let (status, sized) = send(
             &h.app,
             Method::PUT,
             &format!("/api/v1/trees/{}/media/{page_id}", h.tree_id),
@@ -2356,7 +2328,7 @@ async fn remote_identification(
         assert_eq!(status, StatusCode::OK, "{sized}");
     }
     let person_id = person(h).await;
-    let (status, vignette) = json_request(
+    let (status, vignette) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/{page_id}/vignettes", h.tree_id),
@@ -2385,7 +2357,7 @@ async fn a_region_of_a_remote_page_travels_as_the_picture_and_the_rectangle() {
     let url = "https://archives.example.invalid/group/7.jpg";
     let (_, vignette_id, person_id) = remote_identification(&h, url, Some((1600, 1200))).await;
 
-    let (status, bundle) = json_request(
+    let (status, bundle) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
@@ -2406,7 +2378,7 @@ async fn a_region_of_a_remote_page_travels_as_the_picture_and_the_rectangle() {
     );
 
     // The same region as somebody's portrait reaches every card the same way.
-    let (status, portrait) = json_request(
+    let (status, portrait) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/persons/{person_id}/portrait", h.tree_id),
@@ -2414,7 +2386,7 @@ async fn a_region_of_a_remote_page_travels_as_the_picture_and_the_rectangle() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{portrait}");
-    let (status, images) = json_request(
+    let (status, images) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/portrait-images", h.tree_id),
@@ -2440,7 +2412,7 @@ async fn a_region_of_a_picture_nobody_measured_falls_back_to_the_whole_of_it() {
     let url = "https://archives.example.invalid/group/8.jpg";
     let (_, vignette_id, _) = remote_identification(&h, url, None).await;
 
-    let (status, bundle) = json_request(
+    let (status, bundle) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
@@ -2471,7 +2443,7 @@ async fn only_a_page_we_do_not_hold_is_told_how_big_it_is() {
     let media_id = media["id"].as_str().unwrap();
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/media/{media_id}"),
@@ -2482,7 +2454,7 @@ async fn only_a_page_we_do_not_hold_is_told_how_big_it_is() {
 
     // Half a size is not a size, whoever sends it.
     let document = new_document(&h.app, h.tree_id, None).await;
-    let (_, page) = json_request(
+    let (_, page) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media"),
@@ -2496,7 +2468,7 @@ async fn only_a_page_we_do_not_hold_is_told_how_big_it_is() {
     )
     .await;
     let page_id = page["id"].as_str().unwrap();
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/media/{page_id}"),
@@ -2512,7 +2484,7 @@ async fn a_remote_page_that_is_not_a_picture_is_not_previewed() {
     // than the labelled icon the tile falls back to.
     let h = setup().await;
     let document = new_document(&h.app, h.tree_id, None).await;
-    let (status, page) = json_request(
+    let (status, page) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -2527,7 +2499,7 @@ async fn a_remote_page_that_is_not_a_picture_is_not_previewed() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{page}");
 
-    let (status, bundle) = json_request(
+    let (status, bundle) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
@@ -2554,7 +2526,7 @@ async fn a_stored_media_cannot_be_repointed_elsewhere() {
     .await;
     let media_id = media["id"].as_str().unwrap();
 
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
@@ -2581,7 +2553,7 @@ async fn a_note_can_be_about_a_document_rather_than_a_person() {
     let media_id = media["id"].as_str().unwrap();
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (status, note) = json_request(
+    let (status, note) = send(
         &h.app,
         Method::POST,
         &format!("{base}/notes"),
@@ -2593,7 +2565,7 @@ async fn a_note_can_be_about_a_document_rather_than_a_person() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{note}");
 
-    let (_, listed) = json_request(
+    let (_, listed) = send(
         &h.app,
         Method::GET,
         &format!("{base}/notes?media_id={media_id}"),
@@ -2610,7 +2582,7 @@ async fn a_crop_portrait_reaches_the_read_projection() {
     let (_, media_id, _) = attach_photo(&h, &person_id, "wedding.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (status, vignette) = json_request(
+    let (status, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{media_id}/vignettes"),
@@ -2622,7 +2594,7 @@ async fn a_crop_portrait_reaches_the_read_projection() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{vignette}");
     assert_eq!(vignette["media_id"], media_id);
-    let (status, chosen) = json_request(
+    let (status, chosen) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -2631,7 +2603,7 @@ async fn a_crop_portrait_reaches_the_read_projection() {
     .await;
     assert_eq!(status, StatusCode::OK, "{chosen}");
 
-    let (status, profile) = json_request(
+    let (status, profile) = send(
         &h.app,
         Method::GET,
         &format!("{base}/profiles/{person_id}"),
@@ -2659,7 +2631,7 @@ async fn the_projection_draws_the_portrait_that_was_chosen() {
     let (second, second_page, _) = attach_photo(&h, &person_id, "second.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    json_request(
+    send(
         &h.app,
         Method::PUT,
         &format!("{base}/persons/{person_id}/portrait"),
@@ -2667,7 +2639,7 @@ async fn the_projection_draws_the_portrait_that_was_chosen() {
     )
     .await;
 
-    let (_, profile) = json_request(
+    let (_, profile) = send(
         &h.app,
         Method::GET,
         &format!("{base}/profiles/{person_id}"),
@@ -2693,11 +2665,11 @@ async fn a_couple_and_a_document_each_carry_their_own_privacy() {
     )
     .await;
     let media_id = media["id"].as_str().unwrap();
-    let (_, family) = json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
+    let (_, family) = send(&h.app, Method::POST, &format!("{base}/families"), None).await;
 
     // Nothing enforces this yet — but the choice is stored, so classifying a
     // tree today does not have to be redone when enforcement arrives.
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/media/{media_id}"),
@@ -2707,7 +2679,7 @@ async fn a_couple_and_a_document_each_carry_their_own_privacy() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["privacy"], "private");
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::PUT,
         &format!("{base}/families/{}", family["id"].as_str().unwrap()),
@@ -2722,7 +2694,7 @@ async fn a_couple_and_a_document_each_carry_their_own_privacy() {
 async fn a_couple_defaults_to_following_the_tree() {
     let h = setup().await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
-    let (_, family) = json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
+    let (_, family) = send(&h.app, Method::POST, &format!("{base}/families"), None).await;
     // Not `public`: a tree that has said nothing about a couple has not said
     // the couple may be published.
     assert_eq!(family["privacy"], "default");
@@ -2735,10 +2707,10 @@ async fn a_tree_says_what_default_privacy_means_and_starts_by_withholding() {
 
     // A genealogy holds living people, and a tree nobody has classified has
     // not been cleared for publication. Publishing is the deliberate act.
-    let (_, tree) = json_request(&h.app, Method::GET, &base, None).await;
+    let (_, tree) = send(&h.app, Method::GET, &base, None).await;
     assert_eq!(tree["default_privacy"], "private");
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::PUT,
         &base,
@@ -2750,7 +2722,7 @@ async fn a_tree_says_what_default_privacy_means_and_starts_by_withholding() {
 
     // The tree's own setting is not a record's: one that has chosen keeps its
     // choice, which is the whole reason both fields exist.
-    let (_, family) = json_request(&h.app, Method::POST, &format!("{base}/families"), None).await;
+    let (_, family) = send(&h.app, Method::POST, &format!("{base}/families"), None).await;
     assert_eq!(family["privacy"], "default");
 }
 
@@ -2759,10 +2731,10 @@ async fn a_tree_suggests_while_typing_until_told_not_to() {
     let h = setup().await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
 
-    let (_, tree) = json_request(&h.app, Method::GET, &base, None).await;
+    let (_, tree) = send(&h.app, Method::GET, &base, None).await;
     assert_eq!(tree["entry_suggestions"], true);
 
-    let (status, updated) = json_request(
+    let (status, updated) = send(
         &h.app,
         Method::PUT,
         &base,
@@ -2772,7 +2744,7 @@ async fn a_tree_suggests_while_typing_until_told_not_to() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["entry_suggestions"], false);
     // Another setting's update leaves it alone.
-    let (_, updated) = json_request(
+    let (_, updated) = send(
         &h.app,
         Method::PUT,
         &base,
@@ -2793,8 +2765,7 @@ async fn a_person_who_chose_no_portrait_still_shows_one_of_their_photographs() {
     // No import sets a portrait — neither GEDCOM nor a `.gw` says which of
     // somebody's pictures represents them — so without a fallback a freshly
     // imported tree draws silhouettes for everyone who has photographs.
-    let (status, portraits) =
-        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    let (status, portraits) = send(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
     assert_eq!(status, StatusCode::OK, "{portraits}");
     let rows = portraits.as_array().unwrap();
     assert_eq!(rows.len(), 1, "{portraits}");
@@ -2805,7 +2776,7 @@ async fn a_person_who_chose_no_portrait_still_shows_one_of_their_photographs() {
     );
 
     // And the projection agrees, or a card and an avatar disagree.
-    let (_, profile) = json_request(
+    let (_, profile) = send(
         &h.app,
         Method::GET,
         &format!("{base}/profiles/{person_id}"),
@@ -2823,14 +2794,14 @@ async fn a_record_naming_a_file_nobody_uploaded_is_not_a_portrait_by_default() {
 
     // A GEDCOM-imported row: a name, no bytes, nothing to draw. Falling back
     // to it would put a broken image on the card.
-    let (_, media) = json_request(
+    let (_, media) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media"),
         Some(json!({"file_name": "scan.jpg", "file_path": "C:\\Photos\\scan.jpg"})),
     )
     .await;
-    json_request(
+    send(
         &h.app,
         Method::POST,
         &format!("{base}/media-links"),
@@ -2838,8 +2809,7 @@ async fn a_record_naming_a_file_nobody_uploaded_is_not_a_portrait_by_default() {
     )
     .await;
 
-    let (_, portraits) =
-        json_request(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
+    let (_, portraits) = send(&h.app, Method::GET, &format!("{base}/portraits"), None).await;
     assert!(portraits.as_array().unwrap().is_empty(), "{portraits}");
 }
 
@@ -2849,7 +2819,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     let person_id = person(&h).await;
     let (media_id, page_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
     let base = format!("/api/v1/trees/{}", h.tree_id);
-    let (status, vignette) = json_request(
+    let (status, vignette) = send(
         &h.app,
         Method::POST,
         &format!("{base}/media/{page_id}/vignettes"),
@@ -2872,7 +2842,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
 
     // Import it back as a second tree. This is the whole promise of the
     // format: the pictures travel with the genealogy.
-    let (status, imported) = json_request(
+    let (status, imported) = send(
         &h.app,
         Method::POST,
         "/api/v1/trees",
@@ -2901,7 +2871,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     assert_eq!(status, StatusCode::CREATED, "{summary}");
     assert_eq!(summary["warnings"], json!([]), "{summary}");
 
-    let (_, media) = json_request(
+    let (_, media) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{new_tree}/media"),
@@ -2917,7 +2887,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
 
     // The point: bytes, not just a record naming a file. They live on the
     // page, which is what the archive carried and what a crop is drawn on.
-    let (_, pages) = json_request(
+    let (_, pages) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{new_tree}/media/{document_id}/pages"),
@@ -2935,7 +2905,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     assert_ne!(imported["id"], page_id.as_str(), "a new record, new tree");
     let imported_media_id = imported["id"].as_str().expect("media id");
 
-    let (status, vignettes) = json_request(
+    let (status, vignettes) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{new_tree}/media/{imported_media_id}/vignettes"),
@@ -2953,7 +2923,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     assert!(rows[0]["person_id"].is_string(), "{vignettes}");
     assert_ne!(rows[0]["person_id"], person_id, "a new person, new tree");
 
-    let (status, links) = json_request(
+    let (status, links) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{new_tree}/media-links?media_id={document_id}"),
@@ -2972,7 +2942,7 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
 /// Create a person with a primary name and return its id.
 async fn named_person(h: &Harness, given_names: &str, surname: &str) -> String {
     let id = person(h).await;
-    let (status, name) = json_request(
+    let (status, name) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/persons/{id}/names", h.tree_id),
@@ -2989,7 +2959,7 @@ async fn named_person(h: &Harness, given_names: &str, surname: &str) -> String {
 }
 
 async fn add_tag(h: &Harness, media_id: &str, tag: &str) {
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
@@ -3000,7 +2970,7 @@ async fn add_tag(h: &Harness, media_id: &str, tag: &str) {
 }
 
 async fn link(h: &Harness, body: Value) {
-    let (status, link) = json_request(
+    let (status, link) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media-links", h.tree_id),
@@ -3012,7 +2982,7 @@ async fn link(h: &Harness, body: Value) {
 
 /// The titles of the documents a media-list query returns, in order.
 async fn library_titles(h: &Harness, query: &str) -> Vec<String> {
-    let (status, page) = json_request(
+    let (status, page) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media?{query}", h.tree_id),
@@ -3061,7 +3031,7 @@ async fn census_fixture(h: &Harness, person: &str) -> String {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::PUT,
         &format!("/api/v1/trees/{}/media/{census}", h.tree_id),
@@ -3078,7 +3048,7 @@ async fn census_fixture(h: &Harness, person: &str) -> String {
 /// A parish PDF linked to a dated baptism of `person`.
 async fn parish_fixture(h: &Harness, person: &str) -> String {
     let parish = new_document(&h.app, h.tree_id, Some("Écrits de paroisse")).await;
-    let (status, body) = json_request(
+    let (status, body) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/media", h.tree_id),
@@ -3093,7 +3063,7 @@ async fn parish_fixture(h: &Harness, person: &str) -> String {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     add_tag(h, &parish, "village alpha").await;
-    let (status, event) = json_request(
+    let (status, event) = send(
         &h.app,
         Method::POST,
         &format!("/api/v1/trees/{}/events", h.tree_id),
@@ -3122,7 +3092,7 @@ async fn photo_fixture(h: &Harness, person: &str) -> String {
     )
     .await;
     add_tag(h, &photo, "Village Alpha").await;
-    let (status, vignette) = json_request(
+    let (status, vignette) = send(
         &h.app,
         Method::POST,
         &format!(
@@ -3205,7 +3175,7 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
         "a repeated tag keeps the documents carrying every one"
     );
 
-    let (status, _) = json_request(
+    let (status, _) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -3218,7 +3188,7 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "a backwards range");
 
     // Pagination and usage counts under a filter.
-    let (_, page) = json_request(
+    let (_, page) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -3234,7 +3204,7 @@ async fn the_media_library_narrows_by_every_filter_and_combines_them() {
     assert_eq!(page["edges"][0]["node"]["usage_count"], 1);
     assert_eq!(page["edges"][1]["node"]["usage_count"], 1);
     let after = page["page_info"]["end_cursor"].as_str().unwrap();
-    let (_, rest) = json_request(
+    let (_, rest) = send(
         &h.app,
         Method::GET,
         &format!(
@@ -3258,7 +3228,7 @@ async fn the_media_facets_count_what_the_tree_holds() {
     let h = setup().await;
     library_fixture(&h).await;
 
-    let (status, facets) = json_request(
+    let (status, facets) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media/facets", h.tree_id),
@@ -3285,7 +3255,7 @@ async fn the_media_facets_count_what_the_tree_holds() {
 
     // With tags selected, the tags are counted among the documents carrying
     // them all, so the cloud offers only what still narrows the selection.
-    let (status, facets) = json_request(
+    let (status, facets) = send(
         &h.app,
         Method::GET,
         &format!("/api/v1/trees/{}/media/facets?tag=survey", h.tree_id),

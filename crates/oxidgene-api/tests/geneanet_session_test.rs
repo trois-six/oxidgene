@@ -1,16 +1,19 @@
 //! Session readers share the same external collection and archive contract.
 
+mod common;
+
 use axum::{body::Body, http::Request};
 use base64::Engine as _;
 use http_body_util::BodyExt;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
+use oxidgene_db::repo::connect;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+use common::setup_db;
+
 async fn session_contract(graphql: bool) {
-    let db = connect("sqlite::memory:").await.unwrap();
-    run_migrations(&db).await.unwrap();
+    let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
     let collection = json!({"deposits": [], "references": [], "view_references": {}});
@@ -129,8 +132,7 @@ fn streamed_body(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static) -> 
 }
 
 async fn check_archive(body: Body, expected_media_size: Option<usize>, graphql: bool) {
-    let db = connect("sqlite::memory:").await.unwrap();
-    run_migrations(&db).await.unwrap();
+    let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
     let (uri, content_type) = if graphql {

@@ -1,5 +1,7 @@
 //! Shared media validation must protect both public API surfaces.
 
+mod common;
+
 use axum::{
     Router,
     body::Body,
@@ -9,13 +11,14 @@ use http_body_util::BodyExt;
 use oxidgene_api::{AppState, build_router};
 use oxidgene_core::{EventType, Sex};
 use oxidgene_db::repo::{
-    EventRepo, MediaRepo, PersonRepo, PlaceRepo, TreeRepo, UploadedMedia, VignetteRepo, connect,
-    run_migrations,
+    EventRepo, MediaRepo, PersonRepo, PlaceRepo, TreeRepo, UploadedMedia, VignetteRepo,
 };
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
+
+use common::setup_db;
 
 async fn write_vignette(
     app: &Router,
@@ -90,8 +93,7 @@ async fn send_write(
 /// An app over a fresh in-memory database holding one fictional tree. The
 /// returned directory holds the media and must outlive the app.
 async fn app_with_tree() -> (DatabaseConnection, Router, Uuid, tempfile::TempDir) {
-    let db = connect("sqlite::memory:").await.unwrap();
-    run_migrations(&db).await.unwrap();
+    let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db.clone(), root.path()));
     let tree = Uuid::now_v7();

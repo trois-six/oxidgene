@@ -6,17 +6,18 @@
 
 #![cfg(feature = "mcp")]
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
-use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
 use rmcp::RoleClient;
 use rmcp::model::CallToolRequestParams;
 use rmcp::service::{RunningService, ServiceExt as _};
-use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
+
+use common::{app_on, setup_db};
 
 struct Harness {
     rest: axum::Router,
@@ -24,14 +25,8 @@ struct Harness {
 }
 
 async fn setup() -> Harness {
-    let db: DatabaseConnection = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    let rest = build_router(AppState::new(
-        db.clone(),
-        std::env::temp_dir().join("oxidgene-test-media"),
-    ));
+    let db = setup_db().await;
+    let rest = app_on(db.clone());
 
     let (server_transport, client_transport) = tokio::io::duplex(64 * 1024);
     tokio::spawn(oxidgene_api::mcp::serve(db, server_transport));

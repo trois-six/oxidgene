@@ -4,58 +4,20 @@
 //!
 //! All data is fictitious.
 
-use axum::body::Body;
-use axum::http::{Method, Request, StatusCode};
-use http_body_util::BodyExt;
+mod common;
+
+use axum::http::{Method, StatusCode};
 use oxidgene_api::service::history::record_baselines;
-use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{PersonNamePieces, PersonNameRepo, PersonRepo, TreeRepo};
-use oxidgene_db::repo::{connect, run_migrations};
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
-use tower::ServiceExt;
 use uuid::Uuid;
 
+use common::{app_on, ok, send, setup_db};
+
 async fn setup() -> (DatabaseConnection, axum::Router) {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    let state = AppState::new(db.clone(), std::env::temp_dir().join("oxidgene-test-media"));
-    (db, build_router(state))
-}
-
-async fn send(
-    app: &axum::Router,
-    method: Method,
-    uri: &str,
-    body: Option<Value>,
-) -> (StatusCode, Value) {
-    let body = match body {
-        Some(json) => Body::from(serde_json::to_vec(&json).unwrap()),
-        None => Body::empty(),
-    };
-    let request = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json")
-        .body(body)
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let json = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
-    (status, json)
-}
-
-async fn ok(app: &axum::Router, method: Method, uri: &str, body: Option<Value>) -> Value {
-    let (status, json) = send(app, method, uri, body).await;
-    assert!(status.is_success(), "{uri}: {status} {json}");
-    json
+    let db = setup_db().await;
+    (db.clone(), app_on(db))
 }
 
 async fn graphql(app: &axum::Router, query: &str, variables: Value) -> Value {

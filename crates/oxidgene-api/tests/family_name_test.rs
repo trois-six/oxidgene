@@ -6,13 +6,12 @@
 //!
 //! All data is fictitious.
 
-use axum::body::Body;
-use axum::http::{Method, Request, StatusCode};
-use http_body_util::BodyExt;
-use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
+mod common;
+
+use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
-use tower::ServiceExt;
+
+use common::{ok, send, setup_app};
 
 #[derive(Debug, Clone, Copy)]
 enum Surface {
@@ -21,50 +20,6 @@ enum Surface {
 }
 
 const SURFACES: [Surface; 2] = [Surface::Rest, Surface::Graphql];
-
-async fn setup() -> axum::Router {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    build_router(AppState::new(
-        db,
-        std::env::temp_dir().join("oxidgene-test-media"),
-    ))
-}
-
-async fn send(
-    app: &axum::Router,
-    method: Method,
-    uri: &str,
-    body: Option<Value>,
-) -> (StatusCode, Value) {
-    let body = match body {
-        Some(json) => Body::from(serde_json::to_vec(&json).unwrap()),
-        None => Body::empty(),
-    };
-    let request = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json")
-        .body(body)
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let json = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
-    (status, json)
-}
-
-async fn ok(app: &axum::Router, method: Method, uri: &str, body: Option<Value>) -> Value {
-    let (status, json) = send(app, method, uri, body).await;
-    assert!(status.is_success(), "{uri}: {status} {json}");
-    json
-}
 
 /// A GraphQL call: its data, or its errors.
 async fn graphql(app: &axum::Router, query: &str, variables: Value) -> Result<Value, Value> {
@@ -239,7 +194,7 @@ async fn set_particle(
 #[tokio::test]
 async fn a_particle_recut_reaches_every_carrier_on_both_surfaces() {
     for surface in SURFACES {
-        let app = setup().await;
+        let app = setup_app().await;
         let tree = create_tree(&app).await;
         // Two persons an import filed under a particle they do not have, and
         // a genuine particle next door that must be left alone.
@@ -304,7 +259,7 @@ async fn a_particle_recut_reaches_every_carrier_on_both_surfaces() {
 #[tokio::test]
 async fn a_particle_recut_rejects_what_it_cannot_cut_on_both_surfaces() {
     for surface in SURFACES {
-        let app = setup().await;
+        let app = setup_app().await;
         let tree = create_tree(&app).await;
         create_person(&app, &tree, "Given_a", None, "Thornby").await;
 
@@ -421,7 +376,7 @@ async fn link(app: &axum::Router, tree: &str, family: &str, what: &str, body: Va
 #[tokio::test]
 async fn a_rename_merges_primary_names_and_refreshes_relatives_on_both_surfaces() {
     for surface in SURFACES {
-        let app = setup().await;
+        let app = setup_app().await;
         let tree = create_tree(&app).await;
         let father = create_person(&app, &tree, "Given_f", None, "Thornby").await;
         let mother = create_person(&app, &tree, "Given_m", None, "Ashcombe").await;
@@ -598,7 +553,7 @@ async fn a_rename_merges_primary_names_and_refreshes_relatives_on_both_surfaces(
 #[tokio::test]
 async fn a_rename_adopts_the_cut_of_the_name_it_joins_on_both_surfaces() {
     for surface in SURFACES {
-        let app = setup().await;
+        let app = setup_app().await;
         let tree = create_tree(&app).await;
         create_person(&app, &tree, "Given_a", None, "Cruz de la").await;
         // Cut by hand where detection would not cut it.
@@ -622,7 +577,7 @@ async fn a_rename_adopts_the_cut_of_the_name_it_joins_on_both_surfaces() {
 #[tokio::test]
 async fn a_rename_rejects_what_it_cannot_apply_on_both_surfaces() {
     for surface in SURFACES {
-        let app = setup().await;
+        let app = setup_app().await;
         let tree = create_tree(&app).await;
         create_person(&app, &tree, "Given_a", None, "Thornby").await;
         let entries_before = audit(&app, &tree).await.len();

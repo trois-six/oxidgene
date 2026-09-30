@@ -6,6 +6,8 @@
 //! cache, these tests can assert what a cache never could: that a projection is
 //! durable across service instances and never observed stale after a mutation.
 
+mod common;
+
 use std::time::Instant;
 
 use oxidgene_api::profile::ProfileService;
@@ -15,15 +17,15 @@ use oxidgene_core::enums::{
 };
 use oxidgene_db::repo::{
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PersonDenormRepo, PersonNamePieces,
-    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PersonSearchRepo, TreeRepo, connect,
-    run_migrations,
+    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PersonSearchRepo, TreeRepo,
 };
 use oxidgene_db::sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
+use common::setup_db;
+
 async fn setup() -> (DatabaseConnection, ProfileService) {
-    let db = connect("sqlite::memory:").await.expect("connect");
-    run_migrations(&db).await.expect("migrations");
+    let db = setup_db().await;
     let service = ProfileService::new(db.clone());
     (db, service)
 }

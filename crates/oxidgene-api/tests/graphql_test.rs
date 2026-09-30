@@ -3,32 +3,16 @@
 //! All tests run against an in-memory SQLite database. Requests are sent
 //! to `POST /graphql` via Axum's tower `ServiceExt::oneshot`.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
-use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-/// Helper: create a fresh in-memory DB with migrations applied.
-async fn setup_db() -> DatabaseConnection {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    db
-}
-
-/// Helper: build a router with a fresh DB.
-async fn setup_app() -> axum::Router {
-    let db = setup_db().await;
-    // Media lands in a throwaway directory: these tests never upload,
-    // but `AppState` needs a root and it must not be the developer's.
-    let state = AppState::new(db, std::env::temp_dir().join("oxidgene-test-media"));
-    build_router(state)
-}
+use common::{send, setup_app, setup_db};
 
 /// Helper: send a GraphQL query/mutation and return the full JSON response.
 async fn graphql(app: axum::Router, query: &str, variables: Option<Value>) -> Value {
@@ -36,18 +20,9 @@ async fn graphql(app: axum::Router, query: &str, variables: Option<Value>) -> Va
         Some(vars) => json!({ "query": query, "variables": vars }),
         None => json!({ "query": query }),
     };
-
-    let request = Request::builder()
-        .method(Method::POST)
-        .uri("/graphql")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&body).unwrap()))
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK, "GraphQL query: {query}");
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    serde_json::from_slice(&bytes).unwrap()
+    let (status, response) = send(&app, Method::POST, "/graphql", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "GraphQL query: {query}");
+    response
 }
 
 #[tokio::test]

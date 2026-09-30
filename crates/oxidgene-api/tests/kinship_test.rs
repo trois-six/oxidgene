@@ -5,47 +5,12 @@
 //! what both surfaces add around it: tree scoping, validation, and the person
 //! rows that come with the paths.
 
-use axum::body::Body;
-use axum::http::{Method, Request, StatusCode};
-use http_body_util::BodyExt;
-use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
+mod common;
+
+use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
-use tower::ServiceExt;
 
-async fn setup_app() -> axum::Router {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    // Media lands in a throwaway directory: these tests never upload,
-    // but `AppState` needs a root and it must not be the developer's.
-    let state = AppState::new(db, std::env::temp_dir().join("oxidgene-test-media"));
-    build_router(state)
-}
-
-async fn send(
-    app: &axum::Router,
-    method: Method,
-    uri: &str,
-    body: Option<Value>,
-) -> (StatusCode, Value) {
-    let body = match body {
-        Some(json) => Body::from(serde_json::to_vec(&json).unwrap()),
-        None => Body::empty(),
-    };
-    let request = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json")
-        .body(body)
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    (status, json)
-}
+use common::{send, setup_app};
 
 async fn create_tree(app: &axum::Router) -> String {
     let (status, body) = send(

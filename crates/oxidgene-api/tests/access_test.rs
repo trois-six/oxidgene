@@ -1,22 +1,15 @@
 //! Who may reach the backend: the desktop's per-launch token and the
 //! standalone server's same-origin writes.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{HeaderValue, Method, Request, StatusCode, header};
 use http_body_util::BodyExt;
 use oxidgene_api::access::{LocalToken, require_local_token, same_origin_writes};
-use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
 use tower::ServiceExt;
 
-async fn router() -> axum::Router {
-    let db = connect("sqlite::memory:").await.unwrap();
-    run_migrations(&db).await.unwrap();
-    build_router(AppState::new(
-        db,
-        std::env::temp_dir().join("oxidgene-test-media"),
-    ))
-}
+use common::setup_app;
 
 async fn send(
     app: &axum::Router,
@@ -49,7 +42,7 @@ async fn send(
 #[tokio::test]
 async fn the_embedded_backend_answers_only_its_own_client() {
     let token = LocalToken::generate();
-    let app = require_local_token(router().await, token.clone());
+    let app = require_local_token(setup_app().await, token.clone());
     let bearer = format!("Bearer {}", token.as_str());
 
     let (status, body) = send(&app, Method::GET, "/api/v1/trees", &[]).await;
@@ -86,7 +79,7 @@ async fn the_embedded_backend_answers_only_its_own_client() {
 #[tokio::test]
 async fn only_the_frontend_origin_may_write() {
     let frontend = "https://genealogy.example";
-    let app = same_origin_writes(router().await, HeaderValue::from_static(frontend));
+    let app = same_origin_writes(setup_app().await, HeaderValue::from_static(frontend));
 
     let (status, body) = send(
         &app,

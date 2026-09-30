@@ -3,6 +3,8 @@
 //! All tests run against an in-memory SQLite database using Axum's tower
 //! `ServiceExt::oneshot` for zero-network-overhead request testing.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use base64::Engine as _;
@@ -10,68 +12,17 @@ use http_body_util::BodyExt;
 use oxidgene_api::media::store::{job_blob_key, job_input_blob_key};
 use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{
-    BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, connect, run_migrations,
-};
-use sea_orm::DatabaseConnection;
+use oxidgene_db::repo::{BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob};
 use serde_json::Value;
 use tower::ServiceExt;
 
-/// Helper: create a fresh in-memory DB with migrations applied.
-async fn setup_db() -> DatabaseConnection {
-    let db = connect("sqlite::memory:")
-        .await
-        .expect("connect to in-memory SQLite");
-    run_migrations(&db).await.expect("migrations");
-    db
-}
-
-/// Helper: build a router with a fresh DB.
-async fn setup_app() -> axum::Router {
-    let db = setup_db().await;
-    // Media lands in a throwaway directory: these tests never upload,
-    // but `AppState` needs a root and it must not be the developer's.
-    let state = AppState::new(db, std::env::temp_dir().join("oxidgene-test-media"));
-    build_router(state)
-}
-
-/// Helper: send a request and return (status, body as JSON Value).
-async fn send_request(
-    app: axum::Router,
-    method: Method,
-    uri: &str,
-    body: Option<Value>,
-) -> (StatusCode, Value) {
-    let body = match body {
-        Some(json) => Body::from(serde_json::to_vec(&json).unwrap()),
-        None => Body::empty(),
-    };
-
-    let request = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json")
-        .body(body)
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-    let status = response.status();
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-
-    let json = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
-
-    (status, json)
-}
+use common::{send, setup_app, setup_db};
 
 #[tokio::test]
 async fn given_name_reference_bundle_is_bounded_per_request() {
     let app = setup_app().await;
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         "/api/v1/reference/fr/given-names/bundle",
         Some(serde_json::json!({ "terms": ["Jean", "Marie", "Jean", "__unknown__"] })),
@@ -84,8 +35,8 @@ async fn given_name_reference_bundle_is_bounded_per_request() {
     assert_eq!(body[1]["term"], "Marie");
 
     let terms = (0..129).map(|index| index.to_string()).collect::<Vec<_>>();
-    let (status, _) = send_request(
-        app,
+    let (status, _) = send(
+        &app,
         Method::POST,
         "/api/v1/reference/fr/given-names/bundle",
         Some(serde_json::json!({ "terms": terms })),
@@ -97,8 +48,8 @@ async fn given_name_reference_bundle_is_bounded_per_request() {
 #[tokio::test]
 async fn occupation_reference_bundle_is_bounded_per_request() {
     let app = setup_app().await;
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         "/api/v1/reference/fr/occupations/bundle",
         Some(serde_json::json!({
@@ -115,8 +66,8 @@ async fn occupation_reference_bundle_is_bounded_per_request() {
     assert_eq!(body[0]["label"], "Laboureur");
 
     let terms = (0..129).map(|index| index.to_string()).collect::<Vec<_>>();
-    let (status, _) = send_request(
-        app,
+    let (status, _) = send(
+        &app,
         Method::POST,
         "/api/v1/reference/fr/occupations/bundle",
         Some(serde_json::json!({ "terms": terms })),
@@ -128,7 +79,7 @@ async fn occupation_reference_bundle_is_bounded_per_request() {
 #[tokio::test]
 async fn the_basemap_names_its_populated_places_by_zoom() {
     let app = setup_app().await;
-    let (status, body) = send_request(app, Method::GET, "/api/v1/reference/basemap", None).await;
+    let (status, body) = send(&app, Method::GET, "/api/v1/reference/basemap", None).await;
     assert_eq!(status, StatusCode::OK);
     let france = body
         .as_array()
@@ -146,8 +97,8 @@ async fn the_basemap_names_its_populated_places_by_zoom() {
 #[tokio::test]
 async fn place_suggestions_come_from_the_place_dictionary() {
     let app = setup_app().await;
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         "/api/v1/reference/en/places?q=paris&limit=3",
         None,
@@ -164,8 +115,8 @@ async fn place_suggestions_come_from_the_place_dictionary() {
     assert_eq!(places[0]["code"], "75056");
     assert_eq!(places[0]["current"], true);
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         "/api/v1/reference/de/places?q=paris&limit=1",
         None,
@@ -177,13 +128,7 @@ async fn place_suggestions_come_from_the_place_dictionary() {
         "Paris, 75056, Paris, Île-de-France, Frankreich"
     );
 
-    let (status, body) = send_request(
-        app.clone(),
-        Method::GET,
-        "/api/v1/reference/fr/places?q=%20",
-        None,
-    )
-    .await;
+    let (status, body) = send(&app, Method::GET, "/api/v1/reference/fr/places?q=%20", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, serde_json::json!([]));
 
@@ -192,7 +137,7 @@ async fn place_suggestions_come_from_the_place_dictionary() {
         "/api/v1/reference/fr/places?q=paris&limit=0",
         "/api/v1/reference/xx/places?q=paris",
     ] {
-        let (status, _) = send_request(app.clone(), Method::GET, uri, None).await;
+        let (status, _) = send(&app, Method::GET, uri, None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
     }
 }
@@ -251,8 +196,8 @@ async fn deleted_tree_children_are_not_readable() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Reachable while the tree lives.
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons"),
         None,
@@ -260,8 +205,8 @@ async fn deleted_tree_children_are_not_readable() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}"),
         None,
@@ -277,7 +222,7 @@ async fn deleted_tree_children_are_not_readable() {
         format!("/api/v1/trees/{tree_id}/events"),
         format!("/api/v1/trees/{tree_id}/notes"),
     ] {
-        let (status, _) = send_request(app.clone(), Method::GET, &path, None).await;
+        let (status, _) = send(&app, Method::GET, &path, None).await;
         assert_eq!(
             status,
             StatusCode::NOT_FOUND,
@@ -292,8 +237,8 @@ async fn unknown_tree_id_is_not_found() {
     let app = setup_app().await;
     let missing = uuid::Uuid::now_v7();
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{missing}/persons"),
         None,
@@ -302,7 +247,7 @@ async fn unknown_tree_id_is_not_found() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     // Listing and creating name no tree, so they stay reachable.
-    let (status, _) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
+    let (status, _) = send(&app, Method::GET, "/api/v1/trees", None).await;
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -318,8 +263,8 @@ async fn person_from_another_tree_is_not_readable_or_mutable() {
         (Method::PUT, Some(serde_json::json!({ "sex": "female" }))),
         (Method::DELETE, None),
     ] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             method,
             &format!("/api/v1/trees/{first_tree}/persons/{person_id}"),
             body,
@@ -328,8 +273,8 @@ async fn person_from_another_tree_is_not_readable_or_mutable() {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    let (status, _) = send_request(
-        app,
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{second_tree}/persons/{person_id}"),
         None,
@@ -345,8 +290,8 @@ async fn test_tree_crud() {
     let app = setup_app().await;
 
     // Create a tree
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         "/api/v1/trees",
         Some(serde_json::json!({
@@ -361,19 +306,13 @@ async fn test_tree_crud() {
     let tree_id = body["id"].as_str().unwrap().to_string();
 
     // Get the tree
-    let (status, body) = send_request(
-        app.clone(),
-        Method::GET,
-        &format!("/api/v1/trees/{tree_id}"),
-        None,
-    )
-    .await;
+    let (status, body) = send(&app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["name"], "Doe Family");
 
     // Update the tree
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}"),
         Some(serde_json::json!({
@@ -385,8 +324,8 @@ async fn test_tree_crud() {
     assert_eq!(body["name"], "Doe-Pdoe Family");
 
     // An invalid rename uses the public validation contract.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}"),
         Some(serde_json::json!({ "name": "" })),
@@ -398,14 +337,14 @@ async fn test_tree_crud() {
     assert!(body.get("request_id").is_none());
 
     // List trees
-    let (status, body) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
+    let (status, body) = send(&app, Method::GET, "/api/v1/trees", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["total_count"], 1);
     assert_eq!(body["edges"].as_array().unwrap().len(), 1);
 
     // Delete the tree
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}"),
         None,
@@ -414,13 +353,7 @@ async fn test_tree_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone (soft-deleted)
-    let (status, _) = send_request(
-        app.clone(),
-        Method::GET,
-        &format!("/api/v1/trees/{tree_id}"),
-        None,
-    )
-    .await;
+    let (status, _) = send(&app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -436,8 +369,8 @@ async fn tree_self_person_can_be_set_replaced_and_cleared() {
         Some(second_person_id.as_str()),
         None,
     ] {
-        let (status, body) = send_request(
-            app.clone(),
+        let (status, body) = send(
+            &app,
             Method::PUT,
             &format!("/api/v1/trees/{tree_id}"),
             Some(serde_json::json!({ "self_person_id": expected })),
@@ -453,8 +386,8 @@ async fn test_tree_create_validation() {
     let app = setup_app().await;
 
     // Empty name should fail
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         "/api/v1/trees",
         Some(serde_json::json!({
@@ -471,13 +404,7 @@ async fn test_tree_not_found() {
     let app = setup_app().await;
 
     let fake_id = uuid::Uuid::now_v7();
-    let (status, body) = send_request(
-        app.clone(),
-        Method::GET,
-        &format!("/api/v1/trees/{fake_id}"),
-        None,
-    )
-    .await;
+    let (status, body) = send(&app, Method::GET, &format!("/api/v1/trees/{fake_id}"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"], "not_found");
 }
@@ -488,8 +415,8 @@ async fn test_tree_pagination() {
 
     // Create 3 trees
     for i in 0..3 {
-        send_request(
-            app.clone(),
+        send(
+            &app,
             Method::POST,
             "/api/v1/trees",
             Some(serde_json::json!({
@@ -500,16 +427,15 @@ async fn test_tree_pagination() {
     }
 
     // Get first 2
-    let (status, body) =
-        send_request(app.clone(), Method::GET, "/api/v1/trees?first=2", None).await;
+    let (status, body) = send(&app, Method::GET, "/api/v1/trees?first=2", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["edges"].as_array().unwrap().len(), 2);
     assert!(body["page_info"]["has_next_page"].as_bool().unwrap());
     let cursor = body["page_info"]["end_cursor"].as_str().unwrap();
 
     // Get next page
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees?first=2&after={cursor}"),
         None,
@@ -524,8 +450,8 @@ async fn test_tree_pagination() {
 
 /// Helper: create a tree via the API and return its ID.
 async fn create_tree_via_api(app: &axum::Router) -> String {
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        app,
         Method::POST,
         "/api/v1/trees",
         Some(serde_json::json!({ "name": "Test Tree" })),
@@ -540,8 +466,8 @@ async fn test_person_crud() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Create a person
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons"),
         Some(serde_json::json!({ "sex": "male" })),
@@ -552,8 +478,8 @@ async fn test_person_crud() {
     let person_id = body["id"].as_str().unwrap().to_string();
 
     // Get the person
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}"),
         None,
@@ -563,8 +489,8 @@ async fn test_person_crud() {
     assert_eq!(body["sex"], "male");
 
     // Update the person
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}"),
         Some(serde_json::json!({ "sex": "female" })),
@@ -574,8 +500,8 @@ async fn test_person_crud() {
     assert_eq!(body["sex"], "female");
 
     // List persons
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons"),
         None,
@@ -585,8 +511,8 @@ async fn test_person_crud() {
     assert_eq!(body["total_count"], 1);
 
     // Delete the person
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}"),
         None,
@@ -595,8 +521,8 @@ async fn test_person_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}"),
         None,
@@ -609,8 +535,8 @@ async fn test_person_crud() {
 
 /// Helper: create a person via the API and return its ID.
 async fn create_person_via_api(app: &axum::Router, tree_id: &str) -> String {
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons"),
         Some(serde_json::json!({ "sex": "male" })),
@@ -626,16 +552,16 @@ async fn create_named_person_via_api(
     given_names: &str,
     surname: &str,
 ) -> String {
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons"),
         Some(serde_json::json!({ "sex": sex })),
     )
     .await;
     let person_id = body["id"].as_str().unwrap().to_string();
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         Some(serde_json::json!({
@@ -660,8 +586,8 @@ async fn value_suggestions_come_from_the_tree_then_the_sheets() {
     let person_id =
         create_named_person_via_api(&app, &tree_id, "male", "Jean Given_a", "Sample").await;
     create_named_person_via_api(&app, &other_tree_id, "male", "Jeannot", "Samplex").await;
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/events"),
         Some(serde_json::json!({
@@ -672,8 +598,8 @@ async fn value_suggestions_come_from_the_tree_then_the_sheets() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/sources"),
         Some(serde_json::json!({ "title": "Sample register" })),
@@ -683,7 +609,7 @@ async fn value_suggestions_come_from_the_tree_then_the_sheets() {
 
     let get = |uri: String| {
         let app = app.clone();
-        async move { send_request(app, Method::GET, &uri, None).await }
+        async move { send(&app, Method::GET, &uri, None).await }
     };
 
     let (status, body) = get(format!(
@@ -795,8 +721,8 @@ async fn projection_and_usage_reads_are_tree_scoped() {
     let other_tree_id = create_tree_via_api(&app).await;
     let other_person_id =
         create_named_person_via_api(&app, &other_tree_id, "female", "Sam", "Sample").await;
-    let (status, source) = send_request(
-        app.clone(),
+    let (status, source) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{other_tree_id}/sources"),
         Some(serde_json::json!({ "title": "Sample register" })),
@@ -804,8 +730,8 @@ async fn projection_and_usage_reads_are_tree_scoped() {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     let source_id = source["id"].as_str().unwrap().to_string();
-    let (status, place) = send_request(
-        app.clone(),
+    let (status, place) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{other_tree_id}/places"),
         Some(serde_json::json!({ "name": "Sampleville" })),
@@ -822,7 +748,7 @@ async fn projection_and_usage_reads_are_tree_scoped() {
         format!("/api/v1/trees/{tree_id}/dictionary/sources/{source_id}/usage"),
         format!("/api/v1/trees/{tree_id}/dictionary/places/{place_id}/usage"),
     ] {
-        let (status, body) = send_request(app.clone(), Method::GET, &path, None).await;
+        let (status, body) = send(&app, Method::GET, &path, None).await;
         assert_eq!(
             status,
             StatusCode::NOT_FOUND,
@@ -839,7 +765,7 @@ async fn projection_and_usage_reads_are_tree_scoped() {
         format!("/api/v1/trees/{other_tree_id}/dictionary/sources/{source_id}/usage"),
         format!("/api/v1/trees/{other_tree_id}/dictionary/places/{place_id}/usage"),
     ] {
-        let (status, body) = send_request(app.clone(), Method::GET, &path, None).await;
+        let (status, body) = send(&app, Method::GET, &path, None).await;
         assert_eq!(status, StatusCode::OK, "{path}: {body}");
     }
 }
@@ -853,8 +779,8 @@ async fn relation_labels_are_tree_scoped_and_bounded() {
     let other_person_id =
         create_named_person_via_api(&app, &other_tree_id, "female", "Sam", "Bernard").await;
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/relation-labels"),
         Some(serde_json::json!({
@@ -869,8 +795,8 @@ async fn relation_labels_are_tree_scoped_and_bounded() {
     assert_eq!(body["spouses"], serde_json::json!([]));
 
     let person_ids = vec![person_id; 1_025];
-    let (status, _) = send_request(
-        app,
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/relation-labels"),
         Some(serde_json::json!({ "person_ids": person_ids, "family_ids": [] })),
@@ -890,8 +816,8 @@ async fn test_update_can_clear_a_nullable_field() {
     let tree_id = create_tree_via_api(&app).await;
     let person_id = create_person_via_api(&app, &tree_id).await;
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         Some(serde_json::json!({
@@ -909,8 +835,8 @@ async fn test_update_can_clear_a_nullable_field() {
     let name_id = body["id"].as_str().unwrap().to_string();
 
     // An explicit null clears the field...
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
         Some(serde_json::json!({
@@ -937,8 +863,8 @@ async fn test_person_name_crud() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Create a name
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         Some(serde_json::json!({
@@ -955,8 +881,8 @@ async fn test_person_name_crud() {
     let name_id = body["id"].as_str().unwrap().to_string();
 
     // List names
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         None,
@@ -966,8 +892,8 @@ async fn test_person_name_crud() {
     assert_eq!(body.as_array().unwrap().len(), 1);
 
     // Update name
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
         Some(serde_json::json!({
@@ -979,8 +905,8 @@ async fn test_person_name_crud() {
     assert_eq!(body["surname"], "Jdoe");
 
     // Delete name
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
         None,
@@ -989,8 +915,8 @@ async fn test_person_name_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         None,
@@ -1010,8 +936,8 @@ async fn test_person_search_free_text() {
     // Two persons with primary names created through the REST API
     // (mutation handlers must keep person_search_fts in sync).
     let p1 = create_person_via_api(&app, &tree_id).await;
-    send_request(
-        app.clone(),
+    send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{p1}/names"),
         Some(serde_json::json!({
@@ -1023,8 +949,8 @@ async fn test_person_search_free_text() {
     )
     .await;
     let p2 = create_person_via_api(&app, &tree_id).await;
-    send_request(
-        app.clone(),
+    send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{p2}/names"),
         Some(serde_json::json!({
@@ -1037,8 +963,8 @@ async fn test_person_search_free_text() {
     .await;
 
     // Free-text mode returns a SearchResult with entries + total_count.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?q=dupont"),
         None,
@@ -1049,8 +975,8 @@ async fn test_person_search_free_text() {
     assert_eq!(body["entries"][0]["display_name"], "Jean Dupont");
 
     // Accent-folded matching (query without accents finds Jane Smith).
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?q=jane%20smith"),
         None,
@@ -1061,8 +987,8 @@ async fn test_person_search_free_text() {
     assert_eq!(body["entries"][0]["display_name"], "Jane Smith");
 
     // Empty query = browse mode: everyone, sorted by surname.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?q="),
         None,
@@ -1073,16 +999,16 @@ async fn test_person_search_free_text() {
     assert_eq!(body["entries"][0]["surname_normalized"], "dupont");
 
     // Renaming through the REST API refreshes the search row.
-    let (_, names) = send_request(
-        app.clone(),
+    let (_, names) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{p1}/names"),
         None,
     )
     .await;
     let name_id = names[0]["id"].as_str().unwrap().to_string();
-    let (status, put_body) = send_request(
-        app.clone(),
+    let (status, put_body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/persons/{p1}/names/{name_id}"),
         Some(serde_json::json!({ "surname": "Martin" })),
@@ -1090,16 +1016,16 @@ async fn test_person_search_free_text() {
     .await;
     assert_eq!(status, StatusCode::OK, "PUT name failed: {put_body}");
 
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?q=dupont"),
         None,
     )
     .await;
     assert_eq!(body["total_count"], 0);
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?q=martin"),
         None,
@@ -1108,16 +1034,16 @@ async fn test_person_search_free_text() {
     assert_eq!(body["total_count"], 1);
 
     // Deleting a person removes their search row.
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/persons/{p1}"),
         None,
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?q=martin"),
         None,
@@ -1126,8 +1052,8 @@ async fn test_person_search_free_text() {
     assert_eq!(body["total_count"], 0);
 
     // The old cache search endpoint is gone (Sprint E.6).
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/cache/search?q=martin"),
         None,
@@ -1136,8 +1062,8 @@ async fn test_person_search_free_text() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     // Missing `q` behaves like browse mode (only Éloïse remains).
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search"),
         None,
@@ -1163,8 +1089,8 @@ async fn test_person_search_combines_relations_and_pagination() {
         (&subject_one, &relative_alpha),
         (&subject_two, &relative_beta),
     ] {
-        let (status, family) = send_request(
-            app.clone(),
+        let (status, family) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/families"),
             None,
@@ -1174,8 +1100,8 @@ async fn test_person_search_combines_relations_and_pagination() {
         let family_id = family["id"].as_str().unwrap();
 
         for (person_id, role) in [(subject, "husband"), (relative, "wife")] {
-            let (status, _) = send_request(
-                app.clone(),
+            let (status, _) = send(
+                &app,
                 Method::POST,
                 &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
                 Some(serde_json::json!({
@@ -1189,8 +1115,8 @@ async fn test_person_search_combines_relations_and_pagination() {
         }
     }
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!(
             "/api/v1/trees/{tree_id}/persons/search?surname=subject&spouse_surname=relative&sort=name_asc&limit=1&offset=1"
@@ -1205,8 +1131,8 @@ async fn test_person_search_combines_relations_and_pagination() {
 
     // An accent in the filter must not change the answer: the relative names
     // on the search row are accent-folded, like the subject's own.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?spouse_surname=relativem%C3%A1tch"),
         None,
@@ -1216,8 +1142,8 @@ async fn test_person_search_combines_relations_and_pagination() {
     assert_eq!(body["total_count"], 2);
 
     // The relatives ride on the result, so a caller needs no second request.
-    let (status, body) = send_request(
-        app,
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?surname=subject&sort=name_asc"),
         None,
@@ -1244,8 +1170,8 @@ async fn test_person_search_reads_typed_filters_beside_paging() {
         create_named_person_via_api(&app, &tree_id, sex, given_names, "Sample").await;
     }
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!(
             "/api/v1/trees/{tree_id}/persons/search?q=sample&sex=female&has_media=false&sort=name_desc&limit=500"
@@ -1258,8 +1184,8 @@ async fn test_person_search_reads_typed_filters_beside_paging() {
     assert_eq!(body["entries"][0]["display_name"], "Gamma Sample");
     assert_eq!(body["entries"][1]["display_name"], "Beta Sample");
 
-    let (status, body) = send_request(
-        app,
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?surname=sample&has_media=true"),
         None,
@@ -1277,8 +1203,8 @@ async fn test_family_crud() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Create a family
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families"),
         None,
@@ -1288,8 +1214,8 @@ async fn test_family_crud() {
     let family_id = body["id"].as_str().unwrap().to_string();
 
     // Get the family
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}"),
         None,
@@ -1298,8 +1224,8 @@ async fn test_family_crud() {
     assert_eq!(status, StatusCode::OK);
 
     // Update the family (touches updated_at)
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}"),
         None,
@@ -1308,8 +1234,8 @@ async fn test_family_crud() {
     assert_eq!(status, StatusCode::OK);
 
     // List families
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/families"),
         None,
@@ -1319,8 +1245,8 @@ async fn test_family_crud() {
     assert_eq!(body["total_count"], 1);
 
     // Delete the family
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}"),
         None,
@@ -1329,8 +1255,8 @@ async fn test_family_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}"),
         None,
@@ -1348,8 +1274,8 @@ async fn test_family_spouse_add_remove() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Create a family
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families"),
         None,
@@ -1358,8 +1284,8 @@ async fn test_family_spouse_add_remove() {
     let family_id = body["id"].as_str().unwrap().to_string();
 
     // Add a spouse
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
         Some(serde_json::json!({
@@ -1374,8 +1300,8 @@ async fn test_family_spouse_add_remove() {
     let spouse_id = body["id"].as_str().unwrap().to_string();
 
     // Remove the spouse
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}"),
         None,
@@ -1391,8 +1317,8 @@ async fn test_family_child_add_remove() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Create a family
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families"),
         None,
@@ -1401,8 +1327,8 @@ async fn test_family_child_add_remove() {
     let family_id = body["id"].as_str().unwrap().to_string();
 
     // Add a child
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}/children"),
         Some(serde_json::json!({
@@ -1417,8 +1343,8 @@ async fn test_family_child_add_remove() {
     let child_id = body["id"].as_str().unwrap().to_string();
 
     // Remove the child
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/families/{family_id}/children/{child_id}"),
         None,
@@ -1436,8 +1362,8 @@ async fn create_family_via_api(
     spouses: &[(&str, &str)],
     children: &[&str],
 ) -> String {
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families"),
         None,
@@ -1445,8 +1371,8 @@ async fn create_family_via_api(
     .await;
     let family_id = body["id"].as_str().unwrap().to_string();
     for (person_id, role) in spouses {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
             Some(serde_json::json!({ "person_id": person_id, "role": role, "sort_order": 0 })),
@@ -1455,8 +1381,8 @@ async fn create_family_via_api(
         assert_eq!(status, StatusCode::CREATED);
     }
     for person_id in children {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/families/{family_id}/children"),
             Some(serde_json::json!({
@@ -1472,8 +1398,8 @@ async fn create_family_via_api(
 }
 
 async fn homonym_ids(app: &axum::Router, tree_id: &str, person_id: &str) -> Vec<String> {
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/homonyms"),
         None,
@@ -1508,8 +1434,8 @@ async fn homonyms_are_listed_until_confirmed_distinct() {
 
     for _ in 0..2 {
         // Answering twice records one pair and changes nothing.
-        let (status, body) = send_request(
-            app.clone(),
+        let (status, body) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
             Some(serde_json::json!({ "person_ids": [second] })),
@@ -1520,8 +1446,8 @@ async fn homonyms_are_listed_until_confirmed_distinct() {
     assert!(homonym_ids(&app, &tree_id, &first).await.is_empty());
     assert!(homonym_ids(&app, &tree_id, &second).await.is_empty());
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
         Some(serde_json::json!({ "person_ids": [first] })),
@@ -1536,8 +1462,8 @@ async fn homonyms_are_listed_until_confirmed_distinct() {
     let other_tree_id = create_tree_via_api(&app).await;
     let stranger =
         create_named_person_via_api(&app, &other_tree_id, "female", "Élise", "Sample").await;
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
         Some(serde_json::json!({ "person_ids": [stranger] })),
@@ -1557,8 +1483,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
     let kept = create_named_person_via_api(&app, &tree_id, "female", "Élise", "Sample").await;
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons"),
         Some(serde_json::json!({ "sex": "unknown" })),
@@ -1566,8 +1492,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
     .await;
     let duplicate = body["id"].as_str().unwrap().to_string();
     for (name_type, surname, primary) in [("birth", "SAMPLE", true), ("married", "Spouse", false)] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/persons/{duplicate}/names"),
             Some(serde_json::json!({
@@ -1598,8 +1524,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
         &[&child],
     )
     .await;
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/events"),
         Some(serde_json::json!({
@@ -1610,8 +1536,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
         Some(serde_json::json!({ "text": "A note", "person_id": duplicate })),
@@ -1623,8 +1549,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
         vec![duplicate.clone()]
     );
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
         Some(serde_json::json!({ "duplicate_id": duplicate })),
@@ -1634,8 +1560,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
     assert_eq!(body["id"], kept.as_str());
     assert_eq!(body["sex"], "female", "the kept person's sex wins");
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{duplicate}"),
         None,
@@ -1643,8 +1569,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
-    let (_, profile) = send_request(
-        app.clone(),
+    let (_, profile) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/profiles/{kept}"),
         None,
@@ -1667,8 +1593,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
     assert_eq!(unions[0]["spouse_id"], partner.as_str());
     assert_eq!(unions[0]["children_ids"], serde_json::json!([child]));
 
-    let (_, parent_profile) = send_request(
-        app.clone(),
+    let (_, parent_profile) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/profiles/{parent}"),
         None,
@@ -1679,8 +1605,8 @@ async fn merging_moves_the_duplicate_onto_the_kept_person() {
         serde_json::json!([kept]),
         "the parent's projection no longer counts the duplicate"
     );
-    let (_, partner_profile) = send_request(
-        app.clone(),
+    let (_, partner_profile) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/profiles/{partner}"),
         None,
@@ -1716,8 +1642,8 @@ async fn merging_refuses_spouses_ancestors_and_the_same_person() {
         (&child, &wife),
         (&husband, &husband),
     ] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
             Some(serde_json::json!({ "duplicate_id": duplicate })),
@@ -1737,8 +1663,8 @@ async fn test_ancestors_descendants_empty() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Ancestors — should be empty
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/ancestors"),
         None,
@@ -1748,8 +1674,8 @@ async fn test_ancestors_descendants_empty() {
     assert_eq!(body.as_array().unwrap().len(), 0);
 
     // Descendants — should be empty
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/descendants"),
         None,
@@ -1765,8 +1691,7 @@ async fn test_ancestors_descendants_empty() {
 async fn test_invalid_uuid_path_returns_400() {
     let app = setup_app().await;
 
-    let (status, _) =
-        send_request(app.clone(), Method::GET, "/api/v1/trees/not-a-uuid", None).await;
+    let (status, _) = send(&app, Method::GET, "/api/v1/trees/not-a-uuid", None).await;
     // Axum returns 400 for path deserialization failures
     assert!(
         status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND,
@@ -1803,8 +1728,8 @@ async fn test_event_crud() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Create an event
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/events"),
         Some(serde_json::json!({
@@ -1822,8 +1747,8 @@ async fn test_event_crud() {
     let event_id = body["id"].as_str().unwrap().to_string();
 
     // Get the event
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
         None,
@@ -1833,8 +1758,8 @@ async fn test_event_crud() {
     assert_eq!(body["event_type"], "birth");
 
     // Update the event
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
         Some(serde_json::json!({
@@ -1846,8 +1771,8 @@ async fn test_event_crud() {
     assert_eq!(body["description"], "Born in London");
 
     // List events (no filter)
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/events"),
         None,
@@ -1857,8 +1782,8 @@ async fn test_event_crud() {
     assert_eq!(body["total_count"], 1);
 
     // List events (filter by person_id)
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/events?person_id={person_id}"),
         None,
@@ -1868,8 +1793,8 @@ async fn test_event_crud() {
     assert_eq!(body["total_count"], 1);
 
     // List events (filter by event_type)
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/events?event_type=birth"),
         None,
@@ -1879,8 +1804,8 @@ async fn test_event_crud() {
     assert_eq!(body["total_count"], 1);
 
     // Delete the event
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
         None,
@@ -1889,8 +1814,8 @@ async fn test_event_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
         None,
@@ -1907,8 +1832,8 @@ async fn test_place_crud() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Create a place
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/places"),
         Some(serde_json::json!({
@@ -1923,8 +1848,8 @@ async fn test_place_crud() {
     let place_id = body["id"].as_str().unwrap().to_string();
 
     // Get the place
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/places/{place_id}"),
         None,
@@ -1934,8 +1859,8 @@ async fn test_place_crud() {
     assert_eq!(body["name"], "Paris, France");
 
     // Update the place
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/places/{place_id}"),
         Some(serde_json::json!({
@@ -1947,8 +1872,8 @@ async fn test_place_crud() {
     assert_eq!(body["name"], "Lyon, France");
 
     // List places
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/places"),
         None,
@@ -1958,8 +1883,8 @@ async fn test_place_crud() {
     assert_eq!(body["total_count"], 1);
 
     // List places with search
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/places?search=Lyon"),
         None,
@@ -1969,8 +1894,8 @@ async fn test_place_crud() {
     assert_eq!(body["total_count"], 1);
 
     // Search for non-existent place
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/places?search=Berlin"),
         None,
@@ -1980,8 +1905,8 @@ async fn test_place_crud() {
     assert_eq!(body["total_count"], 0);
 
     // Delete the place
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/places/{place_id}"),
         None,
@@ -1996,8 +1921,8 @@ async fn test_place_create_validation() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Empty name should fail
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/places"),
         Some(serde_json::json!({
@@ -2017,8 +1942,8 @@ async fn test_source_crud() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Create a source
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/sources"),
         Some(serde_json::json!({
@@ -2034,8 +1959,8 @@ async fn test_source_crud() {
     let source_id = body["id"].as_str().unwrap().to_string();
 
     // Get the source
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
         None,
@@ -2045,8 +1970,8 @@ async fn test_source_crud() {
     assert_eq!(body["title"], "Parish Records of Lyon");
 
     // Update the source
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
         Some(serde_json::json!({
@@ -2060,8 +1985,8 @@ async fn test_source_crud() {
     assert_eq!(body["author"], "Archdiocese of Paris");
 
     // List sources
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/sources"),
         None,
@@ -2071,8 +1996,8 @@ async fn test_source_crud() {
     assert_eq!(body["total_count"], 1);
 
     // Delete the source
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
         None,
@@ -2081,8 +2006,8 @@ async fn test_source_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
         None,
@@ -2097,8 +2022,8 @@ async fn test_source_create_validation() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Empty title should fail
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/sources"),
         Some(serde_json::json!({
@@ -2114,8 +2039,8 @@ async fn test_source_create_validation() {
 
 /// Helper: create a source via the API and return its ID.
 async fn create_source_via_api(app: &axum::Router, tree_id: &str) -> String {
-    let (_, body) = send_request(
-        app.clone(),
+    let (_, body) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/sources"),
         Some(serde_json::json!({
@@ -2134,8 +2059,8 @@ async fn test_citation_crud() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Create a citation
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/citations"),
         Some(serde_json::json!({
@@ -2153,8 +2078,8 @@ async fn test_citation_crud() {
     let citation_id = body["id"].as_str().unwrap().to_string();
 
     // Update the citation
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
         Some(serde_json::json!({
@@ -2168,8 +2093,8 @@ async fn test_citation_crud() {
     assert_eq!(body["text"], "Updated record");
 
     // Delete the citation
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
         None,
@@ -2191,8 +2116,8 @@ async fn person_detail_bundle_excludes_unrelated_person_citations() {
         (&relevant_source, &target_id),
         (&unrelated_source, &unrelated_id),
     ] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/citations"),
             Some(serde_json::json!({
@@ -2205,8 +2130,8 @@ async fn person_detail_bundle_excludes_unrelated_person_citations() {
         assert_eq!(status, StatusCode::CREATED);
     }
 
-    let (status, body) = send_request(
-        app,
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{target_id}/detail-bundle"),
         None,
@@ -2231,8 +2156,8 @@ async fn person_detail_bundle_names_the_couple_a_profile_media_comes_from() {
     let person_id = create_person_via_api(&app, &tree_id).await;
     let partner_id = create_person_via_api(&app, &tree_id).await;
 
-    let (status, family) = send_request(
-        app.clone(),
+    let (status, family) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families"),
         None,
@@ -2241,8 +2166,8 @@ async fn person_detail_bundle_names_the_couple_a_profile_media_comes_from() {
     assert_eq!(status, StatusCode::CREATED);
     let family_id = family["id"].as_str().unwrap().to_string();
     for (spouse_id, role) in [(&person_id, "husband"), (&partner_id, "wife")] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
             Some(serde_json::json!({ "person_id": spouse_id, "role": role })),
@@ -2257,8 +2182,8 @@ async fn person_detail_bundle_names_the_couple_a_profile_media_comes_from() {
         serde_json::json!({ "media_id": own_document, "person_id": person_id }),
         serde_json::json!({ "media_id": couple_document, "family_id": family_id }),
     ] {
-        let (status, body) = send_request(
-            app.clone(),
+        let (status, body) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/media-links"),
             Some(link),
@@ -2267,8 +2192,8 @@ async fn person_detail_bundle_names_the_couple_a_profile_media_comes_from() {
         assert_eq!(status, StatusCode::CREATED, "{body}");
     }
 
-    let (status, body) = send_request(
-        app,
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle"),
         None,
@@ -2290,8 +2215,8 @@ async fn person_detail_bundle_names_the_couple_a_profile_media_comes_from() {
 // ───────────────────────── Media tests ─────────────────────────
 
 async fn create_document_via_api(app: &axum::Router, tree_id: &str) -> String {
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media/document"),
         Some(serde_json::json!({"title": "Sample document"})),
@@ -2310,8 +2235,8 @@ async fn test_media_crud() {
     let document_id = create_document_via_api(&app, &tree_id).await;
 
     // Create media
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media"),
         Some(serde_json::json!({
@@ -2329,8 +2254,8 @@ async fn test_media_crud() {
     let media_id = body["id"].as_str().unwrap().to_string();
 
     // Get media
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
         None,
@@ -2340,8 +2265,8 @@ async fn test_media_crud() {
     assert_eq!(body["file_name"], "photo.jpg");
 
     // Descriptive metadata belongs to the document, not its page.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/media/{document_id}"),
         Some(serde_json::json!({
@@ -2355,8 +2280,8 @@ async fn test_media_crud() {
     assert_eq!(body["description"], "Winter 1990");
 
     // List media
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/media"),
         None,
@@ -2368,8 +2293,8 @@ async fn test_media_crud() {
     assert_eq!(body["edges"][0]["node"]["id"], document_id);
 
     // Deleting the document also removes its page.
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/media/{document_id}"),
         None,
@@ -2378,8 +2303,8 @@ async fn test_media_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/media/{media_id}"),
         None,
@@ -2395,8 +2320,8 @@ async fn test_media_create_validation() {
     let document_id = create_document_via_api(&app, &tree_id).await;
 
     // Empty file_name should fail
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media"),
         Some(serde_json::json!({
@@ -2422,8 +2347,8 @@ async fn test_media_link_create_delete() {
     let document_id = create_document_via_api(&app, &tree_id).await;
 
     // Create media first
-    let (status, media_body) = send_request(
-        app.clone(),
+    let (status, media_body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media"),
         Some(serde_json::json!({
@@ -2440,8 +2365,8 @@ async fn test_media_link_create_delete() {
     let media_id = document_id;
 
     // Create a media link
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media-links"),
         Some(serde_json::json!({
@@ -2457,8 +2382,8 @@ async fn test_media_link_create_delete() {
     let link_id = body["id"].as_str().unwrap().to_string();
 
     // Delete the media link
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/media-links/{link_id}"),
         None,
@@ -2474,8 +2399,8 @@ async fn a_note_without_text_is_refused() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
         Some(serde_json::json!({ "text": "   " })),
@@ -2491,8 +2416,8 @@ async fn test_note_crud() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Create a note
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
         Some(serde_json::json!({
@@ -2506,8 +2431,8 @@ async fn test_note_crud() {
     let note_id = body["id"].as_str().unwrap().to_string();
 
     // Get the note
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
         None,
@@ -2517,8 +2442,8 @@ async fn test_note_crud() {
     assert_eq!(body["text"], "Important note about this person");
 
     // Update the note
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
         Some(serde_json::json!({
@@ -2530,8 +2455,8 @@ async fn test_note_crud() {
     assert_eq!(body["text"], "Updated note text");
 
     // List notes by person
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/notes?person_id={person_id}"),
         None,
@@ -2541,8 +2466,8 @@ async fn test_note_crud() {
     assert_eq!(body["edges"].as_array().unwrap().len(), 1);
 
     // Delete the note
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::DELETE,
         &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
         None,
@@ -2551,8 +2476,8 @@ async fn test_note_crud() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 
     // Verify it's gone
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
         None,
@@ -2567,8 +2492,8 @@ async fn test_note_create_validation() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Empty text should fail
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
         Some(serde_json::json!({
@@ -2587,8 +2512,8 @@ async fn test_note_list_by_multiple_entities() {
     let person_id = create_person_via_api(&app, &tree_id).await;
 
     // Create a note linked to a person
-    send_request(
-        app.clone(),
+    send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
         Some(serde_json::json!({
@@ -2599,8 +2524,8 @@ async fn test_note_list_by_multiple_entities() {
     .await;
 
     // Create a family and a note linked to it
-    let (_, fam_body) = send_request(
-        app.clone(),
+    let (_, fam_body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/families"),
         None,
@@ -2608,8 +2533,8 @@ async fn test_note_list_by_multiple_entities() {
     .await;
     let family_id = fam_body["id"].as_str().unwrap().to_string();
 
-    send_request(
-        app.clone(),
+    send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
         Some(serde_json::json!({
@@ -2620,8 +2545,8 @@ async fn test_note_list_by_multiple_entities() {
     .await;
 
     // List by person — should get 1
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/notes?person_id={person_id}"),
         None,
@@ -2632,8 +2557,8 @@ async fn test_note_list_by_multiple_entities() {
     assert_eq!(body["edges"][0]["node"]["text"], "Person note");
 
     // List by family — should get 1
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/notes?family_id={family_id}"),
         None,
@@ -2653,8 +2578,8 @@ async fn notes_and_citations_use_cursor_pagination() {
     let source_id = create_source_via_api(&app, &tree_id).await;
 
     for text in ["First note", "Second note"] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/notes"),
             Some(serde_json::json!({ "text": text, "person_id": person_id })),
@@ -2662,8 +2587,8 @@ async fn notes_and_citations_use_cursor_pagination() {
         .await;
         assert_eq!(status, StatusCode::CREATED);
     }
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
         Some(serde_json::json!({
@@ -2674,8 +2599,8 @@ async fn notes_and_citations_use_cursor_pagination() {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     for page in ["1", "2"] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/citations"),
             Some(serde_json::json!({
@@ -2688,8 +2613,8 @@ async fn notes_and_citations_use_cursor_pagination() {
         .await;
         assert_eq!(status, StatusCode::CREATED);
     }
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/citations"),
         Some(serde_json::json!({
@@ -2703,8 +2628,8 @@ async fn notes_and_citations_use_cursor_pagination() {
     assert_eq!(status, StatusCode::CREATED);
 
     for resource in ["notes", "citations"] {
-        let (status, first_page) = send_request(
-            app.clone(),
+        let (status, first_page) = send(
+            &app,
             Method::GET,
             &format!("/api/v1/trees/{tree_id}/{resource}?person_id={person_id}&first=1"),
             None,
@@ -2717,8 +2642,8 @@ async fn notes_and_citations_use_cursor_pagination() {
         let first_id = first_page["edges"][0]["node"]["id"].as_str().unwrap();
         let cursor = first_page["page_info"]["end_cursor"].as_str().unwrap();
 
-        let (status, second_page) = send_request(
-            app.clone(),
+        let (status, second_page) = send(
+            &app,
             Method::GET,
             &format!(
                 "/api/v1/trees/{tree_id}/{resource}?person_id={person_id}&first=1&after={cursor}"
@@ -2780,8 +2705,8 @@ async fn test_gedcom_import() {
     let app = setup_app().await;
 
     // Create tree
-    let (_, tree_body) = send_request(
-        app.clone(),
+    let (_, tree_body) = send(
+        &app,
         Method::POST,
         "/api/v1/trees",
         Some(serde_json::json!({ "name": "GEDCOM Tree" })),
@@ -2790,8 +2715,8 @@ async fn test_gedcom_import() {
     let tree_id = tree_body["id"].as_str().unwrap();
 
     // Import GEDCOM
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/gedcom/import"),
         Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
@@ -2804,8 +2729,8 @@ async fn test_gedcom_import() {
     assert!(body["places_count"].as_i64().unwrap() >= 1); // Springfield
 
     // Verify persons are actually in the DB
-    let (status, persons) = send_request(
-        app.clone(),
+    let (status, persons) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons"),
         None,
@@ -2821,8 +2746,8 @@ async fn test_gedcom_import_spans_multiple_insert_batches() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
 
-    let (status, body) = send_request(
-        app,
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/gedcom/import"),
         Some(serde_json::json!({ "gedcom": gedcom_over_insert_batch_size() })),
@@ -2862,8 +2787,8 @@ async fn test_async_file_import_job() {
     assert!(worker.run_once().await.expect("run import job"));
 
     let completed = loop {
-        let (status, progress) = send_request(
-            app.clone(),
+        let (status, progress) = send(
+            &app,
             Method::GET,
             &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
             None,
@@ -2881,8 +2806,8 @@ async fn test_async_file_import_job() {
     assert_eq!(completed["result"]["families_count"], 1);
     assert!(!temporary.exists(), "temporary upload was not removed");
 
-    let (_, persons) = send_request(
-        app,
+    let (_, persons) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons"),
         None,
@@ -2926,8 +2851,8 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     let geneweb = "encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
     let fetched_url = "https://example.invalid/fetched.jpg";
 
-    let (status, started) = send_request(
-        app.clone(),
+    let (status, started) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/geneanet/import"),
         Some(serde_json::json!({
@@ -2967,8 +2892,8 @@ async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     std::fs::remove_dir_all(&input_root).expect("remove original inputs");
     assert!(worker.run_once().await.expect("run Geneanet import job"));
 
-    let (status, completed) = send_request(
-        app,
+    let (status, completed) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
         None,
@@ -3023,8 +2948,8 @@ async fn a_renditions_geneanet_import_stages_no_archive() {
     let tree_id = create_tree_via_api(&app).await;
     let geneweb = "encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n";
 
-    let (status, started) = send_request(
-        app.clone(),
+    let (status, started) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/geneanet/import"),
         Some(serde_json::json!({
@@ -3055,8 +2980,8 @@ async fn a_renditions_geneanet_import_stages_no_archive() {
 
 #[tokio::test]
 async fn geneanet_local_paths_are_refused_by_default() {
-    let (status, body) = send_request(
-        setup_app().await,
+    let (status, body) = send(
+        &setup_app().await,
         Method::POST,
         "/api/v1/geneanet/archives",
         Some(serde_json::json!({ "paths": ["/does/not/exist"] })),
@@ -3140,8 +3065,8 @@ async fn test_geneanet_import_resumes_from_projection_checkpoint() {
     );
     assert!(worker.run_once().await.expect("resume Geneanet import job"));
 
-    let (status, completed) = send_request(
-        app,
+    let (status, completed) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
         None,
@@ -3175,8 +3100,8 @@ async fn test_async_export_job_downloads_the_completed_archive() {
     let app = build_router(state);
     let tree_id = create_tree_via_api(&app).await;
 
-    let (status, started) = send_request(
-        app.clone(),
+    let (status, started) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/export-jobs"),
         None,
@@ -3186,8 +3111,8 @@ async fn test_async_export_job_downloads_the_completed_archive() {
     let job_id = started["job_id"].as_str().expect("job id");
     assert!(worker.run_once().await.expect("run export job"));
 
-    let (status, completed) = send_request(
-        app.clone(),
+    let (status, completed) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}"),
         None,
@@ -3245,7 +3170,7 @@ async fn tree_list_marks_only_running_file_imports() {
     .await
     .expect("create import job");
 
-    let (_, running) = send_request(app.clone(), Method::GET, "/api/v1/trees", None).await;
+    let (_, running) = send(&app, Method::GET, "/api/v1/trees", None).await;
     assert_eq!(running["edges"][0]["node"]["import_in_progress"], true);
     assert_eq!(
         running["edges"][0]["node"]["import_job_id"],
@@ -3260,7 +3185,7 @@ async fn tree_list_marks_only_running_file_imports() {
     BackgroundJobRepo::complete(&state.db, claimed.id, "rest-test-worker", None, None)
         .await
         .expect("complete import job");
-    let (_, completed) = send_request(app, Method::GET, "/api/v1/trees", None).await;
+    let (_, completed) = send(&app, Method::GET, "/api/v1/trees", None).await;
     assert_eq!(completed["edges"][0]["node"]["import_in_progress"], false);
     assert!(completed["edges"][0]["node"]["import_job_id"].is_null());
 }
@@ -3270,8 +3195,8 @@ async fn test_gedcom_import_invalid_tree() {
     let app = setup_app().await;
     let fake_id = "00000000-0000-0000-0000-000000000000";
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{fake_id}/gedcom/import"),
         Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
@@ -3285,8 +3210,8 @@ async fn test_gedcom_export_empty_tree() {
     let app = setup_app().await;
 
     // Create tree
-    let (_, tree_body) = send_request(
-        app.clone(),
+    let (_, tree_body) = send(
+        &app,
         Method::POST,
         "/api/v1/trees",
         Some(serde_json::json!({ "name": "Empty Tree" })),
@@ -3295,8 +3220,8 @@ async fn test_gedcom_export_empty_tree() {
     let tree_id = tree_body["id"].as_str().unwrap();
 
     // Export (empty tree)
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/gedcom/export"),
         None,
@@ -3312,8 +3237,8 @@ async fn test_gedcom_roundtrip() {
     let app = setup_app().await;
 
     // Create tree
-    let (_, tree_body) = send_request(
-        app.clone(),
+    let (_, tree_body) = send(
+        &app,
         Method::POST,
         "/api/v1/trees",
         Some(serde_json::json!({ "name": "Roundtrip Tree" })),
@@ -3322,8 +3247,8 @@ async fn test_gedcom_roundtrip() {
     let tree_id = tree_body["id"].as_str().unwrap();
 
     // Import
-    let (status, import_body) = send_request(
-        app.clone(),
+    let (status, import_body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/gedcom/import"),
         Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
@@ -3332,8 +3257,8 @@ async fn test_gedcom_roundtrip() {
     assert_eq!(status, StatusCode::CREATED);
 
     // Export
-    let (status, export_body) = send_request(
-        app.clone(),
+    let (status, export_body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/gedcom/export"),
         None,
@@ -3357,8 +3282,8 @@ async fn test_gedcom_export_invalid_tree() {
     let app = setup_app().await;
     let fake_id = "00000000-0000-0000-0000-000000000000";
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{fake_id}/gedcom/export"),
         None,
@@ -3417,8 +3342,8 @@ async fn test_geneweb_import() {
     assert_eq!(body["families_count"], 1);
 
     // The entities really landed in the database.
-    let (status, persons) = send_request(
-        app.clone(),
+    let (status, persons) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons"),
         None,
@@ -3453,8 +3378,8 @@ async fn test_geneweb_import_latin1_bytes() {
     // Search folds accents, so `emile` finds the person either way — what is
     // being asserted is the stored spelling: a lossy UTF-8 decode would have
     // left U+FFFD where the É is.
-    let (_, found) = send_request(
-        app.clone(),
+    let (_, found) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/search?q=emile"),
         None,
@@ -3503,8 +3428,8 @@ async fn test_profile_routes() {
     let tree_id = create_tree_via_api(&app).await;
     let person_id = create_person_via_api(&app, &tree_id).await;
 
-    send_request(
-        app.clone(),
+    send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
         Some(serde_json::json!({
@@ -3517,8 +3442,8 @@ async fn test_profile_routes() {
     .await;
 
     // Single projection.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/profiles/{person_id}"),
         None,
@@ -3529,8 +3454,8 @@ async fn test_profile_routes() {
     assert_eq!(body["primary_name"]["display_name"], "Jean Dupont");
 
     // Whole-tree listing.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/profiles"),
         None,
@@ -3540,8 +3465,8 @@ async fn test_profile_routes() {
     assert_eq!(body.as_array().unwrap().len(), 1);
 
     // `rebuild` must not be swallowed by the `{person_id}` route.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/profiles/rebuild"),
         None,
@@ -3550,8 +3475,8 @@ async fn test_profile_routes() {
     assert_eq!(status, StatusCode::OK, "tree rebuild failed: {body}");
     assert_eq!(body["persons_count"], 1);
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/profiles/rebuild/{person_id}"),
         None,
@@ -3561,8 +3486,8 @@ async fn test_profile_routes() {
     assert_eq!(body["persons_count"], 1);
 
     // Pedigree rooted on the only person.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!(
             "/api/v1/trees/{tree_id}/pedigree/{person_id}?ancestor_depth=2&descendant_depth=1"
@@ -3577,8 +3502,8 @@ async fn test_profile_routes() {
 
     // The batched form answers for several roots at once, in request order,
     // and refuses a batch larger than the bound rather than truncating it.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/pedigrees"),
         Some(serde_json::json!({
@@ -3597,8 +3522,8 @@ async fn test_profile_routes() {
     let roots = (0..65)
         .map(|_| uuid::Uuid::now_v7().to_string())
         .collect::<Vec<_>>();
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/pedigrees"),
         Some(serde_json::json!({
@@ -3611,8 +3536,8 @@ async fn test_profile_routes() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     // Expansion returns a (here empty) delta, not an error.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::PATCH,
         &format!(
             "/api/v1/trees/{tree_id}/pedigree/{person_id}/expand\
@@ -3627,8 +3552,8 @@ async fn test_profile_routes() {
     assert!(body["new_nodes"].as_array().unwrap().is_empty());
 
     // Dropping clears the projections; the next read re-materializes them.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/profiles/drop"),
         None,
@@ -3637,8 +3562,8 @@ async fn test_profile_routes() {
     assert_eq!(status, StatusCode::OK, "drop failed: {body}");
     assert_eq!(body["dropped"], true);
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/profiles/{person_id}"),
         None,
@@ -3653,7 +3578,7 @@ async fn test_profile_routes() {
         format!("/api/v1/trees/{tree_id}/cache/persons"),
         format!("/api/v1/trees/{tree_id}/cache/pedigree/{person_id}"),
     ] {
-        let (status, _) = send_request(app.clone(), Method::GET, &path, None).await;
+        let (status, _) = send(&app, Method::GET, &path, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "still routed: {path}");
     }
 }
@@ -3666,8 +3591,8 @@ async fn statistics_count_the_tree_and_its_ages() {
     let tree_id = create_tree_via_api(&app).await;
     let person_id = create_named_person_via_api(&app, &tree_id, "male", "Jean", "BRANCH_A").await;
     for (kind, date) in [("birth", "3 MAR 1820"), ("death", "3 MAR 1890")] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::POST,
             &format!("/api/v1/trees/{tree_id}/events"),
             Some(serde_json::json!({
@@ -3680,8 +3605,8 @@ async fn statistics_count_the_tree_and_its_ages() {
         assert_eq!(status, StatusCode::CREATED);
     }
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/statistics"),
         None,
@@ -3706,8 +3631,8 @@ async fn statistics_count_the_tree_and_its_ages() {
     assert_eq!(body["records"][0]["persons"][0]["name"], "Jean BRANCH_A");
 
     // The options are checked and passed on.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/statistics?approximate=true&lang=fr"),
         None,
@@ -3715,8 +3640,8 @@ async fn statistics_count_the_tree_and_its_ages() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["persons"], 1);
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/statistics?lang=xx"),
         None,
@@ -3724,8 +3649,8 @@ async fn statistics_count_the_tree_and_its_ages() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{}/statistics", uuid::Uuid::now_v7()),
         None,
@@ -3744,8 +3669,8 @@ async fn add_event_via_api(
     date: &str,
 ) {
     let (key, id) = owner;
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/events"),
         Some(serde_json::json!({ "event_type": kind, "date_value": date, key: id })),
@@ -3762,8 +3687,8 @@ async fn event_id_via_api(
     kind: &str,
     date: &str,
 ) -> String {
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/events"),
         Some(serde_json::json!({ "event_type": kind, "date_value": date, "person_id": person_id })),
@@ -3787,16 +3712,16 @@ async fn a_merge_leaves_out_the_duplicates_items_not_taken() {
     let duplicate_birth = event_id_via_api(&app, &tree_id, &duplicate, "birth", "1850").await;
     let residence = event_id_via_api(&app, &tree_id, &duplicate, "residence", "1880").await;
     let stranger_birth = event_id_via_api(&app, &tree_id, &stranger, "birth", "1851").await;
-    let (status, document) = send_request(
-        app.clone(),
+    let (status, document) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media/document"),
         Some(serde_json::json!({ "title": "Scan A" })),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{document}");
-    let (status, link) = send_request(
-        app.clone(),
+    let (status, link) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/media-links"),
         Some(serde_json::json!({ "media_id": document["id"], "person_id": duplicate, "sort_order": 0 })),
@@ -3808,8 +3733,8 @@ async fn a_merge_leaves_out_the_duplicates_items_not_taken() {
         let tree_id = tree_id.clone();
         let kept = kept.clone();
         async move {
-            send_request(
-                app,
+            send(
+                &app,
                 Method::POST,
                 &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
                 Some(body),
@@ -3834,8 +3759,8 @@ async fn a_merge_leaves_out_the_duplicates_items_not_taken() {
     }))
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let (_, events) = send_request(
-        app.clone(),
+    let (_, events) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/events?person_id={kept}"),
         None,
@@ -3854,8 +3779,8 @@ async fn a_merge_leaves_out_the_duplicates_items_not_taken() {
         ids, expected,
         "the residence moved, the duplicate birth did not"
     );
-    let (_, links) = send_request(
-        app.clone(),
+    let (_, links) = send(
+        &app,
         Method::GET,
         &format!(
             "/api/v1/trees/{tree_id}/media-links?media_id={}",
@@ -3875,8 +3800,8 @@ async fn ancestry_completeness_walks_up_from_the_sosa_root() {
     let tree_id = create_tree_via_api(&app).await;
 
     // Without a root there is nothing to walk.
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/ancestry-completeness"),
         None,
@@ -3891,8 +3816,8 @@ async fn ancestry_completeness_walks_up_from_the_sosa_root() {
     let family = create_family_via_api(&app, &tree_id, &[(&father, "husband")], &[&root]).await;
     add_event_via_api(&app, &tree_id, ("person_id", &father), "birth", "1900").await;
     add_event_via_api(&app, &tree_id, ("family_id", &family), "marriage", "1925").await;
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::PUT,
         &format!("/api/v1/trees/{tree_id}"),
         Some(serde_json::json!({ "sosa_root_person_id": root })),
@@ -3900,8 +3825,8 @@ async fn ancestry_completeness_walks_up_from_the_sosa_root() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/ancestry-completeness?generations=3"),
         None,
@@ -3928,8 +3853,8 @@ async fn ancestry_completeness_walks_up_from_the_sosa_root() {
     assert_eq!(grandparents["implied_missing"], 2);
 
     for bad in ["0", "16"] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::GET,
             &format!("/api/v1/trees/{tree_id}/ancestry-completeness?generations={bad}"),
             None,
@@ -3937,8 +3862,8 @@ async fn ancestry_completeness_walks_up_from_the_sosa_root() {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "generations={bad}");
     }
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!(
             "/api/v1/trees/{}/ancestry-completeness",
@@ -3960,8 +3885,8 @@ async fn anomalies_and_unlocated_places_are_listed() {
     add_event_via_api(&app, &tree_id, ("person_id", &person), "birth", "1850").await;
     add_event_via_api(&app, &tree_id, ("person_id", &person), "death", "1840").await;
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/anomalies"),
         None,
@@ -3980,8 +3905,8 @@ async fn anomalies_and_unlocated_places_are_listed() {
     assert_eq!(rule["count"], 1);
     assert_eq!(rule["items"][0]["persons"][0]["person_id"], person.as_str());
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/places"),
         Some(serde_json::json!({ "name": "Qzxv Nowhere Hamlet" })),
@@ -3989,8 +3914,8 @@ async fn anomalies_and_unlocated_places_are_listed() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let place_id = body["id"].as_str().unwrap().to_string();
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/events"),
         Some(serde_json::json!({
@@ -4001,8 +3926,8 @@ async fn anomalies_and_unlocated_places_are_listed() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/unlocated-places"),
         None,
@@ -4014,8 +3939,8 @@ async fn anomalies_and_unlocated_places_are_listed() {
     assert_eq!(body[0]["count"], 1);
 
     for path in ["anomalies", "unlocated-places"] {
-        let (status, _) = send_request(
-            app.clone(),
+        let (status, _) = send(
+            &app,
             Method::GET,
             &format!("/api/v1/trees/{}/{path}", uuid::Uuid::now_v7()),
             None,
@@ -4039,8 +3964,8 @@ async fn potential_duplicates_are_listed_until_confirmed_distinct() {
     let list = |app: axum::Router| {
         let tree_id = tree_id.clone();
         async move {
-            let (status, body) = send_request(
-                app,
+            let (status, body) = send(
+                &app,
                 Method::GET,
                 &format!("/api/v1/trees/{tree_id}/duplicates"),
                 None,
@@ -4069,8 +3994,8 @@ async fn potential_duplicates_are_listed_until_confirmed_distinct() {
     assert_eq!(pair["first_dates"]["birth"]["qualifier"], "exact");
     assert!(pair["second_dates"]["death"].is_null());
 
-    let (status, _) = send_request(
-        app.clone(),
+    let (status, _) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{first}/distinct"),
         Some(serde_json::json!({ "person_ids": [second] })),
@@ -4080,8 +4005,8 @@ async fn potential_duplicates_are_listed_until_confirmed_distinct() {
     let body = list(app.clone()).await;
     assert_eq!(body["count"], 0);
 
-    let (status, _) = send_request(
-        app,
+    let (status, _) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{}/duplicates", uuid::Uuid::now_v7()),
         None,
@@ -4104,8 +4029,8 @@ async fn a_merge_takes_the_chosen_name_sex_and_events() {
     let duplicate_birth =
         event_id_via_api(&app, &tree_id, &duplicate, "birth", "12 MAR 1850").await;
 
-    let (status, body) = send_request(
-        app.clone(),
+    let (status, body) = send(
+        &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
         Some(serde_json::json!({
@@ -4121,8 +4046,8 @@ async fn a_merge_takes_the_chosen_name_sex_and_events() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["sex"], "female");
 
-    let (_, names) = send_request(
-        app.clone(),
+    let (_, names) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/persons/{kept}/names"),
         None,
@@ -4161,8 +4086,8 @@ async fn a_merge_takes_the_chosen_name_sex_and_events() {
         "{names:?}"
     );
 
-    let (_, events) = send_request(
-        app.clone(),
+    let (_, events) = send(
+        &app,
         Method::GET,
         &format!("/api/v1/trees/{tree_id}/events?person_id={kept}"),
         None,
