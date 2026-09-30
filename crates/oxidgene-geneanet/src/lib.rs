@@ -31,6 +31,20 @@ use anyhow::{Result, bail};
 /// gathered from only exists on this one.
 pub const DEFAULT_BASE_URL: &str = "https://www.geneanet.org";
 
+/// The host a manifest's rendition paths (`views[].files`) are served from.
+///
+/// They are host-relative, and not relative to [`DEFAULT_BASE_URL`]: the
+/// renditions live on the `gw` subdomain while the API lives on `www`.
+pub const RENDITION_BASE_URL: &str = "https://gw.geneanet.org";
+
+/// Whether `host` is Geneanet's domain or one of its subdomains.
+///
+/// Compared whole, label by label: `geneanet.org.example.invalid` or
+/// `notgeneanet.org` are someone else's.
+pub fn is_geneanet_host(host: &str) -> bool {
+    host == "geneanet.org" || host.ends_with(".geneanet.org")
+}
+
 pub use model::Manifest;
 
 /// Parses a `.gw` export from its raw bytes.
@@ -85,6 +99,15 @@ pub fn manifest_from_collection(json: &str) -> Result<Manifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_geneanet_and_its_subdomains_are_geneanet_hosts() {
+        assert!(is_geneanet_host("geneanet.org"));
+        assert!(is_geneanet_host("www.geneanet.org"));
+        assert!(is_geneanet_host("gw.geneanet.org"));
+        assert!(!is_geneanet_host("notgeneanet.org"));
+        assert!(!is_geneanet_host("geneanet.org.example.invalid"));
+    }
 
     #[test]
     fn a_gedcom_is_rejected_as_holding_no_person() {

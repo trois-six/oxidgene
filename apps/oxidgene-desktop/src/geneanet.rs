@@ -42,7 +42,7 @@ use dioxus::desktop::tao::window::Window;
 use dioxus::desktop::wry::{WebView, WebViewBuilder};
 use dioxus::desktop::{LogicalSize, WindowBuilder};
 use futures_channel::mpsc::UnboundedSender;
-use oxidgene_geneanet::script;
+use oxidgene_geneanet::{is_geneanet_host, script};
 use oxidgene_ui::geneanet::{
     Collect, GeneanetBridge, GeneanetCollector, GeneanetEvent, WindowStrings,
 };
@@ -628,10 +628,6 @@ fn is_geneanet_url(url: &str) -> bool {
     url.parse::<axum::http::Uri>().is_ok_and(|uri| {
         uri.scheme_str() == Some("https") && uri.host().is_some_and(is_geneanet_host)
     })
-}
-
-fn is_geneanet_host(host: &str) -> bool {
-    host == "geneanet.org" || host.ends_with(".geneanet.org")
 }
 
 /// How many views the collection holds — every page of every deposit.

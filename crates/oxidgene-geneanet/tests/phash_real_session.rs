@@ -57,9 +57,6 @@ use oxidgene_geneanet::model::{ManifestDeposit, ManifestView};
 /// still a faithful reduction, because it is what gets hashed.
 const SAMPLE_ORDER: [&str; 4] = ["medium", "normal", "screen", "thumbnail"];
 
-/// Where a rendition path is served from when it is not absolute.
-const RENDITION_HOST: &str = "https://gw.geneanet.org";
-
 fn env_path(key: &str) -> Option<PathBuf> {
     std::env::var(key)
         .ok()
@@ -87,7 +84,7 @@ fn rendition_url(view: &ManifestView) -> Option<String> {
             return Some(if path.starts_with("http") {
                 path.clone()
             } else {
-                format!("{RENDITION_HOST}{path}")
+                format!("{}{path}", oxidgene_geneanet::RENDITION_BASE_URL)
             });
         }
     }

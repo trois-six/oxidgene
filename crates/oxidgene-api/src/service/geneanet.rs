@@ -2567,7 +2567,7 @@ fn rendition_url_in_order(view: &ManifestView, order: [&str; 4]) -> Option<Strin
             return Some(if path.starts_with("http") {
                 path.clone()
             } else {
-                format!("https://gw.geneanet.org{path}")
+                format!("{}{path}", oxidgene_geneanet::RENDITION_BASE_URL)
             });
         }
     }
@@ -3383,7 +3383,7 @@ mod tests {
         assert!(original_url(&single).is_some_and(|u| u.contains("deposits[]=1")));
         assert!(
             rendition_url(&multi.views[1])
-                .is_some_and(|u| u.starts_with("https://gw.geneanet.org"))
+                .is_some_and(|u| u.starts_with(oxidgene_geneanet::RENDITION_BASE_URL))
         );
     }
 
