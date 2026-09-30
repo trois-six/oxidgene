@@ -236,78 +236,41 @@ pub fn days_in_month(calendar: Calendar, year: i32, month: u8) -> u8 {
         return 0;
     }
     match calendar {
-        Calendar::FrenchRepublican => match month {
-            13 => {
-                if republican_leap(year) {
-                    6
-                } else {
-                    5
-                }
-            }
-            _ => 30,
-        },
-        Calendar::Hebrew => {
-            let y = year as i64;
-            let leap = hebrew_leap(y);
-            let length = hebrew_year_length(y);
-            match month {
-                // Heshvan is full only in a "complete" year, Kislev short only
-                // in a "deficient" one.
-                2 => {
-                    if length % 10 == 5 {
-                        30
-                    } else {
-                        29
-                    }
-                }
-                3 => {
-                    if length % 10 == 3 {
-                        29
-                    } else {
-                        30
-                    }
-                }
-                6 => {
-                    if leap {
-                        30
-                    } else {
-                        29
-                    }
-                }
-                7 => {
-                    if leap {
-                        29
-                    } else {
-                        0
-                    }
-                }
-                1 | 5 | 8 | 10 | 12 => 30,
-                _ => 29,
-            }
+        Calendar::FrenchRepublican if month == 13 => 5 + u8::from(republican_leap(year)),
+        Calendar::FrenchRepublican => 30,
+        Calendar::Hebrew => hebrew_month_length(year as i64, month),
+        Calendar::Julian => western_month_length(month, astronomical(year).rem_euclid(4) == 0),
+        Calendar::Gregorian => {
+            let y = astronomical(year);
+            let leap = y.rem_euclid(4) == 0 && (y.rem_euclid(100) != 0 || y.rem_euclid(400) == 0);
+            western_month_length(month, leap)
         }
-        Calendar::Julian => match month {
-            2 => {
-                if astronomical(year).rem_euclid(4) == 0 {
-                    29
-                } else {
-                    28
-                }
-            }
-            4 | 6 | 9 | 11 => 30,
-            _ => 31,
-        },
-        Calendar::Gregorian => match month {
-            2 => {
-                let y = astronomical(year);
-                if y.rem_euclid(4) == 0 && (y.rem_euclid(100) != 0 || y.rem_euclid(400) == 0) {
-                    29
-                } else {
-                    28
-                }
-            }
-            4 | 6 | 9 | 11 => 30,
-            _ => 31,
-        },
+    }
+}
+
+/// Length of a Julian or Gregorian month, February's being one day longer
+/// in a `leap` year.
+fn western_month_length(month: u8, leap: bool) -> u8 {
+    match month {
+        2 => 28 + u8::from(leap),
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+/// Length of a month of Hebrew `year`, 0 for Adar II outside a leap year.
+fn hebrew_month_length(year: i64, month: u8) -> u8 {
+    let leap = hebrew_leap(year);
+    let length = hebrew_year_length(year);
+    match month {
+        // Heshvan is full only in a "complete" year, Kislev short only in a
+        // "deficient" one.
+        2 => 29 + u8::from(length % 10 == 5),
+        3 => 30 - u8::from(length % 10 == 3),
+        6 => 29 + u8::from(leap),
+        7 => 29 * u8::from(leap),
+        1 | 5 | 8 | 10 | 12 => 30,
+        _ => 29,
     }
 }
 

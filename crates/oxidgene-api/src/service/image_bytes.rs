@@ -69,41 +69,49 @@ async fn load_one(
         // We never proxy somebody else's bandwidth: the client already has the
         // address and fetches it directly.
         ImageSource::Remote { .. } => None,
-        ImageSource::Thumbnail { media_id } => {
-            let media = MediaRepo::get(db, media_id).await.ok()?;
-            if media.tree_id != tree_id {
-                return None;
-            }
-            let key = media.thumbnail_key?;
-            let bytes = store.get(&key).await.ok()?;
-            // `ingest` only ever writes `jpg` or `png`, and the key says which.
-            let mime_type = if key.ends_with(".png") {
-                "image/png"
-            } else {
-                "image/jpeg"
-            };
-            Some(data_url(mime_type, &bytes))
-        }
-        ImageSource::Crop { vignette_id } => {
-            let vignette = VignetteRepo::get(db, vignette_id).await.ok()?;
-            let media = MediaRepo::get(db, vignette.media_id).await.ok()?;
-            if media.tree_id != tree_id {
-                return None;
-            }
-            let key = media.storage_key?;
-            if !crate::media::thumbnail::can_thumbnail(&media.mime_type) {
-                return None;
-            }
-            let bytes = store.get(&key).await.ok()?;
-            let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
-            let cropped =
-                tokio::task::spawn_blocking(move || crate::media::thumbnail::crop(&bytes, rect))
-                    .await
-                    .ok()?
-                    .ok()?;
-            Some(data_url("image/jpeg", &cropped))
-        }
+        ImageSource::Thumbnail { media_id } => load_thumbnail(db, store, tree_id, media_id).await,
+        ImageSource::Crop { vignette_id } => load_crop(db, store, tree_id, vignette_id).await,
     }
+}
+
+/// Medium `media_id`'s thumbnail, as a data URL.
+async fn load_thumbnail(
+    db: &DatabaseConnection,
+    store: &Arc<dyn MediaStore>,
+    tree_id: Uuid,
+    media_id: Uuid,
+) -> Option<String> {
+    let media = MediaRepo::get(db, media_id).await.ok()?;
+    let key = media.thumbnail_key.filter(|_| media.tree_id == tree_id)?;
+    let bytes = store.get(&key).await.ok()?;
+    // `ingest` only ever writes `jpg` or `png`, and the key says which.
+    let mime_type = if key.ends_with(".png") {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
+    Some(data_url(mime_type, &bytes))
+}
+
+/// Vignette `vignette_id` cut out of its medium, as a data URL.
+async fn load_crop(
+    db: &DatabaseConnection,
+    store: &Arc<dyn MediaStore>,
+    tree_id: Uuid,
+    vignette_id: Uuid,
+) -> Option<String> {
+    let vignette = VignetteRepo::get(db, vignette_id).await.ok()?;
+    let media = MediaRepo::get(db, vignette.media_id).await.ok()?;
+    let drawable =
+        media.tree_id == tree_id && crate::media::thumbnail::can_thumbnail(&media.mime_type);
+    let key = media.storage_key.filter(|_| drawable)?;
+    let bytes = store.get(&key).await.ok()?;
+    let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
+    let cropped = tokio::task::spawn_blocking(move || crate::media::thumbnail::crop(&bytes, rect))
+        .await
+        .ok()?
+        .ok()?;
+    Some(data_url("image/jpeg", &cropped))
 }
 
 fn data_url(mime_type: &str, bytes: &[u8]) -> String {

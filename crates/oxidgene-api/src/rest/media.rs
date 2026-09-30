@@ -687,9 +687,6 @@ pub async fn download_archive(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    use std::io::{Seek, Write};
-    use tokio::io::AsyncReadExt;
-
     // Bound temporary archives through delivery, not just while packaging them.
     static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
     let permit = SLOTS
@@ -700,47 +697,7 @@ pub async fn download_archive(
     let runtime = tokio::runtime::Handle::current();
     let (_alive, mut cancelled) = tokio::sync::oneshot::channel::<()>();
     let (file, permit) = tokio::task::spawn_blocking(move || -> Result<_, OxidGeneError> {
-        // An anonymous temporary file is removed on error, disconnect or EOF.
-        // Finish before sending headers so a failed page cannot become a partial ZIP.
-        let mut writer = zip::ZipWriter::new(tempfile::tempfile()?);
-        let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .large_file(true);
-        let digits = pages.len().to_string().len().max(3);
-        for (index, page) in pages.iter().enumerate() {
-            let position = index + 1;
-            if oxidgene_core::types::is_remote_url(&page.file_path) {
-                writer
-                    .start_file(
-                        format!("{position:0digits$}_{}.url", zip_safe(&page.file_name)),
-                        options,
-                    )
-                    .map_err(|_| OxidGeneError::Internal("archive entry creation failed".into()))?;
-                writer.write_all(internet_shortcut(&page.file_path).as_bytes())?;
-                continue;
-            }
-            let key = stored_key(page, page.storage_key.as_deref())?;
-            let mut stream = runtime.block_on(state.media.get_stream(key))?;
-            writer
-                .start_file(
-                    format!("{position:0digits$}_{}", zip_safe(&page.file_name)),
-                    options,
-                )
-                .map_err(|_| OxidGeneError::Internal("archive entry creation failed".into()))?;
-            while let Some(chunk) = runtime.block_on(stream.try_next())? {
-                if cancelled
-                    .try_recv()
-                    .is_err_and(|error| error == tokio::sync::oneshot::error::TryRecvError::Closed)
-                {
-                    return Err(OxidGeneError::Internal("archive request cancelled".into()));
-                }
-                writer.write_all(&chunk)?;
-            }
-        }
-        let mut file = writer
-            .finish()
-            .map_err(|_| OxidGeneError::Internal("archive finalization failed".into()))?;
-        file.rewind()?;
+        let file = write_page_archive(&pages, &*state.media, &runtime, &mut cancelled)?;
         Ok((file, permit))
     })
     .await
@@ -760,12 +717,59 @@ pub async fn download_archive(
     headers.insert("x-content-type-options", header_value("nosniff"));
     let stream =
         futures_util::stream::try_unfold((file, permit), |(mut file, permit)| async move {
+            use tokio::io::AsyncReadExt;
             let mut buffer = vec![0; 64 * 1024];
             let read = file.read(&mut buffer).await?;
             buffer.truncate(read);
             Ok::<_, std::io::Error>((read != 0).then_some((buffer, (file, permit))))
         });
     Ok((headers, Body::from_stream(stream)).into_response())
+}
+
+/// Writes `pages` into an anonymous temporary ZIP, rewound; blocking.
+///
+/// The file is removed on error, disconnect or EOF. It is finished before any
+/// header is sent, so a failed page cannot become a partial ZIP.
+fn write_page_archive(
+    pages: &[Media],
+    media: &dyn crate::media::MediaStore,
+    runtime: &tokio::runtime::Handle,
+    cancelled: &mut tokio::sync::oneshot::Receiver<()>,
+) -> Result<std::fs::File, OxidGeneError> {
+    use std::io::{Seek, Write};
+    let mut writer = zip::ZipWriter::new(tempfile::tempfile()?);
+    let digits = pages.len().to_string().len().max(3);
+    let entry_failed = |_| OxidGeneError::Internal("archive entry creation failed".into());
+    for (index, page) in pages.iter().enumerate() {
+        let position = index + 1;
+        let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .large_file(true);
+        if oxidgene_core::types::is_remote_url(&page.file_path) {
+            let name = format!("{position:0digits$}_{}.url", zip_safe(&page.file_name));
+            writer.start_file(name, options).map_err(entry_failed)?;
+            writer.write_all(internet_shortcut(&page.file_path).as_bytes())?;
+            continue;
+        }
+        let key = stored_key(page, page.storage_key.as_deref())?;
+        let mut stream = runtime.block_on(media.get_stream(key))?;
+        let name = format!("{position:0digits$}_{}", zip_safe(&page.file_name));
+        writer.start_file(name, options).map_err(entry_failed)?;
+        while let Some(chunk) = runtime.block_on(stream.try_next())? {
+            if cancelled
+                .try_recv()
+                .is_err_and(|error| error == tokio::sync::oneshot::error::TryRecvError::Closed)
+            {
+                return Err(OxidGeneError::Internal("archive request cancelled".into()));
+            }
+            writer.write_all(&chunk)?;
+        }
+    }
+    let mut file = writer
+        .finish()
+        .map_err(|_| OxidGeneError::Internal("archive finalization failed".into()))?;
+    file.rewind()?;
+    Ok(file)
 }
 
 /// Download reads must not outlive a soft-deleted tree or parent document,

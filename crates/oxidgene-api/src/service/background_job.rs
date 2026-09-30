@@ -234,48 +234,63 @@ impl BackgroundJobWorker {
         self.media.get_to_file(source_key, &source).await?;
 
         let progress = Arc::new(gedcom::FileImportProgress::default());
-        let import = async {
-            let parsed = match job.format.as_str() {
-                "gedcom" => {
-                    progress.enter(gedcom::FileImportPhase::Parsing);
-                    let source = tokio::fs::read_to_string(&source).await?;
-                    tracing::info_span!("import.parse", import.format = "gedcom")
-                        .in_scope(|| oxidgene_gedcom::import::import_gedcom(&source, job.tree_id))
-                        .map_err(OxidGeneError::Gedcom)?
-                }
-                "gedzip" => {
-                    gedcom::prepare_gedzip_file(&*self.media, job.tree_id, &source, &progress)
-                        .await?
-                }
-                "geneweb" => {
-                    progress.enter(gedcom::FileImportPhase::Parsing);
-                    let source = tokio::fs::read(&source).await?;
-                    let origin = safe_origin_file(job.original_filename.as_deref());
-                    tracing::info_span!("import.parse", import.format = "geneweb")
-                        .in_scope(|| {
-                            oxidgene_gedcom::geneweb::import_geneweb(&source, &origin, job.tree_id)
-                        })
-                        .map_err(OxidGeneError::Gedcom)?
-                }
-                _ => return Err(OxidGeneError::Validation("unknown import format".into())),
-            };
-            progress.enter(gedcom::FileImportPhase::Database);
-            let transaction = self.db.begin().await.map_err(db_err)?;
-            let summary = gedcom::persist_import_result_in(&transaction, parsed).await?;
-            self.checkpoint_import(&transaction, job.id, &summary)
-                .await?;
-            transaction.commit().await.map_err(db_err)?;
-            Ok(summary)
-        };
         let summary = self
-            .with_progress(job.id, import, || {
+            .with_progress(job.id, self.import_file(job, &source, &progress), || {
                 let (phase, done, total, _, _) = progress.read();
                 (import_phase(phase), done, total)
             })
             .await?;
+        self.finish_import(job, source_key, summary).await
+    }
 
-        self.finish_import(job, source_key, summary).await?;
-        Ok(())
+    /// Reads the staged `source` and writes its rows in one transaction,
+    /// with the checkpoint a retry resumes from.
+    async fn import_file(
+        &self,
+        job: &BackgroundJob,
+        source: &Path,
+        progress: &gedcom::FileImportProgress,
+    ) -> Result<gedcom::ImportSummary, OxidGeneError> {
+        let parsed = self.parse_import(job, source, progress).await?;
+        progress.enter(gedcom::FileImportPhase::Database);
+        let transaction = self.db.begin().await.map_err(db_err)?;
+        let summary = gedcom::persist_import_result_in(&transaction, parsed).await?;
+        self.checkpoint_import(&transaction, job.id, &summary)
+            .await?;
+        transaction.commit().await.map_err(db_err)?;
+        Ok(summary)
+    }
+
+    /// Reads the staged `source` of a GEDCOM, GEDZIP or GeneWeb import.
+    async fn parse_import(
+        &self,
+        job: &BackgroundJob,
+        source: &Path,
+        progress: &gedcom::FileImportProgress,
+    ) -> Result<oxidgene_gedcom::ImportResult, OxidGeneError> {
+        match job.format.as_str() {
+            "gedcom" => {
+                progress.enter(gedcom::FileImportPhase::Parsing);
+                let source = tokio::fs::read_to_string(source).await?;
+                tracing::info_span!("import.parse", import.format = "gedcom")
+                    .in_scope(|| oxidgene_gedcom::import::import_gedcom(&source, job.tree_id))
+                    .map_err(OxidGeneError::Gedcom)
+            }
+            "gedzip" => {
+                gedcom::prepare_gedzip_file(&*self.media, job.tree_id, source, progress).await
+            }
+            "geneweb" => {
+                progress.enter(gedcom::FileImportPhase::Parsing);
+                let source = tokio::fs::read(source).await?;
+                let origin = safe_origin_file(job.original_filename.as_deref());
+                tracing::info_span!("import.parse", import.format = "geneweb")
+                    .in_scope(|| {
+                        oxidgene_gedcom::geneweb::import_geneweb(&source, &origin, job.tree_id)
+                    })
+                    .map_err(OxidGeneError::Gedcom)
+            }
+            _ => Err(OxidGeneError::Validation("unknown import format".into())),
+        }
     }
 
     async fn execute_geneanet_import(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
@@ -477,61 +492,12 @@ impl BackgroundJobWorker {
             )
             .await?;
 
-        let media_root = scratch.path().join("media");
-        tokio::fs::create_dir_all(&media_root).await?;
-        let total = as_i64(data.media_files.len());
-        let media_span = tracing::info_span!(
-            "export.media",
-            export.format = "gedzip",
-            export.media.count = total,
-        );
-        let mut staged_media = Vec::with_capacity(data.media_files.len());
-        async {
-            for (index, (key, archive_path, mime_type)) in data.media_files.iter().enumerate() {
-                let local_path = media_root.join(index.to_string());
-                match self.media.get_to_file(key, &local_path).await {
-                    Ok(()) => {
-                        staged_media.push((archive_path.clone(), mime_type.clone(), local_path));
-                    }
-                    Err(error) => tracing::warn!(
-                        job_id = %job.id,
-                        %error,
-                        "media absent from the store; not packed"
-                    ),
-                }
-                self.progress(job.id, "media", as_i64(index + 1), total)
-                    .await?;
-            }
-            Ok::<(), OxidGeneError>(())
-        }
-        .instrument(media_span)
-        .await?;
-
+        let staged_media = self
+            .stage_export_media(job.id, scratch.path(), &data.media_files)
+            .await?;
         let artifact_path = scratch.path().join("artifact.gdz");
-        let gedcom = data.gedcom;
-        let archive_path = artifact_path.clone();
-        let archive_task = tokio::task::spawn_blocking(move || {
-            let mut writer =
-                GedzipFileWriter::create(&archive_path, &gedcom).map_err(OxidGeneError::Gedcom)?;
-            for (entry_path, mime_type, local_path) in staged_media {
-                let bytes = std::fs::read(local_path)?;
-                writer
-                    .add_media_file(&entry_path, &mime_type, &bytes)
-                    .map_err(OxidGeneError::Gedcom)?;
-            }
-            writer.finish().map_err(OxidGeneError::Gedcom)
-        });
-        self.with_heartbeat(job.id, "packaging", async {
-            archive_task
-                .await
-                .map_err(|error| OxidGeneError::Internal(error.to_string()))?
-        })
-        .instrument(tracing::info_span!(
-            "export.package",
-            export.format = "gedzip"
-        ))
-        .await?;
-
+        self.package_gedzip(job.id, data.gedcom, staged_media, &artifact_path)
+            .await?;
         let artifact_key = job_blob_key(job.id, "artifact", "gdz")?;
         self.with_heartbeat(job.id, "publishing", async {
             self.media.put_file(&artifact_key, &artifact_path).await
@@ -559,6 +525,80 @@ impl BackgroundJobWorker {
         }
         remove_live_job(job.id);
         Ok(())
+    }
+
+    /// Copies an export's media from the store into `scratch`; each staged
+    /// file's archive path, MIME type and local path. A medium absent from
+    /// the store is left out with a warning.
+    async fn stage_export_media(
+        &self,
+        job_id: Uuid,
+        scratch: &Path,
+        media_files: &[(String, String, String)],
+    ) -> Result<Vec<(String, String, std::path::PathBuf)>, OxidGeneError> {
+        let media_root = scratch.join("media");
+        tokio::fs::create_dir_all(&media_root).await?;
+        let total = as_i64(media_files.len());
+        let media_span = tracing::info_span!(
+            "export.media",
+            export.format = "gedzip",
+            export.media.count = total,
+        );
+        let mut staged_media = Vec::with_capacity(media_files.len());
+        async {
+            for (index, (key, archive_path, mime_type)) in media_files.iter().enumerate() {
+                let local_path = media_root.join(index.to_string());
+                match self.media.get_to_file(key, &local_path).await {
+                    Ok(()) => {
+                        staged_media.push((archive_path.clone(), mime_type.clone(), local_path));
+                    }
+                    Err(error) => tracing::warn!(
+                        job_id = %job_id,
+                        %error,
+                        "media absent from the store; not packed"
+                    ),
+                }
+                self.progress(job_id, "media", as_i64(index + 1), total)
+                    .await?;
+            }
+            Ok::<(), OxidGeneError>(())
+        }
+        .instrument(media_span)
+        .await?;
+        Ok(staged_media)
+    }
+
+    /// Writes the GEDZIP at `artifact_path` from `gedcom` and the staged
+    /// media.
+    async fn package_gedzip(
+        &self,
+        job_id: Uuid,
+        gedcom: String,
+        staged_media: Vec<(String, String, std::path::PathBuf)>,
+        artifact_path: &Path,
+    ) -> Result<(), OxidGeneError> {
+        let archive_path = artifact_path.to_path_buf();
+        let archive_task = tokio::task::spawn_blocking(move || {
+            let mut writer =
+                GedzipFileWriter::create(&archive_path, &gedcom).map_err(OxidGeneError::Gedcom)?;
+            for (entry_path, mime_type, local_path) in staged_media {
+                let bytes = std::fs::read(local_path)?;
+                writer
+                    .add_media_file(&entry_path, &mime_type, &bytes)
+                    .map_err(OxidGeneError::Gedcom)?;
+            }
+            writer.finish().map_err(OxidGeneError::Gedcom)
+        });
+        self.with_heartbeat(job_id, "packaging", async {
+            archive_task
+                .await
+                .map_err(|error| OxidGeneError::Internal(error.to_string()))?
+        })
+        .instrument(tracing::info_span!(
+            "export.package",
+            export.format = "gedzip"
+        ))
+        .await
     }
 
     async fn with_heartbeat<T, F>(

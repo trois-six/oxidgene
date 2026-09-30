@@ -62,7 +62,51 @@ pub struct Filed {
 
 /// Apply the rule to every tree; see the module documentation.
 pub async fn file_couple_media(db: &impl ConnectionTrait) -> Result<Filed, DbErr> {
-    // Media linked to an event, and which of those events are a couple's.
+    let mut couple_of_media = couples_of_event_media(db).await?;
+    // Only Geneanet imports.
+    let candidate_media: Vec<Uuid> = couple_of_media.keys().copied().collect();
+    let (geneanet_media, document_of_page) = geneanet_media(db, &candidate_media).await?;
+    couple_of_media.retain(|media_id, _| geneanet_media.contains(media_id));
+    if couple_of_media.is_empty() {
+        return Ok(Filed::default());
+    }
+
+    let candidate_media: Vec<Uuid> = couple_of_media.keys().copied().collect();
+    let person_links = in_chunks(&candidate_media, |chunk| {
+        media_link::Entity::find()
+            .filter(media_link::Column::MediaId.is_in(chunk))
+            .all(db)
+    })
+    .await?;
+    let spouses = spouses_of(db, &couple_of_media).await?;
+    let portraits = Portraits::load(db, &person_links, document_of_page).await?;
+
+    let mut existing_family_links: HashSet<(Uuid, Uuid)> = person_links
+        .iter()
+        .filter_map(|link| Some((link.media_id, link.family_id?)))
+        .collect();
+    let mut filed = Filed::default();
+    for link in &person_links {
+        let Some((person_id, &family_id)) = link.person_id.zip(couple_of_media.get(&link.media_id))
+        else {
+            continue;
+        };
+        if !spouses.contains(&(family_id, person_id)) || portraits.is_of(person_id, link.media_id) {
+            continue;
+        }
+        if existing_family_links.insert((link.media_id, family_id)) {
+            link_to_family(db, link.media_id, family_id).await?;
+            filed.family_links += 1;
+        }
+        media_link::Entity::delete_by_id(link.id).exec(db).await?;
+        filed.person_links_removed += 1;
+    }
+    Ok(filed)
+}
+
+/// Media linked to an event of a couple (stored on the family, not on a
+/// person), with that couple.
+async fn couples_of_event_media(db: &impl ConnectionTrait) -> Result<HashMap<Uuid, Uuid>, DbErr> {
     let event_links = media_link::Entity::find()
         .filter(media_link::Column::EventId.is_not_null())
         .all(db)
@@ -78,9 +122,7 @@ pub async fn file_couple_media(db: &impl ConnectionTrait) -> Result<Filed, DbErr
     .into_iter()
     .map(|event| (event.id, event))
     .collect();
-
-    // media → the couple its event belongs to.
-    let mut couple_of_media: HashMap<Uuid, Uuid> = event_links
+    Ok(event_links
         .iter()
         .filter_map(|link| {
             let event = events.get(&link.event_id?)?;
@@ -89,25 +131,30 @@ pub async fn file_couple_media(db: &impl ConnectionTrait) -> Result<Filed, DbErr
                 _ => None,
             }
         })
-        .collect();
+        .collect())
+}
 
-    // Only Geneanet imports: a page the import named, or a document holding
-    // one.
-    let candidate_media: Vec<Uuid> = couple_of_media.keys().copied().collect();
+/// Among `candidates`, the media of a Geneanet import — a page the import
+/// named, or a document holding one — and the document of each of their
+/// pages.
+async fn geneanet_media(
+    db: &impl ConnectionTrait,
+    candidates: &[Uuid],
+) -> Result<(HashSet<Uuid>, HashMap<Uuid, Uuid>), DbErr> {
     let is_geneanet = |row: &media::Model| row.file_name.starts_with("geneanet-");
-    let named_pages = in_chunks(&candidate_media, |chunk| {
+    let named_pages = in_chunks(candidates, |chunk| {
         media::Entity::find()
             .filter(media::Column::Id.is_in(chunk))
             .all(db)
     })
     .await?;
-    let pages = in_chunks(&candidate_media, |chunk| {
+    let pages = in_chunks(candidates, |chunk| {
         media::Entity::find()
             .filter(media::Column::ParentMediaId.is_in(chunk))
             .all(db)
     })
     .await?;
-    let geneanet_media: HashSet<Uuid> = named_pages
+    let geneanet: HashSet<Uuid> = named_pages
         .iter()
         .filter(|row| is_geneanet(row))
         .map(|row| row.id)
@@ -118,29 +165,25 @@ pub async fn file_couple_media(db: &impl ConnectionTrait) -> Result<Filed, DbErr
                 .filter_map(|page| page.parent_media_id),
         )
         .collect();
-    let document_of_page: HashMap<Uuid, Uuid> = pages
+    let document_of_page = pages
         .iter()
         .filter_map(|page| Some((page.id, page.parent_media_id?)))
         .collect();
-    couple_of_media.retain(|media_id, _| geneanet_media.contains(media_id));
-    if couple_of_media.is_empty() {
-        return Ok(Filed::default());
-    }
+    Ok((geneanet, document_of_page))
+}
 
-    let candidate_media: Vec<Uuid> = couple_of_media.keys().copied().collect();
-    let person_links = in_chunks(&candidate_media, |chunk| {
-        media_link::Entity::find()
-            .filter(media_link::Column::MediaId.is_in(chunk))
-            .all(db)
-    })
-    .await?;
+/// The (family, person) spouse pairs of the couples in `couple_of_media`.
+async fn spouses_of(
+    db: &impl ConnectionTrait,
+    couple_of_media: &HashMap<Uuid, Uuid>,
+) -> Result<HashSet<(Uuid, Uuid)>, DbErr> {
     let families: Vec<Uuid> = couple_of_media
         .values()
         .copied()
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let spouses: HashSet<(Uuid, Uuid)> = in_chunks(&families, |chunk| {
+    Ok(in_chunks(&families, |chunk| {
         family_spouse::Entity::find()
             .filter(family_spouse::Column::FamilyId.is_in(chunk))
             .all(db)
@@ -148,80 +191,86 @@ pub async fn file_couple_media(db: &impl ConnectionTrait) -> Result<Filed, DbErr
     .await?
     .into_iter()
     .map(|spouse| (spouse.family_id, spouse.person_id))
-    .collect();
-    let linked_people: Vec<Uuid> = person_links.iter().filter_map(|l| l.person_id).collect();
-    let persons: HashMap<Uuid, person::Model> = in_chunks(&linked_people, |chunk| {
-        person::Entity::find()
-            .filter(person::Column::Id.is_in(chunk))
-            .all(db)
-    })
-    .await?
-    .into_iter()
-    .map(|person| (person.id, person))
-    .collect();
-    let portrait_vignettes: Vec<Uuid> = persons
-        .values()
-        .filter_map(|person| person.portrait_vignette_id)
-        .collect();
-    let vignette_media: HashMap<Uuid, Uuid> = in_chunks(&portrait_vignettes, |chunk| {
-        vignette::Entity::find()
-            .filter(vignette::Column::Id.is_in(chunk))
-            .all(db)
-    })
-    .await?
-    .into_iter()
-    .map(|vignette| (vignette.id, vignette.media_id))
-    .collect();
+    .collect())
+}
 
-    // Whether a person's portrait is this media: the whole of it, or a box
-    // on it or on one of its pages.
-    let is_portrait_of = |person: &person::Model, media_id: Uuid| -> bool {
+/// The portraits of the persons linked to the candidate media.
+struct Portraits {
+    persons: HashMap<Uuid, person::Model>,
+    /// The media each portrait vignette boxes.
+    vignette_media: HashMap<Uuid, Uuid>,
+    document_of_page: HashMap<Uuid, Uuid>,
+}
+
+impl Portraits {
+    async fn load(
+        db: &impl ConnectionTrait,
+        person_links: &[media_link::Model],
+        document_of_page: HashMap<Uuid, Uuid>,
+    ) -> Result<Self, DbErr> {
+        let linked_people: Vec<Uuid> = person_links.iter().filter_map(|l| l.person_id).collect();
+        let persons: HashMap<Uuid, person::Model> = in_chunks(&linked_people, |chunk| {
+            person::Entity::find()
+                .filter(person::Column::Id.is_in(chunk))
+                .all(db)
+        })
+        .await?
+        .into_iter()
+        .map(|person| (person.id, person))
+        .collect();
+        let portrait_vignettes: Vec<Uuid> = persons
+            .values()
+            .filter_map(|person| person.portrait_vignette_id)
+            .collect();
+        let vignette_media = in_chunks(&portrait_vignettes, |chunk| {
+            vignette::Entity::find()
+                .filter(vignette::Column::Id.is_in(chunk))
+                .all(db)
+        })
+        .await?
+        .into_iter()
+        .map(|vignette| (vignette.id, vignette.media_id))
+        .collect();
+        Ok(Self {
+            persons,
+            vignette_media,
+            document_of_page,
+        })
+    }
+
+    /// Whether the person's portrait is this media: the whole of it, or a
+    /// box on it or on one of its pages.
+    fn is_of(&self, person_id: Uuid, media_id: Uuid) -> bool {
+        let Some(person) = self.persons.get(&person_id) else {
+            return false;
+        };
         let boxed = person
             .portrait_vignette_id
-            .and_then(|id| vignette_media.get(&id).copied());
+            .and_then(|id| self.vignette_media.get(&id).copied());
         person.portrait_media_id == Some(media_id)
             || boxed == Some(media_id)
-            || boxed.and_then(|page| document_of_page.get(&page).copied()) == Some(media_id)
-    };
-
-    let mut existing_family_links: HashSet<(Uuid, Uuid)> = person_links
-        .iter()
-        .filter_map(|link| Some((link.media_id, link.family_id?)))
-        .collect();
-    let mut filed = Filed::default();
-    for link in &person_links {
-        let Some(person_id) = link.person_id else {
-            continue;
-        };
-        let Some(&family_id) = couple_of_media.get(&link.media_id) else {
-            continue;
-        };
-        let is_spouse = spouses.contains(&(family_id, person_id));
-        let is_portrait = persons
-            .get(&person_id)
-            .is_some_and(|person| is_portrait_of(person, link.media_id));
-        if !is_spouse || is_portrait {
-            continue;
-        }
-
-        if existing_family_links.insert((link.media_id, family_id)) {
-            media_link::ActiveModel {
-                id: Set(Uuid::now_v7()),
-                media_id: Set(link.media_id),
-                person_id: Set(None),
-                event_id: Set(None),
-                source_id: Set(None),
-                family_id: Set(Some(family_id)),
-                sort_order: Set(0),
-            }
-            .insert(db)
-            .await?;
-            filed.family_links += 1;
-        }
-        media_link::Entity::delete_by_id(link.id).exec(db).await?;
-        filed.person_links_removed += 1;
+            || boxed.and_then(|page| self.document_of_page.get(&page).copied()) == Some(media_id)
     }
-    Ok(filed)
+}
+
+/// Link `media_id` to family `family_id`.
+async fn link_to_family(
+    db: &impl ConnectionTrait,
+    media_id: Uuid,
+    family_id: Uuid,
+) -> Result<(), DbErr> {
+    media_link::ActiveModel {
+        id: Set(Uuid::now_v7()),
+        media_id: Set(media_id),
+        person_id: Set(None),
+        event_id: Set(None),
+        source_id: Set(None),
+        family_id: Set(Some(family_id)),
+        sort_order: Set(0),
+    }
+    .insert(db)
+    .await?;
+    Ok(())
 }
 
 /// Run `query` over `ids` one bounded slice at a time.

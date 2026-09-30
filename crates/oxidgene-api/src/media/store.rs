@@ -177,39 +177,41 @@ fn key_for(tree_id: Uuid, digest: &str, extension: &str) -> String {
 /// far enough to be joined onto the store root, so there is no window in which
 /// `../../etc/shadow` is a `PathBuf` we are holding.
 fn validate_key(key: &str) -> Result<(), OxidGeneError> {
-    let reject = |why: &str| {
-        Err(OxidGeneError::Validation(format!(
-            "invalid media storage key: {why}"
-        )))
+    let checked = match key.strip_prefix("jobs/") {
+        Some(job_key) => job_key_error(job_key),
+        None => content_key_error(key),
     };
-
-    if let Some(job_key) = key.strip_prefix("jobs/") {
-        let mut parts = job_key.split('/');
-        let (Some(job_id), Some(file), None) = (parts.next(), parts.next(), parts.next()) else {
-            return reject("expected jobs/{job_id}/{source|artifact|input-N}[.ext]");
-        };
-        if Uuid::parse_str(job_id).is_err() {
-            return reject("job segment is not a UUID");
-        }
-        let role = file.split_once('.').map_or(file, |(role, _)| role);
-        let extension = file.split_once('.').map_or("", |(_, extension)| extension);
-        let input_index = role.strip_prefix("input-");
-        if !matches!(role, "source" | "artifact")
-            && !input_index.is_some_and(|index| {
-                !index.is_empty() && index.chars().all(|character| character.is_ascii_digit())
-            })
-        {
-            return reject("invalid job blob name");
-        }
-        if !extension
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric())
-        {
-            return reject("invalid job blob name");
-        }
-        return Ok(());
+    match checked {
+        Some(why) => Err(OxidGeneError::Validation(format!(
+            "invalid media storage key: {why}"
+        ))),
+        None => Ok(()),
     }
+}
 
+/// What is wrong with a job blob key, `jobs/` stripped, if anything.
+fn job_key_error(job_key: &str) -> Option<&'static str> {
+    let mut parts = job_key.split('/');
+    let (Some(job_id), Some(file), None) = (parts.next(), parts.next(), parts.next()) else {
+        return Some("expected jobs/{job_id}/{source|artifact|input-N}[.ext]");
+    };
+    if Uuid::parse_str(job_id).is_err() {
+        return Some("job segment is not a UUID");
+    }
+    let (role, extension) = file.split_once('.').unwrap_or((file, ""));
+    let numbered_input = role.strip_prefix("input-").is_some_and(|index| {
+        !index.is_empty() && index.chars().all(|character| character.is_ascii_digit())
+    });
+    let known_role = matches!(role, "source" | "artifact") || numbered_input;
+    let plain_extension = extension
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric());
+    (!known_role || !plain_extension).then_some("invalid job blob name")
+}
+
+/// What is wrong with a content-addressed key, `{tree}/{aa}/{bb}/{digest}`,
+/// if anything.
+fn content_key_error(key: &str) -> Option<&'static str> {
     let mut parts = key.split('/');
     let (Some(tree), Some(a), Some(b), Some(file), None) = (
         parts.next(),
@@ -218,34 +220,27 @@ fn validate_key(key: &str) -> Result<(), OxidGeneError> {
         parts.next(),
         parts.next(),
     ) else {
-        return reject("expected {tree}/{aa}/{bb}/{digest}[.ext]");
+        return Some("expected {tree}/{aa}/{bb}/{digest}[.ext]");
     };
-
     if Uuid::parse_str(tree).is_err() {
-        return reject("first segment is not a tree UUID");
+        return Some("first segment is not a tree UUID");
     }
     let is_lower_hex = |s: &str| {
         s.chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
     };
-    if a.len() != 2 || b.len() != 2 || !is_lower_hex(a) || !is_lower_hex(b) {
-        return reject("fan-out segments must be two lowercase hex digits");
+    let fan_out = |segment: &str| segment.len() == 2 && is_lower_hex(segment);
+    if !fan_out(a) || !fan_out(b) {
+        return Some("fan-out segments must be two lowercase hex digits");
     }
-
-    let (digest, extension) = match file.split_once('.') {
-        Some((digest, extension)) => (digest, extension),
-        None => (file, ""),
-    };
+    let (digest, extension) = file.split_once('.').unwrap_or((file, ""));
     if digest.len() != 64 || !is_lower_hex(digest) {
-        return reject("file name must be a 64-character lowercase hex digest");
+        return Some("file name must be a 64-character lowercase hex digest");
     }
     if !extension.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return reject("extension must be alphanumeric");
+        return Some("extension must be alphanumeric");
     }
-    if a != &digest[0..2] || b != &digest[2..4] {
-        return reject("fan-out segments do not match the digest");
-    }
-    Ok(())
+    (a != &digest[0..2] || b != &digest[2..4]).then_some("fan-out segments do not match the digest")
 }
 
 /// A [`MediaStore`] backed by a directory on the local filesystem.

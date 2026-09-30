@@ -250,56 +250,80 @@ fn read_base64(reader: &mut dyn Read) -> Result<String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(body))
 }
 
-fn decode_zip_with_limits(
-    reader: impl Read + Seek,
+fn decode_zip_with_limits<R: Read + Seek>(
+    reader: R,
     limits: DecodeLimits,
     store: &mut impl FnMut(&mut dyn Read) -> Result<String>,
 ) -> Result<Session> {
     let mut zip =
         zip::ZipArchive::new(reader).context("the session file is not a readable archive")?;
+    let manifest = read_manifest(&mut zip, limits.manifest_bytes)?;
+    let manifest = std::str::from_utf8(&manifest).context("the session manifest is not UTF-8")?;
+    // Resolve manifest references after reading the archive's media entries.
+    let bodies = store_media(&mut zip, limits.total_media_bytes, store)?;
+    decode_manifest(manifest, &bodies)
+}
 
+/// The manifest's bytes, at most `limit` of them.
+fn read_manifest<R: Read + Seek>(zip: &mut zip::ZipArchive<R>, limit: u64) -> Result<Vec<u8>> {
     let mut manifest = Vec::new();
     zip.by_name(MANIFEST_ENTRY)
         .with_context(|| format!("the archive holds no {MANIFEST_ENTRY}"))?
-        .take(limits.manifest_bytes.saturating_add(1))
+        .take(limit.saturating_add(1))
         .read_to_end(&mut manifest)
         .context("reading the session manifest")?;
-    if manifest.len() as u64 > limits.manifest_bytes {
+    if manifest.len() as u64 > limit {
         bail!("the session manifest is too large");
     }
-    let manifest = std::str::from_utf8(&manifest).context("the session manifest is not UTF-8")?;
+    Ok(manifest)
+}
 
-    // Resolve manifest references after reading the archive's media entries.
+/// Hands every media entry to `store`, at most `limit` bytes in all; the
+/// handles `store` returns, by entry name.
+fn store_media<R: Read + Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    limit: u64,
+    store: &mut impl FnMut(&mut dyn Read) -> Result<String>,
+) -> Result<HashMap<String, String>> {
     let mut bodies: HashMap<String, String> = HashMap::new();
-    let mut total_media_bytes = 0u64;
+    let mut total = 0u64;
     for index in 0..zip.len() {
         let entry = zip.by_index(index).context("reading session media entry")?;
         let name = entry.name().to_string();
         if name == MANIFEST_ENTRY || entry.is_dir() {
             continue;
         }
-        if entry.compression() != zip::CompressionMethod::Stored {
-            bail!("session media entries must not be compressed");
-        }
-        let remaining = limits.total_media_bytes - total_media_bytes;
-        if entry.size() > remaining {
-            bail!("the session media exceed the archive size");
-        }
-        let bound = remaining.saturating_add(1);
-        let mut body = entry.take(bound);
-        let handle = store(&mut body).context("storing session media entry")?;
-        // Finish the entry even if a sink stops early, to validate its CRC and size.
-        std::io::copy(&mut body, &mut std::io::sink())?;
-        total_media_bytes = total_media_bytes
-            .checked_add(bound - body.limit())
-            .filter(|total| *total <= limits.total_media_bytes)
+        let (handle, size) = store_entry(entry, limit - total, store)?;
+        total = total
+            .checked_add(size)
+            .filter(|total| *total <= limit)
             .context("the session media exceed the archive size")?;
         if bodies.insert(name, handle).is_some() {
             bail!("duplicate session media entry");
         }
     }
+    Ok(bodies)
+}
 
-    decode_manifest(manifest, &bodies)
+/// Hands one media entry to `store`, refusing it past `remaining` bytes; the
+/// handle and the bytes read.
+fn store_entry(
+    entry: zip::read::ZipFile<'_, impl Read>,
+    remaining: u64,
+    store: &mut impl FnMut(&mut dyn Read) -> Result<String>,
+) -> Result<(String, u64)> {
+    if entry.compression() != zip::CompressionMethod::Stored {
+        bail!("session media entries must not be compressed");
+    }
+    if entry.size() > remaining {
+        bail!("the session media exceed the archive size");
+    }
+    let bound = remaining.saturating_add(1);
+    let mut body = entry.take(bound);
+    let handle = store(&mut body).context("storing session media entry")?;
+    // Finish the entry even if a sink stops early, to validate its CRC and size.
+    std::io::copy(&mut body, &mut std::io::sink())?;
+    Ok((handle, bound - body.limit()))
 }
 
 /// Reads `session.json`, resolving the media names against `bodies`.

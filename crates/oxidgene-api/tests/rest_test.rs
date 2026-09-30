@@ -1707,7 +1707,7 @@ async fn test_invalid_json_body_returns_error() {
         .method(Method::POST)
         .uri("/api/v1/trees")
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"invalid json"#))
+        .body(Body::from("{\"invalid json"))
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();

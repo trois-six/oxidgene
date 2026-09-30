@@ -1209,6 +1209,19 @@ fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
 /// survivor — so a person attached to a forty-page dossier stays attached to
 /// it rather than to page one.
 fn import_document_extensions(gedcom: &str, result: &mut ImportResult) {
+    let by_token = document_pages(gedcom, result);
+    let dropped = regroup_document_pages(result, by_token);
+    if !dropped.is_empty() {
+        redirect_to_kept_documents(result, &dropped);
+    }
+}
+
+/// The imported pages carrying an OxidGene document extension, by document
+/// token; a page whose extension cannot be read is left alone, with a warning.
+fn document_pages(
+    gedcom: &str,
+    result: &mut ImportResult,
+) -> HashMap<String, Vec<(Uuid, DocumentExtension)>> {
     let mut by_token: HashMap<String, Vec<(Uuid, DocumentExtension)>> = HashMap::new();
     for (media_xref, value) in media_extension_lines(gedcom, "_OXIDGENE_DOC") {
         let Some(page_id) = result.media_by_xref.get(media_xref).copied() else {
@@ -1235,7 +1248,15 @@ fn import_document_extensions(gedcom: &str, result: &mut ImportResult) {
             .or_default()
             .push((page_id, container));
     }
+    by_token
+}
 
+/// Re-parent each document's pages onto the document written for its first
+/// page; the documents left empty, each with the one kept in its place.
+fn regroup_document_pages(
+    result: &mut ImportResult,
+    by_token: HashMap<String, Vec<(Uuid, DocumentExtension)>>,
+) -> HashMap<Uuid, Uuid> {
     let mut dropped: HashMap<Uuid, Uuid> = HashMap::new();
     for (token, mut pages) in by_token {
         pages.sort_by_key(|(_, container)| container.index);
@@ -1267,10 +1288,12 @@ fn import_document_extensions(gedcom: &str, result: &mut ImportResult) {
         let meta = pages.into_iter().find_map(|(_, container)| container.meta);
         apply_document_metadata(result, keeper, page_count, meta);
     }
+    dropped
+}
 
-    if dropped.is_empty() {
-        return;
-    }
+/// Remove the `dropped` documents, moving what named them to the document
+/// kept in their place.
+fn redirect_to_kept_documents(result: &mut ImportResult, dropped: &HashMap<Uuid, Uuid>) {
     // A link, a portrait or a note that named a dropped document now names the
     // survivor; anything still pointing at a row we are about to remove would
     // dangle.

@@ -555,14 +555,35 @@ fn compare(
     b: &Record<'_>,
     names: &HashMap<Uuid, String>,
 ) -> Option<(i64, Vec<&'static str>)> {
-    use oxidgene_core::Sex;
-    let (x, y) = (a.profile.sex, b.profile.sex);
-    if x != Sex::Unknown && y != Sex::Unknown && x != y {
+    if !may_be_one(a, b) {
         return None;
     }
+    let mut clues = Clues::default();
+    if a.surname == b.surname && a.given == b.given {
+        clues.add(SAME_NAME_POINTS, "same_name");
+    } else {
+        clues.add(SIMILAR_NAME_POINTS, "similar_name");
+    }
+    clues.births(a, b)?;
+    if a.birth_place.is_some() && a.birth_place == b.birth_place {
+        clues.add(SAME_BIRTH_PLACE_POINTS, "same_birth_place");
+    }
+    clues.deaths(a, b)?;
+    clues.parents(a, b, names)?;
+    if a.spouses.iter().any(|n| b.spouses.contains(n)) {
+        clues.add(SAME_SPOUSE_POINTS, "same_spouse");
+    }
+    Some((clues.score.min(100), clues.reasons))
+}
+
+/// Whether nothing certain tells the two apart: a known sex each, and
+/// different; a family link between them; one dead before the other's birth.
+fn may_be_one(a: &Record<'_>, b: &Record<'_>) -> bool {
+    use oxidgene_core::Sex;
+    let (x, y) = (a.profile.sex, b.profile.sex);
+    let sexes_differ = x != Sex::Unknown && y != Sex::Unknown && x != y;
     // A spouse, a parent or a child of the other is somebody else, and the
     // merge refuses them anyway.
-    let (a_id, b_id) = (a.profile.person_id, b.profile.person_id);
     let related = |x: &Record<'_>, other: Uuid| {
         x.profile
             .families_as_spouse
@@ -570,106 +591,103 @@ fn compare(
             .any(|l| l.spouse_id == Some(other))
             || [x.parents().0, x.parents().1].contains(&Some(other))
     };
-    if related(a, b_id) || related(b, a_id) {
-        return None;
-    }
     let dead_before_born = |x: &Record<'_>, y: &Record<'_>| {
         matches!(
             (x.death.and_then(|e| e.date_sort), Record::year(y.birth)),
             (Some(died), Some(born)) if died.year() < born
         )
     };
-    if dead_before_born(a, b) || dead_before_born(b, a) {
-        return None;
+    !sexes_differ
+        && !related(a, b.profile.person_id)
+        && !related(b, a.profile.person_id)
+        && !dead_before_born(a, b)
+        && !dead_before_born(b, a)
+}
+
+/// A birth or death dated to the day, not just to a month or a year.
+fn full_date(event: Option<&ProfileEvent>) -> Option<chrono::NaiveDate> {
+    event
+        .filter(|e| {
+            e.date_value
+                .as_deref()
+                .is_some_and(|v| v.split_whitespace().count() >= 3)
+        })
+        .and_then(|e| e.date_sort)
+}
+
+/// What a pair shares, scored.
+#[derive(Default)]
+struct Clues {
+    score: i64,
+    reasons: Vec<&'static str>,
+}
+
+impl Clues {
+    fn add(&mut self, points: i64, reason: &'static str) {
+        self.score += points;
+        self.reasons.push(reason);
     }
 
-    let mut score = 0;
-    let mut reasons = Vec::new();
-    if a.surname == b.surname && a.given == b.given {
-        score += SAME_NAME_POINTS;
-        reasons.push("same_name");
-    } else {
-        score += SIMILAR_NAME_POINTS;
-        reasons.push("similar_name");
-    }
-
-    match (Record::year(a.birth), Record::year(b.birth)) {
-        (Some(x), Some(y)) if (x - y).abs() > MAX_YEAR_GAP => return None,
-        (Some(x), Some(y)) => {
-            let same_day = a.birth.and_then(|e| e.date_sort) == b.birth.and_then(|e| e.date_sort)
-                && [a.birth, b.birth].iter().all(|e| {
-                    e.and_then(|e| e.date_value.as_deref())
-                        .is_some_and(|v| v.split_whitespace().count() >= 3)
-                });
-            if same_day {
-                score += SAME_BIRTH_DATE_POINTS;
-                reasons.push("same_birth_date");
-            } else if x == y {
-                score += SAME_BIRTH_YEAR_POINTS;
-                reasons.push("same_birth_year");
-            } else {
-                score += CLOSE_BIRTH_POINTS;
-                reasons.push("close_birth");
-            }
-        }
-        _ => {}
-    }
-    if a.birth_place.is_some() && a.birth_place == b.birth_place {
-        score += SAME_BIRTH_PLACE_POINTS;
-        reasons.push("same_birth_place");
-    }
-    match (Record::year(a.death), Record::year(b.death)) {
-        (Some(x), Some(y)) if (x - y).abs() > MAX_YEAR_GAP => return None,
-        (Some(x), Some(y)) if x == y => {
-            score += SAME_DEATH_YEAR_POINTS;
-            reasons.push("same_death_year");
-        }
-        _ => {}
-    }
-
-    // Parents: the same family, else parents of the same names.
-    let family = |r: &Record<'_>| r.profile.family_as_child.as_ref().map(|l| l.family_id);
-    if family(a).is_some() && family(a) == family(b) {
-        // Siblings of one name, both born on a known different day, are
-        // two children: the second named after the first.
-        let days = |r: &Record<'_>| {
-            r.birth
-                .filter(|e| {
-                    e.date_value
-                        .as_deref()
-                        .is_some_and(|v| v.split_whitespace().count() >= 3)
-                })
-                .and_then(|e| e.date_sort)
+    /// The births' clue; `None` when they are too far apart.
+    fn births(&mut self, a: &Record<'_>, b: &Record<'_>) -> Option<()> {
+        let (Some(x), Some(y)) = (Record::year(a.birth), Record::year(b.birth)) else {
+            return Some(());
         };
-        if let (Some(x), Some(y)) = (days(a), days(b))
-            && x != y
-        {
+        if (x - y).abs() > MAX_YEAR_GAP {
             return None;
         }
-        score += SAME_PARENTS_POINTS;
-        reasons.push("same_parents");
-    } else {
+        let day = full_date(a.birth);
+        if day.is_some() && day == full_date(b.birth) {
+            self.add(SAME_BIRTH_DATE_POINTS, "same_birth_date");
+        } else if x == y {
+            self.add(SAME_BIRTH_YEAR_POINTS, "same_birth_year");
+        } else {
+            self.add(CLOSE_BIRTH_POINTS, "close_birth");
+        }
+        Some(())
+    }
+
+    /// The deaths' clue; `None` when they are too far apart.
+    fn deaths(&mut self, a: &Record<'_>, b: &Record<'_>) -> Option<()> {
+        match (Record::year(a.death), Record::year(b.death)) {
+            (Some(x), Some(y)) if (x - y).abs() > MAX_YEAR_GAP => return None,
+            (Some(x), Some(y)) if x == y => self.add(SAME_DEATH_YEAR_POINTS, "same_death_year"),
+            _ => {}
+        }
+        Some(())
+    }
+
+    /// The parents' clue: the same family, else parents of the same names.
+    /// `None` for two children of one family born on known different days,
+    /// the second named after the first.
+    fn parents(
+        &mut self,
+        a: &Record<'_>,
+        b: &Record<'_>,
+        names: &HashMap<Uuid, String>,
+    ) -> Option<()> {
+        let family = |r: &Record<'_>| r.profile.family_as_child.as_ref().map(|l| l.family_id);
+        if family(a).is_some() && family(a) == family(b) {
+            if let (Some(x), Some(y)) = (full_date(a.birth), full_date(b.birth))
+                && x != y
+            {
+                return None;
+            }
+            self.add(SAME_PARENTS_POINTS, "same_parents");
+            return Some(());
+        }
         let name = |id: Option<Uuid>| id.and_then(|id| names.get(&id)).filter(|n| !n.is_empty());
-        let (a_father, a_mother) = a.parents();
-        let (b_father, b_mother) = b.parents();
-        if let (Some(x), Some(y)) = (name(a_father), name(b_father))
-            && x == y
-        {
-            score += SAME_PARENT_NAME_POINTS;
-            reasons.push("same_father");
+        let ((a_father, a_mother), (b_father, b_mother)) = (a.parents(), b.parents());
+        for (x, y, reason) in [
+            (a_father, b_father, "same_father"),
+            (a_mother, b_mother, "same_mother"),
+        ] {
+            if name(x).is_some() && name(x) == name(y) {
+                self.add(SAME_PARENT_NAME_POINTS, reason);
+            }
         }
-        if let (Some(x), Some(y)) = (name(a_mother), name(b_mother))
-            && x == y
-        {
-            score += SAME_PARENT_NAME_POINTS;
-            reasons.push("same_mother");
-        }
+        Some(())
     }
-    if a.spouses.iter().any(|n| b.spouses.contains(n)) {
-        score += SAME_SPOUSE_POINTS;
-        reasons.push("same_spouse");
-    }
-    Some((score.min(100), reasons))
 }
 
 /// The pairs of a block worth comparing, each once. Births more than

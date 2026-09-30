@@ -511,36 +511,7 @@ impl OxidGeneMcp {
         respond("dictionary_usage", async {
             self.tree(p.tree_id).await?;
             let db = &self.db;
-            let required_value = || {
-                p.value.as_deref().ok_or_else(|| {
-                    OxidGeneError::Validation("`value` is required for this kind".to_string())
-                })
-            };
-            let required_id = || {
-                p.id.ok_or_else(|| {
-                    OxidGeneError::Validation("`id` is required for this kind".to_string())
-                })
-            };
-            let person_ids = match p.kind {
-                DictionaryKind::FamilyNames => {
-                    DictionaryRepo::family_name_usage_person_ids(db, p.tree_id, required_value()?)
-                        .await?
-                }
-                DictionaryKind::Occupations => {
-                    DictionaryRepo::occupation_usage_person_ids(db, p.tree_id, required_value()?)
-                        .await?
-                }
-                DictionaryKind::Places => {
-                    let place_id = required_id()?;
-                    require_tree_resource(db, p.tree_id, TreeResource::Place, place_id).await?;
-                    DictionaryRepo::place_usage_person_ids(db, place_id).await?
-                }
-                DictionaryKind::Sources => {
-                    let source_id = required_id()?;
-                    require_tree_resource(db, p.tree_id, TreeResource::Source, source_id).await?;
-                    DictionaryRepo::source_usage_person_ids(db, source_id).await?
-                }
-            };
+            let person_ids = usage_person_ids(db, &p).await?;
             Ok(
                 DictionaryRepo::resolve_person_usage_entries(db, &person_ids)
                     .await?
@@ -550,6 +521,40 @@ impl OxidGeneMcp {
             )
         })
         .await
+    }
+}
+
+/// The persons behind the dictionary entry `p` names, checking that a
+/// place or a source belongs to its tree.
+async fn usage_person_ids(
+    db: &DatabaseConnection,
+    p: &DictionaryUsageParams,
+) -> Result<Vec<Uuid>, OxidGeneError> {
+    let required_value = || {
+        p.value.as_deref().ok_or_else(|| {
+            OxidGeneError::Validation("`value` is required for this kind".to_string())
+        })
+    };
+    let required_id = || {
+        p.id.ok_or_else(|| OxidGeneError::Validation("`id` is required for this kind".to_string()))
+    };
+    match p.kind {
+        DictionaryKind::FamilyNames => {
+            DictionaryRepo::family_name_usage_person_ids(db, p.tree_id, required_value()?).await
+        }
+        DictionaryKind::Occupations => {
+            DictionaryRepo::occupation_usage_person_ids(db, p.tree_id, required_value()?).await
+        }
+        DictionaryKind::Places => {
+            let place_id = required_id()?;
+            require_tree_resource(db, p.tree_id, TreeResource::Place, place_id).await?;
+            DictionaryRepo::place_usage_person_ids(db, place_id).await
+        }
+        DictionaryKind::Sources => {
+            let source_id = required_id()?;
+            require_tree_resource(db, p.tree_id, TreeResource::Source, source_id).await?;
+            DictionaryRepo::source_usage_person_ids(db, source_id).await
+        }
     }
 }
 

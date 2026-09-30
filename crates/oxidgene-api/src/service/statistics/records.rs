@@ -90,7 +90,18 @@ pub(super) fn records(
         .collect();
     life_records(tree, &lives, &mut out);
     union_records(tree, &mut out);
-    descent_records(tree, children_of, &lives, &mut out);
+    spouse_records(tree, &mut out);
+    descent_records(tree, children_of, &mut out);
+    if let Some((age, p)) = extreme(lives.iter().copied(), false) {
+        out.push(record(
+            "youngest_death",
+            vec![person_ref(p)],
+            Some(age),
+            p.death_or_burial(),
+        ));
+    }
+    sibling_records(tree, &mut out);
+    generation_record(tree, children_of, &mut out);
     place_records(profiles, &mut out);
 
     out
@@ -130,10 +141,8 @@ fn life_records(tree: &Tree<'_>, lives: &[(f64, &PersonProfile)], out: &mut Vec<
     }
 }
 
-/// The ages at union, the longest union, the most unions, the first and last
-/// unions, the largest spouse gap and the longest widowhood.
+/// The ages at union and the longest union.
 fn union_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
-    let profiles = tree.profiles;
     let at_union: Vec<(f64, (&PersonProfile, &ProfileEvent))> = tree
         .unions
         .iter()
@@ -164,7 +173,13 @@ fn union_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
             u.date,
         ));
     }
-    let unions_of = profiles
+    union_count_records(tree, out);
+}
+
+/// The most unions, and the first and last unions.
+fn union_count_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
+    let unions_of = tree
+        .profiles
         .iter()
         .map(|p| (p.families_as_spouse.len() as f64, p));
     if let Some((count, p)) = extreme(unions_of, true).filter(|(count, _)| *count > 1.0) {
@@ -184,6 +199,10 @@ fn union_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
             out.push(record(kind, tree.spouses(u), None, u.date));
         }
     }
+}
+
+/// The largest age gap between spouses and the longest widowhood.
+fn spouse_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
     let gaps = tree.unions.iter().filter_map(|u| {
         let [(a, _), (b, _)] = u.spouses.as_slice() else {
             return None;
@@ -228,12 +247,10 @@ fn union_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
     }
 }
 
-/// The most children, the ages at a first child, the youngest death, the
-/// largest sibling gap and the most generations of descendants.
+/// The most children and the ages at a first child.
 fn descent_records(
     tree: &Tree<'_>,
     children_of: &HashMap<Uuid, HashSet<Uuid>>,
-    lives: &[(f64, &PersonProfile)],
     out: &mut Vec<StatRecord>,
 ) {
     let profiles = tree.profiles;
@@ -278,14 +295,33 @@ fn descent_records(
             ));
         }
     }
-    if let Some((age, p)) = extreme(lives.iter().copied(), false) {
+}
+
+/// The person with the most generations of descendants.
+fn generation_record(
+    tree: &Tree<'_>,
+    children_of: &HashMap<Uuid, HashSet<Uuid>>,
+    out: &mut Vec<StatRecord>,
+) {
+    let depths = generations(tree, children_of);
+    let deepest = tree
+        .profiles
+        .iter()
+        .filter_map(|p| Some((f64::from(*depths.get(&p.person_id)?), p)));
+    if let Some((depth, p)) = extreme(deepest, true) {
         out.push(record(
-            "youngest_death",
+            "most_generations",
             vec![person_ref(p)],
-            Some(age),
-            p.death_or_burial(),
+            Some(depth),
+            None,
         ));
     }
+}
+
+/// The largest gap between the births of the eldest and the youngest
+/// sibling.
+fn sibling_records(tree: &Tree<'_>, out: &mut Vec<StatRecord>) {
+    let profiles = tree.profiles;
     let mut siblings: HashMap<Uuid, Vec<(NaiveDate, &PersonProfile)>> = HashMap::new();
     for profile in profiles {
         if let (Some(link), Some((born, _))) = (&profile.family_as_child, tree.birth(profile)) {
@@ -307,18 +343,6 @@ fn descent_records(
             "largest_sibling_gap",
             vec![person_ref(eldest), person_ref(youngest)],
             Some(gap),
-            None,
-        ));
-    }
-    let depths = generations(tree, children_of);
-    let deepest = profiles
-        .iter()
-        .filter_map(|p| Some((f64::from(*depths.get(&p.person_id)?), p)));
-    if let Some((depth, p)) = extreme(deepest, true) {
-        out.push(record(
-            "most_generations",
-            vec![person_ref(p)],
-            Some(depth),
             None,
         ));
     }

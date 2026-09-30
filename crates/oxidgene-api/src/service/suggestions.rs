@@ -86,28 +86,12 @@ pub async fn suggest(
     limit: Option<usize>,
     scope: &NameScope,
 ) -> Result<Vec<ValueSuggestion>, OxidGeneError> {
-    let lang = ReferenceLang::from_code(language)
-        .ok_or_else(|| OxidGeneError::Validation(UNSUPPORTED_LANGUAGE.to_string()))?;
-    let limit = limit.unwrap_or(DEFAULT_VALUE_SUGGESTIONS);
-    if !(1..=MAX_VALUE_SUGGESTIONS).contains(&limit) {
-        return Err(OxidGeneError::Validation(format!(
-            "limit must be between 1 and {MAX_VALUE_SUGGESTIONS}"
-        )));
-    }
-    let scoped = !scope.is_empty();
-    if scoped
-        && !matches!(
-            field,
-            SuggestionField::FamilyNames | SuggestionField::GivenNames
-        )
-    {
-        return Err(OxidGeneError::Validation(SCOPE_NAMES_ONLY.to_string()));
-    }
+    let (lang, limit) = validated(field, language, limit, scope)?;
     let key = fold_words(query);
     if key.is_empty() {
         return Ok(Vec::new());
     }
-    if scoped {
+    if !scope.is_empty() {
         let names = PersonSearchRepo::primary_names(
             db,
             tree_id,
@@ -118,26 +102,66 @@ pub async fn suggest(
         let values = scoped_values(names, field);
         return Ok(rank(values, field.reference(), false, lang, &key, limit));
     }
+    let values = tree_values(db, tree_id, field).await?;
+    Ok(rank(values, field.reference(), true, lang, &key, limit))
+}
 
-    let values: Vec<(String, i64)> = match field {
+/// The language and the limit of a request, refusing an unknown language, a
+/// limit out of range, and a scope on a field other than names.
+fn validated(
+    field: SuggestionField,
+    language: &str,
+    limit: Option<usize>,
+    scope: &NameScope,
+) -> Result<(ReferenceLang, usize), OxidGeneError> {
+    let lang = ReferenceLang::from_code(language)
+        .ok_or_else(|| OxidGeneError::Validation(UNSUPPORTED_LANGUAGE.to_string()))?;
+    let limit = limit.unwrap_or(DEFAULT_VALUE_SUGGESTIONS);
+    if !(1..=MAX_VALUE_SUGGESTIONS).contains(&limit) {
+        return Err(OxidGeneError::Validation(format!(
+            "limit must be between 1 and {MAX_VALUE_SUGGESTIONS}"
+        )));
+    }
+    let names = matches!(
+        field,
+        SuggestionField::FamilyNames | SuggestionField::GivenNames
+    );
+    if !scope.is_empty() && !names {
+        return Err(OxidGeneError::Validation(SCOPE_NAMES_ONLY.to_string()));
+    }
+    Ok((lang, limit))
+}
+
+/// The tree's values of `field`, each with its number of uses.
+async fn tree_values(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    field: SuggestionField,
+) -> Result<Vec<(String, i64)>, OxidGeneError> {
+    Ok(match field {
         SuggestionField::FamilyNames => entries(DictionaryRepo::family_names(db, tree_id).await?),
         SuggestionField::GivenNames => entries(DictionaryRepo::given_names(db, tree_id).await?),
         SuggestionField::Occupations => entries(DictionaryRepo::occupations(db, tree_id).await?),
         SuggestionField::Sources => {
             // Two sources may share a title: the field offers it once.
             let mut titles: Vec<(String, i64)> = Vec::new();
+            let mut at: HashMap<String, usize> = HashMap::new();
             for (source, count) in DictionaryRepo::sources_with_usage(db, tree_id).await? {
-                let title = source.title.trim().to_string();
-                match titles.iter_mut().find(|(t, _)| *t == title) {
-                    Some((_, total)) => *total += count,
-                    None if !title.is_empty() => titles.push((title, count)),
-                    None => {}
+                let title = source.title.trim();
+                if title.is_empty() {
+                    continue;
+                }
+                match at.get(title) {
+                    Some(&index) => titles[index].1 += count,
+                    None => {
+                        at.insert(title.to_string(), titles.len());
+                        titles.push((title.to_string(), count));
+                    }
                 }
             }
             titles
         }
-    };
-    Ok(rank(values, field.reference(), true, lang, &key, limit))
+    })
 }
 
 /// Each surname, or each given name, of `names` with the number of persons

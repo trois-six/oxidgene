@@ -592,46 +592,115 @@ impl PersonSearchRepo {
     }
 
     fn row_to_entry(row: &sea_orm::QueryResult) -> Result<PersonSearchEntry, OxidGeneError> {
-        let get_string = |col: &str| -> Result<String, OxidGeneError> {
-            row.try_get::<String>("", col).map_err(db_err)
-        };
-        let get_opt = |col: &str| -> Result<Option<String>, OxidGeneError> {
-            row.try_get::<Option<String>>("", col).map_err(db_err)
-        };
+        let [
+            person_id,
+            tree_id,
+            surname,
+            given_names,
+            sex,
+            display_name,
+            surname_display,
+            given_names_display,
+            birth_qualifier,
+            death_qualifier,
+            spouse_names,
+            spouse_surnames,
+            spouse_given_names,
+        ] = columns::<String, 13>(
+            row,
+            [
+                "person_id",
+                "tree_id",
+                "surname",
+                "given_names",
+                "sex",
+                "display_name",
+                "surname_display",
+                "given_names_display",
+                "birth_qualifier",
+                "death_qualifier",
+                "spouse_names",
+                "spouse_surnames",
+                "spouse_given_names",
+            ],
+        )?;
+        let [
+            maiden_name,
+            birth_year,
+            death_year,
+            birth_place,
+            date_sort,
+            father_name,
+            father_surname,
+            father_given_names,
+            mother_name,
+            mother_surname,
+            mother_given_names,
+            children_count,
+        ] = columns::<Option<String>, 12>(
+            row,
+            [
+                "maiden_name",
+                "birth_year",
+                "death_year",
+                "birth_place",
+                "date_sort",
+                "father_name",
+                "father_surname",
+                "father_given_names",
+                "mother_name",
+                "mother_surname",
+                "mother_given_names",
+                "children_count",
+            ],
+        )?;
         let parse_uuid = |s: String| -> Result<Uuid, OxidGeneError> {
             Uuid::parse_str(&s).map_err(|e| OxidGeneError::Database(e.to_string()))
         };
 
         Ok(PersonSearchEntry {
-            person_id: parse_uuid(get_string("person_id")?)?,
-            tree_id: parse_uuid(get_string("tree_id")?)?,
-            surname: get_string("surname")?,
-            given_names: get_string("given_names")?,
-            maiden_name: get_opt("maiden_name")?,
-            birth_year: get_opt("birth_year")?,
-            death_year: get_opt("death_year")?,
-            sex: get_string("sex")?,
-            display_name: get_string("display_name")?,
-            surname_display: get_string("surname_display")?,
-            given_names_display: get_string("given_names_display")?,
-            birth_place: get_opt("birth_place")?,
-            date_sort: get_opt("date_sort")?,
-            birth_qualifier: get_string("birth_qualifier")?,
-            death_qualifier: get_string("death_qualifier")?,
-            spouse_names: get_string("spouse_names")?,
-            spouse_surnames: get_string("spouse_surnames")?,
-            spouse_given_names: get_string("spouse_given_names")?,
-            father_name: get_opt("father_name")?,
-            father_surname: get_opt("father_surname")?,
-            father_given_names: get_opt("father_given_names")?,
-            mother_name: get_opt("mother_name")?,
-            mother_surname: get_opt("mother_surname")?,
-            mother_given_names: get_opt("mother_given_names")?,
-            children_count: get_opt("children_count")?
-                .and_then(|n| n.parse().ok())
-                .unwrap_or(0),
+            person_id: parse_uuid(person_id)?,
+            tree_id: parse_uuid(tree_id)?,
+            surname,
+            given_names,
+            maiden_name,
+            birth_year,
+            death_year,
+            sex,
+            display_name,
+            surname_display,
+            given_names_display,
+            birth_place,
+            date_sort,
+            birth_qualifier,
+            death_qualifier,
+            spouse_names,
+            spouse_surnames,
+            spouse_given_names,
+            father_name,
+            father_surname,
+            father_given_names,
+            mother_name,
+            mother_surname,
+            mother_given_names,
+            children_count: children_count.and_then(|n| n.parse().ok()).unwrap_or(0),
         })
     }
+}
+
+/// The values of `names`, columns of `row`, in that order.
+fn columns<T: sea_orm::TryGetable, const N: usize>(
+    row: &sea_orm::QueryResult,
+    names: [&str; N],
+) -> Result<[T; N], OxidGeneError> {
+    let values: Vec<T> = names
+        .iter()
+        .map(|name| row.try_get::<T>("", name))
+        .collect::<Result<_, _>>()
+        .map_err(db_err)?;
+    Ok(values
+        .try_into()
+        .unwrap_or_else(|_| unreachable!("one value per column")))
 }
 
 /// The `surname` and `given_names` filters: substrings of the person's own

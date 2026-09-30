@@ -35,72 +35,90 @@ pub fn count(mime_type: &str, bytes: &[u8]) -> u32 {
 /// only the entry counts, so this reads a handful of bytes per page rather than
 /// handing a 300 MB register scan to a decoder.
 fn count_tiff(bytes: &[u8]) -> Option<u32> {
-    let big_endian = match bytes.get(0..2)? {
-        b"II" => false,
-        b"MM" => true,
-        _ => return None,
-    };
-    let u16_at = |offset: usize| -> Option<u16> {
-        let raw: [u8; 2] = bytes.get(offset..offset + 2)?.try_into().ok()?;
-        Some(if big_endian {
-            u16::from_be_bytes(raw)
-        } else {
-            u16::from_le_bytes(raw)
-        })
-    };
-    let u32_at = |offset: usize| -> Option<u32> {
-        let raw: [u8; 4] = bytes.get(offset..offset + 4)?.try_into().ok()?;
-        Some(if big_endian {
-            u32::from_be_bytes(raw)
-        } else {
-            u32::from_le_bytes(raw)
-        })
-    };
-    let u64_at = |offset: usize| -> Option<u64> {
-        let raw: [u8; 8] = bytes.get(offset..offset + 8)?.try_into().ok()?;
-        Some(if big_endian {
-            u64::from_be_bytes(raw)
-        } else {
-            u64::from_le_bytes(raw)
-        })
-    };
-
-    // Classic TIFF carries magic 42 with 32-bit offsets; BigTIFF carries 43
-    // with 64-bit ones and a different IFD shape. Scanner software emits
-    // BigTIFF once a register run crosses 4 GB, so both are worth reading.
-    let (mut next, entry_size, count_size, big) = match u16_at(2)? {
-        42 => (u32_at(4)? as u64, 12usize, 2usize, false),
-        43 => {
-            if u16_at(4)? != 8 {
-                return None; // 8-byte offsets is the only defined value
-            }
-            (u64_at(8)?, 20usize, 8usize, true)
-        }
-        _ => return None,
-    };
-
-    let mut pages = 0u32;
     // A malformed file can point an IFD at itself. The cap is far above any
     // real scan and keeps a hostile upload from spinning a worker forever.
     const MAX_PAGES: u32 = 10_000;
+    let (tiff, shape) = Tiff::open(bytes)?;
+    let mut next = tiff.uint(shape.first_offset_at, shape.offset_width)?;
+    let mut pages = 0u32;
     while next != 0 && pages < MAX_PAGES {
-        let base = usize::try_from(next).ok()?;
-        let entries = if big {
-            u64_at(base)?
-        } else {
-            u16_at(base)? as u64
-        };
-        let after_entries = base
-            .checked_add(count_size)?
-            .checked_add(usize::try_from(entries).ok()?.checked_mul(entry_size)?)?;
+        next = tiff.next_ifd(&shape, usize::try_from(next).ok()?)?;
         pages += 1;
-        next = if big {
-            u64_at(after_entries)?
-        } else {
-            u32_at(after_entries)? as u64
-        };
     }
     Some(pages).filter(|n| *n > 0)
+}
+
+/// A TIFF's bytes and their byte order.
+struct Tiff<'a> {
+    bytes: &'a [u8],
+    big_endian: bool,
+}
+
+impl<'a> Tiff<'a> {
+    /// The TIFF in `bytes` and the shape of its IFDs, if it is one.
+    fn open(bytes: &'a [u8]) -> Option<(Self, IfdShape)> {
+        let big_endian = match bytes.get(0..2)? {
+            b"II" => false,
+            b"MM" => true,
+            _ => return None,
+        };
+        let tiff = Self { bytes, big_endian };
+        // Classic TIFF carries magic 42 with 32-bit offsets; BigTIFF carries
+        // 43 with 64-bit ones and a different IFD shape. Scanner software
+        // emits BigTIFF once a register run crosses 4 GB, so both are worth
+        // reading.
+        let shape = match tiff.uint(2, 2)? {
+            42 => IfdShape::CLASSIC,
+            // 8-byte offsets is the only defined value.
+            43 if tiff.uint(4, 2)? == 8 => IfdShape::BIG,
+            _ => return None,
+        };
+        Some((tiff, shape))
+    }
+
+    /// The offset of the IFD after the one at `base`, 0 after the last.
+    fn next_ifd(&self, shape: &IfdShape, base: usize) -> Option<u64> {
+        let entries = usize::try_from(self.uint(base, shape.count_width)?).ok()?;
+        let after_entries = base
+            .checked_add(shape.count_width)?
+            .checked_add(entries.checked_mul(shape.entry_size)?)?;
+        self.uint(after_entries, shape.offset_width)
+    }
+
+    /// The unsigned integer `width` bytes long at `offset`.
+    fn uint(&self, offset: usize, width: usize) -> Option<u64> {
+        let raw = self.bytes.get(offset..offset.checked_add(width)?)?;
+        let push = |value: u64, byte: &u8| (value << 8) | u64::from(*byte);
+        Some(if self.big_endian {
+            raw.iter().fold(0, push)
+        } else {
+            raw.iter().rev().fold(0, push)
+        })
+    }
+}
+
+/// Where a TIFF flavour keeps its first IFD offset, and the widths of an
+/// IFD's parts.
+struct IfdShape {
+    first_offset_at: usize,
+    offset_width: usize,
+    count_width: usize,
+    entry_size: usize,
+}
+
+impl IfdShape {
+    const CLASSIC: Self = Self {
+        first_offset_at: 4,
+        offset_width: 4,
+        count_width: 2,
+        entry_size: 12,
+    };
+    const BIG: Self = Self {
+        first_offset_at: 8,
+        offset_width: 8,
+        count_width: 8,
+        entry_size: 20,
+    };
 }
 
 #[cfg(test)]

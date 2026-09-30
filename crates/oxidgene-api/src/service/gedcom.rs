@@ -782,34 +782,7 @@ pub async fn load_and_export(
 ) -> Result<ExportData, OxidGeneError> {
     // Verify tree exists
     let _tree = TreeRepo::get(db, tree_id).await?;
-
-    // Load all entities for the tree
-    let persons = PersonRepo::list_all(db, tree_id).await?;
-    let person_ids: Vec<_> = persons.iter().map(|p| p.id).collect();
-
-    let person_names = PersonNameRepo::list_by_persons(db, &person_ids).await?;
-
-    let families = FamilyRepo::list_all(db, tree_id).await?;
-    let family_ids: Vec<_> = families.iter().map(|f| f.id).collect();
-
-    let family_spouses = FamilySpouseRepo::list_by_families(db, &family_ids).await?;
-    let family_children = FamilyChildRepo::list_by_families(db, &family_ids).await?;
-
-    let events = EventRepo::list_all(db, tree_id).await?;
-    let event_ids: Vec<_> = events.iter().map(|e| e.id).collect();
-    let event_witnesses = EventWitnessRepo::list_by_events(db, &event_ids).await?;
-    let places = PlaceRepo::list_all(db, tree_id).await?;
-
-    let sources = SourceRepo::list_all(db, tree_id).await?;
-    let source_ids: Vec<_> = sources.iter().map(|s| s.id).collect();
-    let citations = CitationRepo::list_by_sources(db, &source_ids).await?;
-
-    let media = MediaRepo::list_all(db, tree_id).await?;
-    let media_ids: Vec<_> = media.iter().map(|m| m.id).collect();
-    let media_links = MediaLinkRepo::list_by_medias(db, &media_ids).await?;
-    let vignettes = VignetteRepo::list_for_medias(db, &media_ids).await?;
-
-    let notes = NoteRepo::list_all(db, tree_id).await?;
+    let records = TreeRecords::load(db, tree_id).await?;
 
     // A GEDZIP carries the bytes, so its `FILE` lines name entries inside the
     // archive rather than the paths whatever produced the record used. Media
@@ -817,37 +790,35 @@ pub async fn load_and_export(
     // pack for them and nothing better to say.
     let mut media_paths = std::collections::HashMap::new();
     let mut media_files = Vec::new();
-    if for_archive {
-        for medium in &media {
-            let (Some(path), Some(key)) = (
-                oxidgene_gedcom::export::archive_path(medium),
-                medium.storage_key.clone(),
-            ) else {
-                continue;
-            };
-            media_paths.insert(medium.id, path.clone());
-            media_files.push((key, path, medium.mime_type.clone()));
-        }
+    for medium in records.media.iter().filter(|_| for_archive) {
+        let (Some(path), Some(key)) = (
+            oxidgene_gedcom::export::archive_path(medium),
+            medium.storage_key.clone(),
+        ) else {
+            continue;
+        };
+        media_paths.insert(medium.id, path.clone());
+        media_files.push((key, path, medium.mime_type.clone()));
     }
 
     // Export to GEDCOM
     let export_result = tracing::info_span!("export.serialize", export.format = "gedcom")
         .in_scope(|| {
             oxidgene_gedcom::export::export_gedcom(
-                &persons,
-                &person_names,
-                &families,
-                &family_spouses,
-                &family_children,
-                &events,
-                &event_witnesses,
-                &places,
-                &sources,
-                &citations,
-                &media,
-                &media_links,
-                &vignettes,
-                &notes,
+                &records.persons,
+                &records.person_names,
+                &records.families,
+                &records.family_spouses,
+                &records.family_children,
+                &records.events,
+                &records.event_witnesses,
+                &records.places,
+                &records.sources,
+                &records.citations,
+                &records.media,
+                &records.media_links,
+                &records.vignettes,
+                &records.notes,
                 merge_occupations,
                 merge_names,
                 &media_paths,
@@ -860,4 +831,80 @@ pub async fn load_and_export(
         warnings: export_result.warnings,
         media_files,
     })
+}
+
+/// Every record of a tree an export writes.
+#[derive(Default)]
+struct TreeRecords {
+    persons: Vec<oxidgene_core::types::Person>,
+    person_names: Vec<oxidgene_core::types::PersonName>,
+    families: Vec<oxidgene_core::types::Family>,
+    family_spouses: Vec<oxidgene_core::types::FamilySpouse>,
+    family_children: Vec<oxidgene_core::types::FamilyChild>,
+    events: Vec<oxidgene_core::types::Event>,
+    event_witnesses: Vec<oxidgene_core::types::EventWitness>,
+    places: Vec<oxidgene_core::types::Place>,
+    sources: Vec<oxidgene_core::types::Source>,
+    citations: Vec<oxidgene_core::types::Citation>,
+    media: Vec<oxidgene_core::types::Media>,
+    media_links: Vec<oxidgene_core::types::MediaLink>,
+    vignettes: Vec<oxidgene_core::types::Vignette>,
+    notes: Vec<oxidgene_core::types::Note>,
+}
+
+impl TreeRecords {
+    async fn load(db: &DatabaseConnection, tree_id: Uuid) -> Result<Self, OxidGeneError> {
+        let mut records = Self::default();
+        records.load_lineage(db, tree_id).await?;
+        records.load_events(db, tree_id).await?;
+        records.load_documentation(db, tree_id).await?;
+        Ok(records)
+    }
+
+    /// The persons, their names, the families and their members.
+    async fn load_lineage(
+        &mut self,
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        self.persons = PersonRepo::list_all(db, tree_id).await?;
+        let person_ids: Vec<_> = self.persons.iter().map(|p| p.id).collect();
+        self.person_names = PersonNameRepo::list_by_persons(db, &person_ids).await?;
+        self.families = FamilyRepo::list_all(db, tree_id).await?;
+        let family_ids: Vec<_> = self.families.iter().map(|f| f.id).collect();
+        self.family_spouses = FamilySpouseRepo::list_by_families(db, &family_ids).await?;
+        self.family_children = FamilyChildRepo::list_by_families(db, &family_ids).await?;
+        Ok(())
+    }
+
+    /// The events, their witnesses, and the places.
+    async fn load_events(
+        &mut self,
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        self.events = EventRepo::list_all(db, tree_id).await?;
+        let event_ids: Vec<_> = self.events.iter().map(|e| e.id).collect();
+        self.event_witnesses = EventWitnessRepo::list_by_events(db, &event_ids).await?;
+        self.places = PlaceRepo::list_all(db, tree_id).await?;
+        Ok(())
+    }
+
+    /// The sources and citations, the media with their links and crops, and
+    /// the notes.
+    async fn load_documentation(
+        &mut self,
+        db: &DatabaseConnection,
+        tree_id: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        self.sources = SourceRepo::list_all(db, tree_id).await?;
+        let source_ids: Vec<_> = self.sources.iter().map(|s| s.id).collect();
+        self.citations = CitationRepo::list_by_sources(db, &source_ids).await?;
+        self.media = MediaRepo::list_all(db, tree_id).await?;
+        let media_ids: Vec<_> = self.media.iter().map(|m| m.id).collect();
+        self.media_links = MediaLinkRepo::list_by_medias(db, &media_ids).await?;
+        self.vignettes = VignetteRepo::list_for_medias(db, &media_ids).await?;
+        self.notes = NoteRepo::list_all(db, tree_id).await?;
+        Ok(())
+    }
 }

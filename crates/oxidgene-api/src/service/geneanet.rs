@@ -229,6 +229,57 @@ pub struct Preview {
     pub mismatch: bool,
 }
 
+impl Preview {
+    /// Counts a reference that found nobody, and samples its name.
+    fn count_unjoined(&mut self, unjoined: &join::Unjoined) {
+        // Two very different situations, and telling a user they are the same
+        // sends them looking for people who were never linked.
+        let (count, sample) = match unjoined.reason {
+            UnjoinedReason::NoKey => (&mut self.unlinked_names, &mut self.unlinked_names_sample),
+            UnjoinedReason::NoSuchPerson => (&mut self.outside_tree, &mut self.outside_tree_names),
+            UnjoinedReason::Ambiguous => (&mut self.ambiguous, &mut self.ambiguous_names),
+        };
+        *count += 1;
+        if sample.len() < SAMPLE_LIMIT {
+            sample.push(unjoined.name.clone());
+        }
+    }
+
+    /// Counts a deposit to import: its pages, and where their bytes will
+    /// come from.
+    fn count_imported_deposit(
+        &mut self,
+        deposit: &ManifestDeposit,
+        fidelity: MediaFidelity,
+        deposit_sizes: &HashMap<i64, u64>,
+        archives: &ArchiveSet,
+    ) {
+        let pages = deposit.views.len();
+        // A document is still a document whichever bytes are kept for its
+        // pages, and every one of them is imported either way.
+        if pages > 1 {
+            self.documents += 1;
+            self.document_pages += pages;
+        }
+        if !fidelity.uses_archives() {
+            // Renditions are fetched for every page and matched against
+            // nothing, so there is one download per view and no local hit to
+            // report.
+            self.to_download += pages;
+        } else if pages > 1 {
+            // Every page of a document is fetched, because a page has no byte
+            // length to match an archive entry against — it is recognised
+            // from its rendition instead, and that rendition has to be
+            // retrieved first.
+            self.to_match += pages;
+        } else if held_locally(deposit, deposit.views[0].id, deposit_sizes, archives) {
+            self.in_archives += 1;
+        } else {
+            self.to_download += 1;
+        }
+    }
+}
+
 /// Joins the collected mapping onto the `.gw` and reports what would happen.
 ///
 /// Nothing is written and nothing is fetched. `deposit_sizes` is the byte
@@ -275,28 +326,7 @@ pub fn preview(
     preview.group_photos = per_view.values().filter(|n| **n > 1).count();
 
     for unjoined in &joined.unjoined {
-        match unjoined.reason {
-            // Two very different situations, and telling a user they are the
-            // same sends them looking for people who were never linked.
-            UnjoinedReason::NoKey => {
-                preview.unlinked_names += 1;
-                if preview.unlinked_names_sample.len() < SAMPLE_LIMIT {
-                    preview.unlinked_names_sample.push(unjoined.name.clone());
-                }
-            }
-            UnjoinedReason::NoSuchPerson => {
-                preview.outside_tree += 1;
-                if preview.outside_tree_names.len() < SAMPLE_LIMIT {
-                    preview.outside_tree_names.push(unjoined.name.clone());
-                }
-            }
-            UnjoinedReason::Ambiguous => {
-                preview.ambiguous += 1;
-                if preview.ambiguous_names.len() < SAMPLE_LIMIT {
-                    preview.ambiguous_names.push(unjoined.name.clone());
-                }
-            }
-        }
+        preview.count_unjoined(unjoined);
     }
 
     // A deposit with any attached page is imported in full — a document comes
@@ -304,40 +334,12 @@ pub fn preview(
     // is counted here is deposits, and what is skipped is only the deposits
     // nobody attached to anybody at all.
     let attached = joined.imported_deposit_ids();
-
     for deposit in &manifest.deposits {
-        if !attached.contains(&deposit.id) {
+        if attached.contains(&deposit.id) {
+            preview.count_imported_deposit(deposit, fidelity, deposit_sizes, archives);
+        } else {
             preview.unlinked_views += deposit.views.len();
-            continue;
         }
-
-        // A document is still a document whichever bytes are kept for its
-        // pages, and every one of them is imported either way.
-        if deposit.views.len() > 1 {
-            preview.documents += 1;
-            preview.document_pages += deposit.views.len();
-        }
-
-        // Renditions are fetched for every page and matched against nothing,
-        // so there is one download per view and no local hit to report.
-        if !fidelity.uses_archives() {
-            preview.to_download += deposit.views.len();
-            continue;
-        }
-
-        if deposit.views.len() == 1 {
-            if held_locally(deposit, deposit.views[0].id, deposit_sizes, archives) {
-                preview.in_archives += 1;
-            } else {
-                preview.to_download += 1;
-            }
-            continue;
-        }
-
-        // Every page of a document is fetched, because a page has no byte
-        // length to match an archive entry against — it is recognised from its
-        // rendition instead, and that rendition has to be retrieved first.
-        preview.to_match += deposit.views.len();
     }
 
     // Keyed references are the ones that *could* have found a person; a
@@ -614,19 +616,22 @@ pub async fn import(
     // naming nobody else is imported for them all the same.
     let isolated = create_isolated_people(db, tree_id, &joined, &mut summary).await;
 
+    let identities = Identities {
+        person_by_xref: &person_by_xref,
+        event_matcher: &event_matcher,
+        isolated: &isolated,
+        portraits: &portraits,
+    };
     attach_media(
         db,
         store,
         tree_id,
         &manifest,
         &joined,
-        &person_by_xref,
-        &event_matcher,
-        &isolated,
+        &identities,
         deposit_sizes,
         archive_paths,
         fetched,
-        &portraits,
         progress,
         &mut summary,
     )
@@ -662,16 +667,10 @@ async fn attach_media(
     tree_id: Uuid,
     manifest: &Manifest,
     joined: &join::Join,
-    person_by_xref: &HashMap<String, Uuid>,
-    event_matcher: &GeneanetEventMatcher,
-    // `isolated`: folded name → the person created for an out-of-tree
-    // identification.
-    isolated: &HashMap<String, Uuid>,
+    identities: &Identities<'_>,
     deposit_sizes: &HashMap<i64, u64>,
     archive_paths: &[String],
     fetched: &HashMap<String, String>,
-    // `portraits`: person xref → the view the `.gw` named as their portrait.
-    portraits: &HashMap<String, i64>,
     progress: &ImportProgress,
     summary: &mut GeneanetImportSummary,
 ) {
@@ -694,6 +693,13 @@ async fn attach_media(
             .or_default()
             .push(attachment);
     }
+    let mut unjoined_by_deposit: HashMap<i64, Vec<&join::Unjoined>> = HashMap::new();
+    for unjoined in &joined.unjoined {
+        unjoined_by_deposit
+            .entry(unjoined.deposit_id)
+            .or_default()
+            .push(unjoined);
+    }
     // Every view of every attached deposit, which is what the media phase will
     // write — a document contributes all its pages, not just its linked ones.
     let media_total: usize = by_deposit
@@ -705,18 +711,7 @@ async fn attach_media(
     progress.begin(ImportPhase::Matching, 0);
     let hashes = build_content_index(&deposits, &by_deposit, deposit_sizes, &archives, fetched);
     progress.begin(ImportPhase::Media, media_total);
-    let mut places = match PlaceRepo::list_all(db, tree_id).await {
-        Ok(places) => places
-            .into_iter()
-            .map(|place| (place_key(&place.name), place.id))
-            .collect(),
-        Err(err) => {
-            summary
-                .warnings
-                .push(format!("could not list places: {err}"));
-            HashMap::new()
-        }
-    };
+    let mut places = place_keys(db, tree_id, summary).await;
 
     // Every one-page deposit, decoded and stored ahead of the loop below.
     //
@@ -748,76 +743,18 @@ async fn attach_media(
                 .push(format!("deposit {deposit_id} is not in the collection"));
             continue;
         };
-
-        // Everyone any page of this deposit named, in first-seen order: who
-        // they are, whether this deposit holds their portrait, and where on
-        // the picture they were boxed.
-        let mut people: Vec<Attached> = Vec::new();
-        let mut references: Vec<LinkReference> = Vec::new();
-        for attachment in &attachments {
-            // `GwDatabase::persons[i]` becomes the individual with xref
-            // `@I{i+1}@` — the positional correspondence the whole join rests
-            // on, and the one place a drift would put photos on strangers.
-            let xref = format!("@I{}@", attachment.person + 1);
-            let Some(person_id) = person_by_xref.get(&xref).copied() else {
-                summary.skipped.push(format!(
-                    "deposit {deposit_id}: person {xref} was not imported"
-                ));
-                continue;
-            };
-            // The `.gw` named one view as this person's portrait. Nothing else
-            // knows which of their photos that is.
-            let is_portrait = portraits
-                .get(&xref)
-                .is_some_and(|view_id| *view_id == attachment.view_id);
-            references.push(LinkReference {
-                person_id,
-                is_portrait,
-                event: attachment
-                    .event
-                    .as_ref()
-                    .and_then(|event| event_matcher.resolve(person_id, event)),
-            });
-            people.push(Attached {
-                person_id,
-                is_portrait,
-                view_id: attachment.view_id,
-                face: attachment.face.clone(),
-            });
-        }
-
-        // The identifications Geneanet marks "hors de l'arbre" name people we
-        // created above; their media attach exactly like anyone else's.
-        for unjoined in &joined.unjoined {
-            if unjoined.deposit_id != deposit_id {
-                continue;
-            }
-            let Some((lastname, firstname)) = unjoined.outside_tree_name() else {
-                continue;
-            };
-            let key = oxidgene_geneanet::key::geneanet_key(lastname, firstname, 0);
-            let Some(person_id) = isolated.get(&key).copied() else {
-                continue;
-            };
-            people.push(Attached {
-                person_id,
-                is_portrait: false,
-                view_id: unjoined.view_id,
-                face: unjoined.face.clone(),
-            });
-        }
+        let unjoined = unjoined_by_deposit.remove(&deposit_id).unwrap_or_default();
+        let (people, references) =
+            identities.of_deposit(deposit_id, &attachments, &unjoined, summary);
 
         // `owner` is what a person links to — the photograph, or the document
         // as a whole. `pages` is where each view's bytes actually landed,
         // which is where an identification box belongs: on the page somebody
         // was boxed on, not on the document that contains it.
-        let (owner, pages) = if deposit.views.len() == 1 {
-            match prepared.get(&deposit_id) {
-                Some(pair) => pair.clone(),
-                None => continue,
-            }
+        let stored = if deposit.views.len() == 1 {
+            prepared.get(&deposit_id).cloned()
         } else {
-            match document(
+            document(
                 db,
                 store,
                 tree_id,
@@ -831,116 +768,227 @@ async fn attach_media(
                 summary,
             )
             .await
-            {
-                Some(pair) => pair,
-                None => continue,
-            }
         };
+        let Some((owner, pages)) = stored else {
+            continue;
+        };
+        link_deposit(db, deposit_id, owner, &pages, &people, &references, summary).await;
+    }
+}
 
-        let plan = plan_deposit_links(&references);
-        for event_id in &plan.event_ids {
-            if let Err(err) = MediaLinkRepo::create(
-                db,
-                Uuid::now_v7(),
-                owner,
-                None,
-                Some(*event_id),
-                None,
-                None,
-                0,
-            )
-            .await
-            {
-                summary.skipped.push(format!(
-                    "deposit {deposit_id}: could not link event {event_id}: {err}"
-                ));
-            }
-        }
-        for (order, family_id) in plan.family_ids.iter().enumerate() {
-            match MediaLinkRepo::create(
-                db,
-                Uuid::now_v7(),
-                owner,
-                None,
-                None,
-                None,
-                Some(*family_id),
-                i32::try_from(order).unwrap_or(0),
-            )
-            .await
-            {
-                Ok(_) => summary.links_count += 1,
-                Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
-            }
-        }
-
-        // A person links to the document once, but every box remains on the
-        // exact page where Geneanet drew it. The same person may therefore
-        // have several identifications across a multi-page document.
-        //
-        // The boxes are cut before the links are written because a portrait
-        // drawn on a boxed view *is* that box: Geneanet shows the face, not the
-        // group photograph it was cut from, and the portrait has to name the
-        // vignette that only exists once it has been created.
-        let mut boxed: HashMap<(Uuid, i64), Uuid> = HashMap::new();
-        for identification in page_identifications(&people, &pages) {
-            if let Some(vignette_id) = add_vignette(
-                db,
-                identification.page_id,
-                identification.face,
-                identification.person_id,
-                summary,
-            )
-            .await
-            {
-                boxed.insert(
-                    (identification.person_id, identification.view_id),
-                    vignette_id,
-                );
-            }
-        }
-
-        let own_links = linked_people(&people)
+/// The tree's places, by their folded name; none, with a warning, when they
+/// cannot be listed.
+async fn place_keys(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    summary: &mut GeneanetImportSummary,
+) -> HashMap<String, Uuid> {
+    match PlaceRepo::list_all(db, tree_id).await {
+        Ok(places) => places
             .into_iter()
-            .filter(|(person_id, _)| !plan.filed_under_couple.contains(person_id));
-        for (order, (person_id, portrait_view)) in own_links.enumerate() {
-            let created = MediaLinkRepo::create(
-                db,
-                Uuid::now_v7(),
-                owner,
-                Some(person_id),
-                None,
-                None,
-                None,
-                i32::try_from(order).unwrap_or(0),
-            )
-            .await;
+            .map(|place| (place_key(&place.name), place.id))
+            .collect(),
+        Err(err) => {
+            summary
+                .warnings
+                .push(format!("could not list places: {err}"));
+            HashMap::new()
+        }
+    }
+}
 
-            match created {
-                Ok(link) => {
-                    summary.links_count += 1;
-                    // The portrait is a property of the person, so this
-                    // writes the person rather than the link — one row, and
-                    // "at most one portrait" needs no clearing pass.
-                    if let Some(view_id) = portrait_view
-                        && let Some(person_id) = link.person_id
-                    {
-                        // Boxed on the view the `.gw` named: the portrait is
-                        // that box. Otherwise it is the whole picture.
-                        let portrait = boxed
-                            .get(&(person_id, view_id))
-                            .copied()
-                            .map_or(Portrait::Media(link.media_id), Portrait::Vignette);
-                        match PersonRepo::set_portrait(db, person_id, portrait).await {
-                            Ok(_) => summary.portraits_count += 1,
-                            Err(err) => {
-                                summary.skipped.push(format!("deposit {deposit_id}: {err}"))
-                            }
-                        }
-                    }
-                }
+/// Who the imported people are: what resolves a Geneanet reference to a
+/// person, an event and a portrait.
+struct Identities<'a> {
+    person_by_xref: &'a HashMap<String, Uuid>,
+    event_matcher: &'a GeneanetEventMatcher,
+    /// Folded name → the person created for an out-of-tree identification.
+    isolated: &'a HashMap<String, Uuid>,
+    /// Person xref → the view the `.gw` named as their portrait.
+    portraits: &'a HashMap<String, i64>,
+}
+
+impl Identities<'_> {
+    /// Everyone any page of a deposit named, in first-seen order: who they
+    /// are, whether this deposit holds their portrait, and where on the
+    /// picture they were boxed; and the references to link.
+    fn of_deposit(
+        &self,
+        deposit_id: i64,
+        attachments: &[&join::Attachment],
+        unjoined: &[&join::Unjoined],
+        summary: &mut GeneanetImportSummary,
+    ) -> (Vec<Attached>, Vec<LinkReference>) {
+        let mut people: Vec<Attached> = Vec::new();
+        let mut references: Vec<LinkReference> = Vec::new();
+        for attachment in attachments {
+            // `GwDatabase::persons[i]` becomes the individual with xref
+            // `@I{i+1}@` — the positional correspondence the whole join rests
+            // on, and the one place a drift would put photos on strangers.
+            let xref = format!("@I{}@", attachment.person + 1);
+            let Some(person_id) = self.person_by_xref.get(&xref).copied() else {
+                summary.skipped.push(format!(
+                    "deposit {deposit_id}: person {xref} was not imported"
+                ));
+                continue;
+            };
+            // The `.gw` named one view as this person's portrait. Nothing else
+            // knows which of their photos that is.
+            let is_portrait = self
+                .portraits
+                .get(&xref)
+                .is_some_and(|view_id| *view_id == attachment.view_id);
+            references.push(LinkReference {
+                person_id,
+                is_portrait,
+                event: attachment
+                    .event
+                    .as_ref()
+                    .and_then(|event| self.event_matcher.resolve(person_id, event)),
+            });
+            people.push(Attached {
+                person_id,
+                is_portrait,
+                view_id: attachment.view_id,
+                face: attachment.face.clone(),
+            });
+        }
+        // The identifications Geneanet marks "hors de l'arbre" name people we
+        // created above; their media attach exactly like anyone else's.
+        people.extend(unjoined.iter().filter_map(|unjoined| {
+            let (lastname, firstname) = unjoined.outside_tree_name()?;
+            let key = oxidgene_geneanet::key::geneanet_key(lastname, firstname, 0);
+            Some(Attached {
+                person_id: self.isolated.get(&key).copied()?,
+                is_portrait: false,
+                view_id: unjoined.view_id,
+                face: unjoined.face.clone(),
+            })
+        }));
+        (people, references)
+    }
+}
+
+/// Links a stored deposit, `owner`, to the events, couples and people it
+/// documents, boxes each identification on its page, and sets the portraits
+/// it holds.
+async fn link_deposit(
+    db: &DatabaseConnection,
+    deposit_id: i64,
+    owner: Uuid,
+    pages: &HashMap<i64, Uuid>,
+    people: &[Attached],
+    references: &[LinkReference],
+    summary: &mut GeneanetImportSummary,
+) {
+    let plan = plan_deposit_links(references);
+    link_events_and_couples(db, deposit_id, owner, &plan, summary).await;
+
+    // A person links to the document once, but every box remains on the
+    // exact page where Geneanet drew it. The same person may therefore have
+    // several identifications across a multi-page document.
+    //
+    // The boxes are cut before the links are written because a portrait
+    // drawn on a boxed view *is* that box: Geneanet shows the face, not the
+    // group photograph it was cut from, and the portrait has to name the
+    // vignette that only exists once it has been created.
+    let mut boxed: HashMap<(Uuid, i64), Uuid> = HashMap::new();
+    for identification in page_identifications(people, pages) {
+        if let Some(vignette_id) = add_vignette(
+            db,
+            identification.page_id,
+            identification.face,
+            identification.person_id,
+            summary,
+        )
+        .await
+        {
+            boxed.insert(
+                (identification.person_id, identification.view_id),
+                vignette_id,
+            );
+        }
+    }
+
+    let own_links = linked_people(people)
+        .into_iter()
+        .filter(|(person_id, _)| !plan.filed_under_couple.contains(person_id));
+    for (order, (person_id, portrait_view)) in own_links.enumerate() {
+        let created = MediaLinkRepo::create(
+            db,
+            Uuid::now_v7(),
+            owner,
+            Some(person_id),
+            None,
+            None,
+            None,
+            i32::try_from(order).unwrap_or(0),
+        )
+        .await;
+        let Ok(link) = created.map_err(|err| {
+            summary.skipped.push(format!("deposit {deposit_id}: {err}"));
+        }) else {
+            continue;
+        };
+        summary.links_count += 1;
+        // The portrait is a property of the person, so this writes the
+        // person rather than the link — one row, and "at most one portrait"
+        // needs no clearing pass. Boxed on the view the `.gw` named, the
+        // portrait is that box; otherwise it is the whole picture.
+        if let Some(view_id) = portrait_view {
+            let portrait = boxed
+                .get(&(person_id, view_id))
+                .copied()
+                .map_or(Portrait::Media(link.media_id), Portrait::Vignette);
+            match PersonRepo::set_portrait(db, person_id, portrait).await {
+                Ok(_) => summary.portraits_count += 1,
                 Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
             }
+        }
+    }
+}
+
+/// Links a stored deposit, `owner`, to the events and couples of `plan`.
+async fn link_events_and_couples(
+    db: &DatabaseConnection,
+    deposit_id: i64,
+    owner: Uuid,
+    plan: &DepositLinks,
+    summary: &mut GeneanetImportSummary,
+) {
+    for event_id in &plan.event_ids {
+        if let Err(err) = MediaLinkRepo::create(
+            db,
+            Uuid::now_v7(),
+            owner,
+            None,
+            Some(*event_id),
+            None,
+            None,
+            0,
+        )
+        .await
+        {
+            summary.skipped.push(format!(
+                "deposit {deposit_id}: could not link event {event_id}: {err}"
+            ));
+        }
+    }
+    for (order, family_id) in plan.family_ids.iter().enumerate() {
+        match MediaLinkRepo::create(
+            db,
+            Uuid::now_v7(),
+            owner,
+            None,
+            None,
+            None,
+            Some(*family_id),
+            i32::try_from(order).unwrap_or(0),
+        )
+        .await
+        {
+            Ok(_) => summary.links_count += 1,
+            Err(err) => summary.skipped.push(format!("deposit {deposit_id}: {err}")),
         }
     }
 }
@@ -1736,96 +1784,30 @@ fn take_portrait_urls(
     result: &mut oxidgene_gedcom::ImportResult,
     manifest: &Manifest,
 ) -> HashMap<String, i64> {
-    // Every rendition of every view, so whichever one the `.gw` names is found.
-    let mut view_of: HashMap<String, i64> = HashMap::new();
-    let mut known: std::collections::BTreeSet<i64> = std::collections::BTreeSet::new();
-    for deposit in &manifest.deposits {
-        for view in &deposit.views {
-            known.insert(view.id);
-            for url in view.files.values() {
-                view_of.insert(strip_query(url).to_string(), view.id);
-            }
-        }
-    }
-
-    // Which pages are portraits we are about to replace. Only a page names a
-    // file, so only a page can carry the `#image` URL — the document above it
-    // holds the description and no address at all.
-    let mut replaced: HashMap<Uuid, i64> = HashMap::new();
-    for medium in &result.media {
-        let path = strip_query(&medium.file_path);
-        // Host-relative in the manifest, absolute in the export.
-        let tail = path.find("/public/").map_or(path, |at| &path[at..]);
-        // Measured on a real export: 163 of 225 portraits name a rendition
-        // path outright, and the other 62 name the *original* file
-        // (`130436018.png` rather than `medium.jpg`). Both carry the view id in
-        // the same place, so the id is the fallback and together they account
-        // for every portrait.
-        if let Some(view_id) = view_of
-            .get(tail)
-            .copied()
-            .or_else(|| view_id_in_path(tail).filter(|id| known.contains(id)))
-        {
-            replaced.insert(medium.id, view_id);
-        }
-    }
-
+    let replaced = portrait_pages(result, manifest);
     if replaced.is_empty() {
         return HashMap::new();
     }
-
-    // Removing the page alone would leave its document behind: an empty shell
-    // in the gallery, named after a file nobody holds, beside the very
-    // photograph it was replaced by. A document goes only when every one of
-    // its pages goes with it — a regrouped `_OXIDGENE_DOC` could hold pages we
-    // are keeping.
-    let mut pages_of: HashMap<Uuid, (usize, usize)> = HashMap::new();
-    for medium in &result.media {
-        if let Some(document_id) = medium.parent_media_id {
-            let counted = pages_of.entry(document_id).or_insert((0, 0));
-            counted.0 += 1;
-            if replaced.contains_key(&medium.id) {
-                counted.1 += 1;
-            }
-        }
-    }
-    let emptied: HashMap<Uuid, i64> = result
-        .media
-        .iter()
-        .filter(|medium| medium.is_document())
-        .filter_map(|document| {
-            let (pages, gone) = pages_of.get(&document.id).copied()?;
-            if pages == 0 || pages != gone {
-                return None;
-            }
-            let view_id = result
-                .media
-                .iter()
-                .filter(|page| page.parent_media_id == Some(document.id))
-                .find_map(|page| replaced.get(&page.id).copied())?;
-            Some((document.id, view_id))
-        })
-        .collect();
+    let emptied = emptied_documents(result, &replaced);
 
     // The link is what says whose portrait it was, and a link names the
     // document, never the page inside it.
-    let mut portraits: HashMap<String, i64> = HashMap::new();
-    let person_xref: HashMap<Uuid, String> = result
+    let person_xref: HashMap<Uuid, &String> = result
         .person_by_xref
         .iter()
-        .map(|(xref, id)| (*id, xref.clone()))
+        .map(|(xref, id)| (*id, xref))
         .collect();
-
-    for link in &result.media_links {
-        if let Some(view_id) = emptied
-            .get(&link.media_id)
-            .or_else(|| replaced.get(&link.media_id))
-            && let Some(person_id) = link.person_id
-            && let Some(xref) = person_xref.get(&person_id)
-        {
-            portraits.insert(xref.clone(), *view_id);
-        }
-    }
+    let portraits: HashMap<String, i64> = result
+        .media_links
+        .iter()
+        .filter_map(|link| {
+            let view_id = emptied
+                .get(&link.media_id)
+                .or_else(|| replaced.get(&link.media_id))?;
+            let xref = person_xref.get(&link.person_id?)?;
+            Some(((*xref).clone(), *view_id))
+        })
+        .collect();
 
     let removed = |id: &Uuid| replaced.contains_key(id) || emptied.contains_key(id);
     result.media.retain(|medium| !removed(&medium.id));
@@ -1838,8 +1820,81 @@ fn take_portrait_urls(
             person.portrait_media_id = None;
         }
     }
-
     portraits
+}
+
+/// The pages that are portraits about to be replaced, with their view.
+///
+/// Only a page names a file, so only a page can carry the `#image` URL — the
+/// document above it holds the description and no address at all.
+fn portrait_pages(
+    result: &oxidgene_gedcom::ImportResult,
+    manifest: &Manifest,
+) -> HashMap<Uuid, i64> {
+    // Every rendition of every view, so whichever one the `.gw` names is found.
+    let mut view_of: HashMap<&str, i64> = HashMap::new();
+    let mut known: HashSet<i64> = HashSet::new();
+    for view in manifest.deposits.iter().flat_map(|d| &d.views) {
+        known.insert(view.id);
+        for url in view.files.values() {
+            view_of.insert(strip_query(url), view.id);
+        }
+    }
+    result
+        .media
+        .iter()
+        .filter_map(|medium| {
+            let path = strip_query(&medium.file_path);
+            // Host-relative in the manifest, absolute in the export.
+            let tail = path.find("/public/").map_or(path, |at| &path[at..]);
+            // Measured on a real export: 163 of 225 portraits name a rendition
+            // path outright, and the other 62 name the *original* file
+            // (`130436018.png` rather than `medium.jpg`). Both carry the view
+            // id in the same place, so the id is the fallback and together
+            // they account for every portrait.
+            let view_id = view_of
+                .get(tail)
+                .copied()
+                .or_else(|| view_id_in_path(tail).filter(|id| known.contains(id)))?;
+            Some((medium.id, view_id))
+        })
+        .collect()
+}
+
+/// The documents all of whose pages are `replaced`, with the view of the
+/// first.
+///
+/// Removing the page alone would leave its document behind: an empty shell
+/// in the gallery, named after a file nobody holds, beside the very
+/// photograph it was replaced by. A document goes only when every one of its
+/// pages goes with it — a regrouped `_OXIDGENE_DOC` could hold pages we are
+/// keeping.
+fn emptied_documents(
+    result: &oxidgene_gedcom::ImportResult,
+    replaced: &HashMap<Uuid, i64>,
+) -> HashMap<Uuid, i64> {
+    // Per document: its pages, those replaced, and the first one's view.
+    let mut pages_of: HashMap<Uuid, (usize, usize, Option<i64>)> = HashMap::new();
+    for medium in &result.media {
+        let Some(document_id) = medium.parent_media_id else {
+            continue;
+        };
+        let counted = pages_of.entry(document_id).or_insert((0, 0, None));
+        counted.0 += 1;
+        if let Some(&view_id) = replaced.get(&medium.id) {
+            counted.1 += 1;
+            counted.2 = counted.2.or(Some(view_id));
+        }
+    }
+    result
+        .media
+        .iter()
+        .filter(|medium| medium.is_document())
+        .filter_map(|document| {
+            let (pages, gone, view_id) = pages_of.get(&document.id).copied()?;
+            (pages > 0 && pages == gone).then_some((document.id, view_id?))
+        })
+        .collect()
 }
 
 /// A URL without its `?t=…` cache buster.

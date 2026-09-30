@@ -62,6 +62,8 @@ struct IndexedData {
     portrait_vignette_by_id: HashMap<Uuid, Vignette>,
     /// Media indexed by media_id
     media_by_id: HashMap<Uuid, Media>,
+    /// The first page of each document, by the document's id.
+    first_page_by_document: HashMap<Uuid, Uuid>,
     /// Citation count by person_id
     citation_count_by_person: HashMap<Uuid, u32>,
     /// Note count by person_id
@@ -160,6 +162,7 @@ impl IndexedData {
 
         let media_by_id: HashMap<Uuid, Media> =
             data.media.iter().map(|m| (m.id, m.clone())).collect();
+        let first_page_by_document = first_pages(&data.media);
 
         // Count citations directly linked to each person.
         let mut citation_count_by_person: HashMap<Uuid, u32> = HashMap::new();
@@ -193,6 +196,7 @@ impl IndexedData {
             media_links_by_person,
             portrait_vignette_by_id,
             media_by_id,
+            first_page_by_document,
             citation_count_by_person,
             note_count_by_person,
             display_names,
@@ -210,6 +214,28 @@ impl IndexedData {
     fn given_names_of(&self, person_id: Uuid) -> Option<String> {
         self.split_names.get(&person_id).and_then(|n| n.1.clone())
     }
+}
+
+/// The first page of each document among `media`, by the document's id.
+fn first_pages(media: &[Media]) -> HashMap<Uuid, Uuid> {
+    let mut first: HashMap<Uuid, &Media> = HashMap::new();
+    for page in media {
+        let Some(document_id) = page.parent_media_id else {
+            continue;
+        };
+        first
+            .entry(document_id)
+            .and_modify(|held| {
+                if (page.page_index, page.id) < (held.page_index, held.id) {
+                    *held = page;
+                }
+            })
+            .or_insert(page);
+    }
+    first
+        .into_iter()
+        .map(|(document_id, page)| (document_id, page.id))
+        .collect()
 }
 
 /// Build a `ProfileEvent` from a raw `Event` and the place index.
@@ -306,10 +332,9 @@ pub fn build_persons(
 fn drawable_media<'a>(idx: &'a IndexedData, media: &'a Media) -> Option<&'a Media> {
     match media.parent_media_id {
         None => idx
-            .media_by_id
-            .values()
-            .filter(|candidate| candidate.parent_media_id == Some(media.id))
-            .min_by_key(|page| (page.page_index, page.id)),
+            .first_page_by_document
+            .get(&media.id)
+            .and_then(|page| idx.media_by_id.get(page)),
         Some(_) => Some(media),
     }
 }
@@ -322,13 +347,51 @@ fn build_one_person(
     now: chrono::DateTime<Utc>,
 ) -> PersonProfile {
     let pid = person.id;
+    let (primary_name, other_names) = profile_names(idx, pid);
+    let events = KeyEvents::of(idx, pid);
+    let families_as_spouse = idx
+        .families_by_spouse
+        .get(&pid)
+        .map(|entries| entries.iter().map(|fs| spouse_link(idx, pid, fs)).collect())
+        .unwrap_or_default();
+    let family_as_child = idx
+        .family_by_child
+        .get(&pid)
+        .and_then(|entries| entries.first())
+        .map(|fc| child_link(idx, fc));
+    let media_links: &[MediaLink] = idx
+        .media_links_by_person
+        .get(&pid)
+        .map_or(&[], Vec::as_slice);
 
-    // ── Names ────────────────────────────────────────────────────────────
-    let names = idx.names_by_person.get(&pid).cloned().unwrap_or_default();
+    PersonProfile {
+        person_id: pid,
+        tree_id,
+        sex: person.sex,
+        primary_name,
+        other_names,
+        birth: events.birth,
+        death: events.death,
+        baptism: events.baptism,
+        burial: events.burial,
+        occupation: events.occupation,
+        other_events: events.others,
+        families_as_spouse,
+        family_as_child,
+        primary_media: primary_media(idx, person, media_links),
+        media_count: media_links.len() as u32,
+        citation_count: idx.citation_count_by_person.get(&pid).copied().unwrap_or(0),
+        note_count: idx.note_count_by_person.get(&pid).copied().unwrap_or(0),
+        updated_at: person.updated_at,
+        built_at: now,
+    }
+}
+
+/// The primary name of person `pid`, and their other names.
+fn profile_names(idx: &IndexedData, pid: Uuid) -> (Option<ProfileName>, Vec<ProfileName>) {
     let mut primary_name: Option<ProfileName> = None;
     let mut other_names: Vec<ProfileName> = Vec::new();
-
-    for name in &names {
+    for name in idx.names_by_person.get(&pid).into_iter().flatten() {
         let cached = ProfileName {
             name_id: name.id,
             name_type: name.name_type,
@@ -345,229 +408,159 @@ fn build_one_person(
             other_names.push(cached);
         }
     }
+    (primary_name, other_names)
+}
 
-    // ── Events ───────────────────────────────────────────────────────────
-    let events = idx.events_by_person.get(&pid).cloned().unwrap_or_default();
-    let mut birth: Option<ProfileEvent> = None;
-    let mut death: Option<ProfileEvent> = None;
-    let mut baptism: Option<ProfileEvent> = None;
-    let mut burial: Option<ProfileEvent> = None;
-    let mut occupation: Option<String> = None;
-    let mut other_events: Vec<ProfileEvent> = Vec::new();
+/// A person's own events, the key ones apart.
+#[derive(Default)]
+struct KeyEvents {
+    birth: Option<ProfileEvent>,
+    death: Option<ProfileEvent>,
+    baptism: Option<ProfileEvent>,
+    burial: Option<ProfileEvent>,
+    occupation: Option<String>,
+    others: Vec<ProfileEvent>,
+}
 
-    for event in &events {
-        let cached = build_profile_event(event, &idx.places_by_id);
-        match event.event_type {
-            EventType::Birth => birth = Some(cached),
-            EventType::Death => death = Some(cached),
-            EventType::Baptism => baptism = Some(cached),
-            EventType::Burial => burial = Some(cached),
-            EventType::Occupation => {
-                occupation = event.description.clone();
-                other_events.push(cached);
-            }
-            _ => other_events.push(cached),
-        }
-    }
-
-    // ── Family links (as spouse) ─────────────────────────────────────────
-    let spouse_entries = idx
-        .families_by_spouse
-        .get(&pid)
-        .cloned()
-        .unwrap_or_default();
-    let families_as_spouse: Vec<ProfileFamilyLink> = spouse_entries
-        .iter()
-        .map(|fs| {
-            let family_id = fs.family_id;
-
-            // Find the other spouse in this family
-            let other_spouse = idx
-                .spouses_by_family
-                .get(&family_id)
-                .and_then(|spouses| spouses.iter().find(|s| s.person_id != pid));
-
-            let spouse_id = other_spouse.map(|s| s.person_id);
-            let spouse_display_name =
-                spouse_id.and_then(|sid| idx.display_names.get(&sid).cloned());
-            let spouse_surname = spouse_id.and_then(|sid| idx.surname_of(sid));
-            let spouse_given_names = spouse_id.and_then(|sid| idx.given_names_of(sid));
-            let spouse_sex = spouse_id.and_then(|sid| idx.sex_by_person.get(&sid).copied());
-
-            // Collect all family events (marriage, divorce, annulment, etc.)
-            let all_family_events: Vec<ProfileEvent> = idx
-                .events_by_family
-                .get(&family_id)
-                .map(|events| {
-                    events
-                        .iter()
-                        .map(|e| build_profile_event(e, &idx.places_by_id))
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            // Find marriage event for this family
-            let marriage = all_family_events
-                .iter()
-                .find(|e| e.event_type == EventType::Marriage)
-                .cloned();
-
-            // Children in this family
-            let family_children = idx
-                .children_by_family
-                .get(&family_id)
-                .cloned()
-                .unwrap_or_default();
-            let children_ids: Vec<Uuid> = family_children.iter().map(|c| c.person_id).collect();
-            let children_count = children_ids.len() as u32;
-
-            ProfileFamilyLink {
-                family_id,
-                role: fs.role,
-                spouse_id,
-                spouse_display_name,
-                spouse_surname,
-                spouse_given_names,
-                spouse_sex,
-                marriage,
-                events: all_family_events,
-                children_ids,
-                children_count,
-            }
-        })
-        .collect();
-
-    // ── Family link (as child) ───────────────────────────────────────────
-    let family_as_child = idx
-        .family_by_child
-        .get(&pid)
-        .and_then(|entries| entries.first())
-        .map(|fc| {
-            let family_id = fc.family_id;
-            let parents = idx
-                .spouses_by_family
-                .get(&family_id)
-                .cloned()
-                .unwrap_or_default();
-
-            let mut father_id: Option<Uuid> = None;
-            let mut mother_id: Option<Uuid> = None;
-
-            for parent in &parents {
-                let sex = idx.sex_by_person.get(&parent.person_id).copied();
-                match (parent.role, sex) {
-                    (SpouseRole::Husband, _) | (SpouseRole::Partner, Some(Sex::Male)) => {
-                        father_id = Some(parent.person_id);
-                    }
-                    (SpouseRole::Wife, _) | (SpouseRole::Partner, Some(Sex::Female)) => {
-                        mother_id = Some(parent.person_id);
-                    }
-                    _ => {
-                        // For unknown sex partner, assign to first empty slot
-                        if father_id.is_none() {
-                            father_id = Some(parent.person_id);
-                        } else if mother_id.is_none() {
-                            mother_id = Some(parent.person_id);
-                        }
-                    }
+impl KeyEvents {
+    fn of(idx: &IndexedData, pid: Uuid) -> Self {
+        let mut events = Self::default();
+        for event in idx.events_by_person.get(&pid).into_iter().flatten() {
+            let cached = build_profile_event(event, &idx.places_by_id);
+            match event.event_type {
+                EventType::Birth => events.birth = Some(cached),
+                EventType::Death => events.death = Some(cached),
+                EventType::Baptism => events.baptism = Some(cached),
+                EventType::Burial => events.burial = Some(cached),
+                EventType::Occupation => {
+                    events.occupation = event.description.clone();
+                    events.others.push(cached);
                 }
+                _ => events.others.push(cached),
             }
+        }
+        events
+    }
+}
 
-            ProfileChildLink {
-                family_id,
-                child_type: fc.child_type,
-                father_id,
-                father_display_name: father_id.and_then(|id| idx.display_names.get(&id).cloned()),
-                father_surname: father_id.and_then(|id| idx.surname_of(id)),
-                father_given_names: father_id.and_then(|id| idx.given_names_of(id)),
-                mother_id,
-                mother_display_name: mother_id.and_then(|id| idx.display_names.get(&id).cloned()),
-                mother_surname: mother_id.and_then(|id| idx.surname_of(id)),
-                mother_given_names: mother_id.and_then(|id| idx.given_names_of(id)),
-            }
-        });
+/// Person `pid`'s link to a family they are a spouse in.
+fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamilyLink {
+    let family_id = fs.family_id;
+    let spouse_id = idx
+        .spouses_by_family
+        .get(&family_id)
+        .and_then(|spouses| spouses.iter().find(|s| s.person_id != pid))
+        .map(|s| s.person_id);
+    // Every family event: marriage, divorce, annulment and the rest.
+    let events: Vec<ProfileEvent> = idx
+        .events_by_family
+        .get(&family_id)
+        .into_iter()
+        .flatten()
+        .map(|e| build_profile_event(e, &idx.places_by_id))
+        .collect();
+    let marriage = events
+        .iter()
+        .find(|e| e.event_type == EventType::Marriage)
+        .cloned();
+    let children_ids: Vec<Uuid> = idx
+        .children_by_family
+        .get(&family_id)
+        .into_iter()
+        .flatten()
+        .map(|c| c.person_id)
+        .collect();
+    ProfileFamilyLink {
+        family_id,
+        role: fs.role,
+        spouse_id,
+        spouse_display_name: spouse_id.and_then(|sid| idx.display_names.get(&sid).cloned()),
+        spouse_surname: spouse_id.and_then(|sid| idx.surname_of(sid)),
+        spouse_given_names: spouse_id.and_then(|sid| idx.given_names_of(sid)),
+        spouse_sex: spouse_id.and_then(|sid| idx.sex_by_person.get(&sid).copied()),
+        marriage,
+        events,
+        children_count: children_ids.len() as u32,
+        children_ids,
+    }
+}
 
-    // ── Media ────────────────────────────────────────────────────────────
-    let person_media_links = idx
-        .media_links_by_person
-        .get(&pid)
-        .cloned()
-        .unwrap_or_default();
-    let media_count = person_media_links.len() as u32;
+/// A person's link to the family they are a child of.
+fn child_link(idx: &IndexedData, fc: &FamilyChild) -> ProfileChildLink {
+    let (father_id, mother_id) = father_and_mother(idx, fc.family_id);
+    ProfileChildLink {
+        family_id: fc.family_id,
+        child_type: fc.child_type,
+        father_id,
+        father_display_name: father_id.and_then(|id| idx.display_names.get(&id).cloned()),
+        father_surname: father_id.and_then(|id| idx.surname_of(id)),
+        father_given_names: father_id.and_then(|id| idx.given_names_of(id)),
+        mother_id,
+        mother_display_name: mother_id.and_then(|id| idx.display_names.get(&id).cloned()),
+        mother_surname: mother_id.and_then(|id| idx.surname_of(id)),
+        mother_given_names: mother_id.and_then(|id| idx.given_names_of(id)),
+    }
+}
 
-    let drawable = |media| drawable_media(idx, media);
+/// The father and the mother among a family's spouses, by role, then by sex
+/// for a partner; a partner of unknown sex takes the first empty place.
+fn father_and_mother(idx: &IndexedData, family_id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
+    let mut father_id: Option<Uuid> = None;
+    let mut mother_id: Option<Uuid> = None;
+    for parent in idx.spouses_by_family.get(&family_id).into_iter().flatten() {
+        let sex = idx.sex_by_person.get(&parent.person_id).copied();
+        let slot = match (parent.role, sex) {
+            (SpouseRole::Husband, _) | (SpouseRole::Partner, Some(Sex::Male)) => &mut father_id,
+            (SpouseRole::Wife, _) | (SpouseRole::Partner, Some(Sex::Female)) => &mut mother_id,
+            _ if father_id.is_none() => &mut father_id,
+            _ if mother_id.is_none() => &mut mother_id,
+            _ => continue,
+        };
+        *slot = Some(parent.person_id);
+    }
+    (father_id, mother_id)
+}
 
-    // Resolve the selected portrait; crops retain their vignette ID.
-    let primary_media = person
-        .portrait_vignette_id
-        .and_then(|vignette_id| {
-            let vignette = idx.portrait_vignette_by_id.get(&vignette_id)?;
-            let media = idx.media_by_id.get(&vignette.media_id)?;
-            Some(ProfileMediaRef {
-                media_id: media.id,
-                vignette_id: Some(vignette_id),
-                file_path: media.file_path.clone(),
-                mime_type: media.mime_type.clone(),
-                title: media.title.clone(),
-            })
-        })
-        .or_else(|| {
-            // What a reader chooses is a tile, and a tile is a document.
-            let media = drawable(idx.media_by_id.get(&person.portrait_media_id?)?)?;
-            Some(ProfileMediaRef {
-                media_id: media.id,
-                vignette_id: None,
-                file_path: media.file_path.clone(),
-                mime_type: media.mime_type.clone(),
-                title: media.title.clone(),
-            })
-        })
-        // Nothing chosen: their first linked photograph. No import sets a
-        // portrait — neither GEDCOM nor a `.gw` says which picture represents
-        // somebody — so without this a freshly imported tree draws silhouettes
-        // for everyone who has photographs.
-        .or_else(|| {
-            let media = person_media_links
-                .iter()
-                .filter_map(|link| Some((link, idx.media_by_id.get(&link.media_id)?)))
-                .filter_map(|(link, media)| Some((link, drawable(media)?)))
-                .min_by_key(|(link, _)| (link.sort_order, link.id))
-                .map(|(_, media)| media)?;
-            Some(ProfileMediaRef {
-                media_id: media.id,
-                vignette_id: None,
-                file_path: media.file_path.clone(),
-                mime_type: media.mime_type.clone(),
-                title: media.title.clone(),
-            })
-        });
+/// What represents a person: their chosen portrait — a crop keeps its
+/// vignette — or, nothing chosen, their first linked photograph.
+fn primary_media(
+    idx: &IndexedData,
+    person: &Person,
+    media_links: &[MediaLink],
+) -> Option<ProfileMediaRef> {
+    let crop = || {
+        let vignette_id = person.portrait_vignette_id?;
+        let vignette = idx.portrait_vignette_by_id.get(&vignette_id)?;
+        let media = idx.media_by_id.get(&vignette.media_id)?;
+        Some(media_ref(media, Some(vignette_id)))
+    };
+    // What a reader chooses is a tile, and a tile is a document.
+    let chosen = || {
+        let media = drawable_media(idx, idx.media_by_id.get(&person.portrait_media_id?)?)?;
+        Some(media_ref(media, None))
+    };
+    // No import sets a portrait — neither GEDCOM nor a `.gw` says which
+    // picture represents somebody — so without this a freshly imported tree
+    // draws silhouettes for everyone who has photographs.
+    let first_linked = || {
+        let media = media_links
+            .iter()
+            .filter_map(|link| Some((link, idx.media_by_id.get(&link.media_id)?)))
+            .filter_map(|(link, media)| Some((link, drawable_media(idx, media)?)))
+            .min_by_key(|(link, _)| (link.sort_order, link.id))
+            .map(|(_, media)| media)?;
+        Some(media_ref(media, None))
+    };
+    crop().or_else(chosen).or_else(first_linked)
+}
 
-    // ── Citation count ───────────────────────────────────────────────────
-    let citation_count = idx.citation_count_by_person.get(&pid).copied().unwrap_or(0);
-
-    // ── Note count ───────────────────────────────────────────────────────
-    let note_count = idx.note_count_by_person.get(&pid).copied().unwrap_or(0);
-
-    PersonProfile {
-        person_id: pid,
-        tree_id,
-        sex: person.sex,
-        primary_name,
-        other_names,
-        birth,
-        death,
-        baptism,
-        burial,
-        occupation,
-        other_events,
-        families_as_spouse,
-        family_as_child,
-        primary_media,
-        media_count,
-        citation_count,
-        note_count,
-        updated_at: person.updated_at,
-        built_at: now,
+fn media_ref(media: &Media, vignette_id: Option<Uuid>) -> ProfileMediaRef {
+    ProfileMediaRef {
+        media_id: media.id,
+        vignette_id,
+        file_path: media.file_path.clone(),
+        mime_type: media.mime_type.clone(),
+        title: media.title.clone(),
     }
 }
 

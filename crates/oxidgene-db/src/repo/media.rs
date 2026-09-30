@@ -591,41 +591,8 @@ impl MediaRepo {
                     .cloned()
             })
             .collect();
-        let retained_keys: HashSet<String> = Entity::find()
-            .filter(Column::DeletedAt.is_null())
-            .filter(Column::Id.is_not_in(media_ids.iter().copied()))
-            .all(db)
-            .await
-            .map_err(db_err)?
-            .into_iter()
-            .flat_map(|media| {
-                [media.storage_key, media.thumbnail_key]
-                    .into_iter()
-                    .flatten()
-            })
-            .collect();
-
-        media_tag::Entity::delete_many()
-            .filter(media_tag::Column::MediaId.is_in(media_ids.iter().copied()))
-            .exec(db)
-            .await
-            .map_err(db_err)?;
-        delete_media_relations(db, &media_ids).await?;
-        note::Entity::delete_many()
-            .filter(note::Column::MediaId.is_in(media_ids.iter().copied()))
-            .exec(db)
-            .await
-            .map_err(db_err)?;
-
-        if !page_ids.is_empty() {
-            Entity::delete_many()
-                .filter(Column::Id.is_in(page_ids))
-                .exec(db)
-                .await
-                .map_err(db_err)?;
-        }
-        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
-
+        let retained_keys = keys_of_other_media(db, &media_ids).await?;
+        delete_media_rows(db, &page_ids, id).await?;
         if let Some(document_id) = root.parent_media_id {
             let remaining: Vec<Uuid> = Self::list_pages(db, document_id)
                 .await?
@@ -837,6 +804,58 @@ async fn page_document(
         ));
     }
     Ok(id)
+}
+
+/// The storage and thumbnail keys of the active media other than `excluded`:
+/// content-addressed files can be shared, and a key stays while another
+/// record points at it.
+async fn keys_of_other_media(
+    db: &impl ConnectionTrait,
+    excluded: &[Uuid],
+) -> Result<HashSet<String>, OxidGeneError> {
+    Ok(Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Id.is_not_in(excluded.iter().copied()))
+        .all(db)
+        .await
+        .map_err(db_err)?
+        .into_iter()
+        .flat_map(|media| {
+            [media.storage_key, media.thumbnail_key]
+                .into_iter()
+                .flatten()
+        })
+        .collect())
+}
+
+/// Delete medium `id`, its pages `page_ids`, and every row naming them.
+async fn delete_media_rows(
+    db: &impl ConnectionTrait,
+    page_ids: &[Uuid],
+    id: Uuid,
+) -> Result<(), OxidGeneError> {
+    let media_ids: Vec<Uuid> = page_ids.iter().copied().chain([id]).collect();
+    media_tag::Entity::delete_many()
+        .filter(media_tag::Column::MediaId.is_in(media_ids.iter().copied()))
+        .exec(db)
+        .await
+        .map_err(db_err)?;
+    delete_media_relations(db, &media_ids).await?;
+    note::Entity::delete_many()
+        .filter(note::Column::MediaId.is_in(media_ids.iter().copied()))
+        .exec(db)
+        .await
+        .map_err(db_err)?;
+    // The pages before the document they belong to.
+    if !page_ids.is_empty() {
+        Entity::delete_many()
+            .filter(Column::Id.is_in(page_ids.iter().copied()))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+    }
+    Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
+    Ok(())
 }
 
 async fn delete_media_relations(

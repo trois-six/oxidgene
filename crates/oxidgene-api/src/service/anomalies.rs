@@ -407,25 +407,8 @@ pub fn compute(
 }
 
 fn dates(me: &Life<'_>, today: NaiveDate, found: &mut Findings) {
+    lifespan(me, found);
     let p = me.profile;
-    if let (Some(birth), Some(death)) = (me.birth, me.death) {
-        if death.before(birth) {
-            found.add("death_before_birth", Anomaly::of(vec![me.at()]));
-        } else {
-            let least = birth.least_years_to(death);
-            if least > MAX_LIFESPAN_YEARS {
-                found.add(
-                    "lived_over_105",
-                    Anomaly::of(vec![me.at()]).with_value(least),
-                );
-            } else if least > OLD_CENTENARIAN_YEARS && birth.to.year() < CENTENARIAN_BEFORE_YEAR {
-                found.add(
-                    "centenarian_before_1900",
-                    Anomaly::of(vec![me.at()]).with_value(least),
-                );
-            }
-        }
-    }
     let death = Span::of(p.death.as_ref());
     let burial = Span::of(p.burial.as_ref());
     if let (Some(death), Some(burial)) = (death, burial)
@@ -438,19 +421,50 @@ fn dates(me: &Life<'_>, today: NaiveDate, found: &mut Findings) {
     {
         found.add("baptism_after_death", Anomaly::of(vec![me.at()]));
     }
+    events_in_life(me, today, death, burial, found);
+}
 
+/// A death before the birth, or a life too long.
+fn lifespan(me: &Life<'_>, found: &mut Findings) {
+    let (Some(birth), Some(death)) = (me.birth, me.death) else {
+        return;
+    };
+    if death.before(birth) {
+        found.add("death_before_birth", Anomaly::of(vec![me.at()]));
+        return;
+    }
+    let least = birth.least_years_to(death);
+    if least > MAX_LIFESPAN_YEARS {
+        found.add(
+            "lived_over_105",
+            Anomaly::of(vec![me.at()]).with_value(least),
+        );
+    } else if least > OLD_CENTENARIAN_YEARS && birth.to.year() < CENTENARIAN_BEFORE_YEAR {
+        found.add(
+            "centenarian_before_1900",
+            Anomaly::of(vec![me.at()]).with_value(least),
+        );
+    }
+}
+
+/// A person's events against today, their birth, their `death` and their
+/// `burial`.
+fn events_in_life(
+    me: &Life<'_>,
+    today: NaiveDate,
+    death: Option<Span>,
+    burial: Option<Span>,
+    found: &mut Findings,
+) {
     // The event standing for the birth is not compared with itself.
-    let birth_event = p.birth_or_baptism().map(|e| e.event_id);
-    let mut after_death = HashSet::new();
+    let birth_event = me.profile.birth_or_baptism().map(|e| e.event_id);
     for event in me.events() {
         let Some(span) = Span::of(Some(event)) else {
             continue;
         };
+        let anomaly = || Anomaly::of(vec![me.at()]).with_event(event.event_type);
         if span.from > today {
-            found.add(
-                "future_date",
-                Anomaly::of(vec![me.at()]).with_event(event.event_type),
-            );
+            found.add("future_date", anomaly());
         }
         let key = matches!(
             event.event_type,
@@ -461,32 +475,16 @@ fn dates(me: &Life<'_>, today: NaiveDate, found: &mut Findings) {
             && Some(event.event_id) != birth_event
             && span.before(birth)
         {
-            found.add(
-                "event_before_birth",
-                Anomaly::of(vec![me.at()]).with_event(event.event_type),
-            );
+            found.add("event_before_birth", anomaly());
         }
-        if let Some(death) = death
-            && !after_death_allowed(event.event_type)
-            && event.event_type != EventType::Baptism
-            && death.before(span)
-        {
-            after_death.insert(event.event_id);
-            found.add(
-                "event_after_death",
-                Anomaly::of(vec![me.at()]).with_event(event.event_type),
-            );
+        if after_death_allowed(event.event_type) || event.event_type == EventType::Baptism {
+            continue;
         }
-        if let Some(burial) = burial
-            && !after_death_allowed(event.event_type)
-            && event.event_type != EventType::Baptism
-            && !after_death.contains(&event.event_id)
-            && burial.before(span)
-        {
-            found.add(
-                "burial_not_last",
-                Anomaly::of(vec![me.at()]).with_event(event.event_type),
-            );
+        // An event after the death is not also reported after the burial.
+        if death.is_some_and(|death| death.before(span)) {
+            found.add("event_after_death", anomaly());
+        } else if burial.is_some_and(|burial| burial.before(span)) {
+            found.add("burial_not_last", anomaly());
         }
     }
 }
@@ -578,34 +576,58 @@ fn filiation<'a>(
         let Some(parent) = parent_id.as_ref().and_then(life) else {
             continue;
         };
-        let pair = || Anomaly::of(vec![me.at(), parent.at()]);
-        if let Some(parent_born) = parent.birth {
-            if born.before(parent_born) {
-                found.add("parent_born_after_child", pair());
-            } else {
-                let most = parent_born.most_years_to(born);
-                let least = parent_born.least_years_to(born);
-                if most < MIN_PARENT_AGE_YEARS {
-                    found.add("parent_too_young", pair().with_value(most));
-                } else if father && least > MAX_FATHER_AGE_YEARS {
-                    found.add("father_too_old", pair().with_value(least));
-                } else if !father && least > MAX_MOTHER_AGE_YEARS {
-                    found.add("mother_too_old", pair().with_value(least));
-                }
-            }
+        for (rule, value) in parent_rules(born, parent, father) {
+            let pair = Anomaly::of(vec![me.at(), parent.at()]);
+            let anomaly = match value {
+                Some(value) => pair.with_value(value),
+                None => pair,
+            };
+            found.add(rule, anomaly);
         }
-        if let Some(parent_died) = parent.death {
-            if !father && parent_died.before(born) {
-                found.add("born_after_mother_death", pair());
-            }
-            let least = parent_died.least_days_to(born);
-            if father && least > MAX_POSTHUMOUS_BIRTH_DAYS {
-                found.add(
-                    "born_long_after_father_death",
-                    pair().with_value(least as f64),
-                );
-            }
+    }
+}
+
+/// The filiation rules a child born at `born` breaks with a parent, the
+/// `father` or else the mother: each rule with its value, when it has one.
+fn parent_rules(born: Span, parent: &Life<'_>, father: bool) -> Vec<(&'static str, Option<f64>)> {
+    let mut broken: Vec<(&'static str, Option<f64>)> = Vec::new();
+    if let Some(parent_born) = parent.birth {
+        broken.extend(parent_age_rule(born, parent_born, father));
+    }
+    if let Some(parent_died) = parent.death {
+        if !father && parent_died.before(born) {
+            broken.push(("born_after_mother_death", None));
         }
+        let least = parent_died.least_days_to(born);
+        if father && least > MAX_POSTHUMOUS_BIRTH_DAYS {
+            broken.push(("born_long_after_father_death", Some(least as f64)));
+        }
+    }
+    broken
+}
+
+/// The rule a parent's age at the birth breaks, if any.
+fn parent_age_rule(
+    born: Span,
+    parent_born: Span,
+    father: bool,
+) -> Option<(&'static str, Option<f64>)> {
+    if born.before(parent_born) {
+        return Some(("parent_born_after_child", None));
+    }
+    let most = parent_born.most_years_to(born);
+    let least = parent_born.least_years_to(born);
+    let (oldest, too_old) = if father {
+        (MAX_FATHER_AGE_YEARS, "father_too_old")
+    } else {
+        (MAX_MOTHER_AGE_YEARS, "mother_too_old")
+    };
+    if most < MIN_PARENT_AGE_YEARS {
+        Some(("parent_too_young", Some(most)))
+    } else if least > oldest {
+        Some((too_old, Some(least)))
+    } else {
+        None
     }
 }
 
@@ -1025,7 +1047,46 @@ fn witnessing<'a>(
     witnesses: &[EventWitness],
     found: &mut Findings,
 ) {
-    // Every dated event with whose it is: a person's, or a union's spouses.
+    let events = owned_events(sorted, lives);
+    let mut rows: Vec<&EventWitness> = witnesses.iter().collect();
+    rows.sort_by_key(|w| (w.event_id, w.sort_order, w.person_id));
+    for row in rows {
+        let (Some(witness), Some((event, owners, family))) =
+            (lives.get(&row.person_id), events.get(&row.event_id))
+        else {
+            continue;
+        };
+        let anomaly = || {
+            let mut persons = vec![witness.at()];
+            persons.extend(owners.iter().filter_map(|id| lives.get(id)).map(Life::at));
+            let anomaly = Anomaly::of(persons).with_event(event.event_type);
+            match family {
+                Some(family) => anomaly.with_family(*family),
+                None => anomaly,
+            }
+        };
+        if let Some(span) = Span::of(Some(event)) {
+            if witness.birth.is_some_and(|born| span.before(born)) {
+                found.add("witness_before_birth", anomaly());
+            }
+            if witness.death.is_some_and(|died| died.before(span)) {
+                found.add("witness_after_death", anomaly());
+            }
+        }
+        if let Some(relation) = row.relation.as_deref()
+            && godparent_of_other_sex(witness.profile.sex, relation)
+        {
+            found.add("godparent_sex", anomaly().with_text(relation));
+        }
+    }
+}
+
+/// Every dated event with whose it is: a person's, or a union's spouses and
+/// family.
+fn owned_events<'a>(
+    sorted: &[&'a PersonProfile],
+    lives: &HashMap<Uuid, Life<'a>>,
+) -> HashMap<Uuid, (&'a ProfileEvent, Vec<Uuid>, Option<Uuid>)> {
     let mut events: HashMap<Uuid, (&ProfileEvent, Vec<Uuid>, Option<Uuid>)> = HashMap::new();
     for profile in sorted {
         let me = &lives[&profile.person_id];
@@ -1043,49 +1104,16 @@ fn witnessing<'a>(
             }
         }
     }
-    let mut rows: Vec<&EventWitness> = witnesses.iter().collect();
-    rows.sort_by_key(|w| (w.event_id, w.sort_order, w.person_id));
-    for row in rows {
-        let (Some(witness), Some((event, owners, family))) =
-            (lives.get(&row.person_id), events.get(&row.event_id))
-        else {
-            continue;
-        };
-        let persons = || {
-            let mut persons = vec![witness.at()];
-            persons.extend(owners.iter().filter_map(|id| lives.get(id)).map(Life::at));
-            persons
-        };
-        let anomaly = || {
-            let anomaly = Anomaly::of(persons()).with_event(event.event_type);
-            match family {
-                Some(family) => anomaly.with_family(*family),
-                None => anomaly,
-            }
-        };
-        if let Some(span) = Span::of(Some(event)) {
-            if let Some(born) = witness.birth
-                && span.before(born)
-            {
-                found.add("witness_before_birth", anomaly());
-            }
-            if let Some(died) = witness.death
-                && died.before(span)
-            {
-                found.add("witness_after_death", anomaly());
-            }
-        }
-        if let Some(relation) = row.relation.as_deref() {
-            let folded = fold_words(relation.trim());
-            let wrong = match witness.profile.sex {
-                Sex::Female => GODFATHER.contains(&folded.as_str()),
-                Sex::Male => GODMOTHER.contains(&folded.as_str()),
-                Sex::Unknown => false,
-            };
-            if wrong {
-                found.add("godparent_sex", anomaly().with_text(relation));
-            }
-        }
+    events
+}
+
+/// Whether a witness of sex `sex` is recorded as a godparent of the other.
+fn godparent_of_other_sex(sex: Sex, relation: &str) -> bool {
+    let folded = fold_words(relation.trim());
+    match sex {
+        Sex::Female => GODFATHER.contains(&folded.as_str()),
+        Sex::Male => GODMOTHER.contains(&folded.as_str()),
+        Sex::Unknown => false,
     }
 }
 

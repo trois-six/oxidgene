@@ -15,8 +15,8 @@ use std::collections::{HashMap, HashSet};
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::projection::{
-    Pedigree, PedigreeDelta, PedigreeDirection, PedigreeEdge, PedigreeFamily, PedigreeFamilyMember,
-    PedigreeNode, PersonProfile, SearchEntry, SearchResult,
+    Pedigree, PedigreeDelta, PedigreeDirection, PedigreeEdge, PedigreeFamily, PedigreeNode,
+    PersonProfile, SearchEntry, SearchResult,
 };
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
@@ -29,10 +29,9 @@ use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
 use super::builder::{
-    self, TreeData, build_all_persons, build_db_search_entry, build_pedigree_node,
-    search_entry_from_db,
+    self, TreeData, build_all_persons, build_db_search_entry, search_entry_from_db,
 };
-use super::invalidation;
+use super::{invalidation, pedigree};
 
 /// Above this many affected persons, rebuild from a single whole-tree fetch
 /// instead of running targeted per-person queries.
@@ -698,6 +697,25 @@ impl ProfileService {
         Ok(found)
     }
 
+    /// The projections of `person_ids`, persons outside the pedigree window
+    /// fetched for display: `what` names them in the log.
+    async fn projections_outside(
+        &self,
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+        what: &str,
+    ) -> Result<Vec<PersonProfile>, OxidGeneError> {
+        if person_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        debug!(
+            count = person_ids.len(),
+            "Pedigree build: fetching {what} outside the pedigree window"
+        );
+        self.projections_for(conn, tree_id, person_ids).await
+    }
+
     /// Assemble a pedigree window for a root person from family links
     /// and the stored projections.
     #[instrument(
@@ -715,322 +733,59 @@ impl ProfileService {
     ) -> Result<Pedigree, OxidGeneError> {
         debug!(ancestor_depth, descendant_depth, "Building pedigree");
 
-        // 1. Walk the family links for ancestor and descendant IDs.
+        // Walk the family links for ancestor and descendant IDs.
         let (ancestors, descendants) = tokio::try_join!(
             AncestryRepo::ancestors(conn, root_person_id, Some(ancestor_depth as i32)),
             AncestryRepo::descendants(conn, root_person_id, Some(descendant_depth as i32)),
         )?;
-
-        // 2. Collect all person IDs we need.
         let mut person_ids = sorted_unique(
             std::iter::once(root_person_id)
                 .chain(ancestors.iter().map(|a| a.person_id))
                 .chain(descendants.iter().map(|d| d.person_id)),
         );
+        let mut depths = pedigree::generations(root_person_id, &ancestors, &descendants);
 
-        // 3. Build a depth map: person_id -> generation (negative for
-        //    ancestors, positive for descendants, 0 for root).
-        let mut depth_map: HashMap<Uuid, i32> = HashMap::new();
-        depth_map.insert(root_person_id, 0);
-        // The walk already reports each person at their shortest distance, but
-        // someone can be both an ancestor and a descendant (implex), so the
-        // closest-to-root rule still has to arbitrate between the two lists.
-        for a in &ancestors {
-            let generation = -(a.depth);
-            depth_map
-                .entry(a.person_id)
-                .and_modify(|existing| {
-                    // Keep the smallest absolute depth (closest to root).
-                    if generation.abs() < existing.abs() {
-                        *existing = generation;
-                    }
-                })
-                .or_insert(generation);
-        }
-        for d in &descendants {
-            let generation = d.depth;
-            depth_map
-                .entry(d.person_id)
-                .and_modify(|existing| {
-                    if generation.abs() < existing.abs() {
-                        *existing = generation;
-                    }
-                })
-                .or_insert(generation);
-        }
-
-        // 4. Resolve the projections in the pedigree window.
+        // The projections in the window, and the spouses outside it, which
+        // take their partner's generation.
         let window_persons = self.projections_for(conn, tree_id, &person_ids).await?;
-        let mut all_person_map: HashMap<Uuid, &PersonProfile> =
+        let mut persons: HashMap<Uuid, &PersonProfile> =
             window_persons.iter().map(|p| (p.person_id, p)).collect();
-
-        // 4b. Spouses may be neither ancestors nor descendants but still need
-        //     a node for display.
-        let mut spouse_ids: Vec<Uuid> = Vec::new();
-        for person in all_person_map.values() {
-            for family_link in &person.families_as_spouse {
-                if let Some(sid) = family_link.spouse_id
-                    && !all_person_map.contains_key(&sid)
-                    && !spouse_ids.contains(&sid)
-                {
-                    spouse_ids.push(sid);
-                }
-            }
-        }
-        let spouse_persons = if spouse_ids.is_empty() {
-            Vec::new()
-        } else {
-            debug!(
-                "Pedigree build: fetching {} spouses outside pedigree window",
-                spouse_ids.len()
-            );
-            self.projections_for(conn, tree_id, &spouse_ids).await?
-        };
+        let spouse_persons = self
+            .projections_outside(
+                conn,
+                tree_id,
+                &pedigree::spouses_outside(&persons),
+                "spouses",
+            )
+            .await?;
         for p in &spouse_persons {
-            // Assign the spouse the same generation as their partner.
-            if !depth_map.contains_key(&p.person_id) {
-                let partner_gen = p
-                    .families_as_spouse
-                    .iter()
-                    .filter_map(|fl| fl.spouse_id)
-                    .find_map(|sid| depth_map.get(&sid).copied())
-                    .unwrap_or(0);
-                depth_map.insert(p.person_id, partner_gen);
-            }
-            all_person_map.insert(p.person_id, p);
+            let generation = pedigree::partner_generation(p, &depths);
+            depths.entry(p.person_id).or_insert(generation);
+            persons.insert(p.person_id, p);
             person_ids.push(p.person_id);
         }
 
-        // 5. Build pedigree nodes. Sosa numbering depends on the path from the
-        //    root, which ancestor membership alone does not give us, so only the
-        //    root carries one here; the UI derives the rest from the layout.
-        let mut nodes: HashMap<Uuid, PedigreeNode> = HashMap::new();
-        for &pid in &person_ids {
-            if let Some(person) = all_person_map.get(&pid) {
-                let generation = depth_map.get(&pid).copied().unwrap_or(0);
-                let sosa = if pid == root_person_id { Some(1) } else { None };
-                nodes.insert(pid, build_pedigree_node(person, generation, sosa));
-            }
-        }
+        let nodes = pedigree::nodes(&person_ids, &persons, &depths, root_person_id);
+        let edges = pedigree::edges(&persons, &nodes);
+        let family_events = pedigree::family_events(&persons);
 
-        // 6. Build edges from family relationships.
-        let mut edges = Vec::new();
-        for person in all_person_map.values() {
-            for family_link in &person.families_as_spouse {
-                for &child_id in &family_link.children_ids {
-                    // Only keep edges whose parent and child are both in the
-                    // pedigree window.
-                    if nodes.contains_key(&child_id) && nodes.contains_key(&person.person_id) {
-                        edges.push(PedigreeEdge {
-                            parent_id: person.person_id,
-                            child_id,
-                            family_id: family_link.family_id,
-                            edge_type: oxidgene_core::enums::ChildType::Biological,
-                        });
-                    }
-                }
-            }
-        }
-
-        // De-duplicate edges (a child has two parents, each adding an edge).
-        edges.sort_by(|a, b| {
-            a.parent_id
-                .cmp(&b.parent_id)
-                .then(a.child_id.cmp(&b.child_id))
-        });
-        edges.dedup_by(|a, b| a.parent_id == b.parent_id && a.child_id == b.child_id);
-
-        // 7. Collect family events from the projections' family links.
-        let mut family_events: HashMap<Uuid, Vec<oxidgene_core::projection::ProfileEvent>> =
-            HashMap::new();
-        for person in all_person_map.values() {
-            for family_link in &person.families_as_spouse {
-                if !family_link.events.is_empty() {
-                    family_events
-                        .entry(family_link.family_id)
-                        .or_default()
-                        .extend(family_link.events.iter().cloned());
-                }
-            }
-        }
-        // Deduplicate (both spouses contribute the same events).
-        for events in family_events.values_mut() {
-            events.sort_by_key(|e| e.event_id);
-            events.dedup_by_key(|e| e.event_id);
-        }
-
-        // 8. Build the family membership map (spouse + children IDs per
-        //    family). This captures childless couples, which produce no
-        //    PedigreeEdge, and parental families needed for sibling events.
+        // The family memberships (spouse and children IDs per family), which
+        // capture childless couples, who produce no edge, and the parental
+        // families needed for sibling events.
         let mut families: HashMap<Uuid, PedigreeFamily> = HashMap::new();
-        for person in all_person_map.values() {
-            for family_link in &person.families_as_spouse {
-                let fam = families
-                    .entry(family_link.family_id)
-                    .or_insert_with(|| empty_family(family_link.family_id));
-                if !fam.spouse_ids.contains(&person.person_id) {
-                    fam.spouse_ids.push(person.person_id);
-                }
-                // Authoritative, birth-order-sorted list for the family. Replace
-                // rather than append: `all_person_map` is a HashMap, so iteration
-                // order is unpredictable — if this family's `family_as_child`
-                // branch below already ran for a different person and seeded
-                // just their own ID, appending would leave that person stuck
-                // ahead of siblings who actually precede them.
-                fam.children_ids = family_link.children_ids.clone();
-            }
-            if let Some(child_link) = &person.family_as_child {
-                let fam = families
-                    .entry(child_link.family_id)
-                    .or_insert_with(|| empty_family(child_link.family_id));
-                if !fam.children_ids.contains(&person.person_id) {
-                    fam.children_ids.push(person.person_id);
-                }
-                if let Some(father_id) = child_link.father_id
-                    && !fam.spouse_ids.contains(&father_id)
-                {
-                    fam.spouse_ids.push(father_id);
-                }
-                if let Some(mother_id) = child_link.mother_id
-                    && !fam.spouse_ids.contains(&mother_id)
-                {
-                    fam.spouse_ids.push(mother_id);
-                }
-            }
+        for person in persons.values() {
+            pedigree::record_membership(&mut families, person, false);
         }
-
-        // 8a. For families reached via `family_as_child` whose parents are all
-        //     outside the window, fetch one parent to recover the full sibling
-        //     list — otherwise only the person themselves appears.
-        let mut parent_ids_to_fetch: Vec<Uuid> = Vec::new();
-        for fam in families.values() {
-            let has_parent_in_map = fam
-                .spouse_ids
-                .iter()
-                .any(|sid| all_person_map.contains_key(sid));
-            if !has_parent_in_map
-                && let Some(&pid) = fam.spouse_ids.first()
-                && !parent_ids_to_fetch.contains(&pid)
-            {
-                parent_ids_to_fetch.push(pid);
-            }
-        }
-        if !parent_ids_to_fetch.is_empty() {
-            debug!(
-                "Pedigree build: fetching {} parents outside window for sibling data",
-                parent_ids_to_fetch.len()
-            );
-            let fetched_parents = self
-                .projections_for(conn, tree_id, &parent_ids_to_fetch)
-                .await?;
-            // A parent's children_ids is the authoritative, birth-order-sorted
-            // list for the family, so replace rather than append: appending
-            // would leave whichever child was pre-seeded first (the pedigree
-            // root) stuck at index 0, scrambling sibling order for anyone but
-            // the eldest.
-            let parent_map: HashMap<Uuid, &PersonProfile> =
-                fetched_parents.iter().map(|p| (p.person_id, p)).collect();
-            for fam in families.values_mut() {
-                for &sid in &fam.spouse_ids.clone() {
-                    if let Some(parent) = parent_map.get(&sid)
-                        && let Some(fl) = parent
-                            .families_as_spouse
-                            .iter()
-                            .find(|fl| fl.family_id == fam.family_id)
-                    {
-                        fam.children_ids = fl.children_ids.clone();
-                    }
-                }
-            }
-        }
-
-        // 8b. Fetch family members outside the window and record their minimal
-        //     info, so the event panel can show them.
-        let mut outside_member_ids: Vec<Uuid> = Vec::new();
-        for fam in families.values() {
-            for &cid in &fam.children_ids {
-                if !nodes.contains_key(&cid) && !outside_member_ids.contains(&cid) {
-                    outside_member_ids.push(cid);
-                }
-            }
-        }
-        if !outside_member_ids.is_empty() {
-            debug!(
-                "Pedigree build: fetching {} family members outside pedigree window",
-                outside_member_ids.len()
-            );
-            let all_outside = self
-                .projections_for(conn, tree_id, &outside_member_ids)
-                .await?;
-            let outside_map: HashMap<Uuid, &PersonProfile> =
-                all_outside.iter().map(|p| (p.person_id, p)).collect();
-
-            for fam in families.values_mut() {
-                for &cid in &fam.children_ids {
-                    if let Some(person) = outside_map.get(&cid) {
-                        fam.members.push(PedigreeFamilyMember {
-                            person_id: cid,
-                            display_name: person
-                                .primary_name
-                                .as_ref()
-                                .map(|n| n.display_name.clone())
-                                .unwrap_or_default(),
-                            given_names: person
-                                .primary_name
-                                .as_ref()
-                                .and_then(|n| n.given_names.clone()),
-                            surname: person.primary_name.as_ref().and_then(|n| n.surname.clone()),
-                            sex: person.sex,
-                            birth: person.birth_or_baptism().cloned(),
-                            death: person.death_or_burial().cloned(),
-                        });
-                    }
-                }
-            }
-
-            // 8c. Merge family membership for the members fetched above purely
-            //     for display (a sibling next to the root, a boundary
-            //     descendant) — not full nodes, just enough spouse/children IDs
-            //     for the "+" hidden-relations indicator on their card to be
-            //     accurate. We don't recurse: newly-referenced spouses and
-            //     children are linked by ID only, never fetched.
-            for person in outside_map.values() {
-                for family_link in &person.families_as_spouse {
-                    let fam = families
-                        .entry(family_link.family_id)
-                        .or_insert_with(|| empty_family(family_link.family_id));
-                    if !fam.spouse_ids.contains(&person.person_id) {
-                        fam.spouse_ids.push(person.person_id);
-                    }
-                    if let Some(sid) = family_link.spouse_id
-                        && !fam.spouse_ids.contains(&sid)
-                    {
-                        fam.spouse_ids.push(sid);
-                    }
-                    // Authoritative, birth-order-sorted list — replace rather
-                    // than append (see 8a for why appending scrambles order).
-                    fam.children_ids = family_link.children_ids.clone();
-                }
-                if let Some(child_link) = &person.family_as_child {
-                    let fam = families
-                        .entry(child_link.family_id)
-                        .or_insert_with(|| empty_family(child_link.family_id));
-                    if !fam.children_ids.contains(&person.person_id) {
-                        fam.children_ids.push(person.person_id);
-                    }
-                    if let Some(father_id) = child_link.father_id
-                        && !fam.spouse_ids.contains(&father_id)
-                    {
-                        fam.spouse_ids.push(father_id);
-                    }
-                    if let Some(mother_id) = child_link.mother_id
-                        && !fam.spouse_ids.contains(&mother_id)
-                    {
-                        fam.spouse_ids.push(mother_id);
-                    }
-                }
-            }
-        }
+        let parents = pedigree::parents_to_fetch(&families, &persons);
+        let parents = self
+            .projections_outside(conn, tree_id, &parents, "parents for sibling data")
+            .await?;
+        pedigree::adopt_children_lists(&mut families, &parents);
+        let members = pedigree::members_outside(&families, &nodes);
+        let members = self
+            .projections_outside(conn, tree_id, &members, "family members")
+            .await?;
+        pedigree::add_members_outside(&mut families, &members);
 
         let pedigree = Pedigree {
             tree_id,
@@ -1052,15 +807,5 @@ impl ProfileService {
         );
 
         Ok(pedigree)
-    }
-}
-
-/// An empty family unit, filled in as members are discovered.
-fn empty_family(family_id: Uuid) -> PedigreeFamily {
-    PedigreeFamily {
-        family_id,
-        spouse_ids: Vec::new(),
-        children_ids: Vec::new(),
-        members: Vec::new(),
     }
 }

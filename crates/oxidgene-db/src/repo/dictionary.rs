@@ -721,11 +721,7 @@ impl DictionaryRepo {
                 "a family name is required".to_string(),
             ));
         }
-        let Some((new_prefix, new_surname)) = split_surname_at_head(value, particle) else {
-            return Err(OxidGeneError::Validation(format!(
-                "particle \"{particle}\" is not at the head of surname \"{value}\""
-            )));
-        };
+        let (new_prefix, new_surname) = cut_at_particle(value, particle)?;
 
         let rows: Vec<person_name::Model> = tree_names(db, tree_id)
             .await?
@@ -786,27 +782,19 @@ impl DictionaryRepo {
                 "a family name is required".to_string(),
             ));
         }
-        let explicit = match particle {
-            Some(particle) => {
-                Some(split_surname_at_head(new_value, particle).ok_or_else(|| {
-                    OxidGeneError::Validation(format!(
-                        "particle \"{particle}\" is not at the head of surname \"{new_value}\""
-                    ))
-                })?)
-            }
-            None => None,
-        };
-
-        let mut carriers: Vec<person_name::Model> = Vec::new();
-        let mut target: Vec<person_name::Model> = Vec::new();
-        for n in tree_names(db, tree_id).await? {
-            if is_spelled(&n, new_value) {
-                target.push(n.clone());
-            }
-            if n.is_primary && is_spelled(&n, value) {
-                carriers.push(n);
-            }
-        }
+        let explicit = particle
+            .map(|particle| cut_at_particle(new_value, particle))
+            .transpose()?;
+        let names = tree_names(db, tree_id).await?;
+        let target: Vec<person_name::Model> = names
+            .iter()
+            .filter(|n| is_spelled(n, new_value))
+            .cloned()
+            .collect();
+        let carriers: Vec<person_name::Model> = names
+            .into_iter()
+            .filter(|n| n.is_primary && is_spelled(n, value))
+            .collect();
 
         let explicit_cut = explicit.is_some();
         let (new_prefix, new_surname) = match explicit {
@@ -995,6 +983,18 @@ fn existing_cut(rows: &[person_name::Model]) -> Option<(Option<String>, String)>
         .iter()
         .find(|n| trimmed(n.surname.as_deref()).as_ref() == Some(root))?;
     Some((trimmed(n.surname_prefix.as_deref()), root.clone()))
+}
+
+/// `surname` cut after `particle`, which must be at its head.
+fn cut_at_particle(
+    surname: &str,
+    particle: &str,
+) -> Result<(Option<String>, String), OxidGeneError> {
+    split_surname_at_head(surname, particle).ok_or_else(|| {
+        OxidGeneError::Validation(format!(
+            "particle \"{particle}\" is not at the head of surname \"{surname}\""
+        ))
+    })
 }
 
 /// Write `prefix` + `root` into every row of `rows`, skipping rows already

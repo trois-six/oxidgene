@@ -9,8 +9,8 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Person, Portrait};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ActiveModelTrait, Condition, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter,
-    QuerySelect, Set,
+    ActiveModelTrait, Condition, ConnectionTrait, FromQueryResult, IntoActiveModel, JoinType,
+    QueryFilter, QuerySelect, Set,
 };
 use uuid::Uuid;
 
@@ -52,6 +52,54 @@ pub struct PortraitRow {
     #[doc(hidden)]
     #[serde(skip)]
     pub source_size: (Option<i32>, Option<i32>),
+}
+
+/// A row of the portrait query, as selected.
+#[derive(FromQueryResult)]
+struct PortraitQueryRow {
+    person_id: Uuid,
+    portrait_media_id: Option<Uuid>,
+    portrait_vignette_id: Option<Uuid>,
+    file_path: Option<String>,
+    thumbnail_key: Option<String>,
+    storage_key: Option<String>,
+    mime_type: Option<String>,
+    source_width: Option<i32>,
+    source_height: Option<i32>,
+    crop_x: Option<i32>,
+    crop_y: Option<i32>,
+    crop_width: Option<i32>,
+    crop_height: Option<i32>,
+}
+
+impl From<PortraitQueryRow> for PortraitRow {
+    fn from(row: PortraitQueryRow) -> Self {
+        // A vignette's four columns are all set; no vignette, none.
+        let crop = match (row.crop_x, row.crop_y, row.crop_width, row.crop_height) {
+            (Some(x), Some(y), Some(width), Some(height)) => Some((x, y, width, height)),
+            _ => None,
+        };
+        Self {
+            person_id: row.person_id,
+            media_id: row.portrait_media_id,
+            vignette_id: row.portrait_vignette_id,
+            file_path: row.file_path.unwrap_or_default(),
+            has_thumbnail: row.thumbnail_key.is_some(),
+            thumbnail_key: row.thumbnail_key,
+            storage_key: row.storage_key.filter(|key| !key.is_empty()),
+            mime_type: row.mime_type.unwrap_or_default(),
+            crop,
+            source_size: (row.source_width, row.source_height),
+        }
+    }
+}
+
+/// The `n`th bound parameter (from 1) as `backend` writes it.
+fn placeholder(backend: sea_orm::DbBackend, n: usize) -> String {
+    match backend {
+        sea_orm::DbBackend::Sqlite => "?".to_string(),
+        _ => format!("${n}"),
+    }
 }
 
 impl PersonRepo {
@@ -298,27 +346,18 @@ impl PersonRepo {
         tree_id: Uuid,
         person_ids: Option<&[Uuid]>,
     ) -> Result<Vec<PortraitRow>, OxidGeneError> {
-        use sea_orm::{DbBackend, Statement, Value};
+        use sea_orm::{Statement, Value};
 
         let backend = db.get_database_backend();
-        let placeholder = if matches!(backend, DbBackend::Sqlite) {
-            "?"
-        } else {
-            "$1"
-        };
         let mut values: Vec<Value> = vec![tree_id.into()];
+        let tree_param = placeholder(backend, 1);
         let person_filter = person_ids
             .map(|ids| {
                 let placeholders = ids
                     .iter()
-                    .enumerate()
-                    .map(|(index, id)| {
+                    .map(|id| {
                         values.push((*id).into());
-                        if matches!(backend, DbBackend::Sqlite) {
-                            "?".to_string()
-                        } else {
-                            format!("${}", index + 2)
-                        }
+                        placeholder(backend, values.len())
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -397,7 +436,7 @@ impl PersonRepo {
                              )
                            END) AS portrait_media_id
                     FROM person p
-                    WHERE p.tree_id = {placeholder}
+                    WHERE p.tree_id = {tree_param}
                       AND p.deleted_at IS NULL
                                             {person_filter}
                 ),
@@ -441,49 +480,14 @@ impl PersonRepo {
         let stmt = Statement::from_sql_and_values(backend, &sql, values);
         let results = db.query_all_raw(stmt).await.map_err(db_err)?;
 
-        let mut rows = Vec::with_capacity(results.len());
-        for row in results {
-            let get = |name: &str| row.try_get::<Option<Uuid>>("", name);
-            let thumbnail_key = row
-                .try_get::<Option<String>>("", "thumbnail_key")
-                .map_err(db_err)?;
-            let crop_x = row.try_get::<Option<i32>>("", "crop_x").map_err(db_err)?;
-            rows.push(PortraitRow {
-                person_id: row.try_get("", "person_id").map_err(db_err)?,
-                media_id: get("portrait_media_id").map_err(db_err)?,
-                vignette_id: get("portrait_vignette_id").map_err(db_err)?,
-                file_path: row
-                    .try_get::<Option<String>>("", "file_path")
-                    .map_err(db_err)?
-                    .unwrap_or_default(),
-                has_thumbnail: thumbnail_key.is_some(),
-                thumbnail_key,
-                storage_key: row
-                    .try_get::<Option<String>>("", "storage_key")
-                    .map_err(db_err)?
-                    .filter(|key| !key.is_empty()),
-                mime_type: row
-                    .try_get::<Option<String>>("", "mime_type")
-                    .map_err(db_err)?
-                    .unwrap_or_default(),
-                crop: match crop_x {
-                    Some(x) => Some((
-                        x,
-                        row.try_get("", "crop_y").map_err(db_err)?,
-                        row.try_get("", "crop_width").map_err(db_err)?,
-                        row.try_get("", "crop_height").map_err(db_err)?,
-                    )),
-                    None => None,
-                },
-                source_size: (
-                    row.try_get::<Option<i32>>("", "source_width")
-                        .map_err(db_err)?,
-                    row.try_get::<Option<i32>>("", "source_height")
-                        .map_err(db_err)?,
-                ),
-            });
-        }
-        Ok(rows)
+        results
+            .iter()
+            .map(|row| {
+                PortraitQueryRow::from_query_result(row, "")
+                    .map(PortraitRow::from)
+                    .map_err(db_err)
+            })
+            .collect()
     }
 
     /// Set or clear the portrait, writing both columns from a single value.
