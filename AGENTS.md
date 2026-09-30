@@ -198,7 +198,7 @@ core <- ui
 ```bash
 just build          # Build the workspace
 just test           # Run all tests
-just check          # Format check, Clippy, and all tests
+just check          # Format check, Clippy, cyclomatic complexity, and all tests
 just fmt            # Format the workspace
 just clippy         # Run Clippy
 just server         # Run the development web server

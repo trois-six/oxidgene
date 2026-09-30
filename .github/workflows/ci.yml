@@ -175,6 +175,22 @@ jobs:
       - name: Time the tree-wide computations
         run: cargo nextest run --locked --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
 
+  cyclomatic:
+    name: Cyclomatic complexity
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.12.20"
+
+      # `just cyclomatic`: no function above a cyclomatic complexity of 15.
+      - name: Check the cyclomatic complexity
+        run: uv run --quiet scripts/cyclomatic.py -l rust -C 15 -w crates apps -x "*/target/*"
+
   containers:
     name: Build ${{ matrix.name }} image
     needs: changes
@@ -241,13 +257,14 @@ jobs:
   ci-ok:
     name: CI
     if: always()
-    needs: [check, fmt, clippy, test, scaling, containers, helm]
+    needs: [check, fmt, clippy, cyclomatic, test, scaling, containers, helm]
     runs-on: ubuntu-latest
     steps:
       - name: Verify that nothing failed
         run: |
           results="${{ needs.check.result }} ${{ needs.fmt.result }} \
-                   ${{ needs.clippy.result }} ${{ needs.test.result }} \
+                   ${{ needs.clippy.result }} ${{ needs.cyclomatic.result }} \
+                   ${{ needs.test.result }} \
                    ${{ needs.scaling.result }} ${{ needs.containers.result }} \
                    ${{ needs.helm.result }}"
           echo "results: $results"

@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T15:51:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T19:30:00Z }
 ---
 
 # Development Environment and Workflows
@@ -26,6 +26,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T15:51:24Z }
 - `cargo-nextest` for the workspace test recipes.
 - `cargo-watch` for backend hot reload; optional unless using `just dev-web-watch`.
 - `cargo-xwin` for cross-compiling the desktop application to Windows X64.
+- [uv](https://docs.astral.sh/uv/) for the cyclomatic complexity check.
 
 ```bash
 just setup
@@ -54,7 +55,8 @@ the repository root.
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings. |
-| `just check` | Run formatting verification, Clippy, and tests. |
+| `just cyclomatic` | Fail on any function above a cyclomatic complexity of 15 (§2.1). |
+| `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, and tests. |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
@@ -69,6 +71,20 @@ on a function above it. Bring such a function back under the threshold by
 extracting named steps or sharing code with its look-alikes; an `allow` is not
 a fix. A `tracing` macro counts for several points on its own, so a function
 that logs on several branches is better served by one log call.
+
+Every function also stays within a cyclomatic complexity of 15, counted by
+[lizard](https://github.com/terryyin/lizard) through `scripts/cyclomatic.py`.
+`just cyclomatic`, part of `just check`, and the CI Cyclomatic complexity job
+fail on a function above it. Where cognitive complexity weighs nesting,
+cyclomatic complexity counts paths: every `if`, `for`, `while`, `match`, `?`,
+`&&` and `||` adds one. The wrapper pins lizard and corrects its Rust
+reader, which counts the `||` opening a closure without parameters as a
+logical operator — every `use_signal(|| false)` of a component would add a
+path — and a `where` clause as a branch. It keeps `||` only between two
+operands and drops `where`, then passes its arguments to lizard unchanged.
+Closure bodies count towards the function that defines them, so a component
+brings its handlers under the threshold by moving them into named functions
+or methods of a small state struct.
 
 Algorithmic complexity is tested at three levels.
 

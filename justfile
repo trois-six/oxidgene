@@ -51,8 +51,14 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Run all checks (fmt + clippy + test)
-check: fmt-check clippy test
+# Fail on any function whose cyclomatic complexity exceeds 15: lizard, run
+# through scripts/cyclomatic.py, which stops it from counting Rust closures
+# and `where` clauses as branches (see docs/development.md).
+cyclomatic:
+    uv run --quiet scripts/cyclomatic.py -l rust -C 15 -w crates apps -x "*/target/*"
+
+# Run all checks (fmt + clippy + cyclomatic + test)
+check: fmt-check clippy cyclomatic test
 
 # Time the tree-wide computations on a tree and on one eight times larger, in
 # release mode, and fail on any that grows markedly faster than linear (see
