@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:04:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:13:53Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -808,12 +808,18 @@ its container; custom properties set inline on its ancestors are carried
 over. Identifiers inside the copy are renamed so its references do not point
 into the hidden original. The copy is removed after printing.
 
-**Over several sheets.** When the chart, at the zoom shown, is larger than one
-sheet, the print action first asks what to print: *What the screen shows* (one
-sheet, as above) or *The whole chart at this zoom*, with the number of sheets
-it takes (*6 sheets (3 × 2)*). The whole chart keeps on paper the size it has
-on screen — 96 CSS pixels to the inch — cut into tiles of 255 × 175 mm, row
-by row, each overlapping the next by 1 cm. The tile size fits the printable
+**Over several sheets.** A chart all on screen prints on one sheet at once:
+what the screen shows is then the whole chart. When part of it is off screen
+and, at the zoom shown, it is larger than one sheet, the print action first
+asks what to print: *What the screen shows* (one sheet, as above) or *The
+whole chart at this zoom*, with the number of sheets it takes (*6 sheets
+(3 × 2)*). Both are measured on what the chart draws, not on its canvas'
+margins, with the chart drawn whole for the measure. The whole chart keeps on
+paper the size it has on screen — 96 CSS pixels to the inch — cut into tiles
+of 255 × 175 mm, row by row, each overlapping the next by 1 cm; when printing
+it up to 15 % smaller takes fewer sheets, it is printed just that much smaller,
+so that a chart a centimetre taller than a sheet does not leave a strip on a
+second one. The tile size fits the printable
 area of A4 and of US Letter in landscape within the sheet's 10 mm margins, so
 nothing is lost in the 3–6 mm at the paper's edge that printers cannot reach.
 On each sheet a dashed line, inside the printed area, marks where the next

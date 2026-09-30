@@ -144,8 +144,9 @@ pub const MAX_SHEETS: usize = 50;
 /// Millimetres per CSS pixel, which prints at 96 per inch.
 const MM_PER_PX: f64 = 25.4 / 96.0;
 
-/// The chart's box in its own units, and how many screen pixels one unit
-/// takes at the zoom shown, as `__oxMeasureChart` reads them.
+/// What the chart draws, as a box in its own units, and how many screen
+/// pixels one unit takes at the zoom shown, as `__oxMeasureChart` reads
+/// them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ChartMeasure {
     pub x: f64,
@@ -153,6 +154,9 @@ pub struct ChartMeasure {
     pub width: f64,
     pub height: f64,
     pub scale: f64,
+    /// Whether all of it is on screen, clear of the events panel: then what
+    /// the screen shows is the whole chart, and it prints on one sheet.
+    pub on_screen: bool,
 }
 
 /// One sheet's part of the chart.
@@ -197,14 +201,49 @@ fn tiles_along(extent: f64, tile: f64, step: f64) -> usize {
     }
 }
 
-/// Plans the sheets for `chart` at its zoom, captioning each with
-/// `caption(n, total, row, col)`. Only the counts are computed while there
-/// would be more than [`MAX_SHEETS`]: the sheets are then not offered.
+/// How much smaller than its screen size a chart may print to save sheets:
+/// a chart a centimetre taller than a sheet prints on one, slightly reduced,
+/// rather than on two with a strip on the second.
+pub const MAX_SHRINK: f64 = 0.85;
+
+/// How many sheets `chart` takes along each axis at `scale` screen pixels
+/// per chart unit.
+fn sheet_counts(chart: ChartMeasure, scale: f64) -> (usize, usize) {
+    let mm = |extent: f64| extent * scale * MM_PER_PX;
+    (
+        tiles_along(mm(chart.width), TILE_W_MM, TILE_W_MM - OVERLAP_MM),
+        tiles_along(mm(chart.height), TILE_H_MM, TILE_H_MM - OVERLAP_MM),
+    )
+}
+
+/// The scale the chart prints at: its screen scale, or up to
+/// [`MAX_SHRINK`] of it when that takes fewer sheets — then just small
+/// enough for those sheets.
+fn print_scale(chart: ChartMeasure) -> f64 {
+    let scale = chart.scale.max(f64::EPSILON);
+    let (cols, rows) = sheet_counts(chart, scale);
+    let (fewer_cols, fewer_rows) = sheet_counts(chart, scale * MAX_SHRINK);
+    if fewer_cols * fewer_rows >= cols * rows {
+        return scale;
+    }
+    // The largest scale at which `count` tiles still cover `extent` units.
+    let fitting = |extent: f64, count: usize, tile: f64| {
+        (tile + (count as f64 - 1.0) * (tile - OVERLAP_MM)) / (extent * MM_PER_PX)
+    };
+    scale
+        .min(fitting(chart.width, fewer_cols, TILE_W_MM))
+        .min(fitting(chart.height, fewer_rows, TILE_H_MM))
+}
+
+/// Plans the sheets for `chart` at its zoom (see [`print_scale`]),
+/// captioning each with `caption(n, total, row, col)`. Only the counts are
+/// computed while there would be more than [`MAX_SHEETS`]: the sheets are
+/// then not offered.
 pub fn tile_plan(
     chart: ChartMeasure,
     caption: impl Fn(usize, usize, usize, usize) -> String,
 ) -> TilePlan {
-    let mm_per_unit = chart.scale.max(f64::EPSILON) * MM_PER_PX;
+    let mm_per_unit = print_scale(chart) * MM_PER_PX;
     let (tile_w, tile_h) = (TILE_W_MM / mm_per_unit, TILE_H_MM / mm_per_unit);
     let overlap = OVERLAP_MM / mm_per_unit;
     let (step_w, step_h) = (tile_w - overlap, tile_h - overlap);
@@ -351,6 +390,16 @@ const PRINT_HOOKS_JS: &str = r#"
             }
             return host;
         };
+        // The right edge of the canvas the events panel leaves free.
+        const freeRight = rect => {
+            let right = rect.right;
+            const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
+            if (panel) {
+                const p = panel.getBoundingClientRect();
+                if (p.left > rect.left && p.left < right && p.right > rect.left) right = p.left;
+            }
+            return right;
+        };
         window.__oxPreparePrint = () => {
             // A multi-sheet print prepared by the action is what prints.
             if (window.__oxTiled) return;
@@ -367,12 +416,7 @@ const PRINT_HOOKS_JS: &str = r#"
             const svg = chartSvg();
             const toChart = svg && screenToChart(svg);
             if (!toChart) return;
-            let right = rect.right;
-            const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
-            if (panel) {
-                const p = panel.getBoundingClientRect();
-                if (p.left > rect.left && p.left < right && p.right > rect.left) right = p.left;
-            }
+            const right = freeRight(rect);
             const a = toChart(rect.left, rect.top);
             const b = toChart(right, rect.bottom);
             const drawn = svg.getBBox();
@@ -391,13 +435,22 @@ const PRINT_HOOKS_JS: &str = r#"
             host.appendChild(copy);
             document.body.appendChild(host);
         };
-        // The whole chart's box and the screen's zoom, for the sheet plan.
+        // What the chart draws, the screen's zoom, and whether all of it is
+        // on screen, for the sheet plan. Read once the chart is drawn whole.
         window.__oxMeasureChart = () => {
             const svg = chartSvg();
             const scale = svg && screenScale(svg);
             if (!scale) return null;
+            const drawn = svg.getBBox();
             const vb = viewBoxOf(svg);
-            return [vb.x, vb.y, vb.width, vb.height, scale];
+            const box = svg.getBoundingClientRect();
+            const left = box.left + (box.width - vb.width * scale) / 2 + (drawn.x - vb.x) * scale;
+            const top = box.top + (box.height - vb.height * scale) / 2 + (drawn.y - vb.y) * scale;
+            const rect = document.querySelector('.pedigree-viewport').getBoundingClientRect();
+            const onScreen = left >= rect.left - 1 && top >= rect.top - 1
+                && left + drawn.width * scale <= freeRight(rect) + 1
+                && top + drawn.height * scale <= rect.bottom + 1;
+            return [drawn.x, drawn.y, drawn.width, drawn.height, scale, onScreen];
         };
         // The whole chart over several sheets: one hidden copy, and a sheet
         // per tile showing its part of it, the dashed lines where the next
@@ -512,28 +565,36 @@ async fn print_screen(bridge: Option<PrintBridge>) {
     print_now(bridge).await;
 }
 
-/// Prints the whole chart over the sheets of `plan`: every view draws its
-/// whole chart for the copy, then goes back to drawing what is near.
+/// Has every view draw its whole chart (`true`) or only what is near the
+/// viewport again (`false`); drawing whole waits for the chart to be laid
+/// out: a pause for the render, then two frames for the browser.
+async fn draw_whole(everything: Option<PrintEverything>, whole: bool) {
+    let Some(PrintEverything(mut all)) = everything else {
+        return;
+    };
+    all.set(whole);
+    if whole {
+        crate::utils::sleep_ms(150).await;
+        let _ = document::eval(
+            "await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return true;",
+        )
+        .await;
+    }
+}
+
+/// Prints the whole chart over the sheets of `plan`, drawn whole by the
+/// caller; every view then goes back to drawing what is near.
 async fn print_tiles(
     bridge: Option<PrintBridge>,
     plan: TilePlan,
     everything: Option<PrintEverything>,
 ) {
-    if let Some(PrintEverything(mut all)) = everything {
-        all.set(true);
-    }
-    // Let the chart redraw whole: a pause for the render, then two frames
-    // for the browser to lay it out.
-    crate::utils::sleep_ms(150).await;
     let script = format!(
-        "await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); \
-         return window.__oxPrepareTiledPrint({});",
+        "return window.__oxPrepareTiledPrint({});",
         serde_json::to_string(&plan).unwrap_or_else(|_| "{\"tiles\":[]}".to_string())
     );
     let _ = document::eval(&script).await;
-    if let Some(PrintEverything(mut all)) = everything {
-        all.set(false);
-    }
+    draw_whole(everything, false).await;
     print_now(bridge).await;
 }
 
@@ -543,22 +604,25 @@ async fn measure_chart() -> Option<ChartMeasure> {
         document::eval("return window.__oxMeasureChart ? window.__oxMeasureChart() : null;")
             .await
             .ok()?;
-    let [x, y, width, height, scale]: [f64; 5] = serde_json::from_value(value).ok()?;
+    let (x, y, width, height, scale, on_screen): (f64, f64, f64, f64, f64, bool) =
+        serde_json::from_value(value).ok()?;
     Some(ChartMeasure {
         x,
         y,
         width,
         height,
         scale,
+        on_screen,
     })
 }
 
 /// The print button of the tree pages' icon sidebar, just above Settings.
 ///
 /// It renders nothing on a route that does not print, so the sidebar the
-/// settings page shares cannot offer it. On a page showing a chart larger
-/// than one sheet at its zoom, it first asks whether to print what the
-/// screen shows or the whole chart over several sheets. The header the sheet
+/// settings page shares cannot offer it. On a page showing a chart that
+/// runs past the screen and is larger than one sheet at its zoom, it first
+/// asks whether to print what the screen shows or the whole chart over
+/// several sheets; a chart all on screen prints on one sheet at once. The header the sheet
 /// prints under is [`PrintHeading`], which each page places in its topbar.
 #[component]
 pub fn PrintAction() -> Element {
@@ -587,12 +651,23 @@ pub fn PrintAction() -> Element {
             onclick: move |_| {
                 let bridge = bridge.clone();
                 spawn(async move {
-                    let plan = measure_chart().await.map(|chart| {
-                        tile_plan(chart, |n, total, row, col| sheet_caption(&i18n, n, total, row, col))
-                    });
+                    // Measured drawn whole, so what it takes is known even
+                    // for the parts the view left out; it stays whole while
+                    // the choice is open.
+                    draw_whole(everything, true).await;
+                    let plan = measure_chart()
+                        .await
+                        .filter(|chart| !chart.on_screen)
+                        .map(|chart| {
+                            tile_plan(chart, |n, total, row, col| sheet_caption(&i18n, n, total, row, col))
+                        })
+                        .filter(|plan| plan.sheets() > 1);
                     match plan {
-                        Some(plan) if plan.sheets() > 1 => choice.set(Some(plan)),
-                        _ => print_screen(bridge).await,
+                        Some(plan) => choice.set(Some(plan)),
+                        None => {
+                            draw_whole(everything, false).await;
+                            print_screen(bridge).await;
+                        }
                     }
                 });
             },
@@ -615,14 +690,20 @@ pub fn PrintAction() -> Element {
                 on_screen: move |_| {
                     choice.set(None);
                     let bridge = bridge_screen.clone();
-                    spawn(async move { print_screen(bridge).await });
+                    spawn(async move {
+                        draw_whole(everything, false).await;
+                        print_screen(bridge).await;
+                    });
                 },
                 on_tiles: move |plan: TilePlan| {
                     choice.set(None);
                     let bridge = bridge_tiles.clone();
                     spawn(async move { print_tiles(bridge, plan, everything).await });
                 },
-                on_cancel: move |_| choice.set(None),
+                on_cancel: move |_| {
+                    choice.set(None);
+                    spawn(async move { draw_whole(everything, false).await });
+                },
             }
         }
     }
@@ -839,6 +920,7 @@ mod tests {
             width,
             height,
             scale,
+            on_screen: false,
         }
     }
 
@@ -889,6 +971,21 @@ mod tests {
             "the bottom is covered"
         );
         assert_eq!(plan.tiles[4].caption, "5/6 r2c2");
+    }
+
+    /// A chart a little larger than a sheet prints on one, reduced by less
+    /// than [`MAX_SHRINK`], rather than on two with a strip on the second;
+    /// one much larger keeps its size.
+    #[test]
+    fn a_chart_barely_larger_than_a_sheet_is_reduced_onto_it() {
+        let tile_h_px = TILE_H_MM / MM_PER_PX;
+        let plan = tile_plan(chart(400.0, tile_h_px * 1.06, 1.0), caption);
+        assert_eq!(plan.sheets(), 1, "6 % over: reduced");
+        let covered = plan.tiles[0].view_box[3];
+        assert!(covered >= tile_h_px * 1.06 - 1e-6, "the whole height fits");
+        let plan = tile_plan(chart(400.0, tile_h_px * 1.5, 1.0), caption);
+        assert_eq!(plan.sheets(), 2, "50 % over: two sheets at screen size");
+        assert!((plan.tiles[0].view_box[3] - tile_h_px).abs() < 1e-6);
     }
 
     /// Past the most sheets offered, only the count is planned.
