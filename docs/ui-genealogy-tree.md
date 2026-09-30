@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
-description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
+description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
 ---
 
 
@@ -17,6 +17,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
 ## 1. General Structure
 
 ### Layout
+
+This is the default drawing, the **tree**. The viewer can choose another one
+in the settings — an ancestor wheel or a fan chart — described in
+[§10 Views](#10-views); everything below describes the tree unless it says
+otherwise.
 
 The canvas displays a **mixed tree**: the focus person is at the vertical center, ancestors go upward, descendants go downward. Each generation occupies a **strict horizontal row**. All cards in the same generation are aligned on the same Y axis.
 
@@ -475,7 +480,8 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 ```
 
 - `^`: number of ascending generations (0-10)
-- `v`: number of descending generations (0-10)
+- `v`: number of descending generations (0-10); absent in a view that draws
+  ancestors only ([§10](#10-views)), where the value is kept but unused
 - Layout recalculated immediately on each `+` or `-`
 - The panel stays open as long as the mouse is over the button or the panel
 - Closes on mouseout with a 150ms delay
@@ -726,3 +732,77 @@ cartouches anywhere else.
 A card is drawn one `padding` inside its column, so `padding + drawn width` must
 fit the column at both ranks or neighbouring cards overlap. This is checked per
 theme, from the numbers alone, rather than per rendering.
+
+---
+
+## 10. Views
+
+The tree view draws the pedigree it has loaded in one of several ways, chosen
+by the viewer under [App Settings > Pedigree](ui-app-settings.md#7-section-pedigree)
+and persisted in `localStorage('oxidgene-pedigree-view')` under the view's own
+name. The tree (§1–§9) is the default, and a name no longer shipped falls back
+to it. The choice applies to the tree canvas only: the mini-pedigrees of the
+profile and the search results stay trees.
+
+Every view reads the same pedigree, fetched as §1 describes; none needs data
+the tree does not. Every view keeps what surrounds the canvas — topbar, icon
+sidebar, events sidebar, action picker — and the canvas interactions of §5:
+drag to pan, wheel and buttons to zoom, fit, and the events sidebar showing
+the selected person. Changing view refits the canvas. Every view is drawn in
+SVG from the pedigree theme's CSS variables, so it follows the light or dark
+palette and the pedigree theme's colours and type, and prints like the tree.
+
+### What a view draws, and its controls
+
+| View | Draws | Ancestor depth | Descendant depth |
+|------|-------|----------------|------------------|
+| Tree | Ancestors above, descendants below (§1–§9) | yes | yes |
+| Ancestor wheel | Ancestors only, a full circle | yes | hidden |
+| Fan chart | Ancestors only, the upper half circle | yes | hidden |
+
+### Ancestor wheel and fan chart
+
+The focus person sits in a disc at the centre — a half disc on the base of the
+fan — and each generation of ancestors is a ring around it, one ring further
+out per generation. A ring is divided into one segment per SOSA position
+counted from the focus person: generation *g* has 2^*g* equal segments, and
+SOSA *n* takes the segment *n* − 2^*g* in order. The father's side therefore
+fills the first half of every ring and the mother's side the second, so a
+line of ancestors stays in one wedge: on the wheel the father's side is the
+left half (from six o'clock round to twelve), on the fan the left quarter
+circle. The root's disc is filled with `var(--pn-root-bg)` and set in white.
+
+- **Segments.** Tinted by sex from `var(--pn-male-line)` and
+  `var(--pn-female-line)` mixed into `var(--pn-bg)`, outlined in
+  `var(--pn-border)`, hovered in `var(--pn-hover-bg)`.
+- **SOSA and self marks.** A direct ancestor of the tree's SOSA 1 carries a
+  band in `var(--pn-sosa)` along the inner edge of its segment, the SOSA 1
+  itself in `var(--pn-sosa-root)`, the user's own person in `var(--pn-self)`
+  (which wins, as on the card). When the focus person *is* the SOSA 1, a
+  segment's hover also gives its SOSA number, which is then its position.
+- **Missing parents.** A person short of the last generation whose father or
+  mother the tree does not record gets a dashed empty segment in that
+  parent's place, with a `+` when it is wide enough; clicking it opens the
+  add-parent form as the empty card does. Nothing is drawn beyond it.
+- **Text.** Names follow the card's pieces — given name, surname in
+  uppercase, lifespan with its precision marks (§3). While a ring's segments
+  are wide enough for a straight line (a chord of at least 110 px), text runs
+  across the segment, square to its radius, and is turned over on the lower
+  half so it never reads upside down. Further out it runs along the radius,
+  outwards on the right half and inwards on the left. A segment that holds
+  fewer than three lines writes `SURNAME Given` on one line, then the
+  lifespan if there is room for a second; each line is truncated with an
+  ellipsis to the room it has, and a lifespan that overruns even in its
+  narrow form is compressed rather than cut. The hover text always has the
+  full name and the spelled-out lifespan.
+- **Legibility at depth.** No segment is narrower than 15 px at its inner
+  edge: a generation whose segments would be thinner starts further out, the
+  ring inside it widening to meet it. Eight generations stay readable at a
+  normal zoom on the wheel; deeper ones and the fan's outer rings are read by
+  zooming, as a deep tree is.
+- **Interactions.** Clicking an ancestor's segment makes them the focus and
+  redraws the chart around them, as clicking a card does; a right click opens
+  the action picker. The root's disc has nowhere to navigate to, so clicking
+  it opens the action picker.
+- Every segment is drawn: ten generations are at most 2,046 of them, and the
+  chart is compact enough that most are on screen at a fitting zoom.

@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::components::pedigree_theme::PedigreeThemeId;
+use crate::components::pedigree_view::PedigreeView;
 
 pub const MAX_PEDIGREE_LEVELS: usize = 10;
 
@@ -75,6 +76,7 @@ impl Default for SortParticles {
 const SORT_PARTICLES_STORAGE_KEY: &str = "oxidgene-sort-particles";
 const PEDIGREE_DEFAULTS_STORAGE_KEY: &str = "oxidgene-pedigree-defaults";
 const PEDIGREE_THEME_STORAGE_KEY: &str = "oxidgene-pedigree-theme";
+const PEDIGREE_VIEW_STORAGE_KEY: &str = "oxidgene-pedigree-view";
 
 /// Hook: initialise the pedigree theme (call once in `AppShell`).
 ///
@@ -119,6 +121,47 @@ pub fn set_pedigree_theme(mut pref: Signal<PedigreeThemeId>, id: PedigreeThemeId
     {
         document::eval(&format!(
             "localStorage.setItem('{PEDIGREE_THEME_STORAGE_KEY}', {js_value});"
+        ));
+    }
+}
+
+/// Hook: initialise the tree view's drawing (call once in `AppShell`).
+///
+/// Resolves to the default at once, for the same reason as the theme: the
+/// tree view would otherwise draw one chart and then replace it with another.
+pub fn use_init_pedigree_view() -> Signal<PedigreeView> {
+    let mut pref = use_context_provider(|| Signal::new(PedigreeView::default()));
+
+    use_effect(move || {
+        spawn(async move {
+            // A view this build no longer ships keeps the default, the way an
+            // unknown theme does.
+            if let Some(view) = stored(PEDIGREE_VIEW_STORAGE_KEY)
+                .await
+                .as_deref()
+                .and_then(PedigreeView::from_stored)
+            {
+                pref.set(view);
+            }
+        });
+    });
+
+    pref
+}
+
+/// Read the chosen tree view drawing, falling back outside a provider.
+pub fn use_pedigree_view() -> PedigreeView {
+    try_use_context::<Signal<PedigreeView>>()
+        .map(|pref| *pref.read())
+        .unwrap_or_default()
+}
+
+/// Persist the tree view drawing and redraw every tree view on screen.
+pub fn set_pedigree_view(mut pref: Signal<PedigreeView>, view: PedigreeView) {
+    pref.set(view);
+    if let Ok(js_value) = serde_json::to_string(&view.to_stored()) {
+        document::eval(&format!(
+            "try {{ localStorage.setItem('{PEDIGREE_VIEW_STORAGE_KEY}', {js_value}); }} catch (e) {{}}"
         ));
     }
 }

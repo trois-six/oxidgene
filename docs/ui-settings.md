@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
 ---
 
 
@@ -371,8 +371,13 @@ application-level settings shared with [App Settings](ui-app-settings.md).
 Changing them from the tree settings page immediately updates the same global
 preference; they are not stored on the current tree.
 
-The Pedigree section uses the shared ancestor and descendant depth controls.
-Their defaults are 4 ascending generations and 3 descending generations,
+The Pedigree section is the one [App Settings](ui-app-settings.md#7-section-pedigree)
+shows: the chart the tree view draws (tree, ancestor wheel or fan chart), the
+pedigree theme, and the shared ancestor and descendant depth controls. The
+chart is a per-device display preference like the theme, never a tree
+setting, so nothing about it reaches the server.
+
+The depth defaults are 4 ascending generations and 3 descending generations,
 bounded independently from 0 through 10. A tree with saved view depths keeps
 those depths; the global values initialize trees without a saved view.
 

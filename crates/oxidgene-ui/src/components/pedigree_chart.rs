@@ -36,10 +36,14 @@ use oxidgene_core::types::{
 };
 use oxidgene_core::{ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
 
+use crate::components::pedigree_view::PedigreeView;
 use crate::i18n::{I18n, use_i18n};
 use crate::prefs::use_pedigree_defaults;
 
 use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
+
+mod ancestors;
+mod circular;
 
 // ── Viewport / zoom ──────────────────────────────────────────────────────
 
@@ -1020,9 +1024,10 @@ impl PersonNode {
         }
     }
 
-    /// The card of one of the root's siblings, drawn at (`x`, `y`) on the
-    /// root's row, outside the tree layout.
-    fn root_sibling_card(self, id: Uuid, x: f64, y: f64) -> LayoutNode {
+    /// The card of this person drawn at (`x`, `y`), outside the tree layout:
+    /// one of the root's siblings on the root's row, or an ancestor in one of
+    /// the ancestor-only views.
+    fn card_at(self, id: Uuid, x: f64, y: f64) -> LayoutNode {
         LayoutNode {
             id: Some(id),
             x,
@@ -2405,50 +2410,129 @@ impl std::ops::Deref for SharedLayout {
     }
 }
 
-/// What a [`PedigreeLayout`] was computed from.
+/// What a chart's layout was computed from.
 struct LayoutKey {
     root: Uuid,
     data: SharedPedigree,
     sosa_root: Option<Uuid>,
     sosa_ids: Option<HashSet<Uuid>>,
+    shape: SceneShape,
+}
+
+/// The part of a [`LayoutKey`] that is not read off the chart's props.
+#[derive(Clone, Copy, PartialEq)]
+struct SceneShape {
+    view: PedigreeView,
     ancestor_levels: usize,
     descendant_levels: usize,
     theme: &'static PedigreeTheme,
 }
 
 impl LayoutKey {
-    fn of(
-        props: &PedigreeChartProps,
-        ancestor_levels: usize,
-        descendant_levels: usize,
-        theme: &'static PedigreeTheme,
-    ) -> Self {
+    fn of(props: &PedigreeChartProps, shape: SceneShape) -> Self {
         Self {
             root: props.root_person_id,
             data: props.data.clone(),
             sosa_root: props.sosa_root_person_id,
             sosa_ids: props.sosa_ancestor_ids.clone(),
-            ancestor_levels,
-            descendant_levels,
-            theme,
+            shape,
         }
     }
 
-    fn matches(
-        &self,
-        props: &PedigreeChartProps,
-        ancestor_levels: usize,
-        descendant_levels: usize,
-        theme: &'static PedigreeTheme,
-    ) -> bool {
+    fn matches(&self, props: &PedigreeChartProps, shape: SceneShape) -> bool {
         self.root == props.root_person_id
             && self.data == props.data
             && self.sosa_root == props.sosa_root_person_id
-            && self.ancestor_levels == ancestor_levels
-            && self.descendant_levels == descendant_levels
-            && std::ptr::eq(self.theme, theme)
+            && self.shape == shape
             && self.sosa_ids == props.sosa_ancestor_ids
     }
+}
+
+/// A laid-out chart in whichever view the viewer chose.
+#[derive(Clone, PartialEq)]
+enum ChartScene {
+    Tree(SharedLayout),
+    Circular(circular::SharedCircular),
+}
+
+impl ChartScene {
+    /// What a fit frames, whichever view is drawn.
+    fn fit_target(&self) -> FitTarget {
+        match self {
+            Self::Tree(layout) => FitTarget::of(layout),
+            Self::Circular(layout) => layout.fit_target(),
+        }
+    }
+}
+
+/// The SOSA root's ancestors: the server's set when it sent one, else a
+/// traversal that only sees the pedigree window.
+fn resolve_sosa_ancestors(props: &PedigreeChartProps) -> HashSet<Uuid> {
+    props
+        .sosa_ancestor_ids
+        .clone()
+        .or_else(|| {
+            props
+                .sosa_root_person_id
+                .map(|sosa_id| props.data.ancestor_set(sosa_id))
+        })
+        .unwrap_or_default()
+}
+
+/// Lays the chart out in `shape`'s view.
+fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
+    let sosa_ancestors = resolve_sosa_ancestors(props);
+    let circular = |arc| {
+        ChartScene::Circular(circular::SharedCircular(Rc::new(
+            crate::ui_observability::measure_ui("pedigree_layout", || {
+                circular::circular_layout(
+                    arc,
+                    props.root_person_id,
+                    &props.data,
+                    shape.ancestor_levels,
+                    props.sosa_root_person_id,
+                    &sosa_ancestors,
+                )
+            }),
+        )))
+    };
+    match shape.view {
+        PedigreeView::Tree => ChartScene::Tree(SharedLayout(Rc::new(
+            crate::ui_observability::measure_ui("pedigree_layout", || {
+                compute_layout(
+                    props.root_person_id,
+                    &props.data,
+                    props.sosa_root_person_id,
+                    &sosa_ancestors,
+                    PedigreeLayoutOptions::full(shape.ancestor_levels, shape.descendant_levels),
+                    shape.theme,
+                )
+            }),
+        ))),
+        PedigreeView::Wheel => circular(circular::ChartArc::WHEEL),
+        PedigreeView::Fan => circular(circular::ChartArc::FAN),
+    }
+}
+
+/// The scene for `shape`, from `cache` when nothing it depends on changed.
+///
+/// The chart re-renders for plenty of other reasons — the event panel, the
+/// depth popover, the selection — and each of those used to recompute the
+/// whole layout.
+fn cached_scene(
+    cache: &RefCell<Option<(LayoutKey, ChartScene)>>,
+    props: &PedigreeChartProps,
+    shape: SceneShape,
+) -> ChartScene {
+    let mut cache = cache.borrow_mut();
+    if let Some((key, scene)) = &*cache
+        && key.matches(props, shape)
+    {
+        return scene.clone();
+    }
+    let scene = compute_scene(props, shape);
+    *cache = Some((LayoutKey::of(props, shape), scene.clone()));
+    scene
 }
 
 /// Compute the RT layout for both ascending and descending trees.
@@ -2586,7 +2670,7 @@ fn compute_layout(
                 let sib_x = sib_min_x - metrics.sibling_spacing * (len_before - i) as f64;
                 let sib_y = asc_root_y;
                 let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
-                extra_asc_nodes.push(pn.root_sibling_card(sib_id, sib_x, sib_y));
+                extra_asc_nodes.push(pn.card_at(sib_id, sib_x, sib_y));
                 // Link from father node (index reversed so furthest sibling is "last").
                 if let Some((fx, fy, fd)) = father_data {
                     let rev_idx = len_before - i - 1;
@@ -2611,7 +2695,7 @@ fn compute_layout(
                 let sib_x = sib_max_x + metrics.sibling_spacing * (i + 1) as f64;
                 let sib_y = asc_root_y;
                 let pn = PersonNode::from_data(sib_id, data, sosa_root_id, sosa_ancestors);
-                extra_asc_nodes.push(pn.root_sibling_card(sib_id, sib_x, sib_y));
+                extra_asc_nodes.push(pn.card_at(sib_id, sib_x, sib_y));
                 // Link from mother (or father if no mother).
                 if let Some((px, py, pd)) = mother_data {
                     let simple = sib_x <= px;
@@ -3395,6 +3479,36 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
             }
             MiniPedigreeTooltip { hovered: hovered_person }
         }
+    }
+}
+
+/// A miniature of a tree view drawing, for the view picker in the settings.
+///
+/// The circular views draw their own rings and segments, three generations
+/// deep, so the picture cannot drift from the chart; the tree is a schematic
+/// of parents above the root and children below it.
+#[component]
+pub fn PedigreeViewSwatch(view: PedigreeView) -> Element {
+    match view {
+        PedigreeView::Tree => rsx! {
+            svg {
+                class: "ped-theme-swatch ped-view-swatch",
+                "viewBox": "0 0 120 68",
+                "preserveAspectRatio": "xMidYMid meet",
+                "aria-hidden": "true",
+                rect { x: "0", y: "0", width: "120", height: "68", style: "fill:var(--pn-swatch-bg,transparent)" }
+                path { class: "pedigree-connector-path", d: "M54,14 H66 M60,14 V30 M60,42 V47 M36,47 H84 M36,47 V52 M84,47 V52" }
+                for (i, (x, y)) in [(18.0, 8.0), (66.0, 8.0), (42.0, 30.0), (18.0, 52.0), (66.0, 52.0)].into_iter().enumerate() {
+                    rect {
+                        key: "{i}",
+                        x: "{x}", y: "{y}", width: "36", height: "12", rx: "2",
+                        style: if i == 2 { "fill:var(--pn-root-bg);stroke:var(--pn-border)" } else { "fill:var(--pn-bg);stroke:var(--pn-border)" },
+                    }
+                }
+            }
+        },
+        PedigreeView::Wheel => circular::swatch(circular::ChartArc::WHEEL),
+        PedigreeView::Fan => circular::swatch(circular::ChartArc::FAN),
     }
 }
 
@@ -4653,53 +4767,31 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
         needs_fit.set(true);
     }
 
-    // ── Compute layout ──
-    //
-    // Only when something it depends on changes. The chart re-renders for
-    // plenty of other reasons — the event panel, the depth popover, the
-    // selection — and each of those used to recompute the whole layout.
-    let layout_cache = use_hook(|| Rc::new(RefCell::new(None::<(LayoutKey, SharedLayout)>)));
-    let layout = {
-        let mut cache = layout_cache.borrow_mut();
-        match &*cache {
-            Some((key, layout)) if key.matches(&props, anc_now, desc_now, theme) => layout.clone(),
-            _ => {
-                // Server-provided SOSA ancestor set when available, falling
-                // back to a traversal that only sees the pedigree window.
-                let sosa_ancestors: HashSet<Uuid> = props
-                    .sosa_ancestor_ids
-                    .clone()
-                    .or_else(|| {
-                        props
-                            .sosa_root_person_id
-                            .map(|sosa_id| props.data.ancestor_set(sosa_id))
-                    })
-                    .unwrap_or_default();
-                let layout = SharedLayout(Rc::new(crate::ui_observability::measure_ui(
-                    "pedigree_layout",
-                    || {
-                        compute_layout(
-                            props.root_person_id,
-                            &props.data,
-                            props.sosa_root_person_id,
-                            &sosa_ancestors,
-                            PedigreeLayoutOptions::full(anc_now, desc_now),
-                            theme,
-                        )
-                    },
-                )));
-                *cache = Some((
-                    LayoutKey::of(&props, anc_now, desc_now, theme),
-                    layout.clone(),
-                ));
-                layout
-            }
-        }
-    };
+    // ── View: which drawing, refitted whenever it changes ──
+    let view = crate::prefs::use_pedigree_view();
+    let mut previous_view = use_signal(|| view);
+    if *previous_view.peek() != view {
+        previous_view.set(view);
+        animating.set(false);
+        needs_fit.set(true);
+    }
+
+    // ── Compute layout, only when something it depends on changes ──
+    let layout_cache = use_hook(|| Rc::new(RefCell::new(None::<(LayoutKey, ChartScene)>)));
+    let scene = cached_scene(
+        &layout_cache,
+        &props,
+        SceneShape {
+            view,
+            ancestor_levels: anc_now,
+            descendant_levels: desc_now,
+            theme,
+        },
+    );
 
     // ── Fit graph in viewport when needed ──
     if needs_fit() && panel_ready() {
-        let fit_target = FitTarget::of(&layout);
+        let fit_target = scene.fit_target();
         needs_fit.set(false);
         spawn(async move {
             // Small delay so the DOM has rendered the viewport element.
@@ -4850,7 +4942,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     }
 
     // ── Fit-to-content zoom calculation ──
-    let fit_target = FitTarget::of(&layout);
+    let fit_target = scene.fit_target();
 
     // The couple view opens on the selected person's earliest couple; a
     // person with no known spouse has none, and no couple button.
@@ -4949,18 +5041,22 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                     "+"
                                 }
                             }
-                            div { class: "pedigree-depth-row",
-                                span { class: "pedigree-depth-arrow", "\u{2193}" }
-                                button {
-                                    class: "pedigree-depth-btn",
-                                    onclick: move |_| { if descendant_levels() > 0 { descendant_levels -= 1; } },
-                                    "\u{2212}"
-                                }
-                                span { class: "pedigree-depth-val", "{descendant_levels()}" }
-                                button {
-                                    class: "pedigree-depth-btn",
-                                    onclick: move |_| { if descendant_levels() < 10 { descendant_levels += 1; } },
-                                    "+"
+                            // A view drawing ancestors only has no descendant
+                            // depth to set.
+                            if view.shows_descendants() {
+                                div { class: "pedigree-depth-row",
+                                    span { class: "pedigree-depth-arrow", "\u{2193}" }
+                                    button {
+                                        class: "pedigree-depth-btn",
+                                        onclick: move |_| { if descendant_levels() > 0 { descendant_levels -= 1; } },
+                                        "\u{2212}"
+                                    }
+                                    span { class: "pedigree-depth-val", "{descendant_levels()}" }
+                                    button {
+                                        class: "pedigree-depth-btn",
+                                        onclick: move |_| { if descendant_levels() < 10 { descendant_levels += 1; } },
+                                        "+"
+                                    }
                                 }
                             }
                         }
@@ -5194,18 +5290,32 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                     animating,
 
                     PedigreeScene {
-                        PedigreeCanvas {
-                            layout: layout.clone(),
-                            root_person_id: props.root_person_id,
-                            selected_person_id,
-                            on_person_navigate: props.on_person_navigate,
-                            on_person_click: props.on_person_click,
-                            on_empty_slot: props.on_empty_slot,
-                            on_add_spouse_slot: props.on_add_spouse_slot,
-                            theme,
-                            transform: viewport_transform,
-                            viewport: viewport_rect,
-                            animating,
+                        match scene {
+                            ChartScene::Tree(layout) => rsx! {
+                                PedigreeCanvas {
+                                    layout,
+                                    root_person_id: props.root_person_id,
+                                    selected_person_id,
+                                    on_person_navigate: props.on_person_navigate,
+                                    on_person_click: props.on_person_click,
+                                    on_empty_slot: props.on_empty_slot,
+                                    on_add_spouse_slot: props.on_add_spouse_slot,
+                                    theme,
+                                    transform: viewport_transform,
+                                    viewport: viewport_rect,
+                                    animating,
+                                }
+                            },
+                            ChartScene::Circular(layout) => rsx! {
+                                circular::CircularCanvas {
+                                    layout,
+                                    selected_person_id,
+                                    on_person_navigate: props.on_person_navigate,
+                                    on_person_click: props.on_person_click,
+                                    on_empty_slot: props.on_empty_slot,
+                                    theme,
+                                }
+                            },
                         }
                     }
                 }
@@ -6598,7 +6708,7 @@ mod geometry_golden_tests {
     use crate::components::pedigree_theme::CardStyle;
     use oxidgene_core::{Calendar, NameType};
 
-    fn id(n: u128) -> Uuid {
+    pub(super) fn id(n: u128) -> Uuid {
         Uuid::from_u128(n)
     }
 
@@ -6612,7 +6722,7 @@ mod geometry_golden_tests {
     /// layout reads relations in insertion order, so a random id would not
     /// move a card, but it would make the golden block unreadable.
     #[derive(Default)]
-    struct Fixture {
+    pub(super) struct Fixture {
         persons: HashMap<Uuid, Person>,
         names: HashMap<Uuid, Vec<PersonName>>,
         spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>>,
@@ -6623,7 +6733,13 @@ mod geometry_golden_tests {
     }
 
     impl Fixture {
-        fn person(&mut self, n: u128, sex: Sex, given: &str, surname: &str) -> &mut Self {
+        pub(super) fn person(
+            &mut self,
+            n: u128,
+            sex: Sex,
+            given: &str,
+            surname: &str,
+        ) -> &mut Self {
             let pid = id(n);
             self.persons.insert(
                 pid,
@@ -6662,7 +6778,7 @@ mod geometry_golden_tests {
 
         /// Gives a person a birth and/or death year, with its precision mark —
         /// the card draws `ca 1849-< 1917` from exactly this.
-        fn life(
+        pub(super) fn life(
             &mut self,
             n: u128,
             birth: Option<(&str, DateQualifier)>,
@@ -6699,7 +6815,12 @@ mod geometry_golden_tests {
             self
         }
 
-        fn family(&mut self, fam: u128, spouses: &[u128], children: &[u128]) -> &mut Self {
+        pub(super) fn family(
+            &mut self,
+            fam: u128,
+            spouses: &[u128],
+            children: &[u128],
+        ) -> &mut Self {
             let fid = id(fam);
             self.spouses_by_family.insert(
                 fid,
@@ -6742,7 +6863,7 @@ mod geometry_golden_tests {
             self
         }
 
-        fn build(self) -> PedigreeData {
+        pub(super) fn build(self) -> PedigreeData {
             PedigreeData {
                 persons: self.persons,
                 names: self.names,

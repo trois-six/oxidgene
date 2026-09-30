@@ -1,0 +1,121 @@
+//! Which drawing the tree view uses.
+//!
+//! The tree view can draw the same pedigree in several ways. This is the name
+//! the viewer's preference keeps, like [`PedigreeThemeId`] for the card theme:
+//! `localStorage` holds `"wheel"`, and a name no longer shipped falls back to
+//! the default rather than failing.
+//!
+//! [`PedigreeThemeId`]: crate::components::pedigree_theme::PedigreeThemeId
+
+use serde::{Deserialize, Serialize};
+
+/// One way of drawing the tree view.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PedigreeView {
+    /// Ancestors above and descendants below the root, one row per
+    /// generation: what the tree view has always drawn.
+    #[default]
+    Tree,
+    /// The root at the centre of a full circle, each generation of ancestors
+    /// one ring further out.
+    Wheel,
+    /// The wheel's principle on a half circle, the root at its base.
+    Fan,
+}
+
+impl PedigreeView {
+    /// Every view, in the order the selector offers them.
+    pub const ALL: [Self; 3] = [Self::Tree, Self::Wheel, Self::Fan];
+
+    /// Whether the view draws descendants, and so whether the descendant
+    /// depth control means anything while it is shown.
+    #[must_use]
+    pub const fn shows_descendants(self) -> bool {
+        matches!(self, Self::Tree)
+    }
+
+    /// Translation key for the view's name.
+    #[must_use]
+    pub const fn label_key(self) -> &'static str {
+        match self {
+            Self::Tree => "app_settings.pedigree_view_tree",
+            Self::Wheel => "app_settings.pedigree_view_wheel",
+            Self::Fan => "app_settings.pedigree_view_fan",
+        }
+    }
+
+    /// Translation key for the one line describing it in the selector.
+    #[must_use]
+    pub const fn hint_key(self) -> &'static str {
+        match self {
+            Self::Tree => "app_settings.pedigree_view_tree_hint",
+            Self::Wheel => "app_settings.pedigree_view_wheel_hint",
+            Self::Fan => "app_settings.pedigree_view_fan_hint",
+        }
+    }
+
+    /// The view a stored preference names, or `None` for anything this build
+    /// does not ship — the caller then keeps the default.
+    #[must_use]
+    pub fn from_stored(stored: &str) -> Option<Self> {
+        serde_json::from_str(stored).ok()
+    }
+
+    /// What [`Self::from_stored`] reads back.
+    #[must_use]
+    pub fn to_stored(self) -> String {
+        serde_json::to_string(&self).unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_is_the_tree_the_view_always_drew() {
+        assert_eq!(PedigreeView::default(), PedigreeView::Tree);
+    }
+
+    #[test]
+    fn a_stored_view_reads_back_as_itself() {
+        for view in PedigreeView::ALL {
+            assert_eq!(PedigreeView::from_stored(&view.to_stored()), Some(view));
+        }
+        // The name in storage is the view's own, not its position.
+        assert_eq!(PedigreeView::Wheel.to_stored(), "\"wheel\"");
+        assert_eq!(PedigreeView::Fan.to_stored(), "\"fan\"");
+    }
+
+    #[test]
+    fn an_unknown_or_corrupt_entry_keeps_the_default() {
+        assert_eq!(PedigreeView::from_stored("\"hourglass\""), None);
+        assert_eq!(PedigreeView::from_stored("wheel"), None);
+        assert_eq!(PedigreeView::from_stored(""), None);
+    }
+
+    #[test]
+    fn only_the_tree_draws_descendants() {
+        assert!(PedigreeView::Tree.shows_descendants());
+        for view in [PedigreeView::Wheel, PedigreeView::Fan] {
+            assert!(!view.shows_descendants(), "{view:?}");
+        }
+    }
+
+    #[test]
+    fn every_view_is_named_in_every_language() {
+        use crate::i18n::{I18n, Language};
+
+        for view in PedigreeView::ALL {
+            for language in Language::ALL {
+                let i18n = I18n(language);
+                for key in [view.label_key(), view.hint_key()] {
+                    let text = i18n.t(key);
+                    assert_ne!(text, key, "{view:?}: {key} is untranslated in {language:?}");
+                    assert!(!text.is_empty(), "{view:?}: {key} is empty in {language:?}");
+                }
+            }
+        }
+    }
+}

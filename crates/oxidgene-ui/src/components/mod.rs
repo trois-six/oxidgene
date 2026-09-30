@@ -18,6 +18,7 @@ pub mod media_input;
 pub mod merge_dialog;
 pub mod pedigree_chart;
 pub mod pedigree_theme;
+pub mod pedigree_view;
 pub mod person_form;
 pub mod person_profile;
 pub mod place_input;

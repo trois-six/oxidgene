@@ -64,6 +64,7 @@ pub fn AppShell() -> Element {
     let _sort_particles = crate::prefs::use_init_sort_particles();
     let _pedigree_defaults = crate::prefs::use_init_pedigree_defaults();
     let _pedigree_theme = crate::prefs::use_init_pedigree_theme();
+    let _pedigree_view = crate::prefs::use_init_pedigree_view();
     let theme = crate::theme::use_init_theme();
     use_init_textarea_resize_clamp();
     let _tree_cache = tree_cache::use_init_tree_cache();
@@ -1560,6 +1561,41 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .ped-card:hover .ped-card-rect { fill: var(--pn-hover-bg) !important; stroke: var(--pn-root-bg) !important; }
     .ped-card-focus:hover .ped-card-name-text, .ped-card-focus:hover .ped-card-name-text tspan { fill: var(--pn-text) !important; }
+
+    /* ── Ancestor wheel and fan chart ─────────────────────────────────
+       A segment is tinted by sex from the same tokens as a card's rule, a
+       direct ancestor's inner edge carries the SOSA colour, and a missing
+       parent is a dashed outline, as the empty card is. */
+
+    .fan-seg { cursor: pointer; }
+    .fan-seg-shape {
+        fill: var(--pn-bg);
+        stroke: var(--pn-border);
+        stroke-width: 1;
+    }
+    .fan-seg-male .fan-seg-shape { fill: color-mix(in srgb, var(--pn-male-line) 16%, var(--pn-bg)); }
+    .fan-seg-female .fan-seg-shape { fill: color-mix(in srgb, var(--pn-female-line) 16%, var(--pn-bg)); }
+    .fan-seg:hover .fan-seg-shape { fill: var(--pn-hover-bg); stroke: var(--pn-root-bg); }
+    .fan-root .fan-seg-shape { fill: var(--pn-root-bg); }
+    .fan-root:hover .fan-seg-shape { fill: var(--pn-root-bg); stroke: var(--pn-border); }
+    .fan-seg-band { fill: none; stroke-width: 3; pointer-events: none; }
+    .fan-root-ring { fill: none; stroke-width: 3; pointer-events: none; }
+    .fan-seg-label { pointer-events: none; }
+    .fan-slot { cursor: pointer; }
+    .fan-slot-shape {
+        fill: var(--pn-bg);
+        fill-opacity: 0.35;
+        stroke: var(--pn-border);
+        stroke-width: 1;
+        stroke-dasharray: 4 4;
+    }
+    .fan-slot:hover .fan-slot-shape { fill-opacity: 1; fill: var(--pn-hover-bg); }
+    .fan-slot-plus {
+        fill: var(--pn-root-bg);
+        font: 700 16px sans-serif;
+        text-anchor: middle;
+        pointer-events: none;
+    }
 
     .pedigree-inner {
         position: absolute;

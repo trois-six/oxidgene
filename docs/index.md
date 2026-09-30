@@ -26,7 +26,7 @@ okf_version: "0.2"
 # UI Pages
 
 * [Homepage](ui-home.md) - Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals.
-* [Genealogy Tree](ui-genealogy-tree.md) - Pedigree canvas with person cards, connectors, navigation, and the events sidebar.
+* [Genealogy Tree](ui-genealogy-tree.md) - Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw.
 * [Person Profile](ui-person-profile.md) - Full person detail view with identity, timeline, family connections, media, and notes.
 * [Couple Profile](ui-couple-profile.md) - Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two.
 * [Person History](ui-person-history.md) - Every recorded version of a person, compared field by field side by side, with the restore of an earlier one.

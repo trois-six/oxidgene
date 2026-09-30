@@ -5,10 +5,13 @@ use dioxus::prelude::*;
 use crate::api::ApiClient;
 use crate::assistant::{AssistantLauncher, use_assistant_launcher};
 use crate::components::copy_field::CopyField;
+use crate::components::pedigree_chart::PedigreeViewSwatch;
 use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
+use crate::components::pedigree_view::PedigreeView;
 use crate::i18n::{self, Language, use_i18n};
 use crate::prefs::{
-    PedigreeDefaults, SortParticles, set_pedigree_defaults, set_pedigree_theme, set_sort_particles,
+    PedigreeDefaults, SortParticles, set_pedigree_defaults, set_pedigree_theme, set_pedigree_view,
+    set_sort_particles,
 };
 use crate::router::Route;
 use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
@@ -375,6 +378,8 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
     let current = (*pedigree_defaults.read()).unwrap_or_default();
     let theme_pref = use_context::<Signal<PedigreeThemeId>>();
     let current_theme = *theme_pref.read();
+    let view_pref = use_context::<Signal<PedigreeView>>();
+    let current_view = *view_pref.read();
 
     rsx! {
         div { class: "settings-section",
@@ -383,6 +388,25 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
             p { class: "settings-section-subtitle", {i18n.t("app_settings.pedigree_desc")} }
 
             div { class: "app-settings-card",
+                div { class: "app-settings-option app-settings-option-stacked",
+                    div { class: "app-settings-option-info",
+                        span { class: "app-settings-option-label", {i18n.t("app_settings.pedigree_view")} }
+                        span { class: "app-settings-option-hint", {i18n.t("app_settings.pedigree_view_hint")} }
+                    }
+                    div { class: "theme-picker {current_theme.theme().viewport_class}",
+                        for view in PedigreeView::ALL {
+                            button {
+                                key: "{view:?}",
+                                class: if current_view == view { "theme-picker-option active" } else { "theme-picker-option" },
+                                aria_pressed: if current_view == view { "true" } else { "false" },
+                                onclick: move |_| set_pedigree_view(view_pref, view),
+                                PedigreeViewSwatch { view }
+                                span { class: "theme-picker-label", {i18n.t(view.label_key())} }
+                                span { class: "theme-picker-hint", {i18n.t(view.hint_key())} }
+                            }
+                        }
+                    }
+                }
                 div { class: "app-settings-option app-settings-option-stacked",
                     div { class: "app-settings-option-info",
                         span { class: "app-settings-option-label", {i18n.t("app_settings.pedigree_theme")} }

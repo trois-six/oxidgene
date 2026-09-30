@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T16:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:24:52Z }
 ---
 
 
@@ -78,7 +78,7 @@ Items:
 |---|---|
 | Appearance | Theme picker |
 | Language | Language selection |
-| Pedigree | Initial ancestor and descendant depths |
+| Pedigree | Chart, pedigree theme, initial ancestor and descendant depths |
 | Names | Surname-particle sorting |
 | API | REST endpoints with how to connect a client, and GraphQL in the web build; AI assistant (MCP) connection in the desktop build |
 
@@ -201,6 +201,23 @@ Displayed in a card:
 
 The Pedigree section controls how the pedigree is drawn and how deep it opens.
 
+### Chart
+
+A stacked option listing every way the tree view can draw the pedigree — the
+tree, the ancestor wheel, the fan chart — as tiles of the same picker as the
+themes: a miniature, a name and a one-line description. The miniatures of the
+wheel and the fan are drawn from the chart's own rings and segments three
+generations deep, in the current pedigree theme's colours; the tree's is a
+schematic of parents above the root and children below it.
+
+Choosing a view applies immediately, with no save step, to the tree view on
+this device. It is persisted in `localStorage('oxidgene-pedigree-view')` as
+the view's own name (`tree`, `wheel`, `fan`); the tree is the default and an
+unknown name falls back to it. It is a display preference like the theme, not
+a property of any tree, so it is not stored on the server. See
+[Views](ui-genealogy-tree.md#10-views) for what each one draws and which
+depth controls it offers.
+
 ### Theme
 
 A stacked option listing every pedigree theme as a tile: a swatch, its name and
@@ -226,7 +243,8 @@ The initial depth used when opening a tree that does not yet have a saved
 pedigree view:
 
 - **Ancestor generations**: 0–10, default 4.
-- **Descendant generations**: 0–10, default 3.
+- **Descendant generations**: 0–10, default 3. Unused while a chart that draws
+  ancestors only is chosen, but kept for the tree.
 
 Each value uses a bounded minus/value/plus stepper and is persisted immediately
 in `localStorage('oxidgene-pedigree-defaults')`. The same shared controls appear
