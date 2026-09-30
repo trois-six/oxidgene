@@ -8,6 +8,7 @@
 //! `docs/ui-common.md` §4.4.
 
 use dioxus::prelude::*;
+use oxidgene_core::search::fold_words;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, CreatePlaceBody, PlaceSuggestion};
@@ -107,13 +108,13 @@ pub fn PlaceInput(
         None => raw.clone(),
     };
 
-    let key = fold(&typed());
+    let key = fold_words(&typed());
     let mut choices: Vec<Choice> = if key.is_empty() || !tree_cache.entry_suggestions() {
         Vec::new()
     } else {
         options
             .iter()
-            .filter(|(_, name)| starts_a_word(&fold(name), &key))
+            .filter(|(_, name)| starts_a_word(&fold_words(name), &key))
             .take(TREE_SUGGESTIONS)
             .map(|(id, name)| Choice::Tree {
                 id: id.clone(),
@@ -243,29 +244,6 @@ pub(crate) async fn resolve_place(
     Ok(Some(api.create_place(tree_id, &body).await?.id))
 }
 
-/// Lowercase and without the accents of Latin scripts, so "etienne" finds
-/// "Étienne". The backend folds dictionary names the same way.
-fn fold(text: &str) -> String {
-    let mut folded = String::with_capacity(text.len());
-    for c in text.chars().flat_map(char::to_lowercase) {
-        match c {
-            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => folded.push('a'),
-            'ç' => folded.push('c'),
-            'è' | 'é' | 'ê' | 'ë' => folded.push('e'),
-            'ì' | 'í' | 'î' | 'ï' => folded.push('i'),
-            'ñ' => folded.push('n'),
-            'ò' | 'ó' | 'ô' | 'õ' | 'ö' => folded.push('o'),
-            'ù' | 'ú' | 'û' | 'ü' => folded.push('u'),
-            'ý' | 'ÿ' => folded.push('y'),
-            'œ' => folded.push_str("oe"),
-            'æ' => folded.push_str("ae"),
-            c if c.is_alphanumeric() => folded.push(c),
-            _ => folded.push(' '),
-        }
-    }
-    folded.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 fn starts_a_word(text: &str, query: &str) -> bool {
     text.match_indices(query)
         .any(|(at, _)| at == 0 || text.as_bytes()[at - 1] == b' ')
@@ -276,14 +254,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folding_ignores_case_accents_and_punctuation() {
-        assert_eq!(fold("Saint-Étienne-d'Œuf"), "saint etienne d oeuf");
+    fn a_tree_place_is_found_without_its_accents_as_the_dictionary_is() {
+        // Typed without the Polish letters, as the place dictionary on the
+        // server already accepts it.
+        let key = fold_words("Laka Gorna");
+        assert!(starts_a_word(&fold_words("Łąka Górna"), &key));
+        assert!(starts_a_word(
+            &fold_words("Großdorf"),
+            &fold_words("grossdorf")
+        ));
     }
 
     #[test]
     fn a_tree_place_matches_from_the_start_of_a_word() {
-        assert!(starts_a_word(&fold("Le Bourg-Neuf"), "neuf"));
-        assert!(starts_a_word(&fold("Le Bourg-Neuf"), "le bourg"));
-        assert!(!starts_a_word(&fold("Le Bourg-Neuf"), "ourg"));
+        assert!(starts_a_word(&fold_words("Le Bourg-Neuf"), "neuf"));
+        assert!(starts_a_word(&fold_words("Le Bourg-Neuf"), "le bourg"));
+        assert!(!starts_a_word(&fold_words("Le Bourg-Neuf"), "ourg"));
     }
 }

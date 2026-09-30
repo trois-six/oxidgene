@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 
 use oxidgene_core::calendar::days_in_month;
 use oxidgene_core::enums::Calendar;
+use oxidgene_core::search::fold_words;
 
 use crate::i18n::Language;
 
@@ -1451,33 +1452,6 @@ impl ReadError {
     }
 }
 
-/// Lowercase, without the diacritics of the eight languages, letters and
-/// digits only: "Dreißig" reads "dreissig", "sześćset" "szescset".
-fn fold(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars().flat_map(char::to_lowercase) {
-        match c {
-            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ą' => out.push('a'),
-            'æ' => out.push_str("ae"),
-            'ç' | 'ć' => out.push('c'),
-            'è' | 'é' | 'ê' | 'ë' | 'ę' => out.push('e'),
-            'ì' | 'í' | 'î' | 'ï' => out.push('i'),
-            'ł' => out.push('l'),
-            'ñ' | 'ń' => out.push('n'),
-            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' => out.push('o'),
-            'œ' => out.push_str("oe"),
-            'ś' => out.push('s'),
-            'ß' => out.push_str("ss"),
-            'ù' | 'ú' | 'û' | 'ü' => out.push('u'),
-            'ý' | 'ÿ' => out.push('y'),
-            'ź' | 'ż' => out.push('z'),
-            c if c.is_ascii_alphanumeric() => out.push(c),
-            _ => out.push(' '),
-        }
-    }
-    out
-}
-
 /// A piece of a written number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Piece {
@@ -1503,7 +1477,7 @@ static PIECES: LazyLock<HashMap<String, Piece>> = LazyLock::new(|| {
 
 /// Add `word`, folded, as `piece`.
 fn add_piece(map: &mut HashMap<String, Piece>, word: &str, piece: Piece) {
-    map.insert(fold(word), piece);
+    map.insert(fold_words(word), piece);
 }
 
 /// The numbers the writers' tables spell out: units, ordinals, tens and
@@ -1735,12 +1709,12 @@ static MONTH_NAMES: LazyLock<HashMap<String, u8>> = LazyLock::new(|| {
     ];
     for table in tables {
         for (i, name) in table.iter().enumerate() {
-            map.insert(fold(name), i as u8 + 1);
+            map.insert(fold_words(name), i as u8 + 1);
         }
     }
     for (i, forms) in MONTHS_LA_OTHER.iter().enumerate() {
         for form in forms {
-            map.insert(fold(form), i as u8 + 1);
+            map.insert(fold_words(form), i as u8 + 1);
         }
     }
     map
@@ -1819,7 +1793,7 @@ pub fn read(text: &str) -> Result<Ymd, ReadError> {
 fn tokenize(text: &str) -> Vec<Token> {
     // Roman numerals are only read where written in capitals, or where the
     // Roman reckoning expects one, so that "di" or "mil" stay words.
-    let reckoning = fold(text)
+    let reckoning = fold_words(text)
         .split_whitespace()
         .any(|w| matches!(classify(w), Token::Kalends | Token::Nones | Token::Ides));
     let mut tokens: Vec<Token> = Vec::new();
@@ -1827,7 +1801,7 @@ fn tokenize(text: &str) -> Vec<Token> {
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .flat_map(|w| {
-            let folded = fold(w);
+            let folded = fold_words(w);
             let parts: Vec<String> = folded.split_whitespace().map(str::to_string).collect();
             parts.into_iter().map(move |p| (w, p))
         })

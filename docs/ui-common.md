@@ -321,7 +321,10 @@ never restrictive: free text is always accepted.
   scrolls past half the window's height. Arrow keys move through the list,
   keeping the highlighted row in view, Enter picks, Escape closes it.
 - **Matching.** A value is suggested when one of its words starts with the
-  typed text, ignoring case, accents and punctuation. The backend is asked
+  typed text, ignoring case, accents and punctuation; ligatures and letters
+  such as `ł` or `ß` read as their plain spelling (`l`, `ss`). The place field
+  matches the tree's places in the interface and the dictionaries are
+  matched on the server; both fold a Latin letter the same way. The backend is asked
   after a 300 ms pause, and only about what the user typed: a form opening
   on a filled field asks for nothing.
 - **Layout.** The list opens in place under the field, not as a

@@ -94,6 +94,15 @@ pub struct GivenNameEntry {
 /// values are free text (accents, gendered variants, old spellings), so
 /// entries also get indexed under each of their declared `aliases`; place
 /// names are matched the same way.
+///
+/// The interface folds typed text with [`oxidgene_core::search::fold_words`],
+/// which cannot carry Unicode's decomposition tables into WASM and spells the
+/// Latin letters out instead. On every letter it lists the two agree (a test
+/// below checks each one), so a tree place and a dictionary place match the
+/// same text. Two differences remain, both outside what a place or a name
+/// holds in practice: a letter of another script with an accent is only
+/// unaccented here, and punctuation other than the word breaks below is
+/// dropped here where `fold_words` reads it as a break.
 pub fn normalize_key(raw: &str) -> String {
     let mut folded = String::with_capacity(raw.len());
     for c in raw.trim().nfd() {
@@ -508,6 +517,27 @@ mod tests {
         assert_eq!(normalize_key("Cœur-d’Ŵy"), "coeur d wy");
         assert_eq!(normalize_key("Włodarz"), "wlodarz");
         assert_eq!(normalize_key("Søren Đorđe"), "soren dorde");
+    }
+
+    #[test]
+    fn folds_every_latin_letter_the_way_the_interface_does() {
+        use oxidgene_core::search::fold_words;
+
+        let letters = ('\u{C0}'..='\u{17F}')
+            .chain(['\u{218}', '\u{219}', '\u{21A}', '\u{21B}'])
+            .filter(|c| c.is_alphabetic());
+        for letter in letters {
+            let text = format!("A{letter}z");
+            assert_eq!(normalize_key(&text), fold_words(&text), "{letter:?}");
+        }
+        for text in [
+            "Saint-Étienne-d’Œuf",
+            "Łąka Górna",
+            "Großdorf",
+            "E\u{301}cole",
+        ] {
+            assert_eq!(normalize_key(text), fold_words(text), "{text}");
+        }
     }
 
     #[test]
