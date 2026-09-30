@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T14:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -58,7 +58,8 @@ the contextual topbar.
 - Compact, approximately 40px high, full width, `10px 16px` padding.
 - Transparent background and `1px solid var(--border)` bottom border.
 - Left zone: home logo, linked tree name, separator, localized current page.
-- Right zone: page-specific search or actions.
+- Right zone: page-specific search or actions, then the print action
+  ([§7](#7-printing)) on every page that prints.
 
 | Page | Breadcrumb | Right zone |
 |---|---|---|
@@ -727,3 +728,75 @@ width. Hiding the sidebar below 400px likewise preserves both values for a
 later wider viewport. Every real window-size transition continues through the
 existing debounced pedigree resize handler so graph fitting and zoom behavior
 remain consistent.
+
+## 7. Printing
+
+Every page that shows the tree's content prints. The homepage, the tree
+settings, the application settings and the not-found page do not: they are
+controls, not content. The decision is `is_printable` in
+`crates/oxidgene-ui/src/components/print.rs`, an exhaustive match on the
+route, so a new route does not compile until it is made.
+
+### 7.1 Print action
+
+- One component, `PrintAction`, is the last item of the contextual topbar
+  (§2.2) on every page that prints. It is the topbar's 28px icon button with a
+  printer icon, the localized accessible name *Print* and the tooltip *Print
+  this page*. On a route that does not print it renders nothing.
+- On the web it calls `window.print()`. On the desktop the shell installs a
+  `PrintBridge` (the UI trait `PagePrinter`) that opens the platform's print
+  dialog on the WebView itself — a WebKitGTK print operation on Linux, an
+  `NSPrintOperation` on macOS, WebView2's dialog on Windows — because a
+  WebView's `window.print()` cannot be relied on (WKWebView ignores it).
+- Ctrl+P, or Cmd+P, presses the page's print button, so the shortcut and the
+  button print the same thing. On a page without the button the key is left
+  alone: a browser prints the page as it stands, the desktop does nothing.
+- The browser's own Print command goes through the same stylesheet; nothing
+  the action does before printing depends on the button having been pressed.
+
+### 7.2 Printed page
+
+- **Palette.** Paper uses the `light` theme whatever theme is on screen. Its
+  colour block is emitted a second time for print media, after the active
+  palette, so the stylesheet keeps reading theme variables and no colour is
+  written for print. Backgrounds print exactly as designed, so badges, SOSA
+  marks and chart fills stay legible on white; shadows and page glows do not
+  print.
+- **Header.** The topbar prints as the sheet's header: the page title as its
+  breadcrumb names it (a person's or couple's name on their profiles, the
+  query on search results, whose fields do not print), the
+  tree name, and *Printed on* followed by the day in the reader's language,
+  written as every calendar day of the interface is.
+- **Hidden.** The navbar, the icon sidebar, the events panel, every topbar
+  control, buttons, form fields, filter and sort toolbars, pagination
+  controls, dialogs, context menus, tooltips and hover cards. Any other
+  element that only serves the pointer — a chart's edit marker, say — carries
+  the `no-print` class.
+- **Flow.** Page-level scroll containers give way to the document flow, so a
+  long page prints in full over as many sheets as it needs. Cards, table and
+  list rows, figures and images are not split across sheets, headings stay
+  with what follows them, and a table's header row repeats on each sheet.
+- **Tabs.** A tab strip prints only its active tab, as the section heading.
+- **Links** print as text. A link that leaves the application prints its
+  address after it.
+- **Pictures.** Portraits, thumbnails and galleries print as displayed.
+- **Paginated lists** print the page on screen and never fetch the rest, so a
+  printout is bounded by the page size. The pagination controls are replaced
+  by *Page n of m*; printing another page means turning to it first.
+
+### 7.3 Charts
+
+A chart view draws only what its viewport reaches and pans and zooms with a
+transform sized for the screen, so it cannot be reflowed onto paper. Instead,
+just before printing — on the `beforeprint` event, and from the action before a
+desktop dialog opens — the largest SVG in `.pedigree-viewport` is copied with
+its `viewBox` narrowed to the area the reader sees (less any part the events
+panel covers) and trimmed to what is drawn. Printing hides the live chart and
+scales the copy to fit one landscape sheet of the chosen paper, as vectors.
+What prints is what is on screen: zoom and pan first to choose it.
+
+Any chart view drawn as one SVG in the pedigree viewport prints this way. The
+copy is rendered outside that viewport, so a view's styles must not depend on
+its container; custom properties set inline on its ancestors are carried
+over. Identifiers inside the copy are renamed so its references do not point
+into the hidden original. The copy is removed after printing.

@@ -15,6 +15,7 @@ use crate::api::{
     SourceDictionaryEntry, SourceGroupEntry,
 };
 use crate::components::pedigree_chart::format_lifespan;
+use crate::components::print::{PrintAction, PrintPageNote};
 use crate::components::suggest_input::ValueInput;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -339,6 +340,10 @@ pub fn Dictionary(tree_id: String) -> Element {
                         span { class: "td-bc-sep", "/" }
                     }
                     span { class: "td-bc-current", {i18n.t("dictionary.breadcrumb")} }
+                }
+                PrintAction {
+                    tree_name: tree_name.clone(),
+                    title: i18n.t("dictionary.breadcrumb"),
                 }
             }
 
@@ -1043,6 +1048,7 @@ fn render_pagination(mut current_page: Signal<usize>, page: usize, pages: usize)
                 "\u{25B6}"
             }
         }
+        PrintPageNote { page, pages }
     }
 }
 

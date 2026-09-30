@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:19:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -28,7 +28,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:19:37Z }
 | A | Foundation, persistence, APIs, server, desktop | Complete | [Architecture](architecture.md), [Data](data-model.md), [API](api.md) |
 | B | GEDCOM, GEDZIP, and GeneWeb | Complete | [API](api.md), [Import](ui-import.md) |
 | C | Tree browsing and editing | Complete; the kinship page traces how any two persons are related | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Kinship](ui-kinship.md), [Person Edit](ui-person-edit-modal.md) |
-| D | Shared UX, themes, languages, runtime settings | Complete | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md) |
+| D | Shared UX, themes, languages, runtime settings, printing | Complete; every content page prints, the pedigree on one landscape sheet | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md) |
 | E | Read projections, search, dictionary | Complete except dictionary descent; search results now name each person's close relatives, the topbar suggests matches as you type, `relevance` ranks, and the dictionary renames and merges family names | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
@@ -106,7 +106,10 @@ over an offline basemap with births by area, names, charts per period under
 a year ruler, records, notable lists, optional approximate dates, and the
 growth of the tree over the days it was worked on) is delivered. Remaining:
 
-- [ ] PDF export of the statistics ([General §3.9](general.md)).
+- [ ] PDF export of the statistics ([General §3.9](general.md)). Every tab
+  already prints, and so saves as PDF through the print dialog
+  ([Common UI §7](ui-common.md#7-printing)); decide whether a dedicated export
+  holding every tab is still needed.
 - [ ] Try the heat map and the charts on large trees (tens of thousands of
   persons) for load time and legibility.
 
@@ -164,6 +167,9 @@ Remaining tabs:
   images.
 - [ ] Build all release artifacts in CI, publish checksums and provenance, and
   smoke-test the container and desktop deliverables before release.
+- [ ] Try desktop printing through each platform's native dialog (WebKitGTK,
+  macOS, WebView2): whether it raises `beforeprint`, and whether it honours
+  the pedigree's landscape page.
 
 Privacy fields currently record intent but do not hide data. The UI must state
 this clearly until authorization is enforced.

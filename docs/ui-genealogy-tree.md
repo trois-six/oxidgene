@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, and the events sidebar."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T19:38:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
 ---
 
 
@@ -374,11 +374,18 @@ Fixed height, spans the full width above the canvas. Uses the shared `td-topbar`
 
 ```
 +----------------------------------------------------------------------+
-|  [logo] tree_name / Tree              [Last name] [First name] [Q]   |
+|  [logo] tree_name / Tree          [Last name] [First name] [Q] [P]   |
 +----------------------------------------------------------------------+
 ```
 
 **Breadcrumb** (`.td-bc`): logo icon (links to homepage) + tree name (`.td-bc-link`) + `/` separator (`.td-bc-sep`) + "Tree" label (`.td-bc-current`). The tree name links to the tree view.
+
+**Print** (`[P]`): the shared print action of [Common UI §7](ui-common.md#7-printing).
+The chart prints as it is framed on screen — the area the canvas shows, less
+what the events panel covers, trimmed to the cards drawn — scaled to one
+landscape sheet under the printed header. The sidebars, the depth and zoom
+controls, and the events panel do not print; to print more or less of the
+tree, zoom or pan before printing.
 
 ### Search
 

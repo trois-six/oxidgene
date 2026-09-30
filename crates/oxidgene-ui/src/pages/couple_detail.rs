@@ -19,6 +19,7 @@ use crate::components::person_profile::{
     header_section, media_event_links, notes_section, refresh_button, timeline_section, union_line,
     use_ancestor_pedigree, use_mini_pedigree, use_sosa_ancestors, use_tree_resource,
 };
+use crate::components::print::PrintAction;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -287,6 +288,10 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                 span { class: "td-bc-current", "{title}" }
             }
             TopbarSearch { tree_id: tree_id.clone(), from_person: true }
+            PrintAction {
+                tree_name: tree_name_str.clone(),
+                title: title.clone(),
+            }
         }
 
         div { class: "pd-page-shell",

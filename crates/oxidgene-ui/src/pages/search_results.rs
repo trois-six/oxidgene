@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::api::{ApiClient, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField};
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
+use crate::components::print::{PrintAction, PrintPageNote, search_print_title};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
 use crate::components::topbar_search::TopbarSearch;
@@ -443,6 +444,10 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     last: search_last,
                     first: search_first,
                     on_submit: move |query| commit_search.call(query),
+                }
+                PrintAction {
+                    tree_name: tree_name.clone(),
+                    title: search_print_title(&i18n, &committed_last(), &committed_first()),
                 }
             }
 
@@ -1053,6 +1058,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                         }
                     }
                 }
+                PrintPageNote { page, pages: total_pages }
                 }
             }
         }

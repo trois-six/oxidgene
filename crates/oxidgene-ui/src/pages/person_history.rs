@@ -10,6 +10,7 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
+use crate::components::print::PrintAction;
 use crate::components::tree_cache::{fetch_tree_cached, use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
@@ -237,6 +238,10 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
                     }
                     span { class: "td-bc-sep", "/" }
                     span { class: "td-bc-current", {i18n.t("history.breadcrumb")} }
+                }
+                PrintAction {
+                    tree_name: tree_name.clone(),
+                    title: format!("{person_name} / {}", i18n.t("history.breadcrumb")),
                 }
             }
 

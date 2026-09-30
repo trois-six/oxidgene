@@ -3842,6 +3842,7 @@ fn render_person_card(
             {card_text(geo, text_fill, date_fill)}
             if is_focus {
                 g {
+                    class: "no-print",
                     transform: "translate({fab_x},{fab_y})",
                     style: "cursor:pointer",
                     onclick: move |evt: Event<MouseData>| {

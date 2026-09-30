@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T12:55:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
 ---
 
 
@@ -70,6 +70,10 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. No search fields her
 - Tree name (`.td-bc-link`) links to the tree view
 - `/` separator (`.td-bc-sep`)
 - "Dictionary" (`.td-bc-current`) — not clickable
+- The print action of [Common UI §7](ui-common.md#7-printing), right-aligned.
+  The active tab prints as the heading of its list; the letter index, filters
+  and page-size selector do not print. A paginated list prints the page on
+  screen with *Page n of m*; choosing *All* first prints the whole list.
 
 ---
 

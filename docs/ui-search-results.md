@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T05:29:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
 ---
 
 
@@ -206,6 +206,15 @@ Pagination controls at the bottom of the results:
 
 The server computes the exact total and applies sorting before `limit` and
 `offset`; the UI never truncates to a fixed client-side result set.
+
+**Printing** ([Common UI §7](ui-common.md#7-printing)) prints the page of
+results on screen, in the current view mode and order — at most 25 rows or 20
+cards — and never loads the other pages, so a printout of a broad search stays
+bounded. The sheet is titled *Search: <surname> <given names>*, since the
+fields do not print. The result count and the active filter chips print; the
+filters, sort and view controls and the pagination do not, and *Page n of m*
+under the results says which page the sheet holds. The print action sits
+after the search fields in the topbar.
 
 ---
 

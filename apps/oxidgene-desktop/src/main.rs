@@ -43,6 +43,7 @@
 mod geneanet;
 mod mcp;
 mod media_assets;
+mod printing;
 mod themes;
 
 use std::net::SocketAddr;
@@ -414,6 +415,7 @@ fn main() {
     let mut launch = dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_context(geneanet_bridge)
+        .with_context(printing::bridge())
         .with_context(theme_loader);
     // App Settings shows MCP clients the command that runs this very binary
     // with `mcp`. Without a resolvable path the page falls back to its note

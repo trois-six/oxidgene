@@ -21,6 +21,7 @@ pub mod pedigree_theme;
 pub mod person_form;
 pub mod person_profile;
 pub mod place_input;
+pub mod print;
 pub mod reference_tooltip;
 pub mod search_person;
 pub mod suggest_input;

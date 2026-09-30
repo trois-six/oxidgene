@@ -74,9 +74,14 @@ pub fn AppShell() -> Element {
     // and swapped on its own: the stylesheet below never changes, and
     // switching theme repaints without reparsing five thousand rules.
     let palette = use_memo(move || theme.read().active().css());
+    // Paper gets the light palette whatever the screen shows; it follows the
+    // active one so that it overrides it for print media only.
+    let print_palette = use_hook(crate::components::print::print_palette_css);
+    crate::components::print::use_init_print();
 
     rsx! {
         style { {palette()} }
+        style { {print_palette} }
         style { {LAYOUT_STYLES} }
         Router::<Route> {}
     }
@@ -7150,4 +7155,185 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-secondary);
     }
 
+    /* ── Printing ────────────────────────────────────────────────────
+       `PrintAction` (components/print.rs) sits last in a page's topbar with
+       the header it prints under; the pedigree's snapshot is appended to
+       `body` as `.print-chart`. On screen neither shows. On paper the page
+       is recoloured with the light theme (see `print_palette_css`), the app
+       chrome and every control disappear, scroll containers give way to the
+       document flow, and the topbar shrinks to that header. */
+
+    .print-header,
+    .print-page-note,
+    .print-chart { display: none; }
+
+    @media print {
+        @page { margin: 12mm; }
+        /* Any chart view prints on a landscape sheet of the chosen paper. */
+        @page chart { size: landscape; margin: 10mm; }
+
+        html, body, #main, .app-main, .sub-page, .pd-page-shell,
+        .sub-page-content, .tree-detail-page {
+            display: block !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        body {
+            background: var(--bg-deep);
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        body::before { display: none; }
+
+        *, *::before, *::after {
+            box-shadow: none !important;
+            text-shadow: none !important;
+            animation: none !important;
+            transition: none !important;
+        }
+
+        .sub-page-content {
+            max-width: none !important;
+            width: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* The topbar becomes the printed header. */
+        .td-topbar {
+            display: block;
+            height: auto;
+            padding: 0;
+            border: 0;
+            background: none;
+            overflow: visible;
+        }
+        .td-topbar > :not(.print-header) { display: none !important; }
+
+        .print-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: 16px;
+            padding-bottom: 6px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            break-after: avoid;
+        }
+        .print-header-main { min-width: 0; }
+        .print-header-title {
+            font-family: var(--font-heading);
+            font-size: 1.3rem;
+            font-weight: 600;
+            line-height: 1.25;
+            color: var(--text-primary);
+        }
+        .print-header-tree {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .print-header-date {
+            flex-shrink: 0;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .print-page-note {
+            display: block;
+            margin-top: 12px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        /* Chrome, overlays and controls: nothing to read on paper. */
+        .app-nav, .tree-icon-sidebar, .isb, .ev-panel, .ev-panel-toggle,
+        .modal-backdrop, .context-menu, .context-menu-backdrop,
+        .ref-tooltip, .mini-pedigree-tooltip, .pedigree-depth-popover,
+        .import-overlay, .cropper-backdrop,
+        .btn, .td-btn, .td-search-btn, .isb-btn, .pd-header-buttons, .cp-actions,
+        .cp-bar, .pf-row-btn, .pf-add-btn, .pf-confirm-btn, .dict-row-action,
+        .dict-letter-strip, .dict-filter-row, .dict-page-size,
+        .media-act, .media-pager-btn, .media-upload-icon-btn, .media-drop-btn,
+        .media-tag-remove, .media-identification-delete,
+        .sr-filters-toggle, .sr-filters, .sr-sort, .sr-view-modes,
+        .sr-filter-actions, .sr-clear-filters, .sr-pagination, .stats-option,
+        .stats-interval,
+        .tools-controls, .tools-place-actions, .tools-pair-actions, .ph-toolbar,
+        input, select, textarea, .no-print {
+            display: none !important;
+        }
+
+        /* A choice among several prints only what was chosen: the active
+           tab, as a heading, and the version a history page compares. */
+        .dict-tabs { border: 0; margin-bottom: 8px; }
+        .dict-tab:not(.active) { display: none !important; }
+        .dict-tab.active {
+            padding: 0;
+            border: 0;
+            background: none;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        .ph-layout { grid-template-columns: minmax(0, 1fr) !important; }
+        .ph-versions li:not(:has(.ph-version.active)) { display: none !important; }
+
+        /* A search's filters print as their chips, without the removal cross. */
+        .sr-filter-chip > span { display: none; }
+
+        /* Two spouses side by side, as on a wide screen. */
+        .cp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 12px; }
+
+        /* A mini pedigree fits its box: the sheet's width on a profile, the
+           card's usual height on a search result. */
+        .mini-pedigree { height: auto !important; overflow: visible; }
+        .mini-pedigree-inner { position: static; transform: none !important; }
+        .mini-pedigree-inner svg {
+            width: 100% !important;
+            height: auto !important;
+            max-height: 110mm;
+        }
+        .sr-grid-ped .mini-pedigree-inner svg { max-height: 200px; }
+
+        /* Links read as text; one leaving the application keeps its address. */
+        a { color: inherit !important; text-decoration: none !important; }
+        a[href^="http"]::after {
+            content: " (" attr(href) ")";
+            font-size: 0.75em;
+            color: var(--text-muted);
+            overflow-wrap: anywhere;
+        }
+
+        /* Nothing is cut in half by a page break. */
+        tr, img, svg, figure,
+        .pd-ev-row, .stats-card, .stats-tile, .stats-feat, .sr-grid-card-hd,
+        .search-person-result, .dict-row, .dict-accordion-item, .kin-path-body,
+        .tools-pair-head, .cp-cell {
+            break-inside: avoid;
+        }
+        h1, h2, h3, h4, .stats-section-title, .stats-card-title,
+        .dict-group-header {
+            break-after: avoid;
+        }
+        thead { display: table-header-group; }
+
+        /* The pedigree prints its snapshot, scaled to one landscape sheet. */
+        body:has(.print-chart) { page: chart; }
+        body:has(.print-chart) .pedigree-outer { display: none !important; }
+        .print-chart { display: block; }
+        /* Both sizes auto: the box keeps the snapshot's own ratio within the
+           two caps, so nothing beyond its viewBox shows at the sides. */
+        .print-chart svg {
+            display: block;
+            margin: 0 auto;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: 165mm;
+        }
+    }
 "#;

@@ -1291,6 +1291,12 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("media.previous_page", "Vorige pagina"),
         ("media.next_page", "Volgende pagina"),
         ("media.last_page", "Laatste pagina"),
+        // ── Print ──────────────────────────────────────────────────
+        ("print.action", "Afdrukken"),
+        ("print.tooltip", "Deze pagina afdrukken"),
+        ("print.printed_on", "Afgedrukt op {date}"),
+        ("print.page_of", "Pagina {page} van {total}"),
+        ("print.search_for", "Zoeken: {query}"),
         // ── Kinship ─────────────────────────────────────────────────
         ("kinship.breadcrumb", "Verwantschap"),
         ("kinship.from", "Van"),
