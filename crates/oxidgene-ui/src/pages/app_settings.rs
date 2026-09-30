@@ -426,6 +426,7 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
                         }
                     }
                 }
+                h3 { class: "app-settings-subheading", {i18n.t("app_settings.pedigree_depth")} }
                 div { class: "app-settings-option",
                     div { class: "app-settings-option-info",
                         span { class: "app-settings-option-label", {i18n.t("app_settings.ancestor_levels")} }
@@ -980,6 +981,18 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
         margin-top: 1rem;
         padding-top: 1rem;
         border-top: 1px solid var(--border);
+    }
+
+    /* A heading grouping the options below it inside a card, such as the
+       pedigree's depths after its type. */
+    .app-settings-subheading {
+        margin: 1.25rem 0 0.75rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border);
+        font-family: var(--font-heading);
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
     }
 
     .pedigree-depth-stepper {

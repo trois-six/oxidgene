@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:10:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:29:44Z }
 ---
 
 
@@ -199,7 +199,9 @@ Displayed in a card:
 
 ## 7. Section: Pedigree
 
-The Pedigree section controls how the pedigree is drawn and how deep it opens.
+The Pedigree section, titled *Pedigree type*, controls how the pedigree is
+drawn and how deep it opens: the chart and the theme, then, under a *Pedigree
+depth* heading, the two depths.
 
 ### Chart
 
