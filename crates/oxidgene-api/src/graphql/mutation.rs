@@ -1287,7 +1287,7 @@ impl MutationRoot {
         let media_id = Uuid::parse_str(id.as_str())?;
         require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
         let media = MediaRepo::get(db, media_id).await?;
-        let (tag, normalized_tag) = crate::rest::media::normalize_tag(tag)
+        let (tag, normalized_tag) = crate::service::media_library::normalize_tag(&tag)
             .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
         let target_id = media.parent_media_id.unwrap_or(media.id);
         MediaTagRepo::create(db, target_id, tag, normalized_tag).await?;
@@ -1311,7 +1311,7 @@ impl MutationRoot {
         let media_id = Uuid::parse_str(id.as_str())?;
         require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
         let media = MediaRepo::get(db, media_id).await?;
-        let (_, normalized_tag) = crate::rest::media::normalize_tag(tag)
+        let (_, normalized_tag) = crate::service::media_library::normalize_tag(&tag)
             .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
         let target_id = media.parent_media_id.unwrap_or(media.id);
         MediaTagRepo::delete(db, target_id, &normalized_tag).await?;

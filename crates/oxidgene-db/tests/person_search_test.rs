@@ -3,7 +3,7 @@
 //! Runs against in-memory SQLite, which also verifies that the bundled
 //! SQLite is compiled with FTS5 support (the migration would fail otherwise).
 
-use oxidgene_core::search::normalize_for_search;
+use oxidgene_core::search::fold_words;
 use oxidgene_db::repo::{
     PersonSearchEntry, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, connect,
     run_migrations,
@@ -31,8 +31,8 @@ fn entry(
     PersonSearchEntry {
         person_id: Uuid::now_v7(),
         tree_id,
-        surname: normalize_for_search(surname),
-        given_names: normalize_for_search(given_names),
+        surname: fold_words(surname),
+        given_names: fold_words(given_names),
         maiden_name: None,
         birth_year: birth_year.map(str::to_owned),
         death_year: death_year.map(str::to_owned),
@@ -158,8 +158,8 @@ fn entry_with_spouse(
 ) -> PersonSearchEntry {
     PersonSearchEntry {
         spouse_names: format!("{spouse_given_names} {spouse_surname}"),
-        spouse_surnames: normalize_for_search(spouse_surname),
-        spouse_given_names: normalize_for_search(spouse_given_names),
+        spouse_surnames: fold_words(spouse_surname),
+        spouse_given_names: fold_words(spouse_given_names),
         ..entry(tree_id, surname, given_names, None, None)
     }
 }
@@ -199,11 +199,7 @@ async fn a_filter_cannot_match_across_two_spouses() {
     let tree_id = Uuid::now_v7();
 
     let mut subject = entry(tree_id, "Branch A", "Child One", None, None);
-    subject.spouse_surnames = format!(
-        "{}\u{1f}{}",
-        normalize_for_search("Dupont"),
-        normalize_for_search("Martin")
-    );
+    subject.spouse_surnames = format!("{}\u{1f}{}", fold_words("Dupont"), fold_words("Martin"));
     PersonSearchRepo::replace_tree(&db, tree_id, &[subject])
         .await
         .unwrap();
@@ -317,7 +313,7 @@ async fn upsert_and_delete() {
     assert_eq!(PersonSearchRepo::count_tree(&db, tree_id).await.unwrap(), 1);
 
     // Upsert with a changed name replaces the row instead of duplicating it.
-    e.surname = normalize_for_search("Bernard");
+    e.surname = fold_words("Bernard");
     e.display_name = "Paul Bernard".into();
     PersonSearchRepo::upsert(&db, std::slice::from_ref(&e))
         .await
@@ -414,4 +410,33 @@ async fn search_performance_10k() {
         search.as_millis() < 50,
         "FTS5 search took {search:?}, expected < 50ms"
     );
+}
+
+/// Every script's accents and the letters that do not decompose fold the
+/// same way on both sides: a stroke, a ligature, a Vietnamese tone mark, and
+/// a hyphenated name typed with a space.
+#[tokio::test]
+async fn letters_of_every_script_fold_alike() {
+    let db = setup_db().await;
+    let tree_id = Uuid::now_v7();
+    let entries = vec![
+        entry(tree_id, "Łącka", "Zofia", None, None),
+        entry(tree_id, "Nguyễn", "Thị", None, None),
+        entry(tree_id, "Cæsar", "Anne-Sophie", None, None),
+    ];
+    PersonSearchRepo::replace_tree(&db, tree_id, &entries)
+        .await
+        .unwrap();
+    for (query, expected) in [
+        ("lacka", "Zofia Łącka"),
+        ("nguyen thi", "Thị Nguyễn"),
+        ("caesar", "Anne-Sophie Cæsar"),
+        ("anne sophie", "Anne-Sophie Cæsar"),
+    ] {
+        let page = PersonSearchRepo::search(&db, tree_id, query, 10, 0)
+            .await
+            .unwrap();
+        assert_eq!(page.total_count, 1, "{query}");
+        assert_eq!(page.entries[0].display_name, expected, "{query}");
+    }
 }

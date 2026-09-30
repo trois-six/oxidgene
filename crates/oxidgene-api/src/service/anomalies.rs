@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use chrono::{Datelike, Duration, NaiveDate};
 use oxidgene_core::calendar::DAYS_PER_YEAR;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent};
-use oxidgene_core::search::normalize_for_search;
+use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{EventWitness, Place};
 use oxidgene_core::{ChildType, DateQualifier, EventType, OxidGeneError, Sex, SpouseRole};
 use serde::Serialize;
@@ -774,7 +774,7 @@ fn spouse_rules(sorted: &[&PersonProfile], lives: &HashMap<Uuid, Life<'_>>, foun
             *spouses.entry(spouse).or_default() += 1;
             if let Some(name) = lives
                 .get(&spouse)
-                .map(|l| normalize_for_search(&person_ref(l.profile).name))
+                .map(|l| fold_words(&person_ref(l.profile).name))
                 .filter(|n| !n.trim().is_empty())
             {
                 let ids = names.entry(name).or_default();
@@ -1076,7 +1076,7 @@ fn witnessing<'a>(
             }
         }
         if let Some(relation) = row.relation.as_deref() {
-            let folded = normalize_for_search(relation.trim());
+            let folded = fold_words(relation.trim());
             let wrong = match witness.profile.sex {
                 Sex::Female => GODFATHER.contains(&folded.as_str()),
                 Sex::Male => GODMOTHER.contains(&folded.as_str()),

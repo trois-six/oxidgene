@@ -131,6 +131,7 @@ async fn assert_applied_migrations(db: &DatabaseConnection) {
             "m20260927_000002_person_distinct",
             "m20260927_000003_history",
             "m20260928_000001_tree_entry_suggestions",
+            "m20260930_000001_fold_media_tags",
         ]
     );
 }

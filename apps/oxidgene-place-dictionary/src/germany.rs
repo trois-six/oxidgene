@@ -9,8 +9,9 @@ use std::io::Read;
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Country, Kind, Place, file, fold, unfiled};
+use crate::place::{Country, Kind, Place, file, unfiled};
 use crate::table::decode_mixed;
+use oxidgene_core::search::fold_words;
 
 use crate::wikidata::{Former, FormerQuery, coordinates, former_municipalities};
 
@@ -172,7 +173,7 @@ fn file_before_register(
 ) {
     let known: HashSet<(String, String)> = places
         .iter()
-        .map(|p| (fold(&p.name), p.region_name().to_string()))
+        .map(|p| (fold_words(&p.name), p.region_name().to_string()))
         .collect();
     for commune in former {
         if commune
@@ -185,7 +186,7 @@ fn file_before_register(
         let Some((_, now)) = commune.codes.iter().find_map(|c| live.get(c.as_str())) else {
             continue;
         };
-        if known.contains(&(fold(&commune.name), now.land.clone())) {
+        if known.contains(&(fold_words(&commune.name), now.land.clone())) {
             continue;
         }
         // An item that carries its successor's code has no code of its own.

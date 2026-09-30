@@ -35,7 +35,11 @@ use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole
 /// 4: couple-event media imported from Geneanet moved from the spouses to the
 /// family (migration `m20260927_000001_file_couple_media`), which changes
 /// each spouse's `media_count` and fallback primary media.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 4;
+///
+/// 5: the search rows are folded with `search::fold_words` — every script
+/// unaccented, `æ` as `ae`, `ß` as `ss`, punctuation as a word break — so
+/// every tree's rows are rebuilt to meet queries folded the same way.
+pub const PROJECTION_SCHEMA_VERSION: i32 = 5;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 

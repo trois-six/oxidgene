@@ -5,9 +5,8 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use oxidgene_core::search::fold_words;
 use serde::Deserialize;
-use unicode_normalization::UnicodeNormalization;
-use unicode_normalization::char::is_combining_mark;
 
 use crate::embedded;
 
@@ -87,42 +86,6 @@ pub struct GivenNameEntry {
     pub feast_day: Option<String>,
     #[serde(default, skip_serializing)]
     pub aliases: Vec<String>,
-}
-
-/// Normalizes a raw value for lookup: lowercase, accents stripped,
-/// punctuation collapsed to single spaces. GEDCOM occupation/given-name
-/// values are free text (accents, gendered variants, old spellings), so
-/// entries also get indexed under each of their declared `aliases`; place
-/// names are matched the same way.
-///
-/// The interface folds typed text with [`oxidgene_core::search::fold_words`],
-/// which cannot carry Unicode's decomposition tables into WASM and spells the
-/// Latin letters out instead. On every letter it lists the two agree (a test
-/// below checks each one), so a tree place and a dictionary place match the
-/// same text. Two differences remain, both outside what a place or a name
-/// holds in practice: a letter of another script with an accent is only
-/// unaccented here, and punctuation other than the word breaks below is
-/// dropped here where `fold_words` reads it as a break.
-pub fn normalize_key(raw: &str) -> String {
-    let mut folded = String::with_capacity(raw.len());
-    for c in raw.trim().nfd() {
-        match c {
-            _ if is_combining_mark(c) => {}
-            'œ' | 'Œ' => folded.push_str("oe"),
-            'æ' | 'Æ' => folded.push_str("ae"),
-            'ß' => folded.push_str("ss"),
-            // Letters with no decomposition into a base and an accent.
-            'ł' | 'Ł' => folded.push('l'),
-            'ø' | 'Ø' => folded.push('o'),
-            'đ' | 'Đ' | 'ð' | 'Ð' => folded.push('d'),
-            'ı' => folded.push('i'),
-            'þ' | 'Þ' => folded.push_str("th"),
-            '-' | '\'' | '’' | '_' | '/' => folded.push(' '),
-            _ if c.is_alphanumeric() || c == ' ' => folded.extend(c.to_lowercase()),
-            _ => {}
-        }
-    }
-    folded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 macro_rules! embed_br {
@@ -208,14 +171,14 @@ impl<T: serde::de::DeserializeOwned> Reference<T> {
             .map(|own| {
                 let mut index: HashMap<String, String> = keys
                     .iter()
-                    .map(|key| (normalize_key(key), (*key).clone()))
+                    .map(|key| (fold_words(key), (*key).clone()))
                     .collect();
                 let others = (0..tables.len()).filter(|&other| other != own);
                 for file in std::iter::once(own).chain(others) {
                     for (key, entry) in &sorted[file] {
                         for alias in aliases_of(entry) {
                             index
-                                .entry(normalize_key(alias))
+                                .entry(fold_words(alias))
                                 .or_insert_with(|| (*key).clone());
                         }
                     }
@@ -229,7 +192,7 @@ impl<T: serde::de::DeserializeOwned> Reference<T> {
                 let written = std::iter::once(without_gloss(label_of(entry)))
                     .chain(aliases_of(entry).iter().map(String::as_str));
                 for written in written {
-                    let folded = normalize_key(written);
+                    let folded = fold_words(written);
                     if !folded.is_empty() {
                         terms.push(Term {
                             folded,
@@ -359,7 +322,7 @@ pub fn preheat() {
 /// Perruquier" apart from plain "Barbier" when both are present.
 pub fn lookup_occupation(lang: ReferenceLang, term: &str) -> Option<OccupationEntry> {
     let occupations = occupations();
-    let normalized = normalize_key(term);
+    let normalized = fold_words(term);
     if let Some(entry) = occupations.get(lang, &normalized) {
         return Some(entry.clone());
     }
@@ -378,7 +341,7 @@ pub fn lookup_occupations(lang: ReferenceLang, terms: &[String]) -> Vec<Option<O
     let index = occupations.index(lang);
     let normalized = terms
         .iter()
-        .map(|term| normalize_key(term))
+        .map(|term| fold_words(term))
         .collect::<Vec<_>>();
     let mut resolved: Vec<Option<&String>> = normalized
         .iter()
@@ -462,7 +425,7 @@ fn longest_word_run_match<'a, T>(table: &'a HashMap<String, T>, haystack: &str) 
 /// resolves via "Marie" if the compound itself has no dedicated entry.
 pub fn lookup_given_name(lang: ReferenceLang, term: &str) -> Option<GivenNameEntry> {
     let given_names = given_names();
-    let full = normalize_key(term);
+    let full = fold_words(term);
     if let Some(entry) = given_names.get(lang, &full) {
         return Some(entry.clone());
     }
@@ -486,7 +449,7 @@ pub fn suggest_terms(
     query: &str,
     limit: usize,
 ) -> Vec<String> {
-    let query = normalize_key(query);
+    let query = fold_words(query);
     if query.is_empty() {
         return Vec::new();
     }
@@ -498,7 +461,7 @@ pub fn suggest_terms(
 
 /// Whether `term` itself, not a word inside it, names a sheet.
 pub fn has_sheet(kind: ReferenceKind, lang: ReferenceLang, term: &str) -> bool {
-    let term = normalize_key(term);
+    let term = fold_words(term);
     match kind {
         ReferenceKind::Occupations => occupations().index(lang).contains_key(&term),
         ReferenceKind::GivenNames => given_names().index(lang).contains_key(&term),
@@ -508,37 +471,6 @@ pub fn has_sheet(kind: ReferenceKind, lang: ReferenceLang, term: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn normalizes_accents_and_punctuation() {
-        assert_eq!(normalize_key("Laboureur/euse"), "laboureur euse");
-        assert_eq!(normalize_key("  Forgeron  "), "forgeron");
-        assert_eq!(normalize_key("Méunier"), "meunier");
-        assert_eq!(normalize_key("Cœur-d’Ŵy"), "coeur d wy");
-        assert_eq!(normalize_key("Włodarz"), "wlodarz");
-        assert_eq!(normalize_key("Søren Đorđe"), "soren dorde");
-    }
-
-    #[test]
-    fn folds_every_latin_letter_the_way_the_interface_does() {
-        use oxidgene_core::search::fold_words;
-
-        let letters = ('\u{C0}'..='\u{17F}')
-            .chain(['\u{218}', '\u{219}', '\u{21A}', '\u{21B}'])
-            .filter(|c| c.is_alphabetic());
-        for letter in letters {
-            let text = format!("A{letter}z");
-            assert_eq!(normalize_key(&text), fold_words(&text), "{letter:?}");
-        }
-        for text in [
-            "Saint-Étienne-d’Œuf",
-            "Łąka Górna",
-            "Großdorf",
-            "E\u{301}cole",
-        ] {
-            assert_eq!(normalize_key(text), fold_words(text), "{text}");
-        }
-    }
 
     #[test]
     fn looks_up_occupation_by_canonical_and_alias() {
@@ -709,7 +641,7 @@ mod tests {
         let terms = suggest_terms(ReferenceKind::Occupations, ReferenceLang::Fr, "Labou", 5);
         assert_eq!(terms.first().map(String::as_str), Some("Laboureur"));
         // Each spelling is offered once.
-        let folded: Vec<String> = terms.iter().map(|t| normalize_key(t)).collect();
+        let folded: Vec<String> = terms.iter().map(|t| fold_words(t)).collect();
         let mut unique = folded.clone();
         unique.dedup();
         assert_eq!(folded, unique);

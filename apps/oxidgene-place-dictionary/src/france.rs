@@ -7,9 +7,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Coordinates, Country, Kind, Place, Region, file, fold};
+use crate::place::{Coordinates, Country, Kind, Place, Region, file};
 use crate::table::Table;
 use crate::wikidata::{push_unique, wikidata_date};
+use oxidgene_core::search::fold_words;
 
 /// INSEE publishes a new vintage of the COG every year; data.gouv.fr lists
 /// them all, which is how the latest is found.
@@ -125,7 +126,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let mut known = HashSet::new();
     for index in 0..cog.records.len() {
         for place in cog.places_of(index, &centres, &wikidata) {
-            known.insert((fold(&place.name), place.subdivision.clone()));
+            known.insert((fold_words(&place.name), place.subdivision.clone()));
             places.push(place);
         }
     }
@@ -133,7 +134,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
 
     let former = FormerCommunes::load(fetcher).await?;
     for place in former.places(&cog, &centres) {
-        if !known.contains(&(fold(&place.name), place.subdivision.clone())) {
+        if !known.contains(&(fold_words(&place.name), place.subdivision.clone())) {
             places.push(place);
         }
     }
@@ -546,9 +547,9 @@ impl WikidataCodes {
 
     /// Wikidata's spelling of `name`, when it only adds accents or case.
     fn accented(&self, code: &str, name: &str) -> Option<&str> {
-        let key = fold(name);
+        let key = fold_words(name);
         self.labels.get(code)?.iter().find_map(|label| {
-            (label != name && fold(label) == key && accents(label) > accents(name))
+            (label != name && fold_words(label) == key && accents(label) > accents(name))
                 .then_some(label.as_str())
         })
     }

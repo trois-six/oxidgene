@@ -7,9 +7,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Coordinates, Country, Kind, Place, file, fold, unfiled};
+use crate::place::{Coordinates, Country, Kind, Place, file, unfiled};
 use crate::table::Table;
 use crate::wikidata::{FormerQuery, coordinates, former_municipalities};
+use oxidgene_core::search::fold_words;
 
 /// The register's API: a snapshot of every canton, district and commune
 /// valid on a date, and the mutations between two dates.
@@ -30,7 +31,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
 
     let known: HashSet<(String, String)> = places
         .iter()
-        .map(|p| (fold(&p.name), p.region_name().to_string()))
+        .map(|p| (fold_words(&p.name), p.region_name().to_string()))
         .collect();
     let former = former_municipalities(
         fetcher,
@@ -53,7 +54,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
             continue;
         };
         let canton = register.canton_of(*successor);
-        if known.contains(&(fold(&commune.name), canton.to_string())) {
+        if known.contains(&(fold_words(&commune.name), canton.to_string())) {
             continue;
         }
         let mut base = unfiled(

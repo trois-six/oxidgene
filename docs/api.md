@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
 ---
 
 
@@ -366,7 +366,7 @@ Its optional filters combine with AND, and `total_count` is counted under them:
 
 | Parameter | Keeps the documents… |
 |---|---|
-| `tag` | carrying this tag, in any case (matched on the stored normalized key: trimmed and lowercased). Repeatable: `tag=a&tag=b` keeps the documents carrying every tag given |
+| `tag` | carrying this tag, whatever its case, accents or punctuation (matched on the stored normalized key, the tag folded as in [Cross-cutting Rules §3.6](cross-cutting.md)). Repeatable: `tag=a&tag=b` keeps the documents carrying every tag given |
 | `kind` | with at least one live page of this file kind: `image`, `pdf`, `video`, `audio` or `other`, read from the page's MIME type |
 | `category` | filed under this `document_category` |
 | `name` | whose title or file name, or one of whose pages' file names, contains the text, ignoring case and accents |

@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -89,6 +89,24 @@ Adding a language requires its complete translation map, registration in the
 language selector, placeholder and parity tests, date and number formatting,
 and review of layout expansion. Use logical CSS properties so future RTL
 support remains possible.
+
+### 3.6 Comparing words
+
+Wherever a typed word meets a written one — search, homonyms and duplicates,
+media tags, entry suggestions, the reference dictionaries, the place field,
+the written-date reader — both are compared in one folded form, produced by
+one function, `oxidgene_core::search::fold_words`, on the server and in the
+interface alike: lowercase; every letter decomposed and stripped of its
+accents, in any script (`é`, `ễ`, `ά`); the Latin letters that do not
+decompose spelled out (`ł` as `l`, `ø` as `o`, `æ` as `ae`, `œ` as `oe`, `ß` as
+`ss`, `þ` as `th`); every character other than a letter or a digit a word
+break. No component folds text its own way. The one variant, `fold_text`,
+lets a key another system defines keep its own separators — Geneanet's person
+references ([Geneanet media import](geneanet-media-import.md) §6).
+
+What is stored folded — the search rows, media tag keys — is rebuilt when the
+folding changes: the search rows through a `PROJECTION_SCHEMA_VERSION` bump,
+stored keys through a migration, so no install has to re-import anything.
 
 ## 4. Error contract
 

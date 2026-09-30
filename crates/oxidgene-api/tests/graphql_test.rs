@@ -4533,3 +4533,42 @@ async fn the_media_facets_over_graphql_match_rest() {
         json!([{ "category": "CENSUS", "count": 1 }])
     );
 }
+
+/// As over REST, accents fold like case: "Église" and "EGLISE" are one tag,
+/// spelled as first entered, and "eglise" removes it.
+#[tokio::test]
+async fn graphql_media_tags_fold_accents_like_case() {
+    let app = setup_app().await;
+    let tree_id = gql_tree(&app).await;
+    let media = gql_document(&app, &tree_id, "Parish scan").await;
+    for tag in ["Église", "EGLISE"] {
+        gql_do(
+            &app,
+            GQL_ADD_TAG,
+            json!({ "tree": tree_id, "id": media, "tag": tag }),
+        )
+        .await;
+    }
+    let tags = |app: axum::Router, tree_id: String, media: String| async move {
+        let resp = graphql(
+            app,
+            r#"query($tree: ID!, $id: ID!) { media(treeId: $tree, id: $id) { tags } }"#,
+            Some(json!({ "tree": tree_id, "id": media })),
+        )
+        .await;
+        data(&resp)["media"]["tags"].clone()
+    };
+    assert_eq!(
+        tags(app.clone(), tree_id.clone(), media.clone()).await,
+        json!(["Église"])
+    );
+    gql_do(
+        &app,
+        r#"mutation($tree: ID!, $id: ID!, $tag: String!) {
+            removeMediaTag(treeId: $tree, id: $id, tag: $tag)
+        }"#,
+        json!({ "tree": tree_id, "id": media, "tag": "eglise" }),
+    )
+    .await;
+    assert_eq!(tags(app.clone(), tree_id, media).await, json!([]));
+}

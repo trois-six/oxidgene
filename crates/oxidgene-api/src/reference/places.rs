@@ -14,8 +14,9 @@ use std::sync::OnceLock;
 
 use serde::Serialize;
 
-use super::loader::{ReferenceLang, normalize_key, starts_a_word};
+use super::loader::{ReferenceLang, starts_a_word};
 use crate::embedded;
+use oxidgene_core::search::fold_words;
 
 static PLACES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -345,7 +346,7 @@ impl Part {
         let name = |slot: usize| names.map_or(french, |names| names[slot]);
         Self {
             text: std::array::from_fn(|slot| name(slot).into()),
-            folded: std::array::from_fn(|slot| normalize_key(name(slot))),
+            folded: std::array::from_fn(|slot| fold_words(name(slot))),
         }
     }
 }
@@ -394,7 +395,7 @@ impl Dictionary {
         let mut codes: HashSet<String> = HashSet::new();
         for (label, _) in labels {
             for part in label.split(',').map(str::trim).filter(|p| !p.is_empty()) {
-                names.insert(normalize_key(part));
+                names.insert(fold_words(part));
                 names.insert(without_numbers(part));
                 codes.insert(part.to_ascii_uppercase());
             }
@@ -429,7 +430,7 @@ impl Dictionary {
         };
         let mut entries = Vec::new();
         for line in csv.lines().filter(|l| !l.is_empty()) {
-            let folded = normalize_key(&first_field(line));
+            let folded = fold_words(&first_field(line));
             if !keep(&folded, line) {
                 continue;
             }
@@ -610,9 +611,9 @@ impl Dictionary {
         let raw: Vec<&str> = label
             .split(',')
             .map(str::trim)
-            .filter(|p| !normalize_key(p).is_empty())
+            .filter(|p| !fold_words(p).is_empty())
             .collect();
-        let folded: Vec<String> = raw.iter().map(|p| normalize_key(p)).collect();
+        let folded: Vec<String> = raw.iter().map(|p| fold_words(p)).collect();
         // The parts as places are named, an address's numbers aside: the
         // postcode of « 50700 Valognes », the ZIP code of « New Jersey
         // 07024 ». A code alone is kept whole.
@@ -691,11 +692,8 @@ impl Dictionary {
 
     fn search(&self, lang: ReferenceLang, query: &str, limit: usize) -> Vec<PlaceSuggestion> {
         let mut pieces = query.split(',');
-        let name = normalize_key(pieces.next().unwrap_or_default());
-        let qualifiers: Vec<String> = pieces
-            .map(normalize_key)
-            .filter(|q| !q.is_empty())
-            .collect();
+        let name = fold_words(pieces.next().unwrap_or_default());
+        let qualifiers: Vec<String> = pieces.map(fold_words).filter(|q| !q.is_empty()).collect();
         if name.is_empty() || limit == 0 {
             return Vec::new();
         }
@@ -812,9 +810,9 @@ fn without_numbers(part: &str) -> String {
         .filter(|t| !t.chars().any(|c| c.is_ascii_digit()))
         .collect();
     if words.is_empty() || words.len() == tokens.len() {
-        normalize_key(part)
+        fold_words(part)
     } else {
-        normalize_key(&words.join(" "))
+        fold_words(&words.join(" "))
     }
 }
 
@@ -1029,7 +1027,7 @@ mod tests {
         assert_eq!(found[0].spot, bourg);
         assert_eq!(found[1].spot, bourg);
         assert_eq!(found[2], PlaceLocation::default());
-        assert_eq!(without_numbers("99100 Bourg-A"), normalize_key("Bourg-A"));
+        assert_eq!(without_numbers("99100 Bourg-A"), fold_words("Bourg-A"));
         assert_eq!(without_numbers("99001"), "99001", "a code alone is kept");
     }
 

@@ -5,9 +5,8 @@
 //! reads these files unchanged. The columns after them carry what that
 //! format has no room for; see `docs/place-dictionary.md`.
 
+use oxidgene_core::search::fold_words;
 use std::collections::HashSet;
-
-use unicode_normalization::UnicodeNormalization;
 
 use crate::table::quote;
 
@@ -225,7 +224,7 @@ pub fn render(places: &mut [Place]) -> (String, usize, usize) {
             p.region.clone(),
             p.subdivision.clone(),
             p.code.clone(),
-            fold(&p.name),
+            fold_words(&p.name),
             p.kind,
             p.valid_from.clone(),
             p.valid_until.clone(),
@@ -251,7 +250,7 @@ pub fn render(places: &mut [Place]) -> (String, usize, usize) {
             Region::Nation(nation) => nation_name(*nation),
         };
         if !seen.insert((
-            fold(&place.name),
+            fold_words(&place.name),
             &place.code,
             &place.subdivision,
             region,
@@ -295,19 +294,6 @@ pub fn render(places: &mut [Place]) -> (String, usize, usize) {
     (out, rows, dropped)
 }
 
-/// Lowercase, without accents or punctuation: what two sources spelling the
-/// same name differently still agree on.
-pub fn fold(name: &str) -> String {
-    name.nfd()
-        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
-        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
-        .collect::<String>()
-        .to_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,7 +319,7 @@ mod tests {
 
     #[test]
     fn folding_ignores_accents_case_and_punctuation() {
-        assert_eq!(fold("Saint-Étienne-d'Été"), "saint etienne d ete");
+        assert_eq!(fold_words("Saint-Étienne-d'Été"), "saint etienne d ete");
     }
 
     #[test]

@@ -618,9 +618,9 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
     SearchEntry {
         person_id: person.person_id,
         sex: person.sex,
-        surname_normalized: normalize_for_search(&surname),
-        given_names_normalized: normalize_for_search(&given_names),
-        maiden_name_normalized: maiden_name.as_deref().map(normalize_for_search),
+        surname_normalized: fold_words(&surname),
+        given_names_normalized: fold_words(&given_names),
+        maiden_name_normalized: maiden_name.as_deref().map(fold_words),
         surname,
         given_names,
         display_name,
@@ -659,7 +659,7 @@ pub fn build_db_search_entry(person: &PersonProfile) -> oxidgene_db::repo::Perso
             .families_as_spouse
             .iter()
             .filter_map(field)
-            .map(|v| normalize_for_search(v))
+            .map(|v| fold_words(v))
             .collect::<Vec<_>>()
             .join(&RELATIVE_SEP.to_string())
     };
@@ -686,17 +686,17 @@ pub fn build_db_search_entry(person: &PersonProfile) -> oxidgene_db::repo::Perso
         father_name: entry.father_name,
         father_surname: child_link
             .and_then(|c| c.father_surname.as_deref())
-            .map(normalize_for_search),
+            .map(fold_words),
         father_given_names: child_link
             .and_then(|c| c.father_given_names.as_deref())
-            .map(normalize_for_search),
+            .map(fold_words),
         mother_name: entry.mother_name,
         mother_surname: child_link
             .and_then(|c| c.mother_surname.as_deref())
-            .map(normalize_for_search),
+            .map(fold_words),
         mother_given_names: child_link
             .and_then(|c| c.mother_given_names.as_deref())
-            .map(normalize_for_search),
+            .map(fold_words),
         children_count: entry.children_count,
     }
 }
@@ -796,7 +796,7 @@ pub fn build_pedigree_node(
 ///
 /// Re-exported from `oxidgene_core::search` so callers of this module keep
 /// a single import path.
-pub use oxidgene_core::search::normalize_for_search;
+pub use oxidgene_core::search::fold_words;
 
 #[cfg(test)]
 mod tests {

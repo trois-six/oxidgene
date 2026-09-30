@@ -311,12 +311,6 @@ pub(crate) fn media_patch(
     })
 }
 
-/// Normalize a label once, so both REST and GraphQL use the same identity.
-pub(crate) fn normalize_tag(tag: String) -> Option<(String, String)> {
-    let tag = tag.trim().to_string();
-    (!tag.is_empty()).then(|| (tag.clone(), tag.to_lowercase()))
-}
-
 /// POST /api/v1/trees/:tree_id/media/:media_id/tags
 pub async fn add_tag(
     State(state): State<AppState>,
@@ -329,7 +323,7 @@ pub async fn add_tag(
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
-    let (tag, normalized_tag) = normalize_tag(body.tag)
+    let (tag, normalized_tag) = crate::service::media_library::normalize_tag(&body.tag)
         .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
     let target_id = media.parent_media_id.unwrap_or(media.id);
     MediaTagRepo::create(&state.db, target_id, tag.clone(), normalized_tag)
@@ -358,7 +352,7 @@ pub async fn remove_tag(
     let media = MediaRepo::get(&state.db, media_id)
         .await
         .map_err(ApiError::from)?;
-    let (_, normalized_tag) = normalize_tag(body.tag)
+    let (_, normalized_tag) = crate::service::media_library::normalize_tag(&body.tag)
         .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
     let target_id = media.parent_media_id.unwrap_or(media.id);
     MediaTagRepo::delete(&state.db, target_id, &normalized_tag)

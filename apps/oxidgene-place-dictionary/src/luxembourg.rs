@@ -7,8 +7,9 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 
 use crate::fetch::Fetcher;
-use crate::place::{Coordinates, Country, Kind, Place, file, fold, unfiled};
+use crate::place::{Coordinates, Country, Kind, Place, file, unfiled};
 use crate::wikidata::{FormerQuery, former_municipalities};
+use oxidgene_core::search::fold_words;
 
 /// Wikidata's property for the LAU code.
 const CODE_PROPERTY: &str = "P782";
@@ -41,7 +42,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     }
     let live = places.len();
 
-    let known: HashSet<String> = places.iter().map(|p| fold(&p.name)).collect();
+    let known: HashSet<String> = places.iter().map(|p| fold_words(&p.name)).collect();
     let former = former_municipalities(
         fetcher,
         &FormerQuery {
@@ -59,7 +60,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         else {
             continue;
         };
-        if known.contains(&fold(&commune.name)) {
+        if known.contains(&fold_words(&commune.name)) {
             continue;
         }
         let mut base = unfiled(

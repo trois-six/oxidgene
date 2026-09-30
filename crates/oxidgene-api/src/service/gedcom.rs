@@ -502,14 +502,16 @@ async fn insert_standalone_records(
         let mut seen_tags = std::collections::HashSet::new();
         let mut tags = Vec::new();
         for media in &result.media {
-            for tag in &media.tags {
-                let tag = tag.trim();
-                let normalized_tag = tag.to_lowercase();
-                if !tag.is_empty() && seen_tags.insert((media.id, normalized_tag.clone())) {
+            for (tag, normalized_tag) in media
+                .tags
+                .iter()
+                .filter_map(|tag| crate::service::media_library::normalize_tag(tag))
+            {
+                if seen_tags.insert((media.id, normalized_tag.clone())) {
                     tags.push(media_tag::ActiveModel {
                         media_id: Set(media.id),
                         normalized_tag: Set(normalized_tag),
-                        tag: Set(tag.to_string()),
+                        tag: Set(tag),
                         created_at: Set(now),
                     });
                 }

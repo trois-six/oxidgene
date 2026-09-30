@@ -15,7 +15,7 @@
 //!
 //! Reproducing that folding exactly is what lets the two sides meet.
 
-use unicode_normalization::UnicodeNormalization;
+use oxidgene_core::search::{Separator, fold_text};
 
 /// Builds the Geneanet-style key for a person.
 pub fn geneanet_key(surname: &str, first_name: &str, occ: u32) -> String {
@@ -28,53 +28,20 @@ pub fn geneanet_key(surname: &str, first_name: &str, occ: u32) -> String {
     format!("{}|{}|{occurrence}", fold(surname), fold(first_name))
 }
 
-/// Folds a name the way Geneanet does before putting it in a reference.
+/// Folds a name the way Geneanet does before putting it in a reference: the
+/// application's own folding (`oxidgene_core::search::fold_text`), with
+/// Geneanet's word breaks. GeneWeb writes spaces as `_` in a .gw file, and
+/// Geneanet also reads a hyphen and an apostrophe as breaks, so `Jean-Marie`
+/// folds to `jean marie` and `D'SURNAME_C` to `d surname c`; any other
+/// punctuation stays in the key as written.
 fn fold(name: &str) -> String {
-    let mut folded = String::with_capacity(name.len());
-
-    for character in name.chars() {
-        match character {
-            // GeneWeb writes spaces as `_` in a .gw file; Geneanet also treats
-            // a hyphen and an apostrophe as word breaks, so `Jean-Marie` folds
-            // to `jean marie` and `D'SURNAME_C` to `d surname c`.
-            '_' | '-' | ' ' | '\'' | '\u{2019}' => folded.push(' '),
-            // Letters with a stroke or bar have no canonical decomposition, so
-            // NFD leaves them untouched. Latin-script genealogies hit these
-            // often enough (Polish, Scandinavian, German) to be worth naming.
-            'ł' | 'Ł' => folded.push('l'),
-            'ø' | 'Ø' => folded.push('o'),
-            'đ' | 'Đ' | 'ð' | 'Ð' => folded.push('d'),
-            'ß' => folded.push_str("ss"),
-            'æ' | 'Æ' => folded.push_str("ae"),
-            'œ' | 'Œ' => folded.push_str("oe"),
-            'þ' | 'Þ' => folded.push_str("th"),
-            other => {
-                // Decompose, then drop the combining marks: é → e + ´ → e.
-                for decomposed in other.nfd() {
-                    if !is_combining_mark(decomposed) {
-                        folded.extend(decomposed.to_lowercase());
-                    }
-                }
-            }
+    fold_text(name, |c| {
+        if matches!(c, '_' | '-' | '\'' | '\u{2019}') {
+            Separator::Break
+        } else {
+            Separator::Keep
         }
-    }
-
-    // Collapse the runs of spaces the substitutions above may have produced.
-    folded.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Whether a character is a combining mark (Unicode category `Mn`/`Mc`/`Me`).
-///
-/// Hand-rolled rather than pulled from a properties crate: after NFD, the only
-/// marks that can appear over Latin letters live in these blocks.
-fn is_combining_mark(character: char) -> bool {
-    matches!(character as u32,
-        0x0300..=0x036F   // Combining Diacritical Marks
-        | 0x1AB0..=0x1AFF // …Extended
-        | 0x1DC0..=0x1DFF // …Supplement
-        | 0x20D0..=0x20FF // …for Symbols
-        | 0xFE20..=0xFE2F // Combining Half Marks
-    )
+    })
 }
 
 #[cfg(test)]

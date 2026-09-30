@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -324,7 +324,8 @@ never restrictive: free text is always accepted.
   typed text, ignoring case, accents and punctuation; ligatures and letters
   such as `ł` or `ß` read as their plain spelling (`l`, `ss`). The place field
   matches the tree's places in the interface and the dictionaries are
-  matched on the server; both fold a Latin letter the same way. The backend is asked
+  matched on the server, both with the one folding of
+  [Cross-cutting Rules §3.6](cross-cutting.md). The backend is asked
   after a 300 ms pause, and only about what the user typed: a form opening
   on a filled field asks for nothing.
 - **Layout.** The list opens in place under the field, not as a

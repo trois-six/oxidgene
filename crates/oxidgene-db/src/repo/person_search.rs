@@ -11,13 +11,13 @@
 //!
 //! All searchable columns (`surname`, `given_names`, `maiden_name`, and the
 //! relatives' names) are pre-normalized (lowercase + accent-folded) by the
-//! caller via [`oxidgene_core::search::normalize_for_search`]; queries are
+//! caller via [`oxidgene_core::search::fold_words`]; queries are
 //! normalized here, so both backends match identically.
 
 use crate::repo::db_err;
 use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::search::normalize_for_search;
+use oxidgene_core::search::fold_words;
 use sea_orm::{ConnectionTrait, DbBackend, Statement, Value};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -333,7 +333,7 @@ impl PersonSearchRepo {
         offset: u64,
     ) -> Result<PersonSearchPage, OxidGeneError> {
         let backend = db.get_database_backend();
-        let words: Vec<String> = normalize_for_search(query)
+        let words: Vec<String> = fold_words(query)
             .split_whitespace()
             .map(str::to_owned)
             .collect();
@@ -661,7 +661,7 @@ fn push_folded_like(
         let param = push_value(
             values,
             backend,
-            format!("%{}%", normalize_for_search(value.trim())).into(),
+            format!("%{}%", fold_words(value.trim())).into(),
         );
         conditions.push(format!("{column} LIKE {param}"));
     }
@@ -895,7 +895,7 @@ fn relevance_order(
             .flatten()
             .map(str::trim)
             .find(|value| !value.is_empty())
-            .map(normalize_for_search)
+            .map(fold_words)
     });
 
     let Some(term) = term.filter(|term| !term.is_empty()) else {

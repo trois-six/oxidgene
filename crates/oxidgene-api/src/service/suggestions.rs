@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::reference::{
-    ReferenceKind, ReferenceLang, UNSUPPORTED_LANGUAGE, has_sheet, normalize_key, starts_a_word,
-    suggest_terms,
+    ReferenceKind, ReferenceLang, UNSUPPORTED_LANGUAGE, has_sheet, starts_a_word, suggest_terms,
 };
+use oxidgene_core::search::fold_words;
 
 pub const DEFAULT_VALUE_SUGGESTIONS: usize = 10;
 pub const MAX_VALUE_SUGGESTIONS: usize = 50;
@@ -103,7 +103,7 @@ pub async fn suggest(
     {
         return Err(OxidGeneError::Validation(SCOPE_NAMES_ONLY.to_string()));
     }
-    let key = normalize_key(query);
+    let key = fold_words(query);
     if key.is_empty() {
         return Ok(Vec::new());
     }
@@ -174,7 +174,7 @@ fn rank(
 ) -> Vec<ValueSuggestion> {
     let mut found: Vec<(String, String, i64)> = values
         .into_iter()
-        .map(|(value, count)| (normalize_key(&value), value, count))
+        .map(|(value, count)| (fold_words(&value), value, count))
         .filter(|(folded, _, _)| starts_a_word(folded, key))
         .collect();
     found.sort_by(|(fa, a, ca), (fb, b, cb)| {
@@ -201,7 +201,7 @@ fn rank(
             out.extend(
                 suggest_terms(kind, lang, key, limit)
                     .into_iter()
-                    .filter(|term| held.insert(normalize_key(term)))
+                    .filter(|term| held.insert(fold_words(term)))
                     .take(room)
                     .map(|value| ValueSuggestion {
                         value,
@@ -249,7 +249,7 @@ mod tests {
             Some(ReferenceKind::Occupations),
             true,
             ReferenceLang::Fr,
-            &normalize_key("labou"),
+            &fold_words("labou"),
             4,
         );
         assert_eq!(found.len(), 4);
@@ -258,7 +258,7 @@ mod tests {
         assert_eq!(found[0].count, 3);
         assert!(!found[1].reference);
         assert!(found[2..].iter().all(|s| s.reference && s.count == 0));
-        let folded: HashSet<String> = found.iter().map(|s| normalize_key(&s.value)).collect();
+        let folded: HashSet<String> = found.iter().map(|s| fold_words(&s.value)).collect();
         assert_eq!(folded.len(), found.len());
     }
 

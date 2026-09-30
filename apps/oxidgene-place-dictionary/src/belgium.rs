@@ -8,9 +8,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 
 use crate::fetch::Fetcher;
-use crate::place::{Coordinates, Country, Kind, Place, file, fold, unfiled};
+use crate::place::{Coordinates, Country, Kind, Place, file, unfiled};
 use crate::table::Table;
 use crate::wikidata::{FormerQuery, former_municipalities, wikidata_date};
+use oxidgene_core::search::fold_words;
 
 /// Wikidata's property for the NIS code.
 const CODE_PROPERTY: &str = "P1567";
@@ -169,7 +170,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     // The sections, filed under the municipality holding them today.
     let known: HashSet<(String, String)> = places
         .iter()
-        .map(|p| (fold(&p.name), p.subdivision.clone()))
+        .map(|p| (fold_words(&p.name), p.subdivision.clone()))
         .collect();
     let sections = fetcher.sparql(SECTIONS).await?;
     let (code, parent, nl, fr, de, coord) = (
@@ -192,7 +193,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
             continue;
         };
         let name = local_name(parent, &row[nl], &row[fr], &row[de]);
-        if name.is_empty() || known.contains(&(fold(&name), province.to_string())) {
+        if name.is_empty() || known.contains(&(fold_words(&name), province.to_string())) {
             continue;
         }
         let mut base = unfiled(Country::Belgium, &name, &row[code], Kind::FormerCommune);

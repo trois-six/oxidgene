@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -639,9 +639,12 @@ The hyphen and the apostrophe were each found by a failing join, not by
 guessing — see `crates/oxidgene-geneanet/src/key.rs`, where both have a
 regression test naming the case.
 
-Letters with a stroke (`ł`, `ø`, `đ`, `ß`, `æ`, `œ`, `þ`) have no canonical
-decomposition, so NFD leaves them intact and the join would silently miss; they
-are folded explicitly.
+The letters are folded as everywhere in the application
+([Cross-cutting Rules §3.6](cross-cutting.md)) — including those with a stroke
+(`ł`, `ø`, `đ`, `ß`, `æ`, `œ`, `þ`), which have no canonical decomposition and
+would otherwise make the join silently miss. Only the separators are
+Geneanet's: `_`, `-`, `'` and `’` break words, and any other punctuation stays
+in the key as written.
 
 ## 7. Attaching to the right person
 

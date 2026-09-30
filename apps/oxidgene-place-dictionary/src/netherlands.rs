@@ -6,9 +6,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Country, Kind, Place, file, fold, unfiled};
+use crate::place::{Country, Kind, Place, file, unfiled};
 use crate::wikidata::{FormerQuery, coordinates, former_municipalities};
 use crate::xlsx;
+use oxidgene_core::search::fold_words;
 
 const CBS_URL: &str = "https://www.cbs.nl/-/media/cbs/onze-diensten/methoden/classificaties/overig";
 /// Wikidata's property for the CBS municipality code.
@@ -28,7 +29,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
 
     let known: HashSet<(String, String)> = places
         .iter()
-        .map(|p| (fold(&p.name), p.region_name().to_string()))
+        .map(|p| (fold_words(&p.name), p.region_name().to_string()))
         .collect();
     let former = former_municipalities(
         fetcher,
@@ -46,7 +47,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         let Some(now) = commune.codes.iter().find_map(|c| municipalities.get(c)) else {
             continue;
         };
-        if known.contains(&(fold(&commune.name), now.province.clone())) {
+        if known.contains(&(fold_words(&commune.name), now.province.clone())) {
             continue;
         }
         let own = if municipalities.contains_key(&commune.code) {

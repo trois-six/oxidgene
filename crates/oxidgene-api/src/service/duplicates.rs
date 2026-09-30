@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::Datelike;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent, SearchEntry};
-use oxidgene_core::search::normalize_for_search;
+use oxidgene_core::search::fold_words;
 use serde::Serialize;
 
 use oxidgene_core::error::OxidGeneError;
@@ -467,7 +467,7 @@ pub async fn load_potential_duplicates(
 /// letters single, and a final `s`, `x`, `z`, `t` or `d` dropped from a word
 /// longer than four letters (`Martins` meets `Martin`, `Dupond` `Dupont`).
 pub fn sound_key(name: &str) -> String {
-    normalize_for_search(name)
+    fold_words(name)
         .split(|c: char| !c.is_alphabetic())
         .filter(|word| !word.is_empty())
         .map(|word| {
@@ -511,8 +511,8 @@ impl<'a> Record<'a> {
         let first_given = given.split_whitespace().next().unwrap_or(given);
         Some(Self {
             profile,
-            surname: normalize_for_search(surname),
-            given: normalize_for_search(given),
+            surname: fold_words(surname),
+            given: fold_words(given),
             key: (sound_key(surname), sound_key(first_given)),
             birth: profile.birth_or_baptism(),
             death: profile.death_or_burial(),
@@ -601,7 +601,7 @@ fn compare(
     let place = |r: &Record<'_>| {
         r.birth
             .and_then(|e| e.place_name.as_deref())
-            .map(normalize_for_search)
+            .map(fold_words)
             .filter(|p| !p.trim().is_empty())
     };
     if let (Some(x), Some(y)) = (place(a), place(b))
@@ -686,7 +686,7 @@ pub fn potential_duplicates(
             let name = p
                 .primary_name
                 .as_ref()
-                .map(|n| normalize_for_search(&n.display_name))
+                .map(|n| fold_words(&n.display_name))
                 .unwrap_or_default();
             (p.person_id, name)
         })

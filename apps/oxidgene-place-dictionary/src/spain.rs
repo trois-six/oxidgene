@@ -7,9 +7,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Country, Kind, Place, file, fold, unfiled};
+use crate::place::{Country, Kind, Place, file, unfiled};
 use crate::wikidata::{FormerQuery, coordinates, former_municipalities};
 use crate::xlsx;
+use oxidgene_core::search::fold_words;
 
 const INE_URL: &str = "https://www.ine.es/daco/daco42/codmun";
 /// Wikidata's property for the INE municipality code.
@@ -136,7 +137,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
 
     let known: HashSet<(String, String)> = places
         .iter()
-        .map(|p| (fold(&p.name), p.subdivision.clone()))
+        .map(|p| (fold_words(&p.name), p.subdivision.clone()))
         .collect();
     let former = former_municipalities(
         fetcher,
@@ -158,7 +159,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         else {
             continue;
         };
-        if known.contains(&(fold(&commune.name), province.to_string())) {
+        if known.contains(&(fold_words(&commune.name), province.to_string())) {
             continue;
         }
         let own = five_digits(&commune.code);

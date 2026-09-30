@@ -135,14 +135,20 @@ pub struct MediaFacets {
     pub categories: Vec<MediaCategoryFacet>,
 }
 
+/// A tag as entered, trimmed, with its key: the application's one folding
+/// (`fold_words`), so "Église", "eglise" and "EGLISE" are one tag. `None` for
+/// a blank tag. REST, GraphQL and the GEDCOM import all key tags with it.
+pub fn normalize_tag(tag: &str) -> Option<(String, String)> {
+    let tag = tag.trim();
+    let key = oxidgene_core::search::fold_words(tag);
+    (!key.is_empty()).then(|| (tag.to_string(), key))
+}
+
 /// Tags in any spelling as their normalized keys, blanks and repeats left
 /// out.
 fn normalized_tags(tags: Vec<String>) -> Vec<String> {
     let mut keys: Vec<String> = Vec::with_capacity(tags.len());
-    for (_, key) in tags
-        .into_iter()
-        .filter_map(crate::rest::media::normalize_tag)
-    {
+    for (_, key) in tags.into_iter().filter_map(|tag| normalize_tag(&tag)) {
         if !keys.contains(&key) {
             keys.push(key);
         }

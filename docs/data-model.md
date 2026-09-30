@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:10:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
 ---
 
 
@@ -77,7 +77,7 @@ genealogy: it is not exported to GEDCOM, so a duplicated tree starts without
 it.
 
 Homonyms are the persons whose primary surname and primary given names fold
-(lowercase, accents removed) to the same values — the normalized columns of
+([Cross-cutting Rules §3.6](cross-cutting.md)) to the same values — the normalized columns of
 `person_search_fts` (§4.3) — less the pairs recorded here. A person missing
 either half of that name has none.
 
@@ -323,8 +323,10 @@ mislabel every existing row instead of admitting it does not know.
 **Tags.** `tags` is an ordered list of free-form labels for grouping scans and
 documents, materialized from `media_tag` rows. Its compound key
 `(media_id, normalized_tag)` makes concurrent additions idempotent, while a
-single row deletion cannot overwrite another editor's tags. Values are trimmed
-and de-duplicated case-insensitively. A multi-page document owns one list; its
+single row deletion cannot overwrite another editor's tags. Values are trimmed;
+`normalized_tag` is the tag folded as every word of the application is
+([Cross-cutting Rules §3.6](cross-cutting.md)), so tags differing only by case,
+accents or punctuation are one, spelled as first entered. A multi-page document owns one list; its
 page rows do not copy it, so every page always presents the document's same
 labels.
 
@@ -742,8 +744,9 @@ complete.
 ### 4.3 Search projection: `person_search_fts`
 
 Search is rebuilt or upserted by `PersonSearchRepo` whenever names, identity
-events, or related display fields change. It stores normalized tokens for
-matching and original-cased fields for display; the UI never reconstructs a
+events, or related display fields change. It stores tokens folded as in
+[Cross-cutting Rules §3.6](cross-cutting.md) for matching — queries are
+folded the same way — and original-cased fields for display; the UI never reconstructs a
 name by splitting `display_name`.
 
 SQLite uses FTS5 for token matching. PostgreSQL uses the same logical columns

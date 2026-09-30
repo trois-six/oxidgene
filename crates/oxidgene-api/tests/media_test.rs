@@ -2098,6 +2098,31 @@ async fn media_tags_are_added_and_removed_independently() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["tags"], json!(["archives", "Civil record"]));
 
+    // Accents fold like case: "Église" and "EGLISE" are one tag, spelled as
+    // it was first entered.
+    for tag in ["Église", "EGLISE"] {
+        let (status, updated) = send(
+            &h.app,
+            Method::POST,
+            &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
+            Some(json!({ "tag": tag })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{updated}");
+        assert_eq!(
+            updated["tags"],
+            json!(["archives", "Civil record", "Église"])
+        );
+    }
+    let (status, _) = send(
+        &h.app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
+        Some(json!({ "tag": "eglise" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
     let (status, _) = send(
         &h.app,
         Method::DELETE,

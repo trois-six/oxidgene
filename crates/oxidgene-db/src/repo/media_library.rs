@@ -22,7 +22,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use chrono::{Days, NaiveDate};
 use oxidgene_core::enums::{DocumentCategory, MediaFileKind};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::search::normalize_for_search;
+use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{Connection, Edge, Media, PageInfo};
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::{Func, Query, SimpleExpr};
@@ -256,9 +256,7 @@ impl MediaLibraryRepo {
                 count,
             })
             .collect();
-        counts.sort_by_cached_key(|entry| {
-            (normalize_for_search(&entry.tag), entry.normalized.clone())
-        });
+        counts.sort_by_cached_key(|entry| (fold_words(&entry.tag), entry.normalized.clone()));
         Ok(counts)
     }
 
@@ -431,7 +429,7 @@ impl MediaLibraryRepo {
         tree_id: Uuid,
         text: &str,
     ) -> Result<HashSet<Uuid>, OxidGeneError> {
-        let needle = normalize_for_search(text.trim());
+        let needle = fold_words(text.trim());
         let rows: Vec<(Uuid, Option<Uuid>, Option<String>, String)> = Entity::find()
             .select_only()
             .columns([
@@ -451,8 +449,8 @@ impl MediaLibraryRepo {
             .filter(|(_, _, title, file_name)| {
                 title
                     .as_deref()
-                    .is_some_and(|title| normalize_for_search(title).contains(&needle))
-                    || normalize_for_search(file_name).contains(&needle)
+                    .is_some_and(|title| fold_words(title).contains(&needle))
+                    || fold_words(file_name).contains(&needle)
             })
             .map(|(id, parent, _, _)| parent.unwrap_or(id))
             .collect())
@@ -614,7 +612,7 @@ async fn named_persons(
     tree_id: Uuid,
     text: &str,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
-    let pattern = format!("%{}%", escape_like(&normalize_for_search(text.trim())));
+    let pattern = format!("%{}%", escape_like(&fold_words(text.trim())));
     let backend = db.get_database_backend();
     let placeholders: Vec<String> = (1..=4)
         .map(|index| match backend {

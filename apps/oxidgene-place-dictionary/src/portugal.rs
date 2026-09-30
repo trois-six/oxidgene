@@ -8,9 +8,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Country, Kind, Place, file, fold, unfiled};
+use crate::place::{Country, Kind, Place, file, unfiled};
 use crate::table::Table;
 use crate::wikidata::{FormerQuery, coordinates, former_municipalities};
+use oxidgene_core::search::fold_words;
 
 /// The DGT's OGC API over the CAOP, mainland only.
 const CAOP_URL: &str = "https://ogcapi.dgterritorio.gov.pt/collections";
@@ -87,7 +88,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     // they belonged to.
     let known: HashSet<(String, String)> = places
         .iter()
-        .map(|p| (fold(&p.name), p.subdivision.clone()))
+        .map(|p| (fold_words(&p.name), p.subdivision.clone()))
         .collect();
     let former = former_municipalities(
         fetcher,
@@ -112,7 +113,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         };
         let (municipality_name, district) = &municipalities[municipality];
         let name = parish_name(&parish.name);
-        if known.contains(&(fold(name), municipality_name.clone())) {
+        if known.contains(&(fold_words(name), municipality_name.clone())) {
             continue;
         }
         let successor = parish

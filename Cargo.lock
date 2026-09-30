@@ -5086,7 +5086,6 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
- "unicode-normalization",
  "uuid",
  "zip",
 ]
@@ -5100,6 +5099,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "unicode-normalization",
  "uuid",
 ]
 
@@ -5180,7 +5180,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "unicode-normalization",
  "zip",
  "zune-core",
  "zune-jpeg",
@@ -5207,10 +5206,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brotli",
+ "oxidgene-core",
  "reqwest 0.13.5",
  "serde_json",
  "tokio",
- "unicode-normalization",
  "zip",
 ]
 
