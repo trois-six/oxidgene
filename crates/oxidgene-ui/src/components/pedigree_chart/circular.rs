@@ -666,7 +666,7 @@ fn render_empty_segment(
             },
             path { class: "fan-slot-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
             if show_plus {
-                text { class: "fan-slot-plus", x: "{cx:.2}", y: "{cy + 6.0:.2}", "+" }
+                text { class: "fan-slot-plus no-print", x: "{cx:.2}", y: "{cy + 6.0:.2}", "+" }
             }
         }
     }

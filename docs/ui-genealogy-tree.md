@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:32:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:47:48Z }
 ---
 
 
@@ -389,8 +389,11 @@ Fixed height, spans the full width above the canvas. Uses the shared `td-topbar`
 The chart prints as it is framed on screen — the area the canvas shows, less
 what the events panel covers, trimmed to the cards drawn — scaled to one
 landscape sheet under the printed header. The sidebars, the depth and zoom
-controls, and the events panel do not print; to print more or less of the
-tree, zoom or pan before printing.
+controls, and the events panel do not print, nor do the chart's own controls
+— the pencil under the focus card, the "+" of an empty slot for a missing
+parent, the lineage view's children button — while the empty slot's dashed
+outline still shows the missing parent. To print more or less of the tree,
+zoom or pan before printing.
 
 ### Search
 

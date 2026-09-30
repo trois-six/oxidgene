@@ -4150,7 +4150,7 @@ fn render_empty_slot(
                     style: "cursor:pointer",
                     onclick: move |_| on_empty_slot.call((cid, is_father)),
                     {empty_slot_outline(geo, theme, "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4")}
-                    text { x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
+                    text { class: "no-print", x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                 }
             } else {
                 {empty_slot_outline(geo, theme, "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4;opacity:0.3")}

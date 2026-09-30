@@ -437,7 +437,7 @@ fn render_slim_slot(
                 }
             },
             rect { class: "fan-slot-shape", x: "{x:.2}", y: "{y:.2}", width: "{w:.2}", height: "{h}", rx: "3" }
-            text { class: "fan-slot-plus", x: "{x + w / 2.0:.2}", y: "{y + h / 2.0 + 5.0:.2}", "+" }
+            text { class: "fan-slot-plus no-print", x: "{x + w / 2.0:.2}", y: "{y + h / 2.0 + 5.0:.2}", "+" }
         }
     }
 }
@@ -451,7 +451,7 @@ fn render_children_button(
     let (x, y) = at;
     rsx! {
         g {
-            class: "lineage-children",
+            class: "lineage-children no-print",
             transform: "translate({x:.2},{y:.2})",
             role: "button",
             "aria-label": "{label}",
