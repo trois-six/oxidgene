@@ -18,7 +18,7 @@ use crate::components::charts::{
     BarChart, ChartCard, ChartMarker, ChartSeries, DonutChart, HeatMap, LineChart, MapCity,
     MapFocus, PALETTE, Pyramid, YearRuler, basemap_cities, basemap_paths,
 };
-use crate::components::date_input::format_date;
+use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -1415,17 +1415,6 @@ fn render_growth(growth: &TreeGrowth, today: NaiveDate, i18n: &I18n) -> Element 
             }
         })}
     }
-}
-
-/// A calendar day as the app writes dates: `28 Sep 2026`.
-fn format_day(i18n: &I18n, day: NaiveDate) -> String {
-    format_date(
-        i18n,
-        oxidgene_core::Calendar::Gregorian,
-        oxidgene_core::DateQualifier::Exact,
-        Some(&day.format("%d %b %Y").to_string().to_uppercase()),
-        None,
-    )
 }
 
 // ── Records ─────────────────────────────────────────────────────────────

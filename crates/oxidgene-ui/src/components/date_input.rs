@@ -441,6 +441,18 @@ pub fn format_date(
     }
 }
 
+/// A calendar day as the app writes dates: `28 Sep 2026`, in the reader's
+/// language.
+pub fn format_day(i18n: &I18n, day: NaiveDate) -> String {
+    format_date(
+        i18n,
+        Calendar::Gregorian,
+        DateQualifier::Exact,
+        Some(&day.format("%d %b %Y").to_string().to_uppercase()),
+        None,
+    )
+}
+
 /// [`format_date`] over an event's own columns — the form every view but the
 /// editor needs. Empty when the event carries no date.
 ///
