@@ -1619,6 +1619,18 @@ pub const LAYOUT_STYLES: &str = r#"
        bold. */
 
     .lineage-link-non-birth { stroke-dasharray: 5 4; }
+    /* A union's spouse under a person, in the descendant lineage and the
+       hourglass: a slim box lighter than a card. */
+    .lineage-spouse { cursor: pointer; }
+    .lineage-spouse-unknown { cursor: default; }
+    .lineage-spouse-rect {
+        fill: color-mix(in srgb, var(--pn-border) 12%, var(--pn-bg));
+        stroke: var(--pn-border);
+        stroke-width: 1;
+        stroke-dasharray: none;
+    }
+    .lineage-spouse-unknown .lineage-spouse-rect { stroke-dasharray: 3 3; }
+    .lineage-spouse:hover:not(.lineage-spouse-unknown) .lineage-spouse-rect { fill: var(--pn-hover-bg); }
     .lineage-children { cursor: pointer; }
     .lineage-children circle {
         fill: var(--pn-bg);

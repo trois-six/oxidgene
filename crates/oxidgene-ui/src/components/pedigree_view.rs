@@ -51,17 +51,29 @@ pub enum PedigreeView {
     /// Gramps' *Pedigree* view: the root on the left, one column of
     /// ancestors per generation to its right, joined by elbow lines.
     Lineage,
+    /// Gramps' *Descendant Tree*: the root on the left, one column of
+    /// descendants per generation to its right, spouses under each person.
+    DescendantLineage,
+    /// webtrees' horizontal hourglass: the descendants on the left, the
+    /// root in the middle, the ancestors on the right.
+    Hourglass,
+    /// The root in the middle, the father's ancestors on the left and the
+    /// mother's on the right.
+    Bowtie,
 }
 
 impl PedigreeView {
     /// Every view, in the order the selector offers them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 9] = [
         Self::Tree,
         Self::Wheel,
         Self::Fan,
         Self::DescendantWheel,
         Self::DescendantFan,
         Self::Lineage,
+        Self::DescendantLineage,
+        Self::Hourglass,
+        Self::Bowtie,
     ];
 
     /// Whether the view draws descendants, and so whether the descendant
@@ -70,7 +82,11 @@ impl PedigreeView {
     pub const fn shows_descendants(self) -> bool {
         matches!(
             self,
-            Self::Tree | Self::DescendantWheel | Self::DescendantFan
+            Self::Tree
+                | Self::DescendantWheel
+                | Self::DescendantFan
+                | Self::DescendantLineage
+                | Self::Hourglass
         )
     }
 
@@ -78,7 +94,10 @@ impl PedigreeView {
     /// control means anything while it is shown.
     #[must_use]
     pub const fn shows_ancestors(self) -> bool {
-        !matches!(self, Self::DescendantWheel | Self::DescendantFan)
+        !matches!(
+            self,
+            Self::DescendantWheel | Self::DescendantFan | Self::DescendantLineage
+        )
     }
 
     /// The relatives the view does not draw around a person, which its
@@ -88,9 +107,11 @@ impl PedigreeView {
     #[must_use]
     pub const fn relatives_to_reach(self) -> &'static [Relatives] {
         match self {
-            Self::Tree => &[],
-            Self::Wheel | Self::Fan | Self::Lineage => &[Relatives::Spouses, Relatives::Children],
-            Self::DescendantWheel | Self::DescendantFan => {
+            Self::Tree | Self::Hourglass => &[],
+            Self::Wheel | Self::Fan | Self::Lineage | Self::Bowtie => {
+                &[Relatives::Spouses, Relatives::Children]
+            }
+            Self::DescendantWheel | Self::DescendantFan | Self::DescendantLineage => {
                 &[Relatives::Parents, Relatives::Spouses]
             }
         }
@@ -106,6 +127,9 @@ impl PedigreeView {
             Self::DescendantWheel => "app_settings.pedigree_view_descendant_wheel",
             Self::DescendantFan => "app_settings.pedigree_view_descendant_fan",
             Self::Lineage => "app_settings.pedigree_view_lineage",
+            Self::DescendantLineage => "app_settings.pedigree_view_descendant_lineage",
+            Self::Hourglass => "app_settings.pedigree_view_hourglass",
+            Self::Bowtie => "app_settings.pedigree_view_bowtie",
         }
     }
 
@@ -119,6 +143,9 @@ impl PedigreeView {
             Self::DescendantWheel => "app_settings.pedigree_view_descendant_wheel_hint",
             Self::DescendantFan => "app_settings.pedigree_view_descendant_fan_hint",
             Self::Lineage => "app_settings.pedigree_view_lineage_hint",
+            Self::DescendantLineage => "app_settings.pedigree_view_descendant_lineage_hint",
+            Self::Hourglass => "app_settings.pedigree_view_hourglass_hint",
+            Self::Bowtie => "app_settings.pedigree_view_bowtie_hint",
         }
     }
 
@@ -162,11 +189,17 @@ mod tests {
             PedigreeView::DescendantFan.to_stored(),
             "\"descendant-fan\""
         );
+        assert_eq!(
+            PedigreeView::DescendantLineage.to_stored(),
+            "\"descendant-lineage\""
+        );
+        assert_eq!(PedigreeView::Hourglass.to_stored(), "\"hourglass\"");
+        assert_eq!(PedigreeView::Bowtie.to_stored(), "\"bowtie\"");
     }
 
     #[test]
     fn an_unknown_or_corrupt_entry_keeps_the_default() {
-        assert_eq!(PedigreeView::from_stored("\"hourglass\""), None);
+        assert_eq!(PedigreeView::from_stored("\"spiral\""), None);
         assert_eq!(PedigreeView::from_stored("wheel"), None);
         assert_eq!(PedigreeView::from_stored(""), None);
     }
@@ -175,13 +208,14 @@ mod tests {
     fn each_chart_offers_the_relatives_it_does_not_draw() {
         use PedigreeView::*;
         assert!(Tree.relatives_to_reach().is_empty());
-        for view in [Wheel, Fan, Lineage] {
+        assert!(Hourglass.relatives_to_reach().is_empty());
+        for view in [Wheel, Fan, Lineage, Bowtie] {
             assert_eq!(
                 view.relatives_to_reach(),
                 &[Relatives::Spouses, Relatives::Children]
             );
         }
-        for view in [DescendantWheel, DescendantFan] {
+        for view in [DescendantWheel, DescendantFan, DescendantLineage] {
             assert_eq!(
                 view.relatives_to_reach(),
                 &[Relatives::Parents, Relatives::Spouses]
@@ -199,6 +233,9 @@ mod tests {
             (Lineage, true, false),
             (DescendantWheel, false, true),
             (DescendantFan, false, true),
+            (DescendantLineage, false, true),
+            (Hourglass, true, true),
+            (Bowtie, true, false),
         ] {
             assert_eq!(view.shows_ancestors(), ancestors, "{view:?}");
             assert_eq!(view.shows_descendants(), descendants, "{view:?}");

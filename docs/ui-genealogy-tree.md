@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:13:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:43:11Z }
 ---
 
 
@@ -773,6 +773,9 @@ palette and the pedigree theme's colours and type, and prints like the tree.
 | Descendant wheel | Descendants only, a full circle, their unions between the generations | hidden | yes |
 | Descendant fan | Descendants only, the lower half circle, their unions between the generations | hidden | yes |
 | Lineage | Ancestors only, one column per generation; spouses and children listed from a button (Gramps) | yes | hidden |
+| Descendant lineage | Descendants only, one column per generation, spouses under each person (Gramps' Descendant Tree) | hidden | yes |
+| Hourglass | Descendants on the left, the root in the middle, ancestors on the right (webtrees' horizontal hourglass) | yes | yes |
+| Bowtie | Ancestors only: the father's line on the left, the mother's on the right, the root between them | yes | hidden |
 
 ### Ancestor wheel and fan chart
 
@@ -857,6 +860,34 @@ left to right as in the tree.
   viewport are drawn.
 - A person who turns out to be their own descendant, in erroneous data, is
   not expanded again, so the chart always ends.
+
+### Descendant lineage, hourglass and bowtie
+
+Three more horizontal charts, built from the lineage view's parts: its cards
+and slim boxes, its elbow lines, its culling, its action picker. A side of
+ancestors places each by SOSA number as the lineage does; a side of
+descendants gives each person as much height as their descendants take.
+
+- **Descendant lineage** (Gramps' Descendant Tree): the focus person on the
+  left, each generation of descendants a column to the right. Under each
+  person's card, one slim box per union names the spouse (`⚭ SURNAME Given`,
+  *?* when unknown), leaving room for the pencil under the focus card; a line
+  joins that box to the union's children in the next column, stacked in the
+  order of the unions and centred on their part, which the person's block is
+  centred on too. Full cards while the chart stays within 1,600 px, slim
+  two-line boxes beyond. Clicking a spouse makes them the focus. The fit
+  starts it at the left margin, as the lineage.
+- **Hourglass** (webtrees' horizontal hourglass): the focus person in the
+  middle, their ancestors to the right exactly as the lineage view draws them,
+  their descendants to the left as the descendant lineage does, mirrored and
+  centred on the focus person's row. The focus person is drawn once, their
+  spouses under their card. The direct-ancestor mark is left off the ancestor
+  side and kept on the descendant side, where it traces the line to the
+  SOSA 1.
+- **Bowtie**: the focus person in the middle, level with their parents; the
+  father's ancestors to the left and the mother's to the right, each side a
+  lineage of its own over half the last generation's rows — to compare the
+  two branches. Missing parents are empty slots, as in the lineage.
 
 ### Lineage
 

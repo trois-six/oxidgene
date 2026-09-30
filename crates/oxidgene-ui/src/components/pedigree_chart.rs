@@ -44,6 +44,7 @@ use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
 
 mod ancestors;
 mod circular;
+mod descent;
 mod lineage;
 
 // ── Viewport / zoom ──────────────────────────────────────────────────────
@@ -2529,6 +2530,11 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
             }),
         )))
     };
+    let horizontal = |layout: &dyn Fn() -> lineage::LineageLayout| {
+        ChartScene::Lineage(lineage::SharedLineage(Rc::new(
+            crate::ui_observability::measure_ui("pedigree_layout", layout),
+        )))
+    };
     let circular = |arc| {
         ChartScene::Circular(circular::SharedCircular(Rc::new(
             crate::ui_observability::measure_ui("pedigree_layout", || {
@@ -2560,18 +2566,47 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
         PedigreeView::Fan => circular(circular::ChartArc::FAN),
         PedigreeView::DescendantWheel => descendant_circular(circular::ChartArc::DESCENDANT_WHEEL),
         PedigreeView::DescendantFan => descendant_circular(circular::ChartArc::DESCENDANT_FAN),
-        PedigreeView::Lineage => ChartScene::Lineage(lineage::SharedLineage(Rc::new(
-            crate::ui_observability::measure_ui("pedigree_layout", || {
-                lineage::lineage_layout(
-                    props.root_person_id,
-                    &props.data,
-                    shape.ancestor_levels,
-                    props.sosa_root_person_id,
-                    &no_ancestor_badges,
-                    shape.theme,
-                )
-            }),
-        ))),
+        PedigreeView::Lineage => horizontal(&|| {
+            lineage::lineage_layout(
+                props.root_person_id,
+                &props.data,
+                shape.ancestor_levels,
+                props.sosa_root_person_id,
+                &no_ancestor_badges,
+                shape.theme,
+            )
+        }),
+        PedigreeView::DescendantLineage => horizontal(&|| {
+            lineage::descendant_lineage_layout(
+                props.root_person_id,
+                &props.data,
+                shape.descendant_levels,
+                props.sosa_root_person_id,
+                &sosa_ancestors,
+                shape.theme,
+            )
+        }),
+        PedigreeView::Hourglass => horizontal(&|| {
+            lineage::hourglass_layout(
+                props.root_person_id,
+                &props.data,
+                shape.ancestor_levels,
+                shape.descendant_levels,
+                props.sosa_root_person_id,
+                &sosa_ancestors,
+                shape.theme,
+            )
+        }),
+        PedigreeView::Bowtie => horizontal(&|| {
+            lineage::bowtie_layout(
+                props.root_person_id,
+                &props.data,
+                shape.ancestor_levels,
+                props.sosa_root_person_id,
+                &no_ancestor_badges,
+                shape.theme,
+            )
+        }),
     }
 }
 
@@ -3626,6 +3661,9 @@ pub fn PedigreeViewSwatch(view: PedigreeView) -> Element {
         PedigreeView::DescendantWheel => circular::swatch(circular::ChartArc::DESCENDANT_WHEEL),
         PedigreeView::DescendantFan => circular::swatch(circular::ChartArc::DESCENDANT_FAN),
         PedigreeView::Lineage => lineage::swatch(),
+        PedigreeView::DescendantLineage => lineage::descendant_lineage_swatch(),
+        PedigreeView::Hourglass => lineage::hourglass_swatch(),
+        PedigreeView::Bowtie => lineage::bowtie_swatch(),
     }
 }
 

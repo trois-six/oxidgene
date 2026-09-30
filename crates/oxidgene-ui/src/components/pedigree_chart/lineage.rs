@@ -1,4 +1,6 @@
-//! The lineage view: Gramps' *Pedigree* view, in OxidGene's cards.
+//! The horizontal charts — the lineage view, Gramps' *Pedigree* view, in
+//! OxidGene's cards, and the descendant lineage, the hourglass and the
+//! bowtie built the same way (see [`charts`]).
 //!
 //! The root stands on the left and its ancestors extend to the right, one
 //! column per generation, each child joined to its father above and its
@@ -20,6 +22,11 @@ use super::ancestors::{
 use super::*;
 use crate::components::context_menu::ContextMenuSurface;
 
+mod charts;
+pub(super) use charts::{
+    bowtie_layout, descendant_lineage_layout, hourglass_layout, lineage_layout,
+};
+
 /// Horizontal room between two columns, where the elbow lines run.
 const COLUMN_GAP: f64 = 48.0;
 /// Row pitch of the last column once it no longer holds full cards.
@@ -33,6 +40,17 @@ const SINGLE_H: f64 = 24.0;
 const CHILDREN_BUTTON_ROOM: f64 = 44.0;
 const CHILDREN_BUTTON_R: f64 = 12.0;
 const MARGIN: f64 = 24.0;
+
+/// What a box of a horizontal chart stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BoxRole {
+    /// A position of the ancestor side, its `sosa` a SOSA number.
+    Ancestor,
+    /// A person of the descendant side, its `sosa` only a key.
+    Descendant,
+    /// The spouse of a union of the descendant side, under the person.
+    Spouse,
+}
 
 /// How much of a person one row has room for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +126,8 @@ pub(super) struct LineageLayout {
     pub(super) sizes: Vec<BoxSize>,
     /// Centre of each entry's box, parallel to `entries`.
     pub(super) centres: Vec<(f64, f64)>,
+    /// What each entry is, parallel to `entries`.
+    pub(super) roles: Vec<BoxRole>,
     pub(super) links: Vec<LineageLink>,
     /// What each entry's box covers, parallel to `entries`, and what each
     /// link covers, parallel to `links` (`None` when unreadable, which
@@ -119,6 +139,13 @@ pub(super) struct LineageLayout {
     pub(super) children: Vec<ChildLink>,
     /// Width of every box.
     pub(super) box_w: f64,
+    /// The root's entry.
+    pub(super) root_index: usize,
+    /// Whether the root is the chart's left edge (lineage, descendant
+    /// lineage) rather than in its middle (hourglass, bowtie).
+    pub(super) root_at_left: bool,
+    /// Whether the button beside the root lists its spouses and children.
+    pub(super) lists_family: bool,
     pub(super) root_is_sosa_root: bool,
     pub(super) origin_x: f64,
     pub(super) origin_y: f64,
@@ -128,7 +155,11 @@ pub(super) struct LineageLayout {
 
 impl LineageLayout {
     pub(super) fn fit_target(&self) -> FitTarget {
-        let (root_x, root_y) = self.centres.first().copied().unwrap_or_default();
+        let (root_x, root_y) = self
+            .centres
+            .get(self.root_index)
+            .copied()
+            .unwrap_or_default();
         FitTarget {
             content_cx: self.total_w / 2.0,
             content_cy: self.total_h / 2.0,
@@ -136,15 +167,15 @@ impl LineageLayout {
             content_h: self.total_h - 2.0 * MARGIN,
             root_cx: self.origin_x + root_x,
             root_cy: self.origin_y + root_y,
-            root_at_left: true,
+            root_at_left: self.root_at_left,
         }
     }
 
     /// The button beside the root that lists its spouses and children, when
     /// it has any: the view draws neither, only the root's ancestors.
     pub(super) fn family_button(&self) -> Option<(f64, f64)> {
-        let (x, y) = *self.centres.first()?;
-        (!self.spouses.is_empty() || !self.children.is_empty())
+        let (x, y) = *self.centres.get(self.root_index)?;
+        (self.lists_family && (!self.spouses.is_empty() || !self.children.is_empty()))
             .then(|| (x - self.box_w / 2.0 - CHILDREN_BUTTON_ROOM / 2.0, y))
     }
 }
@@ -172,11 +203,15 @@ fn is_non_birth(child: Uuid, data: &PedigreeData) -> bool {
         .is_some_and(|c| c.child_type != ChildType::Biological)
 }
 
-/// The elbow from the child at `child` to whichever of its parents' rows are
-/// drawn, `parents` being their centres.
+/// The elbow from the box at `child` to the boxes at `parents`, all in one
+/// column to its right or, on a side mirrored to the left, to its left: a
+/// child to its parents, a union to its children.
 fn elbow(child: (f64, f64), parents: &[(f64, f64)], box_w: f64) -> String {
-    let right = child.0 + box_w / 2.0;
-    let left = parents.first().map_or(right, |p| p.0 - box_w / 2.0);
+    let side = parents
+        .first()
+        .map_or(1.0, |p| if p.0 < child.0 { -1.0 } else { 1.0 });
+    let right = child.0 + side * box_w / 2.0;
+    let left = parents.first().map_or(right, |p| p.0 - side * box_w / 2.0);
     let mid = (right + left) / 2.0;
     let top = parents.iter().map(|p| p.1).fold(child.1, f64::min);
     let bottom = parents.iter().map(|p| p.1).fold(child.1, f64::max);
@@ -191,101 +226,6 @@ fn elbow(child: (f64, f64), parents: &[(f64, f64)], box_w: f64) -> String {
         ));
     }
     d
-}
-
-/// The elbow lines of every drawn child to its drawn parents.
-fn collect_links(
-    entries: &[AncestorEntry],
-    centres: &[(f64, f64)],
-    box_w: f64,
-    data: &PedigreeData,
-) -> Vec<LineageLink> {
-    let position: HashMap<u64, usize> = entries
-        .iter()
-        .enumerate()
-        .map(|(i, e)| (e.sosa, i))
-        .collect();
-    entries
-        .iter()
-        .enumerate()
-        .filter_map(|(i, entry)| {
-            let parents: Vec<(f64, f64)> = [2 * entry.sosa, 2 * entry.sosa + 1]
-                .iter()
-                .filter_map(|sosa| position.get(sosa).map(|&p| centres[p]))
-                .collect();
-            let child = entry.node.id?;
-            (!parents.is_empty()).then(|| LineageLink {
-                path: elbow(centres[i], &parents, box_w),
-                non_birth: is_non_birth(child, data),
-            })
-        })
-        .collect()
-}
-
-/// Lays out the lineage view of `root_id`'s ancestors, `generations` deep.
-pub(super) fn lineage_layout(
-    root_id: Uuid,
-    data: &PedigreeData,
-    generations: usize,
-    sosa_root_id: Option<Uuid>,
-    sosa_ancestors: &HashSet<Uuid>,
-    theme: &PedigreeTheme,
-) -> LineageLayout {
-    let metrics = &theme.metrics;
-    let depth = generations as u32;
-    let pitch = leaf_pitch(depth, metrics);
-    let (rect_w, _) = metrics.rect(false);
-    let mut entries = collect_ancestors(root_id, data, generations, sosa_root_id, sosa_ancestors);
-    let mut sizes = Vec::with_capacity(entries.len());
-    let mut centres = Vec::with_capacity(entries.len());
-    for entry in &mut entries {
-        let generation = generation_of(entry.sosa);
-        let size = box_size(row_room(generation, depth, pitch), metrics);
-        let centre = (
-            column_x(generation, metrics) + metrics.padding + rect_w / 2.0,
-            row_centre(entry.sosa, depth, pitch),
-        );
-        // A card is drawn one `padding` inside its box, at the node's corner.
-        entry.node.x = centre.0 - metrics.padding - rect_w / 2.0;
-        entry.node.y = centre.1 - metrics.padding - metrics.rect(false).1 / 2.0;
-        sizes.push(size);
-        centres.push(centre);
-    }
-    let links = collect_links(&entries, &centres, rect_w, data);
-    // Every box as large as a card, the badges and the pencil overhanging
-    // it: culling may draw too much, never too little.
-    let (half_w, half_h) = (
-        rect_w / 2.0 + metrics.padding + CARD_OVERHANG,
-        metrics.card_h / 2.0 + metrics.padding + CARD_OVERHANG,
-    );
-    let box_extents = centres
-        .iter()
-        .map(|&(x, y)| Area {
-            x0: x - half_w,
-            y0: y - half_h,
-            x1: x + half_w,
-            y1: y + half_h,
-        })
-        .collect();
-    let link_extents = links.iter().map(|link| path_extent(&link.path)).collect();
-    let columns_w = column_x(depth, metrics) + metrics.card_w;
-    let rows_h = row_room(0, depth, pitch);
-    LineageLayout {
-        entries,
-        sizes,
-        centres,
-        links,
-        box_extents,
-        link_extents,
-        spouses: data.spouses_of(root_id),
-        children: children_of(root_id, data),
-        box_w: rect_w,
-        root_is_sosa_root: sosa_root_id.is_some() && sosa_root_id == Some(root_id),
-        origin_x: MARGIN + CHILDREN_BUTTON_ROOM,
-        origin_y: MARGIN,
-        total_w: columns_w + CHILDREN_BUTTON_ROOM + 2.0 * MARGIN,
-        total_h: rows_h + 2.0 * MARGIN,
-    }
 }
 
 /// A computed lineage layout, shared with the canvas that draws it.
@@ -450,6 +390,68 @@ fn render_slim_slot(
     }
 }
 
+/// A union's spouse under the person's card, in the descendant charts: a
+/// slim box with the union sign, which makes the spouse the focus; an
+/// unknown spouse only names itself on hover.
+fn render_spouse_box(
+    entry: &AncestorEntry,
+    centre: (f64, f64),
+    box_w: f64,
+    theme: &PedigreeTheme,
+    actions: BoxActions,
+    i18n: &I18n,
+) -> Element {
+    let (x, y) = (centre.0 - box_w / 2.0, centre.1 - SINGLE_H / 2.0);
+    let node = &entry.node;
+    let spouse = node.id;
+    let (name, title) = match spouse {
+        Some(_) => (
+            slim_text(node, BoxSize::Single, (box_w - 30.0) as f32).name,
+            ancestor_tooltip(entry, false, i18n),
+        ),
+        None => ("?".to_string(), i18n.t("couple.unknown_spouse")),
+    };
+    let BoxActions {
+        mut selected_person_id,
+        on_person_navigate,
+        on_person_click,
+        ..
+    } = actions;
+    rsx! {
+        g {
+            key: "lu-{entry.sosa}",
+            class: if spouse.is_some() { "lineage-spouse" } else { "lineage-spouse lineage-spouse-unknown" },
+            onclick: move |_| {
+                if let Some(pid) = spouse {
+                    selected_person_id.set(pid);
+                    on_person_navigate.call(pid);
+                }
+            },
+            oncontextmenu: move |evt: Event<MouseData>| {
+                evt.prevent_default();
+                evt.stop_propagation();
+                if let Some(pid) = spouse {
+                    selected_person_id.set(pid);
+                    let coords = evt.client_coordinates();
+                    on_person_click.call((pid, coords.x, coords.y));
+                }
+            },
+            rect {
+                class: "lineage-spouse-rect",
+                x: "{x:.2}", y: "{y:.2}", width: "{box_w:.2}", height: "{SINGLE_H}",
+                rx: "{theme.metrics.border_radius}",
+                dangerous_inner_html: "{svg_title(&title)}",
+            }
+            text {
+                class: "ped-card-name-text",
+                x: "{x + 8.0:.2}", y: "{centre.1 + 4.0:.2}",
+                style: "font-size:{SLIM_DATE_PX}px;font-family:{theme.card.body_font};fill:var(--pn-text);pointer-events:none",
+                "\u{26AD} {name}"
+            }
+        }
+    }
+}
+
 /// The button beside the root listing its spouses and children.
 fn render_family_button(
     at: (f64, f64),
@@ -525,8 +527,17 @@ pub(super) fn LineageCanvas(
                     }
                     for (i, entry) in layout.entries.iter().enumerate().filter(|(i, _)| region.intersects(&layout.box_extents[*i])) {
                         {
-                            match layout.sizes[i] {
-                                BoxSize::Card => render_pedigree_card(
+                            let numbered = layout.root_is_sosa_root && layout.roles[i] == BoxRole::Ancestor;
+                            match (layout.roles[i], layout.sizes[i]) {
+                                (BoxRole::Spouse, _) => render_spouse_box(
+                                    entry,
+                                    layout.centres[i],
+                                    layout.box_w,
+                                    theme,
+                                    actions,
+                                    &i18n,
+                                ),
+                                (_, BoxSize::Card) => render_pedigree_card(
                                     &entry.node,
                                     i,
                                     "ln",
@@ -540,12 +551,12 @@ pub(super) fn LineageCanvas(
                                     theme,
                                     None,
                                 ),
-                                size => render_slim_box(
+                                (_, size) => render_slim_box(
                                     entry,
                                     size,
                                     layout.centres[i],
                                     layout.box_w,
-                                    svg_title(&ancestor_tooltip(entry, layout.root_is_sosa_root, &i18n)),
+                                    svg_title(&ancestor_tooltip(entry, numbered, &i18n)),
                                     theme,
                                     actions,
                                 ),
@@ -617,14 +628,38 @@ pub(super) fn LineageFamilyMenu(
     }
 }
 
-/// A three-generation miniature of the view for the picker in the settings,
-/// its rows placed by [`row_centre`] and joined by [`elbow`]: the root on
-/// the left, parents and grandparents in columns to its right.
+/// A miniature of a horizontal chart for the view picker in the settings:
+/// `boxes` as centres (the root's flagged), joined by `links`.
+fn swatch_of(boxes: &[((f64, f64), bool)], links: &[String], box_w: f64) -> Element {
+    const BOX_H: f64 = 9.0;
+    rsx! {
+        svg {
+            class: "ped-theme-swatch ped-view-swatch",
+            "viewBox": "0 0 120 68",
+            "preserveAspectRatio": "xMidYMid meet",
+            "aria-hidden": "true",
+            rect { x: "0", y: "0", width: "120", height: "68", style: "fill:var(--pn-swatch-bg,transparent)" }
+            for (i, d) in links.iter().enumerate() {
+                path { key: "l{i}", class: "pedigree-connector-path", d: "{d}" }
+            }
+            for (i, ((x, y), root)) in boxes.iter().enumerate() {
+                rect {
+                    key: "b{i}",
+                    x: "{x - box_w / 2.0}", y: "{y - BOX_H / 2.0}", width: "{box_w}", height: "{BOX_H}", rx: "1.5",
+                    style: if *root { "fill:var(--pn-root-bg);stroke:var(--pn-border)" } else { "fill:var(--pn-bg);stroke:var(--pn-border)" },
+                }
+            }
+        }
+    }
+}
+
+/// The lineage view's miniature, its rows placed by [`row_centre`] and
+/// joined by [`elbow`]: the root on the left, parents and grandparents in
+/// columns to its right.
 pub(super) fn swatch() -> Element {
     const DEPTH: u32 = 2;
     const PITCH: f64 = 15.0;
     const BOX_W: f64 = 26.0;
-    const BOX_H: f64 = 9.0;
     const STEP: f64 = 40.0;
     let centre = |sosa: u64| {
         (
@@ -641,30 +676,56 @@ pub(super) fn swatch() -> Element {
             )
         })
         .collect();
-    rsx! {
-        svg {
-            class: "ped-theme-swatch ped-view-swatch",
-            "viewBox": "0 0 120 68",
-            "preserveAspectRatio": "xMidYMid meet",
-            "aria-hidden": "true",
-            rect { x: "0", y: "0", width: "120", height: "68", style: "fill:var(--pn-swatch-bg,transparent)" }
-            for (i, d) in links.into_iter().enumerate() {
-                path { key: "l{i}", class: "pedigree-connector-path", d: "{d}" }
-            }
-            for sosa in 1u64..8 {
-                {
-                    let (x, y) = centre(sosa);
-                    rsx! {
-                        rect {
-                            key: "{sosa}",
-                            x: "{x - BOX_W / 2.0}", y: "{y - BOX_H / 2.0}", width: "{BOX_W}", height: "{BOX_H}", rx: "1.5",
-                            style: if sosa == 1 { "fill:var(--pn-root-bg);stroke:var(--pn-border)" } else { "fill:var(--pn-bg);stroke:var(--pn-border)" },
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let boxes: Vec<((f64, f64), bool)> = (1u64..8).map(|sosa| (centre(sosa), sosa == 1)).collect();
+    swatch_of(&boxes, &links, BOX_W)
+}
+
+/// The descendant lineage's miniature: the root on the left, its children
+/// in the next column, some of theirs in the last.
+pub(super) fn descendant_lineage_swatch() -> Element {
+    const BOX_W: f64 = 26.0;
+    let (root, children, grandchildren) = (
+        (23.0, 34.0),
+        [(63.0, 14.0), (63.0, 34.0), (63.0, 54.0)],
+        [(103.0, 8.0), (103.0, 20.0), (103.0, 54.0)],
+    );
+    let links = [
+        elbow(root, &children, BOX_W),
+        elbow(children[0], &grandchildren[..2], BOX_W),
+        elbow(children[2], &grandchildren[2..], BOX_W),
+    ];
+    let mut boxes = vec![(root, true)];
+    boxes.extend(children.iter().chain(&grandchildren).map(|&c| (c, false)));
+    swatch_of(&boxes, &links, BOX_W)
+}
+
+/// The hourglass's miniature: children on the left of the root, parents on
+/// its right.
+pub(super) fn hourglass_swatch() -> Element {
+    const BOX_W: f64 = 26.0;
+    let root = (60.0, 34.0);
+    let (children, parents) = ([(20.0, 18.0), (20.0, 50.0)], [(100.0, 18.0), (100.0, 50.0)]);
+    let links = [elbow(root, &children, BOX_W), elbow(root, &parents, BOX_W)];
+    let mut boxes = vec![(root, true)];
+    boxes.extend(children.iter().chain(&parents).map(|&c| (c, false)));
+    swatch_of(&boxes, &links, BOX_W)
+}
+
+/// The bowtie's miniature: the father's line on the left of the root, the
+/// mother's on its right.
+pub(super) fn bowtie_swatch() -> Element {
+    const BOX_W: f64 = 22.0;
+    let (root, father, mother) = ((60.0, 34.0), (34.0, 34.0), (86.0, 34.0));
+    let (fathers, mothers) = ([(11.0, 18.0), (11.0, 50.0)], [(109.0, 18.0), (109.0, 50.0)]);
+    let links = [
+        elbow(root, &[father], BOX_W),
+        elbow(root, &[mother], BOX_W),
+        elbow(father, &fathers, BOX_W),
+        elbow(mother, &mothers, BOX_W),
+    ];
+    let mut boxes = vec![(root, true), (father, false), (mother, false)];
+    boxes.extend(fathers.iter().chain(&mothers).map(|&c| (c, false)));
+    swatch_of(&boxes, &links, BOX_W)
 }
 
 #[cfg(test)]
