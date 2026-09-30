@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:41:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:04:01Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -807,3 +807,20 @@ copy is rendered outside that viewport, so a view's styles must not depend on
 its container; custom properties set inline on its ancestors are carried
 over. Identifiers inside the copy are renamed so its references do not point
 into the hidden original. The copy is removed after printing.
+
+**Over several sheets.** When the chart, at the zoom shown, is larger than one
+sheet, the print action first asks what to print: *What the screen shows* (one
+sheet, as above) or *The whole chart at this zoom*, with the number of sheets
+it takes (*6 sheets (3 × 2)*). The whole chart keeps on paper the size it has
+on screen — 96 CSS pixels to the inch — cut into tiles of 255 × 175 mm, row
+by row, each overlapping the next by 1 cm. The tile size fits the printable
+area of A4 and of US Letter in landscape within the sheet's 10 mm margins, so
+nothing is lost in the 3–6 mm at the paper's edge that printers cannot reach.
+On each sheet a dashed line, inside the printed area, marks where the next
+sheet to the right and the next below start: the sheets are assembled by
+cutting or aligning on it. Each sheet carries one caption line — the page, the
+tree, *Sheet n of total · row r, column c* — in place of the printed header.
+Beyond 50 sheets the option is offered disabled, with a note to zoom out. While
+the sheets are prepared, every view draws its whole chart rather than only the
+part near the viewport, so the copy holds all of it; the tiles are one hidden
+copy shown through an SVG `use` per sheet, as vectors.

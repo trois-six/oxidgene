@@ -125,6 +125,123 @@ pub fn search_print_title(i18n: &I18n, last: &str, first: &str) -> String {
     }
 }
 
+// ── The whole chart over several sheets ────────────────────────────────────
+
+/// Width of the part of the chart one sheet prints, in millimetres.
+///
+/// With the sheet's 10 mm margins it fits the printable area of both A4
+/// and US Letter in landscape, whichever the printer holds, and stays clear
+/// of the 3–6 mm at the paper's edge most printers cannot reach.
+pub const TILE_W_MM: f64 = 255.0;
+/// Height of the part of the chart one sheet prints, in millimetres, below
+/// its one-line caption.
+pub const TILE_H_MM: f64 = 175.0;
+/// How far each sheet runs on under the next, so they can be assembled.
+/// Its edge is drawn as a dashed line, inside the printed area.
+pub const OVERLAP_MM: f64 = 10.0;
+/// The most sheets a chart is printed on: beyond, the reader zooms out.
+pub const MAX_SHEETS: usize = 50;
+/// Millimetres per CSS pixel, which prints at 96 per inch.
+const MM_PER_PX: f64 = 25.4 / 96.0;
+
+/// The chart's box in its own units, and how many screen pixels one unit
+/// takes at the zoom shown, as `__oxMeasureChart` reads them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChartMeasure {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+}
+
+/// One sheet's part of the chart.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Tile {
+    pub row: usize,
+    pub col: usize,
+    /// `x y width height` in chart units.
+    pub view_box: [f64; 4],
+    /// Where the next sheet to the right starts, as a vertical line, when
+    /// there is one.
+    pub guide_x: Option<f64>,
+    /// Where the next sheet below starts, as a horizontal line.
+    pub guide_y: Option<f64>,
+    pub caption: String,
+}
+
+/// The sheets a chart prints on at the zoom shown: it keeps on paper the
+/// size it has on screen, cut into tiles of [`TILE_W_MM`] × [`TILE_H_MM`]
+/// overlapping by [`OVERLAP_MM`], row by row.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TilePlan {
+    pub cols: usize,
+    pub rows: usize,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub tiles: Vec<Tile>,
+}
+
+impl TilePlan {
+    pub fn sheets(&self) -> usize {
+        self.cols * self.rows
+    }
+}
+
+/// How many steps of `step` after a first `tile` cover `extent`.
+fn tiles_along(extent: f64, tile: f64, step: f64) -> usize {
+    if extent <= tile {
+        1
+    } else {
+        1 + ((extent - tile) / step).ceil() as usize
+    }
+}
+
+/// Plans the sheets for `chart` at its zoom, captioning each with
+/// `caption(n, total, row, col)`. Only the counts are computed while there
+/// would be more than [`MAX_SHEETS`]: the sheets are then not offered.
+pub fn tile_plan(
+    chart: ChartMeasure,
+    caption: impl Fn(usize, usize, usize, usize) -> String,
+) -> TilePlan {
+    let mm_per_unit = chart.scale.max(f64::EPSILON) * MM_PER_PX;
+    let (tile_w, tile_h) = (TILE_W_MM / mm_per_unit, TILE_H_MM / mm_per_unit);
+    let overlap = OVERLAP_MM / mm_per_unit;
+    let (step_w, step_h) = (tile_w - overlap, tile_h - overlap);
+    let cols = tiles_along(chart.width, tile_w, step_w);
+    let rows = tiles_along(chart.height, tile_h, step_h);
+    let total = cols * rows;
+    let mut tiles = Vec::new();
+    if total <= MAX_SHEETS {
+        for row in 0..rows {
+            for col in 0..cols {
+                let (x, y) = (chart.x + col as f64 * step_w, chart.y + row as f64 * step_h);
+                tiles.push(Tile {
+                    row,
+                    col,
+                    view_box: [x, y, tile_w, tile_h],
+                    guide_x: (col + 1 < cols).then_some(x + step_w),
+                    guide_y: (row + 1 < rows).then_some(y + step_h),
+                    caption: caption(tiles.len() + 1, total, row + 1, col + 1),
+                });
+            }
+        }
+    }
+    TilePlan {
+        cols,
+        rows,
+        width_mm: TILE_W_MM,
+        height_mm: TILE_H_MM,
+        tiles,
+    }
+}
+
+/// Set while a chart prints over several sheets: every view then draws its
+/// whole chart instead of the part near the viewport, so the copy printed
+/// holds all of it.
+#[derive(Clone, Copy)]
+pub struct PrintEverything(pub Signal<bool>);
+
 // ── Browser side ────────────────────────────────────────────────────────────
 
 /// Installed once per window: the print hooks every page relies on.
@@ -156,26 +273,87 @@ const PRINT_HOOKS_JS: &str = r#"
         window.__oxPrintHooks = true;
         const dropSnapshot = () => {
             document.querySelectorAll('.print-chart').forEach(node => node.remove());
+            window.__oxTiled = false;
         };
         window.__oxDropPrintSnapshot = dropSnapshot;
-        // Screen point to the SVG's own coordinates, read off the box the SVG
-        // is drawn in rather than `getScreenCTM()`: WebKit (the Linux and
-        // macOS desktop) leaves the CSS zoom of an HTML ancestor out of that
-        // matrix, which framed a zoomed-out chart as if it were at 100 %.
-        const screenToChart = svg => {
-            const box = svg.getBoundingClientRect();
+        // The chart on screen: the largest SVG of the canvas.
+        const chartSvg = () => {
+            const viewport = document.querySelector('.pedigree-viewport');
+            if (!viewport) return null;
+            let svg = null;
+            let largest = 0;
+            viewport.querySelectorAll('svg').forEach(candidate => {
+                const r = candidate.getBoundingClientRect();
+                if (r.width * r.height > largest) {
+                    largest = r.width * r.height;
+                    svg = candidate;
+                }
+            });
+            return svg;
+        };
+        const viewBoxOf = svg => {
             const base = svg.viewBox && svg.viewBox.baseVal;
-            const vb = base && base.width > 0 && base.height > 0
+            return base && base.width > 0 && base.height > 0
                 ? base
                 : { x: 0, y: 0, width: svg.width.baseVal.value, height: svg.height.baseVal.value };
+        };
+        // Screen pixels per chart unit, read off the box the SVG is drawn in
+        // rather than `getScreenCTM()`: WebKit (the Linux and macOS desktop)
+        // leaves the CSS zoom of an HTML ancestor out of that matrix, which
+        // framed a zoomed-out chart as if it were at 100 %.
+        const screenScale = svg => {
+            const box = svg.getBoundingClientRect();
+            const vb = viewBoxOf(svg);
             if (!(box.width > 0 && box.height > 0 && vb.width > 0 && vb.height > 0)) return null;
             // `preserveAspectRatio` left at its default: meet, centred.
-            const scale = Math.min(box.width / vb.width, box.height / vb.height);
+            return Math.min(box.width / vb.width, box.height / vb.height);
+        };
+        // Screen point to the SVG's own coordinates.
+        const screenToChart = svg => {
+            const scale = screenScale(svg);
+            if (!scale) return null;
+            const box = svg.getBoundingClientRect();
+            const vb = viewBoxOf(svg);
             const left = box.left + (box.width - vb.width * scale) / 2;
             const top = box.top + (box.height - vb.height * scale) / 2;
             return (x, y) => ({ x: vb.x + (x - left) / scale, y: vb.y + (y - top) / scale });
         };
+        // A copy whose identifiers do not resolve into the hidden original.
+        const renameIds = copy => {
+            const renamed = new Map();
+            copy.querySelectorAll('[id]').forEach(node => {
+                renamed.set(node.id, 'print-' + node.id);
+                node.id = 'print-' + node.id;
+            });
+            if (!renamed.size) return;
+            const rewrite = value => value
+                .replace(/url\(#([^)]+)\)/g, (m, id) => renamed.has(id) ? `url(#${renamed.get(id)})` : m)
+                .replace(/^#(.+)$/, (m, id) => renamed.has(id) ? `#${renamed.get(id)}` : m);
+            copy.querySelectorAll('*').forEach(node => {
+                for (const attr of Array.from(node.attributes)) {
+                    const next = rewrite(attr.value);
+                    if (next !== attr.value) node.setAttribute(attr.name, next);
+                }
+            });
+        };
+        // The host of a printed copy, carrying the custom properties set
+        // inline on the chart's ancestors.
+        const printHost = (svg, className) => {
+            const host = document.createElement('div');
+            host.className = className;
+            host.setAttribute('aria-hidden', 'true');
+            for (let node = svg.parentElement; node && node !== document.body; node = node.parentElement) {
+                for (const name of Array.from(node.style)) {
+                    if (name.startsWith('--') && !host.style.getPropertyValue(name)) {
+                        host.style.setProperty(name, node.style.getPropertyValue(name));
+                    }
+                }
+            }
+            return host;
+        };
         window.__oxPreparePrint = () => {
+            // A multi-sheet print prepared by the action is what prints.
+            if (window.__oxTiled) return;
             const viewport = document.querySelector('.pedigree-viewport');
             if (!viewport) {
                 dropSnapshot();
@@ -186,15 +364,7 @@ const PRINT_HOOKS_JS: &str = r#"
             const rect = viewport.getBoundingClientRect();
             if (rect.width < 1 || rect.height < 1) return;
             dropSnapshot();
-            let svg = null;
-            let largest = 0;
-            viewport.querySelectorAll('svg').forEach(candidate => {
-                const r = candidate.getBoundingClientRect();
-                if (r.width * r.height > largest) {
-                    largest = r.width * r.height;
-                    svg = candidate;
-                }
-            });
+            const svg = chartSvg();
             const toChart = svg && screenToChart(svg);
             if (!toChart) return;
             let right = rect.right;
@@ -216,34 +386,75 @@ const PRINT_HOOKS_JS: &str = r#"
             copy.setAttribute('viewBox', `${x0} ${y0} ${x1 - x0} ${y1 - y0}`);
             copy.setAttribute('preserveAspectRatio', 'xMidYMin meet');
             ['width', 'height', 'style'].forEach(name => copy.removeAttribute(name));
-            const renamed = new Map();
-            copy.querySelectorAll('[id]').forEach(node => {
-                renamed.set(node.id, 'print-' + node.id);
-                node.id = 'print-' + node.id;
-            });
-            if (renamed.size) {
-                const rewrite = value => value
-                    .replace(/url\(#([^)]+)\)/g, (m, id) => renamed.has(id) ? `url(#${renamed.get(id)})` : m)
-                    .replace(/^#(.+)$/, (m, id) => renamed.has(id) ? `#${renamed.get(id)}` : m);
-                copy.querySelectorAll('*').forEach(node => {
-                    for (const attr of Array.from(node.attributes)) {
-                        const next = rewrite(attr.value);
-                        if (next !== attr.value) node.setAttribute(attr.name, next);
-                    }
-                });
-            }
-            const host = document.createElement('div');
-            host.className = 'print-chart';
-            host.setAttribute('aria-hidden', 'true');
-            for (let node = svg.parentElement; node && node !== document.body; node = node.parentElement) {
-                for (const name of Array.from(node.style)) {
-                    if (name.startsWith('--') && !host.style.getPropertyValue(name)) {
-                        host.style.setProperty(name, node.style.getPropertyValue(name));
-                    }
-                }
-            }
+            renameIds(copy);
+            const host = printHost(svg, 'print-chart');
             host.appendChild(copy);
             document.body.appendChild(host);
+        };
+        // The whole chart's box and the screen's zoom, for the sheet plan.
+        window.__oxMeasureChart = () => {
+            const svg = chartSvg();
+            const scale = svg && screenScale(svg);
+            if (!scale) return null;
+            const vb = viewBoxOf(svg);
+            return [vb.x, vb.y, vb.width, vb.height, scale];
+        };
+        // The whole chart over several sheets: one hidden copy, and a sheet
+        // per tile showing its part of it, the dashed lines where the next
+        // sheets overlap, and its caption. `plan` comes from `tile_plan`.
+        window.__oxPrepareTiledPrint = plan => {
+            dropSnapshot();
+            const svg = chartSvg();
+            if (!svg) return 0;
+            const ns = 'http://www.w3.org/2000/svg';
+            const host = printHost(svg, 'print-chart print-tiles');
+            const source = svg.cloneNode(true);
+            renameIds(source);
+            const holder = document.createElementNS(ns, 'svg');
+            holder.setAttribute('class', (svg.getAttribute('class') || '') + ' print-tiles-source');
+            holder.setAttribute('width', '0');
+            holder.setAttribute('height', '0');
+            const defs = document.createElementNS(ns, 'defs');
+            const group = document.createElementNS(ns, 'g');
+            group.id = 'print-tiles-chart';
+            Array.from(source.childNodes).forEach(child => group.appendChild(child));
+            defs.appendChild(group);
+            holder.appendChild(defs);
+            host.appendChild(holder);
+            const title = document.querySelector('.print-header-title');
+            const tree = document.querySelector('.print-header-tree');
+            const heading = [title, tree].filter(Boolean).map(n => n.textContent.trim()).filter(Boolean).join(' · ');
+            plan.tiles.forEach(tile => {
+                const sheet = document.createElement('div');
+                sheet.className = 'print-tile';
+                const caption = document.createElement('div');
+                caption.className = 'print-tile-caption';
+                caption.textContent = heading ? `${heading} — ${tile.caption}` : tile.caption;
+                sheet.appendChild(caption);
+                const part = document.createElementNS(ns, 'svg');
+                part.setAttribute('class', svg.getAttribute('class') || '');
+                part.setAttribute('viewBox', tile.view_box.join(' '));
+                part.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+                part.style.width = `${plan.width_mm}mm`;
+                part.style.height = `${plan.height_mm}mm`;
+                const use = document.createElementNS(ns, 'use');
+                use.setAttribute('href', '#print-tiles-chart');
+                part.appendChild(use);
+                const [x, y, w, h] = tile.view_box;
+                const guide = (x1, y1, x2, y2) => {
+                    const line = document.createElementNS(ns, 'line');
+                    line.setAttribute('class', 'print-tile-guide');
+                    [['x1', x1], ['y1', y1], ['x2', x2], ['y2', y2]].forEach(([k, v]) => line.setAttribute(k, v));
+                    part.appendChild(line);
+                };
+                if (tile.guide_x !== null) guide(tile.guide_x, y, tile.guide_x, y + h);
+                if (tile.guide_y !== null) guide(x, tile.guide_y, x + w, tile.guide_y);
+                sheet.appendChild(part);
+                host.appendChild(sheet);
+            });
+            document.body.appendChild(host);
+            window.__oxTiled = true;
+            return plan.tiles.length;
         };
         window.addEventListener('beforeprint', () => window.__oxPreparePrint());
         window.addEventListener('afterprint', dropSnapshot);
@@ -258,8 +469,10 @@ const PRINT_HOOKS_JS: &str = r#"
     }
 "#;
 
-/// Installs the print hooks. Called once, by the application shell.
+/// Installs the print hooks and provides [`PrintEverything`]. Called once,
+/// by the application shell.
 pub fn use_init_print() {
+    use_context_provider(|| PrintEverything(Signal::new(false)));
     use_effect(|| {
         document::eval(PRINT_HOOKS_JS);
     });
@@ -279,16 +492,81 @@ pub fn print_palette_css() -> String {
 
 // ── Components ──────────────────────────────────────────────────────────────
 
+/// Prints the page as the print stylesheet lays it out: through the desktop
+/// shell's dialog when there is one, `window.print()` on the web.
+async fn print_now(bridge: Option<PrintBridge>) {
+    match bridge {
+        Some(bridge) => bridge.print(),
+        None => {
+            let _ = document::eval("window.print(); return true;").await;
+        }
+    }
+}
+
+/// Prints what the chart shows on screen, on one sheet.
+async fn print_screen(bridge: Option<PrintBridge>) {
+    // Awaited, so the snapshot exists before a native dialog lays the page
+    // out.
+    let _ =
+        document::eval("window.__oxPreparePrint && window.__oxPreparePrint(); return true;").await;
+    print_now(bridge).await;
+}
+
+/// Prints the whole chart over the sheets of `plan`: every view draws its
+/// whole chart for the copy, then goes back to drawing what is near.
+async fn print_tiles(
+    bridge: Option<PrintBridge>,
+    plan: TilePlan,
+    everything: Option<PrintEverything>,
+) {
+    if let Some(PrintEverything(mut all)) = everything {
+        all.set(true);
+    }
+    // Let the chart redraw whole: a pause for the render, then two frames
+    // for the browser to lay it out.
+    crate::utils::sleep_ms(150).await;
+    let script = format!(
+        "await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); \
+         return window.__oxPrepareTiledPrint({});",
+        serde_json::to_string(&plan).unwrap_or_else(|_| "{\"tiles\":[]}".to_string())
+    );
+    let _ = document::eval(&script).await;
+    if let Some(PrintEverything(mut all)) = everything {
+        all.set(false);
+    }
+    print_now(bridge).await;
+}
+
+/// The chart on screen, measured, when the page shows one.
+async fn measure_chart() -> Option<ChartMeasure> {
+    let value =
+        document::eval("return window.__oxMeasureChart ? window.__oxMeasureChart() : null;")
+            .await
+            .ok()?;
+    let [x, y, width, height, scale]: [f64; 5] = serde_json::from_value(value).ok()?;
+    Some(ChartMeasure {
+        x,
+        y,
+        width,
+        height,
+        scale,
+    })
+}
+
 /// The print button of the tree pages' icon sidebar, just above Settings.
 ///
 /// It renders nothing on a route that does not print, so the sidebar the
-/// settings page shares cannot offer it. The header the sheet prints under is
-/// [`PrintHeading`], which each page places in its topbar.
+/// settings page shares cannot offer it. On a page showing a chart larger
+/// than one sheet at its zoom, it first asks whether to print what the
+/// screen shows or the whole chart over several sheets. The header the sheet
+/// prints under is [`PrintHeading`], which each page places in its topbar.
 #[component]
 pub fn PrintAction() -> Element {
     let i18n = use_i18n();
     let route = use_route::<Route>();
     let bridge = try_use_context::<PrintBridge>();
+    let everything = try_use_context::<PrintEverything>();
+    let mut choice = use_signal(|| None::<TilePlan>);
     use_drop(|| {
         document::eval("window.__oxDropPrintSnapshot && window.__oxDropPrintSnapshot();");
     });
@@ -297,6 +575,8 @@ pub fn PrintAction() -> Element {
     }
     let label = i18n.t("print.action");
     let tooltip = i18n.t("print.tooltip");
+    let bridge_screen = bridge.clone();
+    let bridge_tiles = bridge.clone();
 
     rsx! {
         button {
@@ -307,17 +587,12 @@ pub fn PrintAction() -> Element {
             onclick: move |_| {
                 let bridge = bridge.clone();
                 spawn(async move {
-                    // Awaited, so the snapshot exists before a native dialog
-                    // lays the page out.
-                    let _ = document::eval(
-                        "window.__oxPreparePrint && window.__oxPreparePrint(); return true;",
-                    )
-                    .await;
-                    match bridge {
-                        Some(bridge) => bridge.print(),
-                        None => {
-                            document::eval("window.print();");
-                        }
+                    let plan = measure_chart().await.map(|chart| {
+                        tile_plan(chart, |n, total, row, col| sheet_caption(&i18n, n, total, row, col))
+                    });
+                    match plan {
+                        Some(plan) if plan.sheets() > 1 => choice.set(Some(plan)),
+                        _ => print_screen(bridge).await,
                     }
                 });
             },
@@ -332,6 +607,98 @@ pub fn PrintAction() -> Element {
                 path { d: "M6 9V3h12v6" }
                 path { d: "M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" }
                 rect { x: "6", y: "14", width: "12", height: "7" }
+            }
+        }
+        if let Some(plan) = choice() {
+            PrintChoice {
+                plan,
+                on_screen: move |_| {
+                    choice.set(None);
+                    let bridge = bridge_screen.clone();
+                    spawn(async move { print_screen(bridge).await });
+                },
+                on_tiles: move |plan: TilePlan| {
+                    choice.set(None);
+                    let bridge = bridge_tiles.clone();
+                    spawn(async move { print_tiles(bridge, plan, everything).await });
+                },
+                on_cancel: move |_| choice.set(None),
+            }
+        }
+    }
+}
+
+/// « Sheet 2 of 6 · row 1, column 2 », in the reader's language.
+fn sheet_caption(i18n: &I18n, n: usize, total: usize, row: usize, col: usize) -> String {
+    i18n.t_args(
+        "print.sheet",
+        &[
+            ("n", &n.to_string()),
+            ("total", &total.to_string()),
+            ("row", &row.to_string()),
+            ("col", &col.to_string()),
+        ],
+    )
+}
+
+/// What to print of a chart larger than a sheet: what the screen shows, or
+/// the whole chart at this zoom over several sheets.
+#[component]
+fn PrintChoice(
+    plan: TilePlan,
+    on_screen: EventHandler<()>,
+    on_tiles: EventHandler<TilePlan>,
+    on_cancel: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let sheets = plan.sheets();
+    let too_many = sheets > MAX_SHEETS;
+    let count = i18n.t_args(
+        "print.sheets",
+        &[
+            ("count", &sheets.to_string()),
+            ("cols", &plan.cols.to_string()),
+            ("rows", &plan.rows.to_string()),
+        ],
+    );
+    rsx! {
+        div { class: "modal-backdrop",
+            div {
+                class: "modal-card print-choice",
+                role: "dialog",
+                "aria-modal": "true",
+                onclick: move |e| e.stop_propagation(),
+                h3 { {i18n.t("print.choose_title")} }
+                div { class: "print-choice-options",
+                    button {
+                        class: "print-choice-option",
+                        onclick: move |_| on_screen.call(()),
+                        span { class: "print-choice-name", {i18n.t("print.what_shows")} }
+                        span { class: "print-choice-detail", {i18n.t("print.one_sheet")} }
+                    }
+                    button {
+                        class: "print-choice-option",
+                        disabled: too_many,
+                        onclick: {
+                            let plan = plan.clone();
+                            move |_| on_tiles.call(plan.clone())
+                        },
+                        span { class: "print-choice-name", {i18n.t("print.whole_tree")} }
+                        span { class: "print-choice-detail", "{count}" }
+                    }
+                }
+                if too_many {
+                    p { class: "stats-note",
+                        {i18n.t_args("print.too_many", &[("max", &MAX_SHEETS.to_string())])}
+                    }
+                } else {
+                    p { class: "stats-note", {i18n.t("print.tiles_hint")} }
+                }
+                div { class: "modal-actions",
+                    button { class: "btn btn-outline", onclick: move |_| on_cancel.call(()),
+                        {i18n.t("common.cancel")}
+                    }
+                }
             }
         }
     }
@@ -463,6 +830,73 @@ mod tests {
                 "the {name} page must not offer printing"
             );
         }
+    }
+
+    fn chart(width: f64, height: f64, scale: f64) -> ChartMeasure {
+        ChartMeasure {
+            x: 10.0,
+            y: 20.0,
+            width,
+            height,
+            scale,
+        }
+    }
+
+    fn caption(n: usize, total: usize, row: usize, col: usize) -> String {
+        format!("{n}/{total} r{row}c{col}")
+    }
+
+    /// A chart at its screen size: 96 CSS pixels to the inch. At 100 % a
+    /// chart one tile wide or less prints on one sheet.
+    #[test]
+    fn a_chart_that_fits_one_tile_takes_one_sheet() {
+        let tile_px = TILE_W_MM / MM_PER_PX;
+        let plan = tile_plan(chart(tile_px - 1.0, 100.0, 1.0), caption);
+        assert_eq!((plan.cols, plan.rows, plan.sheets()), (1, 1, 1));
+        assert_eq!(plan.tiles[0].guide_x, None);
+        assert_eq!(plan.tiles[0].guide_y, None);
+    }
+
+    /// Tiles cover the whole chart row by row, each overlapping the next by
+    /// the overlap, marked where the next sheet starts; the zoom shown keeps
+    /// the chart's size on paper.
+    #[test]
+    fn tiles_cover_the_chart_and_overlap_where_marked() {
+        let scale = 0.5;
+        let unit_mm = scale * MM_PER_PX;
+        let (tile_w, tile_h) = (TILE_W_MM / unit_mm, TILE_H_MM / unit_mm);
+        let overlap = OVERLAP_MM / unit_mm;
+        let (w, h) = (2.5 * tile_w, 1.2 * tile_h);
+        let plan = tile_plan(chart(w, h, scale), caption);
+        assert_eq!((plan.cols, plan.rows), (3, 2));
+        assert_eq!(plan.tiles.len(), 6);
+        let first = &plan.tiles[0];
+        assert_eq!(first.view_box[..2], [10.0, 20.0]);
+        assert!((first.view_box[2] - tile_w).abs() < 1e-9);
+        let right = &plan.tiles[1];
+        assert!((right.view_box[0] - (first.view_box[0] + tile_w - overlap)).abs() < 1e-9);
+        assert_eq!(first.guide_x, Some(right.view_box[0]));
+        let below = &plan.tiles[3];
+        assert_eq!(first.guide_y, Some(below.view_box[1]));
+        let last = plan.tiles.last().unwrap();
+        assert_eq!((last.guide_x, last.guide_y), (None, None));
+        assert!(
+            last.view_box[0] + last.view_box[2] >= 10.0 + w - 1e-9,
+            "the right edge is covered"
+        );
+        assert!(
+            last.view_box[1] + last.view_box[3] >= 20.0 + h - 1e-9,
+            "the bottom is covered"
+        );
+        assert_eq!(plan.tiles[4].caption, "5/6 r2c2");
+    }
+
+    /// Past the most sheets offered, only the count is planned.
+    #[test]
+    fn too_many_sheets_are_counted_not_planned() {
+        let plan = tile_plan(chart(100_000.0, 100_000.0, 1.0), caption);
+        assert!(plan.sheets() > MAX_SHEETS);
+        assert!(plan.tiles.is_empty());
     }
 
     #[test]

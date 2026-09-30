@@ -4422,7 +4422,17 @@ fn use_culled_region(
     animating: Signal<bool>,
 ) -> Area {
     let culling = use_hook(|| Rc::new(Cell::new(None::<Culling>)));
+    let everything = try_use_context::<crate::components::print::PrintEverything>();
     let region = use_memo(move || {
+        // A chart printed over several sheets is drawn whole meanwhile.
+        if everything.is_some_and(|e| (e.0)()) {
+            return Area {
+                x0: f64::NEG_INFINITY,
+                y0: f64::NEG_INFINITY,
+                x1: f64::INFINITY,
+                y1: f64::INFINITY,
+            };
+        }
         let next = cull(
             culling.get(),
             visible_area(transform(), viewport()),

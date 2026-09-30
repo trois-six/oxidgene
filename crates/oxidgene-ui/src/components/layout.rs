@@ -7239,10 +7239,36 @@ pub const LAYOUT_STYLES: &str = r#"
     .print-page-note,
     .print-chart { display: none; }
 
+    /* The choice between printing what the screen shows and the whole chart
+       over several sheets. */
+    .modal-card.print-choice { max-width: min(460px, calc(100vw - 32px)); }
+    .print-choice-options { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+    .print-choice-option {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-card);
+        color: var(--text-primary);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+    .print-choice-option:hover:not(:disabled) { border-color: var(--orange); }
+    .print-choice-option:disabled { opacity: 0.5; cursor: not-allowed; }
+    .print-choice-name { font-weight: 600; }
+    .print-choice-detail { color: var(--text-secondary); font-size: 0.85rem; white-space: nowrap; }
+
     @media print {
         @page { margin: 12mm; }
-        /* Any chart view prints on a landscape sheet of the chosen paper. */
+        /* Any chart view prints on a landscape sheet of the chosen paper;
+           so do its tiles, whose 255 × 175 mm fit A4 and US Letter within
+           these margins, clear of what printers cannot reach. */
         @page chart { size: landscape; margin: 10mm; }
+        @page tiles { size: landscape; margin: 10mm; }
 
         html, body, #main, .app-main, .sub-page, .pd-page-shell,
         .sub-page-content, .tree-detail-page {
@@ -7397,6 +7423,31 @@ pub const LAYOUT_STYLES: &str = r#"
         body:has(.print-chart) { page: chart; }
         body:has(.print-chart) .pedigree-outer { display: none !important; }
         .print-chart { display: block; }
+        /* The whole chart over several sheets: one tile a sheet, its caption
+           above, within the sheet's margins; the header of the page gives
+           way to the captions. */
+        body:has(.print-tiles) { page: tiles; }
+        body:has(.print-tiles) .print-header { display: none !important; }
+        .print-tiles-source { position: absolute; width: 0; height: 0; }
+        .print-tile { break-after: page; break-inside: avoid; }
+        .print-tile:last-child { break-after: auto; }
+        .print-tile-caption {
+            font-size: 8pt;
+            color: var(--text-muted);
+            margin-bottom: 2mm;
+        }
+        .print-chart.print-tiles .print-tile svg {
+            display: block;
+            max-width: none;
+            max-height: none;
+            margin: 0;
+        }
+        .print-tile-guide {
+            stroke: var(--text-muted);
+            stroke-width: 0.6;
+            stroke-dasharray: 4 3;
+            vector-effect: non-scaling-stroke;
+        }
         /* Both sizes auto: the box keeps the snapshot's own ratio within the
            two caps, so nothing beyond its viewBox shows at the sides. */
         .print-chart svg {
