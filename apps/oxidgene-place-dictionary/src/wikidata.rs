@@ -29,7 +29,7 @@ pub async fn coordinates(
     let query =
         format!("SELECT ?code ?coord WHERE {{ ?item wdt:{property} ?code ; wdt:P625 ?coord . }}");
     let table = fetcher.sparql(&query).await?;
-    let (code, coord) = (table.column("code")?, table.column("coord")?);
+    let [code, coord] = table.columns(["code", "coord"])?;
     let mut found = HashMap::new();
     for row in &table.rows {
         if let Some(point) = Coordinates::from_wkt(&row[coord]) {
@@ -117,16 +117,16 @@ pub async fn former_municipalities(
         code = query.code,
     );
     let table = fetcher.sparql(&sparql).await?;
-    let (item, label, own, start, end, coord, successor, parent) = (
-        table.column("item")?,
-        table.column("label")?,
-        table.column("own")?,
-        table.column("start")?,
-        table.column("end")?,
-        table.column("coord")?,
-        table.column("successor")?,
-        table.column("parent")?,
-    );
+    let [item, label, own, start, end, coord, successor, parent] = table.columns([
+        "item",
+        "label",
+        "own",
+        "start",
+        "end",
+        "coord",
+        "successor",
+        "parent",
+    ])?;
     let mut by_item: HashMap<String, Former> = HashMap::new();
     for row in &table.rows {
         let ended = wikidata_date(&row[end]);

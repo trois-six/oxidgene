@@ -20,14 +20,8 @@ const CODE_PROPERTY: &str = "P1653";
 
 pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let terc = terc(fetcher).await?;
-    let (voivodeship, powiat, gmina, kind, name, detail) = (
-        terc.column("WOJ")?,
-        terc.column("POW")?,
-        terc.column("GMI")?,
-        terc.column("RODZ")?,
-        terc.column("NAZWA")?,
-        terc.column("NAZWA_DOD")?,
-    );
+    let [voivodeship, powiat, gmina, kind, name, detail] =
+        terc.columns(["WOJ", "POW", "GMI", "RODZ", "NAZWA", "NAZWA_DOD"])?;
     let mut voivodeships = HashMap::new();
     let mut powiats = HashMap::new();
     let mut units = Vec::new();

@@ -10,7 +10,7 @@ use anyhow::Result;
 use crate::fetch::Fetcher;
 use crate::place::{Coordinates, Country, Kind, Place, file, unfiled};
 use crate::table::Table;
-use crate::wikidata::{FormerQuery, former_municipalities, wikidata_date};
+use crate::wikidata::{Former, FormerQuery, former_municipalities, wikidata_date};
 use oxidgene_core::search::fold_words;
 
 /// Wikidata's property for the NIS code.
@@ -90,15 +90,9 @@ fn local_name(code: &str, nl: &str, fr: &str, de: &str) -> String {
 
 /// The municipalities without an end date, by NIS code, with their local
 /// name and centre.
-fn live_municipalities(table: &Table) -> Result<HashMap<String, (String, Option<Coordinates>)>> {
-    let (code, end, nl, fr, de, coord) = (
-        table.column("code")?,
-        table.column("end")?,
-        table.column("nl")?,
-        table.column("fr")?,
-        table.column("de")?,
-        table.column("coord")?,
-    );
+fn live_municipalities(table: &Table) -> Result<Live> {
+    let [code, end, nl, fr, de, coord] =
+        table.columns(["code", "end", "nl", "fr", "de", "coord"])?;
     let mut live: HashMap<String, (String, Option<Coordinates>)> = HashMap::new();
     for row in &table.rows {
         if wikidata_date(&row[end]).is_none() {
@@ -146,8 +140,30 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         },
     )
     .await?;
+    let merged_into = file_merged(&mut places, &merged, &live);
+
+    // The sections, filed under the municipality holding them today.
+    let known: HashSet<(String, String)> = places
+        .iter()
+        .map(|p| (fold_words(&p.name), p.subdivision.clone()))
+        .collect();
+    let sections = fetcher.sparql(SECTIONS).await?;
+    file_sections(&mut places, &sections, &live, &merged_into, &known)?;
+    eprintln!(
+        "Belgium: {municipalities} municipality rows, {} merged communes and sections",
+        places.len() - municipalities
+    );
+    Ok(places)
+}
+
+/// Live municipalities: name and coordinates, by code.
+type Live = HashMap<String, (String, Option<Coordinates>)>;
+
+/// Files the municipalities `merged` since the fusions, each under the one
+/// holding its land today; that one's code by the merged one's.
+fn file_merged(places: &mut Vec<Place>, merged: &[Former], live: &Live) -> HashMap<String, String> {
     let mut merged_into: HashMap<String, String> = HashMap::new();
-    for commune in &merged {
+    for commune in merged {
         let Some(now) = commune.codes.iter().find(|c| live.contains_key(*c)) else {
             continue;
         };
@@ -164,23 +180,22 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         base.valid_until.clone_from(&commune.end);
         base.successor = Some(now.clone());
         base.coordinates = commune.coordinates;
-        file(&mut places, &base, province, region, false);
+        file(places, &base, province, region, false);
     }
+    merged_into
+}
 
-    // The sections, filed under the municipality holding them today.
-    let known: HashSet<(String, String)> = places
-        .iter()
-        .map(|p| (fold_words(&p.name), p.subdivision.clone()))
-        .collect();
-    let sections = fetcher.sparql(SECTIONS).await?;
-    let (code, parent, nl, fr, de, coord) = (
-        sections.column("code")?,
-        sections.column("parent")?,
-        sections.column("nl")?,
-        sections.column("fr")?,
-        sections.column("de")?,
-        sections.column("coord")?,
-    );
+/// Files the sections of `sections` under the municipality holding them
+/// today, but for a name already `known` in its province.
+fn file_sections(
+    places: &mut Vec<Place>,
+    sections: &Table,
+    live: &Live,
+    merged_into: &HashMap<String, String>,
+    known: &HashSet<(String, String)>,
+) -> Result<()> {
+    let [code, parent, nl, fr, de, coord] =
+        sections.columns(["code", "parent", "nl", "fr", "de", "coord"])?;
     let mut seen = HashSet::new();
     for row in &sections.rows {
         let parent = merged_into.get(&row[parent]).unwrap_or(&row[parent]);
@@ -199,16 +214,12 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         let mut base = unfiled(Country::Belgium, &name, &row[code], Kind::FormerCommune);
         base.successor = Some(parent.clone());
         base.coordinates = Coordinates::from_wkt(&row[coord]);
-        file(&mut places, &base, province, region, false);
+        file(places, &base, province, region, false);
         if matches!(&parent[..2], "21" | "23" | "24" | "25") {
-            file(&mut places, &base, "Brabant", region, false);
+            file(places, &base, "Brabant", region, false);
         }
     }
-    eprintln!(
-        "Belgium: {municipalities} municipality rows, {} merged communes and sections",
-        places.len() - municipalities
-    );
-    Ok(places)
+    Ok(())
 }
 
 #[cfg(test)]

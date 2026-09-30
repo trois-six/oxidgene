@@ -120,6 +120,14 @@ pub struct Coordinates {
 }
 
 impl Coordinates {
+    /// Reads decimal degrees, surrounding spaces aside.
+    pub fn parse(latitude: &str, longitude: &str) -> Option<Self> {
+        Some(Self {
+            latitude: latitude.trim().parse().ok()?,
+            longitude: longitude.trim().parse().ok()?,
+        })
+    }
+
     /// Reads Wikidata's `Point(longitude latitude)` literal.
     pub fn from_wkt(text: &str) -> Option<Self> {
         let inner = text.strip_prefix("Point(")?.strip_suffix(')')?;

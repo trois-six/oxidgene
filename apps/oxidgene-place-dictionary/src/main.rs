@@ -99,18 +99,7 @@ fn compress(bytes: &[u8]) -> Result<Vec<u8>> {
 async fn main() -> Result<()> {
     let args = Args::parse()?;
     let fetcher = Fetcher::new(args.cache, args.cached)?;
-    let mut places = france::places(&fetcher).await?;
-    places.extend(uk::places(&fetcher).await?);
-    places.extend(germany::places(&fetcher).await?);
-    places.extend(italy::places(&fetcher).await?);
-    places.extend(spain::places(&fetcher).await?);
-    places.extend(switzerland::places(&fetcher).await?);
-    places.extend(poland::places(&fetcher).await?);
-    places.extend(usa::places(&fetcher).await?);
-    places.extend(portugal::places(&fetcher).await?);
-    places.extend(belgium::places(&fetcher).await?);
-    places.extend(luxembourg::places(&fetcher).await?);
-    places.extend(netherlands::places(&fetcher).await?);
+    let mut places = all_places(&fetcher).await?;
     let (csv, rows, dropped) = place::render(&mut places);
     eprintln!("{dropped} duplicate rows dropped");
 
@@ -119,11 +108,7 @@ async fn main() -> Result<()> {
     }
     eprintln!("compressing {rows} places");
     let compressed = compress(csv.as_bytes())?;
-    if let Some(dir) = args.out.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&args.out, &compressed)
-        .with_context(|| format!("cannot write {}", args.out.display()))?;
+    write_asset(&args.out, &compressed)?;
     eprintln!(
         "{rows} places, {} bytes, written to {}",
         compressed.len(),
@@ -131,13 +116,34 @@ async fn main() -> Result<()> {
     );
 
     let map = compress(basemap::basemap(&fetcher).await?.as_bytes())?;
-    std::fs::create_dir_all(args.basemap.parent().unwrap_or(std::path::Path::new(".")))?;
-    std::fs::write(&args.basemap, &map)
-        .with_context(|| format!("cannot write {}", args.basemap.display()))?;
+    write_asset(&args.basemap, &map)?;
     eprintln!(
         "basemap, {} bytes, written to {}",
         map.len(),
         args.basemap.display()
     );
     Ok(())
+}
+
+/// The places of every country the dictionary covers.
+async fn all_places(fetcher: &Fetcher) -> Result<Vec<place::Place>> {
+    let mut places = france::places(fetcher).await?;
+    places.extend(uk::places(fetcher).await?);
+    places.extend(germany::places(fetcher).await?);
+    places.extend(italy::places(fetcher).await?);
+    places.extend(spain::places(fetcher).await?);
+    places.extend(switzerland::places(fetcher).await?);
+    places.extend(poland::places(fetcher).await?);
+    places.extend(usa::places(fetcher).await?);
+    places.extend(portugal::places(fetcher).await?);
+    places.extend(belgium::places(fetcher).await?);
+    places.extend(luxembourg::places(fetcher).await?);
+    places.extend(netherlands::places(fetcher).await?);
+    Ok(places)
+}
+
+/// Writes `bytes` at `path`, creating its directory.
+fn write_asset(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    std::fs::create_dir_all(path.parent().unwrap_or(std::path::Path::new(".")))?;
+    std::fs::write(path, bytes).with_context(|| format!("cannot write {}", path.display()))
 }

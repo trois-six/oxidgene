@@ -147,7 +147,7 @@ fn add_islands(
     municipalities: &mut HashMap<String, (String, String)>,
     parishes: &mut HashMap<String, (String, String)>,
 ) -> Result<()> {
-    let (code, label) = (islands.column("code")?, islands.column("label")?);
+    let [code, label] = islands.columns(["code", "label"])?;
     for row in &islands.rows {
         let code = row[code].as_str();
         let region = if code.starts_with('3') {

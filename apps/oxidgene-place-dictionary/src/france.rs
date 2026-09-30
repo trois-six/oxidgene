@@ -191,6 +191,18 @@ struct Fate {
     same_commune: bool,
 }
 
+impl Fate {
+    /// What record `index` is, an `arrondissement` or not, given its fate.
+    fn kind(&self, index: usize, arrondissement: bool) -> Kind {
+        match self.live {
+            Some(live) if live == index && arrondissement => Kind::MunicipalArrondissement,
+            Some(live) if live == index => Kind::Commune,
+            Some(_) if self.same_commune => Kind::FormerName,
+            _ => Kind::FormerCommune,
+        }
+    }
+}
+
 struct Cog {
     records: Vec<Record>,
     by_code: HashMap<String, Vec<usize>>,
@@ -202,59 +214,82 @@ struct Cog {
     departments: HashMap<String, (String, String)>,
 }
 
+/// A commune's events by (code before, date, arrondissement?), and the
+/// renumberings by code after.
+type Movements = (
+    HashMap<(String, String, bool), Vec<Event>>,
+    HashMap<String, Vec<(String, String)>>,
+);
+
+/// Table `name` of the COG of `year`, whose files are `files`.
+async fn cog_table(
+    fetcher: &Fetcher,
+    files: &HashMap<String, String>,
+    year: u16,
+    name: String,
+) -> Result<Table> {
+    let url = files
+        .get(&name)
+        .with_context(|| format!("the COG {year} has no {name}"))?;
+    let bytes = fetcher.bytes(&name, url).await?;
+    let text = String::from_utf8(bytes).with_context(|| format!("{name} is not UTF-8"))?;
+    Table::parse(&text, ',').with_context(|| format!("cannot read {name}"))
+}
+
 impl Cog {
     async fn load(fetcher: &Fetcher) -> Result<Self> {
         let (year, files) = latest_cog(fetcher).await?;
         eprintln!("France: COG {year}");
-        let table = |name: String| {
-            let files = &files;
-            async move {
-                let url = files
-                    .get(&name)
-                    .with_context(|| format!("the COG {year} has no {name}"))?;
-                let bytes = fetcher.bytes(&name, url).await?;
-                let text =
-                    String::from_utf8(bytes).with_context(|| format!("{name} is not UTF-8"))?;
-                Table::parse(&text, ',').with_context(|| format!("cannot read {name}"))
-            }
-        };
+        let table = |name: String| cog_table(fetcher, &files, year, name);
         let history = table("v_commune_depuis_1943.csv".to_string()).await?;
         let movements = table(format!("v_mvt_commune_{year}.csv")).await?;
         let departments = table(format!("v_departement_{year}.csv")).await?;
         let regions = table(format!("v_region_{year}.csv")).await?;
 
-        let mut records = Vec::new();
-        let (typecom, code, name, start, end) = (
-            history.column("TYPECOM")?,
-            history.column("COM")?,
-            history.column("LIBELLE")?,
-            history.column("DATE_DEBUT")?,
-            history.column("DATE_FIN")?,
-        );
-        for row in &history.rows {
-            records.push(Record {
+        let records = Self::records(&history)?;
+        let mut by_code: HashMap<String, Vec<usize>> = HashMap::new();
+        for (index, record) in records.iter().enumerate() {
+            by_code.entry(record.code.clone()).or_default().push(index);
+        }
+        let (events, renumbered_from) = Self::movements(&movements)?;
+        Ok(Self {
+            records,
+            by_code,
+            events,
+            renumbered_from,
+            departments: Self::departments(&departments, &regions)?,
+        })
+    }
+
+    /// Every name every commune bore, from the history table.
+    fn records(history: &Table) -> Result<Vec<Record>> {
+        let [typecom, code, name, start, end] =
+            history.columns(["TYPECOM", "COM", "LIBELLE", "DATE_DEBUT", "DATE_FIN"])?;
+        Ok(history
+            .rows
+            .iter()
+            .map(|row| Record {
                 arrondissement: row[typecom] == "ARM",
                 code: row[code].clone(),
                 name: row[name].clone(),
                 start: date(&row[start]).filter(|s| s != COG_HORIZON),
                 end: date(&row[end]),
-            });
-        }
-        let mut by_code: HashMap<String, Vec<usize>> = HashMap::new();
-        for (index, record) in records.iter().enumerate() {
-            by_code.entry(record.code.clone()).or_default().push(index);
-        }
+            })
+            .collect())
+    }
 
+    /// The events that carried communes forward, from the movements table.
+    fn movements(movements: &Table) -> Result<Movements> {
         let mut events: HashMap<_, Vec<Event>> = HashMap::new();
         let mut renumbered_from: HashMap<String, Vec<(String, String)>> = HashMap::new();
-        let (kind, day, type_before, code_before, type_after, code_after) = (
-            movements.column("MOD")?,
-            movements.column("DATE_EFF")?,
-            movements.column("TYPECOM_AV")?,
-            movements.column("COM_AV")?,
-            movements.column("TYPECOM_AP")?,
-            movements.column("COM_AP")?,
-        );
+        let [kind, day, type_before, code_before, type_after, code_after] = movements.columns([
+            "MOD",
+            "DATE_EFF",
+            "TYPECOM_AV",
+            "COM_AV",
+            "TYPECOM_AP",
+            "COM_AP",
+        ])?;
         for row in &movements.rows {
             // Only a commune becoming a commune carries it forward; the rows
             // that turn it into a commune déléguée or associée describe what
@@ -283,21 +318,24 @@ impl Cog {
         for list in events.values_mut() {
             list.sort_by(|a, b| a.code_after.cmp(&b.code_after));
         }
+        Ok((events, renumbered_from))
+    }
 
+    /// Each current département's name and region, by code.
+    fn departments(
+        departments: &Table,
+        regions: &Table,
+    ) -> Result<HashMap<String, (String, String)>> {
         let region_names: HashMap<_, _> = {
-            let (code, name) = (regions.column("REG")?, regions.column("LIBELLE")?);
+            let [code, name] = regions.columns(["REG", "LIBELLE"])?;
             regions
                 .rows
                 .iter()
                 .map(|r| (r[code].clone(), r[name].clone()))
                 .collect()
         };
-        let (code, region, name) = (
-            departments.column("DEP")?,
-            departments.column("REG")?,
-            departments.column("LIBELLE")?,
-        );
-        let departments = departments
+        let [code, region, name] = departments.columns(["DEP", "REG", "LIBELLE"])?;
+        departments
             .rows
             .iter()
             .map(|r| {
@@ -306,15 +344,7 @@ impl Cog {
                     .with_context(|| format!("unknown region {}", r[region]))?;
                 Ok((r[code].clone(), (r[name].clone(), region.clone())))
             })
-            .collect::<Result<_>>()?;
-
-        Ok(Self {
-            records,
-            by_code,
-            events,
-            renumbered_from,
-            departments,
-        })
+            .collect()
     }
 
     fn record_at(&self, code: &str, day: &str, arrondissement: bool) -> Option<usize> {
@@ -381,14 +411,7 @@ impl Cog {
         let record = &self.records[index];
         let fate = self.fate(index);
         let live = fate.live.map(|i| &self.records[i]);
-        let kind = match fate.live {
-            Some(live) if live == index && record.arrondissement => Kind::MunicipalArrondissement,
-            Some(live) if live == index => Kind::Commune,
-            Some(_) if fate.same_commune => Kind::FormerName,
-            _ => Kind::FormerCommune,
-        };
-        let own = department_of(&record.code);
-        let today = live.map_or(own, |l| department_of(&l.code));
+        let kind = fate.kind(index, record.arrondissement);
         let name = wikidata
             .accented(&record.code, &record.name)
             .unwrap_or(&record.name);
@@ -417,6 +440,15 @@ impl Cog {
             current: false,
         };
 
+        self.filed(record, &base, live)
+    }
+
+    /// `base`, a place of `record`, filed under each département and region
+    /// it stood in: today's, the region before 2016, and the département's
+    /// former names. `live` is the record the commune ended up in.
+    fn filed(&self, record: &Record, base: &Place, live: Option<&Record>) -> Vec<Place> {
+        let own = department_of(&record.code);
+        let today = live.map_or(own, |l| department_of(&l.code));
         let mut places = Vec::new();
         let old_region = region_before_2016(today).map(str::to_string);
         // A code renumbered since (a commune of Seine-et-Oise, say) never
@@ -424,18 +456,18 @@ impl Cog {
         if own == today
             && let Some((department, region)) = self.departments.get(today)
         {
-            file(&mut places, &base, department, region, true);
+            file(&mut places, base, department, region, true);
             if record.began_before(REGIONS_2016)
                 && let Some(old) = &old_region
             {
-                file(&mut places, &base, department, old, false);
+                file(&mut places, base, department, old, false);
             }
         }
         let region = old_region.or_else(|| self.departments.get(today).map(|d| d.1.clone()));
         if let Some(region) = region {
             for (_, former, until) in FORMER_DEPARTMENT_NAMES.iter().filter(|d| d.0 == own) {
                 if record.began_before(until) {
-                    file(&mut places, &base, former, &region, false);
+                    file(&mut places, base, former, &region, false);
                 }
             }
         }
@@ -508,7 +540,7 @@ struct WikidataCodes {
 impl WikidataCodes {
     async fn load(fetcher: &Fetcher, cog: &Cog) -> Result<Self> {
         let table = fetcher.sparql(WIKIDATA_COORDINATES).await?;
-        let (code, coord) = (table.column("code")?, table.column("coord")?);
+        let [code, coord] = table.columns(["code", "coord"])?;
         let mut coordinates = HashMap::new();
         for row in &table.rows {
             if let Some(point) = Coordinates::from_wkt(&row[coord]) {
@@ -531,7 +563,7 @@ impl WikidataCodes {
             let values = batch.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>();
             let query = WIKIDATA_LABELS.replace("CODES", &values.join(" "));
             let table = fetcher.sparql(&query).await?;
-            let (code, label) = (table.column("code")?, table.column("label")?);
+            let [code, label] = table.columns(["code", "label"])?;
             for row in &table.rows {
                 labels
                     .entry(row[code].clone())
@@ -579,14 +611,8 @@ impl FormerCommunes {
         let parents = fetcher.sparql(WIKIDATA_FORMER_PARENTS).await?;
 
         let mut communes: HashMap<String, FormerCommune> = HashMap::new();
-        let (item, label, start, end, coord, successor) = (
-            items.column("item")?,
-            items.column("label")?,
-            items.column("start")?,
-            items.column("end")?,
-            items.column("coord")?,
-            items.column("successor")?,
-        );
+        let [item, label, start, end, coord, successor] =
+            items.columns(["item", "label", "start", "end", "coord", "successor"])?;
         for row in &items.rows {
             let Some(ended) = wikidata_date(&row[end]) else {
                 continue;

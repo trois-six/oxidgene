@@ -99,33 +99,19 @@ const STATES: &[(&str, &str)] = &[
 ];
 
 pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
-    let states: HashMap<&str, &str> = STATES.iter().copied().collect();
     let year = latest_year(fetcher).await?;
     eprintln!("United States: {year} gazetteer");
     let counties = gazetteer(fetcher, year, "counties").await?;
-    let (geoid, name) = (counties.column("GEOID")?, counties.column("NAME")?);
-    let county_names: HashMap<&str, &str> = counties
-        .rows
-        .iter()
-        .map(|r| (r[geoid].as_str(), r[name].as_str()))
-        .collect();
-
-    let by_county = fetcher
-        .bytes("us-place-by-county.txt", PLACE_BY_COUNTY_URL)
-        .await?;
-    let by_county = Table::parse(&decode_mixed(&by_county), '|')?;
-    let (state, county, place) = (
-        by_county.column("STATEFP")?,
-        by_county.column("COUNTYFP")?,
-        by_county.column("PLACEFP")?,
-    );
-    let mut place_counties: HashMap<String, Vec<String>> = HashMap::new();
-    for row in &by_county.rows {
-        place_counties
-            .entry(format!("{}{}", row[state], row[place]))
-            .or_default()
-            .push(format!("{}{}", row[state], row[county]));
-    }
+    let [geoid, name] = counties.columns(["GEOID", "NAME"])?;
+    let filing = Filing {
+        states: STATES.iter().copied().collect(),
+        county_names: counties
+            .rows
+            .iter()
+            .map(|r| (r[geoid].as_str(), r[name].as_str()))
+            .collect(),
+        place_counties: place_counties(fetcher).await?,
+    };
 
     let mut places = Vec::new();
     // New England towns first: a census-designated place of the same name
@@ -133,38 +119,81 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let towns = gazetteer(fetcher, year, "cousubs").await?;
     let mut town_names: HashSet<(String, String)> = HashSet::new();
     for row in rows(&towns)? {
-        if !NEW_ENGLAND.contains(&&row.geoid[..2]) || !row.name.ends_with(" town") {
-            continue;
+        if NEW_ENGLAND.contains(&&row.geoid[..2]) && row.name.ends_with(" town") {
+            town_names.insert(filing.town(&row, &mut places));
         }
-        let county = &row.geoid[..5];
-        let name = plain_name(&row.name);
-        town_names.insert((name.clone(), county.to_string()));
-        let mut base = unfiled(Country::UnitedStates, &name, &row.geoid, Kind::Commune);
-        base.coordinates = row.coordinates;
-        let county_name = county_names.get(county).copied().unwrap_or_default();
-        file(
-            &mut places,
-            &base,
-            county_name,
-            states[&row.geoid[..2]],
-            true,
-        );
     }
-
     let gazetteer_places = gazetteer(fetcher, year, "place").await?;
     for row in rows(&gazetteer_places)? {
-        let Some(state_name) = states.get(&row.geoid[..2]) else {
-            continue;
+        filing.place(&row, &town_names, &mut places);
+    }
+    eprintln!("United States: {} rows", places.len());
+    Ok(places)
+}
+
+/// Each place's counties, `STATEFP` + `COUNTYFP`, by `STATEFP` + `PLACEFP`.
+async fn place_counties(fetcher: &Fetcher) -> Result<HashMap<String, Vec<String>>> {
+    let by_county = fetcher
+        .bytes("us-place-by-county.txt", PLACE_BY_COUNTY_URL)
+        .await?;
+    let by_county = Table::parse(&decode_mixed(&by_county), '|')?;
+    let [state, county, place] = by_county.columns(["STATEFP", "COUNTYFP", "PLACEFP"])?;
+    let mut place_counties: HashMap<String, Vec<String>> = HashMap::new();
+    for row in &by_county.rows {
+        place_counties
+            .entry(format!("{}{}", row[state], row[place]))
+            .or_default()
+            .push(format!("{}{}", row[state], row[county]));
+    }
+    Ok(place_counties)
+}
+
+/// What files a gazetteer row under its county and state.
+struct Filing<'a> {
+    /// State name by FIPS code.
+    states: HashMap<&'a str, &'a str>,
+    /// County name by `GEOID`.
+    county_names: HashMap<&'a str, &'a str>,
+    place_counties: HashMap<String, Vec<String>>,
+}
+
+impl Filing<'_> {
+    /// Files a New England town; its name and county.
+    fn town(&self, row: &Row, places: &mut Vec<Place>) -> (String, String) {
+        let county = &row.geoid[..5];
+        let name = plain_name(&row.name);
+        let mut base = unfiled(Country::UnitedStates, &name, &row.geoid, Kind::Commune);
+        base.coordinates = row.coordinates;
+        let county_name = self.county_names.get(county).copied().unwrap_or_default();
+        file(
+            places,
+            &base,
+            county_name,
+            self.states[&row.geoid[..2]],
+            true,
+        );
+        (name, county.to_string())
+    }
+
+    /// Files an incorporated or census-designated place under each of its
+    /// counties, unless it is the centre of a New England town.
+    fn place(&self, row: &Row, town_names: &HashSet<(String, String)>, places: &mut Vec<Place>) {
+        let Some(state_name) = self.states.get(&row.geoid[..2]) else {
+            return;
         };
         let name = plain_name(&row.name);
-        let counties = place_counties.get(&row.geoid).cloned().unwrap_or_default();
+        let counties: &[String] = self
+            .place_counties
+            .get(&row.geoid)
+            .map_or(&[], Vec::as_slice);
         let census_designated = row.name.ends_with(" CDP");
-        if census_designated
-            && counties
+        let town_centre = || {
+            counties
                 .iter()
                 .any(|c| town_names.contains(&(name.clone(), c.clone())))
-        {
-            continue;
+        };
+        if census_designated && town_centre() {
+            return;
         }
         let kind = if census_designated {
             Kind::Settlement
@@ -174,10 +203,11 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         let mut base = unfiled(Country::UnitedStates, &name, &row.geoid, kind);
         base.coordinates = row.coordinates;
         if counties.is_empty() {
-            file(&mut places, &base, "", state_name, true);
+            file(places, &base, "", state_name, true);
         }
-        for county in &counties {
-            let county_name = county_names
+        for county in counties {
+            let county_name = self
+                .county_names
                 .get(county.as_str())
                 .copied()
                 .unwrap_or_default();
@@ -187,11 +217,9 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
             } else {
                 county_name
             };
-            file(&mut places, &base, county_name, state_name, true);
+            file(places, &base, county_name, state_name, true);
         }
     }
-    eprintln!("United States: {} rows", places.len());
-    Ok(places)
 }
 
 /// The newest year whose gazetteer the Census Bureau has published.
@@ -235,11 +263,7 @@ struct Row {
 }
 
 fn rows(table: &Table) -> Result<Vec<Row>> {
-    let (geoid, name, latitude) = (
-        table.column("GEOID")?,
-        table.column("NAME")?,
-        table.column("INTPTLAT")?,
-    );
+    let [geoid, name, latitude] = table.columns(["GEOID", "NAME", "INTPTLAT"])?;
     // The last header carries trailing spaces in some editions.
     let longitude = table
         .column_where(|h| h.trim() == "INTPTLONG")
@@ -250,13 +274,7 @@ fn rows(table: &Table) -> Result<Vec<Row>> {
         .map(|r| Row {
             geoid: r[geoid].trim().to_string(),
             name: r[name].trim().to_string(),
-            coordinates: match (r[latitude].trim().parse(), r[longitude].trim().parse()) {
-                (Ok(latitude), Ok(longitude)) => Some(Coordinates {
-                    latitude,
-                    longitude,
-                }),
-                _ => None,
-            },
+            coordinates: Coordinates::parse(&r[latitude], &r[longitude]),
         })
         .collect())
 }

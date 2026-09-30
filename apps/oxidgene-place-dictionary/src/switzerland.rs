@@ -112,11 +112,11 @@ impl Register {
             ),
         )
         .await?;
-        let (date, initial, terminal) = (
-            mutations.column("MutationDate")?,
-            mutations.column("InitialHistoricalCode")?,
-            mutations.column("TerminalHistoricalCode")?,
-        );
+        let [date, initial, terminal] = mutations.columns([
+            "MutationDate",
+            "InitialHistoricalCode",
+            "TerminalHistoricalCode",
+        ])?;
         let mut successors: HashMap<String, Vec<String>> = HashMap::new();
         let mut dates: Vec<String> = vec![REGISTER_START.to_string(), today.clone()];
         for row in &mutations.rows {
@@ -142,15 +142,15 @@ impl Register {
                 &format!("{AGV_URL}/snapshot?date={day}"),
             )
             .await?;
-            let (id, code, from, to, level, parent, name) = (
-                snapshot.column("HistoricalCode")?,
-                snapshot.column("BfsCode")?,
-                snapshot.column("ValidFrom")?,
-                snapshot.column("ValidTo")?,
-                snapshot.column("Level")?,
-                snapshot.column("Parent")?,
-                snapshot.column("Name")?,
-            );
+            let [id, code, from, to, level, parent, name] = snapshot.columns([
+                "HistoricalCode",
+                "BfsCode",
+                "ValidFrom",
+                "ValidTo",
+                "Level",
+                "Parent",
+                "Name",
+            ])?;
             for row in &snapshot.rows {
                 let key = (row[level].parse().unwrap_or(0), row[id].clone());
                 if by_historical.contains_key(&key) {

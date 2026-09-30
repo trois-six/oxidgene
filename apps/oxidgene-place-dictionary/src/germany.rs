@@ -9,7 +9,7 @@ use std::io::Read;
 use anyhow::{Context, Result};
 
 use crate::fetch::Fetcher;
-use crate::place::{Country, Kind, Place, file, unfiled};
+use crate::place::{Coordinates, Country, Kind, Place, file, unfiled};
 use crate::table::decode_mixed;
 use oxidgene_core::search::fold_words;
 
@@ -46,20 +46,7 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
                 .collect()
         })
         .unwrap_or_default();
-    // Live municipalities by name and Land, to recognise one whose code
-    // changed with its Kreis. A name several municipalities of the Land bear
-    // says nothing, and is left out.
-    let mut named: HashMap<(&str, &str), Vec<&Municipality>> = HashMap::new();
-    for (name, m) in live.values() {
-        named.entry((*name, m.land.as_str())).or_default().push(m);
-    }
-    let live_by_name: HashMap<(&str, &str), &Municipality> = named
-        .into_iter()
-        .filter_map(|(key, found)| match found.as_slice() {
-            [only] => Some((key, *only)),
-            _ => None,
-        })
-        .collect();
+    let live_by_name = unique_names(&live);
     let next_edition = |date: &str| {
         editions
             .iter()
@@ -90,52 +77,24 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         })
         .collect();
 
+    let register = Register {
+        latest: &latest,
+        live: &live,
+        live_by_name: &live_by_name,
+        merged_into: &merged_into,
+        centres: &centres,
+    };
     let mut places = Vec::new();
     let mut entries: Vec<_> = seen.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
     for ((code, name), listing) in entries {
-        let is_live = listing.last == latest;
-        let (kind, successor) = if is_live {
-            (Kind::Commune, None)
-        } else if let Some((_, now)) = live.get(code.as_str()) {
-            (Kind::FormerName, Some(now))
-        } else {
-            let land = listing.filings.iter().next().map_or("", |f| f.1.as_str());
-            match live_by_name.get(&(name.as_str(), land)) {
-                Some(now) => (Kind::FormerName, Some(now)),
-                None => (Kind::FormerCommune, merged_into.get(code.as_str())),
-            }
-        };
-        // The editions are yearly: when a municipality first appears is
-        // known to the year only, and is not recorded.
-        let mut base = unfiled(Country::Germany, name, code, kind);
-        if !is_live {
-            // The first edition that no longer lists it: the change happened
-            // in the year before, at the latest.
-            base.valid_until = next_edition(&listing.last);
-        }
-        base.successor = successor.map(|m| m.code.clone());
-        base.coordinates = centres
-            .get(code)
-            .or_else(|| successor.and_then(|m| centres.get(&m.code)))
-            .copied();
-        let today = if is_live {
-            live.get(code.as_str()).map(|(_, m)| *m)
-        } else {
-            None
-        };
-        if let Some(m) = today {
-            file(
-                &mut places,
-                &base,
-                &subdivision(name, &m.kreis),
-                &m.land,
-                true,
-            );
-        }
-        for (kreis, land) in &listing.filings {
-            file(&mut places, &base, &subdivision(name, kreis), land, false);
-        }
+        register.file(
+            &mut places,
+            code,
+            name,
+            listing,
+            next_edition(&listing.last),
+        );
     }
     let register = places.len();
 
@@ -146,6 +105,93 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
         places.len() - register
     );
     Ok(places)
+}
+
+/// Live municipalities by name and Land, to recognise one whose code
+/// changed with its Kreis. A name several municipalities of the Land bear
+/// says nothing, and is left out.
+fn unique_names<'a>(
+    live: &HashMap<&'a str, (&'a str, &'a Municipality)>,
+) -> HashMap<(&'a str, &'a str), &'a Municipality> {
+    let mut named: HashMap<(&str, &str), Vec<&Municipality>> = HashMap::new();
+    for (name, m) in live.values() {
+        named.entry((*name, m.land.as_str())).or_default().push(m);
+    }
+    named
+        .into_iter()
+        .filter_map(|(key, found)| match found.as_slice() {
+            [only] => Some((key, *only)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// What the register's listings are filed against.
+struct Register<'a> {
+    /// The latest edition's date.
+    latest: &'a str,
+    live: &'a HashMap<&'a str, (&'a str, &'a Municipality)>,
+    live_by_name: &'a HashMap<(&'a str, &'a str), &'a Municipality>,
+    merged_into: &'a HashMap<&'a str, &'a Municipality>,
+    centres: &'a HashMap<String, Coordinates>,
+}
+
+impl Register<'_> {
+    /// Files a municipality the register listed under `code` and `name`,
+    /// gone since `gone_by` unless it is live.
+    fn file(
+        &self,
+        places: &mut Vec<Place>,
+        code: &str,
+        name: &str,
+        listing: &Listing,
+        gone_by: Option<String>,
+    ) {
+        let is_live = listing.last == self.latest;
+        let (kind, successor) = self.fate(code, name, listing, is_live);
+        // The editions are yearly: when a municipality first appears is
+        // known to the year only, and is not recorded.
+        let mut base = unfiled(Country::Germany, name, code, kind);
+        if !is_live {
+            // The first edition that no longer lists it: the change happened
+            // in the year before, at the latest.
+            base.valid_until = gone_by;
+        }
+        base.successor = successor.map(|m| m.code.clone());
+        base.coordinates = self
+            .centres
+            .get(code)
+            .or_else(|| successor.and_then(|m| self.centres.get(&m.code)))
+            .copied();
+        let today = self.live.get(code).map(|(_, m)| *m).filter(|_| is_live);
+        if let Some(m) = today {
+            file(places, &base, &subdivision(name, &m.kreis), &m.land, true);
+        }
+        for (kreis, land) in &listing.filings {
+            file(places, &base, &subdivision(name, kreis), land, false);
+        }
+    }
+
+    /// What a listing is, and the live municipality it became.
+    fn fate(
+        &self,
+        code: &str,
+        name: &str,
+        listing: &Listing,
+        is_live: bool,
+    ) -> (Kind, Option<&Municipality>) {
+        if is_live {
+            return (Kind::Commune, None);
+        }
+        if let Some((_, now)) = self.live.get(code) {
+            return (Kind::FormerName, Some(now));
+        }
+        let land = listing.filings.iter().next().map_or("", |f| f.1.as_str());
+        match self.live_by_name.get(&(name, land)) {
+            Some(now) => (Kind::FormerName, Some(now)),
+            None => (Kind::FormerCommune, self.merged_into.get(code).copied()),
+        }
+    }
 }
 
 /// Each (code, name) with the date of the last edition that listed it and

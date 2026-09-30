@@ -50,6 +50,15 @@ impl Table {
         self.header.iter().position(|h| wanted(h))
     }
 
+    /// Indexes of named columns, in order; see [`Self::column`].
+    pub fn columns<const N: usize>(&self, names: [&str; N]) -> Result<[usize; N]> {
+        let mut indexes = [0; N];
+        for (index, name) in indexes.iter_mut().zip(names) {
+            *index = self.column(name)?;
+        }
+        Ok(indexes)
+    }
+
     /// Index of a named column, so a source that renames one fails loudly.
     pub fn column(&self, name: &str) -> Result<usize> {
         self.header

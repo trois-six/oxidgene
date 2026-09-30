@@ -33,89 +33,162 @@ pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     )
     .await?;
     let suppressed = zipped_csv(fetcher, "Elenco-comuni-soppressi.zip").await?;
-
-    // Where each code went: into the commune that absorbed it, or to the new
-    // code a change of province gave it.
-    let (kind, code, name, new_code, date) = (
-        changes.column("Tipo variazione")?,
-        changes.column("Codice Comune formato alfanumerico")?,
-        changes.column("Denominazione Comune")?,
-        column_starting(&changes, "Codice del Comune associato alla variazione")?,
-        changes.column("Data decorrenza validità amministrativa")?,
-    );
-    let (s_code, s_name, s_date, s_into) = (
-        suppressed.column("Codice Comune")?,
-        suppressed.column("Denominazione Comune")?,
-        suppressed.column("Data evento")?,
-        suppressed.column("Codice del Comune associato alla variazione")?,
-    );
-    let mut next: HashMap<&str, &str> = suppressed
-        .rows
-        .iter()
-        .map(|r| (r[s_code].as_str(), r[s_into].as_str()))
-        .collect();
-    for row in &changes.rows {
-        if row[kind].trim() == "AP" && row[code] != row[new_code] {
-            next.insert(&row[code], &row[new_code]);
-        }
-    }
-
-    // Renames and changes of province since 1991: the commune still exists.
-    let provinces: HashMap<&str, (&str, &str)> = current
-        .values()
-        .map(|c| {
-            (
-                c.code.get(..3).unwrap_or_default(),
-                (c.province.as_str(), c.region.as_str()),
-            )
-        })
-        .collect();
-    for row in &changes.rows {
-        if !matches!(row[kind].trim(), "CD" | "AP") {
-            continue;
-        }
-        let Some(now) = follow(&current, &next, &row[new_code]) else {
-            continue;
-        };
-        if row[name] == now.name && row[code] == now.code {
-            continue;
-        }
-        let mut base = unfiled(Country::Italy, &row[name], &row[code], Kind::FormerName);
-        base.valid_until = iso(&row[date]);
-        base.successor = Some(now.code.clone());
-        base.coordinates = centres.get(&now.code).copied();
-        // The province the old code belonged to, when it still exists;
-        // otherwise today's.
-        let (province, region) = provinces
-            .get(row[code].get(..3).unwrap_or_default())
-            .copied()
-            .unwrap_or((&now.province, &now.region));
-        file(&mut places, &base, province, region, false);
-    }
+    let changes = Changes::read(&changes)?;
+    let suppressed = Suppressed::read(&suppressed)?;
+    let history = History {
+        next: successors(&changes, &suppressed),
+        current: &current,
+        centres: &centres,
+    };
+    history.former_names(&changes, &mut places);
     let renamed = places.len() - live;
-
-    // Suppressed communes, each followed to the commune holding its land.
-    for row in &suppressed.rows {
-        // Communes ceded abroad in 1947 name no Italian successor.
-        let Some(now) = follow(&current, &next, &row[s_into]) else {
-            continue;
-        };
-        let mut base = unfiled(
-            Country::Italy,
-            &row[s_name],
-            &row[s_code],
-            Kind::FormerCommune,
-        );
-        base.valid_until = iso(&row[s_date]);
-        base.successor = Some(now.code.clone());
-        base.coordinates = centres.get(&row[s_code]).copied();
-        file(&mut places, &base, &now.province, &now.region, false);
-    }
+    history.suppressed_communes(&suppressed, &mut places);
     eprintln!(
         "Italy: {live} communes, {renamed} former names and codes, {} suppressed communes",
         places.len() - live - renamed
     );
     Ok(places)
+}
+
+/// The changes since 1991, with the indexes of the columns read.
+struct Changes<'t> {
+    table: &'t Table,
+    kind: usize,
+    code: usize,
+    name: usize,
+    new_code: usize,
+    date: usize,
+}
+
+impl<'t> Changes<'t> {
+    fn read(table: &'t Table) -> Result<Self> {
+        let [kind, code, name, date] = table.columns([
+            "Tipo variazione",
+            "Codice Comune formato alfanumerico",
+            "Denominazione Comune",
+            "Data decorrenza validità amministrativa",
+        ])?;
+        let new_code = column_starting(table, "Codice del Comune associato alla variazione")?;
+        Ok(Self {
+            table,
+            kind,
+            code,
+            name,
+            new_code,
+            date,
+        })
+    }
+}
+
+/// The suppressed communes, with the indexes of the columns read.
+struct Suppressed<'t> {
+    table: &'t Table,
+    code: usize,
+    name: usize,
+    date: usize,
+    into: usize,
+}
+
+impl<'t> Suppressed<'t> {
+    fn read(table: &'t Table) -> Result<Self> {
+        let [code, name, date, into] = table.columns([
+            "Codice Comune",
+            "Denominazione Comune",
+            "Data evento",
+            "Codice del Comune associato alla variazione",
+        ])?;
+        Ok(Self {
+            table,
+            code,
+            name,
+            date,
+            into,
+        })
+    }
+}
+
+/// Where each code went: into the commune that absorbed it, or to the new
+/// code a change of province gave it.
+fn successors<'t>(changes: &Changes<'t>, suppressed: &Suppressed<'t>) -> HashMap<&'t str, &'t str> {
+    let mut next: HashMap<&str, &str> = suppressed
+        .table
+        .rows
+        .iter()
+        .map(|r| (r[suppressed.code].as_str(), r[suppressed.into].as_str()))
+        .collect();
+    for row in &changes.table.rows {
+        if row[changes.kind].trim() == "AP" && row[changes.code] != row[changes.new_code] {
+            next.insert(&row[changes.code], &row[changes.new_code]);
+        }
+    }
+    next
+}
+
+/// What the communes of the past became.
+struct History<'a> {
+    next: HashMap<&'a str, &'a str>,
+    current: &'a HashMap<String, Commune>,
+    centres: &'a HashMap<String, crate::place::Coordinates>,
+}
+
+impl History<'_> {
+    /// Renames and changes of province since 1991: the commune still exists.
+    fn former_names(&self, changes: &Changes<'_>, places: &mut Vec<Place>) {
+        let provinces: HashMap<&str, (&str, &str)> = self
+            .current
+            .values()
+            .map(|c| {
+                (
+                    c.code.get(..3).unwrap_or_default(),
+                    (c.province.as_str(), c.region.as_str()),
+                )
+            })
+            .collect();
+        for row in &changes.table.rows {
+            if !matches!(row[changes.kind].trim(), "CD" | "AP") {
+                continue;
+            }
+            let Some(now) = follow(self.current, &self.next, &row[changes.new_code]) else {
+                continue;
+            };
+            let (name, code) = (&row[changes.name], &row[changes.code]);
+            if *name == now.name && *code == now.code {
+                continue;
+            }
+            let mut base = unfiled(Country::Italy, name, code, Kind::FormerName);
+            base.valid_until = iso(&row[changes.date]);
+            base.successor = Some(now.code.clone());
+            base.coordinates = self.centres.get(&now.code).copied();
+            // The province the old code belonged to, when it still exists;
+            // otherwise today's.
+            let (province, region) = provinces
+                .get(code.get(..3).unwrap_or_default())
+                .copied()
+                .unwrap_or((&now.province, &now.region));
+            file(places, &base, province, region, false);
+        }
+    }
+
+    /// Suppressed communes, each followed to the commune holding its land.
+    fn suppressed_communes(&self, suppressed: &Suppressed<'_>, places: &mut Vec<Place>) {
+        for row in &suppressed.table.rows {
+            // Communes ceded abroad in 1947 name no Italian successor.
+            let Some(now) = follow(self.current, &self.next, &row[suppressed.into]) else {
+                continue;
+            };
+            let code = &row[suppressed.code];
+            let mut base = unfiled(
+                Country::Italy,
+                &row[suppressed.name],
+                code,
+                Kind::FormerCommune,
+            );
+            base.valid_until = iso(&row[suppressed.date]);
+            base.successor = Some(now.code.clone());
+            base.coordinates = self.centres.get(code).copied();
+            file(places, &base, &now.province, &now.region, false);
+        }
+    }
 }
 
 struct Commune {

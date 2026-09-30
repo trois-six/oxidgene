@@ -25,12 +25,7 @@ const FORMER_INSTANCE: &str = "?item p:P31 ?statement . ?statement ps:P31 wd:Q13
 
 pub async fn places(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let table = fetcher.sparql(CURRENT).await?;
-    let (code, label, canton, coord) = (
-        table.column("code")?,
-        table.column("label")?,
-        table.column("canton")?,
-        table.column("coord")?,
-    );
+    let [code, label, canton, coord] = table.columns(["code", "label", "canton", "coord"])?;
     let mut cantons: HashMap<String, String> = HashMap::new();
     let mut places = Vec::new();
     for row in &table.rows {

@@ -90,6 +90,49 @@ fn ipn_edition(title: &str) -> Option<(u16, usize)> {
 async fn great_britain(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let (item, title) = latest_ipn(fetcher).await?;
     eprintln!("United Kingdom: {title}");
+    let table = ipn_table(fetcher, &item).await?;
+    let (name, nation) = (
+        table.dated_column("place", "nm")?,
+        table.dated_column("ctry", "nm")?,
+    );
+    let [kind, historic, ceremonial, latitude, longitude] =
+        table.columns(["descnm", "ctyhistnm", "ctyltnm", "lat", "long"])?;
+    let mut places = Vec::new();
+    for row in &table.rows {
+        let (Some(kind), Some(nation)) = (
+            ipn_kind(&row[kind], &row[name]),
+            Nation::from_english(&row[nation]),
+        ) else {
+            continue;
+        };
+        let base = Place {
+            name: ipn_name(&row[name], kind),
+            code: String::new(),
+            subdivision: String::new(),
+            region: Region::Nation(nation),
+            country: Country::UnitedKingdom,
+            kind,
+            valid_from: None,
+            valid_until: None,
+            successor: None,
+            coordinates: Coordinates::parse(&row[latitude], &row[longitude]),
+            current: false,
+        };
+        for (county, current) in [(&row[historic], false), (&row[ceremonial], true)] {
+            if !county.is_empty() {
+                places.push(Place {
+                    subdivision: county.clone(),
+                    current,
+                    ..base.clone()
+                });
+            }
+        }
+    }
+    Ok(places)
+}
+
+/// The CSV of the Index of Place Names edition `item`.
+async fn ipn_table(fetcher: &Fetcher, item: &str) -> Result<Table> {
     let archive = fetcher
         .bytes(
             &format!("ipn-{item}.zip"),
@@ -104,63 +147,22 @@ async fn great_britain(fetcher: &Fetcher) -> Result<Vec<Place>> {
         .to_string();
     let mut bytes = Vec::new();
     archive.by_name(&name)?.read_to_end(&mut bytes)?;
-    let table = Table::parse(&decode_mixed(&bytes), ',')?;
+    Table::parse(&decode_mixed(&bytes), ',')
+}
 
-    let (name, kind, historic, ceremonial, nation, latitude, longitude) = (
-        table.dated_column("place", "nm")?,
-        table.column("descnm")?,
-        table.column("ctyhistnm")?,
-        table.column("ctyltnm")?,
-        table.dated_column("ctry", "nm")?,
-        table.column("lat")?,
-        table.column("long")?,
-    );
-    let mut places = Vec::new();
-    for row in &table.rows {
-        // Localities and built-up areas are the places; parishes and Welsh
-        // communities are what parish registers were kept by. Wards,
-        // districts and the counties themselves are not places one is born in.
-        let kind = match row[kind].as_str() {
-            "LOC" | "BUA" => Kind::Settlement,
-            // "Sheffield, unparished area" is the part of a district no
-            // parish covers, not a parish.
-            "PAR" | "COM" if !row[name].ends_with("unparished area") => Kind::Parish,
-            _ => continue,
-        };
-        let Some(nation) = Nation::from_english(&row[nation]) else {
-            continue;
-        };
-        let coordinates = match (row[latitude].parse(), row[longitude].parse()) {
-            (Ok(latitude), Ok(longitude)) => Some(Coordinates {
-                latitude,
-                longitude,
-            }),
-            _ => None,
-        };
-        let base = Place {
-            name: ipn_name(&row[name], kind),
-            code: String::new(),
-            subdivision: String::new(),
-            region: Region::Nation(nation),
-            country: Country::UnitedKingdom,
-            kind,
-            valid_from: None,
-            valid_until: None,
-            successor: None,
-            coordinates,
-            current: false,
-        };
-        for (county, current) in [(&row[historic], false), (&row[ceremonial], true)] {
-            if !county.is_empty() {
-                places.push(Place {
-                    subdivision: county.clone(),
-                    current,
-                    ..base.clone()
-                });
-            }
-        }
+/// What an IPN row of description `code` named `name` is, if it is a place.
+///
+/// Localities and built-up areas are the places; parishes and Welsh
+/// communities are what parish registers were kept by. Wards, districts and
+/// the counties themselves are not places one is born in.
+fn ipn_kind(code: &str, name: &str) -> Option<Kind> {
+    match code {
+        "LOC" | "BUA" => Some(Kind::Settlement),
+        // "Sheffield, unparished area" is the part of a district no parish
+        // covers, not a parish.
+        "PAR" | "COM" if !name.ends_with("unparished area") => Some(Kind::Parish),
+        _ => None,
     }
-    Ok(places)
 }
 
 /// The IPN files a locality under its main word, "Haddlesey, East" or
@@ -182,12 +184,7 @@ fn ipn_name(raw: &str, kind: Kind) -> String {
 
 async fn northern_ireland(fetcher: &Fetcher) -> Result<Vec<Place>> {
     let table = fetcher.sparql(WIKIDATA_NORTHERN_IRELAND).await?;
-    let (label, kind, county, coord) = (
-        table.column("label")?,
-        table.column("type")?,
-        table.column("countyLabel")?,
-        table.column("coord")?,
-    );
+    let [label, kind, county, coord] = table.columns(["label", "type", "countyLabel", "coord"])?;
     Ok(table
         .rows
         .iter()
