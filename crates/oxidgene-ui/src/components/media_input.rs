@@ -18,6 +18,7 @@
 
 use dioxus::html::HasFileData;
 use dioxus::prelude::*;
+use oxidgene_core::types::last_path_segment;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, MediaUpload};
@@ -164,8 +165,12 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                         // A file the engine cannot read is skipped rather than
                         // failing the drop: dragging a selection that includes
                         // a directory is an ordinary mistake, not an error.
+                        // A drop can report a full path on some platforms; the
+                        // server sanitizes it too, but the whole path in a
+                        // progress line is noise.
                         if let Ok(bytes) = file.read_bytes().await {
-                            payloads.push((short_name(&file.name()), bytes.to_vec()));
+                            let name = last_path_segment(&file.name()).to_string();
+                            payloads.push((name, bytes.to_vec()));
                         }
                     }
                     if payloads.is_empty() {
@@ -221,14 +226,6 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
             div { class: "error-msg", "{err}" }
         }
     }
-}
-
-/// The last path component of an engine-reported file name.
-///
-/// A drop can report a full path on some platforms; the server sanitizes it
-/// too, but showing the user the whole path in a progress line is noise.
-fn short_name(raw: &str) -> String {
-    raw.rsplit(['/', '\\']).next().unwrap_or(raw).to_string()
 }
 
 /// Upload a batch sequentially, reporting each file as it lands.

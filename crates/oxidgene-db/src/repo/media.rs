@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Media};
+use oxidgene_core::types::{Connection, Media, last_path_segment};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
@@ -813,15 +813,8 @@ fn apply_patch(active: &mut ActiveModel, patch: MediaPatch) {
 
 /// The last segment of a path or URL, without its query or fragment.
 fn file_name_of(file_path: &str) -> String {
-    file_path
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(file_path)
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(file_path)
-        .trim()
-        .to_string()
+    let without_query = file_path.split(['?', '#']).next().unwrap_or(file_path);
+    last_path_segment(without_query).trim().to_string()
 }
 
 async fn page_document(

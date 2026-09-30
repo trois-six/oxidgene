@@ -12,6 +12,7 @@ pub mod thumbnail;
 use std::path::PathBuf;
 
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::types::last_path_segment;
 use uuid::Uuid;
 
 pub use oxidgene_core::types::{guess_mime, is_remote_url, normalize_mime};
@@ -234,12 +235,7 @@ pub fn validate_crop(
 /// exported archive, so a browser or an unzip should not be able to read a
 /// directory out of it.
 fn sanitize_file_name(raw: &str) -> String {
-    let base = raw
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(raw)
-        .trim()
-        .trim_start_matches('.');
+    let base = last_path_segment(raw).trim().trim_start_matches('.');
     let cleaned: String = base
         .chars()
         .filter(|c| !c.is_control() && *c != '"')

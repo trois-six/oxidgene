@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::TryStreamExt;
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::{Connection, Media};
+use oxidgene_core::types::{Connection, Media, last_path_segment};
 use oxidgene_db::repo::{
     MediaPatch, MediaRepo, MediaTagRepo, PaginationParams, TreeRepo, UploadedMedia,
 };
@@ -842,11 +842,7 @@ fn internet_shortcut(url: &str) -> String {
 /// a Geneanet deposit — so it is not ours to trust. Anything that would make
 /// an unzipper write outside the folder it is unpacking into is flattened.
 fn zip_safe(file_name: &str) -> String {
-    let base = file_name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(file_name)
-        .trim_matches(['.', ' ']);
+    let base = last_path_segment(file_name).trim_matches(['.', ' ']);
     if base.is_empty() {
         "page".to_string()
     } else {

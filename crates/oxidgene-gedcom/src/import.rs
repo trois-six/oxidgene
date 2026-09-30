@@ -21,8 +21,8 @@ use uuid::Uuid;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media,
-    MediaLink, Note, Person, PersonName, Place, Source, Vignette, is_remote_url, normalize_mime,
-    split_surname_particle, split_surname_with,
+    MediaLink, Note, Person, PersonName, Place, Source, Vignette, is_remote_url, last_path_segment,
+    normalize_mime, split_surname_particle, split_surname_with,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
@@ -587,13 +587,9 @@ fn media_file(mm: &ged_io::types::multimedia::Multimedia) -> (String, String, So
     (path, mime, medium)
 }
 
-/// The last `/`-separated segment of a GEDCOM `FILE` path.
+/// The last segment of a GEDCOM `FILE` path, a Windows one included.
 fn file_name_of(file_path: &str) -> String {
-    file_path
-        .rsplit('/')
-        .next()
-        .unwrap_or(file_path)
-        .to_string()
+    last_path_segment(file_path).to_string()
 }
 
 /// Import an `INDI` record: the person, their names, events, attributes,
@@ -3006,6 +3002,17 @@ mod gedzip_tests {
         assert_eq!(result.media_links[0].media_id, document.id);
         assert_eq!(result.media_links[0].person_id, Some(result.persons[0].id));
         assert_eq!(imported.files, vec![(page.id, b"IMAGE BYTES".to_vec())]);
+    }
+
+    #[test]
+    fn a_windows_file_path_names_the_page_by_its_last_segment() {
+        let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
+                      0 @I1@ INDI\n1 NAME Sample /Person/\n\
+                      1 OBJE\n2 FILE C:\\Scans\\portrait.jpg\n3 FORM jpeg\n0 TRLR\n";
+        let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+        let page = page_of(&result);
+        assert_eq!(page.file_name, "portrait.jpg");
+        assert_eq!(page.file_path, "C:\\Scans\\portrait.jpg");
     }
 
     #[test]

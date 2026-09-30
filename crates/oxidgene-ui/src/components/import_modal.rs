@@ -43,6 +43,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use oxidgene_core::types::last_path_segment;
 #[cfg(target_arch = "wasm32")]
 use serde::Deserialize;
 use uuid::Uuid;
@@ -289,7 +290,7 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
         if busy() {
             return;
         }
-        let name = short_name(&file.name());
+        let name = last_path_segment(&file.name()).to_string();
         busy.set(true);
         error.set(None);
         progress.set(None);
@@ -346,7 +347,7 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
 
                 if let Some(file) = picked() {
                     div { class: "import-drop-icon", "📄" }
-                    div { class: "import-drop-name", {short_name(&file.name())} }
+                    div { class: "import-drop-name", {last_path_segment(&file.name()).to_string()} }
                     div { class: "import-drop-hint",
                         {i18n.t_args("import.file_size", &[("size", &human_size(file.size().try_into().unwrap_or(usize::MAX)))])}
                     }
@@ -2384,11 +2385,6 @@ fn format_of(file_name: &str) -> FileFormat {
     }
 }
 
-/// The last path component of an engine-reported file name.
-fn short_name(raw: &str) -> String {
-    raw.rsplit(['/', '\\']).next().unwrap_or(raw).to_string()
-}
-
 /// Base64 for the JSON bodies that bundle the `.gw` with other fields.
 fn encode_gw(bytes: &[u8]) -> String {
     use base64::Engine as _;
@@ -2443,13 +2439,6 @@ mod tests {
         // Anything unrecognised is read as GEDCOM — the reader will say so if
         // it is not, and a renamed `.ged` is common.
         assert_eq!(format_of("tree"), FileFormat::Gedcom);
-    }
-
-    #[test]
-    fn a_dropped_path_is_reduced_to_its_file_name() {
-        assert_eq!(short_name("/home/a/tree.gw"), "tree.gw");
-        assert_eq!(short_name(r"C:\exports\tree.gw"), "tree.gw");
-        assert_eq!(short_name("tree.gw"), "tree.gw");
     }
 
     #[test]

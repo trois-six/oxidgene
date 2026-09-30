@@ -319,6 +319,17 @@ pub fn is_remote_url(file_path: &str) -> bool {
     path.starts_with("http://") || path.starts_with("https://")
 }
 
+/// The last segment of a path or URL: what follows its last `/` or `\`.
+///
+/// Both separators, whichever platform the path comes from: a GEDCOM written
+/// on Windows carries `C:\…` paths, and a browser may report a dropped file
+/// with its folders. The whole input comes back when it has no separator, and
+/// an empty string when it ends with one. Callers strip a query string, trim
+/// or sanitize the result as their use requires.
+pub fn last_path_segment(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
 /// Guess a MIME type from a file name, a URL, or a bare extension.
 ///
 /// Content sniffing is not available here — a remote media exists precisely so
@@ -509,6 +520,15 @@ mod crop_tests {
 #[cfg(test)]
 mod mime_tests {
     use super::*;
+
+    #[test]
+    fn the_last_segment_follows_either_separator() {
+        assert_eq!(last_path_segment("media/scans/page_1.jpg"), "page_1.jpg");
+        assert_eq!(last_path_segment("C:\\Scans\\page_2.png"), "page_2.png");
+        assert_eq!(last_path_segment("mixed\\folder/page_3.tif"), "page_3.tif");
+        assert_eq!(last_path_segment("plain.gif"), "plain.gif");
+        assert_eq!(last_path_segment("folder/"), "");
+    }
 
     #[test]
     fn a_url_is_recognised_as_remote_and_a_path_is_not() {
