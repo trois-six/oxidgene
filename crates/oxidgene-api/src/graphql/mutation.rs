@@ -2,7 +2,9 @@
 
 use crate::profile::invalidation;
 use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
+use crate::service::note::{self, NewNote};
 use crate::service::{duplicates, event_date, family_names};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
@@ -10,11 +12,11 @@ use oxidgene_core::history::{AuditAction, AuditEntity};
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventRepo,
-    EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo,
-    MediaTagRepo, NewBackgroundJob, NoteRepo, PersonNamePieces, PersonNamePiecesPatch,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeChanges, TreeRepo, UploadedMedia,
-    VignetteInput, VignettePatch, VignetteRepo,
+    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, EventRepo, EventWitnessRepo,
+    FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, MediaTagRepo,
+    NewBackgroundJob, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo,
+    PlaceRepo, SourceRepo, TreeChanges, TreeRepo, UploadedMedia, VignetteInput, VignettePatch,
+    VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -1058,60 +1060,19 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateCitationInput,
     ) -> Result<GqlCitation> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let id = Uuid::now_v7();
-        let source_id = Uuid::parse_str(&input.source_id)?;
-        let person_id = input
-            .person_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let event_id = input.event_id.as_deref().map(Uuid::parse_str).transpose()?;
-        let family_id = input
-            .family_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Source, source_id).await?;
-        if let Some(person_id) = person_id {
-            require_tree_resource(&txn, tid, TreeResource::Person, person_id).await?;
-        }
-        if let Some(event_id) = event_id {
-            require_tree_resource(&txn, tid, TreeResource::Event, event_id).await?;
-        }
-        if let Some(family_id) = family_id {
-            require_tree_resource(&txn, tid, TreeResource::Family, family_id).await?;
-        }
-        let citation = CitationRepo::create(
-            &txn,
-            id,
-            source_id,
-            person_id,
-            event_id,
-            family_id,
-            input.page,
-            input.confidence.into(),
-            input.text,
-        )
-        .await?;
-        if let Some(person_id) = citation.person_id {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &[person_id])
-                .await?;
-        }
-        Change::create(tid, AuditEntity::Citation, id)
-            .owner(
-                citation.person_id,
-                citation.event_id,
-                citation.family_id,
-                None,
-            )
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let parse = |id: Option<String>| id.as_deref().map(Uuid::parse_str).transpose();
+        let new = NewCitation {
+            source_id: Uuid::parse_str(&input.source_id)?,
+            person_id: parse(input.person_id)?,
+            event_id: parse(input.event_id)?,
+            family_id: parse(input.family_id)?,
+            page: input.page,
+            confidence: input.confidence.into(),
+            text: input.text,
+        };
+        let citation =
+            citation::create_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new).await?;
         Ok(citation.into())
     }
 
@@ -1123,72 +1084,28 @@ impl MutationRoot {
         id: ID,
         input: UpdateCitationInput,
     ) -> Result<GqlCitation> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Citation, uuid).await?;
-        let previous = CitationRepo::get(&txn, uuid).await?;
-        let source_id = input
-            .source_id
-            .map(|id| Uuid::parse_str(id.as_str()))
-            .transpose()?;
-        if let Some(source_id) = source_id {
-            require_tree_resource(&txn, tid, TreeResource::Source, source_id).await?;
-        }
-        let citation = CitationRepo::update(
-            &txn,
-            uuid,
-            source_id,
-            patch(input.page),
-            input.confidence.map(|c| c.into()),
-            patch(input.text),
-        )
-        .await?;
-        if let Some(person_id) = previous.person_id {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &[person_id])
+        let patch = CitationPatch {
+            source_id: input
+                .source_id
+                .map(|id| Uuid::parse_str(id.as_str()))
+                .transpose()?,
+            page: patch(input.page),
+            confidence: input.confidence.map(|c| c.into()),
+            text: patch(input.text),
+        };
+        let citation =
+            citation::update_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, uuid, patch)
                 .await?;
-        }
-        Change::update(tid, AuditEntity::Citation, uuid)
-            .owner(
-                previous.person_id,
-                previous.event_id,
-                previous.family_id,
-                None,
-            )
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(citation.into())
     }
 
     /// Delete a citation (hard delete).
     async fn delete_citation(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Citation, uuid).await?;
-        let citation = CitationRepo::get(&txn, uuid).await?;
-        CitationRepo::delete(&txn, uuid).await?;
-        if let Some(person_id) = citation.person_id {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &[person_id])
-                .await?;
-        }
-        Change::delete(tid, AuditEntity::Citation, uuid)
-            .owner(
-                citation.person_id,
-                citation.event_id,
-                citation.family_id,
-                None,
-            )
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        citation::delete_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, uuid).await?;
         Ok(true)
     }
 
@@ -1763,52 +1680,17 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateNoteInput,
     ) -> Result<GqlNote> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
-        let id = Uuid::now_v7();
-        let person_id = input
-            .person_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let event_id = input.event_id.as_deref().map(Uuid::parse_str).transpose()?;
-        let family_id = input
-            .family_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let source_id = input
-            .source_id
-            .as_deref()
-            .map(Uuid::parse_str)
-            .transpose()?;
-        let media_id = input.media_id.as_deref().map(Uuid::parse_str).transpose()?;
-        let txn = begin_tx(db).await?;
-        for (resource, id) in [
-            (TreeResource::Person, person_id),
-            (TreeResource::Event, event_id),
-            (TreeResource::Family, family_id),
-            (TreeResource::Source, source_id),
-            (TreeResource::Media, media_id),
-        ] {
-            if let Some(id) = id {
-                require_tree_resource(&txn, tid, resource, id).await?;
-            }
-        }
-        let note = NoteRepo::create(
-            &txn, id, tid, input.text, person_id, event_id, family_id, source_id, media_id,
-        )
-        .await?;
-        if let Some(person_id) = note.person_id {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &[person_id])
-                .await?;
-        }
-        history::note_change(tid, AuditAction::Create, &note)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let parse = |id: Option<String>| id.as_deref().map(Uuid::parse_str).transpose();
+        let new = NewNote {
+            text: input.text,
+            person_id: parse(input.person_id)?,
+            event_id: parse(input.event_id)?,
+            family_id: parse(input.family_id)?,
+            source_id: parse(input.source_id)?,
+            media_id: parse(input.media_id)?,
+        };
+        let note = note::create_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new).await?;
         Ok(note.into())
     }
 
@@ -1820,45 +1702,24 @@ impl MutationRoot {
         id: ID,
         input: UpdateNoteInput,
     ) -> Result<GqlNote> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Note, uuid).await?;
-        let previous = NoteRepo::get(&txn, uuid).await?;
-        let note = NoteRepo::update(&txn, uuid, input.text).await?;
-        if let Some(person_id) = previous.person_id {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &[person_id])
-                .await?;
-        }
-        history::note_change(tid, AuditAction::Update, &previous)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let note = note::update_note(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tid,
+            uuid,
+            input.text,
+        )
+        .await?;
         Ok(note.into())
     }
 
     /// Delete a note (soft delete).
     async fn delete_note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let tid = Uuid::parse_str(tree_id.as_str())?;
         let uuid = Uuid::parse_str(id.as_str())?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Note, uuid).await?;
-        let note = NoteRepo::get(&txn, uuid).await?;
-        NoteRepo::delete(&txn, uuid).await?;
-        if let Some(person_id) = note.person_id {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &[person_id])
-                .await?;
-        }
-        history::note_change(tid, AuditAction::Delete, &note)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        note::delete_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, uuid).await?;
         Ok(true)
     }
 

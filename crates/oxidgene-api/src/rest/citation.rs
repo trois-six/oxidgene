@@ -8,9 +8,8 @@ use uuid::Uuid;
 
 use super::dto::{CitationListQuery, CreateCitationRequest, UpdateCitationRequest};
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
-use crate::service::history::Change;
-use oxidgene_core::history::AuditEntity;
+use super::state::{AppState, TreeResource, require_tree_resource};
+use crate::service::citation::{self, CitationPatch, NewCitation};
 
 /// GET /api/v1/trees/:tree_id/citations
 pub async fn list_citations(
@@ -45,53 +44,18 @@ pub async fn create_citation(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateCitationRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Source, body.source_id)
+    let new = NewCitation {
+        source_id: body.source_id,
+        person_id: body.person_id,
+        event_id: body.event_id,
+        family_id: body.family_id,
+        page: body.page,
+        confidence: body.confidence,
+        text: body.text,
+    };
+    let citation = citation::create_citation(&state.db, &state.profiles, tree_id, new)
         .await
         .map_err(ApiError)?;
-    for (resource, id) in [
-        (TreeResource::Person, body.person_id),
-        (TreeResource::Event, body.event_id),
-        (TreeResource::Family, body.family_id),
-    ] {
-        if let Some(id) = id {
-            require_tree_resource(&txn, tree_id, resource, id)
-                .await
-                .map_err(ApiError)?;
-        }
-    }
-    let id = Uuid::now_v7();
-    let citation = CitationRepo::create(
-        &txn,
-        id,
-        body.source_id,
-        body.person_id,
-        body.event_id,
-        body.family_id,
-        body.page,
-        body.confidence,
-        body.text,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    if let Some(person_id) = citation.person_id {
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &[person_id])
-            .await
-            .map_err(ApiError)?;
-    }
-    Change::create(tree_id, AuditEntity::Citation, id)
-        .owner(
-            citation.person_id,
-            citation.event_id,
-            citation.family_id,
-            None,
-        )
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
     Ok((
         StatusCode::CREATED,
         Json(serde_json::to_value(citation).unwrap()),
@@ -104,46 +68,16 @@ pub async fn update_citation(
     Path((tree_id, citation_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateCitationRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Citation, citation_id)
-        .await
-        .map_err(ApiError)?;
-    let previous = CitationRepo::get(&txn, citation_id)
-        .await
-        .map_err(ApiError::from)?;
-    if let Some(source_id) = body.source_id {
-        require_tree_resource(&txn, tree_id, TreeResource::Source, source_id)
+    let patch = CitationPatch {
+        source_id: body.source_id,
+        page: body.page,
+        confidence: body.confidence,
+        text: body.text,
+    };
+    let citation =
+        citation::update_citation(&state.db, &state.profiles, tree_id, citation_id, patch)
             .await
             .map_err(ApiError)?;
-    }
-    let citation = CitationRepo::update(
-        &txn,
-        citation_id,
-        body.source_id,
-        body.page,
-        body.confidence,
-        body.text,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    if let Some(person_id) = previous.person_id {
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &[person_id])
-            .await
-            .map_err(ApiError)?;
-    }
-    Change::update(tree_id, AuditEntity::Citation, citation_id)
-        .owner(
-            previous.person_id,
-            previous.event_id,
-            previous.family_id,
-            None,
-        )
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
     Ok(Json(serde_json::to_value(citation).unwrap()))
 }
 
@@ -152,33 +86,8 @@ pub async fn delete_citation(
     State(state): State<AppState>,
     Path((tree_id, citation_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Citation, citation_id)
+    citation::delete_citation(&state.db, &state.profiles, tree_id, citation_id)
         .await
         .map_err(ApiError)?;
-    let citation = CitationRepo::get(&txn, citation_id)
-        .await
-        .map_err(ApiError::from)?;
-    CitationRepo::delete(&txn, citation_id)
-        .await
-        .map_err(ApiError::from)?;
-    if let Some(person_id) = citation.person_id {
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &[person_id])
-            .await
-            .map_err(ApiError)?;
-    }
-    Change::delete(tree_id, AuditEntity::Citation, citation_id)
-        .owner(
-            citation.person_id,
-            citation.event_id,
-            citation.family_id,
-            None,
-        )
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
     Ok(StatusCode::NO_CONTENT)
 }

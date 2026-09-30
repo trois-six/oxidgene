@@ -3,6 +3,7 @@
 pub mod ancestry;
 pub mod anomalies;
 pub mod background_job;
+pub mod citation;
 pub mod duplicates;
 pub mod event_date;
 pub mod family_names;
@@ -15,6 +16,7 @@ pub mod image_bytes;
 pub mod kinship;
 pub mod media;
 pub mod media_library;
+pub mod note;
 pub mod pedigrees;
 pub mod person_detail;
 pub mod portrait;

@@ -2508,6 +2508,31 @@ async fn test_media_and_media_link() {
 // ── Note CRUD ────────────────────────────────────────────────────────
 
 #[tokio::test]
+async fn a_note_without_text_is_refused() {
+    let app = setup_app().await;
+    let resp = graphql(
+        app.clone(),
+        r#"mutation { createTree(input: { name: "N" }) { id } }"#,
+        None,
+    )
+    .await;
+    let tree_id = data(&resp)["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createNote(treeId: "{tree_id}", input: {{ text: "   " }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR");
+}
+
+#[tokio::test]
 async fn test_note_crud() {
     let app = setup_app().await;
 

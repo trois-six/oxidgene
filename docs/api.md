@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:10:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:30:00Z }
 ---
 
 
@@ -555,6 +555,9 @@ duplicate attachment tiles for the same media are collapsed client-side.
 | `GET` | `/trees/{tree_id}/notes/{note_id}` | Get a note |
 | `PUT` | `/trees/{tree_id}/notes/{note_id}` | Update a note |
 | `DELETE` | `/trees/{tree_id}/notes/{note_id}` | Soft-delete a note |
+
+A note is created with some text: a blank `text` is a validation error on
+both surfaces (`400` in REST, `VALIDATION_ERROR` from `createNote`).
 
 ### Dictionary
 

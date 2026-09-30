@@ -2470,6 +2470,21 @@ async fn test_media_link_create_delete() {
 // ───────────────────────── Note tests ─────────────────────────
 
 #[tokio::test]
+async fn a_note_without_text_is_refused() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+
+    let (status, _) = send_request(
+        app.clone(),
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(serde_json::json!({ "text": "   " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_note_crud() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
