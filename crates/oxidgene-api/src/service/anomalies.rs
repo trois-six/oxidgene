@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{Datelike, Duration, NaiveDate};
+use oxidgene_core::calendar::DAYS_PER_YEAR;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent};
 use oxidgene_core::search::normalize_for_search;
 use oxidgene_core::types::{EventWitness, Place};
@@ -55,8 +56,6 @@ pub const MAX_SPOUSE_GAP_YEARS: f64 = 50.0;
 pub const APPROXIMATE_SLACK_DAYS: i64 = 2 * 365;
 /// The most items a rule lists; its count still says how many there are.
 pub const MAX_ITEMS_PER_RULE: usize = 500;
-
-const DAYS_PER_YEAR: f64 = 365.2425;
 
 /// Every implemented rule, in the order of the catalogue:
 /// `(id, category, severity)`.

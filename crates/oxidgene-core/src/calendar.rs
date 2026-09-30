@@ -21,6 +21,17 @@
 
 use crate::enums::Calendar;
 
+/// The mean length of a Gregorian year in days: 97 leap years in every 400.
+///
+/// An age or an interval is a day count divided by this, so a span reads the
+/// same number of years whichever leap years it happens to cross. The server's
+/// statistics and anomaly rules and the statistics page all divide by it.
+pub const DAYS_PER_YEAR: f64 = 365.2425;
+
+/// The mean length of a Gregorian month in days: a twelfth of
+/// [`DAYS_PER_YEAR`].
+pub const DAYS_PER_MONTH: f64 = DAYS_PER_YEAR / 12.0;
+
 /// Euclidean division, rounding towards minus infinity.
 ///
 /// Rust's `/` truncates towards zero, which breaks every one of the formulas

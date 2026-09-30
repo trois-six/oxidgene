@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use chrono::{Datelike, Months, NaiveDate, Utc};
 use dioxus::prelude::*;
 use oxidgene_core::EventType;
+use oxidgene_core::calendar::{DAYS_PER_MONTH, DAYS_PER_YEAR};
 use uuid::Uuid;
 
 use crate::api::{
@@ -34,7 +35,6 @@ const INTERVALS: [i32; 4] = [10, 25, 50, 100];
 const DEFAULT_INTERVAL: i32 = 25;
 const INTERVAL_STORAGE_KEY: &str = "oxidgene-stats-interval";
 const APPROXIMATE_STORAGE_KEY: &str = "oxidgene-stats-approximate";
-const DAYS_PER_YEAR: f64 = 365.2425;
 /// A period's average, share or ratio is shown only when it rests on at
 /// least this many values: fewer make noise, not a trend.
 const MIN_VALUES: i64 = 10;
@@ -43,7 +43,6 @@ const MIN_VALUES: i64 = 10;
 /// so a few early records do not stretch the axis over empty centuries.
 const DENSE_SPAN: i32 = 25;
 const DENSE_SHARE: f64 = 0.01;
-const DAYS_PER_MONTH: f64 = 30.436875;
 
 const TAB_STORAGE_KEY: &str = "oxidgene-stats-tab";
 

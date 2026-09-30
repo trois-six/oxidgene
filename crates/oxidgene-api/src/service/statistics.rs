@@ -16,6 +16,7 @@ mod records;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{Datelike, NaiveDate};
+use oxidgene_core::calendar::{DAYS_PER_MONTH, DAYS_PER_YEAR};
 use oxidgene_core::projection::{PersonProfile, ProfileEvent};
 use oxidgene_core::types::Place;
 use oxidgene_core::{DateQualifier, EventType, Sex, SpouseRole};
@@ -336,11 +337,11 @@ impl Dates {
 }
 
 fn years_between(from: NaiveDate, to: NaiveDate) -> f64 {
-    (to - from).num_days() as f64 / 365.2425
+    (to - from).num_days() as f64 / DAYS_PER_YEAR
 }
 
 fn months_between(from: NaiveDate, to: NaiveDate) -> f64 {
-    (to - from).num_days() as f64 / 30.436875
+    (to - from).num_days() as f64 / DAYS_PER_MONTH
 }
 
 fn round1(value: f64) -> f64 {
