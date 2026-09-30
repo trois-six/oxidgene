@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-26T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:44:44Z }
 ---
 
 
@@ -126,7 +126,7 @@ column, and the ⚭ sign is centered in the gutter between the two.
 - **Refresh**, on the web build only, reloads the page's data.
 
 At 1080px and below, as the columns collapse, each selector takes its own line
-and the ⚭ sign is hidden. Below 900px, the actions become icon-only buttons,
+and the ⚭ sign is hidden. The actions are icon-only buttons at every width,
 as in the person profile header.
 
 ---

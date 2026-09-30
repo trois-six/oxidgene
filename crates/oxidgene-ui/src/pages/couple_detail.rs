@@ -436,7 +436,6 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                                 path { d: "M12 20h9" }
                                 path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
                             }
-                            span { class: "pd-header-action-label", {i18n.t("couple.edit")} }
                         }
                         if SHOW_MANUAL_REFRESH {
                             {refresh_button(&i18n, move || refresh += 1)}
@@ -732,7 +731,6 @@ fn open_profile_button(i18n: &I18n, mut on_open: impl FnMut() + 'static) -> Elem
                 circle { cx: "12", cy: "8", r: "4" }
                 path { d: "M4 21v-1a6 6 0 0 1 12 0v1" }
             }
-            span { class: "pd-header-action-label", {i18n.t("couple.open_profile")} }
         }
     }
 }

@@ -390,13 +390,20 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: 6px;
     }
 
+    /* Icon buttons at every width: the tooltip and accessible name carry
+       the label, so the actions stay compact at the right of the header. */
     .pd-header-buttons {
         display: flex;
-        gap: 8px;
+        gap: 6px;
         justify-content: flex-end;
     }
 
-    .pd-header-action-icon { display: none; }
+    .btn.pd-header-action-btn {
+        width: 34px;
+        height: 34px;
+        justify-content: center;
+        padding: 0;
+    }
 
     .badge.pd-sosa-badge {
         background: var(--green);
@@ -5433,17 +5440,6 @@ pub const LAYOUT_STYLES: &str = r#"
             justify-content: flex-start;
         }
 
-        .pd-header-buttons { gap: 6px; }
-
-        .pd-header-buttons .pd-header-action-btn {
-            width: 34px;
-            height: 34px;
-            justify-content: center;
-            padding: 0;
-        }
-
-        .pd-header-action-icon { display: block; }
-        .pd-header-action-label { display: none; }
     }
 
     @media (max-width: 640px) {

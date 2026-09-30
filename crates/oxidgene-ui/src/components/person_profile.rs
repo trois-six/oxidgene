@@ -1116,7 +1116,6 @@ pub(crate) fn refresh_button(i18n: &I18n, mut on_refresh: impl FnMut() + 'static
                 path { d: "M20 11a8 8 0 1 0-2.34 5.66" }
                 path { d: "M20 4v7h-7" }
             }
-            span { class: "pd-header-action-label", {i18n.t("person.refresh")} }
         }
     }
 }

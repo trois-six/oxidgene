@@ -496,7 +496,6 @@ fn header_actions(
                 path { d: "M8 6V4h8v2" }
                 path { d: "M19 6l-1 14H6L5 6" }
             }
-            span { class: "pd-header-action-label", {i18n.t("common.delete")} }
         }
         button {
             class: "btn btn-outline pd-header-action-btn",
@@ -510,7 +509,6 @@ fn header_actions(
                 path { d: "M12 20h9" }
                 path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
             }
-            span { class: "pd-header-action-label", {i18n.t("common.edit")} }
         }
         button {
             class: "btn btn-outline pd-header-action-btn",
@@ -524,7 +522,6 @@ fn header_actions(
                 path { d: "M6 3v6a6 6 0 0 0 6 6a6 6 0 0 0 6-6V3" }
                 path { d: "M12 15v6" }
             }
-            span { class: "pd-header-action-label", {i18n.t("context.merge")} }
         }
         button {
             class: "btn btn-outline pd-header-action-btn",
@@ -539,7 +536,6 @@ fn header_actions(
                 path { d: "M3 3v5h5" }
                 path { d: "M12 7v5l3 3" }
             }
-            span { class: "pd-header-action-label", {i18n.t("history.button")} }
         }
         if SHOW_MANUAL_REFRESH {
             {refresh_button(i18n, on_refresh)}
