@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use oxidgene_api::profile::ProfileService;
 use oxidgene_api::service::background_job::BackgroundJobWorker;
-use oxidgene_db::repo::{connect, run_migrations};
+use oxidgene_api::startup::{connect_and_migrate, or_exit};
 use oxidgene_observability::init;
 use oxidgene_server::config::ServerConfig;
 use oxidgene_server::shutdown::shutdown_signal;
-use tracing::{error, info};
+use tracing::info;
 
 #[tokio::main]
 async fn main() {
@@ -26,24 +26,12 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let db = connect(&config.database_url).await.unwrap_or_else(|_| {
-        error!(
-            error = "database_connection",
-            "Failed to connect to database"
-        );
-        std::process::exit(1);
-    });
-    run_migrations(&db).await.unwrap_or_else(|_| {
-        error!(error = "database_migration", "Failed to run migrations");
-        std::process::exit(1);
-    });
-    let media = config.media_store().unwrap_or_else(|_| {
-        error!(
-            error = "media_storage_configuration",
-            "Failed to configure media storage"
-        );
-        std::process::exit(1);
-    });
+    let db = connect_and_migrate(&config.database_url).await;
+    let media = or_exit(
+        config.media_store(),
+        "media_storage_configuration",
+        "Failed to configure media storage",
+    );
     let profiles = Arc::new(ProfileService::new(db.clone()));
     let worker_id = format!("worker-{}", uuid::Uuid::now_v7());
     info!("Starting OxidGene background worker");

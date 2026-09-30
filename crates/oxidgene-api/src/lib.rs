@@ -18,6 +18,7 @@ pub mod reference;
 pub mod rest;
 pub mod router;
 pub mod service;
+pub mod startup;
 
 #[cfg(feature = "graphql")]
 pub use graphql::{OxidGeneSchema, build_schema};

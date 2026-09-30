@@ -49,13 +49,13 @@ mod themes;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use axum::Router;
-use axum::routing::get;
 use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::access::{LocalToken, require_local_token};
+use oxidgene_api::startup::{
+    ReferenceWarmup, open_database, spawn_background_worker, with_health_check,
+};
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
 #[cfg(feature = "telemetry")]
 use oxidgene_observability::{
     TelemetryGuard, init, init_to_stderr, make_http_span, on_http_response,
@@ -294,64 +294,20 @@ fn main() {
     let server_thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
-            // Warm the static reference tables while SQLite comes up.
-            // Decompressing and indexing them takes tens of milliseconds;
-            // left lazy, that cost lands on the first tooltip lookup.
-            let reference_warmup = tokio::task::spawn_blocking(oxidgene_api::reference::preheat);
-
-            // Connect to SQLite
-            let db = connect(&database_url).await.unwrap_or_else(|_| {
-                error!(
-                    error = "database_connection",
-                    "Failed to connect to database"
-                );
-                std::process::exit(1);
-            });
-
-            // Run migrations
-            run_migrations(&db).await.unwrap_or_else(|_| {
-                error!(error = "database_migration", "Failed to run migrations");
-                std::process::exit(1);
-            });
-
-            // Trees written before history existed get their baseline version, so a
-            // first edit has something to compare against.
-            oxidgene_api::service::history::record_baselines_at_startup(&db).await;
+            let reference_warmup = ReferenceWarmup::start();
+            let db = open_database(&database_url).await;
 
             // Same platform data directory the web server defaults to, so a
             // desktop tree exported and re-imported on the server finds its
             // files in the expected place.
             let state =
                 AppState::new(db, oxidgene_api::media::default_root()).with_local_file_access();
-            oxidgene_db::repo::BackgroundJobRepo::requeue_running(&state.db)
-                .await
-                .unwrap_or_else(|_| {
-                    error!(
-                        error = "background_job_recovery",
-                        "Failed to recover background jobs"
-                    );
-                    std::process::exit(1);
-                });
-            let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
-                state.db.clone(),
-                Arc::clone(&state.profiles),
-                Arc::clone(&state.media),
-                "desktop",
-            );
-            tokio::spawn(worker.run());
+            // This process is the only worker of its SQLite database.
+            spawn_background_worker(&state, true, "desktop").await;
             let api_router = require_local_token(build_router(state), server_token);
+            reference_warmup.finish().await;
 
-            if reference_warmup.await.is_err() {
-                error!(
-                    error = "reference_warmup",
-                    "Failed to load static reference tables"
-                );
-                std::process::exit(1);
-            }
-
-            let app = Router::new()
-                .route("/healthz", get(healthz))
-                .merge(api_router);
+            let app = with_health_check(api_router);
             #[cfg(feature = "telemetry")]
             let app = app.layer(
                 TraceLayer::new_for_http()
@@ -524,11 +480,6 @@ fn window_config(data_dir: &std::path::Path) -> Config {
         cfg = cfg.with_icon(icon);
     }
     cfg
-}
-
-/// Health check handler returning `200 OK` with a JSON body.
-async fn healthz() -> axum::Json<serde_json::Value> {
-    axum::Json(serde_json::json!({ "status": "ok" }))
 }
 
 #[cfg(all(

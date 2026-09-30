@@ -5221,10 +5221,8 @@ dependencies = [
  "axum",
  "config",
  "oxidgene-api",
- "oxidgene-db",
  "oxidgene-observability",
  "serde",
- "serde_json",
  "tokio",
  "tower-http 0.7.1",
  "tracing",
@@ -5283,7 +5281,6 @@ name = "oxidgene-worker"
 version = "0.1.0"
 dependencies = [
  "oxidgene-api",
- "oxidgene-db",
  "oxidgene-observability",
  "oxidgene-server",
  "tokio",

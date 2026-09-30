@@ -9,15 +9,13 @@
 //! - Graceful shutdown on SIGINT/SIGTERM
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 
-use axum::Router;
 use axum::http::{HeaderValue, Method};
-use axum::routing::get;
 use oxidgene_api::access::same_origin_writes;
-use oxidgene_api::service::background_job::BackgroundJobWorker;
+use oxidgene_api::startup::{
+    ReferenceWarmup, open_database, or_exit, spawn_background_worker, with_health_check,
+};
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{BackgroundJobRepo, connect, run_migrations};
 use oxidgene_observability::{init, make_http_span, on_http_response};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
@@ -50,81 +48,37 @@ async fn main() {
         "Starting OxidGene server"
     );
 
-    // ── Warm the static reference tables ─────────────────────────────
-    // Decompressing and indexing them takes tens of milliseconds. Done
-    // lazily it lands on whichever worker serves the first tooltip lookup
-    // and blocks it; here it overlaps with connecting to the database.
-    let reference_warmup = tokio::task::spawn_blocking(oxidgene_api::reference::preheat);
-
-    // ── Connect to database ──────────────────────────────────────────
-    let db = connect(&cfg.database_url).await.unwrap_or_else(|_| {
-        error!(
-            error = "database_connection",
-            "Failed to connect to database"
-        );
-        std::process::exit(1);
-    });
-
-    // ── Run migrations ───────────────────────────────────────────────
-    run_migrations(&db).await.unwrap_or_else(|_| {
-        error!(error = "database_migration", "Failed to run migrations");
-        std::process::exit(1);
-    });
-
-    // Trees written before history existed get their baseline version, so a
-    // first edit has something to compare against.
-    oxidgene_api::service::history::record_baselines_at_startup(&db).await;
+    // ── Database, migrations and history baselines ───────────────────
+    let reference_warmup = ReferenceWarmup::start();
+    let db = open_database(&cfg.database_url).await;
 
     // ── Build application router ─────────────────────────────────────
-    let media = cfg.media_store().unwrap_or_else(|_| {
-        error!(
-            error = "media_storage_configuration",
-            "Failed to configure media storage"
-        );
-        std::process::exit(1);
-    });
+    let media = or_exit(
+        cfg.media_store(),
+        "media_storage_configuration",
+        "Failed to configure media storage",
+    );
     let uses_sqlite = cfg.database_url.starts_with("sqlite:");
     let embedded_worker = uses_sqlite || cfg.media_backend == MediaBackend::Filesystem;
     let state = AppState::with_media_store(db, media);
     if embedded_worker {
-        if uses_sqlite {
-            BackgroundJobRepo::requeue_running(&state.db)
-                .await
-                .unwrap_or_else(|_| {
-                    error!(
-                        error = "background_job_recovery",
-                        "Failed to recover background jobs"
-                    );
-                    std::process::exit(1);
-                });
-        }
-        let worker = BackgroundJobWorker::new(
-            state.db.clone(),
-            Arc::clone(&state.profiles),
-            Arc::clone(&state.media),
-            "embedded-server",
-        );
-        tokio::spawn(worker.run());
+        // SQLite has no separate worker: this process was the only one
+        // running the jobs a previous run left marked as running.
+        spawn_background_worker(&state, uses_sqlite, "embedded-server").await;
     }
     let api_router = build_router(state);
-
-    if reference_warmup.await.is_err() {
-        error!(
-            error = "reference_warmup",
-            "Failed to load static reference tables"
-        );
-        std::process::exit(1);
-    }
+    reference_warmup.finish().await;
 
     // CORS remains single-origin until authentication and authorization ship.
     if cfg.cors_origin == "*" {
         error!(error = "cors_origin", "Wildcard CORS origin is not allowed");
         std::process::exit(1);
     }
-    let cors_origin = cfg.cors_origin.parse::<HeaderValue>().unwrap_or_else(|_| {
-        error!(error = "cors_origin", "Invalid CORS origin");
-        std::process::exit(1);
-    });
+    let cors_origin = or_exit(
+        cfg.cors_origin.parse::<HeaderValue>(),
+        "cors_origin",
+        "Invalid CORS origin",
+    );
     let cors = CorsLayer::new()
         .allow_origin(cors_origin.clone())
         .allow_methods([
@@ -136,9 +90,7 @@ async fn main() {
         ])
         .allow_headers(tower_http::cors::Any);
 
-    let app = Router::new()
-        .route("/healthz", get(healthz))
-        .merge(same_origin_writes(api_router, cors_origin.clone()))
+    let app = with_health_check(same_origin_writes(api_router, cors_origin.clone()))
         .layer(cors)
         .layer(
             TraceLayer::new_for_http()
@@ -155,19 +107,14 @@ async fn main() {
 
     info!(%addr, "Listening");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .unwrap_or_else(|_| {
-            error!(error = "server_runtime", "Server error");
-            std::process::exit(1);
-        });
+    or_exit(
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await,
+        "server_runtime",
+        "Server error",
+    );
 
     info!("Server shut down gracefully");
     telemetry.shutdown();
-}
-
-/// Health check handler returning `200 OK` with a JSON body.
-async fn healthz() -> axum::Json<serde_json::Value> {
-    axum::Json(serde_json::json!({ "status": "ok" }))
 }
