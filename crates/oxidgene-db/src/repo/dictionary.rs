@@ -25,7 +25,7 @@ use oxidgene_core::{
 use sea_orm::ConnectionTrait;
 use sea_orm::QueryFilter;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue::Set, Condition, JoinType, QuerySelect, Unchanged};
+use sea_orm::{Condition, JoinType, QuerySelect};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ use crate::entities::{
     citation, event, family_spouse, media, media_link, person, person_name, place, sea_enums,
     source, vignette,
 };
-use crate::repo::batch::in_chunks;
+use crate::repo::batch::{MAX_BOUND_IDS, in_chunks};
 use crate::repo::db_err;
 
 /// A distinct free-text value (surname, occupation label) plus the number of
@@ -1000,36 +1000,35 @@ fn existing_cut(rows: &[person_name::Model]) -> Option<(Option<String>, String)>
 /// Write `prefix` + `root` into every row of `rows`, skipping rows already
 /// written that way — a repeated edit is then a no-op, not an `updated_at`
 /// bump. Returns the number of rows written and their persons, sorted.
+///
+/// Every row gets the same values, so one `UPDATE … WHERE id IN (…)` per
+/// bounded slice writes them all, however many carry the name.
 async fn rewrite_surnames(
     db: &impl ConnectionTrait,
     rows: &[person_name::Model],
     prefix: Option<&str>,
     root: &str,
 ) -> Result<(usize, Vec<Uuid>), OxidGeneError> {
-    let mut persons: HashSet<Uuid> = HashSet::new();
-    let mut names_updated = 0usize;
-    for n in rows {
-        if trimmed(n.surname_prefix.as_deref()).as_deref() == prefix
-            && trimmed(n.surname.as_deref()).as_deref() == Some(root)
-        {
-            continue;
-        }
-        person_name::ActiveModel {
-            id: Unchanged(n.id),
-            surname: Set(Some(root.to_string())),
-            surname_prefix: Set(prefix.map(str::to_string)),
-            updated_at: Set(Utc::now()),
-            ..Default::default()
-        }
-        .update(db)
-        .await
-        .map_err(db_err)?;
-        persons.insert(n.person_id);
-        names_updated += 1;
+    let stale: Vec<&person_name::Model> = rows
+        .iter()
+        .filter(|n| {
+            trimmed(n.surname_prefix.as_deref()).as_deref() != prefix
+                || trimmed(n.surname.as_deref()).as_deref() != Some(root)
+        })
+        .collect();
+    let ids: Vec<Uuid> = sorted_unique(stale.iter().map(|n| n.id));
+    let now = Utc::now();
+    for chunk in ids.chunks(MAX_BOUND_IDS) {
+        person_name::Entity::update_many()
+            .col_expr(person_name::Column::Surname, Expr::value(root))
+            .col_expr(person_name::Column::SurnamePrefix, Expr::value(prefix))
+            .col_expr(person_name::Column::UpdatedAt, Expr::value(now))
+            .filter(person_name::Column::Id.is_in(chunk.iter().copied()))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
     }
-    let mut persons: Vec<Uuid> = persons.into_iter().collect();
-    persons.sort();
-    Ok((names_updated, persons))
+    Ok((ids.len(), sorted_unique(stale.iter().map(|n| n.person_id))))
 }
 
 /// Sorted entries whose filing key is just the value itself — correct for

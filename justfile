@@ -54,6 +54,14 @@ fmt-check:
 # Run all checks (fmt + clippy + test)
 check: fmt-check clippy test
 
+# Time the tree-wide computations on a tree and on one eight times larger, in
+# release mode, and fail on any that grows markedly faster than linear (see
+# docs/development.md). Kept out of `check`: timing wants an optimised build
+# and a quiet machine. --no-capture runs the tests one at a time and shows
+# each growth.
+scaling:
+    cargo nextest run --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
+
 # Regenerate the place dictionary (France, United Kingdom, Germany, Italy,
 # Spain, Switzerland, Poland, United States, Portugal, Belgium, Luxembourg,
 # Netherlands) from the latest

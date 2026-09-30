@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:40:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T15:51:24Z }
 ---
 
 # Development Environment and Workflows
@@ -55,6 +55,7 @@ the repository root.
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings. |
 | `just check` | Run formatting verification, Clippy, and tests. |
+| `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
 
@@ -68,6 +69,28 @@ on a function above it. Bring such a function back under the threshold by
 extracting named steps or sharing code with its look-alikes; an `allow` is not
 a fix. A `tracing` macro counts for several points on its own, so a function
 that logs on several branches is better served by one log call.
+
+Algorithmic complexity is tested at three levels.
+
+- **SQL statements.** `crates/oxidgene-api/tests/query_scaling_test.rs`, in
+  the normal suite, runs a survey of REST requests — the tree-wide reads,
+  a person's pages, the lists, the dictionaries, and representative
+  mutations — against a generated tree and one four times larger, counting
+  the statements SeaORM issues. A request that runs more on the larger one
+  queries per person, family or event, an N+1 to batch. Add a new tree-wide
+  or per-person route to the survey.
+- **Counted work.** Where an in-memory computation risks quadratic work on
+  a common case, a unit test counts that work deterministically: the
+  potential duplicates compare each record only with the homonyms born
+  within the gap of it, and a test counts the pairs.
+- **Timing.** `just scaling` times the statistics, anomalies, duplicates and
+  ancestry computations, the GEDCOM import and export, the projection
+  rebuild and the dictionaries on a tree and one eight times larger, in
+  release mode, and fails when one grows more than three times as fast as a
+  reference linear pass over the same projections — the reference absorbs
+  the cache effects a larger tree has on linear work too. The CI Scaling job
+  runs it on every change; locally it is opt-in, as timing wants an
+  optimised build and a quiet machine.
 
 ### 2.2 Backend and Database
 

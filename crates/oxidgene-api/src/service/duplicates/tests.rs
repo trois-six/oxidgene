@@ -212,3 +212,75 @@ fn the_same_parents_count_and_confirmed_pairs_are_left_out() {
     let confirmed: HashSet<_> = [pair].into_iter().collect();
     assert_eq!(potential_duplicates(&[a, b], &confirmed).count, 0);
 }
+
+/// A block is swept by birth year: each record meets the ones born within
+/// the gap after it however many lie between, and the undated meet everyone.
+#[test]
+fn a_block_is_compared_within_the_birth_year_gap() {
+    let born_in = |year: i32| {
+        born(
+            person("Given", "Surname", Sex::Male),
+            birth(&year.to_string(), (year, 1, 1), None),
+        )
+    };
+    let profiles = [
+        born_in(1800),
+        born_in(1803),
+        born_in(1805),
+        born_in(1811),
+        person("Given", "Surname", Sex::Male),
+        person("Given", "Surname", Sex::Male),
+    ];
+    let names = HashMap::new();
+    let mut records: Vec<Record<'_>> = profiles
+        .iter()
+        .filter_map(|p| Record::new(p, &names))
+        .collect();
+    let mut found: Vec<(Option<i32>, Option<i32>)> = candidate_pairs(&mut records)
+        .map(|(a, b)| (Record::year(a.birth), Record::year(b.birth)))
+        .collect();
+    found.sort();
+    assert_eq!(
+        found,
+        vec![
+            (None, None),
+            (Some(1800), None),
+            (Some(1800), None),
+            (Some(1800), Some(1803)),
+            (Some(1800), Some(1805)),
+            (Some(1803), None),
+            (Some(1803), None),
+            (Some(1803), Some(1805)),
+            (Some(1805), None),
+            (Some(1805), None),
+            (Some(1811), None),
+            (Some(1811), None),
+        ]
+    );
+}
+
+/// However common a name, a record is compared with the homonyms born within
+/// the gap of it, not with the whole block: a thousand born a year apart
+/// make five pairs each, not half a million in all.
+#[test]
+fn homonyms_cost_their_neighbours_in_time_not_the_whole_block() {
+    let profiles: Vec<PersonProfile> = (0..1000)
+        .map(|n| {
+            let year = 1000 + n;
+            born(
+                person("Given", "Surname", Sex::Male),
+                birth(&year.to_string(), (year, 1, 1), None),
+            )
+        })
+        .collect();
+    let names = HashMap::new();
+    let mut records: Vec<Record<'_>> = profiles
+        .iter()
+        .filter_map(|p| Record::new(p, &names))
+        .collect();
+    let gap = MAX_YEAR_GAP as usize;
+    assert_eq!(
+        candidate_pairs(&mut records).count(),
+        gap * records.len() - gap * (gap + 1) / 2
+    );
+}

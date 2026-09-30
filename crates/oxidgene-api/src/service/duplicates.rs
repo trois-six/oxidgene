@@ -497,10 +497,14 @@ struct Record<'a> {
     key: (String, String),
     birth: Option<&'a ProfileEvent>,
     death: Option<&'a ProfileEvent>,
+    /// The birth place, folded; read once here rather than for each pair.
+    birth_place: Option<String>,
+    /// The spouses' folded names.
+    spouses: Vec<&'a str>,
 }
 
 impl<'a> Record<'a> {
-    fn new(profile: &'a PersonProfile) -> Option<Self> {
+    fn new(profile: &'a PersonProfile, names: &'a HashMap<Uuid, String>) -> Option<Self> {
         let name = profile.primary_name.as_ref()?;
         let surname = name.surname.as_deref().unwrap_or("").trim();
         let given = name.given_names.as_deref().unwrap_or("").trim();
@@ -509,13 +513,25 @@ impl<'a> Record<'a> {
             return None;
         }
         let first_given = given.split_whitespace().next().unwrap_or(given);
+        let birth = profile.birth_or_baptism();
         Some(Self {
             profile,
             surname: fold_words(surname),
             given: fold_words(given),
             key: (sound_key(surname), sound_key(first_given)),
-            birth: profile.birth_or_baptism(),
+            birth,
             death: profile.death_or_burial(),
+            birth_place: birth
+                .and_then(|e| e.place_name.as_deref())
+                .map(fold_words)
+                .filter(|p| !p.trim().is_empty()),
+            spouses: profile
+                .families_as_spouse
+                .iter()
+                .filter_map(|l| names.get(&l.spouse_id?))
+                .map(String::as_str)
+                .filter(|n| !n.is_empty())
+                .collect(),
         })
     }
 
@@ -598,15 +614,7 @@ fn compare(
         }
         _ => {}
     }
-    let place = |r: &Record<'_>| {
-        r.birth
-            .and_then(|e| e.place_name.as_deref())
-            .map(fold_words)
-            .filter(|p| !p.trim().is_empty())
-    };
-    if let (Some(x), Some(y)) = (place(a), place(b))
-        && x == y
-    {
+    if a.birth_place.is_some() && a.birth_place == b.birth_place {
         score += SAME_BIRTH_PLACE_POINTS;
         reasons.push("same_birth_place");
     }
@@ -657,20 +665,40 @@ fn compare(
             reasons.push("same_mother");
         }
     }
-    let spouses = |r: &Record<'_>| -> HashSet<&String> {
-        r.profile
-            .families_as_spouse
-            .iter()
-            .filter_map(|l| l.spouse_id)
-            .filter_map(|id| names.get(&id))
-            .filter(|n| !n.is_empty())
-            .collect()
-    };
-    if !spouses(a).is_disjoint(&spouses(b)) {
+    if a.spouses.iter().any(|n| b.spouses.contains(n)) {
         score += SAME_SPOUSE_POINTS;
         reasons.push("same_spouse");
     }
     Some((score.min(100), reasons))
+}
+
+/// The pairs of a block worth comparing, each once. Births more than
+/// [`MAX_YEAR_GAP`] years apart rule a pair out, so with the block sorted by
+/// birth year, undated last, a dated record meets only the dated records
+/// that follow it within the gap, then every undated one; the undated meet
+/// each other. A common name then costs its neighbours in time, not the whole
+/// block — except for the records without a birth year, which nothing rules
+/// out in advance.
+fn candidate_pairs<'b, 'a>(
+    records: &'b mut [Record<'a>],
+) -> impl Iterator<Item = (&'b Record<'a>, &'b Record<'a>)> {
+    records.sort_by_key(|r| (Record::year(r.birth).is_none(), Record::year(r.birth)));
+    let records: &'b [Record<'a>] = records;
+    let (dated, undated) =
+        records.split_at(records.partition_point(|r| Record::year(r.birth).is_some()));
+    let dated_pairs = dated.iter().enumerate().flat_map(move |(i, a)| {
+        let last = Record::year(a.birth).map(|year| year + MAX_YEAR_GAP);
+        dated[i + 1..]
+            .iter()
+            .take_while(move |b| Record::year(b.birth) <= last)
+            .chain(undated)
+            .map(move |b| (a, b))
+    });
+    let undated_pairs = undated
+        .iter()
+        .enumerate()
+        .flat_map(move |(i, a)| undated[i + 1..].iter().map(move |b| (a, b)));
+    dated_pairs.chain(undated_pairs)
 }
 
 /// The pairs of records that may be one person, best first, leaving out the
@@ -693,24 +721,25 @@ pub fn potential_duplicates(
         .collect();
     let mut blocks: HashMap<(String, String), Vec<Record<'_>>> = HashMap::new();
     for profile in profiles {
-        if let Some(record) = Record::new(profile) {
+        if let Some(record) = Record::new(profile, &names) {
             blocks.entry(record.key.clone()).or_default().push(record);
         }
     }
     let mut found = Vec::new();
     for records in blocks.values_mut() {
-        records.sort_by_key(|r| r.profile.person_id);
-        for (i, a) in records.iter().enumerate() {
-            for b in &records[i + 1..] {
-                let pair = (a.profile.person_id, b.profile.person_id);
-                if distinct.contains(&pair) {
-                    continue;
-                }
-                if let Some((score, reasons)) = compare(a, b, &names)
-                    && score >= MIN_DUPLICATE_SCORE
-                {
-                    found.push((score, reasons, a.profile, b.profile));
-                }
+        for (a, b) in candidate_pairs(records) {
+            let (a, b) = if a.profile.person_id < b.profile.person_id {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            if distinct.contains(&(a.profile.person_id, b.profile.person_id)) {
+                continue;
+            }
+            if let Some((score, reasons)) = compare(a, b, &names)
+                && score >= MIN_DUPLICATE_SCORE
+            {
+                found.push((score, reasons, a.profile, b.profile));
             }
         }
     }
