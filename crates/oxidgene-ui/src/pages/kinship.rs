@@ -11,7 +11,7 @@ use oxidgene_core::types::{Kinship as KinshipReport, KinshipPath, KinshipSegment
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource};
-use crate::components::print::PrintAction;
+use crate::components::print::PrintHeading;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
@@ -173,7 +173,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
                     }
                     span { class: "td-bc-current", {i18n.t("kinship.breadcrumb")} }
                 }
-                PrintAction {
+                PrintHeading {
                     tree_name: tree_name.clone(),
                     title: i18n.t("kinship.breadcrumb"),
                 }

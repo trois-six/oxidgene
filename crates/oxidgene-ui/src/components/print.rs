@@ -1,10 +1,10 @@
 //! Printing a page.
 //!
 //! One action prints every printable page: [`PrintAction`], an icon button
-//! each page places at the end of its contextual topbar. It also carries the
-//! header printed at the top of the sheet — the page title, the tree and the
-//! day — which the print stylesheet in `layout.rs` shows in place of the
-//! topbar it hides.
+//! of the tree pages' icon sidebar, just above Settings. Each page places a
+//! [`PrintHeading`] in its topbar — the page title, the tree and the day —
+//! which the print stylesheet in `layout.rs` shows in place of the topbar it
+//! hides.
 //!
 //! What the button does differs per platform, and this module is the one
 //! place that knows:
@@ -144,8 +144,10 @@ pub fn search_print_title(i18n: &I18n, last: &str, first: &str) -> String {
 /// to what is drawn, and appends it to `body` as `.print-chart`, which the
 /// print stylesheet scales to the sheet. It works on whichever view is on
 /// screen, since all it reads is the viewport's rectangle and the SVG's own
-/// coordinate system. Identifiers are prefixed so the copy's references do
-/// not resolve into the hidden original, and custom properties set inline on
+/// coordinate system, mapped from the box the SVG is drawn in (not
+/// `getScreenCTM()`, which WebKit computes without the CSS zoom).
+/// Identifiers are prefixed so the copy's references do not resolve into the
+/// hidden original, and custom properties set inline on
 /// the chart's ancestors are carried over. When `beforeprint` arrives with the
 /// page already laid out for paper, the canvas has no area to measure, and
 /// the snapshot the action took on screen a moment earlier is kept.
@@ -156,6 +158,23 @@ const PRINT_HOOKS_JS: &str = r#"
             document.querySelectorAll('.print-chart').forEach(node => node.remove());
         };
         window.__oxDropPrintSnapshot = dropSnapshot;
+        // Screen point to the SVG's own coordinates, read off the box the SVG
+        // is drawn in rather than `getScreenCTM()`: WebKit (the Linux and
+        // macOS desktop) leaves the CSS zoom of an HTML ancestor out of that
+        // matrix, which framed a zoomed-out chart as if it were at 100 %.
+        const screenToChart = svg => {
+            const box = svg.getBoundingClientRect();
+            const base = svg.viewBox && svg.viewBox.baseVal;
+            const vb = base && base.width > 0 && base.height > 0
+                ? base
+                : { x: 0, y: 0, width: svg.width.baseVal.value, height: svg.height.baseVal.value };
+            if (!(box.width > 0 && box.height > 0 && vb.width > 0 && vb.height > 0)) return null;
+            // `preserveAspectRatio` left at its default: meet, centred.
+            const scale = Math.min(box.width / vb.width, box.height / vb.height);
+            const left = box.left + (box.width - vb.width * scale) / 2;
+            const top = box.top + (box.height - vb.height * scale) / 2;
+            return (x, y) => ({ x: vb.x + (x - left) / scale, y: vb.y + (y - top) / scale });
+        };
         window.__oxPreparePrint = () => {
             const viewport = document.querySelector('.pedigree-viewport');
             if (!viewport) {
@@ -176,17 +195,16 @@ const PRINT_HOOKS_JS: &str = r#"
                     svg = candidate;
                 }
             });
-            const ctm = svg && svg.getScreenCTM();
-            if (!ctm) return;
+            const toChart = svg && screenToChart(svg);
+            if (!toChart) return;
             let right = rect.right;
             const panel = document.querySelector('.ev-panel:not(.ev-panel-collapsed)');
             if (panel) {
                 const p = panel.getBoundingClientRect();
                 if (p.left > rect.left && p.left < right && p.right > rect.left) right = p.left;
             }
-            const inverse = ctm.inverse();
-            const a = new DOMPoint(rect.left, rect.top).matrixTransform(inverse);
-            const b = new DOMPoint(right, rect.bottom).matrixTransform(inverse);
+            const a = toChart(rect.left, rect.top);
+            const b = toChart(right, rect.bottom);
             const drawn = svg.getBBox();
             const x0 = Math.max(Math.min(a.x, b.x), drawn.x);
             const y0 = Math.max(Math.min(a.y, b.y), drawn.y);
@@ -261,19 +279,13 @@ pub fn print_palette_css() -> String {
 
 // ── Components ──────────────────────────────────────────────────────────────
 
-/// The page's print button, and the header its sheet is printed under.
+/// The print button of the tree pages' icon sidebar, just above Settings.
 ///
-/// Placed as the last child of the page's `.td-topbar`: the print stylesheet
-/// hides every other child of the topbar and shows the header instead. On a
-/// route that does not print it renders nothing, so it cannot end up on the
-/// home or settings pages by mistake.
+/// It renders nothing on a route that does not print, so the sidebar the
+/// settings page shares cannot offer it. The header the sheet prints under is
+/// [`PrintHeading`], which each page places in its topbar.
 #[component]
-pub fn PrintAction(
-    /// The tree's name, as the breadcrumb shows it.
-    tree_name: String,
-    /// The page, as the breadcrumb's last crumb names it.
-    title: String,
-) -> Element {
+pub fn PrintAction() -> Element {
     let i18n = use_i18n();
     let route = use_route::<Route>();
     let bridge = try_use_context::<PrintBridge>();
@@ -283,15 +295,13 @@ pub fn PrintAction(
     if !is_printable(&route) {
         return rsx! {};
     }
-
-    let header = PrintHeader::new(&i18n, &tree_name, &title, chrono::Local::now().date_naive());
     let label = i18n.t("print.action");
     let tooltip = i18n.t("print.tooltip");
 
     rsx! {
         button {
             r#type: "button",
-            class: "td-search-btn td-print-btn",
+            class: "isb-btn td-print-btn",
             title: "{tooltip}",
             "aria-label": "{label}",
             onclick: move |_| {
@@ -312,20 +322,36 @@ pub fn PrintAction(
                 });
             },
             svg {
-                width: "14",
-                height: "14",
+                width: "16",
+                height: "16",
                 fill: "none",
                 "viewBox": "0 0 24 24",
                 stroke: "currentColor",
                 "strokeWidth": "2",
-                "strokeLinecap": "round",
-                "strokeLinejoin": "round",
                 "aria-hidden": "true",
                 path { d: "M6 9V3h12v6" }
                 path { d: "M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" }
                 rect { x: "6", y: "14", width: "12", height: "7" }
             }
         }
+    }
+}
+
+/// The header a printed sheet carries: the page, the tree and the day.
+///
+/// Placed as the last child of the page's `.td-topbar`: on screen it does not
+/// show; on paper the print stylesheet hides every other child of the topbar
+/// and shows it instead.
+#[component]
+pub fn PrintHeading(
+    /// The tree's name, as the breadcrumb shows it.
+    tree_name: String,
+    /// The page, as the breadcrumb's last crumb names it.
+    title: String,
+) -> Element {
+    let i18n = use_i18n();
+    let header = PrintHeader::new(&i18n, &tree_name, &title, chrono::Local::now().date_naive());
+    rsx! {
         div { class: "print-header",
             div { class: "print-header-main",
                 div { class: "print-header-title", "{header.title}" }
@@ -423,9 +449,9 @@ mod tests {
     }
 
     /// The guard in [`PrintAction`] already keeps the button off these pages;
-    /// this keeps anyone from placing it there in the first place.
+    /// this keeps anyone from giving them a printed header in the first place.
     #[test]
-    fn home_and_settings_pages_place_no_print_action() {
+    fn home_and_settings_pages_place_no_print_heading() {
         let pages = [
             ("home", include_str!("../pages/home.rs")),
             ("settings", include_str!("../pages/settings.rs")),
@@ -433,7 +459,7 @@ mod tests {
         ];
         for (name, source) in pages {
             assert!(
-                !source.contains("PrintAction"),
+                !source.contains("PrintHeading"),
                 "the {name} page must not offer printing"
             );
         }

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:41:28Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -743,10 +743,13 @@ route, so a new route does not compile until it is made.
 
 ### 7.1 Print action
 
-- One component, `PrintAction`, is the last item of the contextual topbar
-  (§2.2) on every page that prints. It is the topbar's 28px icon button with a
-  printer icon, the localized accessible name *Print* and the tooltip *Print
-  this page*. On a route that does not print it renders nothing.
+- One component, `PrintAction`, is a button of the shared icon sidebar (§6.3),
+  just above Settings, so it sits in the same place on every page that
+  prints: a printer icon, the localized accessible name *Print* and the
+  tooltip *Print this page*. On a route that does not print — the settings
+  page shares the sidebar — it renders nothing.
+- Each printable page places a `PrintHeading` last in its contextual topbar
+  (§2.2): the header its sheet prints under, invisible on screen.
 - On the web it calls `window.print()`. On the desktop the shell installs a
   `PrintBridge` (the UI trait `PagePrinter`) that opens the platform's print
   dialog on the WebView itself — a WebKitGTK print operation on Linux, an

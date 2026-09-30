@@ -15,7 +15,7 @@ use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
-use crate::components::print::PrintAction;
+use crate::components::print::PrintHeading;
 use crate::components::search_person::SearchPerson;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache, use_view_state_cache};
@@ -820,7 +820,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                     if root_person_id.is_some() {
                         TopbarSearch { tree_id: tree_id.clone() }
                     }
-                    PrintAction {
+                    PrintHeading {
                         tree_name: tree_name_str.clone(),
                         title: i18n.t("pedigree.breadcrumb"),
                     }

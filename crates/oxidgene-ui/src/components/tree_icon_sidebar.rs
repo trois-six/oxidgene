@@ -3,6 +3,7 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 
+use crate::components::print::PrintAction;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 
@@ -207,6 +208,8 @@ pub fn TreeIconSidebar(
                     }
                 }
             }
+
+            PrintAction {}
 
             if show_settings {
                 button {

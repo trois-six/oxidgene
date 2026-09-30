@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:41:37Z }
 ---
 
 
@@ -213,8 +213,7 @@ cards — and never loads the other pages, so a printout of a broad search stays
 bounded. The sheet is titled *Search: <surname> <given names>*, since the
 fields do not print. The result count and the active filter chips print; the
 filters, sort and view controls and the pagination do not, and *Page n of m*
-under the results says which page the sheet holds. The print action sits
-after the search fields in the topbar.
+under the results says which page the sheet holds.
 
 ---
 

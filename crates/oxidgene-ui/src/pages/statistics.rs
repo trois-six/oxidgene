@@ -21,7 +21,7 @@ use crate::components::charts::{
 };
 use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
-use crate::components::print::PrintAction;
+use crate::components::print::PrintHeading;
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
 use crate::i18n::{I18n, Language, use_i18n};
@@ -267,7 +267,7 @@ pub fn Statistics(tree_id: String) -> Element {
                     }
                     {i18n.t("stats.approximate")}
                 }
-                PrintAction {
+                PrintHeading {
                     tree_name: tree_name.clone(),
                     title: i18n.t("stats.breadcrumb"),
                 }

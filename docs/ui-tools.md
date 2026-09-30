@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:41:28Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -62,7 +62,7 @@ no tab is shown.
 
 Each tab opens with the tool's title and a sentence saying what it does.
 
-The topbar ends with the print action of
+The page prints through the print action of
 [Common UI §7](ui-common.md#7-printing). A printout holds the tab shown,
 under its title; the other tabs, the tool's inputs and its action buttons do
 not print, and a tab that reads a date prints its results without the field.

@@ -379,14 +379,15 @@ Fixed height, spans the full width above the canvas. Uses the shared `td-topbar`
 
 ```
 +----------------------------------------------------------------------+
-|  [logo] tree_name / Tree          [Last name] [First name] [Q] [P]   |
+|  [logo] tree_name / Tree              [Last name] [First name] [Q]   |
 +----------------------------------------------------------------------+
 ```
 
 **Breadcrumb** (`.td-bc`): logo icon (links to homepage) + tree name (`.td-bc-link`) + `/` separator (`.td-bc-sep`) + "Tree" label (`.td-bc-current`). The tree name links to the tree view.
 
-**Print** (`[P]`): the shared print action of [Common UI §7](ui-common.md#7-printing).
-The chart prints as it is framed on screen — the area the canvas shows, less
+**Print**: the shared print action of [Common UI §7](ui-common.md#7-printing),
+in the left sidebar. The chart prints as it is framed on screen, at the zoom
+shown — the area the canvas shows, less
 what the events panel covers, trimmed to the cards drawn — scaled to one
 landscape sheet under the printed header. The sidebars, the depth and zoom
 controls, and the events panel do not print, nor do the chart's own controls
@@ -467,6 +468,7 @@ displayed. All icons use a consistent style: `stroke: currentColor`,
 | Book/index | Open book (two overlapping page shapes) | Opens [Dictionary](ui-dictionary.md) for this tree |
 | Chart | Axes with a rising line | Opens [Statistics](ui-statistics.md) for this tree; shown on every tree page, found from the page's route |
 | Wrench | Lucide wrench | Opens [Tools](ui-tools.md) for this tree; shown on every tree page, found from the page's route |
+| Printer | Lucide printer | Prints the page ([Common UI §7](ui-common.md#7-printing)); shown on every page that prints |
 | Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](ui-settings.md) for this tree |
 
 This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart**, **Wrench** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view. Its profile and pedigree buttons act on the person being shown: the selected card, the open profile or couple. On pages about the tree as a whole (Settings, Dictionary, Statistics, Tools, search results) that is the person last shown in this tree during the session, or the SOSA root when none has been, so leaving a profile for the settings and pressing the profile button comes back to the same person.

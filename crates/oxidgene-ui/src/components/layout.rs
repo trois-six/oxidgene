@@ -7213,8 +7213,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     /* ── Printing ────────────────────────────────────────────────────
-       `PrintAction` (components/print.rs) sits last in a page's topbar with
-       the header it prints under; the pedigree's snapshot is appended to
+       `PrintAction` (components/print.rs) sits in the icon sidebar, above
+       Settings; `PrintHeading` sits last in a page's topbar; the pedigree's snapshot is appended to
        `body` as `.print-chart`. On screen neither shows. On paper the page
        is recoloured with the light theme (see `print_palette_css`), the app
        chrome and every control disappear, scroll containers give way to the

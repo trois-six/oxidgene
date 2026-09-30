@@ -18,7 +18,7 @@ use crate::components::date_input::{DateInput, DateParts};
 use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
-use crate::components::print::PrintAction;
+use crate::components::print::PrintHeading;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{TreeIconSidebar, TreeSidebarView};
@@ -139,7 +139,7 @@ pub fn Tools(tree_id: String) -> Element {
                     }
                     span { class: "td-bc-current", {i18n.t("tools.breadcrumb")} }
                 }
-                PrintAction {
+                PrintHeading {
                     tree_name: tree_name.clone(),
                     title: i18n.t("tools.breadcrumb"),
                 }
