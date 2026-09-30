@@ -1012,10 +1012,7 @@ pub(crate) fn use_tree_resource(
         let tid = tree_id();
         async move {
             let Some(tid) = tid else {
-                return Err(ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_tree_id"),
-                });
+                return Err(ApiError::invalid_tree_id(&i18n));
             };
             fetch_tree_cached(&api, &tree_cache, tid).await
         }
@@ -1066,10 +1063,7 @@ pub(crate) fn use_ancestor_pedigree(
         let pid = person_id();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
+                return Err(ApiError::invalid_ids(&i18n));
             };
             api.get_pedigree(tid, pid, 2, 0).await.map(Some)
         }

@@ -182,10 +182,7 @@ pub fn Dictionary(tree_id: String) -> Element {
             let tid = tree_id_parsed();
             async move {
                 let Some(tid) = tid else {
-                    return Err(ApiError::Api {
-                        status: 400,
-                        body: "Invalid tree ID".to_string(),
-                    });
+                    return Err(ApiError::invalid_tree_id(&i18n));
                 };
                 api.dictionary_family_names(tid).await
             }
@@ -198,10 +195,7 @@ pub fn Dictionary(tree_id: String) -> Element {
             let tid = tree_id_parsed();
             async move {
                 let Some(tid) = tid else {
-                    return Err(ApiError::Api {
-                        status: 400,
-                        body: "Invalid tree ID".to_string(),
-                    });
+                    return Err(ApiError::invalid_tree_id(&i18n));
                 };
                 api.dictionary_occupations(tid).await
             }
@@ -214,10 +208,7 @@ pub fn Dictionary(tree_id: String) -> Element {
         let query_prefix = source_history().last().cloned().unwrap_or_default();
         async move {
             let Some(tid) = tid else {
-                return Err(ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
+                return Err(ApiError::invalid_tree_id(&i18n));
             };
             // The backend resolves the drill-down itself, auto-skipping
             // any forced single-choice levels — `resolved.prefix` may be
@@ -245,10 +236,7 @@ pub fn Dictionary(tree_id: String) -> Element {
         let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
-                return Err(ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
+                return Err(ApiError::invalid_tree_id(&i18n));
             };
             api.dictionary_places(tid).await
         }

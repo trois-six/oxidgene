@@ -84,10 +84,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
+                return Err(crate::api::ApiError::invalid_ids(&i18n));
             };
             // Shared, not owned: the render reads the bundle on every pass and
             // it carries every thumbnail as a base64 data URI, so handing out
@@ -107,10 +104,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let pid = person_id_parsed();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
+                return Err(crate::api::ApiError::invalid_ids(&i18n));
             };
             api.list_notes(tid, Some(pid), None, None, None, None).await
         }

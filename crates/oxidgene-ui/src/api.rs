@@ -2008,6 +2008,24 @@ pub enum ApiError {
     Api { status: u16, body: String },
 }
 
+impl ApiError {
+    /// What a view reports when the tree id in its route does not parse.
+    pub fn invalid_tree_id(i18n: &crate::i18n::I18n) -> Self {
+        Self::Api {
+            status: 400,
+            body: i18n.t("common.invalid_tree_id"),
+        }
+    }
+
+    /// What a view reports when one of the ids in its route does not parse.
+    pub fn invalid_ids(i18n: &crate::i18n::I18n) -> Self {
+        Self::Api {
+            status: 400,
+            body: i18n.t("common.invalid_ids"),
+        }
+    }
+}
+
 /// Starts the browser save picker during the click, before any network awaits.
 #[cfg(target_arch = "wasm32")]
 pub(crate) struct BrowserDownload {

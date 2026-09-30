@@ -88,10 +88,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         let (tid, fid) = (tree_id_parsed(), family_id_parsed());
         async move {
             let (Some(tid), Some(fid)) = (tid, fid) else {
-                return Err(ApiError::Api {
-                    status: 400,
-                    body: i18n.t("common.invalid_ids"),
-                });
+                return Err(ApiError::invalid_ids(&i18n));
             };
             let (_family, spouses) = futures_util::future::try_join(
                 api.get_family(tid, fid),

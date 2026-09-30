@@ -128,10 +128,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         let tid = tree_id_parsed();
         async move {
             let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
+                return Err(crate::api::ApiError::invalid_tree_id(&i18n));
             };
             fetch_tree_cached(&api, &tree_cache, tid).await
         }
@@ -180,10 +177,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 return std::future::pending().await;
             };
             let Some(tid) = tid else {
-                return Err(crate::api::ApiError::Api {
-                    status: 400,
-                    body: "Invalid tree ID".to_string(),
-                });
+                return Err(crate::api::ApiError::invalid_tree_id(&i18n));
             };
             let ancestor_levels = vs
                 .as_ref()
