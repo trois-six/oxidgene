@@ -2,7 +2,7 @@
 
 use crate::media::MediaStore;
 use oxidgene_core::OxidGeneError;
-use oxidgene_db::repo::MediaRepo;
+use oxidgene_db::repo::{MediaRepo, db_err};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use uuid::Uuid;
 
@@ -19,10 +19,7 @@ pub async fn purge_media(
     media_id: Uuid,
     allowed_link_id: Option<Uuid>,
 ) -> Result<bool, OxidGeneError> {
-    let tx = db
-        .begin()
-        .await
-        .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+    let tx = db.begin().await.map_err(db_err)?;
     let purge = match allowed_link_id {
         Some(link_id) => MediaRepo::purge_if_unreferenced_elsewhere(&tx, media_id, link_id).await?,
         None => Some(MediaRepo::purge(&tx, media_id).await?),
@@ -30,9 +27,7 @@ pub async fn purge_media(
     let Some(purge) = purge else {
         return Ok(false);
     };
-    tx.commit()
-        .await
-        .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+    tx.commit().await.map_err(db_err)?;
 
     for key in purge.storage_keys {
         store.delete(&key).await?;

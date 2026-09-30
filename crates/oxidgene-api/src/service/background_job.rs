@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::repo::{
-    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, TreeRepo,
+    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, TreeRepo, db_err,
 };
 use oxidgene_gedcom::export::GedzipFileWriter;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, TransactionTrait};
@@ -260,18 +260,11 @@ impl BackgroundJobWorker {
                 _ => return Err(OxidGeneError::Validation("unknown import format".into())),
             };
             progress.enter(gedcom::FileImportPhase::Database);
-            let transaction = self
-                .db
-                .begin()
-                .await
-                .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+            let transaction = self.db.begin().await.map_err(db_err)?;
             let summary = gedcom::persist_import_result_in(&transaction, parsed).await?;
             self.checkpoint_import(&transaction, job.id, &summary)
                 .await?;
-            transaction
-                .commit()
-                .await
-                .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+            transaction.commit().await.map_err(db_err)?;
             Ok(summary)
         };
         let summary = self

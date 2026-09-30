@@ -9,7 +9,7 @@
 //! "who is affected by this change" is a domain question, not a caching one.
 
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_db::repo::{FamilyChildRepo, FamilySpouseRepo};
+use oxidgene_db::repo::{FamilyChildRepo, FamilySpouseRepo, db_err};
 use oxidgene_db::sea_orm::ConnectionTrait;
 use uuid::Uuid;
 
@@ -135,7 +135,7 @@ pub async fn affected_persons_for_place(
         .filter(event::Column::DeletedAt.is_null())
         .all(db)
         .await
-        .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+        .map_err(db_err)?;
 
     let mut affected: Vec<Uuid> = events.iter().filter_map(|event| event.person_id).collect();
     let family_ids: Vec<Uuid> = events.iter().filter_map(|event| event.family_id).collect();

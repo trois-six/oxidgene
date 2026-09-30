@@ -21,6 +21,7 @@ use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
     MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo, PersonNameRepo,
     PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo, VignetteRepo,
+    db_err,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use tracing::{debug, info, instrument};
@@ -106,15 +107,10 @@ impl ProfileService {
         debug!(count = persons.len(), "Built projections");
 
         let search_entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
-        let txn = conn
-            .begin()
-            .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+        let txn = conn.begin().await.map_err(db_err)?;
         PersonDenormRepo::replace_tree(&txn, tree_id, &persons).await?;
         PersonSearchRepo::replace_tree(&txn, tree_id, &search_entries).await?;
-        txn.commit()
-            .await
-            .map_err(|error| OxidGeneError::Database(error.to_string()))?;
+        txn.commit().await.map_err(db_err)?;
         oxidgene_db::repo::refresh_statistics(conn).await;
 
         info!(

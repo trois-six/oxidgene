@@ -15,7 +15,7 @@ use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
     MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
-    TreeRepo, VignetteRepo,
+    TreeRepo, VignetteRepo, db_err,
 };
 use oxidgene_gedcom::import::import_gedcom;
 use sea_orm::{
@@ -147,10 +147,7 @@ where
             break;
         }
         let inserted = chunk.len();
-        E::insert_many(chunk)
-            .exec(txn)
-            .await
-            .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+        E::insert_many(chunk).exec(txn).await.map_err(db_err)?;
         on_inserted(inserted);
     }
     Ok(())
@@ -381,14 +378,9 @@ pub(crate) async fn persist_import_result_with_progress(
     result: oxidgene_gedcom::ImportResult,
     mut on_inserted: impl FnMut(usize),
 ) -> Result<ImportSummary, OxidGeneError> {
-    let txn = db
-        .begin()
-        .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+    let txn = db.begin().await.map_err(db_err)?;
     let summary = persist_import_result_in_with_progress(&txn, result, &mut on_inserted).await?;
-    txn.commit()
-        .await
-        .map_err(|e| OxidGeneError::Database(e.to_string()))?;
+    txn.commit().await.map_err(db_err)?;
     Ok(summary)
 }
 

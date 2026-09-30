@@ -28,7 +28,7 @@ use oxidgene_core::types::Note;
 use oxidgene_db::entities::{event, family_spouse, media, place, source, tree};
 use oxidgene_db::repo::{
     FamilyNameParticleUpdate, FamilyNameRename, HistoryRepo, NewRecordVersion, SnapshotRepo,
-    SnapshotScope, TreeRepo, display_names,
+    SnapshotScope, TreeRepo, db_err, display_names,
 };
 use oxidgene_db::sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect,
@@ -721,8 +721,4 @@ fn entity_of(record_type: RecordType) -> AuditEntity {
         RecordType::Source => AuditEntity::Source,
         RecordType::Tree => AuditEntity::Tree,
     }
-}
-
-fn db_err(error: oxidgene_db::sea_orm::DbErr) -> OxidGeneError {
-    OxidGeneError::Database(error.to_string())
 }
