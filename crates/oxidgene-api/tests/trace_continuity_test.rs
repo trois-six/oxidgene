@@ -107,14 +107,40 @@ impl Harness {
                 .make_span_with(oxidgene_observability::make_http_span)
                 .on_response(oxidgene_observability::on_http_response),
         );
-        Self {
+        let harness = Self {
             app,
             exporter,
             roots,
             #[cfg(feature = "telemetry-context")]
             state,
             media_root,
+        };
+        harness.await_startup_sweep().await;
+        harness
+    }
+
+    /// Wait for the purge worker's startup sweep to end, then forget it.
+    ///
+    /// `AppState` starts that sweep as a detached root of its own, so it
+    /// runs beside the first request and its spans — another trace, by
+    /// design — would land among that request's when the scheduler lets it
+    /// finish late.
+    async fn await_startup_sweep(&self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !self
+            .exporter
+            .get_finished_spans()
+            .expect("spans")
+            .iter()
+            .any(|span| span.name == "purge.sweep")
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the startup purge sweep never ended"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
+        self.reset();
     }
 
     /// Forget what was exported and which roots were seen so far.
@@ -154,6 +180,8 @@ impl Harness {
         (status, bytes.to_vec())
     }
 
+    /// A setup request: it carries the [`SETUP`] trace, whose spans the
+    /// assertions ignore wherever and whenever they are exported.
     async fn json(&self, method: Method, uri: &str, body: Option<Value>) -> Value {
         let body = body.map(|body| body.to_string().into_bytes());
         let (status, bytes) = self
@@ -162,7 +190,7 @@ impl Harness {
                 uri,
                 "application/json",
                 body.unwrap_or_default(),
-                None,
+                Some(&SETUP.header()),
             )
             .await;
         assert!(status.is_success(), "{uri}: {status}");
@@ -176,6 +204,15 @@ struct Incoming {
     trace_id: TraceId,
     parent: SpanId,
 }
+
+/// The trace of the requests that only prepare data. Their spans can end
+/// after the response came back — after the next request started — so the
+/// assertions skip this trace rather than wait for it; a span that lost its
+/// request's context opens a fresh trace and is still caught.
+const SETUP: Incoming = Incoming {
+    trace_id: TraceId::from_bytes([0xEE; 16]),
+    parent: SpanId::from_bytes([0xEE; 8]),
+};
 
 impl Incoming {
     fn new(seed: u8) -> Self {
@@ -192,38 +229,71 @@ impl Incoming {
 
 /// Every exported span belongs to `incoming`'s trace and reaches its parent
 /// through exported spans; no root was opened; and `expected` spans exist.
-fn assert_one_trace(
+///
+/// A span is exported when it ends, and work the request handed to another
+/// task (a job's progress, a released artifact, a purge) can end a moment
+/// after the response or `run_once` returned, leaving a child exported before
+/// its parent. So the check is retried until it holds or a deadline passes;
+/// a real break — a span in another trace, a parent never recorded — still
+/// fails once the deadline is reached.
+async fn assert_one_trace(
     harness: &Harness,
     route: &str,
     incoming: &Incoming,
     expected: &[&str],
 ) -> Vec<SpanData> {
-    let spans = harness.exporter.get_finished_spans().expect("spans");
-    let roots = harness.roots.lock().expect("roots lock").clone();
-    assert!(
-        roots.is_empty(),
-        "{route}: spans opened a trace of their own: {roots:?}"
-    );
-    for span in &spans {
-        assert_eq!(
-            span.span_context.trace_id(),
-            incoming.trace_id,
-            "{route}: {} left the request's trace",
-            span.name
-        );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let spans = harness.exporter.get_finished_spans().expect("spans");
+        let roots = harness.roots.lock().expect("roots lock").clone();
+        match one_trace(route, incoming, expected, &spans, &roots) {
+            Ok(()) => return spans,
+            Err(failure) if std::time::Instant::now() >= deadline => panic!("{failure}"),
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+        }
+    }
+}
+
+/// Why `spans` do not form `incoming`'s single trace, if they do not.
+fn one_trace(
+    route: &str,
+    incoming: &Incoming,
+    expected: &[&str],
+    spans: &[SpanData],
+    roots: &[String],
+) -> Result<(), String> {
+    if !roots.is_empty() {
+        return Err(format!(
+            "{route}: spans opened a trace of their own: {roots:?}"
+        ));
+    }
+    for span in spans
+        .iter()
+        .filter(|span| span.span_context.trace_id() != SETUP.trace_id)
+    {
+        if span.span_context.trace_id() != incoming.trace_id {
+            return Err(format!(
+                "{route}: {} left the request's trace ({} instead of {})",
+                span.name,
+                span.span_context.trace_id(),
+                incoming.trace_id
+            ));
+        }
         let mut parent = span.parent_span_id;
         let mut hops = 0;
         while parent != incoming.parent {
             let Some(next) = spans.iter().find(|s| s.span_context.span_id() == parent) else {
-                panic!(
+                return Err(format!(
                     "{route}: {} is not connected to the incoming parent: {parent} was never \
                      recorded",
                     span.name
-                );
+                ));
             };
             parent = next.parent_span_id;
             hops += 1;
-            assert!(hops < 64, "{route}: parent cycle at {}", span.name);
+            if hops >= 64 {
+                return Err(format!("{route}: parent cycle at {}", span.name));
+            }
         }
     }
     // The HTTP server span is exported under its display name, "<METHOD>
@@ -236,13 +306,14 @@ fn assert_one_trace(
         }
     };
     for name in expected {
-        assert!(
-            spans.iter().any(|span| matches(span, name)),
-            "{route}: no {name} span among {:?}",
-            spans.iter().map(|span| &span.name).collect::<Vec<_>>()
-        );
+        if !spans.iter().any(|span| matches(span, name)) {
+            return Err(format!(
+                "{route}: no {name} span among {:?}",
+                spans.iter().map(|span| &span.name).collect::<Vec<_>>()
+            ));
+        }
     }
-    spans
+    Ok(())
 }
 
 const GEDCOM: &str = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n2 FORM LINEAGE-LINKED\n1 CHAR UTF-8\n\
@@ -359,7 +430,8 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
         "media upload",
         &incoming,
         &["http.server.request", "media.derive", "sea_orm."],
-    );
+    )
+    .await;
     let page: Value = serde_json::from_slice(&page).expect("page JSON");
     let media_id = page["id"].as_str().expect("media id").to_string();
     let vignette = harness
@@ -431,7 +503,7 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
             )
             .await;
         assert!(status.is_success(), "{route}: {status}");
-        assert_one_trace(&harness, route, &incoming, expected);
+        assert_one_trace(&harness, route, &incoming, expected).await;
     }
 
     // ── GraphQL ──────────────────────────────────────────────────────
@@ -463,7 +535,8 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
                 "person_detail.load",
                 "sea_orm.",
             ],
-        );
+        )
+        .await;
     }
 
     // ── A queued import continues the request's trace in the worker ──
@@ -507,7 +580,8 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
                 "import.persist",
                 "sea_orm.",
             ],
-        );
+        )
+        .await;
 
         // ── Deleting the tree: the purge runs later, on the purge worker,
         // and continues the deleting request's trace.
@@ -542,6 +616,7 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
             "tree purge",
             &incoming,
             &["http.server.request", "purge.tree", "sea_orm."],
-        );
+        )
+        .await;
     }
 }
