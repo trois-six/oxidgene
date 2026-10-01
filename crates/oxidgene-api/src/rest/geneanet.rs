@@ -49,7 +49,7 @@ pub async fn inspect_geneweb_handler(
 ) -> Result<Json<InspectGenewebResponse>, ApiError> {
     let file_name = query.filename.as_deref().unwrap_or(DEFAULT_ORIGIN_FILE);
 
-    let inspection = geneanet::inspect_gw(&body, file_name).map_err(ApiError::from)?;
+    let inspection = geneanet::inspect_gw(&body, file_name)?;
 
     Ok(Json(InspectGenewebResponse {
         person_count: inspection.person_count,
@@ -69,7 +69,7 @@ pub async fn index_archives_handler(
     State(state): State<AppState>,
     Json(body): Json<IndexArchivesRequest>,
 ) -> Result<Json<IndexArchivesResponse>, ApiError> {
-    state.local_file_access.require().map_err(ApiError::from)?;
+    state.local_file_access.require()?;
     let (set, reports) = geneanet::index_archives(&body.paths);
 
     Ok(Json(IndexArchivesResponse {
@@ -96,7 +96,7 @@ pub async fn preview_handler(
     State(state): State<AppState>,
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPreviewResponse>, ApiError> {
-    state.local_file_access.require().map_err(ApiError::from)?;
+    state.local_file_access.require()?;
     let gw = decode_gw(&body.gw_base64)?;
     let (archives, _) = geneanet::index_archives(&body.archive_paths);
 
@@ -107,8 +107,7 @@ pub async fn preview_handler(
         &body.deposit_sizes,
         &archives,
         body.media_fidelity,
-    )
-    .map_err(ApiError::from)?;
+    )?;
 
     Ok(Json(GeneanetPreviewResponse {
         person_count: preview.person_count,
@@ -143,7 +142,7 @@ pub async fn encode_session_handler(
     State(state): State<AppState>,
     Json(body): Json<EncodeSessionRequest>,
 ) -> Result<Response, ApiError> {
-    state.local_file_access.require().map_err(ApiError::from)?;
+    state.local_file_access.require()?;
     // The wizard holds paths; the archive holds bytes. Read them here rather
     // than making the UI carry several hundred pictures through itself.
     let media = body
@@ -193,7 +192,7 @@ pub async fn decode_session_handler(
     use futures_util::StreamExt as _;
     use tokio::io::{AsyncSeekExt as _, AsyncWriteExt as _};
 
-    state.local_file_access.require().map_err(ApiError::from)?;
+    state.local_file_access.require()?;
     let permit = crate::service::session_media::LOADS
         .acquire()
         .await
@@ -238,7 +237,7 @@ pub async fn release_session_media_handler(
     State(state): State<AppState>,
     Json(body): Json<ReleaseSessionMediaRequest>,
 ) -> Result<StatusCode, ApiError> {
-    state.local_file_access.require().map_err(ApiError::from)?;
+    state.local_file_access.require()?;
     crate::service::session_media::remove_owned(body.paths.iter().map(String::as_str));
     Ok(StatusCode::NO_CONTENT)
 }
@@ -255,7 +254,7 @@ pub async fn plan_handler(
     State(state): State<AppState>,
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPlanResponse>, ApiError> {
-    state.local_file_access.require().map_err(ApiError::from)?;
+    state.local_file_access.require()?;
     let gw = decode_gw(&body.gw_base64)?;
     let (archives, _) = geneanet::index_archives(&body.archive_paths);
 
@@ -266,8 +265,7 @@ pub async fn plan_handler(
         &body.deposit_sizes,
         &archives,
         body.media_fidelity,
-    )
-    .map_err(ApiError::from)?;
+    )?;
 
     Ok(Json(GeneanetPlanResponse {
         needed: needed
@@ -291,7 +289,7 @@ pub async fn import_handler(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<GeneanetImportRequest>,
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
-    state.local_file_access.require().map_err(ApiError::from)?;
+    state.local_file_access.require()?;
     let gw = decode_gw(&body.gw_base64)?;
     let job_id = crate::service::background_job::stage_geneanet_import(
         &state.db,
@@ -305,8 +303,7 @@ pub async fn import_handler(
         &body.fetched,
         body.media_fidelity,
     )
-    .await
-    .map_err(ApiError::from)?;
+    .await?;
 
     Ok((
         StatusCode::ACCEPTED,

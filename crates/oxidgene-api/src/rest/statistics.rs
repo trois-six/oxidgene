@@ -26,11 +26,10 @@ pub async fn statistics(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<StatisticsQuery>,
 ) -> Result<Json<TreeStatistics>, ApiError> {
-    let lang = statistics::language(query.lang.as_deref()).map_err(ApiError)?;
-    statistics::load(&state.db, &state.profiles, tree_id, query.approximate, lang)
-        .await
-        .map(Json)
-        .map_err(ApiError)
+    let lang = statistics::language(query.lang.as_deref())?;
+    Ok(Json(
+        statistics::load(&state.db, &state.profiles, tree_id, query.approximate, lang).await?,
+    ))
 }
 
 /// GET /api/v1/trees/:tree_id/statistics/growth
@@ -38,8 +37,5 @@ pub async fn growth(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<TreeGrowth>, ApiError> {
-    statistics::growth::load(&state.db, tree_id)
-        .await
-        .map(Json)
-        .map_err(ApiError)
+    Ok(Json(statistics::growth::load(&state.db, tree_id).await?))
 }

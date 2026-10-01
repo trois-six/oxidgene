@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:58:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:55:10Z }
 ---
 
 
@@ -62,6 +62,15 @@ For full entity definitions, see [Data Model](data-model.md).
 - Rust core crate (`oxidgene-core`) with domain types, shared across all binaries.
 - SeaORM entities crate (`oxidgene-db`) with migrations.
 - API crate (`oxidgene-api`) with Axum handlers (REST) and async-graphql resolvers.
+  Every operation lives once in its `service` module, which REST handlers and
+  GraphQL resolvers call as thin adapters: they parse their transport's input
+  into the service's own types, call it, and map its result and its
+  `OxidGeneError` (one shared error contract, see
+  [Cross-cutting Rules §4](cross-cutting.md)). A write's service opens the
+  transaction and does everything inside it — the tree-membership and
+  ownership checks, validation, the repository write, the projection refresh
+  and the audit record — so the two surfaces cannot drift. Services never
+  depend on `rest` or `graphql`.
 - GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `ged_io` model, so both formats share one conversion into the domain.
 - Denormalized read projections materialized in the database and maintained by
     `oxidgene-api::profile`. See [Data Model §4](data-model.md).

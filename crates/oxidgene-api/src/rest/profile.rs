@@ -10,7 +10,7 @@
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use serde_json::Value;
+use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile};
 use uuid::Uuid;
 
 use super::dto::{
@@ -31,8 +31,7 @@ pub async fn get_person_detail_bundle(
 ) -> Result<Json<crate::service::person_detail::PersonDetailBundle>, ApiError> {
     let bundle =
         crate::service::person_detail::load_person_detail_bundle(&state.db, tree_id, person_id)
-            .await
-            .map_err(ApiError)?;
+            .await?;
     Ok(Json(bundle))
 }
 
@@ -43,14 +42,13 @@ pub async fn get_person_detail_bundle(
 pub async fn get_person_profile(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<PersonProfile>, ApiError> {
     let profile = state
         .profiles
         .get_or_build_person(&state.db, tree_id, person_id)
-        .await
-        .map_err(ApiError)?;
+        .await?;
 
-    Ok(Json(serde_json::to_value(profile).unwrap()))
+    Ok(Json(profile))
 }
 
 /// `GET /api/v1/trees/{tree_id}/profiles`
@@ -60,14 +58,10 @@ pub async fn get_person_profile(
 pub async fn get_person_profiles(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-) -> Result<Json<Value>, ApiError> {
-    let persons = state
-        .profiles
-        .get_all_persons(&state.db, tree_id)
-        .await
-        .map_err(ApiError)?;
+) -> Result<Json<Vec<PersonProfile>>, ApiError> {
+    let persons = state.profiles.get_all_persons(&state.db, tree_id).await?;
 
-    Ok(Json(serde_json::to_value(persons).unwrap()))
+    Ok(Json(persons))
 }
 
 /// `POST /api/v1/trees/{tree_id}/profiles/rebuild`
@@ -77,11 +71,7 @@ pub async fn rebuild_tree_profiles(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<ProfileRebuildResponse>, ApiError> {
-    let count = state
-        .profiles
-        .rebuild_tree_full(&state.db, tree_id)
-        .await
-        .map_err(ApiError)?;
+    let count = state.profiles.rebuild_tree_full(&state.db, tree_id).await?;
 
     Ok(Json(ProfileRebuildResponse {
         rebuilt: true,
@@ -96,13 +86,12 @@ pub async fn rebuild_person_profile(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ProfileRebuildResponse>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+    let txn = begin_tx(&state.db).await?;
     state
         .profiles
         .rebuild_person(&txn, tree_id, person_id)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+        .await?;
+    commit_tx(txn).await?;
 
     Ok(Json(ProfileRebuildResponse {
         rebuilt: true,
@@ -118,13 +107,9 @@ pub async fn drop_tree_profiles(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<ProfileDropResponse>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    state
-        .profiles
-        .invalidate_tree(&txn, tree_id)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    let txn = begin_tx(&state.db).await?;
+    state.profiles.invalidate_tree(&txn, tree_id).await?;
+    commit_tx(txn).await?;
 
     Ok(Json(ProfileDropResponse { dropped: true }))
 }
@@ -138,7 +123,7 @@ pub async fn get_pedigree(
     State(state): State<AppState>,
     Path((tree_id, root_person_id)): Path<(Uuid, Uuid)>,
     Query(params): Query<PedigreeQuery>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Pedigree>, ApiError> {
     let pedigree = crate::service::pedigrees::pedigree(
         &state.profiles,
         tree_id,
@@ -148,7 +133,7 @@ pub async fn get_pedigree(
     )
     .await?;
 
-    Ok(Json(serde_json::to_value(pedigree).unwrap()))
+    Ok(Json(pedigree))
 }
 
 /// `POST /api/v1/trees/{tree_id}/pedigrees`
@@ -168,8 +153,7 @@ pub async fn load_pedigrees(
         body.ancestor_depth.into(),
         body.descendant_depth.into(),
     )
-    .await
-    .map_err(ApiError)?;
+    .await?;
     Ok(Json(entries))
 }
 
@@ -182,7 +166,7 @@ pub async fn expand_pedigree(
     State(state): State<AppState>,
     Path((tree_id, root_person_id)): Path<(Uuid, Uuid)>,
     Query(params): Query<PedigreeExpandQuery>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<PedigreeDelta>, ApiError> {
     use crate::service::pedigrees::Expansion;
     use oxidgene_core::projection::PedigreeDirection;
 
@@ -212,5 +196,5 @@ pub async fn expand_pedigree(
     )
     .await?;
 
-    Ok(Json(serde_json::to_value(delta).unwrap()))
+    Ok(Json(delta))
 }

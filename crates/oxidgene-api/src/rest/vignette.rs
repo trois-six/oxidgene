@@ -23,12 +23,8 @@ pub async fn list_media_vignettes(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<Vignette>>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let vignettes = VignetteRepo::list_for_media(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
+    let vignettes = VignetteRepo::list_for_media(&state.db, media_id).await?;
     Ok(Json(vignettes))
 }
 
@@ -42,14 +38,10 @@ pub async fn list_vignettes(
     Query(query): Query<VignetteListQuery>,
 ) -> Result<Json<Vec<Vignette>>, ApiError> {
     if let Some(person_id) = query.person_id {
-        require_tree_resource(&state.db, tree_id, TreeResource::Person, person_id)
-            .await
-            .map_err(ApiError)?;
+        require_tree_resource(&state.db, tree_id, TreeResource::Person, person_id).await?;
     }
     if let Some(event_id) = query.event_id {
-        require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id)
-            .await
-            .map_err(ApiError)?;
+        require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id).await?;
     }
     let vignettes = match (query.person_id, query.event_id) {
         (Some(person_id), None) => VignetteRepo::list_for_person(&state.db, person_id).await,
@@ -59,8 +51,7 @@ pub async fn list_vignettes(
                 "exactly one of person_id or event_id is required".into(),
             )));
         }
-    }
-    .map_err(ApiError::from)?;
+    }?;
     Ok(Json(vignettes))
 }
 
@@ -79,12 +70,8 @@ pub async fn get_vignette(
     State(state): State<AppState>,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vignette>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
-        .await
-        .map_err(ApiError)?;
-    let vignette = VignetteRepo::get(&state.db, vignette_id)
-        .await
-        .map_err(ApiError::from)?;
+    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id).await?;
+    let vignette = VignetteRepo::get(&state.db, vignette_id).await?;
     Ok(Json(vignette))
 }
 
@@ -119,15 +106,9 @@ pub async fn vignette_image(
     State(state): State<AppState>,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
-        .await
-        .map_err(ApiError)?;
-    let vignette = VignetteRepo::get(&state.db, vignette_id)
-        .await
-        .map_err(ApiError::from)?;
-    let media = MediaRepo::get(&state.db, vignette.media_id)
-        .await
-        .map_err(ApiError::from)?;
+    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id).await?;
+    let vignette = VignetteRepo::get(&state.db, vignette_id).await?;
+    let media = MediaRepo::get(&state.db, vignette.media_id).await?;
 
     let Some(key) = media.storage_key.as_deref() else {
         return Err(ApiError(OxidGeneError::NotFound {
@@ -142,7 +123,7 @@ pub async fn vignette_image(
         ))));
     }
 
-    let bytes = state.media.get(key).await.map_err(ApiError::from)?;
+    let bytes = state.media.get(key).await?;
     let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
     let cropped = tokio::task::spawn_blocking(move || crate::media::thumbnail::crop(&bytes, rect))
         .await

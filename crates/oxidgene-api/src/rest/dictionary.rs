@@ -21,9 +21,7 @@ pub async fn family_names(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<DictionaryEntryDto>>, ApiError> {
-    let entries = DictionaryRepo::family_names(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
+    let entries = DictionaryRepo::family_names(&state.db, tree_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
@@ -32,9 +30,7 @@ pub async fn occupations(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<DictionaryEntryDto>>, ApiError> {
-    let entries = DictionaryRepo::occupations(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
+    let entries = DictionaryRepo::occupations(&state.db, tree_id).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }
 
@@ -51,9 +47,7 @@ pub async fn sources(
     Query(query): Query<SourcePrefixQuery>,
 ) -> Result<Json<Vec<SourceDictionaryEntry>>, ApiError> {
     let prefix = query.prefix.unwrap_or_default();
-    let entries = DictionaryRepo::sources_with_usage_by_prefix(&state.db, tree_id, &prefix)
-        .await
-        .map_err(ApiError::from)?;
+    let entries = DictionaryRepo::sources_with_usage_by_prefix(&state.db, tree_id, &prefix).await?;
     Ok(Json(
         entries
             .into_iter()
@@ -84,8 +78,7 @@ pub async fn source_groups(
         &prefix,
         SOURCE_DRILL_THRESHOLD,
     )
-    .await
-    .map_err(ApiError::from)?;
+    .await?;
     Ok(Json(SourceDrillResponse {
         prefix: resolved_prefix,
         total,
@@ -101,9 +94,7 @@ pub async fn places(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PlaceDictionaryEntry>>, ApiError> {
-    let entries = DictionaryRepo::places_with_usage(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
+    let entries = DictionaryRepo::places_with_usage(&state.db, tree_id).await?;
     Ok(Json(
         entries
             .into_iter()
@@ -117,12 +108,8 @@ pub async fn source_usage(
     State(state): State<AppState>,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id)
-        .await
-        .map_err(ApiError)?;
-    let ids = DictionaryRepo::source_usage_person_ids(&state.db, source_id)
-        .await
-        .map_err(ApiError::from)?;
+    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id).await?;
+    let ids = DictionaryRepo::source_usage_person_ids(&state.db, source_id).await?;
     resolve_usage(&state, &ids).await
 }
 
@@ -131,12 +118,8 @@ pub async fn place_usage(
     State(state): State<AppState>,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Place, place_id)
-        .await
-        .map_err(ApiError)?;
-    let ids = DictionaryRepo::place_usage_person_ids(&state.db, place_id)
-        .await
-        .map_err(ApiError::from)?;
+    require_tree_resource(&state.db, tree_id, TreeResource::Place, place_id).await?;
+    let ids = DictionaryRepo::place_usage_person_ids(&state.db, place_id).await?;
     resolve_usage(&state, &ids).await
 }
 
@@ -146,9 +129,7 @@ pub async fn occupation_usage(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<DictionaryUsageQuery>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let ids = DictionaryRepo::occupation_usage_person_ids(&state.db, tree_id, &query.value)
-        .await
-        .map_err(ApiError::from)?;
+    let ids = DictionaryRepo::occupation_usage_person_ids(&state.db, tree_id, &query.value).await?;
     resolve_usage(&state, &ids).await
 }
 
@@ -158,9 +139,8 @@ pub async fn family_name_usage(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<DictionaryUsageQuery>,
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let ids = DictionaryRepo::family_name_usage_person_ids(&state.db, tree_id, &query.value)
-        .await
-        .map_err(ApiError::from)?;
+    let ids =
+        DictionaryRepo::family_name_usage_person_ids(&state.db, tree_id, &query.value).await?;
     resolve_usage(&state, &ids).await
 }
 
@@ -196,8 +176,6 @@ async fn resolve_usage(
     state: &AppState,
     person_ids: &[Uuid],
 ) -> Result<Json<Vec<PersonUsageEntryDto>>, ApiError> {
-    let entries = DictionaryRepo::resolve_person_usage_entries(&state.db, person_ids)
-        .await
-        .map_err(ApiError::from)?;
+    let entries = DictionaryRepo::resolve_person_usage_entries(&state.db, person_ids).await?;
     Ok(Json(entries.into_iter().map(Into::into).collect()))
 }

@@ -24,10 +24,9 @@ pub async fn tree_anomalies(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<TreeAnomalies>, ApiError> {
-    anomalies::load(&state.db, &state.profiles, tree_id)
-        .await
-        .map(Json)
-        .map_err(ApiError)
+    Ok(Json(
+        anomalies::load(&state.db, &state.profiles, tree_id).await?,
+    ))
 }
 
 /// GET /api/v1/trees/:tree_id/duplicates
@@ -35,10 +34,9 @@ pub async fn potential_duplicates(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<PotentialDuplicates>, ApiError> {
-    duplicates::load_potential_duplicates(&state.db, &state.profiles, tree_id)
-        .await
-        .map(Json)
-        .map_err(ApiError)
+    Ok(Json(
+        duplicates::load_potential_duplicates(&state.db, &state.profiles, tree_id).await?,
+    ))
 }
 
 /// GET /api/v1/trees/:tree_id/unlocated-places
@@ -46,10 +44,9 @@ pub async fn unlocated_places(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PlaceUsage>>, ApiError> {
-    anomalies::load_unlocated_places(&state.db, tree_id)
-        .await
-        .map(Json)
-        .map_err(ApiError)
+    Ok(Json(
+        anomalies::load_unlocated_places(&state.db, tree_id).await?,
+    ))
 }
 
 /// GET /api/v1/trees/:tree_id/ancestry-completeness?generations=8
@@ -58,9 +55,8 @@ pub async fn ancestry_completeness(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<AncestryCompleteness>, ApiError> {
-    let generations = ancestry::generations(query.generations).map_err(ApiError)?;
-    ancestry::load(&state.db, &state.profiles, tree_id, generations)
-        .await
-        .map(Json)
-        .map_err(ApiError)
+    let generations = ancestry::generations(query.generations)?;
+    Ok(Json(
+        ancestry::load(&state.db, &state.profiles, tree_id, generations).await?,
+    ))
 }

@@ -3,6 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::MediaLink;
 use oxidgene_db::repo::{MediaLinkRepo, MediaLinkTarget};
@@ -25,7 +26,7 @@ pub async fn list_media_links(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<MediaLinkListQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Response, ApiError> {
     if let (Some(entity_type), Some(entity_id)) = (&query.entity_type, query.entity_id) {
         let target = MediaLinkTarget::parse(entity_type).ok_or_else(|| {
             ApiError(OxidGeneError::Validation(format!(
@@ -38,12 +39,8 @@ pub async fn list_media_links(
             MediaLinkTarget::Event => TreeResource::Event,
             MediaLinkTarget::Source => TreeResource::Source,
         };
-        require_tree_resource(&state.db, tree_id, resource, entity_id)
-            .await
-            .map_err(ApiError)?;
-        let rows = MediaLinkRepo::list_with_media(&state.db, target, entity_id)
-            .await
-            .map_err(ApiError::from)?;
+        require_tree_resource(&state.db, tree_id, resource, entity_id).await?;
+        let rows = MediaLinkRepo::list_with_media(&state.db, target, entity_id).await?;
         let response: Vec<MediaWithLink> = rows
             .into_iter()
             .map(|(link, media)| MediaWithLink {
@@ -52,7 +49,7 @@ pub async fn list_media_links(
                 media,
             })
             .collect();
-        return Ok(Json(serde_json::to_value(response).unwrap()));
+        return Ok(Json(response).into_response());
     }
     if query.entity_type.is_some() || query.entity_id.is_some() {
         return Err(ApiError(OxidGeneError::Validation(
@@ -64,18 +61,12 @@ pub async fn list_media_links(
     // what lets a media's own panel say which events it documents, without
     // the caller having to walk every event's gallery to find out.
     if let Some(media_id) = query.media_id {
-        require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-            .await
-            .map_err(ApiError)?;
-        let links = MediaLinkRepo::list_by_media(&state.db, media_id)
-            .await
-            .map_err(ApiError::from)?;
-        return Ok(Json(serde_json::to_value(links).unwrap()));
+        require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
+        let links = MediaLinkRepo::list_by_media(&state.db, media_id).await?;
+        return Ok(Json(links).into_response());
     }
 
-    let db_rows = MediaLinkRepo::list_for_tree(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
+    let db_rows = MediaLinkRepo::list_for_tree(&state.db, tree_id).await?;
     let response: Vec<MediaLinkListRow> = db_rows
         .into_iter()
         .map(|r| MediaLinkListRow {
@@ -89,7 +80,7 @@ pub async fn list_media_links(
             has_thumbnail: r.has_thumbnail,
         })
         .collect();
-    Ok(Json(serde_json::to_value(response).unwrap()))
+    Ok(Json(response).into_response())
 }
 
 /// POST /api/v1/trees/:tree_id/media-links

@@ -46,8 +46,7 @@ pub async fn image_data(
         tree_id,
         &body.sources,
     )
-    .await
-    .map_err(ApiError::from)?;
+    .await?;
     Ok(Json(urls))
 }
 
@@ -63,8 +62,7 @@ pub async fn gallery_bundle(
         &body.media_ids,
         &body.vignette_ids,
     )
-    .await
-    .map_err(ApiError::from)?;
+    .await?;
     Ok(Json(bundle))
 }
 
@@ -83,9 +81,7 @@ pub async fn list_media(
         after: query.after.clone(),
     };
     let filters = query.filters(crate::rest::dto::tag_values(pairs));
-    let connection = media_library::list(&state.db, tree_id, filters, &params)
-        .await
-        .map_err(ApiError::from)?;
+    let connection = media_library::list(&state.db, tree_id, filters, &params).await?;
     Ok(Json(connection))
 }
 
@@ -99,9 +95,8 @@ pub async fn list_media_facets(
     Path(tree_id): Path<Uuid>,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<media_library::MediaFacets>, ApiError> {
-    let facets = media_library::facets(&state.db, tree_id, crate::rest::dto::tag_values(pairs))
-        .await
-        .map_err(ApiError::from)?;
+    let facets =
+        media_library::facets(&state.db, tree_id, crate::rest::dto::tag_values(pairs)).await?;
     Ok(Json(facets))
 }
 
@@ -516,12 +511,8 @@ pub async fn download_thumbnail(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let media = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
+    let media = MediaRepo::get(&state.db, media_id).await?;
     let Some(key) = media.thumbnail_key.as_deref() else {
         return Err(ApiError(OxidGeneError::NotFound {
             entity: "Thumbnail",
@@ -631,7 +622,7 @@ async fn serve(
         return Ok(StatusCode::NOT_MODIFIED.into_response());
     }
 
-    let bytes = state.media.get(key).await.map_err(ApiError::from)?;
+    let bytes = state.media.get(key).await?;
 
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, header_value(mime_type));

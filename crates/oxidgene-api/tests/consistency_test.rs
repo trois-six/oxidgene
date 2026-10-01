@@ -1668,3 +1668,55 @@ async fn graphql_nested_lists_are_complete_past_a_hundred() {
     assert_eq!(data["tree"]["personCount"], 1);
     assert_eq!(data["tree"]["familyCount"], MANY);
 }
+
+// ── Audit log ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_single_audit_entry_is_readable_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Audited").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    common::new_person(&app, &tree_id).await;
+    let page = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/audit"),
+        None,
+    )
+    .await;
+    let newest = page["edges"][0]["node"].clone();
+    let entry_id = newest["id"].as_str().unwrap().to_owned();
+
+    let entry = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/audit/{entry_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(entry, newest);
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!, $e: ID!) { auditEntry(treeId: $t, id: $e) { id } }",
+        json!({ "t": tree_id, "e": entry_id }),
+    )
+    .await;
+    assert_eq!(data["auditEntry"]["id"], entry_id);
+
+    // Another tree's log does not hold it.
+    let (status, body) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{other_tree}/audit/{entry_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let response = gql(
+        &app,
+        "query($t: ID!, $e: ID!) { auditEntry(treeId: $t, id: $e) { id } }",
+        json!({ "t": other_tree, "e": entry_id }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+}
