@@ -1,4 +1,7 @@
 {{- if .Values.ingress.enabled }}
+{{- if not .Values.ingress.exposeApiWithoutAuth }}
+{{- fail "ingress.enabled routes /api and /graphql to a backend that has no authentication yet: anyone who reaches the Ingress can read and change every tree. Restrict the Ingress to trusted users (an authenticating proxy through ingress.annotations, a private network) and then set ingress.exposeApiWithoutAuth=true to acknowledge it." }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

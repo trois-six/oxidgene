@@ -254,6 +254,12 @@ s3:
 
 ingress:
   enabled: false
+  # The backend has no authentication yet: whoever reaches /api or /graphql
+  # through this Ingress can read and change every tree. Rendering refuses an
+  # enabled Ingress until this acknowledges that access to it is restricted
+  # some other way — an authenticating proxy configured through `annotations`,
+  # or a host only trusted users can reach.
+  exposeApiWithoutAuth: false
   className: ""
   annotations: {}
   host: oxidgene.example.invalid

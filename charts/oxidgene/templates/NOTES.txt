@@ -24,6 +24,12 @@ Redis is disabled until authenticated sessions are implemented.
 
 {{- if .Values.ingress.enabled }}
 Application URL: https://{{ .Values.ingress.host }}
+
+WARNING: the Ingress routes /api and /graphql to a backend without
+authentication. Anyone who can reach https://{{ .Values.ingress.host }} can read,
+change and delete every tree. Keep the host behind an authenticating proxy or
+on a network only trusted users reach (ingress.exposeApiWithoutAuth=true
+records that you did).
 {{- else }}
 Expose the frontend service or enable ingress to access the application.
 {{- end }}

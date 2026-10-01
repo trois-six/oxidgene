@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-09-01T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T16:22:16Z }
 ---
 
 # OxidGene Quickstart
@@ -451,6 +451,8 @@ s3:
 
 ingress:
   enabled: true
+  # Only once the host is restricted to trusted users (see below).
+  exposeApiWithoutAuth: true
   className: nginx
   host: genealogy.example.invalid
   tls:
@@ -581,7 +583,13 @@ kubectl -n oxidgene rollout status \
 ```
 
 The ingress sends `/api`, `/graphql`, and `/healthz` to the backend and all
-other paths to the frontend.
+other paths to the frontend. The backend has no authentication yet: whoever
+reaches the Ingress host can read, change and delete every tree. An enabled
+Ingress therefore fails to render until `ingress.exposeApiWithoutAuth=true`
+records that the host is restricted some other way — an authenticating proxy
+configured through `ingress.annotations` (for example `oauth2-proxy` behind
+the controller's external-authentication annotations), or a host only a
+private network reaches. The release notes repeat the warning.
 
 ### Helm values reference
 
@@ -755,6 +763,7 @@ All other `redis-operator.*` values pass through to the upstream operator chart.
 | Value | Default | Description |
 |---|---|---|
 | `ingress.enabled` | `false` | Create the application Ingress. |
+| `ingress.exposeApiWithoutAuth` | `false` | Acknowledge that the Ingress publishes an API without authentication and that its host is restricted some other way; an enabled Ingress fails to render without it. |
 | `ingress.className` | `""` | Ingress class name. |
 | `ingress.annotations` | `{}` | Controller and certificate annotations. |
 | `ingress.host` | `oxidgene.example.invalid` | Public application hostname. |

@@ -183,6 +183,8 @@ s3:
 
 ingress:
   enabled: true
+  # Only once the host is restricted to trusted users (see below).
+  exposeApiWithoutAuth: true
   className: nginx
   host: genealogy.example.invalid
   tls:
@@ -315,11 +317,17 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | `s3.existing.*` | Existing endpoint, bucket, region, and credential Secret. |
 | `s3.rustfs.*` | Tenant image, Secrets, bucket, policy, user, and pool. |
 | `ingress.*` | Optional same-origin routing and TLS configuration. |
+| `ingress.exposeApiWithoutAuth` | `false`: rendering refuses an enabled Ingress until this acknowledges that its host is restricted to trusted users. |
 | `frontend.otlpEndpoint` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. |
 | `backend.logFormat`, `worker.logFormat` | Console log format, `json` (one object per event, the default here) or `text`. With `otlpEndpoint` set, events also leave as OTLP logs, so a collector scraping the console as well receives each one twice. |
 | `autoscaling.*` | Optional backend and frontend HPAs. |
 | `podDisruptionBudget.*` | Backend and frontend disruption budgets. |
 
 The ingress sends `/api`, `/graphql`, and `/healthz` to the backend and `/` to
-the frontend. Keep the backend private until authentication and per-tree
-authorization are implemented.
+the frontend. The backend has no authentication yet, so whoever reaches the
+host can read and change every tree. An enabled Ingress therefore fails to
+render until `ingress.exposeApiWithoutAuth=true` records that the host is
+restricted some other way — an authenticating proxy configured through
+`ingress.annotations` (for example an `oauth2-proxy` behind the controller's
+external-authentication annotations), or a host only a private network
+reaches — and the release notes repeat the warning.
