@@ -22,6 +22,7 @@ use crate::components::search_person::{PersonSearchSummary, render_person_search
 use crate::components::suggest_input::ValueInput;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
+use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
@@ -897,7 +898,7 @@ fn event_criteria(i18n: &I18n, filters: SearchFilters) -> Element {
     }
 }
 
-/// A "between two years" filter.
+/// A "between two years" filter, searching again as a year is typed.
 fn year_range(
     i18n: &I18n,
     label_key: &str,
@@ -906,29 +907,18 @@ fn year_range(
     filters: SearchFilters,
 ) -> Element {
     rsx! {
-        div { class: "sr-filter-group",
-            label { {i18n.t(label_key)} }
-            div { class: "sr-date-range",
-                input {
-                    r#type: "number",
-                    placeholder: "1800",
-                    value: "{from}",
-                    oninput: move |e: Event<FormData>| {
-                        from.set(e.value());
-                        filters.restart();
-                    },
-                }
-                span { "\u{2013}" }
-                input {
-                    r#type: "number",
-                    placeholder: "2000",
-                    value: "{to}",
-                    oninput: move |e: Event<FormData>| {
-                        to.set(e.value());
-                        filters.restart();
-                    },
-                }
-            }
+        YearRange {
+            label: i18n.t(label_key),
+            from: from(),
+            to: to(),
+            on_from: move |value| {
+                from.set(value);
+                filters.restart();
+            },
+            on_to: move |value| {
+                to.set(value);
+                filters.restart();
+            },
         }
     }
 }

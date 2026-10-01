@@ -13,10 +13,11 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
+use crate::components::paged_list::{PagedList, use_paged_list};
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
-use crate::ui_observability::{UiCommand, trace_ui_action, use_ui_resource};
+use crate::ui_observability::{UiCommand, trace_ui_action};
 
 /// The Tools › History section of the tree settings.
 #[component]
@@ -25,55 +26,16 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
     let api = use_context::<ApiClient>();
     let mut category = use_signal(|| None::<AuditCategory>);
     let refresh = use_signal(|| 0u32);
-    let mut more = use_signal(Vec::<AuditEntry>::new);
-    let mut next_cursor = use_signal(|| None::<String>);
-    let mut loading_more = use_signal(|| false);
-
-    let api_first = api.clone();
-    let first_page = use_ui_resource("audit_entries", move || {
-        let api = api_first.clone();
+    let entries = use_paged_list("audit_entries", move |cursor: Option<String>| {
+        let api = api.clone();
         let category = category();
         let _tick = refresh();
         async move {
-            api.list_audit(tree_id, category, None)
+            api.list_audit(tree_id, category, cursor.as_deref())
                 .await
                 .map_err(|e| e.to_string())
         }
     });
-    use_effect(move || {
-        if let Some(Ok(page)) = &*first_page.read() {
-            more.set(Vec::new());
-            next_cursor.set(
-                page.page_info
-                    .has_next_page
-                    .then(|| page.page_info.end_cursor.clone())
-                    .flatten(),
-            );
-        }
-    });
-
-    let load_more = {
-        let api = api.clone();
-        move |_| {
-            let api = api.clone();
-            let Some(cursor) = next_cursor() else { return };
-            let category = category();
-            loading_more.set(true);
-            spawn(async move {
-                if let Ok(page) = api.list_audit(tree_id, category, Some(&cursor)).await {
-                    more.write()
-                        .extend(page.edges.into_iter().map(|edge| edge.node));
-                    next_cursor.set(
-                        page.page_info
-                            .has_next_page
-                            .then_some(page.page_info.end_cursor)
-                            .flatten(),
-                    );
-                }
-                loading_more.set(false);
-            });
-        }
-    };
 
     let filters: Vec<(Option<AuditCategory>, String)> =
         std::iter::once((None, i18n.t("history.category.all")))
@@ -104,35 +66,23 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
                 }
             }
 
-            match &*first_page.read() {
+            match &*entries.first.read() {
                 None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
                 Some(Err(error)) => rsx! {
                     div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
                 },
-                Some(Ok(page)) => {
-                    let entries: Vec<AuditEntry> = page
-                        .edges
-                        .iter()
-                        .map(|edge| edge.node.clone())
-                        .chain(more.read().iter().cloned())
-                        .collect();
+                Some(Ok(_)) => {
+                    let loaded: Vec<AuditEntry> = entries.items();
                     rsx! {
-                        if entries.is_empty() {
+                        if loaded.is_empty() {
                             div { class: "card empty-state", p { {i18n.t("history.no_entries")} } }
                         }
                         ol { class: "al-entries",
-                            for entry in entries {
+                            for entry in loaded {
                                 AuditEntryRow { key: "{entry.id}", entry, refresh }
                             }
                         }
-                        if next_cursor().is_some() {
-                            button {
-                                class: "btn btn-outline btn-sm",
-                                disabled: loading_more(),
-                                onclick: load_more,
-                                {i18n.t("history.load_more")}
-                            }
-                        }
+                        {load_more_button(&i18n, &entries)}
                     }
                 }
             }
@@ -203,54 +153,18 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let tree_cache = use_tree_cache();
-    let mut more = use_signal(Vec::<VersionChange>::new);
-    let mut next_cursor = use_signal(|| None::<String>);
     let mut restoring = use_signal(|| None::<VersionChange>);
     let mut restore_error = use_signal(|| None::<String>);
 
-    let api_first = api.clone();
-    let first_page = use_ui_resource("audit_changes", move || {
-        let api = api_first.clone();
+    let api_changes = api.clone();
+    let changes = use_paged_list("audit_changes", move |cursor: Option<String>| {
+        let api = api_changes.clone();
         async move {
-            api.list_audit_changes(tree_id, entry_id, None)
+            api.list_audit_changes(tree_id, entry_id, cursor.as_deref())
                 .await
                 .map_err(|e| e.to_string())
         }
     });
-    use_effect(move || {
-        if let Some(Ok(page)) = &*first_page.read() {
-            more.set(Vec::new());
-            next_cursor.set(
-                page.page_info
-                    .has_next_page
-                    .then(|| page.page_info.end_cursor.clone())
-                    .flatten(),
-            );
-        }
-    });
-
-    let load_more = {
-        let api = api.clone();
-        move |_| {
-            let api = api.clone();
-            let Some(cursor) = next_cursor() else { return };
-            spawn(async move {
-                if let Ok(page) = api
-                    .list_audit_changes(tree_id, entry_id, Some(&cursor))
-                    .await
-                {
-                    more.write()
-                        .extend(page.edges.into_iter().map(|edge| edge.node));
-                    next_cursor.set(
-                        page.page_info
-                            .has_next_page
-                            .then_some(page.page_info.end_cursor)
-                            .flatten(),
-                    );
-                }
-            });
-        }
-    };
 
     let on_restore = {
         let api = api.clone();
@@ -306,20 +220,15 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                     },
                 }
             }
-            match &*first_page.read() {
+            match &*changes.first.read() {
                 None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
                 Some(Err(error)) => rsx! {
                     div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
                 },
-                Some(Ok(page)) => {
-                    let changes: Vec<VersionChange> = page
-                        .edges
-                        .iter()
-                        .map(|edge| edge.node.clone())
-                        .chain(more.read().iter().cloned())
-                        .collect();
+                Some(Ok(_)) => {
+                    let loaded: Vec<VersionChange> = changes.items();
                     rsx! {
-                        for change in changes {
+                        for change in loaded {
                             div { class: "al-change", key: "{change.version.id}",
                                 div { class: "al-change-head",
                                     span { class: "al-change-record", {record_title(&i18n, &change)} }
@@ -353,16 +262,26 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                                 }
                             }
                         }
-                        if next_cursor().is_some() {
-                            button {
-                                class: "btn btn-outline btn-sm",
-                                onclick: load_more,
-                                {i18n.t("history.load_more")}
-                            }
-                        }
+                        {load_more_button(&i18n, &changes)}
                     }
                 }
             }
+        }
+    }
+}
+
+/// The "Load more" button under a paged list, while a page is left.
+pub(crate) fn load_more_button<T: Clone + 'static>(i18n: &I18n, list: &PagedList<T>) -> Element {
+    if !list.has_more() {
+        return rsx! {};
+    }
+    let list = list.clone();
+    rsx! {
+        button {
+            class: "btn btn-outline btn-sm",
+            disabled: list.loading_more(),
+            onclick: move |_| list.load_more(),
+            {i18n.t("history.load_more")}
         }
     }
 }

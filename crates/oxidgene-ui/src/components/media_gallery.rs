@@ -2805,6 +2805,29 @@ fn has_person_identification(vignettes: &[Vignette], person_id: Uuid) -> bool {
         .any(|vignette| vignette.person_id == Some(person_id))
 }
 
+/// The ways the viewer's menu attaches what it shows, each with its label
+/// key: a document's whole or the page shown, else the image, to a person
+/// or to a couple.
+fn attachment_choices(
+    is_document: bool,
+) -> &'static [(MediaAttachmentScope, MediaAttachmentMode, &'static str)] {
+    use MediaAttachmentMode::{CouplePerson, Person};
+    use MediaAttachmentScope::{Document, Page};
+    if is_document {
+        &[
+            (Document, Person, "media.attach_document_person"),
+            (Document, CouplePerson, "media.attach_document_couple"),
+            (Page, Person, "media.attach_page_person"),
+            (Page, CouplePerson, "media.attach_page_couple"),
+        ]
+    } else {
+        &[
+            (Page, Person, "media.attach_person"),
+            (Page, CouplePerson, "media.attach_couple"),
+        ]
+    }
+}
+
 /// Five-item pages remain aligned after removing the final item of a page.
 fn relation_page_range(page: usize, total: usize) -> std::ops::Range<usize> {
     let start = page.min(total.saturating_sub(1) / 5) * 5;
@@ -3425,10 +3448,7 @@ fn vignette_overlay_style(vignette: &Vignette, width: Option<i32>, height: Optio
 }
 
 fn primary_person_name_record(names: &[PersonName], person_id: Uuid) -> Option<&PersonName> {
-    names
-        .iter()
-        .find(|name| name.person_id == person_id && name.is_primary)
-        .or_else(|| names.iter().find(|name| name.person_id == person_id))
+    PersonName::primary(names.iter().filter(|name| name.person_id == person_id))
 }
 
 fn primary_person_name(names: &[PersonName], person_id: Uuid) -> Option<String> {
@@ -4233,79 +4253,19 @@ fn MediaViewer(
                             },
                             {i18n.t("media.identify_person")}
                         }
-                        if is_document {
+                        for (scope, mode, label) in attachment_choices(is_document).iter().copied() {
                             button {
+                                key: "{label}",
                                 class: "context-menu-item",
                                 r#type: "button",
                                 onclick: move |_| {
                                     relation_menu_at.set(None);
                                     close_attachment.call(());
                                     attachment_notice.set(None);
-                                    attachment_scope.set(MediaAttachmentScope::Document);
-                                    attachment_mode.set(Some(MediaAttachmentMode::Person));
+                                    attachment_scope.set(scope);
+                                    attachment_mode.set(Some(mode));
                                 },
-                                {i18n.t("media.attach_document_person")}
-                            }
-                            button {
-                                class: "context-menu-item",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    relation_menu_at.set(None);
-                                    close_attachment.call(());
-                                    attachment_notice.set(None);
-                                    attachment_scope.set(MediaAttachmentScope::Document);
-                                    attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
-                                },
-                                {i18n.t("media.attach_document_couple")}
-                            }
-                            button {
-                                class: "context-menu-item",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    relation_menu_at.set(None);
-                                    close_attachment.call(());
-                                    attachment_notice.set(None);
-                                    attachment_scope.set(MediaAttachmentScope::Page);
-                                    attachment_mode.set(Some(MediaAttachmentMode::Person));
-                                },
-                                {i18n.t("media.attach_page_person")}
-                            }
-                            button {
-                                class: "context-menu-item",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    relation_menu_at.set(None);
-                                    close_attachment.call(());
-                                    attachment_notice.set(None);
-                                    attachment_scope.set(MediaAttachmentScope::Page);
-                                    attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
-                                },
-                                {i18n.t("media.attach_page_couple")}
-                            }
-                        } else {
-                            button {
-                                class: "context-menu-item",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    relation_menu_at.set(None);
-                                    close_attachment.call(());
-                                    attachment_notice.set(None);
-                                    attachment_scope.set(MediaAttachmentScope::Page);
-                                    attachment_mode.set(Some(MediaAttachmentMode::Person));
-                                },
-                                {i18n.t("media.attach_person")}
-                            }
-                            button {
-                                class: "context-menu-item",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    relation_menu_at.set(None);
-                                    close_attachment.call(());
-                                    attachment_notice.set(None);
-                                    attachment_scope.set(MediaAttachmentScope::Page);
-                                    attachment_mode.set(Some(MediaAttachmentMode::CouplePerson));
-                                },
-                                {i18n.t("media.attach_couple")}
+                                {i18n.t(label)}
                             }
                         }
                     }

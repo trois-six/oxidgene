@@ -99,7 +99,7 @@ impl Record {
                 .iter()
                 .filter(|n| n.person_id == self.id())
         };
-        own().find(|n| n.is_primary).or_else(|| own().next())
+        PersonName::primary(own())
     }
 
     /// The surname of the primary name, particle included.

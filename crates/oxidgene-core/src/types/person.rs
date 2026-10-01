@@ -60,6 +60,20 @@ pub struct PersonName {
 }
 
 impl PersonName {
+    /// The name a person goes by among `names`: the primary one, else the
+    /// first. `names` may be a person's own names or any run of them, such
+    /// as one person's names filtered out of a batch.
+    pub fn primary<'a>(names: impl IntoIterator<Item = &'a PersonName>) -> Option<&'a PersonName> {
+        let mut first = None;
+        for name in names {
+            if name.is_primary {
+                return Some(name);
+            }
+            first.get_or_insert(name);
+        }
+        first
+    }
+
     /// Returns a display-friendly full name, particle included.
     pub fn display_name(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
@@ -106,6 +120,33 @@ pub struct AncestryLink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn named(sort_order: i32, is_primary: bool) -> PersonName {
+        PersonName {
+            id: Uuid::nil(),
+            person_id: Uuid::nil(),
+            name_type: NameType::Birth,
+            given_names: None,
+            surname: None,
+            surname_prefix: None,
+            prefix: None,
+            suffix: None,
+            nickname: None,
+            is_primary,
+            sort_order,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn the_primary_name_wins_else_the_first() {
+        let names = [named(0, false), named(1, true), named(2, false)];
+        assert_eq!(PersonName::primary(&names).map(|n| n.sort_order), Some(1));
+        let names = [named(0, false), named(1, false)];
+        assert_eq!(PersonName::primary(&names).map(|n| n.sort_order), Some(0));
+        assert!(PersonName::primary(&[]).is_none());
+    }
 
     #[test]
     fn test_display_name_full() {

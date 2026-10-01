@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::api::{ApiClient, ApiError, MediaListFilters, MediaListItem, MediaTagFacet};
 use crate::components::media_gallery::{MediaLibraryGrid, MediaLibraryTile};
 use crate::components::pager::Pager;
+use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 
@@ -445,25 +446,12 @@ fn MediaFilterPanel(facets: crate::api::MediaFacets, draft: Signal<Draft>) -> El
                         oninput: move |e: Event<FormData>| draft.write().linked_name = e.value(),
                     }
                 }
-                div { class: "sr-filter-group",
-                    label { {i18n.t("dictionary.media.event_years")} }
-                    div { class: "sr-date-range",
-                        input {
-                            r#type: "number",
-                            placeholder: "1800",
-                            aria_label: i18n.t("dictionary.media.from"),
-                            value: "{current.event_from}",
-                            oninput: move |e: Event<FormData>| draft.write().event_from = e.value(),
-                        }
-                        span { "\u{2013}" }
-                        input {
-                            r#type: "number",
-                            placeholder: "1900",
-                            aria_label: i18n.t("dictionary.media.to"),
-                            value: "{current.event_to}",
-                            oninput: move |e: Event<FormData>| draft.write().event_to = e.value(),
-                        }
-                    }
+                YearRange {
+                    label: i18n.t("dictionary.media.event_years"),
+                    from: current.event_from.clone(),
+                    to: current.event_to.clone(),
+                    on_from: move |value| draft.write().event_from = value,
+                    on_to: move |value| draft.write().event_to = value,
                 }
                 div { class: "sr-filter-group",
                     label { {i18n.t("dictionary.media.added")} }
@@ -473,14 +461,14 @@ fn MediaFilterPanel(facets: crate::api::MediaFacets, draft: Signal<Draft>) -> El
                         // the right control, not the date-phrase input.
                         input {
                             r#type: "date",
-                            aria_label: i18n.t("dictionary.media.from"),
+                            aria_label: i18n.t("common.from"),
                             value: "{current.added_from}",
                             oninput: move |e: Event<FormData>| draft.write().added_from = e.value(),
                         }
                         span { "\u{2013}" }
                         input {
                             r#type: "date",
-                            aria_label: i18n.t("dictionary.media.to"),
+                            aria_label: i18n.t("common.to"),
                             value: "{current.added_to}",
                             oninput: move |e: Event<FormData>| draft.write().added_to = e.value(),
                         }

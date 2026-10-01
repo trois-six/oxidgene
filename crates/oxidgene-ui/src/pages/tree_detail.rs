@@ -796,12 +796,7 @@ fn add_parent_context(
     let child_surname = data
         .names
         .get(&child_id)
-        .and_then(|names| {
-            names
-                .iter()
-                .find(|name| name.is_primary)
-                .or_else(|| names.first())
-        })
+        .and_then(oxidgene_core::types::PersonName::primary)
         .and_then(|name| name.full_surname())
         .filter(|surname| !surname.trim().is_empty());
     PersonFormCreateContext::AddParent {

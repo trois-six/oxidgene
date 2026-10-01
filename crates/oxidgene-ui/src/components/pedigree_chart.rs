@@ -772,10 +772,7 @@ impl PedigreeData {
         let Some(names) = self.names.get(&person_id) else {
             return (None, None, None);
         };
-        let name = names
-            .iter()
-            .find(|n| n.is_primary)
-            .or_else(|| names.first());
+        let name = PersonName::primary(names);
         match name {
             // Full surname: card labels are display, so the particle belongs.
             // This is the single choke point every `PersonNode` label flows

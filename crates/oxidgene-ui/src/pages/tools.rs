@@ -19,6 +19,7 @@ use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
+use crate::components::tabs::{Tab, Tabs, use_stored_tab};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::date_words::{self, Form, YearStart, Ymd};
@@ -47,8 +48,8 @@ enum ToolsTab {
     Words,
 }
 
-impl ToolsTab {
-    const ALL: [Self; 6] = [
+impl Tab for ToolsTab {
+    const ALL: &'static [Self] = &[
         Self::Anomalies,
         Self::Places,
         Self::Ancestry,
@@ -68,10 +69,6 @@ impl ToolsTab {
             Self::Words => "words",
         }
     }
-
-    fn parse(key: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|tab| tab.key() == key)
-    }
 }
 
 #[component]
@@ -80,22 +77,7 @@ pub fn Tools(tree_id: String) -> Element {
     use_ui_load_trace(UiPage::Tools);
     let tid = tree_id.parse::<Uuid>().ok();
 
-    // Unknown until the browser answers, so that no tab mounts, and asks
-    // for its data, before the one the viewer left the page on.
-    let mut tab = use_signal(|| None::<ToolsTab>);
-    use_effect(move || {
-        spawn(async move {
-            let stored_tab = stored(TAB_STORAGE_KEY)
-                .await
-                .as_deref()
-                .and_then(ToolsTab::parse);
-            tab.set(Some(stored_tab.unwrap_or(ToolsTab::ALL[0])));
-        });
-    });
-    let mut choose_tab = move |value: ToolsTab| {
-        tab.set(Some(value));
-        store(TAB_STORAGE_KEY, value.key());
-    };
+    let (tab, choose_tab) = use_stored_tab::<ToolsTab>(TAB_STORAGE_KEY);
 
     let page = use_tree_page(&tree_id);
 
@@ -107,17 +89,14 @@ pub fn Tools(tree_id: String) -> Element {
             selected_person_id: page.selected_person_id,
             page_class: "tools-page",
             content_class: "tools-content",
-            div { class: "dict-tabs stats-tabs", role: "tablist",
-                for choice in ToolsTab::ALL {
-                    button {
-                        key: "{choice.key()}",
-                        role: "tab",
-                        "aria-selected": tab() == Some(choice),
-                        class: if tab() == Some(choice) { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| choose_tab(choice),
-                        {i18n.t(&format!("tools.tab.{}", choice.key()))}
-                    }
-                }
+            Tabs {
+                tabs: ToolsTab::ALL
+                    .iter()
+                    .map(|choice| (*choice, i18n.t(&format!("tools.tab.{}", choice.key()))))
+                    .collect::<Vec<_>>(),
+                current: tab(),
+                on_select: choose_tab,
+                class: "stats-tabs",
             }
             match (tab(), tid) {
                 (Some(ToolsTab::Anomalies), Some(tid)) => rsx! {

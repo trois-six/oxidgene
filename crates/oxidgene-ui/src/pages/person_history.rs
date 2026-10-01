@@ -10,6 +10,7 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
+use crate::components::paged_list::use_paged_list;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::use_i18n;
@@ -33,10 +34,6 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     use_track_current_person(parsed.0, parsed.1);
 
     let mut refresh = use_signal(|| 0u32);
-    // Pages loaded after the first, and where the next one starts.
-    let mut more = use_signal(Vec::<RecordVersion>::new);
-    let mut next_cursor = use_signal(|| None::<String>);
-    let mut loading_more = use_signal(|| false);
     // The version shown, and the one it is compared with; `None` follows the
     // latest and its predecessor.
     let mut selected = use_signal(|| None::<i32>);
@@ -46,37 +43,23 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
 
     let page = use_tree_page(&tree_id);
 
-    let api_first = api.clone();
-    let first_page = use_traced_resource(load_trace.clone(), "versions", move || {
-        let api = api_first.clone();
+    let api_versions = api.clone();
+    let list = use_paged_list("versions", move |cursor: Option<String>| {
+        let api = api_versions.clone();
         let (tid, pid) = ids();
         let _tick = refresh();
         async move {
             let (Some(tid), Some(pid)) = (tid, pid) else {
                 return Err(i18n.t("common.invalid_ids"));
             };
-            api.list_versions(tid, RecordType::Person, pid, None)
+            api.list_versions(tid, RecordType::Person, pid, cursor.as_deref())
                 .await
                 .map_err(|e| e.to_string())
         }
     });
-
-    // A new first page starts the list over.
-    use_effect(move || {
-        if let Some(Ok(page)) = &*first_page.read() {
-            more.set(Vec::new());
-            next_cursor.set(page_end(&page.page_info));
-        }
-    });
-
-    let versions = use_memo(move || match &*first_page.read() {
-        Some(Ok(page)) => page
-            .edges
-            .iter()
-            .map(|edge| edge.node.clone())
-            .chain(more.read().iter().cloned())
-            .collect::<Vec<RecordVersion>>(),
-        _ => Vec::new(),
+    let versions = use_memo({
+        let list = list.clone();
+        move || list.items()
     });
     let latest = versions.read().first().map(|v| v.version);
     let shown_number = selected().or(latest);
@@ -106,26 +89,8 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     let is_deleted = versions.read().first().is_some_and(|v| v.deleted);
 
     let load_more = {
-        let api = api.clone();
-        move |_| {
-            let api = api.clone();
-            let (Some(tid), Some(pid)) = ids() else {
-                return;
-            };
-            let Some(cursor) = next_cursor() else { return };
-            loading_more.set(true);
-            spawn(async move {
-                let page = api
-                    .list_versions(tid, RecordType::Person, pid, Some(&cursor))
-                    .await;
-                if let Ok(page) = page {
-                    more.write()
-                        .extend(page.edges.into_iter().map(|edge| edge.node));
-                    next_cursor.set(page_end(&page.page_info));
-                }
-                loading_more.set(false);
-            });
-        }
+        let list = list.clone();
+        move |()| list.load_more()
     };
 
     let on_restore = {
@@ -213,7 +178,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
                 }
             }
 
-            match &*first_page.read() {
+            match &*list.first.read() {
                 None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
                 Some(Err(error)) => rsx! {
                     div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
@@ -228,8 +193,8 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
                         VersionTimeline {
                             versions: versions(),
                             shown: shown_number,
-                            has_more: next_cursor().is_some(),
-                            loading_more: loading_more(),
+                            has_more: list.has_more(),
+                            loading_more: list.loading_more(),
                             on_pick: move |number| {
                                 selected.set(Some(number));
                                 compare_with.set(None);
@@ -264,14 +229,6 @@ fn person_name_in(versions: &[RecordVersion]) -> Option<String> {
         RecordSnapshot::Person(person) => snapshot_name(person),
         _ => None,
     })
-}
-
-/// Where the next page of versions starts, if there is one.
-fn page_end(page_info: &oxidgene_core::types::PageInfo) -> Option<String> {
-    page_info
-        .has_next_page
-        .then(|| page_info.end_cursor.clone())
-        .flatten()
 }
 
 /// Version `wanted` of the person: from the pages `loaded`, else fetched.

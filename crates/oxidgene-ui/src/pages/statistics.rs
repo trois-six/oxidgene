@@ -21,6 +21,7 @@ use crate::components::charts::{
 };
 use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
+use crate::components::tabs::{Tab, Tabs, use_stored_tab};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::prefs::{store, stored};
@@ -56,8 +57,8 @@ enum StatsTab {
     Growth,
 }
 
-impl StatsTab {
-    const ALL: [Self; 7] = [
+impl Tab for StatsTab {
+    const ALL: &'static [Self] = &[
         Self::Overview,
         Self::Population,
         Self::Families,
@@ -78,10 +79,6 @@ impl StatsTab {
             Self::Records => "records",
             Self::Growth => "growth",
         }
-    }
-
-    fn parse(key: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|tab| tab.key() == key)
     }
 }
 
@@ -104,21 +101,8 @@ fn want_once(mut wanted: Signal<bool>) {
     }
 }
 
-/// Restores the viewer's tab, interval and dates option, asking for what
-/// the tab needs.
-async fn restore_choices(
-    mut tab: Signal<StatsTab>,
-    mut interval: Signal<i32>,
-    mut approximate: Signal<Option<bool>>,
-    want: impl Fn(StatsTab),
-) {
-    let stored_tab = stored(TAB_STORAGE_KEY)
-        .await
-        .as_deref()
-        .and_then(StatsTab::parse)
-        .unwrap_or(StatsTab::Overview);
-    tab.set(stored_tab);
-    want(stored_tab);
+/// Restores the viewer's interval and dates option.
+async fn restore_choices(mut interval: Signal<i32>, mut approximate: Signal<Option<bool>>) {
     if let Some(value) = stored(INTERVAL_STORAGE_KEY)
         .await
         .and_then(|s| s.parse::<i32>().ok())
@@ -139,7 +123,7 @@ pub fn Statistics(tree_id: String) -> Element {
     let page = use_tree_page(&tree_id);
     let tid = tree_id.parse::<Uuid>().ok();
 
-    let mut tab = use_signal(|| StatsTab::Overview);
+    let (tab, choose_tab) = use_stored_tab::<StatsTab>(TAB_STORAGE_KEY);
     let interval = use_signal(|| DEFAULT_INTERVAL);
     // The years the period charts cover, shared by the two tabs that show
     // them; `None` until the viewer moves the ruler.
@@ -161,13 +145,14 @@ pub fn Statistics(tree_id: String) -> Element {
         want_once(wanted);
     };
     use_effect(move || {
-        spawn(restore_choices(tab, interval, approximate, want));
+        spawn(restore_choices(interval, approximate));
     });
-    let mut choose_tab = move |value: StatsTab| {
-        tab.set(value);
-        want(value);
-        store(TAB_STORAGE_KEY, value.key());
-    };
+    // The tab shown asks for its data the first time it shows.
+    use_effect(move || {
+        if let Some(value) = tab() {
+            want(value);
+        }
+    });
     let mut choose_approximate = move |value: bool| {
         approximate.set(Some(value));
         store(APPROXIMATE_STORAGE_KEY, &value.to_string());
@@ -255,28 +240,26 @@ pub fn Statistics(tree_id: String) -> Element {
             },
             // The tabs show once the viewer's stored tab is known.
             if approximate().is_some() {
-                div { class: "dict-tabs stats-tabs", role: "tablist",
-                    for choice in StatsTab::ALL {
-                        button {
-                            key: "{choice.key()}",
-                            role: "tab",
-                            "aria-selected": tab() == choice,
-                            class: if tab() == choice { "dict-tab active" } else { "dict-tab" },
-                            onclick: move |_| choose_tab(choice),
-                            {i18n.t(&format!("stats.tab.{}", choice.key()))}
-                        }
-                    }
+                Tabs {
+                    tabs: StatsTab::ALL
+                        .iter()
+                        .map(|choice| (*choice, i18n.t(&format!("stats.tab.{}", choice.key()))))
+                        .collect::<Vec<_>>(),
+                    current: tab(),
+                    on_select: choose_tab,
+                    class: "stats-tabs",
                 }
             }
             match (tab(), stats_value) {
-                (StatsTab::Growth, _) => match growth_value {
+                (None, _) => rsx! {},
+                (Some(StatsTab::Growth), _) => match growth_value {
                     None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
                     Some(value) => measure_ui("statistics_growth", || {
                         render_growth(value, Utc::now().date_naive(), &i18n)
                     }),
                 },
                 (_, None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-                (current, Some(value)) => rsx! {
+                (Some(current), Some(value)) => rsx! {
                     match current {
                         StatsTab::Overview => render_overview(value, &i18n),
                         StatsTab::Population => rsx! {
@@ -1534,15 +1517,10 @@ fn render_lists(
     rsx! {
         section { class: "stats-section",
             h2 { class: "stats-section-title", {i18n.t("stats.section.records")} }
-            div { class: "dict-tabs",
-                for (value, key) in tabs {
-                    button {
-                        key: "{key}",
-                        class: if tab() == value { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| tab.set(value),
-                        {i18n.t(key)}
-                    }
-                }
+            Tabs {
+                tabs: tabs.iter().map(|(value, key)| (*value, i18n.t(key))).collect::<Vec<_>>(),
+                current: Some(tab()),
+                on_select: move |value| tab.set(value),
             }
             {body}
         }

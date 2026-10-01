@@ -470,7 +470,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     } else {
         match &*names_resource.read() {
             Some(Ok(names)) => {
-                let primary = names.iter().find(|n| n.is_primary).or(names.first());
+                let primary = oxidgene_core::types::PersonName::primary(names);
                 match primary {
                     Some(n) => {
                         let dn = n.display_name();

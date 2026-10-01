@@ -245,7 +245,7 @@ pub fn resolve_name(
     let Some(names) = name_map.get(&person_id) else {
         return unnamed();
     };
-    let Some(primary) = names.iter().find(|n| n.is_primary).or(names.first()) else {
+    let Some(primary) = oxidgene_core::types::PersonName::primary(names) else {
         return unnamed();
     };
     let display = primary.display_name();

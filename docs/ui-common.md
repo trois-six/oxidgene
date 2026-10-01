@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:43:42Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -661,6 +661,24 @@ card that is a `dialog` with `aria-modal="true"`, named by its title.
 - The card takes the focus when it opens unless one of its fields already has
   it, so Escape works straight away; Escape inside an open list or picker
   closes that list first.
+
+### 4.14 Tabs
+
+One tab bar serves the Statistics and Tools pages, the Statistics records
+lists and the Dictionary: a `tablist` of `tab` buttons, the selected one
+marked `aria-selected` and highlighted. A page that remembers the tab a
+viewer left it on (Statistics, Tools) reads it from the browser before any
+tab mounts, so no tab asks for its data before the one shown; choosing a tab
+stores it. On narrow screens the bar scrolls sideways rather than squeezing
+its labels.
+
+### 4.15 Year range
+
+One "between two years" filter serves the search filters (born, died, any
+event) and the media library (event years): two year fields under one
+label, each named *From* and *To* for assistive technology. What is typed is
+kept as typed until it reads as a year, so a half-typed year is never
+rejected mid-keystroke.
 
 ## 5. Accessibility
 

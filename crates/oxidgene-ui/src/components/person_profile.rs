@@ -782,10 +782,7 @@ fn evidence_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<MediaWith
 }
 
 fn header_name(own_names: &[PersonName], i18n: &I18n) -> HeaderName {
-    let primary = own_names
-        .iter()
-        .find(|n| n.is_primary)
-        .or(own_names.first());
+    let primary = PersonName::primary(own_names);
     let Some(primary) = primary else {
         return HeaderName {
             display_name: i18n.t("common.unnamed"),
