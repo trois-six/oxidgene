@@ -13,9 +13,9 @@
 //! reader continues — notes, texts, causes, pages and a source's title,
 //! author, publication and abbreviation — between two non-space characters.
 //!
-//! And it writes what `ged_io` drops from a record it does write: a source's
-//! `PUBL`, which its writer leaves out, goes in as an [`Addition`] after the
-//! line opening the record.
+//! And it writes what `ged_io` drops from a record it does write: a
+//! person's or a family's `RESN` and a source's `PUBL`, which its writer
+//! leaves out, go in as an [`Addition`] after the line opening the record.
 
 use std::collections::HashMap;
 

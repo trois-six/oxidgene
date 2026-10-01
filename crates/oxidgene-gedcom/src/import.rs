@@ -538,7 +538,8 @@ fn import_multimedia(
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
-            // GEDCOM has no privacy tag; a scan arrives following the tree.
+            // GEDCOM 5.5.1 gives an OBJE no RESN; a scan arrives following
+            // the tree.
             privacy: Privacy::default(),
             source_media_type,
             // GEDCOM has no field for this; it stays unset until a user
@@ -2635,7 +2636,8 @@ fn resolve_or_create_media(
             date_qualifier: Default::default(),
             date_value2: None,
             calendar: Default::default(),
-            // GEDCOM has no privacy tag; a scan arrives following the tree.
+            // GEDCOM 5.5.1 gives an OBJE no RESN; a scan arrives following
+            // the tree.
             privacy: Privacy::default(),
             source_media_type,
             document_category: None,

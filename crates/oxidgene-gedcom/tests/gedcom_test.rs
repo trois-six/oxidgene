@@ -2300,6 +2300,27 @@ const RESTRICTION_GEDCOM: &str = "\
 0 TRLR
 ";
 
+/// A private person or family is exported with `RESN confidential` and comes
+/// back private; a record following the tree carries no `RESN`.
+#[test]
+fn privacy_survives_a_round_trip_as_resn() {
+    let imported = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7()).expect("imports");
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("0 @I1@ INDI\n1 RESN confidential\n"),
+        "{exported}"
+    );
+    assert!(exported.contains("0 @F1@ FAM\n1 RESN confidential\n"));
+    assert_eq!(exported.matches("1 RESN").count(), 4, "{exported}");
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let privacy = |result: &oxidgene_gedcom::ImportResult| {
+        let mut persons: Vec<Privacy> = result.persons.iter().map(|p| p.privacy).collect();
+        persons.push(result.families[0].privacy);
+        persons
+    };
+    assert_eq!(privacy(&back), privacy(&imported));
+}
+
 #[test]
 fn test_import_resn_withholding_a_record_makes_it_private() {
     let result = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7()).unwrap();

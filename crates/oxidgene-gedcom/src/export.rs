@@ -41,7 +41,7 @@ use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
     Person, PersonName, Place, Source, Vignette,
 };
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, Sex, SpouseRole};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
 use crate::{
     DocumentExtension, DocumentMetadataExtension, ExportResult, MediaMetadataExtension,
@@ -168,7 +168,7 @@ pub fn export_gedcom(
     let gedcom = crate::finish::finish(
         &gedcom,
         |owner| index.notes_of(owner),
-        &index.additions(sources),
+        &index.additions(persons, families, sources),
     );
     let (gedcom, extension_warnings) = inject_extensions(gedcom, media, vignettes, &index);
     warnings.extend(extension_warnings);
@@ -426,10 +426,40 @@ impl ExportIndex<'_> {
         }
     }
 
-    /// What the text `ged_io` writes lacks, by record xref: each source's
-    /// publication facts, as `ged_io` 0.16 never writes a `PUBL`.
-    fn additions(&self, sources: &[Source]) -> HashMap<String, Vec<crate::finish::Addition>> {
+    /// What the text `ged_io` writes lacks, by record xref: the `RESN` of a
+    /// private person or family, and each source's publication facts —
+    /// `ged_io` 0.16 writes neither a record's `RESN` nor a `PUBL`.
+    ///
+    /// A private record is `RESN confidential`, GEDCOM's word for data its
+    /// owner marked to be kept from reports and exports, and the one the
+    /// import reads back as private. `Public` has no `RESN` to be written as:
+    /// it comes back as following the tree.
+    fn additions(
+        &self,
+        persons: &[Person],
+        families: &[Family],
+        sources: &[Source],
+    ) -> HashMap<String, Vec<crate::finish::Addition>> {
         let mut additions: HashMap<String, Vec<crate::finish::Addition>> = HashMap::new();
+        let private = persons
+            .iter()
+            .filter(|p| p.privacy == Privacy::Private)
+            .filter_map(|p| self.xrefs.person.get(&p.id))
+            .chain(
+                families
+                    .iter()
+                    .filter(|f| f.privacy == Privacy::Private)
+                    .filter_map(|f| self.xrefs.family.get(&f.id)),
+            );
+        for xref in private {
+            additions
+                .entry(xref.clone())
+                .or_default()
+                .push(crate::finish::Addition {
+                    tag: "RESN",
+                    text: "confidential".to_string(),
+                });
+        }
         for src in sources {
             let (Some(xref), Some(publisher)) = (
                 self.xrefs.source.get(&src.id),
