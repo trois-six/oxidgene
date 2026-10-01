@@ -10,6 +10,7 @@
 //! identically.
 
 use async_graphql::{Error, ID, InputObject, MaybeUndefined, Result};
+use oxidgene_core::OxidGeneError;
 use std::collections::HashMap;
 
 use super::mutation::{patch, patch_id, patch_scalar};
@@ -174,7 +175,11 @@ pub(crate) fn geneanet_deposit_sizes(
         .map(|entry| {
             u64::try_from(entry.size)
                 .map(|size| (entry.deposit_id, size))
-                .map_err(|_| Error::new("Geneanet deposit sizes cannot be negative"))
+                .map_err(|_| {
+                    Error::from(OxidGeneError::Validation(
+                        "Geneanet deposit sizes cannot be negative".into(),
+                    ))
+                })
         })
         .collect()
 }
@@ -967,7 +972,9 @@ impl TryFrom<ImageSourceInput> for oxidgene_core::types::ImageSource {
 
     fn try_from(input: ImageSourceInput) -> Result<Self, Self::Error> {
         use super::types::GqlImageSourceKind;
-        let missing = |field: &str| async_graphql::Error::new(format!("{field} is required"));
+        let missing = |field: &str| {
+            async_graphql::Error::from(OxidGeneError::Validation(format!("{field} is required")))
+        };
         Ok(match input.kind {
             GqlImageSourceKind::Remote => Self::Remote {
                 url: input.url.ok_or_else(|| missing("url"))?,

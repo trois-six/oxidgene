@@ -4827,3 +4827,36 @@ async fn graphql_responses_are_compressed_like_rest_ones() {
         Some("gzip")
     );
 }
+
+/// The resolvers' own refusals carry a domain error, so they are reported
+/// with its code like every other failure: a malformed `.gw`, an unknown
+/// entity type, an image source missing its payload.
+#[tokio::test]
+async fn resolver_refusals_report_the_domain_error_code() {
+    let app = setup_app().await;
+    let tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Refusals" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for query in [
+        r#"{ inspectGeneweb(gwBase64: "not base64!", fileName: "family.gw") { personCount } }"#
+            .to_string(),
+        format!(
+            r#"{{ entityMedia(treeId: "{tree_id}", entityType: "nothing", entityId: "{tree_id}") {{ linkId }} }}"#
+        ),
+        format!(r#"{{ imageData(treeId: "{tree_id}", sources: [{{ kind: THUMBNAIL }}]) }}"#),
+    ] {
+        let response = graphql(app.clone(), &query, None).await;
+        assert_eq!(
+            response["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+            "{query}: {response}"
+        );
+    }
+}

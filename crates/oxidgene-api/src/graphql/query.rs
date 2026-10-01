@@ -1176,9 +1176,9 @@ impl QueryRoot {
         let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let target = MediaLinkTarget::parse(&entity_type).ok_or_else(|| {
-            async_graphql::Error::new(format!(
+            async_graphql::Error::from(OxidGeneError::Validation(format!(
                 "unknown entityType `{entity_type}`; expected person, family, event or source"
-            ))
+            )))
         })?;
         let entity_id = uuid(&entity_id)?;
         let resource = match target {
@@ -1288,9 +1288,10 @@ impl QueryRoot {
                 VignetteRepo::list_for_event(db, event_id).await?
             }
             _ => {
-                return Err(async_graphql::Error::new(
-                    "exactly one of personId or eventId is required",
-                ));
+                return Err(OxidGeneError::Validation(
+                    "exactly one of personId or eventId is required".into(),
+                )
+                .into());
             }
         };
         Ok(vignettes.into_iter().map(Into::into).collect())
@@ -1395,7 +1396,7 @@ impl QueryRoot {
     ) -> Result<GqlGeneanetInspection> {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(gw_base64)
-            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+            .map_err(|error| OxidGeneError::Validation(format!("invalid .gw base64: {error}")))?;
         let inspection = crate::service::geneanet::inspect_gw(&bytes, &file_name)?;
         Ok(GqlGeneanetInspection {
             person_count: inspection.person_count as i64,
@@ -1436,7 +1437,7 @@ impl QueryRoot {
         require_local_file_access(ctx)?;
         let gw = base64::engine::general_purpose::STANDARD
             .decode(&input.gw_base64)
-            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+            .map_err(|error| OxidGeneError::Validation(format!("invalid .gw base64: {error}")))?;
         let deposit_sizes = geneanet_deposit_sizes(&input.deposit_sizes)?;
         let (archives, _) = crate::service::geneanet::index_archives(&input.archive_paths);
         Ok(crate::service::geneanet::preview(
@@ -1459,7 +1460,7 @@ impl QueryRoot {
         require_local_file_access(ctx)?;
         let gw = base64::engine::general_purpose::STANDARD
             .decode(&input.gw_base64)
-            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+            .map_err(|error| OxidGeneError::Validation(format!("invalid .gw base64: {error}")))?;
         let deposit_sizes = geneanet_deposit_sizes(&input.deposit_sizes)?;
         let (archives, _) = crate::service::geneanet::index_archives(&input.archive_paths);
         Ok(crate::service::geneanet::plan(

@@ -1229,7 +1229,7 @@ impl MutationRoot {
             account: input.account,
             media,
         })
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+        .map_err(|error| oxidgene_core::OxidGeneError::Validation(error.to_string()))?;
         Ok(GqlGeneanetSessionArchive {
             archive_base64: base64::engine::general_purpose::STANDARD.encode(archive),
         })
@@ -1269,7 +1269,7 @@ impl MutationRoot {
             crate::service::session_media::decode(upload)
         })
         .await
-        .map_err(|_| async_graphql::Error::new("session decoding failed"))??;
+        .map_err(|_| oxidgene_core::OxidGeneError::Internal("session decoding failed".into()))??;
         let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
             .map(|manifest| manifest.view_count as i64)
             .unwrap_or(0);
@@ -1306,7 +1306,9 @@ impl MutationRoot {
         let tree_id = live_tree(ctx, &tree_id).await?;
         let gw = base64::engine::general_purpose::STANDARD
             .decode(&input.gw_base64)
-            .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+            .map_err(|error| {
+                oxidgene_core::OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
+            })?;
         let _intake = crate::service::intake::slot().await?;
         let job_id = crate::service::background_job::stage_geneanet_import(
             db,
