@@ -16,6 +16,7 @@ use crate::components::history_diff::{
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
+use crate::ui_observability::use_ui_resource;
 
 /// The Tools › History section of the tree settings.
 #[component]
@@ -29,7 +30,7 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
     let mut loading_more = use_signal(|| false);
 
     let api_first = api.clone();
-    let first_page = use_resource(move || {
+    let first_page = use_ui_resource("audit_entries", move || {
         let api = api_first.clone();
         let category = category();
         let _tick = refresh();
@@ -208,7 +209,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
     let mut restore_error = use_signal(|| None::<String>);
 
     let api_first = api.clone();
-    let first_page = use_resource(move || {
+    let first_page = use_ui_resource("audit_changes", move || {
         let api = api_first.clone();
         async move {
             api.list_audit_changes(tree_id, entry_id, None)

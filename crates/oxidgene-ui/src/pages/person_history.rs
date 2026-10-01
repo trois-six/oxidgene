@@ -16,10 +16,12 @@ use crate::components::tree_cache::{fetch_tree_cached, use_track_current_person,
 use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id/history`.
 #[component]
 pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
+    let load_trace = use_ui_load_trace(UiPage::PersonHistory);
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let tree_cache = use_tree_cache();
@@ -43,7 +45,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     let mut restore_error = use_signal(|| None::<String>);
 
     let api_tree = api.clone();
-    let tree_resource = use_resource(move || {
+    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
         let api = api_tree.clone();
         let (tid, _) = ids();
         let _generation = tree_cache.generation();
@@ -51,7 +53,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     });
 
     let api_first = api.clone();
-    let first_page = use_resource(move || {
+    let first_page = use_traced_resource(load_trace.clone(), "versions", move || {
         let api = api_first.clone();
         let (tid, pid) = ids();
         let _tick = refresh();
@@ -92,7 +94,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     // The version compared against, fetched when it lies beyond the pages
     // loaded so far.
     let api_before = api.clone();
-    let before_resource = use_resource(move || {
+    let before_resource = use_traced_resource(load_trace, "compared_version", move || {
         let api = api_before.clone();
         let (tid, pid) = ids();
         let loaded = versions();
