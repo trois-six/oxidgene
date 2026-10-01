@@ -839,12 +839,21 @@ current-version projections with active people and rebuilds when necessary.
 ### 4.5 Deletion and recovery
 
 Deleting a tree flags it and returns; a background worker then purges its rows,
-its media files, and its jobs' files. On SQLite the purge ends by erasing what
-the deleted rows leave readable in the database file: it merges the full-text
-index (FTS5 keeps a deleted row's words until its segments merge), rewrites the
-file from its live content (`VACUUM`, since freed pages keep their bytes) and
-empties the write-ahead log. That rewrite holds the database for about as long
-as copying the file, which a purge, rare and in the background, can afford.
+its media files, and its jobs' files. On SQLite nothing of the purged tree
+stays readable in the database file. Its deletions run with
+`PRAGMA secure_delete` on, set for their transaction's connection and restored
+after, so SQLite overwrites the deleted bytes with zeros as it frees them: the
+cost is that of the tree, not of the file. The purge then merges the full-text
+index (FTS5 keeps a deleted row's words until its segments merge), in the same
+mode, gives the freed pages back to the file system with
+`PRAGMA incremental_vacuum` and empties the write-ahead log, whose older frames
+still hold the pages as they were, with a `TRUNCATE` checkpoint. The
+incremental vacuum needs `auto_vacuum = INCREMENTAL`, which only takes effect
+when set before the first table: every connection sets it, so a database file
+the application creates has it. In an older file it does nothing until the
+startup reclaiming pass rewrites the file with `VACUUM`, which that pass does
+only past 20 MB of free pages; a file in incremental mode reclaims its free
+pages at every start instead.
 On PostgreSQL deleted rows' space is reused by autovacuum over time; nothing
 rewrites it at once.
 

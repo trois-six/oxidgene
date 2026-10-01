@@ -17,7 +17,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use oxidgene_db::repo::{BackgroundJobRepo, PersonSearchRepo, TreeRepo};
+use oxidgene_core::OxidGeneError;
+use oxidgene_db::repo::{BackgroundJobRepo, ErasingTransaction, PersonSearchRepo, TreeRepo};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
 use tracing::{Instrument as _, error, info, warn};
@@ -176,7 +177,7 @@ async fn purge_steps(
     let started = Instant::now();
 
     // Projections first: the search table has no FK to cascade through.
-    profiles.invalidate_tree(db, tree_id).await.map_err(|_| {
+    drop_projections(db, profiles, tree_id).await.map_err(|_| {
         (
             "projection_invalidation",
             "could not drop projections; retrying at next start",
@@ -205,7 +206,7 @@ async fn purge_steps(
         )
     })?;
 
-    TreeRepo::purge(db, tree_id)
+    delete_tree_rows(db, tree_id)
         .await
         .map_err(|_| ("tree_purge", "purge failed; retrying at next start"))?;
     erase_purged_content(db).await;
@@ -216,12 +217,33 @@ async fn purge_steps(
     Ok(())
 }
 
+/// Drop the tree's projections and search rows, zeroing what they held.
+async fn drop_projections(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    let erasing = ErasingTransaction::begin(db).await?;
+    let outcome = profiles
+        .invalidate_tree(erasing.connection(), tree_id)
+        .await;
+    erasing.finish(outcome).await
+}
+
+/// Delete the tree's row and, by cascade, every row it owns, zeroing what
+/// they held: one statement, so one short transaction.
+async fn delete_tree_rows(db: &DatabaseConnection, tree_id: Uuid) -> Result<(), OxidGeneError> {
+    let erasing = ErasingTransaction::begin(db).await?;
+    let outcome = TreeRepo::purge(erasing.connection(), tree_id).await;
+    erasing.finish(outcome).await
+}
+
 /// Remove the stored inputs and artifacts of every job of `tree_id`.
 async fn delete_job_objects(
     db: &DatabaseConnection,
     media: &dyn MediaStore,
     tree_id: Uuid,
-) -> Result<(), oxidgene_core::OxidGeneError> {
+) -> Result<(), OxidGeneError> {
     for job_id in BackgroundJobRepo::ids_in_tree(db, tree_id).await? {
         media.delete_job(job_id).await?;
     }
@@ -229,13 +251,21 @@ async fn delete_job_objects(
 }
 
 /// Leave nothing of the purged rows readable in the database file: the words
-/// the full-text index still holds, then the freed pages and the log.
+/// the full-text index still holds — merged away, the segments that held
+/// them zeroed as they are freed — then the free pages and the log.
 async fn erase_purged_content(db: &DatabaseConnection) {
-    if PersonSearchRepo::merge_index(db).await.is_err() {
+    if merge_search_index(db).await.is_err() {
         warn!(
             error = "search_index_merge",
             "could not drop the purged tree's words from the search index"
         );
     }
     oxidgene_db::repo::erase_deleted_content(db).await;
+}
+
+/// Merge the full-text index in an erasing transaction.
+async fn merge_search_index(db: &DatabaseConnection) -> Result<(), OxidGeneError> {
+    let erasing = ErasingTransaction::begin(db).await?;
+    let outcome = PersonSearchRepo::merge_index(erasing.connection()).await;
+    erasing.finish(outcome).await
 }

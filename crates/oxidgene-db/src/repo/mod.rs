@@ -42,7 +42,8 @@ pub use background_job::{
 };
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{
-    connect, erase_deleted_content, refresh_statistics, rollback_migrations, run_migrations,
+    ErasingTransaction, connect, erase_deleted_content, refresh_statistics, rollback_migrations,
+    run_migrations,
 };
 pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, FamilyNameRename,

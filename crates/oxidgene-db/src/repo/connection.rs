@@ -1,9 +1,10 @@
 //! Database connection and migration utilities.
 
-use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
+use oxidgene_core::error::OxidGeneError;
+use sea_orm::sqlx::sqlite::{SqliteAutoVacuum, SqliteJournalMode, SqliteSynchronous};
 use sea_orm::{
-    ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, DbErr,
-    Statement,
+    ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
+    DatabaseTransaction, DbErr, Statement, TransactionTrait,
 };
 use sea_orm_migration::MigratorTrait;
 use tracing::{info, warn};
@@ -31,6 +32,13 @@ use crate::Migrator;
 /// is the last few commits, never the file. Both pragmas are set per
 /// connection, so every connection in the pool gets them. In-memory databases
 /// have no log and silently keep their `memory` journal.
+///
+/// `auto_vacuum=INCREMENTAL` lets [`erase_deleted_content`] give the pages a
+/// purge frees back to the file system without rewriting the file. SQLite
+/// records it in the file only when it is set before the first table, so it
+/// takes effect on the databases this call creates; on an older file it
+/// changes nothing until a `VACUUM` (see [`run_migrations`]'s reclaiming
+/// pass).
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
     let mut opts = ConnectOptions::new(database_url);
     opts.sqlx_logging(false);
@@ -38,6 +46,7 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
     opts.record_stmt_in_spans(true);
     opts.map_sqlx_sqlite_opts(|sqlite| {
         sqlite
+            .auto_vacuum(SqliteAutoVacuum::Incremental)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
     });
@@ -124,32 +133,103 @@ async fn optimize_statistics(db: &DatabaseConnection) {
     }
 }
 
-/// Erase from the SQLite file the bytes of rows deleted so far.
+/// A transaction whose deletions SQLite overwrites with zeros.
 ///
 /// SQLite only unlinks a deleted row: its bytes stay in the page it freed
-/// until something overwrites it, and in the write-ahead log until the log is
-/// reset, readable by anyone who opens the file. After a tree's purge that
-/// is a whole genealogy. `VACUUM` rewrites the file from its live content
-/// alone, and a `TRUNCATE` checkpoint then empties the log. Chosen over
-/// `secure_delete`, which would have to be set on every connection, would
-/// slow every delete, and reaches neither the log's frames nor the words
-/// FTS5 keeps (see `PersonSearchRepo::merge_index`, to run before this).
+/// until something overwrites them, readable by anyone who opens the file.
+/// After a tree's purge that is a whole genealogy. `PRAGMA secure_delete`
+/// zeroes them at delete time, so the cost is that of what is deleted, not
+/// of the file. It is a property of the connection, not of the transaction:
+/// the transaction is what keeps every statement on the connection it was
+/// set on, and [`Self::finish`] puts the previous value back before that
+/// connection returns to the pool, so other writes keep deleting at full
+/// speed. It reaches neither the write-ahead log's older frames nor the
+/// words FTS5 keeps after a delete: see [`erase_deleted_content`] and
+/// `PersonSearchRepo::merge_index`. PostgreSQL has no equivalent; there
+/// this is a plain transaction.
+#[derive(Debug)]
+pub struct ErasingTransaction {
+    txn: DatabaseTransaction,
+    /// `secure_delete` as it was before, on SQLite.
+    previous: Option<i32>,
+}
+
+impl ErasingTransaction {
+    /// Open the transaction on `db`'s writer.
+    pub async fn begin(db: &DatabaseConnection) -> Result<Self, OxidGeneError> {
+        let txn = db.begin().await.map_err(crate::repo::db_err)?;
+        let previous = match txn.get_database_backend() {
+            DatabaseBackend::Sqlite => Some(set_secure_delete(&txn, 1).await?),
+            _ => None,
+        };
+        Ok(Self { txn, previous })
+    }
+
+    /// The transaction to delete through.
+    pub fn connection(&self) -> &DatabaseTransaction {
+        &self.txn
+    }
+
+    /// Restore `secure_delete`, then commit when `outcome` — what was done
+    /// through [`Self::connection`] — succeeded, or roll back.
+    pub async fn finish<T>(self, outcome: Result<T, OxidGeneError>) -> Result<T, OxidGeneError> {
+        if let Some(previous) = self.previous {
+            // Not transactional: restored before a rollback as well.
+            set_secure_delete(&self.txn, previous).await?;
+        }
+        let value = outcome?;
+        self.txn.commit().await.map_err(crate::repo::db_err)?;
+        Ok(value)
+    }
+}
+
+/// Set `secure_delete` on `txn`'s connection to `value`; the value it had.
+async fn set_secure_delete(txn: &DatabaseTransaction, value: i32) -> Result<i32, OxidGeneError> {
+    let previous = txn
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "PRAGMA secure_delete",
+        ))
+        .await
+        .map_err(crate::repo::db_err)?
+        .and_then(|row| row.try_get::<i32>("", "secure_delete").ok())
+        .unwrap_or(0);
+    txn.execute_unprepared(&format!("PRAGMA secure_delete = {value}"))
+        .await
+        .map_err(crate::repo::db_err)?;
+    Ok(previous)
+}
+
+/// Erase from the SQLite file what rows deleted in an [`ErasingTransaction`]
+/// leave behind, and give the pages they freed back to the file system.
 ///
-/// The rewrite holds the database for as long as it takes — about as long
-/// as copying the file — which is why it follows a purge, a rare and
-/// background operation, and nothing else. Best effort: on failure the
-/// bytes stay until the next purge or the next start's reclaiming pass.
-/// PostgreSQL has no equivalent short of `VACUUM FULL`; its autovacuum
-/// reuses the space of deleted rows over time.
+/// The transaction zeroed the deleted bytes in their pages, but the
+/// write-ahead log can still hold earlier versions of those pages, in frames a
+/// checkpoint copied without erasing: a `TRUNCATE` checkpoint empties the
+/// log file. Before it, `PRAGMA incremental_vacuum` moves the free pages to
+/// the end of the file and cuts them off, which the checkpoint then
+/// applies — a cost proportional to the pages freed, where a `VACUUM`
+/// rewrites the whole file. That takes `auto_vacuum=INCREMENTAL`, which
+/// [`connect`] sets on the databases it creates; in an older file the
+/// vacuum does nothing and the zeroed pages stay, as free pages.
+///
+/// Run after `PersonSearchRepo::merge_index`, so that the pages the merge
+/// frees go too. Best effort: on failure the free pages stay until the next
+/// purge or the next start's reclaiming pass. PostgreSQL reuses the space of
+/// deleted rows through autovacuum and has no equivalent short of
+/// `VACUUM FULL`.
 pub async fn erase_deleted_content(db: &DatabaseConnection) {
     if db.get_database_backend() != DatabaseBackend::Sqlite {
         return;
     }
-    for step in ["VACUUM", "PRAGMA wal_checkpoint(TRUNCATE)"] {
+    for step in [
+        "PRAGMA incremental_vacuum",
+        "PRAGMA wal_checkpoint(TRUNCATE)",
+    ] {
         if db.execute_unprepared(step).await.is_err() {
             warn!(
                 error = "sqlite_erase",
-                "could not erase deleted rows from the database file"
+                "could not release the purged pages of the database file"
             );
             return;
         }
@@ -160,10 +240,26 @@ pub async fn erase_deleted_content(db: &DatabaseConnection) {
 /// 5,000 pages is about 20 MB, above the churn of ordinary use.
 const VACUUM_THRESHOLD_PAGES: i64 = 5_000;
 
-/// Reclaim significant unused SQLite space at startup, outside transactions.
-/// The free-page threshold avoids rewriting the file on ordinary starts.
+/// Reclaim unused SQLite space at startup, outside transactions.
+///
+/// A file in incremental auto-vacuum mode gives its free pages back with
+/// `PRAGMA incremental_vacuum`, at the cost of those pages alone. An older
+/// file is rewritten by `VACUUM`, and only past a free-page threshold so
+/// that ordinary starts do not copy it; as [`connect`] set
+/// `auto_vacuum=INCREMENTAL` on the connection, that rewrite also switches
+/// the file to incremental mode.
 async fn reclaim_free_pages(db: &DatabaseConnection) {
     if db.get_database_backend() != DatabaseBackend::Sqlite {
+        return;
+    }
+    if is_incremental(db).await {
+        if db
+            .execute_unprepared("PRAGMA incremental_vacuum")
+            .await
+            .is_err()
+        {
+            warn_vacuum_failed();
+        }
         return;
     }
     let Some(free_pages) = free_page_count(db).await else {
@@ -174,6 +270,18 @@ async fn reclaim_free_pages(db: &DatabaseConnection) {
     }
     info!(free_pages, "reclaiming free database pages (VACUUM)");
     vacuum(db).await;
+}
+
+/// Whether the SQLite file is in incremental auto-vacuum mode (2).
+async fn is_incremental(db: &DatabaseConnection) -> bool {
+    matches!(
+        db.query_one_raw(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "PRAGMA auto_vacuum",
+        ))
+        .await,
+        Ok(Some(row)) if row.try_get::<i32>("", "auto_vacuum").ok() == Some(2)
+    )
 }
 
 /// The number of free pages in the SQLite file, or `None` when it cannot be
@@ -209,7 +317,7 @@ async fn vacuum(db: &DatabaseConnection) {
 fn warn_vacuum_failed() {
     warn!(
         error = "sqlite_vacuum",
-        "VACUUM failed; database file stays at its current size"
+        "could not reclaim free pages; database file stays at its current size"
     );
 }
 

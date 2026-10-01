@@ -4548,3 +4548,64 @@ async fn a_purged_tree_leaves_no_trace_in_the_database_file() {
     .await
     .expect("the purge erases the tree from the database file");
 }
+
+/// A purge gives the pages its tree occupied back to the file system, by an
+/// incremental vacuum rather than a rewrite of the file: a database this
+/// application creates is in incremental auto-vacuum mode.
+#[tokio::test]
+async fn a_purge_shrinks_the_database_file() {
+    use oxidgene_db::sea_orm::{ConnectionTrait as _, DatabaseBackend, Statement};
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("fixture.db");
+    let db = oxidgene_db::repo::connect(&format!("sqlite://{}?mode=rwc", file.display()))
+        .await
+        .unwrap();
+    oxidgene_db::repo::run_migrations(&db).await.unwrap();
+    let auto_vacuum = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Sqlite,
+            "PRAGMA auto_vacuum",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get::<i32>("", "auto_vacuum")
+        .unwrap();
+    assert_eq!(auto_vacuum, 2, "incremental auto-vacuum");
+    let checkpointed_size = || async {
+        db.execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE)")
+            .await
+            .unwrap();
+        std::fs::metadata(&file).unwrap().len()
+    };
+    let empty = checkpointed_size().await;
+
+    let app = common::app_on(db.clone());
+    let (tree_id, _) = common::family_blocks_tree(&app, &db, 40).await;
+    let loaded = checkpointed_size().await;
+    assert!(loaded > empty + 1_000_000, "{empty} -> {loaded} bytes");
+
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    // The purge's own checkpoint applies the vacuum to the file.
+    let target = empty + (loaded - empty) / 4;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while std::fs::metadata(&file).unwrap().len() > target {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "the purge shrinks the file: {empty} empty, {loaded} loaded, {} now",
+            std::fs::metadata(&file).unwrap().len()
+        )
+    });
+}
