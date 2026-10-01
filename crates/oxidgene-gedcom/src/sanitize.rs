@@ -13,7 +13,11 @@
 //!   left out;
 //! - a `NOTE @N1@` pointing at a note record (GEDCOM 5.5.1), or an `SNOTE
 //!   @N1@` (7.0), which `ged_io` would keep as the literal text `@N1@`, is
-//!   replaced by the text of the record it points at.
+//!   replaced by the text of the record it points at;
+//! - the several notes of a person, or of one of their or a family's events
+//!   and attributes, which `ged_io` would collapse to the last one, are
+//!   joined into one with [`NOTE_SEPARATOR`] between them, for the import to
+//!   split apart again.
 //!
 //! The pass works one level-0 record at a time and leaves every record it does
 //! not need to touch byte for byte as it was. A file with nothing to repair is
@@ -21,6 +25,13 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+
+/// What joins the notes of a structure `ged_io` keeps only one note of.
+///
+/// A line of its own holding a control character no note is written with:
+/// [`sanitize`] removes it from the notes it joins, so splitting on it gives
+/// back exactly the notes the file held.
+pub(crate) const NOTE_SEPARATOR: &str = "\n\u{1}\n";
 
 /// A GEDCOM text ready for `ged_io`, and what had to change to get there.
 pub(crate) struct Sanitized<'a> {
@@ -209,7 +220,7 @@ fn repair_record(
     let (first, last) = (record.first()?, record.last()?);
     let mut edits: Vec<Option<Edit>> = record.iter().map(|_| None).collect();
     drop_unreadable_ages(record, &mut edits, warnings);
-    inline_note_pointers(record, notes, &mut edits, warnings);
+    rewrite_notes(record, notes, &mut edits, warnings);
     if edits.iter().all(Option::is_none) {
         return None;
     }
@@ -252,35 +263,128 @@ fn drop_unreadable_ages(
     }
 }
 
-/// Replaces each note pointer by the text of the record it points at, or
-/// leaves it out, with a warning, when the file has no such record.
-fn inline_note_pointers(
+/// Rewrites the notes `ged_io` would misread: a pointer becomes the text of
+/// the record it points at, and the notes of a structure that keeps only one
+/// are joined into one.
+fn rewrite_notes(
     record: &[Line<'_>],
     notes: &HashMap<&str, String>,
     edits: &mut [Option<Edit>],
     warnings: &mut Vec<String>,
 ) {
-    for (line, edit) in record.iter().zip(edits) {
-        let Some(level) = line.level.filter(|&level| level > 0) else {
-            continue;
-        };
-        if !matches!(line.tag, "NOTE" | "SNOTE") {
+    for (parent, group) in note_groups(record) {
+        if group.len() > 1 && keeps_one_note(record, parent) {
+            merge_notes(record, &group, notes, edits, warnings);
             continue;
         }
-        let Some(xref) = pointer(line.value) else {
+        for index in group {
+            let (line, level) = (record[index], record[index].level.unwrap_or(1));
+            if pointer(line.value).is_some() {
+                edits[index] = Some(match note_text(record, index, notes, warnings) {
+                    Some(text) => Edit::Replace(note_lines(level, &text)),
+                    None => Edit::Drop,
+                });
+            }
+        }
+    }
+}
+
+/// The `NOTE` and `SNOTE` lines of a record below its first line, grouped by
+/// the line they hang off, in file order.
+fn note_groups(record: &[Line<'_>]) -> Vec<(usize, Vec<usize>)> {
+    let mut open: Vec<(u8, usize)> = Vec::new();
+    let mut groups: Vec<(usize, Vec<usize>)> = Vec::new();
+    for (index, line) in record.iter().enumerate() {
+        let Some(level) = line.level else {
             continue;
         };
-        *edit = Some(match notes.get(xref) {
-            Some(text) => Edit::Replace(note_lines(level, text)),
-            None => {
-                warnings.push(format!(
-                    "Line {}: a NOTE points at {xref}, which the file does not hold; it was left out",
-                    line.number
-                ));
-                Edit::Drop
+        while open
+            .last()
+            .is_some_and(|&(open_level, _)| open_level >= level)
+        {
+            open.pop();
+        }
+        if let (true, Some(&(_, parent))) = (matches!(line.tag, "NOTE" | "SNOTE"), open.last()) {
+            match groups.iter_mut().find(|(p, _)| *p == parent) {
+                Some((_, group)) => group.push(index),
+                None => groups.push((parent, vec![index])),
             }
-        });
+        }
+        open.push((level, index));
     }
+    groups
+}
+
+/// Whether `ged_io` keeps a single note of the structure at `parent`: a
+/// person, and the events and attributes of a person or a family.
+///
+/// A family, a source and a media record keep every note already. An inline
+/// `OBJE` is left alone too: its note is the media's description, not a
+/// note.
+fn keeps_one_note(record: &[Line<'_>], parent: usize) -> bool {
+    let record_tag = record.first().map_or("", |line| line.tag);
+    match record[parent].level {
+        Some(0) => record_tag == "INDI",
+        Some(1) => matches!(record_tag, "INDI" | "FAM") && record[parent].tag != "OBJE",
+        _ => false,
+    }
+}
+
+/// Joins the notes of one structure into the first of them.
+fn merge_notes(
+    record: &[Line<'_>],
+    group: &[usize],
+    notes: &HashMap<&str, String>,
+    edits: &mut [Option<Edit>],
+    warnings: &mut Vec<String>,
+) {
+    let texts: Vec<String> = group
+        .iter()
+        .filter_map(|&index| note_text(record, index, notes, warnings))
+        .map(|text| text.replace('\u{1}', ""))
+        .collect();
+    let level = record[group[0]].level.unwrap_or(1);
+    edits[group[0]] = Some(if texts.is_empty() {
+        Edit::Drop
+    } else {
+        Edit::Replace(note_lines(level, &texts.join(NOTE_SEPARATOR)))
+    });
+    for &index in &group[1..] {
+        edits[index] = Some(Edit::Drop);
+    }
+}
+
+/// The text of the note at `index`: its own, continuation lines included, or
+/// that of the record it points at — `None`, with a warning, when the file
+/// has no such record.
+fn note_text(
+    record: &[Line<'_>],
+    index: usize,
+    notes: &HashMap<&str, String>,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    let line = record[index];
+    if let Some(xref) = pointer(line.value) {
+        let text = notes.get(xref).cloned();
+        if text.is_none() {
+            warnings.push(format!(
+                "Line {}: a NOTE points at {xref}, which the file does not hold; it was left out",
+                line.number
+            ));
+        }
+        return text;
+    }
+    let level = line.level.unwrap_or(0);
+    let mut text = line.value.unwrap_or_default().to_string();
+    for next in record[index + 1..]
+        .iter()
+        .take_while(|next| next.level.is_none_or(|l| l > level))
+    {
+        if next.level == Some(level.saturating_add(1)) && matches!(next.tag, "CONT" | "CONC") {
+            continue_text(&mut text, *next);
+        }
+    }
+    Some(text)
 }
 
 /// The xref a value is, if it is nothing but one.
@@ -425,5 +529,26 @@ mod tests {
         assert_eq!(sanitized.text, "0 HEAD\n0 @I1@ INDI\n1 NOTE Kept\n0 TRLR\n");
         assert_eq!(sanitized.warnings.len(), 1);
         assert!(sanitized.warnings[0].starts_with("Line 3:"));
+    }
+
+    #[test]
+    fn the_notes_of_a_person_or_an_event_are_joined_into_one() {
+        let gedcom = "0 @I1@ INDI\n1 NOTE First\n2 CONC  half\n1 BIRT\n2 NOTE A\n\
+                      2 SOUR @S1@\n2 NOTE @N1@\n1 NOTE Second\n2 CONT line\n\
+                      0 @N1@ NOTE B\n";
+        let sanitized = sanitize(gedcom);
+        assert_eq!(
+            sanitized.text,
+            "0 @I1@ INDI\n1 NOTE First half\n2 CONT \u{1}\n2 CONT Second\n2 CONT line\n\
+             1 BIRT\n2 NOTE A\n3 CONT \u{1}\n3 CONT B\n2 SOUR @S1@\n0 @N1@ NOTE B\n"
+        );
+    }
+
+    #[test]
+    fn a_family_a_source_and_a_media_keep_their_notes_apart() {
+        let gedcom = "0 @F1@ FAM\n1 NOTE A\n1 NOTE B\n0 @S1@ SOUR\n1 NOTE A\n1 NOTE B\n\
+                      0 @I1@ INDI\n1 OBJE\n2 FILE x.jpg\n2 NOTE A\n2 NOTE B\n";
+        let sanitized = sanitize(gedcom);
+        assert!(matches!(sanitized.text, Cow::Borrowed(_)));
     }
 }

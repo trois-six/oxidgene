@@ -156,6 +156,7 @@ pub fn export_gedcom(
     drop(build_guard);
 
     let gedcom = write_gedcom(&data)?;
+    let gedcom = crate::finish::finish(&gedcom, |owner| index.notes_of(owner));
     let (gedcom, extension_warnings) = inject_extensions(gedcom, media, vignettes, &index);
     warnings.extend(extension_warnings);
 
@@ -455,8 +456,9 @@ impl ExportIndex<'_> {
         }
 
         let source = self.citations(self.cites_by_person.get(&person.id), warnings);
-        // Note on the individual (take the first one for GEDCOM 5.5.1)
-        let note = first_note(self.notes_by_person.get(&person.id));
+        // The model holds one note; it stands in for all of them.
+        let note =
+            crate::finish::note_slot(person.id, self.notes_by_person.contains_key(&person.id));
         let multimedia = self.portrait_first_multimedia(person);
         // FAMS/FAMC back-links to the families this person belongs to.
         let families = to_ged_family_links(
@@ -622,8 +624,20 @@ impl ExportIndex<'_> {
             .collect()
     }
 
+    /// The texts of every note of a person or an event, for
+    /// [`crate::finish::finish`] to write where the model held one.
+    fn notes_of(&self, owner: Uuid) -> Vec<&str> {
+        self.notes_by_person
+            .get(&owner)
+            .or_else(|| self.notes_by_event.get(&owner))
+            .into_iter()
+            .flatten()
+            .map(|note| note.text.as_str())
+            .collect()
+    }
+
     /// What an event and an attribute write alike: its date, place,
-    /// citations, first note and media.
+    /// citations, notes and media.
     fn event_parts(&self, evt: &Event, warnings: &mut Vec<String>) -> EventParts {
         // Recompose the calendar escape and qualifier tag the columns were
         // split from on import — see `crate::date`.
@@ -644,7 +658,8 @@ impl ExportIndex<'_> {
                 .and_then(|pid| self.place_map.get(&pid))
                 .map(|p| to_ged_place(p)),
             citations: self.citations(self.cites_by_event.get(&evt.id), warnings),
-            note: first_note(self.notes_by_event.get(&evt.id)),
+            // The model holds one note; it stands in for all of them.
+            note: crate::finish::note_slot(evt.id, self.notes_by_event.contains_key(&evt.id)),
             multimedia: self.multimedia_refs(
                 self.mlinks_by_event
                     .get(&evt.id)
@@ -679,14 +694,6 @@ fn to_ged_place(p: &Place) -> GedPlace {
         map,
         ..Default::default()
     }
-}
-
-/// The first note of a record: GEDCOM 5.5.1 gives an individual and an event
-/// one.
-fn first_note(notes: Option<&Vec<&Note>>) -> Option<GedNote> {
-    notes
-        .and_then(|ns| ns.first())
-        .map(|n| to_ged_note(&n.text))
 }
 
 /// Every note of a record.

@@ -7,6 +7,7 @@
 
 pub mod date;
 pub mod export;
+mod finish;
 pub mod geneweb;
 pub mod import;
 mod sanitize;

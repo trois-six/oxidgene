@@ -2520,27 +2520,34 @@ fn import_note(
     source_id: Option<Uuid>,
     result: &mut ImportResult,
 ) {
-    // A note that held nothing but the marker leaves no note at all, rather
-    // than an empty row for the UI to render as a blank entry.
-    let text = match value.as_deref().map(strip_geneweb_event_marker) {
-        Some(t) if !t.is_empty() => t,
-        _ => return,
+    let Some(value) = value else {
+        return;
     };
-
-    result.notes.push(Note {
-        id: Uuid::now_v7(),
-        tree_id,
-        text,
-        person_id,
-        event_id,
-        family_id,
-        source_id,
-        // GEDCOM attaches a NOTE to a record, never to an OBJE's bytes.
-        media_id: None,
-        created_at: now,
-        updated_at: now,
-        deleted_at: None,
-    });
+    // `ged_io` keeps one note per person, event or attribute; the sanitize
+    // pass joined the structure's notes into it so that none is lost, and
+    // each one becomes a note of its own again here.
+    for part in value.split(crate::sanitize::NOTE_SEPARATOR) {
+        // A note that held nothing but the marker leaves no note at all,
+        // rather than an empty row for the UI to render as a blank entry.
+        let text = strip_geneweb_event_marker(part);
+        if text.is_empty() {
+            continue;
+        }
+        result.notes.push(Note {
+            id: Uuid::now_v7(),
+            tree_id,
+            text,
+            person_id,
+            event_id,
+            family_id,
+            source_id,
+            // GEDCOM attaches a NOTE to a record, never to an OBJE's bytes.
+            media_id: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        });
+    }
 }
 
 /// Resolve a multimedia reference to a `Media` UUID.

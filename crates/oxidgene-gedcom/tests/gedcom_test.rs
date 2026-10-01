@@ -220,6 +220,41 @@ fn event_of(
         .unwrap_or_else(|| panic!("{event_type:?} event missing"))
 }
 
+/// Everything `imported` holds, exported again with the default options.
+fn reexport(imported: &oxidgene_gedcom::ImportResult) -> String {
+    export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &imported.family_children,
+        &imported.events,
+        &imported.event_witnesses,
+        &imported.places,
+        &imported.sources,
+        &imported.citations,
+        &imported.media,
+        &imported.media_links,
+        &imported.vignettes,
+        &imported.notes,
+        false,
+        false,
+        &HashMap::new(),
+    )
+    .expect("exports")
+    .gedcom
+}
+
+/// The texts of the notes `owner` picks out, in import order.
+fn note_texts(result: &oxidgene_gedcom::ImportResult, owner: impl Fn(&Note) -> bool) -> Vec<&str> {
+    result
+        .notes
+        .iter()
+        .filter(|n| owner(n))
+        .map(|n| n.text.as_str())
+        .collect()
+}
+
 /// A primary name with these given names and surname.
 fn assert_primary_name(name: &PersonName, given_names: &str, surname: &str) {
     assert_eq!(name.given_names.as_deref(), Some(given_names));
@@ -474,6 +509,75 @@ fn a_note_pointer_imports_the_text_of_its_record() {
     );
     assert!(result.notes.iter().all(|n| !n.text.contains("@N")));
     assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+}
+
+/// A person, an event and an attribute with several notes each, as GEDCOM
+/// 5.5.1 allows.
+const SEVERAL_NOTES_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Branch /Alpha/
+1 NOTE First remark
+1 BIRT
+2 DATE 1801
+2 NOTE Birth one
+2 NOTE Birth two
+1 OCCU Miller
+2 NOTE Trade one
+2 NOTE Trade two
+1 NOTE Second remark
+2 CONT on two lines
+0 TRLR
+";
+
+/// Every note of a person, an event or an attribute is imported, and every
+/// one is exported again: `ged_io` keeps one note each, in both directions.
+#[test]
+fn every_note_of_a_structure_survives_an_import_and_an_export() {
+    let imported = import_gedcom(SEVERAL_NOTES_GEDCOM, Uuid::now_v7()).expect("imports");
+    let check = |result: &oxidgene_gedcom::ImportResult| {
+        let person_id = result.persons[0].id;
+        let birth = event_of(result, oxidgene_core::EventType::Birth).id;
+        let trade = event_of(result, oxidgene_core::EventType::Occupation).id;
+        assert_eq!(
+            note_texts(result, |n| n.person_id == Some(person_id)),
+            ["First remark", "Second remark\non two lines"]
+        );
+        assert_eq!(
+            note_texts(result, |n| n.event_id == Some(birth)),
+            ["Birth one", "Birth two"]
+        );
+        assert_eq!(
+            note_texts(result, |n| n.event_id == Some(trade)),
+            ["Trade one", "Trade two"]
+        );
+        assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    };
+    check(&imported);
+
+    let exported = reexport(&imported);
+    assert_eq!(exported.matches("1 NOTE ").count(), 2, "{exported}");
+    assert_eq!(exported.matches("2 NOTE ").count(), 4, "{exported}");
+    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+}
+
+/// A note longer than a GEDCOM line comes back word for word: the export
+/// never splits it beside a space, which a reader would drop.
+#[test]
+fn a_long_note_survives_a_round_trip_word_for_word() {
+    let text = format!("{} tail and {} more", "x".repeat(260), "word ".repeat(80));
+    let gedcom = MINIMAL_GEDCOM.replace("0 TRLR", &format!("1 NOTE {text}\n0 TRLR"));
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let exported = reexport(&imported);
+    assert!(exported.lines().all(|line| line.len() <= 255), "{exported}");
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    assert_eq!(
+        note_texts(&back, |n| n.person_id.is_some()),
+        [text.as_str()]
+    );
 }
 
 #[test]
