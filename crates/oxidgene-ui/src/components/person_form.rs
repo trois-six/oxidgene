@@ -26,8 +26,8 @@ use crate::components::suggest_input::ValueInput;
 use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
-    event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
-    parse_name_type, parse_privacy, parse_sex, resolve_name,
+    NAME_TYPES, event_type_label_key, event_type_value, name_type_label_key, name_type_value,
+    opt_str, parse_event_type, parse_name_type, parse_privacy, parse_sex, resolve_name,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
@@ -1349,16 +1349,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 select {
                                                                     value: "{edit_name_type}",
                                                                     oninput: move |e: Event<FormData>| edit_name_type.set(e.value()),
-                                                                    option { value: "Birth", {i18n.t("name_type.birth")} }
-                                                                    option { value: "Married", {i18n.t("name_type.married")} }
-                                                                    option { value: "AlsoKnownAs", {i18n.t("name_type.also_known_as")} }
-                                                                    option { value: "Maiden", {i18n.t("name_type.maiden")} }
-                                                                    option { value: "Religious", {i18n.t("name_type.religious")} }
-                                                                    option { value: "Prenom", {i18n.t("name_type.prenom")} }
-                                                                    option { value: "Alias", {i18n.t("name_type.alias")} }
-                                                                    option { value: "Surnom", {i18n.t("name_type.surnom")} }
-                                                                    option { value: "Sobriquet", {i18n.t("name_type.sobriquet")} }
-                                                                    option { value: "Other", {i18n.t("name_type.other")} }
+                                                                    for nt in NAME_TYPES.iter().copied() {
+                                                                        option { value: name_type_value(nt), {i18n.t(name_type_label_key(nt))} }
+                                                                    }
                                                                 }
                                                             }
                                                             div { class: "form-group",
@@ -2008,84 +2001,105 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
 // ── Shared option builders ────────────────────────────────────────────────
 
+/// The event types the person form offers, by group, in picker order.
+/// Birth, death and the union's events have fields of their own.
+const EVENT_TYPE_GROUPS: [(&str, &[EventType]); 6] = [
+    (
+        "person_form.sacraments",
+        &[
+            EventType::Baptism,
+            EventType::Confirmation,
+            EventType::FirstCommunion,
+            EventType::BarBatMitzvah,
+            EventType::Burial,
+            EventType::Cremation,
+        ],
+    ),
+    (
+        "person_form.civil",
+        &[
+            EventType::Census,
+            EventType::Graduation,
+            EventType::Immigration,
+            EventType::Emigration,
+            EventType::Naturalization,
+            EventType::Occupation,
+            EventType::Residence,
+            EventType::Retirement,
+            EventType::MilitaryService,
+        ],
+    ),
+    (
+        "person_form.geneweb",
+        &[
+            EventType::Blessing,
+            EventType::Ordination,
+            EventType::Christening,
+            EventType::AdultChristening,
+            EventType::Accomplishment,
+            EventType::Acquisition,
+            EventType::Membership,
+            EventType::ChangeName,
+            EventType::Circumcision,
+            EventType::Award,
+            EventType::MilitaryDischarge,
+            EventType::Degree,
+            EventType::Distinction,
+            EventType::Election,
+            EventType::Excommunication,
+            EventType::Funeral,
+            EventType::Hospitalization,
+            EventType::Illness,
+            EventType::PassengerList,
+            EventType::MilitaryDistinction,
+            EventType::MilitaryPromotion,
+            EventType::MilitaryMobilization,
+            EventType::PropertySale,
+            EventType::Endowment,
+            EventType::LdsDotation,
+            EventType::SealingChild,
+            EventType::SealingSpouse,
+            EventType::SealingParent,
+            EventType::FamilyLinkLds,
+            EventType::NoMarriage,
+            EventType::LdsBaptism,
+            EventType::LdsConfirmation,
+            EventType::NoMention,
+        ],
+    ),
+    ("person_form.legal", &[EventType::Will, EventType::Probate]),
+    (
+        "person_form.attributes",
+        &[
+            EventType::CasteName,
+            EventType::PhysicalDescription,
+            EventType::Education,
+            EventType::NationalId,
+            EventType::NationalOrigin,
+            EventType::ChildrenCount,
+            EventType::MarriagesCount,
+            EventType::Property,
+            EventType::Religion,
+            EventType::SocialSecurityNumber,
+            EventType::NobilityTitle,
+            EventType::Fact,
+        ],
+    ),
+    (
+        "person_form.other_events",
+        &[EventType::Adoption, EventType::Other],
+    ),
+];
+
 fn event_type_options(i18n: &crate::i18n::I18n) -> Element {
     let i18n = *i18n;
     rsx! {
-        optgroup { label: "{i18n.t(\"person_form.sacraments\")}",
-            option { value: "Baptism",        {i18n.t("event.type.baptism")} }
-            option { value: "Confirmation",   {i18n.t("event.type.confirmation")} }
-            option { value: "FirstCommunion", {i18n.t("event.type.first_communion")} }
-            option { value: "BarBatMitzvah",  {i18n.t("event.type.bar_bat_mitzvah")} }
-            option { value: "Burial",         {i18n.t("event.type.burial")} }
-            option { value: "Cremation",      {i18n.t("event.type.cremation")} }
-        }
-        optgroup { label: "{i18n.t(\"person_form.civil\")}",
-            option { value: "Census",          {i18n.t("event.type.census")} }
-            option { value: "Graduation",      {i18n.t("event.type.graduation")} }
-            option { value: "Immigration",     {i18n.t("event.type.immigration")} }
-            option { value: "Emigration",      {i18n.t("event.type.emigration")} }
-            option { value: "Naturalization",  {i18n.t("event.type.naturalization")} }
-            option { value: "Occupation",      {i18n.t("event.type.occupation")} }
-            option { value: "Residence",       {i18n.t("event.type.residence")} }
-            option { value: "Retirement",      {i18n.t("event.type.retirement")} }
-            option { value: "MilitaryService", {i18n.t("event.type.military_service")} }
-        }
-        optgroup { label: "{i18n.t(\"person_form.geneweb\")}",
-            option { value: "Blessing", {i18n.t("event.type.blessing")} }
-            option { value: "Ordination", {i18n.t("event.type.ordination")} }
-            option { value: "Christening", {i18n.t("event.type.christening")} }
-            option { value: "AdultChristening", {i18n.t("event.type.adult_christening")} }
-            option { value: "Accomplishment", {i18n.t("event.type.accomplishment")} }
-            option { value: "Acquisition", {i18n.t("event.type.acquisition")} }
-            option { value: "Membership", {i18n.t("event.type.membership")} }
-            option { value: "ChangeName", {i18n.t("event.type.change_name")} }
-            option { value: "Circumcision", {i18n.t("event.type.circumcision")} }
-            option { value: "Award", {i18n.t("event.type.award")} }
-            option { value: "MilitaryDischarge", {i18n.t("event.type.military_discharge")} }
-            option { value: "Degree", {i18n.t("event.type.degree")} }
-            option { value: "Distinction", {i18n.t("event.type.distinction")} }
-            option { value: "Election", {i18n.t("event.type.election")} }
-            option { value: "Excommunication", {i18n.t("event.type.excommunication")} }
-            option { value: "Funeral", {i18n.t("event.type.funeral")} }
-            option { value: "Hospitalization", {i18n.t("event.type.hospitalization")} }
-            option { value: "Illness", {i18n.t("event.type.illness")} }
-            option { value: "PassengerList", {i18n.t("event.type.passenger_list")} }
-            option { value: "MilitaryDistinction", {i18n.t("event.type.military_distinction")} }
-            option { value: "MilitaryPromotion", {i18n.t("event.type.military_promotion")} }
-            option { value: "MilitaryMobilization", {i18n.t("event.type.military_mobilization")} }
-            option { value: "PropertySale", {i18n.t("event.type.property_sale")} }
-            option { value: "Endowment", {i18n.t("event.type.endowment")} }
-            option { value: "LdsDotation", {i18n.t("event.type.lds_dotation")} }
-            option { value: "SealingChild", {i18n.t("event.type.sealing_child")} }
-            option { value: "SealingSpouse", {i18n.t("event.type.sealing_spouse")} }
-            option { value: "SealingParent", {i18n.t("event.type.sealing_parent")} }
-            option { value: "FamilyLinkLds", {i18n.t("event.type.family_link_lds")} }
-            option { value: "NoMarriage", {i18n.t("event.type.no_marriage")} }
-            option { value: "LdsBaptism", {i18n.t("event.type.lds_baptism")} }
-            option { value: "LdsConfirmation", {i18n.t("event.type.lds_confirmation")} }
-            option { value: "NoMention", {i18n.t("event.type.no_mention")} }
-        }
-        optgroup { label: "{i18n.t(\"person_form.legal\")}",
-            option { value: "Will",    {i18n.t("event.type.will")} }
-            option { value: "Probate", {i18n.t("event.type.probate")} }
-        }
-        optgroup { label: "{i18n.t(\"person_form.attributes\")}",
-            option { value: "CasteName",            {i18n.t("event.type.caste_name")} }
-            option { value: "PhysicalDescription",  {i18n.t("event.type.physical_description")} }
-            option { value: "Education",            {i18n.t("event.type.education")} }
-            option { value: "NationalId",           {i18n.t("event.type.national_id")} }
-            option { value: "NationalOrigin",       {i18n.t("event.type.national_origin")} }
-            option { value: "ChildrenCount",        {i18n.t("event.type.children_count")} }
-            option { value: "MarriagesCount",       {i18n.t("event.type.marriages_count")} }
-            option { value: "Property",             {i18n.t("event.type.property")} }
-            option { value: "Religion",             {i18n.t("event.type.religion")} }
-            option { value: "SocialSecurityNumber", {i18n.t("event.type.social_security_number")} }
-            option { value: "NobilityTitle",        {i18n.t("event.type.nobility_title")} }
-            option { value: "Fact",                 {i18n.t("event.type.fact")} }
-        }
-        optgroup { label: "{i18n.t(\"person_form.other_events\")}",
-            option { value: "Adoption", {i18n.t("event.type.adoption")} }
-            option { value: "Other",    {i18n.t("event.type.other")} }
+        for (group, types) in EVENT_TYPE_GROUPS {
+            optgroup { label: i18n.t(group),
+                for et in types.iter().copied() {
+                    option { value: event_type_value(et), {i18n.t(event_type_label_key(et))} }
+                }
+            }
         }
     }
 }
@@ -3156,12 +3170,38 @@ enum InfoPiece {
     Suffix,
 }
 
+/// The picker values of the two pieces that are no type of name.
+const PREFIX_CHOICE: &str = "Prefixe";
+const SUFFIX_CHOICE: &str = "Suffixe";
+
+/// The information picker's entries, value and label key, in its order: the
+/// name types an information may carry, and the prefix and suffix pieces.
+fn information_choices() -> [(&'static str, &'static str); 10] {
+    let name_type = |nt| (name_type_value(nt), name_type_label_key(nt));
+    [
+        name_type(NameType::GivenName),
+        name_type(NameType::Married),
+        name_type(NameType::Alias),
+        name_type(NameType::Byname),
+        name_type(NameType::Maiden),
+        name_type(NameType::Religious),
+        (PREFIX_CHOICE, "name_type.prefixe"),
+        (SUFFIX_CHOICE, "name_type.suffixe"),
+        name_type(NameType::Other),
+        name_type(NameType::Sobriquet),
+    ]
+}
+
 fn info_piece(info_type: &str) -> InfoPiece {
-    match info_type {
-        "Prenom" => InfoPiece::Given,
-        "Sobriquet" | "Surnom" => InfoPiece::Nickname,
-        "Prefixe" => InfoPiece::Prefix,
-        "Suffixe" => InfoPiece::Suffix,
+    if info_type == PREFIX_CHOICE {
+        return InfoPiece::Prefix;
+    }
+    if info_type == SUFFIX_CHOICE {
+        return InfoPiece::Suffix;
+    }
+    match parse_name_type(info_type) {
+        NameType::GivenName => InfoPiece::Given,
+        NameType::Sobriquet | NameType::Byname => InfoPiece::Nickname,
         _ => InfoPiece::Surname,
     }
 }
@@ -3243,16 +3283,9 @@ fn render_information_form(
                     select {
                         value: "{info_type_sig}",
                         oninput: move |e: Event<FormData>| info_type_sig.set(e.value()),
-                        option { value: "Prenom",     {i18n.t("name_type.prenom")} }
-                        option { value: "Married",    {i18n.t("name_type.married")} }
-                        option { value: "Alias",      {i18n.t("name_type.alias")} }
-                        option { value: "Surnom",     {i18n.t("name_type.surnom")} }
-                        option { value: "Maiden",     {i18n.t("name_type.maiden")} }
-                        option { value: "Religious",  {i18n.t("name_type.religious")} }
-                        option { value: "Prefixe",    {i18n.t("name_type.prefixe")} }
-                        option { value: "Suffixe",    {i18n.t("name_type.suffixe")} }
-                        option { value: "Other",      {i18n.t("name_type.other")} }
-                        option { value: "Sobriquet",  {i18n.t("name_type.sobriquet")} }
+                        for (value, label) in information_choices() {
+                            option { value, {i18n.t(label)} }
+                        }
                     }
                 }
                 div { class: "form-group",
