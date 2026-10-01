@@ -370,16 +370,8 @@ async fn an_import_stores_nothing_and_edits_store_only_prior_states() {
     );
 
     // A record nobody changed has one version: the live one, from the import.
-    let profiles = ok(
-        &app,
-        Method::GET,
-        &format!("/api/v1/trees/{tree}/profiles"),
-        None,
-    )
-    .await;
+    let profiles = common::all_profiles(&app, &tree).await;
     let anchor = profiles
-        .as_array()
-        .unwrap()
         .iter()
         .find(|p| p["primary_name"]["given_names"] == "Anchor")
         .unwrap()["person_id"]
@@ -477,16 +469,8 @@ async fn a_family_edit_stores_the_prior_states_of_the_persons_it_links() {
     let (db, app) = setup().await;
     let tree = create_tree(&app).await;
     common::import_gedcom(&app, &db, &tree, &family_blocks_gedcom(1)).await;
-    let profiles = ok(
-        &app,
-        Method::GET,
-        &format!("/api/v1/trees/{tree}/profiles"),
-        None,
-    )
-    .await;
+    let profiles = common::all_profiles(&app, &tree).await;
     let anchor = profiles
-        .as_array()
-        .unwrap()
         .iter()
         .find(|p| p["primary_name"]["given_names"] == "Anchor")
         .unwrap();

@@ -60,17 +60,11 @@ struct Tree {
 
 async fn tree(app: &Router, db: &DatabaseConnection, blocks: usize) -> Tree {
     let (id, anchor) = family_blocks_tree(app, db, blocks).await;
-    let json = ok(
-        app,
-        Method::GET,
-        &format!("/api/v1/trees/{id}/profiles"),
-        None,
-    )
-    .await;
+    let json = common::all_profiles(app, &id).await;
     Tree {
         id,
         root: anchor.parse().unwrap(),
-        profiles: serde_json::from_value(json).unwrap(),
+        profiles: serde_json::from_value(serde_json::Value::Array(json)).unwrap(),
     }
 }
 

@@ -180,6 +180,37 @@ pub async fn ok(app: &Router, method: Method, uri: &str, body: Option<Value>) ->
     json
 }
 
+/// Every person projection of `tree`, read page by page from
+/// `GET /profiles`.
+pub async fn all_profiles(app: &Router, tree: &str) -> Vec<Value> {
+    let mut profiles = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let cursor = after
+            .as_deref()
+            .map(|cursor| format!("&after={cursor}"))
+            .unwrap_or_default();
+        let page = ok(
+            app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree}/profiles?first=100{cursor}"),
+            None,
+        )
+        .await;
+        profiles.extend(
+            page["edges"]
+                .as_array()
+                .expect("a connection")
+                .iter()
+                .map(|edge| edge["node"].clone()),
+        );
+        if page["page_info"]["has_next_page"] != true {
+            return profiles;
+        }
+        after = page["page_info"]["end_cursor"].as_str().map(str::to_string);
+    }
+}
+
 /// Run a GraphQL operation; the whole response, data and errors alike.
 pub async fn gql(app: &Router, query: &str, variables: Value) -> Value {
     let body = serde_json::json!({ "query": query, "variables": variables });
@@ -337,16 +368,8 @@ pub async fn family_blocks_tree(
     .await;
     let tree_id = tree["id"].as_str().unwrap().to_owned();
     import_gedcom(app, db, &tree_id, &family_blocks_gedcom(blocks)).await;
-    let profiles = ok(
-        app,
-        Method::GET,
-        &format!("/api/v1/trees/{tree_id}/profiles"),
-        None,
-    )
-    .await;
+    let profiles = all_profiles(app, &tree_id).await;
     let anchor = profiles
-        .as_array()
-        .unwrap()
         .iter()
         .find(|p| p["primary_name"]["given_names"] == "Anchor")
         .expect("block 0's root")["person_id"]

@@ -1494,18 +1494,24 @@ impl QueryRoot {
         Ok(profile.into())
     }
 
-    /// Get every person projection of a tree.
+    /// One page of a tree's person projections, by person id. Mirrors
+    /// `GET /trees/{treeId}/profiles`.
     ///
     /// Materializes the tree first if it has never been built.
     async fn person_profiles(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-    ) -> Result<Vec<GqlPersonProfile>> {
+        first: Option<u64>,
+        after: Option<String>,
+    ) -> Result<super::types::GqlPersonProfileConnection> {
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
-        let persons = profiles.get_all_persons(tid).await?;
-        Ok(persons.into_iter().map(Into::into).collect())
+        let params = PaginationParams {
+            first: first.unwrap_or(25),
+            after,
+        };
+        Ok(profiles.persons_page(tid, &params).await?.into())
     }
 
     /// Server-side person search in a tree (spec name: `searchPersons`).

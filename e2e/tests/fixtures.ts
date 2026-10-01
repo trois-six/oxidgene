@@ -66,11 +66,11 @@ export async function seedTree(request: APIRequestContext, name: string): Promis
     expect(created.ok()).toBeTruthy();
     const treeId = (await created.json()).id as string;
     await importGedcom(request, treeId, fixtureGedcom);
-    const profiles = (await (await request.get(`${apiUrl}/api/v1/trees/${treeId}/profiles`)).json()) as Array<{
-        person_id: string;
-        primary_name?: { given_names?: string };
-    }>;
-    const anchorId = profiles.find((p) => p.primary_name?.given_names === "Anchor")?.person_id;
+    // One page holds the whole fixture (30 persons).
+    const page = (await (await request.get(`${apiUrl}/api/v1/trees/${treeId}/profiles?first=100`)).json()) as {
+        edges: Array<{ node: { person_id: string; primary_name?: { given_names?: string } } }>;
+    };
+    const anchorId = page.edges.map((edge) => edge.node).find((p) => p.primary_name?.given_names === "Anchor")?.person_id;
     expect(anchorId, "the fixture's block 0 root").toBeTruthy();
     const updated = await request.put(`${apiUrl}/api/v1/trees/${treeId}`, {
         data: { sosa_root_person_id: anchorId },

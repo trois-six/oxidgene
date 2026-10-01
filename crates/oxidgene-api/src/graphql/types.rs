@@ -2287,6 +2287,13 @@ impl From<crate::service::geneanet::NeededMedia> for GqlGeneanetNeededMedia {
 
 // ── Projection GraphQL types ────────────────────────────────────────────────
 
+connection!(
+    GqlPersonProfileEdge,
+    GqlPersonProfileConnection,
+    GqlPersonProfile,
+    oxidgene_core::projection::PersonProfile
+);
+
 /// A denormalized person profile — everything needed for card/detail
 /// display in a single object.
 #[derive(Debug, Clone, SimpleObject)]

@@ -14,7 +14,7 @@ use oxidgene_core::projection::{Pedigree, PedigreeDelta, PersonProfile};
 use uuid::Uuid;
 
 use super::dto::{
-    PedigreeExpandQuery, PedigreeQuery, PedigreesRequest, ProfileDropResponse,
+    PaginationQuery, PedigreeExpandQuery, PedigreeQuery, PedigreesRequest, ProfileDropResponse,
     ProfileRebuildResponse,
 };
 use super::error::ApiError;
@@ -51,17 +51,20 @@ pub async fn get_person_profile(
     Ok(Json(profile))
 }
 
-/// `GET /api/v1/trees/{tree_id}/profiles`
+/// `GET /api/v1/trees/{tree_id}/profiles?first=N&after=CURSOR`
 ///
-/// Returns every person projection of a tree, materializing the tree first if
-/// it has never been built.
+/// One page of the tree's person projections, by person id, materializing
+/// the tree first if it has never been built.
 pub async fn get_person_profiles(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-) -> Result<Json<Vec<PersonProfile>>, ApiError> {
-    let persons = state.profiles.get_all_persons(tree_id).await?;
-
-    Ok(Json(persons))
+    Query(query): Query<PaginationQuery>,
+) -> Result<Json<oxidgene_core::types::Connection<PersonProfile>>, ApiError> {
+    let params = oxidgene_db::repo::PaginationParams {
+        first: query.first.unwrap_or(25),
+        after: query.after,
+    };
+    Ok(Json(state.profiles.persons_page(tree_id, &params).await?))
 }
 
 /// `POST /api/v1/trees/{tree_id}/profiles/rebuild`

@@ -108,6 +108,37 @@ impl PersonDenormRepo {
         Ok(EncodedProfiles(models))
     }
 
+    /// One page of a tree's projections, by person id.
+    ///
+    /// Like [`Self::list_tree`] it is not filtered by version: its caller
+    /// materializes the tree first, so nothing stale is left.
+    pub async fn list_page(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        params: &crate::repo::PaginationParams,
+    ) -> Result<oxidgene_core::types::Connection<PersonProfile>, OxidGeneError> {
+        let page = crate::repo::pagination::paginate(
+            db,
+            Entity::find().filter(Column::TreeId.eq(tree_id)),
+            Column::PersonId,
+            params,
+            |model: Model| (model.person_id, model),
+        )
+        .await?;
+        let mut decoded = Vec::with_capacity(page.edges.len());
+        for edge in page.edges {
+            decoded.push(oxidgene_core::types::Edge {
+                cursor: edge.cursor,
+                node: decode(edge.node)?,
+            });
+        }
+        Ok(oxidgene_core::types::Connection {
+            edges: decoded,
+            page_info: page.page_info,
+            total_count: page.total_count,
+        })
+    }
+
     /// Insert or replace the projections for a bounded set of persons.
     pub async fn upsert(
         db: &impl ConnectionTrait,

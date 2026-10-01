@@ -233,6 +233,18 @@ impl ProfileService {
         crate::service::blocking::run(span, move || encoded.decode()).await?
     }
 
+    /// One page of a tree's projections, by person id, materializing the
+    /// tree first if needed — what the API lists, where the whole tree in
+    /// one answer ran to tens of megabytes.
+    pub async fn persons_page(
+        &self,
+        tree_id: Uuid,
+        params: &oxidgene_db::repo::PaginationParams,
+    ) -> Result<oxidgene_core::types::Connection<PersonProfile>, OxidGeneError> {
+        self.ensure_materialized(tree_id).await?;
+        PersonDenormRepo::list_page(&self.reader, tree_id, params).await
+    }
+
     // ── Pedigree ─────────────────────────────────────────────────────────
 
     /// Assemble a windowed pedigree for a root person.

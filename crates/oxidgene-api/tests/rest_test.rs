@@ -3964,7 +3964,9 @@ async fn test_profile_routes() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "GET profiles failed: {body}");
-    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body["edges"].as_array().unwrap().len(), 1);
+    assert_eq!(body["edges"][0]["node"]["person_id"], person_id);
+    assert_eq!(body["total_count"], 1);
 
     // `rebuild` must not be swallowed by the `{person_id}` route.
     let (status, body) = send(
@@ -4630,14 +4632,52 @@ async fn e2e_fixture_is_the_generated_family_blocks_tree() {
     let db = setup_db().await;
     let app = common::app_on(db.clone());
     let (tree_id, _anchor) = common::family_blocks_tree(&app, &db, 3).await;
-    let (_, profiles) = send(
-        &app,
-        Method::GET,
-        &format!("/api/v1/trees/{tree_id}/profiles"),
-        None,
+    assert_eq!(common::all_profiles(&app, &tree_id).await.len(), 30);
+}
+
+/// The tree's projections come a page at a time, in person-id order, and
+/// the pages cover the tree exactly once.
+#[tokio::test]
+async fn person_projections_are_listed_by_cursor() {
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
+    let (tree_id, _anchor) = common::family_blocks_tree(&app, &db, 1).await;
+    let page = |after: Option<String>| {
+        let app = app.clone();
+        let tree_id = tree_id.clone();
+        async move {
+            let cursor = after.map(|a| format!("&after={a}")).unwrap_or_default();
+            common::ok(
+                &app,
+                Method::GET,
+                &format!("/api/v1/trees/{tree_id}/profiles?first=4{cursor}"),
+                None,
+            )
+            .await
+        }
+    };
+    let first = page(None).await;
+    assert_eq!(first["edges"].as_array().unwrap().len(), 4);
+    assert_eq!(first["page_info"]["has_next_page"], true);
+    assert_eq!(first["total_count"], 10);
+    let second = page(
+        first["page_info"]["end_cursor"]
+            .as_str()
+            .map(str::to_string),
     )
     .await;
-    assert_eq!(profiles.as_array().map(Vec::len), Some(30));
+    let ids = |page: &Value| {
+        page["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| edge["node"]["person_id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let (first_ids, second_ids) = (ids(&first), ids(&second));
+    assert!(first_ids.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(first_ids.last() < second_ids.first());
+    assert_eq!(common::all_profiles(&app, &tree_id).await.len(), 10);
 }
 
 /// Once a tree is purged, nothing of it can be read back out of the SQLite

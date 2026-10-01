@@ -1049,7 +1049,7 @@ profiles. See [Data Model §4](data-model.md).
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/profiles/{person_id}` | Get a single person projection (full denormalized profile) |
-| `GET` | `/trees/{tree_id}/profiles` | Get every person projection of a tree |
+| `GET` | `/trees/{tree_id}/profiles?first=N&after=CURSOR` | One page of the tree's person projections (full denormalized profiles), by person id, as a connection |
 | `POST` | `/trees/{tree_id}/profiles/rebuild` | Force a full projection rebuild for a tree |
 | `POST` | `/trees/{tree_id}/profiles/rebuild/{person_id}` | Rebuild a single person's projection |
 | `DELETE` | `/trees/{tree_id}/profiles` | Drop a tree's projections (rebuilt lazily on next read) |
@@ -1260,6 +1260,22 @@ Responses use a connection envelope:
 }
 ```
 
+A few lists are answered whole, on both surfaces, because their client
+draws or filters the whole set and each row is a handful of short fields;
+none of them carries a profile, an event list or a picture:
+
+| List | Why it is whole |
+|---|---|
+| The dictionary's family names, occupations and places (`/dictionary/family-names`, `/occupations`, `/places`) | One row per distinct value with its counts, drawn as an alphabetical index the page filters as the reader types |
+| The dictionary's sources at a drill-down prefix (`/dictionary/sources?prefix=`) | The level is split into groups past `SOURCE_DRILL_THRESHOLD` sources, so a level stays short |
+| Usage lists (`/dictionary/…/usage`) | The persons behind one value, shown as one list under its row |
+| Tree-wide media links (`/media-links` without a filter, `treeMediaLinks`) | One short row per attachment, for an export or an external client's own index |
+| `/portraits` | One short row per person with a portrait |
+
+Batch reads (`/pedigrees`, `/portrait-images`, `/image-data`,
+`/gallery-bundle`, `/relation-labels`, the reference bundles) take a list of
+ids or terms and are bounded by their documented per-request maximum instead.
+
 ---
 
 ## 3. GraphQL API
@@ -1387,7 +1403,7 @@ type Query {
 
   # Read projections (see Data Model section 4) — mirrors the REST routes
   personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
-  personProfiles(treeId: ID!): [GqlPersonProfile!]!
+  personProfiles(treeId: ID!, first: Int, after: String): GqlPersonProfileConnection!
   pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
   pedigrees(treeId: ID!, rootPersonIds: [ID!]!, ancestorDepth: Int!, descendantDepth: Int!): [PedigreeEntry!]!
   # A read, like REST's `GET …/expand`: only what an expansion adds.

@@ -3543,11 +3543,16 @@ async fn test_projection_graphql_surface() {
 
     let resp = graphql(
         app.clone(),
-        &format!(r#"query {{ personProfiles(treeId: "{tree_id}") {{ personId }} }}"#),
+        &format!(
+            r#"query {{ personProfiles(treeId: "{tree_id}", first: 1) {{ totalCount pageInfo {{ hasNextPage endCursor }} edges {{ cursor node {{ personId }} }} }} }}"#
+        ),
         None,
     )
     .await;
-    assert_eq!(data(&resp)["personProfiles"].as_array().unwrap().len(), 1);
+    let page = &data(&resp)["personProfiles"];
+    assert_eq!(page["totalCount"], 1);
+    assert_eq!(page["pageInfo"]["hasNextPage"], false);
+    assert_eq!(page["edges"][0]["node"]["personId"], person_id);
 
     // pedigree — unchanged name, but must still resolve after the type rename.
     let resp = graphql(
