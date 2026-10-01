@@ -577,3 +577,150 @@ async fn a_name_is_only_reachable_through_its_own_person() {
         "{profile}"
     );
 }
+
+// ── Families ────────────────────────────────────────────────────────────
+
+/// A new family of `tree_id`; its id.
+async fn new_family(app: &axum::Router, tree_id: &str) -> String {
+    common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/families"),
+        None,
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[tokio::test]
+async fn a_family_link_is_only_removed_through_its_own_family() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Links").await;
+    let first = new_family(&app, &tree_id).await;
+    let second = new_family(&app, &tree_id).await;
+    let parent = common::new_person(&app, &tree_id).await;
+    let child = common::new_person(&app, &tree_id).await;
+    let spouse_link = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/families/{second}/spouses"),
+        Some(json!({ "person_id": parent, "role": "husband" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let child_link = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/families/{second}/children"),
+        Some(json!({ "person_id": child, "child_type": "biological" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // Through the first family, the second's links are not found.
+    for (kind, link) in [("spouses", &spouse_link), ("children", &child_link)] {
+        let (status, _) = send(
+            &app,
+            Method::DELETE,
+            &format!("/api/v1/trees/{tree_id}/families/{first}/{kind}/{link}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{kind}");
+    }
+    for (mutation, link) in [("removeSpouse", &spouse_link), ("removeChild", &child_link)] {
+        let response = gql(
+            &app,
+            &format!("mutation($t: ID!, $f: ID!, $l: ID!) {{ {mutation}(treeId: $t, familyId: $f, id: $l) }}"),
+            json!({ "t": tree_id, "f": first, "l": link }),
+        )
+        .await;
+        assert_eq!(
+            gql_error_code(&response),
+            "NOT_FOUND",
+            "{mutation}: {response}"
+        );
+    }
+
+    // Both links are still there, and the parent's projection still shows
+    // the family.
+    for kind in ["spouses", "children"] {
+        let links = common::ok(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/families/{second}/{kind}"),
+            None,
+        )
+        .await;
+        assert_eq!(links.as_array().unwrap().len(), 1, "{kind}");
+    }
+    let profile = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{parent}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        profile["families_as_spouse"].as_array().unwrap().len(),
+        1,
+        "{profile}"
+    );
+
+    // Through its own family, GraphQL removes it and refreshes the parent.
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!, $f: ID!, $l: ID!) { removeSpouse(treeId: $t, familyId: $f, id: $l) }",
+        json!({ "t": tree_id, "f": second, "l": spouse_link }),
+    )
+    .await;
+    let profile = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{parent}"),
+        None,
+    )
+    .await;
+    assert!(
+        profile["families_as_spouse"].as_array().unwrap().is_empty(),
+        "{profile}"
+    );
+}
+
+#[tokio::test]
+async fn a_malformed_family_update_is_refused() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Families").await;
+    let family_id = new_family(&app, &tree_id).await;
+    let uri = format!("/api/v1/trees/{tree_id}/families/{family_id}");
+
+    let (status, body) = send(&app, Method::PUT, &uri, Some(json!({ "privacy": 42 }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "validation_error");
+    let response = gql(
+        &app,
+        "mutation($t: ID!, $f: ID!) { updateFamily(treeId: $t, id: $f, input: { privacy: 42 }) { id } }",
+        json!({ "t": tree_id, "f": family_id }),
+    )
+    .await;
+    assert!(response["errors"].is_array(), "{response}");
+
+    // No body at all still touches the family.
+    let (status, _) = send(&app, Method::PUT, &uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "privacy": "private" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["privacy"], "private");
+}

@@ -1,98 +1,69 @@
 //! REST handlers for Family CRUD operations.
 
-use crate::profile::invalidation;
-use crate::service::history::Change;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_core::history::AuditEntity;
+use oxidgene_core::OxidGeneError;
+use oxidgene_core::types::{Connection, Family};
 use oxidgene_db::repo::{FamilyRepo, PaginationParams};
 use uuid::Uuid;
 
 use super::dto::PaginationQuery;
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::family::{self, FamilyPatch};
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/families
 pub async fn list_families(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Connection<Family>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let connection = FamilyRepo::list(&state.db, tree_id, &params)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(connection).unwrap()))
+    Ok(Json(FamilyRepo::list(&state.db, tree_id, &params).await?))
 }
 
 /// POST /api/v1/trees/:tree_id/families
 pub async fn create_family(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let id = Uuid::now_v7();
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let family = FamilyRepo::create(&txn, id, tree_id)
-        .await
-        .map_err(ApiError::from)?;
-    // No projection impact — empty family.
-    Change::create(tree_id, AuditEntity::Family, id)
-        .family(id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(family).unwrap()),
-    ))
+) -> Result<(StatusCode, Json<Family>), ApiError> {
+    let family = family::create_family(&state.db, tree_id).await?;
+    Ok((StatusCode::CREATED, Json(family)))
 }
 
 /// GET /api/v1/trees/:tree_id/families/:family_id
 pub async fn get_family(
     State(state): State<AppState>,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id)
-        .await
-        .map_err(ApiError)?;
-    let family = FamilyRepo::get(&state.db, family_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(family).unwrap()))
+) -> Result<Json<Family>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id).await?;
+    Ok(Json(FamilyRepo::get(&state.db, family_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/families/:family_id
+///
+/// The body is optional: this route began as a bare "touch `updated_at`"
+/// and is still called with no body at all, which an extractor expecting
+/// JSON would refuse. A body that is there must be a valid update.
 pub async fn update_family(
     State(state): State<AppState>,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
     body: axum::body::Bytes,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    // Read from the raw bytes rather than through `Json`: this route already
-    // existed as a bare "touch updated_at" and is still called with no body at
-    // all, which an extractor expecting JSON refuses before the handler runs.
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
-        .await
-        .map_err(ApiError)?;
-    let privacy = serde_json::from_slice::<super::dto::UpdateFamilyRequest>(&body)
-        .ok()
-        .and_then(|b| b.privacy);
-    let family = FamilyRepo::update(&txn, family_id, privacy)
-        .await
-        .map_err(ApiError::from)?;
-    Change::update(tree_id, AuditEntity::Family, family_id)
-        .family(family_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(family).unwrap()))
+) -> Result<Json<Family>, ApiError> {
+    let patch = if body.iter().all(u8::is_ascii_whitespace) {
+        FamilyPatch::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|_| OxidGeneError::Validation("malformed family update".to_string()))?
+    };
+    Ok(Json(
+        family::update_family(&state.db, tree_id, family_id, patch).await?,
+    ))
 }
 
 /// DELETE /api/v1/trees/:tree_id/families/:family_id
@@ -100,30 +71,6 @@ pub async fn delete_family(
     State(state): State<AppState>,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Family, family_id)
-        .await
-        .map_err(ApiError)?;
-    // Compute affected BEFORE delete, while the links still exist.
-    let affected = invalidation::affected_persons_for_family_delete(&txn, family_id)
-        .await
-        .map_err(ApiError)?;
-    FamilyRepo::delete(&txn, family_id)
-        .await
-        .map_err(ApiError::from)?;
-    if !affected.is_empty() {
-        state
-            .profiles
-            .invalidate_for_mutation(&txn, tree_id, &affected)
-            .await
-            .map_err(ApiError)?;
-    }
-    Change::delete(tree_id, AuditEntity::Family, family_id)
-        .family(family_id)
-        .persons(affected)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    family::delete_family(&state.db, &state.profiles, tree_id, family_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

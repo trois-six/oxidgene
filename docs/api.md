@@ -285,7 +285,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Moda
 | `GET` | `/trees/{tree_id}/families` | List families (cursor-paginated) |
 | `POST` | `/trees/{tree_id}/families` | Create a family |
 | `GET` | `/trees/{tree_id}/families/{family_id}` | Get a family record; its spouses and children come from the member endpoints below |
-| `PUT` | `/trees/{tree_id}/families/{family_id}` | Update a family |
+| `PUT` | `/trees/{tree_id}/families/{family_id}` | Update a family (`{ "privacy": … }`). The body is optional — an empty one only touches `updated_at` — but a body that is there must be a valid update, `validation_error` otherwise |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}` | Soft-delete a family |
 
 Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](ui-person-edit-modal.md) (couple edit)
@@ -296,10 +296,10 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 |---|---|---|
 | `GET` | `/trees/{tree_id}/families/{family_id}/spouses` | List spouses |
 | `POST` | `/trees/{tree_id}/families/{family_id}/spouses` | Add a spouse |
-| `DELETE` | `/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}` | Remove a spouse |
+| `DELETE` | `/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}` | Remove a spouse link; a link of another family is `not_found` |
 | `GET` | `/trees/{tree_id}/families/{family_id}/children` | List children |
 | `POST` | `/trees/{tree_id}/families/{family_id}/children` | Add a child |
-| `DELETE` | `/trees/{tree_id}/families/{family_id}/children/{child_id}` | Remove a child |
+| `DELETE` | `/trees/{tree_id}/families/{family_id}/children/{child_id}` | Remove a child link; a link of another family is `not_found` |
 
 ### Events
 

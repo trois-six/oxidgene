@@ -7,6 +7,7 @@ pub mod citation;
 pub mod duplicates;
 pub mod event;
 pub mod event_date;
+pub mod family;
 pub mod family_names;
 pub mod gallery;
 pub mod gedcom;

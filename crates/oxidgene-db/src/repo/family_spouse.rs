@@ -17,6 +17,19 @@ use crate::repo::db_err;
 pub struct FamilySpouseRepo;
 
 impl FamilySpouseRepo {
+    /// Get one family–spouse link.
+    pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<FamilySpouse, OxidGeneError> {
+        Entity::find_by_id(id)
+            .one(db)
+            .await
+            .map_err(db_err)?
+            .map(into_domain)
+            .ok_or(OxidGeneError::NotFound {
+                entity: "FamilySpouse",
+                id,
+            })
+    }
+
     /// List spouses in a family.
     pub async fn list_by_family(
         db: &impl ConnectionTrait,

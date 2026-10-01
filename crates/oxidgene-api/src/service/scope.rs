@@ -14,8 +14,6 @@ use uuid::Uuid;
 pub(crate) enum TreeResource {
     Person,
     Family,
-    FamilySpouse,
-    FamilyChild,
     Event,
     EventWitness,
     Place,
@@ -32,14 +30,6 @@ impl TreeResource {
         match self {
             Self::Person => ("person r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
             Self::Family => ("family r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::FamilySpouse => (
-                "family_spouse r JOIN family f ON f.id = r.family_id",
-                "f.tree_id = {tree} AND f.deleted_at IS NULL",
-            ),
-            Self::FamilyChild => (
-                "family_child r JOIN family f ON f.id = r.family_id",
-                "f.tree_id = {tree} AND f.deleted_at IS NULL",
-            ),
             Self::Event => ("event r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
             Self::EventWitness => (
                 "event_witness r JOIN event e ON e.id = r.event_id",
@@ -68,8 +58,6 @@ impl TreeResource {
         match self {
             Self::Person => "Person",
             Self::Family => "Family",
-            Self::FamilySpouse => "FamilySpouse",
-            Self::FamilyChild => "FamilyChild",
             Self::Event => "Event",
             Self::EventWitness => "EventWitness",
             Self::Place => "Place",

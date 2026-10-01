@@ -5,7 +5,7 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
 use crate::service::note::{self, NewNote};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
-use crate::service::{duplicates, event_date, family_names, person, person_name, tree};
+use crate::service::{duplicates, event_date, family, family_names, person, person_name, tree};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::history::{AuditAction, AuditEntity};
@@ -13,9 +13,8 @@ use uuid::Uuid;
 
 use oxidgene_db::repo::{
     BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, EventRepo, EventWitnessRepo,
-    FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, MediaTagRepo,
-    NewBackgroundJob, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput, VignettePatch,
-    VignetteRepo,
+    MediaLinkRepo, MediaRepo, MediaTagRepo, NewBackgroundJob, PlaceRepo, SourceRepo, TreeRepo,
+    UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -302,18 +301,10 @@ impl MutationRoot {
 
     /// Create a new family in a tree.
     async fn create_family(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlFamily> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        let family = FamilyRepo::create(&txn, id, tid).await?;
-        // No projection impact — empty family.
-        Change::create(tid, AuditEntity::Family, id)
-            .family(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
-        Ok(family.into())
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(family::create_family(db_from_ctx(ctx), tree_id)
+            .await?
+            .into())
     }
 
     /// Update a family: its privacy, and `updatedAt` either way.
@@ -324,42 +315,22 @@ impl MutationRoot {
         id: ID,
         input: UpdateFamilyInput,
     ) -> Result<GqlFamily> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Family, id).await?;
-        let family = FamilyRepo::update(&txn, id, input.privacy.map(Into::into)).await?;
-        Change::update(tid, AuditEntity::Family, id)
-            .family(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let family =
+            family::update_family(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
         Ok(family.into())
     }
 
     /// Delete a family (soft delete).
     async fn delete_family(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Family, id).await?;
-        // Compute affected BEFORE delete, while the links still exist.
-        let affected = invalidation::affected_persons_for_family_delete(&txn, id).await?;
-        FamilyRepo::delete(&txn, id).await?;
-        if !affected.is_empty() {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
-                .await?;
-        }
-        Change::delete(tid, AuditEntity::Family, id)
-            .family(id)
-            .persons(affected)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        family::delete_family(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -371,33 +342,20 @@ impl MutationRoot {
         family_id: ID,
         input: AddSpouseInput,
     ) -> Result<GqlFamilySpouse> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let fid = uuid(&family_id)?;
-        let pid = uuid(&input.person_id)?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
-        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
-        let spouse =
-            FamilySpouseRepo::create(&txn, id, fid, pid, input.role.into(), input.sort_order)
-                .await?;
-        let affected =
-            invalidation::affected_persons_for_family_spouse_change(&txn, fid, pid).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::create(tid, AuditEntity::FamilySpouse, id)
-            .person(pid)
-            .family(fid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let spouse = family::add_spouse(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&family_id)?,
+            input.try_into()?,
+        )
+        .await?;
         Ok(spouse.into())
     }
 
-    /// Remove a spouse from a family (hard delete).
+    /// Remove a spouse link from a family (hard delete); a link of another
+    /// family is not found.
     async fn remove_spouse(
         &self,
         ctx: &Context<'_>,
@@ -405,35 +363,15 @@ impl MutationRoot {
         family_id: ID,
         id: ID,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let fid = uuid(&family_id)?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
-        require_tree_resource(&txn, tid, TreeResource::FamilySpouse, id).await?;
-        // Look up which person this spouse link refers to BEFORE deletion.
-        let spouses = FamilySpouseRepo::list_by_families(&txn, &[fid]).await?;
-        let person_id = spouses.iter().find(|s| s.id == id).map(|s| s.person_id);
-        // Compute affected BEFORE delete.
-        let affected = if let Some(pid) = person_id {
-            invalidation::affected_persons_for_family_spouse_change(&txn, fid, pid).await?
-        } else {
-            vec![]
-        };
-        FamilySpouseRepo::delete(&txn, id).await?;
-        if !affected.is_empty() {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
-                .await?;
-        }
-        Change::delete(tid, AuditEntity::FamilySpouse, id)
-            .person_if(person_id)
-            .family(fid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        family::remove_spouse(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&family_id)?,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -445,39 +383,20 @@ impl MutationRoot {
         family_id: ID,
         input: AddChildInput,
     ) -> Result<GqlFamilyChild> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let fid = uuid(&family_id)?;
-        let pid = uuid(&input.person_id)?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
-        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
-        let child = FamilyChildRepo::create(
-            &txn,
-            id,
-            fid,
-            pid,
-            input.child_type.into(),
-            input.sort_order,
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let child = family::add_child(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&family_id)?,
+            input.try_into()?,
         )
         .await?;
-        let affected =
-            invalidation::affected_persons_for_family_child_change(&txn, fid, pid).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::create(tid, AuditEntity::FamilyChild, id)
-            .person(pid)
-            .family(fid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(child.into())
     }
 
-    /// Remove a child from a family (hard delete).
+    /// Remove a child link from a family (hard delete); a link of another
+    /// family is not found.
     async fn remove_child(
         &self,
         ctx: &Context<'_>,
@@ -485,34 +404,15 @@ impl MutationRoot {
         family_id: ID,
         id: ID,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let fid = uuid(&family_id)?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Family, fid).await?;
-        require_tree_resource(&txn, tid, TreeResource::FamilyChild, id).await?;
-        // Look up which person this child link refers to BEFORE deletion.
-        let children = FamilyChildRepo::list_by_families(&txn, &[fid]).await?;
-        let person_id = children.iter().find(|c| c.id == id).map(|c| c.person_id);
-        let affected = if let Some(pid) = person_id {
-            invalidation::affected_persons_for_family_child_change(&txn, fid, pid).await?
-        } else {
-            vec![]
-        };
-        FamilyChildRepo::delete(&txn, id).await?;
-        if !affected.is_empty() {
-            profiles
-                .invalidate_for_mutation(&txn, tid, &affected)
-                .await?;
-        }
-        Change::delete(tid, AuditEntity::FamilyChild, id)
-            .person_if(person_id)
-            .family(fid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        family::remove_child(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&family_id)?,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 

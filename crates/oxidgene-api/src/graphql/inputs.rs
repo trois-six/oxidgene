@@ -309,6 +309,38 @@ pub struct AddChildInput {
     pub sort_order: i32,
 }
 
+impl From<UpdateFamilyInput> for crate::service::family::FamilyPatch {
+    fn from(input: UpdateFamilyInput) -> Self {
+        Self {
+            privacy: input.privacy.map(Into::into),
+        }
+    }
+}
+
+impl TryFrom<AddSpouseInput> for crate::service::family::NewSpouse {
+    type Error = Error;
+
+    fn try_from(input: AddSpouseInput) -> Result<Self> {
+        Ok(Self {
+            person_id: uuid(&input.person_id)?,
+            role: input.role.into(),
+            sort_order: input.sort_order,
+        })
+    }
+}
+
+impl TryFrom<AddChildInput> for crate::service::family::NewChild {
+    type Error = Error;
+
+    fn try_from(input: AddChildInput) -> Result<Self> {
+        Ok(Self {
+            person_id: uuid(&input.person_id)?,
+            child_type: input.child_type.into(),
+            sort_order: input.sort_order,
+        })
+    }
+}
+
 // ── Event Inputs ─────────────────────────────────────────────────────
 
 /// Input for creating an event.

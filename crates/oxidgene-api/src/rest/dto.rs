@@ -1,7 +1,7 @@
 //! Request/response DTOs for REST endpoints.
 
 use oxidgene_core::types::{Place, Source};
-use oxidgene_core::{Calendar, ChildType, Confidence, DateQualifier, EventType, SpouseRole};
+use oxidgene_core::{Calendar, Confidence, DateQualifier, EventType};
 use serde::{Deserialize, Serialize};
 
 use crate::service::patch::double_option;
@@ -162,33 +162,6 @@ impl From<MergeChoicesBody> for crate::service::duplicates::MergeChoices {
             sex_from_duplicate: body.sex_from_duplicate,
         }
     }
-}
-
-// ── Family DTOs ──────────────────────────────────────────────────────
-
-// Family has no extra fields to create/update beyond tree_id (from path),
-// so we don't need a CreateFamilyRequest. Update just touches updated_at.
-
-// ── FamilySpouse DTOs ────────────────────────────────────────────────
-
-/// Request body for adding a spouse to a family.
-#[derive(Debug, Deserialize)]
-pub struct AddSpouseRequest {
-    pub person_id: uuid::Uuid,
-    pub role: SpouseRole,
-    #[serde(default)]
-    pub sort_order: i32,
-}
-
-// ── FamilyChild DTOs ─────────────────────────────────────────────────
-
-/// Request body for adding a child to a family.
-#[derive(Debug, Deserialize)]
-pub struct AddChildRequest {
-    pub person_id: uuid::Uuid,
-    pub child_type: ChildType,
-    #[serde(default)]
-    pub sort_order: i32,
 }
 
 // ── Ancestry query params ────────────────────────────────────────────
@@ -500,15 +473,6 @@ pub fn tag_values(pairs: Vec<(String, String)>) -> Vec<String> {
         .filter(|(key, _)| key == "tag")
         .map(|(_, value)| value)
         .collect()
-}
-
-/// Request body for updating a couple.
-///
-/// Only privacy so far — a family's own facts live on its events and its
-/// spouse rows, not on the row itself.
-#[derive(Debug, Deserialize)]
-pub struct UpdateFamilyRequest {
-    pub privacy: Option<oxidgene_core::enums::Privacy>,
 }
 
 /// Request body for creating an empty multi-page document.
