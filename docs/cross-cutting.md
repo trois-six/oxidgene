@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:20:42Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -104,9 +104,12 @@ break. No component folds text its own way. The one variant, `fold_text`,
 lets a key another system defines keep its own separators — Geneanet's person
 references ([Geneanet media import](geneanet-media-import.md) §6).
 
-What is stored folded — the search rows, media tag keys — is rebuilt when the
-folding changes: the search rows through a `PROJECTION_SCHEMA_VERSION` bump,
-stored keys through a migration, so no install has to re-import anything.
+What is stored folded — the search rows, media tag keys — must be rebuilt
+when the folding changes. The search rows are, through a
+`PROJECTION_SCHEMA_VERSION` bump. Stored keys are not converted while the
+product is unreleased: its databases are recreated and their genealogy
+reimported ([Architecture §9](architecture.md)); once it is released, a
+migration re-keys them in place.
 
 ## 4. Error contract
 

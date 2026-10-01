@@ -32,9 +32,9 @@ use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole
 /// A bump costs one lazy rebuild per tree on first read. Not bumping costs a
 /// silent wrong answer, so when in doubt, bump.
 ///
-/// 4: couple-event media imported from Geneanet moved from the spouses to the
-/// family (migration `m20260927_000001_file_couple_media`), which changes
-/// each spouse's `media_count` and fallback primary media.
+/// 4: couple-event media imported from Geneanet are filed under the family
+/// rather than the spouses, which changes each spouse's `media_count` and
+/// fallback primary media.
 ///
 /// 5: the search rows are folded with `search::fold_words` — every script
 /// unaccented, `æ` as `ae`, `ß` as `ss`, punctuation as a word break — so

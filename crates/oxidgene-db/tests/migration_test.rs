@@ -62,8 +62,8 @@ async fn test_migrate_up_and_down_postgres() {
 async fn assert_migration_lifecycle(db: &DatabaseConnection) {
     assert_no_table(db, "exists").await;
 
-    // The initial migration creates the bulk of the schema and each later one
-    // amends it; running them in order must land on the current schema.
+    // The one consolidated migration creates the whole current schema, and
+    // running the migrator again finds nothing left to apply.
     run_migrations(db).await.expect("Migration up failed");
     assert_current_schema(db).await;
     run_migrations(db).await.expect("Repeated migration failed");
@@ -117,23 +117,11 @@ async fn assert_current_schema(db: &DatabaseConnection) {
     assert_person_search(db).await;
 }
 
-/// Every migration ran, in order.
+/// The consolidated initial migration is the only one, and it ran.
 async fn assert_applied_migrations(db: &DatabaseConnection) {
     let applied = Migrator::get_applied_migrations(db).await.unwrap();
     let applied: Vec<&str> = applied.iter().map(|m| m.name()).collect();
-    assert_eq!(
-        applied,
-        vec![
-            "m20250101_000001_initial",
-            "m20260918_000001_search_relatives",
-            "m20260926_000001_drop_redundant_indexes",
-            "m20260927_000001_file_couple_media",
-            "m20260927_000002_person_distinct",
-            "m20260927_000003_history",
-            "m20260928_000001_tree_entry_suggestions",
-            "m20260930_000001_fold_media_tags",
-        ]
-    );
+    assert_eq!(applied, vec!["m20250101_000001_initial"]);
 }
 
 /// Every table exists with its current columns, and the dropped ones are
@@ -227,7 +215,8 @@ async fn assert_indexes(db: &DatabaseConnection) {
             "missing {index}"
         );
     }
-    // Covered by the composite indexes above, which lead with `tree_id`.
+    // Never created: the composite indexes above, which lead with `tree_id`,
+    // serve every read a `tree_id` index of its own would.
     for (table, index) in [
         ("person_denorm", "idx_person_denorm_tree_id"),
         ("media", "idx_media_tree_id"),

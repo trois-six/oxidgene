@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:20:42Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -345,15 +345,7 @@ A face box still creates the spouse's identification either way. The
 couple's media, rather than in each spouse's column. A reference whose event
 does not resolve keeps its person link.
 
-Trees imported before this rule are repaired once, by the database migration
-`m20260927_000001_file_couple_media`, when the application or server starts.
-It applies the same rule to Geneanet media already in the database, whether
-they are linked through their page (older imports) or their document. Only the
-portrait exception can be recognized afterwards. A spouse's reference without
-a couple event left no trace, so that exception cannot be applied. Media
-attached by hand are never touched. The migration raises
-`PROJECTION_SCHEMA_VERSION`, so every person's projection is rebuilt with the
-new media counts. A reference carrying a
+A reference carrying a
 `face.position` additionally creates a `Vignette` on the page media resolved
 from that reference's `viewId`. The same person can therefore have one
 document link and several page identifications. The viewer suppresses the

@@ -1,8 +1,10 @@
 //! Initial migration: create the full OxidGene schema in one shot.
 //!
-//! The project currently supports recreating its data from source imports, so
-//! this migration is the complete current schema rather than an incremental
-//! history of intermediate representations.
+//! The product is unreleased and its databases are recreated from source
+//! imports, so this migration is the complete current schema — tables,
+//! columns, indexes and the backend-specific search table — rather than an
+//! incremental history of intermediate representations. A schema change
+//! edits it; nothing converts data from an earlier shape.
 
 use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, Statement};
 use sea_orm_migration::{prelude::*, schema::*};
@@ -22,6 +24,8 @@ impl MigrationTrait for Migration {
         create_jobs_and_search(manager).await?;
         create_traversal_indexes(manager).await?;
         create_projections(manager).await?;
+        create_person_distinct(manager).await?;
+        create_history(manager).await?;
         Ok(())
     }
 
@@ -33,10 +37,14 @@ impl MigrationTrait for Migration {
         ))
         .await?;
 
-        // Drop in reverse dependency order. `person_denorm` leads: it is a
-        // projection with foreign keys onto `person` and `tree`, so it has to
-        // go before either of them.
+        // Drop in reverse dependency order: versions before their audit
+        // entries, and everything holding a foreign key onto `person` or
+        // `tree` — the history, `person_distinct`, the `person_denorm`
+        // projection — before either of them.
         let tables = [
+            RecordVersion::Table.into_table_ref(),
+            AuditEntry::Table.into_table_ref(),
+            PersonDistinct::Table.into_table_ref(),
             BackgroundJob::Table.into_table_ref(),
             PersonDenorm::Table.into_table_ref(),
             MediaTag::Table.into_table_ref(),
@@ -78,6 +86,7 @@ enum Tree {
     SosaRootPersonId,
     SelfPersonId,
     DefaultPrivacy,
+    EntrySuggestions,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -368,6 +377,8 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default("private"),
                 )
+                // Whether the tree's entry fields suggest values.
+                .col(boolean(Tree::EntrySuggestions).default(true))
                 .col(timestamp_with_time_zone(Tree::CreatedAt))
                 .col(timestamp_with_time_zone(Tree::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Tree::DeletedAt))
@@ -728,15 +739,6 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_index(
             Index::create()
-                .name("idx_event_tree_id")
-                .table(Event::Table)
-                .col(Event::TreeId)
-                .to_owned(),
-        )
-        .await?;
-    manager
-        .create_index(
-            Index::create()
                 .name("idx_event_person_id")
                 .table(Event::Table)
                 .col(Event::PersonId)
@@ -992,15 +994,6 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(Media::Table)
                 .col(Media::ParentMediaId)
                 .col(Media::PageIndex)
-                .to_owned(),
-        )
-        .await?;
-    manager
-        .create_index(
-            Index::create()
-                .name("idx_media_tree_id")
-                .table(Media::Table)
-                .col(Media::TreeId)
                 .to_owned(),
         )
         .await?;
@@ -1325,7 +1318,19 @@ async fn create_jobs_and_search(manager: &SchemaManager<'_>) -> Result<(), DbErr
                         surname_display UNINDEXED,
                         given_names_display UNINDEXED,
                         birth_place UNINDEXED,
-                        date_sort UNINDEXED
+                        date_sort UNINDEXED,
+                        birth_qualifier UNINDEXED,
+                        death_qualifier UNINDEXED,
+                        spouse_names UNINDEXED,
+                        spouse_surnames UNINDEXED,
+                        spouse_given_names UNINDEXED,
+                        father_name UNINDEXED,
+                        father_surname UNINDEXED,
+                        father_given_names UNINDEXED,
+                        mother_name UNINDEXED,
+                        mother_surname UNINDEXED,
+                        mother_given_names UNINDEXED,
+                        children_count UNINDEXED
                     )
                     "#
                 .to_owned(),
@@ -1349,7 +1354,19 @@ async fn create_jobs_and_search(manager: &SchemaManager<'_>) -> Result<(), DbErr
                         surname_display TEXT NOT NULL DEFAULT '',
                         given_names_display TEXT NOT NULL DEFAULT '',
                         birth_place TEXT,
-                        date_sort TEXT
+                        date_sort TEXT,
+                        birth_qualifier TEXT NOT NULL DEFAULT 'exact',
+                        death_qualifier TEXT NOT NULL DEFAULT 'exact',
+                        spouse_names TEXT NOT NULL DEFAULT '',
+                        spouse_surnames TEXT NOT NULL DEFAULT '',
+                        spouse_given_names TEXT NOT NULL DEFAULT '',
+                        father_name TEXT,
+                        father_surname TEXT,
+                        father_given_names TEXT,
+                        mother_name TEXT,
+                        mother_surname TEXT,
+                        mother_given_names TEXT,
+                        children_count TEXT NOT NULL DEFAULT '0'
                     )
                     "#
                 .to_owned(),
@@ -1480,16 +1497,6 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_index(
             Index::create()
-                .name("idx_person_denorm_tree_id")
-                .table(PersonDenorm::Table)
-                .col(PersonDenorm::TreeId)
-                .to_owned(),
-        )
-        .await?;
-
-    manager
-        .create_index(
-            Index::create()
                 .name("idx_event_place_id")
                 .table(Event::Table)
                 .col(Event::PlaceId)
@@ -1509,9 +1516,9 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         )
         .await?;
     // Every "events of this tree, of this type" read — the occupations
-    // dictionary, the event list's type filter. On `idx_event_tree_id`
-    // alone the engine reads the tree's whole event history and discards
-    // all but one type of it.
+    // dictionary, the event list's type filter — and, through its leading
+    // column, every "events of this tree" read: a `tree_id` index of its own
+    // would serve no read this one cannot, and cost every insert.
     manager
         .create_index(
             Index::create()
@@ -1559,4 +1566,237 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         )
         .await?;
     Ok(())
+}
+
+/// Answers that two same-named persons are different people.
+///
+/// Saving a person whose name another person of the tree already bears asks
+/// whether they are the same individual; answering "no" is remembered here, one
+/// row per pair. A pair is stored once, with `person_id < other_person_id`, so
+/// the unique index is what makes recording the same answer twice a no-op.
+/// Both columns cascade from `person`, and `tree_id` from `tree`, so neither a
+/// purged person nor a purged tree leaves a row behind.
+async fn create_person_distinct(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(PersonDistinct::Table)
+                .if_not_exists()
+                .col(uuid(PersonDistinct::Id).primary_key())
+                .col(uuid(PersonDistinct::TreeId))
+                .col(uuid(PersonDistinct::PersonId))
+                .col(uuid(PersonDistinct::OtherPersonId))
+                .col(timestamp_with_time_zone(PersonDistinct::CreatedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_person_distinct_tree")
+                        .from(PersonDistinct::Table, PersonDistinct::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_person_distinct_person")
+                        .from(PersonDistinct::Table, PersonDistinct::PersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_person_distinct_other_person")
+                        .from(PersonDistinct::Table, PersonDistinct::OtherPersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // Leads with `person_id`, so it also answers "who is this person
+    // distinct from" for the lower id of each pair.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_distinct_pair")
+                .table(PersonDistinct::Table)
+                .col(PersonDistinct::PersonId)
+                .col(PersonDistinct::OtherPersonId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_distinct_other_person_id")
+                .table(PersonDistinct::Table)
+                .col(PersonDistinct::OtherPersonId)
+                .to_owned(),
+        )
+        .await
+}
+
+/// The history: one audit entry per write to a tree, and the versions of its
+/// persons, places, sources and settings.
+///
+/// `audit_entry` is the tree's audit log, read newest first, optionally
+/// filtered by category — the two indexes lead with `tree_id` for exactly those
+/// reads. `record_version` holds the state a write left a versioned record in,
+/// as JSON, numbered per record; the unique index on the record and its number
+/// is both how a record's history is read and what keeps two writers from
+/// numbering the same version twice. Both tables cascade from `tree`, and
+/// versions from their audit entry, so the purge of a tree takes its history
+/// with it. Neither references the persons or places it describes: a history
+/// has to outlive what it records.
+async fn create_history(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AuditEntry::Table)
+                .if_not_exists()
+                .col(uuid(AuditEntry::Id).primary_key())
+                .col(uuid(AuditEntry::TreeId))
+                .col(timestamp_with_time_zone(AuditEntry::OccurredAt))
+                .col(string_len(AuditEntry::Category, 16))
+                .col(string_len(AuditEntry::Action, 16))
+                .col(string_len(AuditEntry::Entity, 32))
+                .col(uuid_null(AuditEntry::EntityId))
+                .col(string_len_null(AuditEntry::Subject, 16))
+                .col(uuid_null(AuditEntry::SubjectId))
+                .col(text_null(AuditEntry::Label))
+                .col(text_null(AuditEntry::Details))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_audit_entry_tree")
+                        .from(AuditEntry::Table, AuditEntry::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_audit_entry_tree")
+                .table(AuditEntry::Table)
+                .col(AuditEntry::TreeId)
+                .col(AuditEntry::Id)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_audit_entry_tree_category")
+                .table(AuditEntry::Table)
+                .col(AuditEntry::TreeId)
+                .col(AuditEntry::Category)
+                .col(AuditEntry::Id)
+                .to_owned(),
+        )
+        .await?;
+
+    manager
+        .create_table(
+            Table::create()
+                .table(RecordVersion::Table)
+                .if_not_exists()
+                .col(uuid(RecordVersion::Id).primary_key())
+                .col(uuid(RecordVersion::TreeId))
+                .col(uuid(RecordVersion::AuditEntryId))
+                .col(string_len(RecordVersion::RecordType, 16))
+                .col(uuid(RecordVersion::RecordId))
+                .col(integer(RecordVersion::Version))
+                .col(boolean(RecordVersion::Deleted).default(false))
+                .col(timestamp_with_time_zone(RecordVersion::CreatedAt))
+                .col(text(RecordVersion::Snapshot))
+                .col(text(RecordVersion::Labels))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_record_version_tree")
+                        .from(RecordVersion::Table, RecordVersion::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_record_version_audit_entry")
+                        .from(RecordVersion::Table, RecordVersion::AuditEntryId)
+                        .to(AuditEntry::Table, AuditEntry::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_record_version_record")
+                .table(RecordVersion::Table)
+                .col(RecordVersion::RecordType)
+                .col(RecordVersion::RecordId)
+                .col(RecordVersion::Version)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_record_version_audit_entry")
+                .table(RecordVersion::Table)
+                .col(RecordVersion::AuditEntryId)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_record_version_tree")
+                .table(RecordVersion::Table)
+                .col(RecordVersion::TreeId)
+                .to_owned(),
+        )
+        .await
+}
+
+#[derive(DeriveIden)]
+enum PersonDistinct {
+    Table,
+    Id,
+    TreeId,
+    PersonId,
+    OtherPersonId,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum AuditEntry {
+    Table,
+    Id,
+    TreeId,
+    OccurredAt,
+    Category,
+    Action,
+    Entity,
+    EntityId,
+    Subject,
+    SubjectId,
+    Label,
+    Details,
+}
+
+#[derive(DeriveIden)]
+enum RecordVersion {
+    Table,
+    Id,
+    TreeId,
+    AuditEntryId,
+    RecordType,
+    RecordId,
+    Version,
+    Deleted,
+    CreatedAt,
+    Snapshot,
+    Labels,
 }

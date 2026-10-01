@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T09:36:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:20:42Z }
 ---
 
 
@@ -14,13 +14,14 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T09:36:40Z }
 
 Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `crates/oxidgene-core/src/enums.rs` (enums), `crates/oxidgene-db/src/entities/` (SeaORM entities), `crates/oxidgene-db/src/migration/m20250101_000001_initial.rs` (the complete current schema).
 
-The migrator registers only this initial migration, including all current tables,
-indexes, backend-specific search storage, and background-job trace context.
-Superseded migration modules and migration-history compatibility are not retained.
-Databases created with an earlier schema or migration history must be recreated
-and their genealogy reimported; running the consolidated migration is not an
-in-place upgrade. Runtime projection versioning remains independent of this
-schema reset (see §4.1).
+While the product is unreleased, the migrator registers only this initial
+migration, including all current tables, indexes, backend-specific search
+storage, and background-job trace context; a schema change edits it.
+Databases created with an earlier schema must be recreated and their genealogy
+reimported; running the consolidated migration is not an in-place upgrade.
+Once the product is released, changes ship as incremental migrations instead
+([Architecture §9](architecture.md)). Runtime projection versioning remains
+independent of this schema reset (see §4.1).
 
 ---
 
@@ -776,10 +777,10 @@ UI knows how to word it in the reader's language.
 The table has no `schema_version` of its own. It is repopulated by way of
 `PROJECTION_SCHEMA_VERSION`: a bump makes `person_denorm` read as stale, which
 makes `ensure_materialized` rebuild the tree, which replaces every search row.
-Changing the set of columns therefore needs both a migration and a version
-bump. Because SQLite FTS5 virtual tables reject `ALTER TABLE … ADD COLUMN`,
-such a migration drops and recreates the table on both backends; no data is
-lost, as every row is derived.
+Changing the set of columns therefore needs both a schema change and a
+version bump. SQLite FTS5 virtual tables reject `ALTER TABLE … ADD COLUMN`, so
+an incremental migration, once the product is released, drops and recreates
+the table on both backends; no data is lost, as every row is derived.
 
 ### 4.4 Refresh and consistency
 

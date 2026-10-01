@@ -441,11 +441,19 @@ The workspace keeps libraries under `crates/` and application entry points
 under `apps/`. `oxidgene-place-dictionary` is a development tool rather than a
 shipped application: it generates the [place dictionary](place-dictionary.md)
 from open data and is never linked into a product binary. A former CLI was removed after its workflows moved into the
-desktop application. A single initial migration creates the complete current
-SQLite or PostgreSQL schema, including indexes, search storage, and durable
-background jobs. Schema changes are consolidated into that initial migration;
-superseded migrations and old migration-history compatibility are not retained.
-Earlier databases must be recreated and their genealogy reimported, not upgraded
-in place. This policy does not replace runtime `PROJECTION_SCHEMA_VERSION`
-checks and lazy rebuilding of stale person projections (see
-[Data Model §4](data-model.md)).
+desktop application.
+
+**Migrations.** While the product is unreleased, the schema is one
+consolidated initial migration
+(`oxidgene-db/src/migration/m20250101_000001_initial.rs`) that creates the
+complete current SQLite or PostgreSQL schema: tables, columns, indexes, the
+backend-specific search storage, the history, and durable background jobs. A
+schema change edits that migration; no dated migration is added and no data
+is converted. A database created with an earlier schema is deleted and its
+genealogy reimported, not upgraded in place. The mechanism stays — the
+`Migrator`, `run_migrations` at every start, `rollback_migrations`, and the
+`seaql_migrations` table recording what ran — so that once the product is
+released, schema changes ship as incremental migrations appended after the
+initial one and existing installs upgrade in place. This policy does not
+replace runtime `PROJECTION_SCHEMA_VERSION` checks and lazy rebuilding of
+stale person projections (see [Data Model §4](data-model.md)).
