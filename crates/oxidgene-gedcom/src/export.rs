@@ -130,6 +130,7 @@ pub fn export_gedcom(
         mlinks_by_event: group_by(media_links, |ml| ml.event_id),
         mlinks_by_family: group_by(media_links, |ml| ml.family_id),
         spouses_by_family: group_by(family_spouses, |fs| Some(fs.family_id)),
+        sex_by_person: persons.iter().map(|p| (p.id, p.sex)).collect(),
         children_by_family: group_by(family_children, |fc| Some(fc.family_id)),
         // person_id → families (for INDI-level FAMS/FAMC back-links, without
         // which the exported file has no individual↔family linkage at all —
@@ -366,6 +367,7 @@ fn inject_extensions(
 /// Every lookup the export reads, built once from the rows it writes.
 struct ExportIndex<'a> {
     xrefs: Xrefs,
+    sex_by_person: HashMap<Uuid, Sex>,
     place_map: HashMap<Uuid, &'a Place>,
     media_by_id: HashMap<Uuid, &'a Media>,
     pages_of: HashMap<Uuid, Vec<&'a Media>>,
@@ -608,14 +610,7 @@ impl ExportIndex<'_> {
 
     /// A `FAM` record.
     fn family(&self, fam: &Family, warnings: &mut Vec<String>) -> GedFamily {
-        let spouses = self.spouses_by_family.get(&fam.id);
-        let spouse_xref = |role: SpouseRole| {
-            spouses.and_then(|ss| {
-                ss.iter()
-                    .find(|s| s.role == role)
-                    .and_then(|s| self.xrefs.person.get(&s.person_id).cloned())
-            })
-        };
+        let (husband, wife) = self.spouse_slots(fam, warnings);
         let children: Vec<String> = self
             .children_by_family
             .get(&fam.id)
@@ -640,8 +635,8 @@ impl ExportIndex<'_> {
 
         GedFamily {
             xref: self.xrefs.family.get(&fam.id).cloned(),
-            individual1: spouse_xref(SpouseRole::Husband),
-            individual2: spouse_xref(SpouseRole::Wife),
+            individual1: husband,
+            individual2: wife,
             children,
             events,
             // Citations with a family_id but no event_id.
@@ -656,6 +651,58 @@ impl ExportIndex<'_> {
             ),
             ..Default::default()
         }
+    }
+
+    /// A family's `HUSB` and `WIFE` xrefs.
+    ///
+    /// GEDCOM 5.5.1 has these two slots and no other. A husband and a wife
+    /// take their own; a partner — or a second husband or wife — takes the
+    /// slot their sex points to, else whichever is free, so that two partners
+    /// are both written. A spouse left with no slot is a warning: GEDCOM
+    /// cannot hold a third.
+    fn spouse_slots(
+        &self,
+        fam: &Family,
+        warnings: &mut Vec<String>,
+    ) -> (Option<String>, Option<String>) {
+        let mut spouses: Vec<&FamilySpouse> = self
+            .spouses_by_family
+            .get(&fam.id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|s| self.xrefs.person.contains_key(&s.person_id))
+            .collect();
+        spouses.sort_by_key(|s| s.sort_order);
+        let mut slots: [Option<Uuid>; 2] = [None, None];
+        let mut unplaced = Vec::new();
+        for spouse in spouses {
+            let own = match spouse.role {
+                SpouseRole::Husband => Some(0),
+                SpouseRole::Wife => Some(1),
+                SpouseRole::Partner => None,
+            };
+            match own {
+                Some(slot) if slots[slot].is_none() => slots[slot] = Some(spouse.person_id),
+                _ => unplaced.push(spouse),
+            }
+        }
+        for spouse in unplaced {
+            let preferred =
+                usize::from(self.sex_by_person.get(&spouse.person_id) == Some(&Sex::Female));
+            match [preferred, 1 - preferred]
+                .into_iter()
+                .find(|&slot| slots[slot].is_none())
+            {
+                Some(slot) => slots[slot] = Some(spouse.person_id),
+                None => warnings.push(format!(
+                    "Family {}: spouse {} has no HUSB or WIFE left to be written as",
+                    fam.id, spouse.person_id
+                )),
+            }
+        }
+        let xref = |slot: Option<Uuid>| slot.and_then(|id| self.xrefs.person.get(&id).cloned());
+        (xref(slots[0]), xref(slots[1]))
     }
 
     /// The citations of a record, leaving out (with a warning) those whose

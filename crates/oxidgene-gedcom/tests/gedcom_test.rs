@@ -806,6 +806,51 @@ fn a_source_publisher_survives_a_round_trip() {
     assert_eq!(back.sources[0].publisher.as_deref(), Some(publisher));
 }
 
+/// Partners are written as `HUSB` and `WIFE` — the only spouse slots GEDCOM
+/// 5.5.1 has — by sex, else in order; a third spouse is a warning.
+#[test]
+fn partners_are_exported_as_husband_and_wife() {
+    let mut imported = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7()).expect("imports");
+    for spouse in &mut imported.family_spouses {
+        spouse.role = oxidgene_core::SpouseRole::Partner;
+        // The wife first: her sex, not the order, gives her the WIFE slot.
+        spouse.sort_order = 1 - spouse.sort_order;
+    }
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n"),
+        "{exported}"
+    );
+
+    let mut third = imported.family_spouses[0].clone();
+    third.person_id = imported.persons[2].id;
+    third.sort_order = 2;
+    imported.family_spouses.push(third);
+    let export = export_gedcom(
+        &imported.persons,
+        &imported.person_names,
+        &imported.families,
+        &imported.family_spouses,
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        false,
+        false,
+        &HashMap::new(),
+        None,
+    )
+    .expect("exports");
+    assert_eq!(export.warnings.len(), 1, "{:?}", export.warnings);
+    assert!(export.warnings[0].contains("no HUSB or WIFE"));
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
