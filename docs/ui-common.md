@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:13:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:32:09Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -217,9 +217,10 @@ Tokens derived in the stylesheet rather than set by a theme:
 | `--shadow-md` | `0 4px 16px var(--shadow-strong)` |
 | `--select-arrow` | Data URI of the select chevron, in `--text-secondary` |
 
-Semantic aliases map generic component names to these core tokens:
-`--color-border`, `--color-danger`, `--color-danger-text`, `--white`, and
-`--shadow-black`.
+Two semantic aliases map generic component names to core tokens: `--white`
+(`--on-accent`) and `--shadow-black` (`--shadow`). Every other rule reads the
+core tokens directly; a page or component stylesheet never adds an alias of
+its own, and no rule reads a token no theme or stylesheet defines.
 
 ### 3.3 Typography and sizing
 
@@ -262,7 +263,7 @@ Callers do not embed user-visible literals.
 
 A focused modal for destructive or irreversible actions. It contains a title,
 explanation, cancel action, and explicit confirm action. Danger mode uses
-`var(--color-danger)`. `Escape` and backdrop press cancel unless an operation is
+`var(--danger)`. `Escape` and backdrop press cancel unless an operation is
 already running. Focus is trapped and restored to the triggering control.
 
 ### 4.2 PersonPicker

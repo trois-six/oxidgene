@@ -1051,7 +1051,7 @@ fn render_clear_filters(
     mut current_page: Signal<usize>,
 ) -> Element {
     rsx! {
-        div { class: "sr-empty",
+        div { class: "empty-state",
             p { {i18n.t("dictionary.no_matches")} }
             button {
                 class: "sr-clear-filters",
@@ -1174,11 +1174,11 @@ fn render_value_tab(
         {render_toolbar(i18n, letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
 
         if is_loading {
-            div { class: "sr-empty", {i18n.t("dictionary.loading")} }
+            div { class: "empty-state", {i18n.t("dictionary.loading")} }
         } else if is_error {
-            div { class: "sr-empty", {i18n.t("dictionary.error")} }
+            div { class: "empty-state", {i18n.t("dictionary.error")} }
         } else if all_entries.is_empty() {
-            div { class: "sr-empty", {i18n.t(empty_key)} }
+            div { class: "empty-state", {i18n.t(empty_key)} }
         } else if rows.is_empty() {
             {render_clear_filters(i18n, quick_filter, letter_filter, current_page)}
         } else {
@@ -1361,7 +1361,7 @@ fn render_sources_groups(
         }
         div { class: "dict-src-groups-label", {i18n.t("dictionary.sources_choose_letter")} }
         if filtered.is_empty() {
-            div { class: "sr-empty",
+            div { class: "empty-state",
                 p { {i18n.t("dictionary.no_matches")} }
                 button {
                     class: "sr-clear-filters",
@@ -1427,7 +1427,7 @@ fn render_sources_list(
         }
 
         if filtered.is_empty() {
-            div { class: "sr-empty",
+            div { class: "empty-state",
                 p { {i18n.t("dictionary.no_matches")} }
                 button {
                     class: "sr-clear-filters",
@@ -1514,9 +1514,9 @@ fn render_sources_tab(
         {render_sources_breadcrumb(i18n, history, quick_filter, &active_prefix)}
 
         if is_loading {
-            div { class: "sr-empty", {i18n.t("dictionary.loading")} }
+            div { class: "empty-state", {i18n.t("dictionary.loading")} }
         } else if is_error {
-            div { class: "sr-empty", {i18n.t("dictionary.error")} }
+            div { class: "empty-state", {i18n.t("dictionary.error")} }
         } else {
             match view {
                 Some(SourcesView::Groups { prefix, total, groups }) if !groups.is_empty() => {
@@ -1526,7 +1526,7 @@ fn render_sources_tab(
                     render_sources_list(i18n, tree_id, &sources, quick_filter, expanded, usage_people)
                 }
                 _ => rsx! {
-                    div { class: "sr-empty", {i18n.t("dictionary.no_entries_sources")} }
+                    div { class: "empty-state", {i18n.t("dictionary.no_entries_sources")} }
                 },
             }
         }
@@ -1572,11 +1572,11 @@ fn render_places_tab(
         {render_toolbar(i18n, letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
 
         if is_loading {
-            div { class: "sr-empty", {i18n.t("dictionary.loading")} }
+            div { class: "empty-state", {i18n.t("dictionary.loading")} }
         } else if is_error {
-            div { class: "sr-empty", {i18n.t("dictionary.error")} }
+            div { class: "empty-state", {i18n.t("dictionary.error")} }
         } else if all_entries.is_empty() {
-            div { class: "sr-empty", {i18n.t("dictionary.no_entries_places")} }
+            div { class: "empty-state", {i18n.t("dictionary.no_entries_places")} }
         } else if rows.is_empty() {
             {render_clear_filters(i18n, quick_filter, letter_filter, current_page)}
         } else {

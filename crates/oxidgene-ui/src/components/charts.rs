@@ -325,7 +325,7 @@ fn LineAxes(plot: Plot, ticks: Vec<f64>, periods: Vec<String>) -> Element {
         for (k, tick) in ticks.iter().enumerate() {
             g { key: "t{k}",
                 line {
-                    class: "stats-grid",
+                    class: "stats-grid-line",
                     x1: "{LEFT}",
                     x2: "{WIDTH - RIGHT}",
                     y1: "{plot.y(*tick)}",

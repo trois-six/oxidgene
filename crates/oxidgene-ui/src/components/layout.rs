@@ -131,9 +131,6 @@ pub const LAYOUT_STYLES: &str = r#"
         --evw:  275px;  /* event panel width */
 
         /* ── Semantic aliases (used by shared components) ─────────── */
-        --color-border:       var(--border);
-        --color-danger:       var(--danger);
-        --color-danger-text:  var(--danger-text);
         --white:              var(--on-accent);
         --shadow-black:       var(--shadow);
         --nav-bg:     color-mix(in srgb, var(--nav-surface) 92%, transparent);
@@ -310,7 +307,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .btn-danger {
-        background: var(--color-danger);
+        background: var(--danger);
         color: var(--on-accent);
     }
 
@@ -448,7 +445,7 @@ pub const LAYOUT_STYLES: &str = r#"
     .error-msg {
         background: color-mix(in srgb, var(--danger) 12%, transparent);
         border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-        color: var(--color-danger-text);
+        color: var(--danger-text);
         padding: 12px 16px;
         border-radius: var(--radius);
         margin-bottom: 16px;
@@ -1954,7 +1951,7 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .context-menu-item.context-menu-danger {
-        color: var(--color-danger-text);
+        color: var(--danger-text);
     }
 
     .context-menu-item.context-menu-danger:hover {
@@ -2868,8 +2865,8 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .pf-row-btn.is-danger:hover {
-        color: var(--color-danger-text);
-        border-color: var(--color-danger-text);
+        color: var(--danger-text);
+        border-color: var(--danger-text);
         background: color-mix(in srgb, var(--red) 8%, transparent);
     }
 
@@ -3719,13 +3716,6 @@ pub const LAYOUT_STYLES: &str = r#"
         height: 210px;
         color: var(--text-muted);
         font-size: 0.82rem;
-    }
-
-    /* Empty state */
-    .sr-empty {
-        text-align: center;
-        padding: 48px 24px;
-        color: var(--text-muted);
     }
 
     /* ── Dictionary page ──────────────────────────────────────────── */
@@ -4960,7 +4950,7 @@ pub const LAYOUT_STYLES: &str = r#"
         line-height: 1;
         cursor: pointer;
     }
-    .media-tag-remove:hover { background: var(--bg-card-hover); color: var(--color-danger-text); }
+    .media-tag-remove:hover { background: var(--bg-card-hover); color: var(--danger-text); }
 
     .media-fact-tech {
         display: flex;
@@ -5126,7 +5116,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .media-attachment-notice {
         margin: 8px 12px 0;
-        color: var(--success);
+        color: var(--green);
         text-align: center;
         font-size: 0.85rem;
     }
@@ -6642,8 +6632,7 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .stats-lines-svg { width: 100%; height: auto; display: block; }
 
-    .stats-grid-line,
-    .stats-grid { stroke: var(--border); stroke-width: 1; }
+    .stats-grid-line { stroke: var(--border); stroke-width: 1; }
 
     .stats-axis {
         fill: var(--text-muted);
@@ -7361,7 +7350,7 @@ pub const LAYOUT_STYLES: &str = r#"
         }
 
         /* Chrome, overlays and controls: nothing to read on paper. */
-        .app-nav, .tree-icon-sidebar, .isb, .ev-panel, .ev-panel-toggle,
+        .app-nav, .tree-icon-sidebar, .isb, .ev-panel,
         .modal-backdrop, .context-menu, .context-menu-backdrop,
         .ref-tooltip, .mini-pedigree-tooltip, .pedigree-depth-popover,
         .import-overlay, .cropper-backdrop,

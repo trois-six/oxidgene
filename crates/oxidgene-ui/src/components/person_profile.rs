@@ -1343,7 +1343,7 @@ pub(crate) fn notes_section(
                     for note in notes.iter() {
                         div {
                             key: "{note.id}",
-                            style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius);",
+                            style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);",
                             // Note bodies carry markup — GEDCOM and GeneWeb
                             // both put some in — and are sanitized server-side
                             // on write by `oxidgene_db::html::sanitize_note_html`,

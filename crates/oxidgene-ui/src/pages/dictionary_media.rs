@@ -253,13 +253,13 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         }
 
         if let Some(message) = error {
-            div { class: "sr-empty", "{message}" }
+            div { class: "empty-state", "{message}" }
         } else if items.is_none() {
-            div { class: "sr-empty", {i18n.t("dictionary.loading")} }
+            div { class: "empty-state", {i18n.t("dictionary.loading")} }
         } else if tiles.is_empty() && *applied.read() == MediaListFilters::default() {
-            div { class: "sr-empty", {i18n.t("dictionary.media.none")} }
+            div { class: "empty-state", {i18n.t("dictionary.media.none")} }
         } else if tiles.is_empty() {
-            div { class: "sr-empty",
+            div { class: "empty-state",
                 p { {i18n.t("dictionary.media.no_matches")} }
                 button { class: "sr-clear-filters", onclick: clear_all, {i18n.t("dictionary.media.clear_all")} }
             }

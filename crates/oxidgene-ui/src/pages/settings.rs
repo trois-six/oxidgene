@@ -493,11 +493,11 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
         i18n.t("common.save")
     };
     rsx! {
-        div { class: "card", style: "margin-top: 16px;",
-            h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
+        div { class: "card settings-card",
+            h3 { class: "settings-card-title",
                 {i18n.t("settings.tree_name")}
             }
-            p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
+            p { class: "settings-card-desc",
                 {i18n.t("settings.tree_name_desc")}
             }
             div { class: "settings-tree-name-form",
@@ -533,10 +533,10 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
                 }
             }
             if let Some(message) = success() {
-                div { class: "success-msg", style: "margin-top: 12px;", "{message}" }
+                div { class: "success-msg settings-feedback", "{message}" }
             }
             if let Some(error) = error() {
-                div { class: "error-msg", style: "margin-top: 12px;", "{error}" }
+                div { class: "error-msg settings-feedback", "{error}" }
             }
         }
     }
@@ -664,11 +664,11 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
     };
 
     rsx! {
-        div { class: "card", style: "margin-top: 16px;",
-            h3 { style: "font-size: 0.95rem; margin-bottom: 12px; color: var(--text-primary);",
+        div { class: "card settings-card",
+            h3 { class: "settings-card-title",
                 {i18n.t(title)}
             }
-            p { style: "font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;",
+            p { class: "settings-card-desc",
                 {i18n.t(description)}
             }
             if show_search() {
@@ -707,10 +707,10 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
                 }
             }
             if message() {
-                div { class: "success-msg", style: "margin-top: 12px;", {i18n.t(saved)} }
+                div { class: "success-msg settings-feedback", {i18n.t(saved)} }
             }
             if let Some(err) = error() {
-                div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
+                div { class: "error-msg settings-feedback", "{err}" }
             }
         }
     }
@@ -749,14 +749,14 @@ fn PrivacySection(
                 {i18n.t("settings.privacy_desc")}
             }
 
-            div { class: "card", style: "margin-top: 16px;",
-                h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
+            div { class: "card settings-card",
+                h3 { class: "settings-card-title",
                     {i18n.t("settings.default_privacy")}
                 }
                 p { class: "settings-section-subtitle",
                     {i18n.t("settings.default_privacy_desc")}
                 }
-                div { class: "pf-gender-group", style: "margin-top: 12px;",
+                div { class: "pf-gender-group settings-choices",
                     for (value , label) in [
                         (TreeDefaultPrivacy::Private, i18n.t("privacy.private")),
                         (TreeDefaultPrivacy::Public, i18n.t("privacy.public")),
@@ -791,11 +791,11 @@ fn PrivacySection(
                         }
                     }
                 }
-                p { class: "pf-ns-hint", style: "margin-top: 8px;",
+                p { class: "pf-ns-hint settings-hint",
                     {i18n.t("privacy.not_enforced_yet")}
                 }
                 if let Some(err) = &save_error() {
-                    div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
+                    div { class: "error-msg settings-feedback", "{err}" }
                 }
             }
         }
@@ -826,14 +826,14 @@ fn EntryOptionsSection(
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
             h2 { class: "settings-section-title", {i18n.t("settings.entry_options")} }
 
-            div { class: "card", style: "margin-top: 16px;",
-                h3 { style: "font-size: 0.95rem; margin-bottom: 6px; color: var(--text-primary);",
+            div { class: "card settings-card",
+                h3 { class: "settings-card-title",
                     {i18n.t("settings.entry_suggestions")}
                 }
                 p { class: "settings-section-subtitle",
                     {i18n.t("settings.entry_suggestions_desc")}
                 }
-                div { class: "pf-gender-group", style: "margin-top: 12px;",
+                div { class: "pf-gender-group settings-choices",
                     for (value , label) in [(true, i18n.t("common.yes")), (false, i18n.t("common.no"))] {
                         button {
                             key: "{value}",
@@ -862,7 +862,7 @@ fn EntryOptionsSection(
                     }
                 }
                 if let Some(err) = &save_error() {
-                    div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
+                    div { class: "error-msg settings-feedback", "{err}" }
                 }
             }
         }
@@ -904,13 +904,13 @@ fn ExportSection(
                 {i18n.t("settings.export_desc")}
             }
 
-            div { class: "card", style: "margin-top: 16px;",
+            div { class: "card settings-card",
                 div { class: "settings-export-row",
-                    div { style: "flex: 1;",
-                        h3 { style: "font-size: 0.95rem; margin-bottom: 4px; color: var(--text-primary);",
+                    div { class: "settings-export-info",
+                        h3 { class: "settings-card-title",
                             "{format_title}"
                         }
-                        p { style: "font-size: 0.82rem; color: var(--text-secondary);",
+                        p { class: "settings-card-desc",
                             "{format_desc}"
                         }
                     }
@@ -930,45 +930,43 @@ fn ExportSection(
                 }
                 if !is_gedzip {
                     label {
-                        style: "display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); cursor: pointer;",
+                        class: "settings-check settings-check-first",
                         input {
                             r#type: "checkbox",
-                            style: "margin: 3px 0 0 0;",
                             checked: merge_occupations(),
                             onchange: move |e: Event<FormData>| merge_occupations.set(e.checked()),
                         }
                         div {
-                            div { style: "font-size: 0.85rem; color: var(--text-primary);",
+                            div { class: "settings-check-label",
                                 {i18n.t("settings.export_merge_occupations")}
                             }
-                            p { style: "font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px;",
+                            p { class: "settings-check-desc",
                                 {i18n.t("settings.export_merge_occupations_desc")}
                             }
                         }
                     }
                     label {
-                        style: "display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; margin-top: 12px;",
+                        class: "settings-check",
                         input {
                             r#type: "checkbox",
-                            style: "margin: 3px 0 0 0;",
                             checked: merge_names(),
                             onchange: move |e: Event<FormData>| merge_names.set(e.checked()),
                         }
                         div {
-                            div { style: "font-size: 0.85rem; color: var(--text-primary);",
+                            div { class: "settings-check-label",
                                 {i18n.t("settings.export_merge_names")}
                             }
-                            p { style: "font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px;",
+                            p { class: "settings-check-desc",
                                 {i18n.t("settings.export_merge_names_desc")}
                             }
                         }
                     }
                 }
                 if let Some(err) = &error {
-                    div { class: "error-msg", style: "margin-top: 12px;", "{err}" }
+                    div { class: "error-msg settings-feedback", "{err}" }
                 }
                 if let Some(message) = &success {
-                    div { class: "success-msg", style: "margin-top: 12px;",
+                    div { class: "success-msg settings-feedback",
                         "{message}"
                     }
                 }
@@ -1013,7 +1011,7 @@ fn PlaceholderSection(section_name: String) -> Element {
             div { class: "settings-section-eyebrow", "{group}" }
             h2 { class: "settings-section-title", "{display_name}" }
 
-            div { class: "card", style: "margin-top: 16px;",
+            div { class: "card settings-card",
                 div { class: "empty-state",
                     h3 { {i18n.t("settings.coming_soon")} }
                     p { {i18n.t("settings.coming_soon_desc")} }
@@ -1024,6 +1022,45 @@ fn PlaceholderSection(section_name: String) -> Element {
 }
 
 const SETTINGS_STYLES: &str = r#"
+    .settings-card { margin-top: 16px; }
+    .settings-card-title {
+        font-size: 0.95rem;
+        margin-bottom: 6px;
+        color: var(--text-primary);
+    }
+    .settings-card-desc {
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+    }
+    .settings-export-row .settings-card-desc { margin-bottom: 0; }
+    .settings-feedback,
+    .settings-choices { margin-top: 12px; }
+    .settings-hint { margin-top: 8px; }
+    .settings-export-info { flex: 1; }
+    .settings-check {
+        display: grid;
+        grid-template-columns: 20px 1fr;
+        column-gap: 8px;
+        align-items: start;
+        margin-top: 12px;
+        cursor: pointer;
+    }
+    .settings-check-first {
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+    }
+    .settings-check input { margin: 3px 0 0 0; }
+    .settings-check-label {
+        font-size: 0.85rem;
+        color: var(--text-primary);
+    }
+    .settings-check-desc {
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        margin-top: 2px;
+    }
     .settings-tree-name-form {
         display: flex;
         gap: 8px;

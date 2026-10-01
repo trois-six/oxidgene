@@ -630,7 +630,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                 // ── Results ──
                 match body {
                     ResultsBody::Message(key) => rsx! {
-                        div { class: "sr-empty", p { {i18n.t(key)} } }
+                        div { class: "empty-state", p { {i18n.t(key)} } }
                     },
                     ResultsBody::Cards => results.cards(tree_id.unwrap_or_default(), &card_pedigrees.read(), pedigrees_loaded),
                     ResultsBody::List => results.list(portraits.as_ref()),

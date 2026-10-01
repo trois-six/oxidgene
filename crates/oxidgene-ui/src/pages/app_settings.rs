@@ -427,7 +427,7 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
                     }
                     div { class: "pedigree-depth-stepper",
                         button {
-                            class: "pedigree-depth-btn",
+                            class: "pedigree-depth-step",
                             disabled: current.ancestor_levels == 0,
                             title: i18n.t("app_settings.decrease_ancestor_levels"),
                             aria_label: i18n.t("app_settings.decrease_ancestor_levels"),
@@ -442,7 +442,7 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
                         }
                         span { class: "pedigree-depth-value", "{current.ancestor_levels}" }
                         button {
-                            class: "pedigree-depth-btn",
+                            class: "pedigree-depth-step",
                             disabled: current.ancestor_levels >= crate::prefs::MAX_PEDIGREE_LEVELS,
                             title: i18n.t("app_settings.increase_ancestor_levels"),
                             aria_label: i18n.t("app_settings.increase_ancestor_levels"),
@@ -464,7 +464,7 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
                     }
                     div { class: "pedigree-depth-stepper",
                         button {
-                            class: "pedigree-depth-btn",
+                            class: "pedigree-depth-step",
                             disabled: current.descendant_levels == 0,
                             title: i18n.t("app_settings.decrease_descendant_levels"),
                             aria_label: i18n.t("app_settings.decrease_descendant_levels"),
@@ -479,7 +479,7 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
                         }
                         span { class: "pedigree-depth-value", "{current.descendant_levels}" }
                         button {
-                            class: "pedigree-depth-btn",
+                            class: "pedigree-depth-step",
                             disabled: current.descendant_levels >= crate::prefs::MAX_PEDIGREE_LEVELS,
                             title: i18n.t("app_settings.increase_descendant_levels"),
                             aria_label: i18n.t("app_settings.increase_descendant_levels"),
@@ -998,7 +998,7 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
         flex-shrink: 0;
     }
 
-    .pedigree-depth-btn {
+    .pedigree-depth-step {
         width: 2rem;
         height: 2rem;
         border: none;
@@ -1008,11 +1008,11 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
         font-size: 1rem;
     }
 
-    .pedigree-depth-btn:hover:not(:disabled) {
+    .pedigree-depth-step:hover:not(:disabled) {
         background: var(--bg-card-hover);
     }
 
-    .pedigree-depth-btn:disabled {
+    .pedigree-depth-step:disabled {
         color: var(--text-muted);
         cursor: default;
         opacity: 0.5;
