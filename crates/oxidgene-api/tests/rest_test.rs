@@ -1195,6 +1195,69 @@ async fn test_person_search_reads_typed_filters_beside_paging() {
     assert_eq!(body["total_count"], 0);
 }
 
+/// The filters on events — place, type and years together, the family's
+/// events through its spouses, occupations — each matching only the tree
+/// searched, though a second tree holds the same people.
+#[tokio::test]
+async fn test_person_search_filters_on_events() {
+    let app = setup_app().await;
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n2 FORM LINEAGE-LINKED\n1 CHAR UTF-8\n\
+        0 @I1@ INDI\n1 NAME Alpha /Sample/\n1 SEX M\n1 BIRT\n2 DATE 1850\n\
+        2 PLAC Springfield\n1 OCCU Baker\n1 FAMS @F1@\n\
+        0 @I2@ INDI\n1 NAME Beta /Sample/\n1 SEX F\n1 FAMS @F1@\n\
+        0 @I3@ INDI\n1 NAME Gamma /Sample/\n1 SEX F\n\
+        0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I2@\n1 MARR\n2 DATE 1875\n2 PLAC Riverside\n\
+        0 TRLR\n";
+    let mut trees = Vec::new();
+    for _ in 0..2 {
+        let tree_id = create_tree_via_api(&app).await;
+        let (status, body) = send(
+            &app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/gedcom/import"),
+            Some(serde_json::json!({ "gedcom": gedcom })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "import failed: {body}");
+        trees.push(tree_id);
+    }
+
+    let names = |body: &Value| -> Vec<String> {
+        let mut names: Vec<String> = body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["display_name"].as_str().unwrap().to_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    for (query, expected) in [
+        // The marriage is the family's event: both spouses match it.
+        ("place=riverside", vec!["Alpha Sample", "Beta Sample"]),
+        ("place=springfield&event_type=birth", vec!["Alpha Sample"]),
+        (
+            "event_type=birth&event_from=1840&event_to=1860",
+            vec!["Alpha Sample"],
+        ),
+        ("event_type=birth&event_from=1860", vec![]),
+        ("place=riverside&event_type=birth", vec![]),
+        ("occupation=bak", vec!["Alpha Sample"]),
+        ("occupation=smith", vec![]),
+    ] {
+        let (status, body) = send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{}/persons/search?{query}", trees[0]),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{query} failed: {body}");
+        assert_eq!(names(&body), expected, "{query}");
+        assert_eq!(body["total_count"], expected.len(), "{query}");
+    }
+}
+
 // ───────────────────────── Family tests ─────────────────────────
 
 #[tokio::test]

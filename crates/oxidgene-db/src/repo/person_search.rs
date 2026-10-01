@@ -487,8 +487,8 @@ impl PersonSearchRepo {
         )];
         push_word_conditions(&mut values, &mut conditions, backend, words);
         push_person_filters(&mut values, &mut conditions, backend, filters);
-        push_event_filters(&mut values, &mut conditions, backend, filters);
-        push_relative_filters(&mut values, &mut conditions, backend, filters);
+        push_event_filters(&mut values, &mut conditions, backend, tree_id, filters);
+        push_relative_filters(&mut values, &mut conditions, backend, tree_id, filters);
         let order = sort_order(&mut values, backend, words, filters, sort);
         let limit_param = push_value(&mut values, backend, (limit as i64).into());
         let offset_param = push_value(&mut values, backend, (offset as i64).into());
@@ -819,10 +819,18 @@ fn push_person_filters(
 /// The filters on the person's events: one event (their own or a family's
 /// they are a spouse in) matching place, type and years together, and an
 /// occupation.
+///
+/// Each one is a tree-scoped `person_id IN (…)` rather than a correlated
+/// `EXISTS`. The person id has to be turned into text to meet the search
+/// row's, and done inside a correlated subquery that conversion sat on the
+/// indexed side: every search row then scanned the whole event table, which
+/// on a 10 000-person tree took from seconds to minutes. Selecting the
+/// matching ids once, from the tree's own events, takes milliseconds.
 fn push_event_filters(
     values: &mut Vec<Value>,
     conditions: &mut Vec<String>,
     backend: DbBackend,
+    tree_id: Uuid,
     filters: &PersonSearchFilters,
 ) {
     let place = non_blank(filters.place.as_deref());
@@ -831,48 +839,73 @@ fn push_event_filters(
         || filters.event_from.is_some()
         || filters.event_to.is_some()
     {
-        let event_person_id = uuid_as_text(backend, "e.person_id");
-        let spouse_person_id = uuid_as_text(backend, "fs.person_id");
-        let mut event_conditions = vec![
-            "e.deleted_at IS NULL".to_string(),
-            format!(
-                "({event_person_id} = person_search_fts.person_id OR EXISTS (\
-                SELECT 1 FROM family_spouse fs WHERE fs.family_id = e.family_id \
-                AND {spouse_person_id} = person_search_fts.person_id))"
-            ),
-        ];
-        if let Some(place) = place {
-            let param = push_value(values, backend, lowercase_contains(place));
-            event_conditions.push(format!("LOWER(p.name) LIKE {param}"));
-        }
-        if let Some(event_type) = filters.event_type {
-            let param = push_value(values, backend, event_type.to_string().into());
-            event_conditions.push(format!("e.event_type = {param}"));
-        }
-        if let Some(year) = filters.event_from {
-            let param = push_value(values, backend, format!("{year:04}-01-01").into());
-            event_conditions.push(format!("CAST(e.date_sort AS TEXT) >= {param}"));
-        }
-        if let Some(year) = filters.event_to {
-            let param = push_value(values, backend, format!("{year:04}-12-31").into());
-            event_conditions.push(format!("CAST(e.date_sort AS TEXT) <= {param}"));
-        }
+        // Once for the person's own events, once for their families': SQLite
+        // binds `?` by position, so each branch binds its own values.
+        let own = event_branch(values, backend, tree_id, filters, place, "e.person_id", "");
+        let family = event_branch(
+            values,
+            backend,
+            tree_id,
+            filters,
+            place,
+            "fs.person_id",
+            " JOIN family_spouse fs ON fs.family_id = e.family_id",
+        );
         conditions.push(format!(
-            "EXISTS (SELECT 1 FROM event e LEFT JOIN place p ON p.id = e.place_id WHERE {})",
-            event_conditions.join(" AND ")
+            "person_search_fts.person_id IN ({own} UNION {family})"
         ));
     }
 
     if let Some(occupation) = non_blank(filters.occupation.as_deref()) {
+        let tree = push_value(values, backend, tree_id.into());
         let param = push_value(values, backend, lowercase_contains(occupation));
-        let occupation_person_id = uuid_as_text(backend, "oe.person_id");
+        let person_id = uuid_as_text(backend, "e.person_id");
         conditions.push(format!(
-            "EXISTS (SELECT 1 FROM event oe WHERE oe.deleted_at IS NULL \
-             AND oe.event_type = 'occupation' \
-             AND {occupation_person_id} = person_search_fts.person_id \
-             AND LOWER(COALESCE(oe.description, '')) LIKE {param})"
+            "person_search_fts.person_id IN (SELECT {person_id} FROM event e \
+             WHERE e.tree_id = {tree} AND e.deleted_at IS NULL \
+             AND e.event_type = 'occupation' \
+             AND LOWER(COALESCE(e.description, '')) LIKE {param})"
         ));
     }
+}
+
+/// The ids, as text, of the persons reached through `person_column` from the
+/// tree's events matching place, type and years.
+fn event_branch(
+    values: &mut Vec<Value>,
+    backend: DbBackend,
+    tree_id: Uuid,
+    filters: &PersonSearchFilters,
+    place: Option<&str>,
+    person_column: &str,
+    join: &str,
+) -> String {
+    let tree = push_value(values, backend, tree_id.into());
+    let mut event_conditions = vec![
+        format!("e.tree_id = {tree}"),
+        "e.deleted_at IS NULL".to_string(),
+    ];
+    if let Some(place) = place {
+        let param = push_value(values, backend, lowercase_contains(place));
+        event_conditions.push(format!("LOWER(p.name) LIKE {param}"));
+    }
+    if let Some(event_type) = filters.event_type {
+        let param = push_value(values, backend, event_type.to_string().into());
+        event_conditions.push(format!("e.event_type = {param}"));
+    }
+    if let Some(year) = filters.event_from {
+        let param = push_value(values, backend, format!("{year:04}-01-01").into());
+        event_conditions.push(format!("CAST(e.date_sort AS TEXT) >= {param}"));
+    }
+    if let Some(year) = filters.event_to {
+        let param = push_value(values, backend, format!("{year:04}-12-31").into());
+        event_conditions.push(format!("CAST(e.date_sort AS TEXT) <= {param}"));
+    }
+    format!(
+        "SELECT {} FROM event e{join} LEFT JOIN place p ON p.id = e.place_id WHERE {}",
+        uuid_as_text(backend, person_column),
+        event_conditions.join(" AND ")
+    )
 }
 
 /// A `LIKE` pattern for the trimmed value, lowercased, anywhere in the text.
@@ -885,6 +918,7 @@ fn push_relative_filters(
     values: &mut Vec<Value>,
     conditions: &mut Vec<String>,
     backend: DbBackend,
+    tree_id: Uuid,
     filters: &PersonSearchFilters,
 ) {
     // Relatives are matched on this row's own denormalized columns rather
@@ -905,11 +939,13 @@ fn push_relative_filters(
     }
 
     if filters.has_media {
+        // A tree-scoped `IN`, for the reason given at `push_event_filters`.
+        let tree = push_value(values, backend, tree_id.into());
         let media_person_id = uuid_as_text(backend, "ml.person_id");
         conditions.push(format!(
-            "EXISTS (SELECT 1 FROM media_link ml JOIN media m ON m.id = ml.media_id \
-             WHERE {media_person_id} = person_search_fts.person_id \
-             AND m.deleted_at IS NULL)"
+            "person_search_fts.person_id IN (SELECT {media_person_id} FROM media_link ml \
+             JOIN media m ON m.id = ml.media_id \
+             WHERE m.tree_id = {tree} AND m.deleted_at IS NULL)"
         ));
     }
 }
@@ -1056,30 +1092,33 @@ mod tests {
              WHERE tree_id = $1 AND {} AND {} AND sex = $4 AND surname LIKE $5 \
              AND given_names LIKE $6 AND CAST(birth_year AS INTEGER) >= $7 \
              AND CAST(birth_year AS INTEGER) <= $8 AND CAST(death_year AS INTEGER) <= $9 \
-             AND EXISTS (SELECT 1 FROM event e LEFT JOIN place p ON p.id = e.place_id \
-             WHERE e.deleted_at IS NULL AND (CAST(e.person_id AS TEXT) = \
-             person_search_fts.person_id OR EXISTS (SELECT 1 FROM family_spouse fs \
-             WHERE fs.family_id = e.family_id AND CAST(fs.person_id AS TEXT) = \
-             person_search_fts.person_id)) AND LOWER(p.name) LIKE $10 \
-             AND e.event_type = $11 AND CAST(e.date_sort AS TEXT) >= $12 \
-             AND CAST(e.date_sort AS TEXT) <= $13) \
-             AND EXISTS (SELECT 1 FROM event oe WHERE oe.deleted_at IS NULL \
-             AND oe.event_type = 'occupation' AND CAST(oe.person_id AS TEXT) = \
-             person_search_fts.person_id AND LOWER(COALESCE(oe.description, '')) LIKE $14) \
-             AND COALESCE(spouse_surnames, '') LIKE $15 \
-             AND COALESCE(father_surname, '') LIKE $16 \
-             AND COALESCE(father_given_names, '') LIKE $17 \
-             AND COALESCE(mother_given_names, '') LIKE $18 \
-             AND EXISTS (SELECT 1 FROM media_link ml JOIN media m ON m.id = ml.media_id \
-             WHERE CAST(ml.person_id AS TEXT) = person_search_fts.person_id \
-             AND m.deleted_at IS NULL) \
-             ORDER BY CASE WHEN surname LIKE $19 THEN 0 WHEN given_names LIKE $20 THEN 1 \
-             ELSE 2 END, surname, given_names LIMIT $21 OFFSET $22",
+             AND person_search_fts.person_id IN (SELECT CAST(e.person_id AS TEXT) \
+             FROM event e LEFT JOIN place p ON p.id = e.place_id WHERE e.tree_id = $10 \
+             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $11 AND e.event_type = $12 \
+             AND CAST(e.date_sort AS TEXT) >= $13 AND CAST(e.date_sort AS TEXT) <= $14 \
+             UNION SELECT CAST(fs.person_id AS TEXT) FROM event e \
+             JOIN family_spouse fs ON fs.family_id = e.family_id \
+             LEFT JOIN place p ON p.id = e.place_id WHERE e.tree_id = $15 \
+             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $16 AND e.event_type = $17 \
+             AND CAST(e.date_sort AS TEXT) >= $18 AND CAST(e.date_sort AS TEXT) <= $19) \
+             AND person_search_fts.person_id IN (SELECT CAST(e.person_id AS TEXT) FROM event e \
+             WHERE e.tree_id = $20 AND e.deleted_at IS NULL AND e.event_type = 'occupation' \
+             AND LOWER(COALESCE(e.description, '')) LIKE $21) \
+             AND COALESCE(spouse_surnames, '') LIKE $22 \
+             AND COALESCE(father_surname, '') LIKE $23 \
+             AND COALESCE(father_given_names, '') LIKE $24 \
+             AND COALESCE(mother_given_names, '') LIKE $25 \
+             AND person_search_fts.person_id IN (SELECT CAST(ml.person_id AS TEXT) \
+             FROM media_link ml JOIN media m ON m.id = ml.media_id \
+             WHERE m.tree_id = $26 AND m.deleted_at IS NULL) \
+             ORDER BY CASE WHEN surname LIKE $27 THEN 0 WHEN given_names LIKE $28 THEN 1 \
+             ELSE 2 END, surname, given_names LIMIT $29 OFFSET $30",
             word(2),
             word(3),
         );
         assert_eq!(stmt.sql, expected);
         let text = |s: &str| Value::from(s.to_string());
+        let tree = Value::from(Uuid::nil());
         assert_eq!(
             values(&stmt),
             vec![
@@ -1092,15 +1131,23 @@ mod tests {
                 Value::from(1800_i64),
                 Value::from(1900_i64),
                 Value::from(1950_i64),
+                tree.clone(),
                 text("%springfield%"),
                 text("birth"),
                 text("1820-01-01"),
                 text("1830-12-31"),
+                tree.clone(),
+                text("%springfield%"),
+                text("birth"),
+                text("1820-01-01"),
+                text("1830-12-31"),
+                tree.clone(),
                 text("%baker%"),
                 text("%roe%"),
                 text("%poe%"),
                 text("%bob%"),
                 text("%eve%"),
+                tree,
                 text("an\"n%"),
                 text("an\"n%"),
                 Value::from(25_i64),
