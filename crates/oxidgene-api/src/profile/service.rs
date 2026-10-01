@@ -128,8 +128,8 @@ impl ProfileService {
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
-        // Only projections matching the current schema version are usable.
-        let denorm = PersonDenormRepo::has_current(conn, tree_id).await?;
+        // Usable only when no row predates the current schema version.
+        let denorm = PersonDenormRepo::is_materialized(conn, tree_id).await?;
         let search = PersonSearchRepo::has_tree(conn, tree_id).await?;
         if denorm && search {
             return Ok(());

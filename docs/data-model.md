@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T07:07:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T09:36:40Z }
 ---
 
 
@@ -718,7 +718,10 @@ retain qualifier, both date bounds, calendar, place ID, and place display name.
 `PROJECTION_SCHEMA_VERSION` is incremented whenever `PersonProfile` or any
 nested projection type changes. Reads filter by the current version. An older
 row is treated as absent and rebuilt lazily, because `#[serde(default)]` alone
-would deserialize a missing new field as if it were genuine empty data.
+would deserialize a missing new field as if it were genuine empty data. A
+tree counts as materialized only when it has rows and none of them is older:
+rebuilding one person on demand never stands for the whole tree, so the first
+tree-wide read after a bump rebuilds every row.
 The initial schema defaults `schema_version` to `0`, so a row without an
 explicit current version is stale rather than assumed to contain a current
 payload. Consolidating SQL migrations does not remove this runtime version check.
@@ -771,7 +774,7 @@ separate column rather than being folded into the year string, because only the
 UI knows how to word it in the reader's language.
 
 The table has no `schema_version` of its own. It is repopulated by way of
-`PROJECTION_SCHEMA_VERSION`: a bump makes `person_denorm` read as empty, which
+`PROJECTION_SCHEMA_VERSION`: a bump makes `person_denorm` read as stale, which
 makes `ensure_materialized` rebuild the tree, which replaces every search row.
 Changing the set of columns therefore needs both a migration and a version
 bump. Because SQLite FTS5 virtual tables reject `ALTER TABLE … ADD COLUMN`,

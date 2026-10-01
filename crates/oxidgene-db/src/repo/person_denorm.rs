@@ -31,9 +31,9 @@ const INSERT_CHUNK: usize = 500;
 /// payload deserializes cleanly and comes back looking complete — nothing can
 /// tell it apart from a person who genuinely has nothing recorded. Checking the
 /// version in SQL instead makes a stale row simply not match: `get` returns
-/// `None`, `get_many` omits it, `has_current` does not see it, and the
-/// callers that already rebuild a projection they could not find rebuild these
-/// too. No second code path, and no way to forget one.
+/// `None`, `get_many` omits it, `is_materialized` counts it against the tree,
+/// and the callers that already rebuild a projection they could not find
+/// rebuild these too. No second code path, and no way to forget one.
 fn is_current() -> sea_orm::sea_query::SimpleExpr {
     Column::SchemaVersion.eq(PROJECTION_SCHEMA_VERSION)
 }
@@ -89,7 +89,7 @@ impl PersonDenormRepo {
     /// Deliberately *not* filtered by version, unlike [`Self::get`] and
     /// [`Self::get_many`]: this returns a whole tree's worth of people, and
     /// silently dropping the stale ones would answer "who is in this tree" with
-    /// a short list. Its one caller checks [`Self::has_current`] first and
+    /// a short list. Its one caller checks [`Self::is_materialized`] first and
     /// rebuilds the tree when it answers no, so by the time this runs
     /// there is nothing stale left to filter.
     pub async fn list_tree(
@@ -176,35 +176,49 @@ impl PersonDenormRepo {
         Ok(())
     }
 
-    /// Whether a tree has any *usable* projection — a row this build can read.
+    /// Whether a tree's projections are all usable: it has at least one row,
+    /// and none of them was written by an older build.
     ///
-    /// This is what "has the tree been materialized" means, and it answers no
-    /// both for a tree nobody has built and for one whose rows an older build
-    /// wrote. Callers rebuild on no, so a schema bump heals a tree on its first
-    /// read rather than serving defaults until somebody re-imports.
+    /// This is what "has the tree been materialized" means. It answers no for
+    /// a tree nobody has built and for one an older build wrote, *even after
+    /// some of its persons were rebuilt one at a time* — opening a person page
+    /// heals that person only, and a check satisfied by any current row then
+    /// left the rest of the tree stale for good. Callers rebuild on no, so a
+    /// schema bump heals the whole tree on its first tree-wide read.
     ///
-    /// Every tree read asks this, so it stops at the first row instead of
+    /// Every tree read asks this, so both lookups stop at their first row
+    /// (the `(tree_id, schema_version)` index serves them) instead of
     /// counting the tree.
-    pub async fn has_current(
+    pub async fn is_materialized(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<bool, OxidGeneError> {
-        Entity::find()
-            .select_only()
-            .column(Column::PersonId)
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(is_current())
-            .into_tuple::<Uuid>()
-            .one(db)
-            .await
-            .map(|row| row.is_some())
-            .map_err(db_err)
+        let any_row = |current: bool| {
+            let version = if current {
+                is_current()
+            } else {
+                Column::SchemaVersion.ne(PROJECTION_SCHEMA_VERSION)
+            };
+            Entity::find()
+                .select_only()
+                .column(Column::PersonId)
+                .filter(Column::TreeId.eq(tree_id))
+                .filter(version)
+                .into_tuple::<Uuid>()
+                .one(db)
+        };
+        let stale = any_row(false).await.map_err(db_err)?;
+        if stale.is_some() {
+            return Ok(false);
+        }
+        let current = any_row(true).await.map_err(db_err)?;
+        Ok(current.is_some())
     }
 
     /// Count every projection row of a tree, current or stale.
     ///
     /// Only for reporting on what is physically stored; use
-    /// [`Self::has_current`] to decide whether a tree needs building.
+    /// [`Self::is_materialized`] to decide whether a tree needs building.
     pub async fn count_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

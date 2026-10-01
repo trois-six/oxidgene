@@ -957,7 +957,7 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
 
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;
-    let (_father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
+    let (father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
 
     service.rebuild_tree_full(&db, tree_id).await.unwrap();
     assert_eq!(current_rows(&db, tree_id).await, 3);
@@ -976,6 +976,13 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
         backend,
         "UPDATE person_denorm SET payload = replace(payload, 'Pierre', 'STALE') WHERE person_id = $1",
         [child.into()],
+    ))
+    .await
+    .unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        backend,
+        "UPDATE person_denorm SET payload = replace(payload, 'Jean', 'STALE') WHERE person_id = $1",
+        [father.into()],
     ))
     .await
     .unwrap();
@@ -1007,8 +1014,20 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
         "and the rebuilt row is stamped with the current version"
     );
 
-    // A pedigree heals the whole tree through `ensure_materialized`, which is
-    // why it asks for a *current* row rather than any row.
+    // One healed person must not pass for a healed tree: a tree-wide read
+    // still finds the others stale and rebuilds them all before serving.
+    let everyone = service.get_all_persons(&db, tree_id).await.unwrap();
+    assert_eq!(everyone.len(), 3);
+    assert!(
+        everyone.iter().all(|profile| !profile
+            .primary_name
+            .as_ref()
+            .is_some_and(|name| name.display_name.contains("STALE"))),
+        "a stale payload was served by a tree-wide read"
+    );
+    assert_eq!(current_rows(&db, tree_id).await, 3);
+
+    // A pedigree reads the healed tree.
     let pedigree = service
         .get_or_build_pedigree(tree_id, child, 2, 1)
         .await
