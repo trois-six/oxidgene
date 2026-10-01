@@ -34,11 +34,20 @@ async fn main() {
     });
 
     // ── Initialize observability ─────────────────────────────────────
-    let telemetry = init("oxidgene-server", env!("CARGO_PKG_VERSION"), &cfg.log_level)
-        .unwrap_or_else(|_| {
-            eprintln!("Failed to initialize observability");
-            std::process::exit(1);
-        });
+    let log_format = cfg.log_format().unwrap_or_else(|_| {
+        eprintln!("Invalid OXIDGENE_LOG_FORMAT: expected text or json");
+        std::process::exit(1);
+    });
+    let telemetry = init(
+        "oxidgene-server",
+        env!("CARGO_PKG_VERSION"),
+        &cfg.log_level,
+        log_format,
+    )
+    .unwrap_or_else(|_| {
+        eprintln!("Failed to initialize observability");
+        std::process::exit(1);
+    });
 
     info!(
         host = %cfg.host,

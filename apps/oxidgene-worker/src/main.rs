@@ -16,10 +16,15 @@ async fn main() {
         eprintln!("Failed to load configuration");
         std::process::exit(1);
     });
+    let log_format = config.log_format().unwrap_or_else(|_| {
+        eprintln!("Invalid OXIDGENE_LOG_FORMAT: expected text or json");
+        std::process::exit(1);
+    });
     let telemetry = init(
         "oxidgene-worker",
         env!("CARGO_PKG_VERSION"),
         &config.log_level,
+        log_format,
     )
     .unwrap_or_else(|_| {
         eprintln!("Failed to initialize observability");

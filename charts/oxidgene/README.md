@@ -316,6 +316,7 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | `s3.rustfs.*` | Tenant image, Secrets, bucket, policy, user, and pool. |
 | `ingress.*` | Optional same-origin routing and TLS configuration. |
 | `frontend.otlpEndpoint` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. |
+| `backend.logFormat`, `worker.logFormat` | Console log format, `json` (one object per event, the default here) or `text`. With `otlpEndpoint` set, events also leave as OTLP logs, so a collector scraping the console as well receives each one twice. |
 | `autoscaling.*` | Optional backend and frontend HPAs. |
 | `podDisruptionBudget.*` | Backend and frontend disruption budgets. |
 

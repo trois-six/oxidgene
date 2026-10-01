@@ -40,6 +40,8 @@ spec:
           env:
             - name: OXIDGENE_LOG_LEVEL
               value: {{ .Values.worker.logLevel | quote }}
+            - name: OXIDGENE_LOG_FORMAT
+              value: {{ .Values.worker.logFormat | quote }}
             {{- with .Values.worker.otlpEndpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}

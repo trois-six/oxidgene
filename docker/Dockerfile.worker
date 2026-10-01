@@ -28,5 +28,6 @@ USER oxidgene
 WORKDIR /home/oxidgene
 
 ENV OXIDGENE_LOG_LEVEL=info
+ENV OXIDGENE_LOG_FORMAT=json
 
 ENTRYPOINT ["oxidgene-worker"]

@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:18:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:20:59Z }
 ---
 
 # Development Environment and Workflows
@@ -175,7 +175,9 @@ callsites are disabled rather than creating spans that are later discarded.
 `OXIDGENE_LOG_LEVEL` configures desktop logs. `--log-level FILTER` overrides
 the environment for one invocation, and `--debug` selects
 `info,oxidgene_ui=debug,oxidgene_api=debug,oxidgene_db=debug` only when neither
-explicit setting is present.
+explicit setting is present. `OXIDGENE_LOG_FORMAT` (`text` by default, or
+`json`) selects the console format, and `--log-format FORMAT` overrides it for
+one invocation.
 
 For the common local collection workflow, use `just desktop-telemetry`. It
 starts the Compose collector, waits for it, and points the desktop process to
@@ -214,9 +216,9 @@ different filter and collector, or disable OTLP independently:
 
 | Process | Log configuration | OTLP configuration |
 |---|---|---|
-| Server | `OXIDGENE_LOG_LEVEL` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
-| Worker | `OXIDGENE_LOG_LEVEL` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
-| Desktop | `OXIDGENE_LOG_LEVEL` or `--log-level` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Server | `OXIDGENE_LOG_LEVEL`, `OXIDGENE_LOG_FORMAT` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Worker | `OXIDGENE_LOG_LEVEL`, `OXIDGENE_LOG_FORMAT` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| Desktop | `OXIDGENE_LOG_LEVEL` or `--log-level`, `OXIDGENE_LOG_FORMAT` or `--log-format` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Browser WASM | Build-time `OXIDGENE_LOG_LEVEL` threshold | Runtime `frontend.otlpEndpoint`, falling back to build-time `OTEL_EXPORTER_OTLP_ENDPOINT`, over OTLP/HTTP |
 
 Native log filters use `tracing_subscriber::EnvFilter` syntax. A simple level
@@ -224,6 +226,15 @@ such as `warn` applies globally; a directive list such as
 `info,oxidgene_api=debug,sea_orm=warn` sets per-target levels. Invalid filters
 fail process initialization. `RUST_LOG` is not read, so there is no hidden
 second source of filter configuration.
+
+Native console logs are human-readable `text` by default, coloured only when
+written to a terminal. `OXIDGENE_LOG_FORMAT=json` writes one flat JSON object
+per event (`timestamp`, `level`, `target`, `message`, and the event's own
+fields) for log collectors; the server and worker images set it. An invalid
+format stops the process at startup without echoing the value. With OTLP export
+enabled every event is also exported as an OTLP log record, so a pipeline that
+collects both the JSON console lines and the OTLP logs ships each event twice:
+collect one or the other.
 
 Compose exposes the same separation through host-side substitution variables:
 `OXIDGENE_SERVER_LOG_LEVEL`, `OXIDGENE_WORKER_LOG_LEVEL`,

@@ -20,6 +20,9 @@ backend:
     port: 8080
   corsOrigin: https://oxidgene.example.invalid
   logLevel: info
+  # Console log format, `text` or `json`. With OTLP export enabled, a collector
+  # that also scrapes these lines receives every event twice.
+  logFormat: json
   # OTLP/gRPC endpoint for this process. Empty disables telemetry export.
   otlpEndpoint: ""
   extraEnv: []
@@ -56,6 +59,9 @@ worker:
     tag: ""
     pullPolicy: IfNotPresent
   logLevel: info
+  # Console log format, `text` or `json`. With OTLP export enabled, a collector
+  # that also scrapes these lines receives every event twice.
+  logFormat: json
   # OTLP/gRPC endpoint for this process. Empty disables telemetry export.
   otlpEndpoint: ""
   extraEnv: []

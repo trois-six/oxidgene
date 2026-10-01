@@ -2,6 +2,9 @@
 
 use std::env;
 use std::error::Error;
+use std::fmt;
+use std::io::IsTerminal as _;
+use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -22,14 +25,50 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::{Span, field};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::Layer as _;
 use tracing_subscriber::filter::{FilterExt as _, LevelFilter, filter_fn};
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 const OTLP_ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";
+
+/// How console log lines are written.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LogFormat {
+    /// Human-readable lines, coloured only when written to a terminal.
+    #[default]
+    Text,
+    /// One JSON object per event, for log collectors.
+    Json,
+}
+
+/// A log format other than `text` or `json`.
+///
+/// Its message deliberately omits the rejected value: configuration failures
+/// report a stable category, never what was supplied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidLogFormat;
+
+impl fmt::Display for InvalidLogFormat {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("invalid log format: expected text or json")
+    }
+}
+
+impl Error for InvalidLogFormat {}
+
+impl FromStr for LogFormat {
+    type Err = InvalidLogFormat;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim() {
+            "text" => Ok(Self::Text),
+            "json" => Ok(Self::Json),
+            _ => Err(InvalidLogFormat),
+        }
+    }
+}
 
 /// Serialize the current span as W3C Trace Context fields for durable transport.
 #[must_use]
@@ -118,16 +157,31 @@ impl TelemetryGuard {
     }
 }
 
+/// The console output of a runtime: where its lines go and how they look.
+struct Console<W> {
+    writer: W,
+    format: LogFormat,
+    /// Whether the destination is a terminal, the only place ANSI colour
+    /// codes are wanted: a container runtime or a file stores them verbatim.
+    terminal: bool,
+}
+
 /// Install structured logging and optional OTLP trace and metric exporters.
 ///
-/// Logs are written to standard output. OTLP export is enabled only when
-/// `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+/// Logs are written to standard output in `log_format`. OTLP export is
+/// enabled only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 pub fn init(
     service_name: &'static str,
     service_version: &'static str,
     log_filter: &str,
+    log_format: LogFormat,
 ) -> Result<TelemetryGuard, Box<dyn Error + Send + Sync>> {
-    install(service_name, service_version, log_filter, std::io::stdout)
+    let console = Console {
+        writer: std::io::stdout,
+        format: log_format,
+        terminal: std::io::stdout().is_terminal(),
+    };
+    install(service_name, service_version, log_filter, console)
 }
 
 /// [`init`], with logs written to standard error.
@@ -138,29 +192,61 @@ pub fn init_to_stderr(
     service_name: &'static str,
     service_version: &'static str,
     log_filter: &str,
+    log_format: LogFormat,
 ) -> Result<TelemetryGuard, Box<dyn Error + Send + Sync>> {
-    install(service_name, service_version, log_filter, std::io::stderr)
+    let console = Console {
+        writer: std::io::stderr,
+        format: log_format,
+        terminal: std::io::stderr().is_terminal(),
+    };
+    install(service_name, service_version, log_filter, console)
+}
+
+/// The console layer: log events only, never spans, in the chosen format.
+///
+/// Spans stay off the console so that, with OTLP export disabled, no layer
+/// enables a span callsite and spans cost nothing. A JSON line therefore
+/// carries the event's own fields and no span context; an event that needs
+/// request or job context records it as fields of its own.
+fn console_layer<W>(
+    console: Console<W>,
+    filter: EnvFilter,
+) -> Box<dyn Layer<Registry> + Send + Sync>
+where
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+{
+    let events_only = filter.and(filter_fn(|metadata| metadata.is_event()));
+    match console.format {
+        LogFormat::Text => tracing_subscriber::fmt::layer()
+            .with_writer(console.writer)
+            .with_ansi(console.terminal)
+            .with_filter(events_only)
+            .boxed(),
+        LogFormat::Json => tracing_subscriber::fmt::layer()
+            .json()
+            .flatten_event(true)
+            .with_current_span(false)
+            .with_span_list(false)
+            .with_target(true)
+            .with_ansi(false)
+            .with_writer(console.writer)
+            .with_filter(events_only)
+            .boxed(),
+    }
 }
 
 fn install<W>(
     service_name: &'static str,
     service_version: &'static str,
     log_filter: &str,
-    writer: W,
+    console: Console<W>,
 ) -> Result<TelemetryGuard, Box<dyn Error + Send + Sync>>
 where
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
+    let console = console_layer(console, runtime_filter(log_filter)?);
     let Some(endpoint) = env::var_os(OTLP_ENDPOINT_ENV).filter(|value| !value.is_empty()) else {
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_writer(writer)
-                    .with_filter(
-                        runtime_filter(log_filter)?.and(filter_fn(|metadata| metadata.is_event())),
-                    ),
-            )
-            .try_init()?;
+        tracing_subscriber::registry().with(console).try_init()?;
         return Ok(TelemetryGuard {
             logger_provider: None,
             tracer_provider: None,
@@ -223,18 +309,16 @@ where
     let log_layer = OpenTelemetryTracingBridge::new(&logger_provider);
 
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(writer)
-                .with_filter(
-                    runtime_filter(log_filter)?.and(filter_fn(|metadata| metadata.is_event())),
-                ),
-        )
+        .with(console)
         .with(
             OpenTelemetryLayer::new(tracer)
                 .with_filter(filter_fn(export_span).and(LevelFilter::INFO)),
         )
-        .with(log_layer.with_filter(runtime_filter(log_filter)?))
+        .with(
+            log_layer.with_filter(runtime_filter(log_filter)?.and(filter_fn(|metadata| {
+                metadata.is_event() && export_log_target(metadata.target())
+            }))),
+        )
         .try_init()?;
 
     tracing::info!(transport = "grpc", "OpenTelemetry export enabled");
@@ -257,6 +341,24 @@ fn export_span(metadata: &tracing::Metadata<'_>) -> bool {
 
 fn export_span_target(target: &str) -> bool {
     target.starts_with("oxidgene_") || target == "sea_orm" || target.starts_with("sea_orm::")
+}
+
+/// Whether the OTLP log bridge forwards an event from `target`.
+///
+/// The exporter's own transport (gRPC over HTTP/2) and the OpenTelemetry SDK
+/// log through `tracing` too. Bridged, every export would emit events that
+/// are exported in turn, feeding the pipeline from itself whenever the filter
+/// admits their level (`debug`, say). The console still shows them.
+///
+/// The bridge also takes events only: it exports log records, and a span
+/// enabled for it alone would be created for every crate at the filter's
+/// level and then ignored.
+fn export_log_target(target: &str) -> bool {
+    let krate = target.split("::").next().unwrap_or(target);
+    !matches!(
+        krate,
+        "h2" | "hyper" | "hyper_util" | "tonic" | "tower" | "reqwest"
+    ) && !krate.starts_with("opentelemetry")
 }
 
 struct HeaderExtractor<'a>(&'a HeaderMap);
@@ -321,6 +423,8 @@ pub fn on_http_response<B>(response: &Response<B>, latency: Duration, span: &Spa
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use opentelemetry::trace::TraceContextExt as _;
 
     use super::*;
@@ -350,6 +454,140 @@ mod tests {
                 "expected {target} to be excluded"
             );
         }
+    }
+
+    #[test]
+    fn log_bridge_leaves_out_the_exporter_transport() {
+        for target in [
+            "oxidgene_api::service::background_job",
+            "sea_orm::database::db_connection",
+            "tower_http::trace::on_failure",
+            "hyperlocal",
+        ] {
+            assert!(export_log_target(target), "expected {target} to be bridged");
+        }
+        for target in [
+            "h2::codec::framed_write",
+            "hyper::proto::h1::conn",
+            "hyper_util::client::legacy",
+            "tonic::transport::channel",
+            "tower::buffer::worker",
+            "reqwest::connect",
+            "opentelemetry_sdk::logs",
+            "opentelemetry-otlp",
+            "opentelemetry",
+        ] {
+            assert!(
+                !export_log_target(target),
+                "expected {target} to stay out of the log export"
+            );
+        }
+    }
+
+    #[test]
+    fn log_format_parses_its_two_names_and_rejects_the_rest() {
+        assert_eq!("text".parse(), Ok(LogFormat::Text));
+        assert_eq!("json".parse(), Ok(LogFormat::Json));
+        assert_eq!(LogFormat::default(), LogFormat::Text);
+        let rejected = "private-value".parse::<LogFormat>();
+        assert_eq!(rejected, Err(InvalidLogFormat));
+        assert!(
+            !InvalidLogFormat.to_string().contains("private-value"),
+            "the rejected value must not be echoed"
+        );
+    }
+
+    /// Collects what a console layer writes.
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("capture lock")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'writer> MakeWriter<'writer> for Captured {
+        type Writer = Self;
+
+        fn make_writer(&'writer self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn json_console_writes_flat_events_without_span_context() {
+        let captured = Captured::default();
+        let console = Console {
+            writer: captured.clone(),
+            format: LogFormat::Json,
+            terminal: true,
+        };
+        let filter = EnvFilter::try_new("info").expect("valid filter");
+        let subscriber = tracing_subscriber::registry().with(console_layer(console, filter));
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!("background_job.process", job.kind = "import");
+            span.in_scope(|| {
+                tracing::error!(
+                    job.kind = "import",
+                    error.kind = "io",
+                    "background job failed"
+                );
+            });
+        });
+
+        let output = String::from_utf8(captured.0.lock().expect("capture lock").clone())
+            .expect("UTF-8 output");
+        let lines = output.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 1, "one line per event, none per span");
+        let line: serde_json::Value = serde_json::from_str(lines[0]).expect("a JSON line");
+        let object = line.as_object().expect("a JSON object");
+        for key in [
+            "timestamp",
+            "level",
+            "target",
+            "message",
+            "job.kind",
+            "error.kind",
+        ] {
+            assert!(object.contains_key(key), "expected the {key} key in {line}");
+        }
+        assert_eq!(object["message"], "background job failed");
+        for key in ["span", "spans", "fields"] {
+            assert!(!object.contains_key(key), "unexpected {key} key in {line}");
+        }
+        assert!(!lines[0].contains('\u{1b}'), "no ANSI escape in JSON");
+    }
+
+    #[test]
+    fn text_console_writes_no_ansi_escapes_off_a_terminal() {
+        let captured = Captured::default();
+        let console = Console {
+            writer: captured.clone(),
+            format: LogFormat::Text,
+            terminal: false,
+        };
+        let filter = EnvFilter::try_new("info").expect("valid filter");
+        let subscriber = tracing_subscriber::registry().with(console_layer(console, filter));
+
+        tracing::subscriber::with_default(subscriber, || tracing::warn!("degraded"));
+
+        let output = String::from_utf8(captured.0.lock().expect("capture lock").clone())
+            .expect("UTF-8 output");
+        assert!(output.contains("degraded"));
+        assert!(
+            !output.contains('\u{1b}'),
+            "unexpected ANSI escape: {output:?}"
+        );
     }
 
     #[tokio::test]

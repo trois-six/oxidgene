@@ -19,4 +19,8 @@ opentelemetry_sdk = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { workspace = true }
+# JSON console logs; enabled here only, so the WASM and UI builds stay without it.
+tracing-subscriber = { workspace = true, features = ["json"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

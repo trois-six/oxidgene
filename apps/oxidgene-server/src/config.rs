@@ -8,6 +8,7 @@
 //! | `OXIDGENE_PORT`                  | `8080`                                     | Bind port                   |
 //! | `OXIDGENE_DATABASE_URL`          | `postgres://oxidgene:oxidgene@localhost/oxidgene` | Database connection URL |
 //! | `OXIDGENE_LOG_LEVEL`             | `info`                                     | Tracing filter              |
+//! | `OXIDGENE_LOG_FORMAT`            | `text`                                     | Console format, or `json`   |
 //! | `OXIDGENE_CORS_ORIGIN`           | `http://127.0.0.1:8081`                    | Allowed CORS origin         |
 //! | `OXIDGENE_MEDIA_BACKEND`         | `filesystem`                               | `filesystem` or `s3`        |
 //! | `OXIDGENE_MEDIA_ROOT`            | platform data dir (see below)              | Filesystem media root       |
@@ -29,6 +30,7 @@ use std::sync::Arc;
 
 use config::{Config, Environment, File};
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
+use oxidgene_observability::{InvalidLogFormat, LogFormat};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -66,6 +68,12 @@ pub struct ServerConfig {
     /// Tracing log level filter (default: `info`).
     #[serde(default = "default_log_level")]
     pub log_level: String,
+
+    /// Console log format, `text` or `json` (default: `text`). Kept as the
+    /// raw string so an invalid value is reported by [`Self::log_format`]
+    /// with a stable category rather than echoed by the config loader.
+    #[serde(default = "default_log_format")]
+    pub log_format: String,
 
     /// Allowed CORS origin (default: `http://127.0.0.1:8081`).
     #[serde(default = "default_cors_origin")]
@@ -116,6 +124,10 @@ fn default_log_level() -> String {
     "info".to_string()
 }
 
+fn default_log_format() -> String {
+    "text".to_string()
+}
+
 fn default_cors_origin() -> String {
     "http://127.0.0.1:8081".to_string()
 }
@@ -151,6 +163,11 @@ impl ServerConfig {
         config.try_deserialize()
     }
 
+    /// The console log format `OXIDGENE_LOG_FORMAT` selects.
+    pub fn log_format(&self) -> Result<LogFormat, InvalidLogFormat> {
+        self.log_format.parse()
+    }
+
     pub fn media_store(&self) -> Result<Arc<dyn MediaStore>, String> {
         match self.media_backend {
             MediaBackend::Filesystem => Ok(Arc::new(FsStore::new(&self.media_root))),
@@ -184,6 +201,11 @@ mod tests {
     fn network_defaults_do_not_expose_the_unauthenticated_backend() {
         assert_eq!(default_host(), "127.0.0.1");
         assert_eq!(default_cors_origin(), "http://127.0.0.1:8081");
+    }
+
+    #[test]
+    fn console_logs_default_to_text() {
+        assert_eq!(default_log_format().parse(), Ok(LogFormat::Text));
     }
 
     #[test]

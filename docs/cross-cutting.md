@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:03:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:20:59Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -208,6 +208,16 @@ Recommended fields:
 - tree or resource IDs only when needed for operation, preferably hashed or
   omitted from persistent production logs.
 
+Native console logs are `text` by default and `json` when
+`OXIDGENE_LOG_FORMAT=json` (desktop: also `--log-format json`). A JSON line is
+one flat object per event — `timestamp`, `level`, `target`, `message`, and the
+event's own fields — with no span context, and neither format writes ANSI
+colour codes unless the destination is a terminal. An invalid format fails
+startup with a stable category and does not echo the value. The console layer
+receives events only, never spans, so it never enables a span callsite on its
+own; an event that needs request or job context records it as fields of its
+own (route template and method, job kind and format, error category).
+
 ### 5.2 Levels
 
 | Level | Use |
@@ -262,7 +272,11 @@ the rejected value.
   network export and keeps span callsites disabled. Console log events remain
   enabled independently of span collection. Successful exporter initialization
   emits an informational startup event without recording the endpoint or export
-  headers.
+  headers. The OTLP log bridge takes events only, at the process's log filter,
+  and never those of the exporter's own transport (`h2`, `hyper`, `tonic`,
+  `tower`, `reqwest`) or of the OpenTelemetry SDK, which would otherwise feed
+  the export from itself. Because every console event is also an OTLP log
+  record, a pipeline collecting both ships each event twice.
 - Every native runtime reports a distinct `service.name` and its package
   version. Incoming HTTP `traceparent` headers are extracted with W3C Trace
   Context so calls remain connected across trusted gateways and services.

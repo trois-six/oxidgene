@@ -58,7 +58,7 @@ use oxidgene_api::startup::{
 use oxidgene_api::{AppState, build_router};
 #[cfg(feature = "telemetry")]
 use oxidgene_observability::{
-    TelemetryGuard, init, init_to_stderr, make_http_span, on_http_response,
+    LogFormat, TelemetryGuard, init, init_to_stderr, make_http_span, on_http_response,
 };
 use oxidgene_ui::api::ApiClient;
 use oxidgene_ui::assistant::AssistantLauncher;
@@ -141,6 +141,21 @@ struct Cli {
     /// Tracing filter, overriding `OXIDGENE_LOG_LEVEL`.
     #[cfg(feature = "telemetry")]
     log_level: Option<String>,
+    /// Console log format, overriding `OXIDGENE_LOG_FORMAT`.
+    #[cfg(feature = "telemetry")]
+    log_format: Option<LogFormat>,
+}
+
+/// The value after a flag that takes one, or the end of the process.
+#[cfg(feature = "telemetry")]
+fn flag_value(args: &mut impl Iterator<Item = std::ffi::OsString>, flag: &str) -> String {
+    args.next()
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            eprintln!("oxidgene-desktop: {flag} requires a value");
+            std::process::exit(2);
+        })
 }
 
 impl Cli {
@@ -149,6 +164,8 @@ impl Cli {
         let mut debug = false;
         #[cfg(feature = "telemetry")]
         let mut log_level = None;
+        #[cfg(feature = "telemetry")]
+        let mut log_format = None;
         let mut args = std::env::args_os().skip(1).peekable();
         let mcp = args.next_if(|arg| arg == "mcp").is_some();
         // A build without telemetry accepts no flags at all, so every arm below
@@ -168,13 +185,14 @@ impl Cli {
                 #[cfg(feature = "telemetry")]
                 Some("--debug") => debug = true,
                 #[cfg(feature = "telemetry")]
-                Some("--log-level") => {
-                    log_level = Some(
-                        args.next()
-                            .and_then(|value| value.into_string().ok())
-                            .filter(|value| !value.is_empty())
-                            .unwrap_or_else(|| {
-                                eprintln!("oxidgene-desktop: --log-level requires a value");
+                Some("--log-level") => log_level = Some(flag_value(&mut args, "--log-level")),
+                #[cfg(feature = "telemetry")]
+                Some("--log-format") => {
+                    log_format = Some(
+                        flag_value(&mut args, "--log-format")
+                            .parse()
+                            .unwrap_or_else(|_| {
+                                eprintln!("oxidgene-desktop: --log-format must be text or json");
                                 std::process::exit(2);
                             }),
                     );
@@ -184,7 +202,7 @@ impl Cli {
                     println!(
                         "oxidgene-desktop — OxidGene desktop genealogy app\n\
                          \n\
-                         Usage: oxidgene-desktop [mcp] [--debug] [--log-level FILTER]\n\
+                         Usage: oxidgene-desktop [mcp] [--debug] [--log-level FILTER] [--log-format FORMAT]\n\
                          \n\
                          Commands:\n    \
                              mcp          Serve the trees to an MCP client over stdio\n\
@@ -192,6 +210,7 @@ impl Cli {
                          Options:\n    \
                              --debug      Enable debug logs for OxidGene crates\n    \
                              --log-level FILTER  Override OXIDGENE_LOG_LEVEL\n    \
+                             --log-format FORMAT  text or json; overrides OXIDGENE_LOG_FORMAT\n    \
                              -h, --help   Show this message\n    \
                              -V, --version  Show the version\n"
                     );
@@ -230,6 +249,8 @@ impl Cli {
             debug,
             #[cfg(feature = "telemetry")]
             log_level,
+            #[cfg(feature = "telemetry")]
+            log_format,
         }
     }
 }
@@ -435,10 +456,26 @@ fn init_telemetry(cli: &Cli) -> TelemetryGuard {
                 "info".to_string()
             }
         });
+    let log_format = cli.log_format.unwrap_or_else(|| {
+        std::env::var("OXIDGENE_LOG_FORMAT")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .map_or(Ok(LogFormat::Text), |value| value.parse())
+            .unwrap_or_else(|_| {
+                eprintln!("Invalid OXIDGENE_LOG_FORMAT: expected text or json");
+                std::process::exit(1);
+            })
+    });
     // An MCP session owns standard output for its protocol, so its logs go to
     // standard error.
     let init = if cli.mcp { init_to_stderr } else { init };
-    init("oxidgene-desktop", env!("CARGO_PKG_VERSION"), &filter).unwrap_or_else(|_| {
+    init(
+        "oxidgene-desktop",
+        env!("CARGO_PKG_VERSION"),
+        &filter,
+        log_format,
+    )
+    .unwrap_or_else(|_| {
         eprintln!("Failed to initialize observability");
         std::process::exit(1);
     })
