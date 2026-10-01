@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:18:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:58:33Z }
 ---
 
 
@@ -69,6 +69,16 @@ For full entity definitions, see [Data Model](data-model.md).
     application. There is no CLI.
 
 API endpoints are documented in [API Contract](api.md).
+
+**Database connections.** A SQLite database opens in write-ahead-log mode with
+one pooled connection, SeaORM's default. Every request, the purge worker and
+the job worker share it: reads run one at a time, and an import holds it for
+its whole write transaction. A job's status is therefore answered from the
+worker's in-memory progress while this process runs the job, on REST and
+GraphQL alike, and the tree guard in front of REST's tree-scoped routes skips
+its lookup for that one request, so the progress poll never waits for the
+import. A larger pool alone is not a fix: concurrent writers would fail with
+`SQLITE_BUSY` instead of waiting. PostgreSQL uses SeaORM's default pool.
 
 ---
 
