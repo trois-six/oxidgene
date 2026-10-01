@@ -34,6 +34,10 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          # With the default `some`, a `!` pattern matches every file outside
+          # it, so `code` matched documentation too. This quantifier treats
+          # the `!` patterns as exclusions; filters without one are unchanged.
+          predicate-quantifier: some-with-excludes
           filters: |
             ci_image:
               - 'docker/Dockerfile.ci'
