@@ -1761,50 +1761,119 @@ fn test_import_drops_geneweb_bookkeeping_from_events() {
     assert_eq!(note_of(other.id), Some("Acte non numerise"));
 }
 
-/// Titles as GeneWeb converts `[Duc:de Village-A]`: the domain is written
-/// both in the title and as its PLAC. A title with a real place keeps it.
-const TITLE_DOMAIN_GEDCOM: &str = "\
+/// `RESN` on individuals and a family, in the forms GEDCOM 5.5.1 and 7 write.
+const RESTRICTION_GEDCOM: &str = "\
 0 HEAD
 1 GEDC
 2 VERS 5.5.1
-2 FORM LINEAGE-LINKED
-1 CHAR UTF-8
 0 @I1@ INDI
 1 NAME Anna /BRANCH_A/
-1 SEX F
-1 TITL Duchesse de Village-A
-2 PLAC de Village-A
-1 TITL Marquise d'Estate-B 2 (Anna)
-2 PLAC d'Estate-B
-1 TITL Comtesse
-2 PLAC Town-C
+1 RESN confidential
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Bert /BRANCH_B/
+1 RESN privacy
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Carl /BRANCH_C/
+1 RESN locked
+0 @I4@ INDI
+1 NAME Dora /BRANCH_D/
+1 RESN LOCKED, CONFIDENTIAL
+0 @I5@ INDI
+1 NAME Emil /BRANCH_E/
+0 @F1@ FAM
+1 HUSB @I2@
+1 WIFE @I1@
+1 RESN confidential
 0 TRLR
 ";
 
 #[test]
-fn test_import_drops_a_title_domain_written_as_its_place() {
-    let result = import_gedcom(TITLE_DOMAIN_GEDCOM, Uuid::now_v7()).unwrap();
-    let places: Vec<&str> = result.places.iter().map(|p| p.name.as_str()).collect();
-    assert_eq!(places, ["Town-C"], "only the real place is created");
+fn test_import_resn_withholding_a_record_makes_it_private() {
+    let result = import_gedcom(RESTRICTION_GEDCOM, Uuid::now_v7()).unwrap();
+    let privacy: Vec<Privacy> = result.persons.iter().map(|p| p.privacy).collect();
+    assert_eq!(
+        privacy,
+        [
+            Privacy::Private,
+            Privacy::Private,
+            // `locked` forbids changes; it says nothing about who may read.
+            Privacy::Default,
+            Privacy::Private,
+            Privacy::Default,
+        ]
+    );
+    assert_eq!(result.families[0].privacy, Privacy::Private);
+}
 
-    let titles: Vec<(&str, bool)> = result
-        .events
+#[test]
+fn test_import_asso_after_nested_witnesses_comes_after_them() {
+    // A godparent nested in the baptism, another on the individual: both
+    // land on the baptism, the second after the first.
+    let gedcom = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Child /BRANCH_A/
+1 BAPM
+2 DATE 5 JAN 1900
+2 ASSO @I2@
+3 RELA GODF
+1 ASSO @I3@
+2 RELA GODM
+0 @I2@ INDI
+1 NAME Godfather /BRANCH_B/
+0 @I3@ INDI
+1 NAME Godmother /BRANCH_C/
+0 TRLR
+";
+    let result = import_gedcom(gedcom, Uuid::now_v7()).unwrap();
+    let mut witnesses: Vec<(i32, Option<&str>)> = result
+        .event_witnesses
         .iter()
-        .filter(|e| e.event_type == oxidgene_core::EventType::NobilityTitle)
-        .map(|e| {
-            (
-                e.description.as_deref().unwrap_or_default(),
-                e.place_id.is_some(),
-            )
-        })
+        .map(|w| (w.sort_order, w.relation.as_deref()))
+        .collect();
+    witnesses.sort();
+    assert_eq!(witnesses, [(0, Some("GODF")), (1, Some("GODM"))]);
+}
+
+#[test]
+fn test_import_an_aka_name_adding_only_a_nickname_is_a_byname() {
+    let gedcom = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME John /Doe/
+2 NICK Johnny
+1 NAME John /Doe/
+2 TYPE aka
+2 NICK Jacko
+1 NAME
+2 TYPE aka
+2 NICK Jay
+1 NAME John /Poe/
+2 TYPE aka
+2 NICK Jo
+0 TRLR
+";
+    let result = import_gedcom(gedcom, Uuid::now_v7()).unwrap();
+    let names: Vec<(NameType, Option<&str>, Option<&str>)> = result
+        .person_names
+        .iter()
+        .map(|n| (n.name_type, n.surname.as_deref(), n.nickname.as_deref()))
         .collect();
     assert_eq!(
-        titles,
+        names,
         [
-            ("Duchesse de Village-A", false),
-            ("Marquise d'Estate-B 2 (Anna)", false),
-            ("Comtesse", true),
-        ],
-        "the domain stays in the title's text"
+            (NameType::Birth, Some("Doe"), Some("Johnny")),
+            // Restating the name, or leaving it empty, to carry a nickname.
+            (NameType::Byname, None, Some("Jacko")),
+            (NameType::Byname, None, Some("Jay")),
+            // A name of its own, with a nickname on it.
+            (NameType::AlsoKnownAs, Some("Poe"), Some("Jo")),
+        ]
     );
 }

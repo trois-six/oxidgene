@@ -2967,9 +2967,9 @@ dependencies = [
 
 [[package]]
 name = "geneweb"
-version = "0.1.4"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce88c944d550acf09fff4c6884744a7f716b29de374ef2e7ebc7b2eb85bc69fe"
+checksum = "e76d1670d8a891942eb8b552625807e675bb91e1c97224d1ad5732ba6c8ff658"
 dependencies = [
  "ged_io",
 ]

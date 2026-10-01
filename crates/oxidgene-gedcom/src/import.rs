@@ -620,7 +620,7 @@ fn import_individual(
         id: person_id,
         tree_id: ctx.tree_id,
         sex,
-        privacy: Privacy::default(),
+        privacy: privacy_from_restriction(indi.restriction.as_deref()),
         // A GEDCOM names a person's media but never says which one
         // represents them: `OBJE` carries no primary flag.
         portrait_media_id: None,
@@ -632,8 +632,13 @@ fn import_individual(
 
     // Names (GEDCOM allows {0:M} NAME structures per individual; the
     // first is primary, the rest import as additional PersonNames).
+    let mut primary: Option<PersonName> = None;
     for (i, name) in indi.names.iter().enumerate() {
-        let (person_name, aliases) = convert_name(name, person_id, i == 0, ctx.now);
+        let (mut person_name, aliases) = convert_name(name, person_id, i == 0, ctx.now);
+        match &primary {
+            None => primary = Some(person_name.clone()),
+            Some(primary) => reduce_to_byname(&mut person_name, primary),
+        }
         result.person_names.push(person_name);
         result.person_names.extend(aliases);
     }
@@ -727,7 +732,7 @@ fn import_family(
     result.families.push(Family {
         id: family_id,
         tree_id: ctx.tree_id,
-        privacy: Privacy::default(),
+        privacy: privacy_from_restriction(fam.restriction.as_deref()),
         created_at: ctx.now,
         updated_at: ctx.now,
         deleted_at: None,
@@ -977,7 +982,8 @@ fn import_associations(data: &GedcomData, ctx: &ImportContext, result: &mut Impo
 /// the witnessed event's own detail (caught by `import_event_detail`'s
 /// `detail.associations` loop) for the same fact the association pass would
 /// otherwise reconstruct — an (event, person) pair already present in
-/// `result.event_witnesses` is not recorded twice.
+/// `result.event_witnesses` is not recorded twice, and a witness the pass
+/// adds to an event comes after the ones nested in it.
 struct WitnessLog {
     seen: std::collections::HashSet<(Uuid, Uuid)>,
     next_sort: HashMap<Uuid, i32>,
@@ -985,13 +991,18 @@ struct WitnessLog {
 
 impl WitnessLog {
     fn new(result: &ImportResult) -> Self {
+        let mut next_sort: HashMap<Uuid, i32> = HashMap::new();
+        for w in &result.event_witnesses {
+            let next = next_sort.entry(w.event_id).or_insert(0);
+            *next = (*next).max(w.sort_order + 1);
+        }
         Self {
             seen: result
                 .event_witnesses
                 .iter()
                 .map(|w| (w.event_id, w.person_id))
                 .collect(),
-            next_sort: HashMap::new(),
+            next_sort,
         }
     }
 
@@ -1591,6 +1602,31 @@ fn convert_name(
     (person_name, aliases)
 }
 
+/// Turns an `aka` name that only adds a nickname into a byname.
+///
+/// GEDCOM gives a `NAME` one `NICK`, so a person known by several nicknames
+/// gets one `aka` name per further nickname, each restating the person's
+/// name (as the `geneweb` crate writes the extra `#nick` of a `.gw`) or
+/// leaving it empty (as OxidGene writes a byname). The name it restates is
+/// not a variant of anything: what the record holds is a byname, which is how
+/// the person form records one — the nickname alone.
+fn reduce_to_byname(name: &mut PersonName, primary: &PersonName) {
+    let restates = |own: &Option<String>, primary: &Option<String>| own.is_none() || own == primary;
+    if name.name_type == NameType::AlsoKnownAs
+        && name.nickname.is_some()
+        && name.prefix.is_none()
+        && name.suffix.is_none()
+        && restates(&name.given_names, &primary.given_names)
+        && restates(&name.surname, &primary.surname)
+        && restates(&name.surname_prefix, &primary.surname_prefix)
+    {
+        name.name_type = NameType::Byname;
+        name.given_names = None;
+        name.surname = None;
+        name.surname_prefix = None;
+    }
+}
+
 /// Separates an imported surname into `(particle, root)`.
 ///
 /// The particle comes from the file's `SPFX` when it has one, and is derived
@@ -2051,6 +2087,27 @@ fn convert_pedigree(
     }
 }
 
+/// The privacy a record's `RESN` asks for.
+///
+/// `confidential` (the data was marked confidential) and `privacy` (it is
+/// withheld for privacy) both say the record is not for the public, which is
+/// what [`Privacy::Private`] records. `locked` only forbids changes and says
+/// nothing about who may read the record, so it, an unknown value and a record
+/// without `RESN` follow the tree. GEDCOM 7 may list several values,
+/// comma-separated, in any case.
+fn privacy_from_restriction(resn: Option<&str>) -> Privacy {
+    let withheld = resn.is_some_and(|resn| {
+        resn.split(',')
+            .map(str::trim)
+            .any(|v| v.eq_ignore_ascii_case("confidential") || v.eq_ignore_ascii_case("privacy"))
+    });
+    if withheld {
+        Privacy::Private
+    } else {
+        Privacy::Default
+    }
+}
+
 fn convert_quay(quay: Option<&ged_io::types::source::quay::CertaintyAssessment>) -> Confidence {
     use ged_io::types::source::quay::CertaintyAssessment;
     match quay {
@@ -2090,23 +2147,7 @@ fn import_event_detail(
         .map(crate::date::parse)
         .unwrap_or_default();
 
-    // Place
-    let place_id = detail.place.as_ref().and_then(|p| {
-        p.value.as_ref().map(|name| {
-            let pid = get_or_create_place(name, result);
-            // Update lat/long if available
-            if let Some(ref map) = p.map
-                && let (Some(lat_str), Some(lon_str)) = (&map.latitude, &map.longitude)
-                && let (Ok(lat), Ok(lon)) =
-                    (parse_gedcom_coord(lat_str), parse_gedcom_coord(lon_str))
-                && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
-            {
-                place.latitude = Some(lat);
-                place.longitude = Some(lon);
-            }
-            pid
-        })
-    });
+    let place_id = import_place(detail.place.as_ref(), get_or_create_place, result);
 
     let cause = detail.cause.clone();
 
@@ -2126,8 +2167,9 @@ fn import_event_detail(
     // discriminant for "this is a family-level event" whenever it's set,
     // regardless of `person_id` — reusing it here would make this
     // individual event masquerade as belonging to the adoptive family
-    // everywhere. Capturing the adoptive family properly would need a
-    // dedicated field (or a join table), not `family_id`.
+    // everywhere. Nothing is lost when the file links the child to that
+    // family, as the `geneweb` crate and OxidGene's export both do: the
+    // child's own `FAMC` with `PEDI adopted` makes them an adopted child of it.
 
     let event_id = Uuid::now_v7();
     result.events.push(Event {
@@ -2232,34 +2274,7 @@ fn import_attribute_detail(
         .map(crate::date::parse)
         .unwrap_or_default();
 
-    // Place — but not a title's domain. GeneWeb writes `[Roi:de France]`
-    // as `TITL Roi de France` with `PLAC de France`: the "place" is the
-    // domain the title is of, already in its text, and no locality.
-    let title_domain = |name: &str| {
-        event_type == EventType::NobilityTitle
-            && detail
-                .value
-                .as_deref()
-                .is_some_and(|title| names_domain(title, name))
-    };
-    let place_id = detail.place.as_ref().and_then(|p| {
-        p.value
-            .as_ref()
-            .filter(|name| !title_domain(name))
-            .map(|name| {
-                let pid = get_or_create_place(name, result);
-                if let Some(ref map) = p.map
-                    && let (Some(lat_str), Some(lon_str)) = (&map.latitude, &map.longitude)
-                    && let (Ok(lat), Ok(lon)) =
-                        (parse_gedcom_coord(lat_str), parse_gedcom_coord(lon_str))
-                    && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
-                {
-                    place.latitude = Some(lat);
-                    place.longitude = Some(lon);
-                }
-                pid
-            })
-    });
+    let place_id = import_place(detail.place.as_ref(), get_or_create_place, result);
 
     let cause = detail.cause.clone();
 
@@ -2350,22 +2365,24 @@ fn import_attribute_detail(
     }
 }
 
-/// Whether a title's text names `place` as its domain: "Roi de France"
-/// names "de France", "Marquis d'Anvers 2 (Charles)" names "d'Anvers". Case
-/// aside, the place follows a space in the title and ends a word there.
-fn names_domain(title: &str, place: &str) -> bool {
-    let place = place.trim().to_lowercase();
-    if place.is_empty() {
-        return false;
+/// The place a `PLAC` names, created on first use, with the coordinates of
+/// its `MAP` when it has them.
+fn import_place(
+    plac: Option<&ged_io::types::place::Place>,
+    get_or_create_place: &mut dyn FnMut(&str, &mut ImportResult) -> Uuid,
+    result: &mut ImportResult,
+) -> Option<Uuid> {
+    let plac = plac?;
+    let pid = get_or_create_place(plac.value.as_ref()?, result);
+    if let Some(ref map) = plac.map
+        && let (Some(lat_str), Some(lon_str)) = (&map.latitude, &map.longitude)
+        && let (Ok(lat), Ok(lon)) = (parse_gedcom_coord(lat_str), parse_gedcom_coord(lon_str))
+        && let Some(place) = result.places.iter_mut().find(|pl| pl.id == pid)
+    {
+        place.latitude = Some(lat);
+        place.longitude = Some(lon);
     }
-    let title = title.to_lowercase();
-    let needle = format!(" {place}");
-    title.match_indices(&needle).any(|(at, _)| {
-        title[at + needle.len()..]
-            .chars()
-            .next()
-            .is_none_or(|c| c == ' ' || c == '(' || c == ',')
-    })
+    Some(pid)
 }
 
 /// Splits a free-text value on common list separators, trimming whitespace
@@ -2467,7 +2484,9 @@ const GENEWEB_EVENT_TAG_MARKER: &str = "_GWTAG";
 /// Deliberately not extended to the crate's other in-note marker,
 /// `_GWDEATH`: that one carries a death reason ("died young", "presumed
 /// dead", a cause label) which nothing else in the import captures, so
-/// dropping it would lose the only copy.
+/// dropping it would lose the only copy. The crate writes it on the death
+/// event whichever line states the death, the person's own or a `pevt`, after
+/// the person's note on the death when there is one.
 fn strip_geneweb_event_marker(text: &str) -> String {
     if !text.contains(GENEWEB_EVENT_TAG_MARKER) {
         return text.to_string();

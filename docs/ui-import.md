@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:36:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T14:23:14Z }
 ---
 
 
@@ -91,6 +91,12 @@ thumbnailed, croppable, exactly as if they had been uploaded. A `.ged` and a
 `.gw` name files nobody handed us, and those stay unheld records the user can
 attach bytes to later. A file the archive turns out not to carry, or one no
 `OBJE` names, is a warning on the result — never a failed import.
+
+**A `.gw` maps like a GEDCOM.** It is converted to the GEDCOM model and
+imported through the same mapping; what GeneWeb's own structures become is
+listed in [API Contract §4](api.md). A malformed block is skipped whole and
+is one warning on the result, so the rest of a partly broken export still
+imports.
 
 The association between an event and its media is standard GEDCOM: the event
 carries an `OBJE` reference to the global multimedia record. It therefore

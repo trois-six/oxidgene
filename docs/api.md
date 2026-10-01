@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:49:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T14:23:14Z }
 ---
 
 
@@ -1830,12 +1830,12 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Persons (INDI) | Full | Full | All names (multiple `NAME` records), sex, events |
 | Families (FAM) | Full | Full | Spouses, children, events, `FAMS`/`FAMC` back-links |
 | Events with native tags | Lossless | Lossless | See EventType enum for tag list |
-| Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType. A `TITL` whose `PLAC` only repeats the title's domain, as GeneWeb writes `[Roi:de France]` (`TITL Roi de France`, `PLAC de France`), creates no place: the domain is no locality and stays in the title's text. A `TITL` with any other `PLAC` keeps it |
+| Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType. A `TITL` keeps its text as the event's description, its `DATE` (a `FROM … TO …` period as a range), its `PLAC` and its `NOTE` |
 | Occupation (`OCCU`) | Split | One tag per profession, or merged | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` (each part trimmed) into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event unless `merge_occupations=true`, which collapses them back into a single comma-separated tag for importers that only support one profession field |
 | Name aliases (`SURN`) | Split | One `NAME` per alias, or merged | The primary `PersonName` takes its surname from the `NAME` line, not `SURN` — Geneanet packs every surname alias it knows into a single `SURN` sub-tag (e.g. `"LE NADEN,NADAM"`) instead of matching `NAME`. That value is split on `,` (each part trimmed, primary excluded) into one `AlsoKnownAs` `PersonName` per alias. Export writes one `NAME`/`SURN` structure per name unless `merge_names=true`, which collapses non-primary names back into the primary name's comma-separated `SURN` tag for importers that only read the first `NAME` structure |
-| Adoption (`ADOP`) | Full | Full | Individual-level event; adoptive family via nested `FAMC` |
+| Adoption (`ADOP`) | Full | Full | Individual-level event. The nested `FAMC` is not read: the child's own `FAMC` with `PEDI adopted` makes them an adopted child of the adoptive family |
 | App-specific event types | N/A | As `EVEN` + `TYPE` | Confirmation, Military service, Civil union, etc. |
-| Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import |
+| Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import; a level-1 `ASSO` to an individual goes to the owner's baptism, else birth, else first event, after the witnesses nested in it |
 | Sources (SOUR) | Full | Full | Title, author, publisher, abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Full | Page, text, confidence level |
 | Media (OBJE) | Metadata; GEDZIP also restores held bytes | Metadata in `.ged`; metadata plus stored bytes in `.gdz` | File path, MIME type, title, description and physical medium use standard `FILE`, `FORM`, `TITL`, `NOTE`, and `FORM.TYPE` structures. Person, family, event and individual-attribute links use standard `OBJE` references — a scan documenting an `OCCU` or a `TITL` travels with its tag. A value split into several professions gives each of them the scan, and merging them back writes it once. A plain `.ged` never carries file bytes; a GEDZIP embeds every stored file and rewrites its `FILE` to the archive entry. Remote and unheld media retain only their original `FILE` reference. |
@@ -1845,8 +1845,32 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Notes (NOTE) | Full | Full | Inline and referenced notes |
 | Cause (CAUS) | Full | Full | On any event |
 | Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster |
+| Nicknames (`NICK`) | Full | Full | On the name that carries it. A non-primary `aka` name that only restates the primary name (or names nobody) to carry a `NICK` imports as a `Byname` holding the nickname alone, as the person form records one; a byname exports as such an `aka` name |
+| Restriction (`RESN`) | Person and family privacy | Not written | `confidential` or `privacy` on an `INDI` or `FAM`, in any case and among several comma-separated values, makes the record `Private`; `locked`, another value or no `RESN` leaves it `Default`. `ged_io` writes no record-level `RESN`, so privacy is not exported |
 | Header charset | — | `CHAR UTF-8` | Export declares UTF-8 explicitly |
 | GEDCOM version | 5.5.1 + 7.0 | 5.5.1 only | ged_io auto-detects on import |
+
+### GeneWeb `.gw`
+
+A `.gw` is read by the `geneweb` crate, which converts it to the same `ged_io`
+model a `.ged` is read into; the mapping above then applies unchanged. What the
+conversion produces, and so what a `.gw` imports as:
+
+| GeneWeb | Imported as |
+|---|---|
+| Witness of a `pevt` or `fevt` event | A witness of that event only, whether the file defines the witness elsewhere, inline, or nowhere else |
+| Witness on a `fam` line | A witness of the union's marriage, created for it when the line gives no other detail, and joined to a `fevt` marriage that replaces the line's |
+| Death reason (`k`, `m`, `e`, `s`, died young, presumed dead) | A `_GWDEATH <reason>` line in the death event's note, after the person's note on the death, also when a `pevt` death replaces the line's |
+| Title `[name:title:domain:start:end:nth]` | A `NobilityTitle` described `title, domain, nth`, dated `FROM start TO end`, with the name it is held under as its note; the domain is no place |
+| Adoptive and foster parents (`rel`) | A family of their own with the child as `Adopted` or `Foster`; an adoption also gives the child an `Adoption` event |
+| Godparents (`rel`) | Witnesses of the child's baptism, else birth, else first event, as `GODF` and `GODM` |
+| Other `rel` relations | Witnesses of the child's baptism, else birth, else first event, labelled with the relation |
+| Every `#nick` | The first on the primary name, each further one a `Byname` |
+| `#apriv`, `#semipub` | A `Private` person |
+| Text date `0(…)` | The parenthesised text as the date value, with no sort date |
+
+Reading is lenient: a malformed block is skipped whole, up to its end marker or
+the next block for a `fam`, and reported as one warning naming its line.
 
 ### Not currently imported (silently skipped)
 
