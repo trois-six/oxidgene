@@ -244,6 +244,9 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         // ── Person detail page ──────────────────────────────────────
         ("person.loading", "Caricamento della persona..."),
         ("person.load_error", "Impossibile caricare la persona: {error}"),
+        ("person.load_notes_error", "Impossibile caricare le note: {error}"),
+        ("person.load_events_error", "Impossibile caricare gli eventi: {error}"),
+        ("person.load_ancestry_error", "Impossibile caricare gli antenati: {error}"),
         ("person.vitals.born_prefix", "Nato/a il"),
         ("person.vitals.born_prefix_male", "Nato il"),
         ("person.vitals.born_prefix_female", "Nata il"),

@@ -376,6 +376,78 @@ mod parity_tests {
         }
     }
 
+    /// Every key the code looks up by a literal must exist in English.
+    ///
+    /// The parity test above only compares the tables with each other; a key
+    /// missing from all eight passes it, and renders as the key itself in
+    /// every language. This reads the crate's sources for `t`, `t_args`,
+    /// `t_plural` and `try_t` calls whose first argument is a string literal;
+    /// keys built at run time are left to the code that builds them.
+    #[test]
+    fn every_literal_key_in_the_code_exists() {
+        let en = en::translations();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut missing = Vec::new();
+        for path in rust_sources(&root) {
+            let source = std::fs::read_to_string(&path).unwrap();
+            for (call, key) in literal_keys(&source) {
+                let present = match call {
+                    "t_plural" => {
+                        en.contains_key(&format!("{key}_one"))
+                            && en.contains_key(&format!("{key}_other"))
+                    }
+                    _ => en.contains_key(key),
+                };
+                if !present {
+                    missing.push(format!("{}: {key}", path.display()));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "keys missing from en.rs: {missing:#?}");
+    }
+
+    /// Every `.rs` file under `dir`.
+    fn rust_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files.extend(rust_sources(&path));
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                files.push(path);
+            }
+        }
+        files
+    }
+
+    /// The `(call, key)` of every lookup in `source` whose key is a literal.
+    fn literal_keys(source: &str) -> Vec<(&'static str, &str)> {
+        const CALLS: [&str; 4] = ["t_plural", "t_args", "try_t", "t"];
+        let mut keys = Vec::new();
+        for (dot, _) in source.match_indices('.') {
+            let rest = &source[dot + 1..];
+            let Some(call) = CALLS.iter().find(|call| {
+                rest.strip_prefix(**call)
+                    .is_some_and(|after| after.starts_with('('))
+            }) else {
+                continue;
+            };
+            let argument = rest[call.len() + 1..].trim_start();
+            let Some(literal) = argument.strip_prefix('"') else {
+                continue;
+            };
+            let Some(end) = literal.find('"') else {
+                continue;
+            };
+            let key = &literal[..end];
+            // Only what looks like a key: `section.name`, no format braces.
+            if key.contains('.') && !key.contains(['{', ' ']) {
+                keys.push((*call, key));
+            }
+        }
+        keys
+    }
+
     /// A `{placeholder}` in one language must exist in every other.
     ///
     /// `t_args` substitutes by name and leaves anything it was not given
