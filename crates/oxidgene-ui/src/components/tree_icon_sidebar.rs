@@ -39,7 +39,7 @@ pub fn TreeIconSidebar(
     // The statistics button needs no callback: every tree page's route names
     // its tree, and the button leads to that tree's statistics.
     let route = use_route::<Route>();
-    let statistics_tree = tree_of(&route).map(str::to_string);
+    let statistics_tree = route.tree_id().map(str::to_string);
 
     let profile_class = button_class(active_view == TreeSidebarView::Profile);
     let couple_class = button_class(active_view == TreeSidebarView::Couple);
@@ -334,20 +334,5 @@ fn TreePageButtons(tree_id: String, route: Route) -> Element {
                 path { d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" }
             }
         }
-    }
-}
-
-/// The tree a tree page's route is about.
-fn tree_of(route: &Route) -> Option<&str> {
-    match route {
-        Route::TreeDetail { tree_id, .. }
-        | Route::PersonDetail { tree_id, .. }
-        | Route::CoupleDetail { tree_id, .. }
-        | Route::Dictionary { tree_id }
-        | Route::Statistics { tree_id }
-        | Route::Tools { tree_id }
-        | Route::Settings { tree_id }
-        | Route::SearchResults { tree_id, .. } => Some(tree_id),
-        _ => None,
     }
 }

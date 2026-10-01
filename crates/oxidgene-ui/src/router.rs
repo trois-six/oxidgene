@@ -99,3 +99,74 @@ pub enum Route {
     #[route("/:..segments")]
     NotFound { segments: Vec<String> },
 }
+
+impl Route {
+    /// The tree the page is about, for every page inside one.
+    ///
+    /// Deliberately exhaustive, without a catch-all arm: a new tree page has
+    /// to be listed here, or it builds without the sidebar buttons that
+    /// find their tree through this.
+    pub fn tree_id(&self) -> Option<&str> {
+        match self {
+            Route::TreeDetail { tree_id, .. }
+            | Route::SearchResults { tree_id, .. }
+            | Route::PersonDetail { tree_id, .. }
+            | Route::PersonHistory { tree_id, .. }
+            | Route::CoupleDetail { tree_id, .. }
+            | Route::Kinship { tree_id, .. }
+            | Route::Dictionary { tree_id }
+            | Route::Statistics { tree_id }
+            | Route::Tools { tree_id }
+            | Route::Settings { tree_id } => Some(tree_id),
+            Route::Home {} | Route::AppSettings {} | Route::NotFound { .. } => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Route;
+
+    #[test]
+    fn every_page_under_a_tree_names_it() {
+        let tree = || "t".to_string();
+        let pages = [
+            Route::TreeDetail {
+                tree_id: tree(),
+                person: None,
+            },
+            Route::SearchResults {
+                tree_id: tree(),
+                last: String::new(),
+                first: String::new(),
+                origin: String::new(),
+            },
+            Route::PersonDetail {
+                tree_id: tree(),
+                person_id: "p".into(),
+            },
+            Route::PersonHistory {
+                tree_id: tree(),
+                person_id: "p".into(),
+            },
+            Route::CoupleDetail {
+                tree_id: tree(),
+                family_id: "f".into(),
+            },
+            Route::Kinship {
+                tree_id: tree(),
+                from: "p".into(),
+                to: String::new(),
+            },
+            Route::Dictionary { tree_id: tree() },
+            Route::Statistics { tree_id: tree() },
+            Route::Tools { tree_id: tree() },
+            Route::Settings { tree_id: tree() },
+        ];
+        for page in pages {
+            assert_eq!(page.tree_id(), Some("t"), "{page:?}");
+        }
+        assert_eq!(Route::Home {}.tree_id(), None);
+        assert_eq!(Route::AppSettings {}.tree_id(), None);
+    }
+}
