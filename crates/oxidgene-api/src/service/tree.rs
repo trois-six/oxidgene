@@ -101,11 +101,12 @@ pub async fn create_tree(db: &DatabaseConnection, new: NewTree) -> Result<Tree, 
     require_name(&new.name)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let tree = TreeRepo::create(&txn, id, new.name, new.description).await?;
-    Change::create(id, AuditEntity::Tree, id)
+    let pending = Change::create(id, AuditEntity::Tree, id)
         .tree_settings()
-        .record(&txn)
+        .prepare(&txn)
         .await?;
+    let tree = TreeRepo::create(&txn, id, new.name, new.description).await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(tree)
 }
@@ -128,6 +129,10 @@ pub async fn update_tree(
     {
         require_tree_resource(&txn, tree_id, TreeResource::Person, person_id).await?;
     }
+    let pending = Change::update(tree_id, AuditEntity::Tree, tree_id)
+        .tree_settings()
+        .prepare(&txn)
+        .await?;
     let tree = TreeRepo::update(
         &txn,
         tree_id,
@@ -141,10 +146,7 @@ pub async fn update_tree(
         },
     )
     .await?;
-    Change::update(tree_id, AuditEntity::Tree, tree_id)
-        .tree_settings()
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(tree)
 }
@@ -161,11 +163,12 @@ pub async fn delete_tree(
     tree_id: Uuid,
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
-    TreeRepo::soft_delete(&txn, tree_id).await?;
-    Change::delete(tree_id, AuditEntity::Tree, tree_id)
+    let pending = Change::delete(tree_id, AuditEntity::Tree, tree_id)
         .tree_settings()
-        .record(&txn)
+        .prepare(&txn)
         .await?;
+    TreeRepo::soft_delete(&txn, tree_id).await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     purge.enqueue(tree_id);
     Ok(())

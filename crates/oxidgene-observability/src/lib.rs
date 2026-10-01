@@ -427,7 +427,7 @@ where
 /// background loop polling for work, a startup query — each call would be a
 /// trace by itself: one per second per job worker, for instance, desktop
 /// included. Such calls are recorded under a span of their own where they
-/// matter (`purge.tree`, `history.baselines`, `startup.migrate`), and the
+/// matter (`purge.tree`, `startup.migrate`), and the
 /// remaining ones are dropped here.
 #[derive(Debug, Clone)]
 struct NoOrphanDatabaseCalls;

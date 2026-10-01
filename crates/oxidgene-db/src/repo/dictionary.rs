@@ -826,6 +826,25 @@ impl DictionaryRepo {
         })
     }
 
+    /// The live persons of `tree_id` with a name spelled as one of `values`,
+    /// in ascending order: every person a re-cut or a rename of those
+    /// surnames can rewrite, read before it does — the history keeps the
+    /// state they had.
+    pub async fn persons_bearing_family_names(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        values: &[&str],
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let values: Vec<&str> = values.iter().map(|value| value.trim()).collect();
+        Ok(sorted_unique(
+            tree_names(db, tree_id)
+                .await?
+                .iter()
+                .filter(|n| values.iter().any(|value| is_spelled(n, value)))
+                .map(|n| n.person_id),
+        ))
+    }
+
     /// Resolve a batch of person IDs (as returned by the `*_usage_person_ids`
     /// queries above) into display name parts + birth/death years, in bulk —
     /// avoids one HTTP round trip per person on the dictionary usage panel.

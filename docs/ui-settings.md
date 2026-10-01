@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:43:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:02:57Z }
 ---
 
 
@@ -317,14 +317,16 @@ defined in [Data Model §5.1](data-model.md#51-audit-log-audit_entry).
 
 There is no author until authentication exists.
 
-**Changes.** An entry that produced versions offers **Show the change** (or
-*Show the N changes*). Opening it lists each version the write produced, titled
-by record kind and name — *Person — <name>*, *Place — <name>* — each compared
-with the version it replaced through [VersionDiff](ui-common.md#410-versiondiff),
-changes only. An import or a baseline, which version a whole tree, loads its
-changes 100 at a time.
+**Changes.** An entry that stored versions offers **Show the change** (or
+*Show the N changes*). Opening it lists each record the write changed, titled
+by record kind and name — *Person — <name>*, *Place — <name>* — each comparing
+the state the write replaced with the version that follows it — the record's
+current state when nothing changed it since — through
+[VersionDiff](ui-common.md#410-versiondiff), changes only. A large write, such
+as a family-name rename, loads its changes 100 at a time. Creations, imports,
+exports and media writes replace no state and offer nothing to show.
 
-Each change whose previous version is not a deletion offers **Restore the
+Each change whose previous version is not a deleted state offers **Restore the
 previous version**, confirmed through a `ConfirmDialog`: the record is put back
 as that version had it, which undoes this write for that record. A person's
 change also links to their full history. After a restore the log reloads, the

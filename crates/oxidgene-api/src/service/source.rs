@@ -49,6 +49,10 @@ pub async fn create_source(
     require_title(&new.title)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
+    let pending = Change::create(tree_id, AuditEntity::Source, id)
+        .source(id)
+        .prepare(&txn)
+        .await?;
     let source = SourceRepo::create(
         &txn,
         id,
@@ -60,10 +64,7 @@ pub async fn create_source(
         new.repository_name,
     )
     .await?;
-    Change::create(tree_id, AuditEntity::Source, id)
-        .source(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(source)
 }
@@ -80,6 +81,10 @@ pub async fn update_source(
     }
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Source, id).await?;
+    let pending = Change::update(tree_id, AuditEntity::Source, id)
+        .source(id)
+        .prepare(&txn)
+        .await?;
     let source = SourceRepo::update(
         &txn,
         id,
@@ -90,10 +95,7 @@ pub async fn update_source(
         patch.repository_name,
     )
     .await?;
-    Change::update(tree_id, AuditEntity::Source, id)
-        .source(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(source)
 }
@@ -110,17 +112,19 @@ pub async fn delete_source(
 ) -> Result<bool, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Source, id).await?;
+    let pending = Change::delete(tree_id, AuditEntity::Source, id)
+        .source(id)
+        .prepare(&txn)
+        .await?;
     let deleted = if only_if_unused {
         SourceRepo::delete_if_unused(&txn, id).await?
     } else {
         SourceRepo::delete(&txn, id).await?;
         true
     };
+    // A source kept as still used was not written: nothing to record.
     if deleted {
-        Change::delete(tree_id, AuditEntity::Source, id)
-            .source(id)
-            .record(&txn)
-            .await?;
+        pending.record(&txn).await?;
     }
     commit_tx(txn).await?;
     Ok(deleted)

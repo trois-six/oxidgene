@@ -54,12 +54,13 @@ pub async fn create_person(
 ) -> Result<Person, OxidGeneError> {
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
+    let pending = Change::create(tree_id, AuditEntity::Person, id)
+        .person(id)
+        .prepare(&txn)
+        .await?;
     let person = PersonRepo::create(&txn, id, tree_id, new.sex).await?;
     profiles.rebuild_person(&txn, tree_id, id).await?;
-    Change::create(tree_id, AuditEntity::Person, id)
-        .person(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(person)
 }
@@ -75,15 +76,16 @@ pub async fn update_person(
 ) -> Result<Person, OxidGeneError> {
     let txn = begin_tx(db).await?;
     PersonRepo::get_in_tree(&txn, tree_id, id).await?;
+    let pending = Change::update(tree_id, AuditEntity::Person, id)
+        .person(id)
+        .prepare(&txn)
+        .await?;
     let person = PersonRepo::update(&txn, id, patch.sex, patch.privacy).await?;
     let affected = invalidation::affected_persons(&txn, id).await?;
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::update(tree_id, AuditEntity::Person, id)
-        .person(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(person)
 }
@@ -98,14 +100,15 @@ pub async fn delete_person(
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
     PersonRepo::get_in_tree(&txn, tree_id, id).await?;
+    let pending = Change::delete(tree_id, AuditEntity::Person, id)
+        .person(id)
+        .prepare(&txn)
+        .await?;
     PersonRepo::delete(&txn, id).await?;
     profiles
         .invalidate_for_person_delete(&txn, tree_id, id)
         .await?;
-    Change::delete(tree_id, AuditEntity::Person, id)
-        .person(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }
 

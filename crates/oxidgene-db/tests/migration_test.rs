@@ -172,7 +172,7 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
         ),
         (
             "record_version",
-            "id, tree_id, audit_entry_id, record_type, record_id, version, deleted, created_at, snapshot, labels",
+            "id, tree_id, audit_entry_id, record_type, record_id, version, deleted, snapshot, labels",
         ),
         (
             "person_search_fts",

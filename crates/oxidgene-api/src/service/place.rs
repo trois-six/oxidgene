@@ -45,11 +45,12 @@ pub async fn create_place(
     require_name(&new.name)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let place = PlaceRepo::create(&txn, id, tree_id, new.name, new.latitude, new.longitude).await?;
-    Change::create(tree_id, AuditEntity::Place, id)
+    let pending = Change::create(tree_id, AuditEntity::Place, id)
         .place(id)
-        .record(&txn)
+        .prepare(&txn)
         .await?;
+    let place = PlaceRepo::create(&txn, id, tree_id, new.name, new.latitude, new.longitude).await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(place)
 }
@@ -68,14 +69,15 @@ pub async fn update_place(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
     let affected = invalidation::affected_persons_for_place(&txn, id).await?;
+    let pending = Change::update(tree_id, AuditEntity::Place, id)
+        .place(id)
+        .prepare(&txn)
+        .await?;
     let place = PlaceRepo::update(&txn, id, patch.name, patch.latitude, patch.longitude).await?;
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::update(tree_id, AuditEntity::Place, id)
-        .place(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(place)
 }
@@ -90,16 +92,17 @@ pub async fn delete_place(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
     let affected = invalidation::affected_persons_for_place(&txn, id).await?;
+    // The deleted place's events lose their place: their owners change too.
+    let pending = Change::delete(tree_id, AuditEntity::Place, id)
+        .place(id)
+        .persons(affected.iter().copied())
+        .prepare(&txn)
+        .await?;
     PlaceRepo::delete(&txn, id).await?;
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    // The deleted place's events lost their place: their owners changed too.
-    Change::delete(tree_id, AuditEntity::Place, id)
-        .place(id)
-        .persons(affected)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }
 

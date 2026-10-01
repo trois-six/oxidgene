@@ -53,7 +53,7 @@ pub use event_witness::EventWitnessRepo;
 pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;
 pub use family_spouse::FamilySpouseRepo;
-pub use history::{AuditFilter, HistoryRepo, LatestVersion, NewRecordVersion};
+pub use history::{AuditFilter, HistoryRepo, NewRecordVersion, VersionHead};
 pub use media::{MediaPatch, MediaRepo, UploadedMedia, UploadedMediaMetadata};
 pub use media_library::{MediaFacets, MediaFilter, MediaLibraryRepo, MediaTagCount};
 pub use media_link::{MediaLinkRepo, MediaLinkRow, MediaLinkTarget};
@@ -71,7 +71,7 @@ pub use person_search::{
     RELATIVE_SEP,
 };
 pub use place::PlaceRepo;
-pub use snapshot::{BuiltSnapshot, SnapshotRepo, SnapshotScope, display_names};
+pub use snapshot::{BuiltSnapshot, SnapshotRepo, display_names};
 pub use source::SourceRepo;
 pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};

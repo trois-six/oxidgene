@@ -581,7 +581,8 @@ The one comparison of two versions of a record, used by the
 [Settings §11](ui-settings.md#11-section-history). It takes the version shown
 and the one it is compared with — absent for a record's first version — and
 lays them out as one table per section, the older version on the left and the
-newer on the right.
+newer on the right. Column headings read *Version N*, with *(current)* for the
+live record.
 
 - **Sections** follow the record: for a person Identity, Names, Events, Notes,
   Sources, Parents and Unions; a place, a source, or the tree's settings is one
@@ -603,8 +604,9 @@ newer on the right.
 - **Changes only**, on by default, hides unchanged sections, groups and rows.
   With nothing left to show, the table reads *No difference between these two
   versions*.
-- A version recording a deletion opens with a banner saying so; it shows the
-  last state the record had.
+- A deleted state opens with a banner saying so and has nothing to list.
+  Compared against, it is empty: everything the newer version holds reads as
+  *Added*.
 
 Below `768px` the label column narrows and cells tighten; values wrap rather
 than scroll.

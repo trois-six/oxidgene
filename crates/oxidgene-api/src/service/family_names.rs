@@ -49,11 +49,17 @@ pub async fn set_particle(
     change: ParticleChange,
 ) -> Result<FamilyNameParticleUpdate, OxidGeneError> {
     let txn = begin_tx(db).await?;
+    let bearers =
+        DictionaryRepo::persons_bearing_family_names(&txn, tree_id, &[&change.value]).await?;
+    let pending = history::family_name_change(tree_id, change.value.trim(), &bearers)
+        .prepare(&txn)
+        .await?;
     let update =
         DictionaryRepo::set_family_name_particle(&txn, tree_id, &change.value, &change.particle)
             .await?;
     if update.names_updated > 0 {
-        history::family_name_change(tree_id, &update)
+        pending
+            .details(history::family_name_details(&update))
             .record(&txn)
             .await?;
     }
@@ -79,6 +85,16 @@ pub async fn rename(
     change: FamilyNameChange,
 ) -> Result<FamilyNameRename, OxidGeneError> {
     let txn = begin_tx(db).await?;
+    // Bearers of the new name too: an explicit particle re-cuts them.
+    let bearers = DictionaryRepo::persons_bearing_family_names(
+        &txn,
+        tree_id,
+        &[&change.value, &change.new_value],
+    )
+    .await?;
+    let pending = history::family_name_change(tree_id, change.value.trim(), &bearers)
+        .prepare(&txn)
+        .await?;
     let renamed = DictionaryRepo::rename_family_name(
         &txn,
         tree_id,
@@ -92,7 +108,8 @@ pub async fn rename(
         profiles
             .invalidate_for_mutation(&txn, tree_id, &affected)
             .await?;
-        history::family_name_rename_change(tree_id, &renamed)
+        pending
+            .details(history::family_name_rename_details(&renamed))
             .record(&txn)
             .await?;
     }

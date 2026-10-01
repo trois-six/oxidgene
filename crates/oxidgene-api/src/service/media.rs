@@ -150,7 +150,7 @@ pub async fn create_page(
     refresh_showing(&txn, profiles, tree_id, new.document_id).await?;
     Change::create(tree_id, AuditEntity::MediaPage, id)
         .media(new.document_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     Ok(page)
@@ -197,7 +197,7 @@ pub async fn upload(
     };
     let document_id = page.parent_media_id.unwrap_or(page.id);
     refresh_showing(&txn, profiles, tree_id, document_id).await?;
-    change.media(document_id).record(&txn).await?;
+    change.media(document_id).record_unversioned(&txn).await?;
     commit_tx(txn).await?;
     Ok((page, matches!(upload.target, UploadTarget::NewPage { .. })))
 }
@@ -214,7 +214,7 @@ pub async fn create_document(
             .await?;
     Change::create(tree_id, AuditEntity::Media, document.id)
         .media(document.id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     Ok(document)
@@ -240,7 +240,7 @@ pub async fn update_media(
     refresh_showing(&txn, profiles, tree_id, id).await?;
     Change::update(tree_id, AuditEntity::Media, id)
         .media(id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     Ok(updated)
@@ -361,7 +361,7 @@ pub async fn add_tag(
     MediaTagRepo::create(&txn, document_id, tag, normalized).await?;
     Change::new(tree_id, AuditAction::Create, AuditEntity::MediaTag, None)
         .media(document_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     let document = MediaRepo::get(&txn, document_id).await?;
     commit_tx(txn).await?;
@@ -383,7 +383,7 @@ pub async fn remove_tag(
     MediaTagRepo::delete(&txn, document_id, &normalized).await?;
     Change::new(tree_id, AuditAction::Delete, AuditEntity::MediaTag, None)
         .media(document_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await
 }
@@ -418,7 +418,7 @@ pub async fn reorder_pages(
     refresh_showing(&txn, profiles, tree_id, document_id).await?;
     Change::new(tree_id, AuditAction::Update, AuditEntity::MediaPage, None)
         .media(document_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     Ok(pages)
@@ -446,7 +446,7 @@ pub async fn delete_page(
         .await?;
     Change::delete(tree_id, AuditEntity::MediaPage, page_id)
         .media(document_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     for key in purge.storage_keys {
@@ -490,7 +490,7 @@ pub async fn delete_media(
     Change::delete(tree_id, AuditEntity::Media, id)
         .media(id)
         .label(label)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     for key in purge.storage_keys {

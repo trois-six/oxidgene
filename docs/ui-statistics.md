@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:02:57Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -340,13 +340,12 @@ first person was added to today.
   instant is exact, deleted persons included, for trees older than the
   change history as well. An import stamps everyone it brings with one
   time, so it is one step of the curve on the import's day; a tree
-  duplication is the new tree's import. The history baseline
-  ([Data Model §5.2](data-model.md)) only versions the persons a tree
-  already held and adds nobody.
+  duplication is the new tree's import.
 - **Restores.** Restoring a deleted person clears their deletion time, so
   the spell they spent deleted is read back from their versions: the
-  deleted version and the restore that followed it count as a removal and
-  an addition on their days.
+  deletion and the restore that ended the deleted state
+  ([Data Model §5.2](data-model.md)) count as a removal and an addition on
+  their days.
 - **Days** are UTC days; a period holds the days from its first to the day
   before the next one's.
 - **Granularity** follows the span from the first day to today: one point

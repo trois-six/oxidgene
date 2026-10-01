@@ -4,10 +4,10 @@
 //! The person table answers exactly: every person keeps its `created_at`,
 //! and a deletion or a merge only sets `deleted_at`, so the count at any
 //! instant is the persons created by then less those deleted by then. An
-//! import stamps everyone it brings with one time, so it is one step. The
-//! history baseline versions existing persons without touching them, so it
-//! adds nothing. Only a restore rewrites the table — it clears `deleted_at`
-//! — and the spells it erases are read back from the person's versions.
+//! import stamps everyone it brings with one time, so it is one step. Only a
+//! restore rewrites the table — it clears `deleted_at` — and the spells it
+//! erases are read back from the person's versions: the deleted state the
+//! restore stored, and the version before it, stored by the deletion.
 //! The audit log otherwise only marks the imports on the chart.
 //!
 //! Both reads are grouped in SQL and bucketed here in one pass: a large

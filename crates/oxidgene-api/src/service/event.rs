@@ -107,6 +107,12 @@ pub async fn create_event(
         }
     }
     let id = Uuid::now_v7();
+    // The event does not exist yet: its owner is named directly.
+    let pending = Change::create(tree_id, AuditEntity::Event, id)
+        .owner(new.person_id, None, new.family_id, None)
+        .event(id)
+        .prepare(&txn)
+        .await?;
     let event = EventRepo::create(
         &txn,
         id,
@@ -130,10 +136,7 @@ pub async fn create_event(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::create(tree_id, AuditEntity::Event, id)
-        .event(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(event)
 }
@@ -154,6 +157,10 @@ pub async fn update_event(
     // Derived from the patched state, reading whichever half the patch leaves
     // alone off the stored event — see `service::event_date`.
     let stored = EventRepo::get(&txn, id).await?;
+    let pending = Change::update(tree_id, AuditEntity::Event, id)
+        .event(id)
+        .prepare(&txn)
+        .await?;
     let date_sort = Some(event_date::derive_patch(
         stored.calendar,
         stored.date_value.as_deref(),
@@ -179,10 +186,7 @@ pub async fn update_event(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::update(tree_id, AuditEntity::Event, id)
-        .event(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(event)
 }
@@ -197,16 +201,17 @@ pub async fn delete_event(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, id).await?;
     let event = EventRepo::get(&txn, id).await?;
+    let pending = Change::delete(tree_id, AuditEntity::Event, id)
+        .event(id)
+        .prepare(&txn)
+        .await?;
     EventRepo::delete(&txn, id).await?;
     let affected =
         invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id).await?;
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::delete(tree_id, AuditEntity::Event, id)
-        .event(id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }
 
@@ -231,6 +236,10 @@ pub async fn add_witness(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, event_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
+    let pending = Change::create(tree_id, AuditEntity::EventWitness, id)
+        .event(event_id)
+        .prepare(&txn)
+        .await?;
     let witness = EventWitnessRepo::create(
         &txn,
         id,
@@ -240,10 +249,7 @@ pub async fn add_witness(
         new.sort_order,
     )
     .await?;
-    Change::create(tree_id, AuditEntity::EventWitness, id)
-        .event(event_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(witness)
 }
@@ -267,10 +273,11 @@ pub async fn remove_witness(
             id: witness_id,
         });
     }
-    EventWitnessRepo::delete(&txn, witness_id).await?;
-    Change::delete(tree_id, AuditEntity::EventWitness, witness_id)
+    let pending = Change::delete(tree_id, AuditEntity::EventWitness, witness_id)
         .event(witness.event_id)
-        .record(&txn)
+        .prepare(&txn)
         .await?;
+    EventWitnessRepo::delete(&txn, witness_id).await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }

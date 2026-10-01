@@ -65,7 +65,7 @@ pub async fn create_media_link(
     }
     Change::create(tree_id, AuditEntity::MediaLink, id)
         .media(link.media_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     Ok(link)
@@ -88,7 +88,7 @@ pub async fn delete_media_link(
     }
     Change::delete(tree_id, AuditEntity::MediaLink, id)
         .media(link.media_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await
 }

@@ -68,14 +68,16 @@ pub async fn set_person_portrait(
             require_tree_resource(&txn, tree_id, resource, id).await?;
         }
     }
+    // A portrait is media, never versioned; the person is the subject.
+    let pending = Change::update(tree_id, AuditEntity::Portrait, person_id)
+        .person(person_id)
+        .prepare(&txn)
+        .await?;
     let person = PersonRepo::set_portrait(&txn, person_id, portrait).await?;
     // The portrait is embedded in `person_denorm`, so the projection has to be
     // rebuilt or the tree keeps drawing the old one.
     profiles.rebuild_person(&txn, tree_id, person_id).await?;
-    Change::update(tree_id, AuditEntity::Portrait, person_id)
-        .person(person_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(person)
 }

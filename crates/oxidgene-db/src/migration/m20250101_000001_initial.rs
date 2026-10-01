@@ -1645,8 +1645,10 @@ async fn create_person_distinct(manager: &SchemaManager<'_>) -> Result<(), DbErr
 ///
 /// `audit_entry` is the tree's audit log, read newest first, optionally
 /// filtered by category — the two indexes lead with `tree_id` for exactly those
-/// reads. `record_version` holds the state a write left a versioned record in,
-/// as JSON, numbered per record; the unique index on the record and its number
+/// reads. `record_version` holds the states writes replaced — never the live
+/// one — as JSON, numbered per record, its time being its audit entry's; a
+/// deleted state, or one a soft-deleted row still holds, stores no JSON. The
+/// unique index on the record and its number
 /// is both how a record's history is read and what keeps two writers from
 /// numbering the same version twice. Both tables cascade from `tree`, and
 /// versions from their audit entry, so the purge of a tree takes its history
@@ -1726,9 +1728,8 @@ async fn create_history(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid(RecordVersion::RecordId))
                 .col(integer(RecordVersion::Version))
                 .col(boolean(RecordVersion::Deleted).default(false))
-                .col(timestamp_with_time_zone(RecordVersion::CreatedAt))
-                .col(text(RecordVersion::Snapshot))
-                .col(text(RecordVersion::Labels))
+                .col(text_null(RecordVersion::Snapshot))
+                .col(text_null(RecordVersion::Labels))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_record_version_tree")
@@ -1814,7 +1815,6 @@ enum RecordVersion {
     RecordId,
     Version,
     Deleted,
-    CreatedAt,
     Snapshot,
     Labels,
 }

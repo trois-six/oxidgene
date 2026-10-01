@@ -47,7 +47,7 @@ pub async fn get_audit_entry(
 
 /// GET /api/v1/trees/:tree_id/audit/:entry_id/changes
 ///
-/// The versions one write produced, each beside the version it replaced.
+/// The states one write replaced, each beside the state it produced.
 pub async fn list_audit_changes(
     State(state): State<AppState>,
     Path((tree_id, entry_id)): Path<(Uuid, Uuid)>,
@@ -65,7 +65,7 @@ pub async fn list_audit_changes(
 
 /// GET /api/v1/trees/:tree_id/history/:record_type/:record_id
 ///
-/// A record's versions, latest first.
+/// A record's versions, latest — the live record — first.
 pub async fn list_versions(
     State(state): State<AppState>,
     Path((tree_id, record_type, record_id)): Path<(Uuid, RecordType, Uuid)>,
@@ -93,8 +93,7 @@ pub async fn get_version(
 /// POST /api/v1/trees/:tree_id/history/:record_type/:record_id/revert
 ///
 /// Put the record back as `version` had it. The restore is itself a write:
-/// it returns its own audit entry, and the state it restores becomes the
-/// record's newest version.
+/// it returns its own audit entry, and stores the state it replaces.
 pub async fn revert_record(
     State(state): State<AppState>,
     Path((tree_id, record_type, record_id)): Path<(Uuid, RecordType, Uuid)>,

@@ -83,6 +83,10 @@ pub async fn create_citation(
         }
     }
     let id = Uuid::now_v7();
+    let pending = Change::create(tree_id, AuditEntity::Citation, id)
+        .owner(new.person_id, new.event_id, new.family_id, None)
+        .prepare(&txn)
+        .await?;
     let citation = CitationRepo::create(
         &txn,
         id,
@@ -100,12 +104,7 @@ pub async fn create_citation(
             .invalidate_for_mutation(&txn, tree_id, &[person_id])
             .await?;
     }
-    change_of(
-        Change::create(tree_id, AuditEntity::Citation, id),
-        &citation,
-    )
-    .record(&txn)
-    .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(citation)
 }
@@ -124,6 +123,12 @@ pub async fn update_citation(
     if let Some(source_id) = patch.source_id {
         require_tree_resource(&txn, tree_id, TreeResource::Source, source_id).await?;
     }
+    let pending = change_of(
+        Change::update(tree_id, AuditEntity::Citation, id),
+        &previous,
+    )
+    .prepare(&txn)
+    .await?;
     let citation = CitationRepo::update(
         &txn,
         id,
@@ -138,12 +143,7 @@ pub async fn update_citation(
             .invalidate_for_mutation(&txn, tree_id, &[person_id])
             .await?;
     }
-    change_of(
-        Change::update(tree_id, AuditEntity::Citation, id),
-        &previous,
-    )
-    .record(&txn)
-    .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(citation)
 }
@@ -158,18 +158,19 @@ pub async fn delete_citation(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Citation, id).await?;
     let citation = CitationRepo::get(&txn, id).await?;
+    let pending = change_of(
+        Change::delete(tree_id, AuditEntity::Citation, id),
+        &citation,
+    )
+    .prepare(&txn)
+    .await?;
     CitationRepo::delete(&txn, id).await?;
     if let Some(person_id) = citation.person_id {
         profiles
             .invalidate_for_mutation(&txn, tree_id, &[person_id])
             .await?;
     }
-    change_of(
-        Change::delete(tree_id, AuditEntity::Citation, id),
-        &citation,
-    )
-    .record(&txn)
-    .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }
 

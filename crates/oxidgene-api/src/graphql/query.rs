@@ -200,7 +200,7 @@ impl QueryRoot {
             .into())
     }
 
-    /// A record's versions, latest first. Mirrors
+    /// A record's versions, latest — the live record — first. Mirrors
     /// `GET /trees/{treeId}/history/{recordType}/{recordId}`.
     async fn record_versions(
         &self,

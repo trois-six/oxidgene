@@ -1,5 +1,6 @@
-//! Person history page: every recorded version of a person, compared side by
-//! side, with the restore of an earlier one. See `docs/ui-person-history.md`.
+//! Person history page: every state of a person the history kept, and their
+//! current one, compared side by side, with the restore of an earlier one.
+//! See `docs/ui-person-history.md`.
 
 use dioxus::prelude::*;
 use oxidgene_core::history::{RecordSnapshot, RecordType, RecordVersion};
@@ -9,6 +10,7 @@ use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
+    version_label,
 };
 use crate::components::paged_list::use_paged_list;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
@@ -35,7 +37,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
 
     let mut refresh = use_signal(|| 0u32);
     // The version shown, and the one it is compared with; `None` follows the
-    // latest and its predecessor.
+    // current one and its predecessor.
     let mut selected = use_signal(|| None::<i32>);
     let mut compare_with = use_signal(|| None::<i32>);
     let mut confirm_restore = use_signal(|| false);
@@ -120,7 +122,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
 
     let can_restore = shown
         .as_ref()
-        .is_some_and(|v| Some(v.version) != latest && !v.deleted);
+        .is_some_and(|v| !v.current && !v.deleted && v.snapshot.is_some());
     let older_versions: Vec<i32> = versions
         .read()
         .iter()
@@ -226,7 +228,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
 /// The person's name, as the latest version naming them has it.
 fn person_name_in(versions: &[RecordVersion]) -> Option<String> {
     versions.iter().find_map(|v| match &v.snapshot {
-        RecordSnapshot::Person(person) => snapshot_name(person),
+        Some(RecordSnapshot::Person(person)) => snapshot_name(person),
         _ => None,
     })
 }
@@ -246,8 +248,10 @@ async fn version_numbered(
         .ok()
 }
 
-/// The versions, latest first, the one `shown` highlighted, and the button
-/// loading older ones when there are.
+/// The versions, current first, the one `shown` highlighted, and the button
+/// loading older ones when there are. Each reads as the write that produced
+/// it; a first version no recorded write produced reads as the initial
+/// state.
 #[component]
 fn VersionTimeline(
     versions: Vec<RecordVersion>,
@@ -268,13 +272,15 @@ fn VersionTimeline(
                             let number = version.version;
                             move |_| on_pick.call(number)
                         },
-                        span { class: "ph-version-number",
-                            {i18n.t_args("history.version_n", &[("version", &version.version.to_string())])}
-                        }
-                        span { class: "ph-version-date", {format_timestamp(&i18n, version.created_at)} }
-                        span { class: "ph-version-what", {describe_entry(&i18n, &version.entry)} }
-                        if let Some(details) = entry_details(&i18n, &version.entry) {
-                            span { class: "ph-version-details", "{details}" }
+                        span { class: "ph-version-number", {version_label(&i18n, version)} }
+                        if let Some(entry) = &version.entry {
+                            span { class: "ph-version-date", {format_timestamp(&i18n, entry.occurred_at)} }
+                            span { class: "ph-version-what", {describe_entry(&i18n, entry)} }
+                            if let Some(details) = entry_details(&i18n, entry) {
+                                span { class: "ph-version-details", "{details}" }
+                            }
+                        } else {
+                            span { class: "ph-version-what", {i18n.t("history.initial_state")} }
                         }
                     }
                 }

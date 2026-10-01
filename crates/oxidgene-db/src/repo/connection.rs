@@ -102,8 +102,8 @@ pub async fn refresh_statistics(db: &impl ConnectionTrait) {
 /// drifted.
 ///
 /// Imports refresh the statistics themselves ([`refresh_statistics`]), but
-/// ordinary writes accumulate too — every edit adds an audit entry and a
-/// record version — and a table whose recorded row count is far from its real
+/// ordinary writes accumulate too — every edit adds an audit entry, and most
+/// a record version — and a table whose recorded row count is far from its real
 /// one gets planned as if it were still that size. `PRAGMA optimize` with
 /// `0x10000` checks every table, not only the ones this connection queried,
 /// and analyzes only those whose size changed markedly since their last

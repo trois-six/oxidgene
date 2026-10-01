@@ -13,7 +13,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
-use crate::service::history;
+use crate::service::history::{self, NoteTarget};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// A note to create: its text and what it is about.
@@ -69,9 +69,20 @@ pub async fn create_note(
             require_tree_resource(&txn, tree_id, resource, id).await?;
         }
     }
+    let id = Uuid::now_v7();
+    let target = NoteTarget {
+        person_id: new.person_id,
+        event_id: new.event_id,
+        family_id: new.family_id,
+        source_id: new.source_id,
+        media_id: new.media_id,
+    };
+    let pending = history::note_change(tree_id, AuditAction::Create, id, target)
+        .prepare(&txn)
+        .await?;
     let note = NoteRepo::create(
         &txn,
-        Uuid::now_v7(),
+        id,
         tree_id,
         new.text,
         new.person_id,
@@ -86,9 +97,7 @@ pub async fn create_note(
             .invalidate_for_mutation(&txn, tree_id, &[person_id])
             .await?;
     }
-    history::note_change(tree_id, AuditAction::Create, &note)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(note)
 }
@@ -104,15 +113,16 @@ pub async fn update_note(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let previous = NoteRepo::get(&txn, id).await?;
+    let pending = history::note_change(tree_id, AuditAction::Update, id, (&previous).into())
+        .prepare(&txn)
+        .await?;
     let note = NoteRepo::update(&txn, id, patch.text).await?;
     if let Some(person_id) = previous.person_id {
         profiles
             .invalidate_for_mutation(&txn, tree_id, &[person_id])
             .await?;
     }
-    history::note_change(tree_id, AuditAction::Update, &previous)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(note)
 }
@@ -127,14 +137,15 @@ pub async fn delete_note(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let note = NoteRepo::get(&txn, id).await?;
+    let pending = history::note_change(tree_id, AuditAction::Delete, id, (&note).into())
+        .prepare(&txn)
+        .await?;
     NoteRepo::delete(&txn, id).await?;
     if let Some(person_id) = note.person_id {
         profiles
             .invalidate_for_mutation(&txn, tree_id, &[person_id])
             .await?;
     }
-    history::note_change(tree_id, AuditAction::Delete, &note)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }

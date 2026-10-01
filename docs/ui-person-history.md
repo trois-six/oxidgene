@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Person History"
-description: "Every recorded version of a person, compared field by field side by side, with the restore of an earlier one."
+description: "Every state the history kept of a person, and their current one, compared field by field side by side, with the restore of an earlier one."
 tags: [oxidgene, specification, ui, ux, history]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:02:57Z }
 ---
 
 
@@ -16,15 +16,17 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:00:00Z }
 
 ## 1. Overview
 
-The person history page (`/trees/{id}/persons/{person_id}/history`) lists every
-version recorded for one person, newest first, and compares any of them with an
-earlier one field by field. From it, the person can be put back as any earlier
-version had them.
+The person history page (`/trees/{id}/persons/{person_id}/history`) lists the
+versions of one person, newest first — their current state, then every earlier
+state the history kept — and compares any of them with an earlier one field by
+field. From it, the person can be put back as any earlier version had them.
 
 What a version holds — names, own events with their witnesses, notes and
-sources, notes, sources, parents, and unions with their events — and when one is
-recorded are defined in [Data Model §5](data-model.md#5-change-history). Media
-are never part of a version.
+sources, notes, sources, parents, and unions with their events — and when an
+earlier state is kept are defined in
+[Data Model §5](data-model.md#5-change-history). Media are never part of a
+version. A person nobody changed since they were created or imported has a
+single version, their current one.
 
 It is reached from the **History** button of the
 [Person Profile](ui-person-profile.md) header, and from the audit log of
@@ -47,9 +49,9 @@ is deleted.
 | isb |  History of <person>                     [Deleted]              |
 |     |  +--------------+  +-------------------------------------------+ |
 |     |  | Version 5    |  | Compare with [Version 4 v] [x] Changes only| |
-|     |  | 27 Sep, 14:32|  |                         [Restore this ver.]| |
-|     |  | Changed —    |  |  Names                                     | |
-|     |  |  event (Birth)|  |           Version 4     Version 5         | |
+|     |  |  (current)   |  |                                            | |
+|     |  | 27 Sep, 14:32|  |  Names                                     | |
+|     |  | Changed —    |  |       Version 4     Version 5 (current)    | |
 |     |  +--------------+  |  Given    <old>          <new>              | |
 |     |  | Version 4    |  |  ...                                        | |
 |     |  | ...          |  +-------------------------------------------+ |
@@ -65,7 +67,7 @@ comparison.
 ## 3. Topbar
 
 `[logo] tree_name / <person> / History`. The person's name is taken from the
-newest version's primary name, and links to their profile unless they are
+newest version holding one, and links to their profile unless they are
 deleted, when it is plain text.
 
 ---
@@ -73,17 +75,19 @@ deleted, when it is plain text.
 ## 4. Version list
 
 One button per version, newest first, loaded 100 at a time with **Load more**.
-Each shows:
+The first is the person's current state. Each shows:
 
-- **Version N**;
-- when it was recorded, in the reader's language and local time;
+- **Version N**, followed by *(current)* for the current one;
+- when the write that produced it happened, in the reader's language and local
+  time;
 - what produced it, worded from its audit entry: *Changed — event (Birth)*,
-  *Import*, *Restored*, *State at the start of history*;
+  *Import*, *Restored*; a first version no recorded write produced reads
+  *Initial state*, without a time;
 - the entry's details when it has any: format, file name and person count of an
   import, *version 3 restored*, *merged with <name>*.
 
-The newest version is selected on arrival. Selecting another shows it and resets
-the comparison to the version just before it.
+The current version is selected on arrival. Selecting another shows it and
+resets the comparison to the version just before it.
 
 ---
 
@@ -96,11 +100,12 @@ A card holding a toolbar and a [VersionDiff](ui-common.md#410-versiondiff):
   nothing: everything reads as *Added*.
 - **Changes only** — on by default.
 - **Restore this version** — shown only for a version that is neither the
-  newest nor a deletion.
+  current one nor a deleted state.
 
-A version recorded by a deletion is shown like any other, under the deletion
-banner, but cannot be restored: the version before it is the state to go back
-to.
+A deleted state — the person deleted, now or between two earlier versions — is
+shown under the deletion banner, without content, and cannot be restored: the
+version before it is the state to go back to, and restoring it undeletes the
+person.
 
 ---
 
@@ -111,7 +116,7 @@ put back exactly as that version recorded them — names, events, notes, sources
 parents and unions — and that the restore is itself recorded, so it can be
 undone. Confirming calls the revert operation of the [API](api.md).
 
-On success the list reloads, the restore appears as the newest version with
+On success the list reloads, the restore appears as the current version with
 *Restored* and *version N restored*, and the page selects it. Restoring a
 deleted person undeletes them: the topbar name becomes a link to their profile
 again. A failure keeps the dialog open with the error.
@@ -128,7 +133,7 @@ who no longer exists is never brought back — is defined in
 |---|---|
 | Loading | The shared loading line |
 | Error | The shared error line with the message |
-| No version | An empty state: *No version has been recorded for this person yet.* |
+| No version | An empty state: *No version has been recorded for this person yet.* — a person that does not exist and was never versioned |
 | Deleted person | A *Deleted* badge beside the title |
 
 ---

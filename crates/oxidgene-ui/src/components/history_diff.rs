@@ -144,6 +144,10 @@ impl Side<'_> {
 }
 
 /// Compare `before` (absent for a record's first version) with `after`.
+///
+/// A deleted state has no content: compared against, everything the other
+/// side holds reads as added; compared, there is nothing to list — the
+/// deletion banner says it all.
 pub fn diff_versions(
     i18n: &I18n,
     before: Option<&RecordVersion>,
@@ -153,30 +157,32 @@ pub fn diff_versions(
     let new = Side {
         version: Some(after),
     };
+    let previous = before.and_then(|v| v.snapshot.as_ref());
     match &after.snapshot {
-        RecordSnapshot::Person(person) => {
-            let previous = before.and_then(|v| match &v.snapshot {
+        None => Vec::new(),
+        Some(RecordSnapshot::Person(person)) => {
+            let previous = previous.and_then(|s| match s {
                 RecordSnapshot::Person(p) => Some(p),
                 _ => None,
             });
             person_sections(i18n, (&old, previous), (&new, person))
         }
-        RecordSnapshot::Place(place) => {
-            let previous = before.and_then(|v| match &v.snapshot {
+        Some(RecordSnapshot::Place(place)) => {
+            let previous = previous.and_then(|s| match s {
                 RecordSnapshot::Place(p) => Some(p),
                 _ => None,
             });
             vec![place_section(i18n, previous, place)]
         }
-        RecordSnapshot::Source(source) => {
-            let previous = before.and_then(|v| match &v.snapshot {
+        Some(RecordSnapshot::Source(source)) => {
+            let previous = previous.and_then(|s| match s {
                 RecordSnapshot::Source(s) => Some(s),
                 _ => None,
             });
             vec![source_section(i18n, previous, source)]
         }
-        RecordSnapshot::Tree(tree) => {
-            let previous = before.and_then(|v| match &v.snapshot {
+        Some(RecordSnapshot::Tree(tree)) => {
+            let previous = previous.and_then(|s| match s {
                 RecordSnapshot::Tree(t) => Some(t),
                 _ => None,
             });
@@ -776,9 +782,9 @@ pub fn describe_entry(i18n: &I18n, entry: &AuditEntry) -> String {
         entity = format!("{entity} ({})", i18n.t(event_type_label_key(event_type)));
     }
     match entry.action {
-        // The entity of an import, an export or a baseline is the tree
-        // itself, which says nothing the action does not.
-        AuditAction::Import | AuditAction::Export | AuditAction::Baseline => action,
+        // The entity of an import or an export is the tree itself, which says
+        // nothing the action does not.
+        AuditAction::Import | AuditAction::Export => action,
         _ => format!("{action} — {entity}"),
     }
 }
@@ -843,13 +849,10 @@ pub fn VersionDiff(
     let i18n = crate::i18n::use_i18n();
     let sections = diff_versions(&i18n, before.as_ref(), &after);
     let before_heading = match &before {
-        Some(v) => i18n.t_args("history.version_n", &[("version", &v.version.to_string())]),
+        Some(v) => version_label(&i18n, v),
         None => i18n.t("history.no_previous"),
     };
-    let after_heading = i18n.t_args(
-        "history.version_n",
-        &[("version", &after.version.to_string())],
-    );
+    let after_heading = version_label(&i18n, &after);
     let visible: Vec<&DiffSection> = sections
         .iter()
         .filter(|s| !changes_only || s.differs())
@@ -860,7 +863,7 @@ pub fn VersionDiff(
             if after.deleted {
                 div { class: "hd-banner hd-banner-removed", {i18n.t("history.deleted_banner")} }
             }
-            if visible.is_empty() {
+            if visible.is_empty() && !after.deleted {
                 div { class: "hd-empty", {i18n.t("history.no_difference")} }
             }
             for section in visible {
@@ -897,6 +900,19 @@ pub fn VersionDiff(
                 }
             }
         }
+    }
+}
+
+/// « Version 3 », or « Version 4 (current) » for the live record.
+pub fn version_label(i18n: &I18n, version: &RecordVersion) -> String {
+    let label = i18n.t_args(
+        "history.version_n",
+        &[("version", &version.version.to_string())],
+    );
+    if version.current {
+        format!("{label} ({})", i18n.t("history.current"))
+    } else {
+        label
     }
 }
 
@@ -1076,10 +1092,10 @@ mod tests {
             record_type: RecordType::Person,
             record_id: Uuid::nil(),
             version: number,
+            current: false,
             deleted: false,
-            created_at: Utc::now(),
-            entry: entry(),
-            snapshot: RecordSnapshot::Person(person),
+            entry: Some(entry()),
+            snapshot: Some(RecordSnapshot::Person(person)),
             labels,
         }
     }
@@ -1185,6 +1201,29 @@ mod tests {
         // Each side still reads as it did at the time.
         assert_eq!(place_row.before, "Old name");
         assert_eq!(place_row.after, "New name");
+    }
+
+    #[test]
+    fn a_deleted_state_lists_nothing_and_reads_as_empty_against() {
+        let i18n = I18n(Language::En);
+        let named = version(1, person(vec![name(1, "Alpha")], vec![]), vec![]);
+        let mut deleted = version(2, person(vec![], vec![]), vec![]);
+        deleted.deleted = true;
+        deleted.snapshot = None;
+        assert!(diff_versions(&i18n, Some(&named), &deleted).is_empty());
+        let mut back = version(3, person(vec![name(1, "Alpha")], vec![]), vec![]);
+        back.current = true;
+        assert!(
+            diff_versions(&i18n, Some(&deleted), &back)
+                .iter()
+                .flat_map(|s| &s.groups)
+                .all(|g| g.kind == ChangeKind::Added)
+        );
+        assert_eq!(
+            version_label(&i18n, &back),
+            format!("Version 3 ({})", i18n.t("history.current"))
+        );
+        assert_eq!(version_label(&i18n, &named), "Version 1");
     }
 
     #[test]

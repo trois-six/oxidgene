@@ -2,8 +2,11 @@
 //!
 //! Every write to a tree leaves one [`AuditEntry`]. A write that changes a
 //! versioned record — a person, a place, a source, or the tree's own settings —
-//! also stores the record's new state as a [`RecordVersion`], so two versions
-//! can be compared field by field and an earlier one restored.
+//! also stores the state it replaced, so the record's successive states can be
+//! compared field by field and an earlier one restored. The live record is
+//! its current state: the history never stores a copy of it. A
+//! [`RecordVersion`] is one of those states as the API presents it, the live
+//! one included.
 //!
 //! Media are deliberately not versioned: their writes are audited, but a
 //! photograph's bytes and its crops are not kept twice.
@@ -32,7 +35,9 @@ macro_rules! string_enum {
         pub enum $name:ident { $($(#[$vmeta:meta])* $variant:ident => $text:literal,)+ }
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(
+            Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+        )]
         #[serde(rename_all = "snake_case")]
         pub enum $name {
             $($(#[$vmeta])* $variant,)+
@@ -82,7 +87,7 @@ string_enum! {
         Import => "import",
         /// The tree written out to a file.
         Export => "export",
-        /// A restored version, or the baseline recorded for existing data.
+        /// A restored version.
         History => "history",
     }
 }
@@ -99,8 +104,6 @@ string_enum! {
         Export => "export",
         /// A record put back as an earlier version had it.
         Revert => "revert",
-        /// The state of data that existed before history was recorded.
-        Baseline => "baseline",
     }
 }
 
@@ -163,7 +166,7 @@ impl AuditCategory {
         match action {
             AuditAction::Import => return Self::Import,
             AuditAction::Export => return Self::Export,
-            AuditAction::Revert | AuditAction::Baseline => return Self::History,
+            AuditAction::Revert => return Self::History,
             _ => {}
         }
         match entity {
@@ -233,7 +236,7 @@ pub struct AuditEntry {
     pub label: Option<String>,
     #[serde(default)]
     pub details: AuditDetails,
-    /// Number of record versions the write produced.
+    /// Number of record states the write replaced, and so stored.
     #[serde(default)]
     pub version_count: i64,
 }
@@ -245,24 +248,33 @@ pub struct RecordLabel {
     pub label: String,
 }
 
-/// One stored state of a versioned record.
+/// One state of a versioned record: a past state the history stored, or the
+/// live record as its current state.
+///
+/// Versions are numbered from 1, oldest first; the current one is numbered
+/// after the last stored one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordVersion {
+    /// The stored state's ID; the record's own ID for the current state,
+    /// which is not stored.
     pub id: Uuid,
     pub tree_id: Uuid,
     pub record_type: RecordType,
     pub record_id: Uuid,
-    /// 1 for the first state recorded, then one more per change.
     pub version: i32,
-    /// The record no longer existed after this write. The snapshot is then
-    /// the last state it had.
+    /// This is the live record, not a stored past state.
+    pub current: bool,
+    /// The record did not exist in this state: it was deleted.
     pub deleted: bool,
-    pub created_at: DateTime<Utc>,
-    /// The write that produced this version.
-    pub entry: AuditEntry,
-    pub snapshot: RecordSnapshot,
+    /// The write that produced this state. For a record's first version, the
+    /// write that created it, or the import that brought it; `None` when
+    /// neither was recorded.
+    pub entry: Option<AuditEntry>,
+    /// The record's state; `None` when it was deleted.
+    pub snapshot: Option<RecordSnapshot>,
     /// Labels of the places, sources, persons, and families the snapshot
-    /// names, as they read when it was taken.
+    /// names, as they read when the state was stored — as they read now for
+    /// the current state.
     #[serde(default)]
     pub labels: Vec<RecordLabel>,
 }
@@ -277,11 +289,15 @@ impl RecordVersion {
     }
 }
 
-/// A version together with the one before it, which it is compared against.
+/// What one write did to a record: the state it replaced, beside the state
+/// it produced.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VersionChange {
+    /// The state the write produced — the current one when nothing changed
+    /// the record since.
     pub version: RecordVersion,
-    pub previous: Option<RecordVersion>,
+    /// The state the write replaced.
+    pub previous: RecordVersion,
 }
 
 /// The state of a versioned record.

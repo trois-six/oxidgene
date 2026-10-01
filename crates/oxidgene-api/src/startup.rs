@@ -16,7 +16,6 @@ use tracing::error;
 
 use crate::AppState;
 use crate::service::background_job::BackgroundJobWorker;
-use crate::service::history::record_baselines_at_startup;
 
 /// The value of `result`, or the end of the process: `message` is logged
 /// under the `error` code `code` and the process exits with status 1.
@@ -62,15 +61,6 @@ pub async fn connect_and_migrate(database_url: &str) -> DatabaseConnection {
         "database_migration",
         "Failed to run migrations",
     );
-    db
-}
-
-/// The database an API server runs on: connected, migrated, and with a
-/// baseline version for every tree written before history existed, so a
-/// first edit has something to compare against.
-pub async fn open_database(database_url: &str) -> DatabaseConnection {
-    let db = connect_and_migrate(database_url).await;
-    record_baselines_at_startup(&db).await;
     db
 }
 

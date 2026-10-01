@@ -49,7 +49,7 @@ mirror_enum!(
 );
 mirror_enum!(
     /// What a write did.
-    GqlAuditAction => AuditAction { Create, Update, Delete, Merge, Import, Export, Revert, Baseline }
+    GqlAuditAction => AuditAction { Create, Update, Delete, Merge, Import, Export, Revert }
 );
 mirror_enum!(
     /// The kind of row a write changed.
@@ -456,7 +456,8 @@ impl From<RecordSnapshot> for GqlRecordSnapshot {
     }
 }
 
-/// One stored state of a versioned record.
+/// One state of a versioned record: a stored past state, or the live record
+/// as its current one.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlRecordVersion {
     pub id: ID,
@@ -464,10 +465,10 @@ pub struct GqlRecordVersion {
     pub record_type: GqlRecordType,
     pub record_id: ID,
     pub version: i32,
+    pub current: bool,
     pub deleted: bool,
-    pub created_at: DateTime<Utc>,
-    pub entry: GqlAuditEntry,
-    pub snapshot: GqlRecordSnapshot,
+    pub entry: Option<GqlAuditEntry>,
+    pub snapshot: Option<GqlRecordSnapshot>,
     pub labels: Vec<GqlRecordLabel>,
 }
 
@@ -479,27 +480,27 @@ impl From<RecordVersion> for GqlRecordVersion {
             record_type: v.record_type.into(),
             record_id: id(v.record_id),
             version: v.version,
+            current: v.current,
             deleted: v.deleted,
-            created_at: v.created_at,
-            entry: v.entry.into(),
-            snapshot: v.snapshot.into(),
+            entry: v.entry.map(Into::into),
+            snapshot: v.snapshot.map(Into::into),
             labels: convert(v.labels),
         }
     }
 }
 
-/// A version beside the one it replaced.
+/// The state a write replaced, beside the state it produced.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlVersionChange {
     pub version: GqlRecordVersion,
-    pub previous: Option<GqlRecordVersion>,
+    pub previous: GqlRecordVersion,
 }
 
 impl From<VersionChange> for GqlVersionChange {
     fn from(c: VersionChange) -> Self {
         Self {
             version: c.version.into(),
-            previous: c.previous.map(Into::into),
+            previous: c.previous.into(),
         }
     }
 }

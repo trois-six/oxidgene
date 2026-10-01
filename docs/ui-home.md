@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T16:45:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:02:57Z }
 ---
 
 
@@ -94,7 +94,7 @@ The card opens straight on its padded body; there is no illustration above it.
 3. **Recently modified people** — a small uppercase muted label, then the five persons of the tree modified most recently, newest first, each drawn by the shared quick-search row on a single line: a small portrait (or the sex silhouette), the name, truncated when too long, and the dates with their precision. The relatives and birth place the [search results](ui-search-results.md) add are left out, so the five persons fit the card. The rows are static: no hover wash — the card is what reacts to hover — only the hovered row's name turns orange. A tree with nobody to list shows the label and "No person modified yet"; nothing is shown while the list loads or when it cannot be read.
 4. **Footer row** — "Modified X ago" date on the left, followed by an optional "Recent" badge (shown for trees modified within the last 24 hours); the Open link on the right. The list above grows, so the footer sits at the bottom of a card stretched to a taller neighbour's height.
 
-"Modified" for a person is what the [change history](data-model.md#5-change-history) records: a write that stored a new version of them — a change to their names, events, notes, citations or unions. Imports and the history baseline version every person at once and are left out, so a tree nobody has edited since its import lists nobody. Deleted persons are left out. The list is one `GET /trees/{id}/persons/recently-modified?limit=5` per card, then one portrait request for its rows (see [API Contract](api.md#persons)).
+"Modified" for a person is what the [change history](data-model.md#5-change-history) records: a write about them — a change to their record, names, events, notes, citations or unions, a merge, a restore. Imports are about the tree and are left out, so a tree nobody has edited since its import lists nobody. Deleted persons are left out. The list is one `GET /trees/{id}/persons/recently-modified?limit=5` per card, then one portrait request for its rows (see [API Contract](api.md#persons)).
 
 ### Card interactions
 

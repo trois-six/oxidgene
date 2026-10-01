@@ -34,8 +34,8 @@ impl ApiClient {
             .await
     }
 
-    /// A page of the versions one write produced, each beside the one it
-    /// replaced.
+    /// A page of the states one write replaced, each beside the version that
+    /// follows it.
     pub async fn list_audit_changes(
         &self,
         tree_id: Uuid,
@@ -53,7 +53,7 @@ impl ApiClient {
         .await
     }
 
-    /// A page of a record's versions, latest first.
+    /// A page of a record's versions, latest — the live record — first.
     pub async fn list_versions(
         &self,
         tree_id: Uuid,
@@ -75,7 +75,7 @@ impl ApiClient {
         .await
     }
 
-    /// One version of a record.
+    /// One version of a record, the current one included.
     pub async fn get_version(
         &self,
         tree_id: Uuid,

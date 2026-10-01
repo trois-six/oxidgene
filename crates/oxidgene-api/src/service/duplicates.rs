@@ -61,16 +61,17 @@ pub async fn mark_distinct(
     for other in others {
         PersonRepo::get_in_tree(conn, tree_id, *other).await?;
     }
-    PersonDistinctRepo::mark(conn, tree_id, person_id, others).await?;
-    Change::new(
+    let pending = Change::new(
         tree_id,
         AuditAction::Create,
         AuditEntity::PersonDistinct,
         None,
     )
     .person(person_id)
-    .record(conn)
+    .prepare(conn)
     .await?;
+    PersonDistinctRepo::mark(conn, tree_id, person_id, others).await?;
+    pending.record(conn).await?;
     Ok(())
 }
 
@@ -136,25 +137,18 @@ pub async fn merge_persons(
         .map(|witness| witness.event_id)
         .collect();
 
-    write_merge(conn, tree_id, kept, duplicate, choices).await?;
-    profiles
-        .invalidate_for_person_delete(conn, tree_id, duplicate)
-        .await?;
-
     let affected = sorted_unique(
         kept_affected
             .into_iter()
             .chain(duplicate_affected)
             .filter(|id| *id != duplicate),
     );
-    profiles
-        .invalidate_for_mutation(conn, tree_id, &affected)
-        .await?;
-
+    // Everyone the merge re-links, and the owners of the events whose
+    // witnesses it re-points, read before it does.
     let mut change = Change::new(tree_id, AuditAction::Merge, AuditEntity::Person, kept)
         .person(kept)
         .persons([duplicate])
-        .persons(affected)
+        .persons(affected.iter().copied())
         .details(AuditDetails {
             other_label: duplicate_label,
             ..AuditDetails::default()
@@ -165,7 +159,16 @@ pub async fn merge_persons(
     {
         change = change.event(event_id);
     }
-    change.record(conn).await?;
+    let pending = change.prepare(conn).await?;
+
+    write_merge(conn, tree_id, kept, duplicate, choices).await?;
+    profiles
+        .invalidate_for_person_delete(conn, tree_id, duplicate)
+        .await?;
+    profiles
+        .invalidate_for_mutation(conn, tree_id, &affected)
+        .await?;
+    pending.record(conn).await?;
 
     PersonRepo::get(conn, kept).await
 }

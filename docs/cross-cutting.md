@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T14:02:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:03:04Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -435,7 +435,7 @@ the rejected value.
   call made outside any operation — the job worker polling for work every
   second, a startup query — would otherwise be a trace by itself. Work that
   runs outside a request owns a root span instead: `startup.migrate`,
-  `reference.preheat`, `history.baselines`, `purge.sweep` (the startup purge
+  `reference.preheat`, `purge.sweep` (the startup purge
   of trees a previous run left), `session_media.sweep` (the desktop's sweep
   of temporary files earlier runs left), and `mcp.tool` (with the tool name,
   one of a fixed set).

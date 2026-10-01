@@ -1,7 +1,10 @@
-//! `record_version` table entity — one stored state of a versioned record.
+//! `record_version` table entity — one past state of a versioned record,
+//! stored by the write that replaced it.
 //!
 //! `snapshot` is an `oxidgene_core::history::RecordSnapshot` and `labels` a
-//! list of `RecordLabel`, both as JSON.
+//! list of `RecordLabel`, both as JSON. Both are null for a deleted state, and
+//! for the state a soft deletion replaced, which the soft-deleted row still
+//! holds; see `docs/data-model.md` §5.2.
 
 use sea_orm::entity::prelude::*;
 
@@ -16,9 +19,8 @@ pub struct Model {
     pub record_id: Uuid,
     pub version: i32,
     pub deleted: bool,
-    pub created_at: DateTimeUtc,
-    pub snapshot: String,
-    pub labels: String,
+    pub snapshot: Option<String>,
+    pub labels: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

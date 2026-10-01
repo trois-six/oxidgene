@@ -203,15 +203,14 @@ are symmetric pairs, recording one twice is a no-op, and a request naming the
 person themselves, no one, more than 100 persons, or a person of another tree
 is rejected (`validation_error`, `not_found`).
 
-**Recently modified.** A person is modified when a write stores a new version
-of them in the [change history](data-model.md#5-change-history): a change to
-their names, events, notes, citations or unions, a merge, a restore. The
-versions an import or the history baseline stores are left out — they version
-every person at once — and so are persons deleted since. Each person appears
-once, at their latest such write; persons one write versioned together are
-ordered newest record first. `limit` defaults to 5 and is capped at 50. A tree
-that does not exist is `not_found`. GraphQL: `recentlyModifiedPersons(treeId,
-limit)`.
+**Recently modified.** A person is modified when a write about them — the
+subject of its entry in the [audit log](data-model.md#5-change-history) — is
+recorded: a change to their record, names, events, notes, citations or unions,
+a merge into them, a restore. Imports and exports are about the tree and are
+left out, and so are persons deleted since. Each person appears once, at their
+latest such write, newest first. `limit` defaults to 5 and is capped at 50. A
+tree that does not exist is `not_found`. GraphQL:
+`recentlyModifiedPersons(treeId, limit)`.
 
 **Merge.** `POST …/{person_id}/merge` keeps `person_id` and soft-deletes
 `duplicate_id` after moving everything the duplicate carried onto the kept
@@ -679,9 +678,10 @@ GraphQL's `valueSuggestions` takes the same arguments (`surname`,
 ### Audit log and versions
 
 Every write to a tree leaves an audit entry, and every write that changes a
-person, a place, a source or the tree's settings also stores that record's new
-state as a numbered version. See [Data Model §5](data-model.md#5-change-history)
-for what is recorded and what a version holds. An export is recorded too
+person, a place, a source or the tree's settings also stores the state it
+replaced as a numbered version; the live record is the current version, never
+stored. See [Data Model §5](data-model.md#5-change-history) for what is
+recorded, when a state is stored and what a version holds. An export is recorded too
 (`category: export`, the format in `details`), whichever surface produced
 it: `GET /gedcom/export` and GraphQL `exportGedcom` alike, a GEDZIP job when
 its archive is complete.
@@ -690,15 +690,16 @@ its archive is complete.
 |---|---|---|
 | `GET` | `/trees/{tree_id}/audit?first=&after=&category=&subject_id=` | The tree's audit log, **newest first**, as a `Connection<AuditEntry>`. `category` is one of `data`, `settings`, `media`, `import`, `export`, `history`; `subject_id` keeps only the writes about one record |
 | `GET` | `/trees/{tree_id}/audit/{entry_id}` | One `AuditEntry` |
-| `GET` | `/trees/{tree_id}/audit/{entry_id}/changes?first=&after=` | The versions the write produced, in the order it wrote them, each as `{ version, previous }` — `previous` is the version it replaced, `null` for a record's first |
-| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}?first=&after=` | A record's versions, **latest first**. `record_type` is `person`, `place`, `source` or `tree` (whose `record_id` is the tree's own ID) |
-| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}/{version}` | One `RecordVersion` |
-| `POST` | `/trees/{tree_id}/history/{record_type}/{record_id}/revert` | Body `{ "version": 3 }`. Puts the record back as that version had it and returns the restore's own `AuditEntry` (`action: "revert"`, `details.version`). A version whose `deleted` is `true` is refused with `400`: restore the one before it instead |
+| `GET` | `/trees/{tree_id}/audit/{entry_id}/changes?first=&after=` | The states the write replaced, in the order it stored them, each as `{ previous, version }` — `previous` the state replaced, `version` the one that follows it: the state the write produced, or a later one when the record changed since |
+| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}?first=&after=` | A record's versions, **latest first**: its live state (`current: true`), then its stored ones. `record_type` is `person`, `place`, `source` or `tree` (whose `record_id` is the tree's own ID). A record that does not exist and has no stored state has none |
+| `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}/{version}` | One `RecordVersion`, the current one included; a number past it is `404` |
+| `POST` | `/trees/{tree_id}/history/{record_type}/{record_id}/revert` | Body `{ "version": 3 }`. Puts the record back as that version had it — restoring the state a deletion replaced undeletes it — and returns the restore's own `AuditEntry` (`action: "revert"`, `details.version`). A version whose `deleted` is `true` is refused with `400`: restore the one before it instead |
 
 An `AuditEntry` is `{ id, tree_id, occurred_at, category, action, entity,
 entity_id, subject, subject_id, label, details, version_count }`. `action` is
-`create`, `update`, `delete`, `merge`, `import`, `export`, `revert` or
-`baseline`; `entity` names the kind of row written (`person_name`, `event`,
+`create`, `update`, `delete`, `merge`, `import`, `export` or `revert`;
+`version_count` is the number of states the write stored; `entity` names the
+kind of row written (`person_name`, `event`,
 `media_tag`, …) and `subject` the record the write is about (`person`,
 `family`, `place`, `source`, `media`, `tree`). `label` is the subject's display
 name when the write happened. `details` carries only what applies: `format`,
@@ -707,11 +708,16 @@ name when the write happened. `details` carries only what applies: `format`,
 `new_label` for the name a family-name rename gave (the entry's `label`
 keeping the old one).
 
-A `RecordVersion` is `{ id, tree_id, record_type, record_id, version, deleted,
-created_at, entry, snapshot, labels }`. `snapshot` is tagged by `type` and
-holds the record's state; `labels` is a list of `{ id, label }` naming, as they
-read at the time, the places, sources, persons and families the snapshot refers
-to by ID.
+A `RecordVersion` is `{ id, tree_id, record_type, record_id, version,
+current, deleted, entry, snapshot, labels }`. `id` is the stored state's, or
+the record's own for the current version. `current` marks the live record and
+`deleted` a state in which the record was deleted. `entry` is the `AuditEntry`
+of the write that produced the state — for version 1, the write that created
+the record or the import that brought it — and `null` when none was recorded.
+`snapshot` is tagged by `type` and holds the record's state, `null` for a
+deleted state; `labels` is a list of `{ id, label }` naming, as they read when
+the state was stored (now, for the current version), the places, sources,
+persons and families the snapshot refers to by ID.
 
 Used by: [Person History](ui-person-history.md) · [Settings §11](ui-settings.md#11-section-history) (audit log)
 
@@ -779,7 +785,7 @@ The response is `{ days, imports }`:
   persons at the end of each day, and its last value the tree's persons now.
   Computed from the persons' creation and deletion times, deleted persons
   included, and from the person versions of a restore, which clears a
-  deletion time; the history baseline adds nobody.
+  deletion time.
 - `imports`: `[{ occurred_at, format, file_name, persons }]`, the tree's
   import entries of the audit log, oldest first (`format: duplicate` for a
   duplication), with the persons each brought.
@@ -1640,7 +1646,7 @@ type GqlAuditEntry {
   treeId: ID!
   occurredAt: DateTime!
   category: GqlAuditCategory!   # DATA, SETTINGS, MEDIA, IMPORT, EXPORT, HISTORY
-  action: GqlAuditAction!       # CREATE, UPDATE, DELETE, MERGE, IMPORT, EXPORT, REVERT, BASELINE
+  action: GqlAuditAction!       # CREATE, UPDATE, DELETE, MERGE, IMPORT, EXPORT, REVERT
   entity: GqlAuditEntity!       # PERSON, PERSON_NAME, EVENT, MEDIA_TAG, …
   entityId: ID
   subject: GqlAuditSubject      # TREE, PERSON, FAMILY, PLACE, SOURCE, MEDIA
@@ -1656,16 +1662,16 @@ type GqlRecordVersion {
   recordType: GqlRecordType!    # PERSON, PLACE, SOURCE, TREE
   recordId: ID!
   version: Int!
+  current: Boolean!             # the live record
   deleted: Boolean!
-  createdAt: DateTime!
-  entry: GqlAuditEntry!
-  snapshot: GqlRecordSnapshot!  # recordType plus exactly one of person, place, source, tree
+  entry: GqlAuditEntry          # the write that produced the state
+  snapshot: GqlRecordSnapshot   # recordType plus exactly one of person, place, source, tree; null when deleted
   labels: [GqlRecordLabel!]!    # { id, label }
 }
 
 type GqlVersionChange {
   version: GqlRecordVersion!
-  previous: GqlRecordVersion
+  previous: GqlRecordVersion!
 }
 
 # GqlPersonSnapshot, GqlPlaceSnapshot, GqlSourceSnapshot and GqlTreeSnapshot

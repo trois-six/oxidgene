@@ -51,11 +51,12 @@ pub async fn create_family(
 ) -> Result<Family, OxidGeneError> {
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
-    let family = FamilyRepo::create(&txn, id, tree_id).await?;
-    Change::create(tree_id, AuditEntity::Family, id)
+    let pending = Change::create(tree_id, AuditEntity::Family, id)
         .family(id)
-        .record(&txn)
+        .prepare(&txn)
         .await?;
+    let family = FamilyRepo::create(&txn, id, tree_id).await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(family)
 }
@@ -69,11 +70,12 @@ pub async fn update_family(
 ) -> Result<Family, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
-    let family = FamilyRepo::update(&txn, family_id, patch.privacy).await?;
-    Change::update(tree_id, AuditEntity::Family, family_id)
+    let pending = Change::update(tree_id, AuditEntity::Family, family_id)
         .family(family_id)
-        .record(&txn)
+        .prepare(&txn)
         .await?;
+    let family = FamilyRepo::update(&txn, family_id, patch.privacy).await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(family)
 }
@@ -90,15 +92,16 @@ pub async fn delete_family(
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     // Read while the links still exist.
     let affected = invalidation::affected_persons_for_family_delete(&txn, family_id).await?;
+    let pending = Change::delete(tree_id, AuditEntity::Family, family_id)
+        .family(family_id)
+        .persons(affected.iter().copied())
+        .prepare(&txn)
+        .await?;
     FamilyRepo::delete(&txn, family_id).await?;
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::delete(tree_id, AuditEntity::Family, family_id)
-        .family(family_id)
-        .persons(affected)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }
 
@@ -134,6 +137,12 @@ pub async fn add_spouse(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
+    // The new spouse is named: the family's spouses are read before the link.
+    let pending = Change::create(tree_id, AuditEntity::FamilySpouse, id)
+        .person(new.person_id)
+        .family(family_id)
+        .prepare(&txn)
+        .await?;
     let spouse =
         FamilySpouseRepo::create(&txn, id, family_id, new.person_id, new.role, new.sort_order)
             .await?;
@@ -143,11 +152,7 @@ pub async fn add_spouse(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::create(tree_id, AuditEntity::FamilySpouse, id)
-        .person(new.person_id)
-        .family(family_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(spouse)
 }
@@ -173,15 +178,16 @@ pub async fn remove_spouse(
     let affected =
         invalidation::affected_persons_for_family_spouse_change(&txn, family_id, link.person_id)
             .await?;
+    let pending = Change::delete(tree_id, AuditEntity::FamilySpouse, link_id)
+        .person(link.person_id)
+        .family(family_id)
+        .prepare(&txn)
+        .await?;
     FamilySpouseRepo::delete(&txn, link_id).await?;
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::delete(tree_id, AuditEntity::FamilySpouse, link_id)
-        .person(link.person_id)
-        .family(family_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }
 
@@ -197,6 +203,11 @@ pub async fn add_child(
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
+    let pending = Change::create(tree_id, AuditEntity::FamilyChild, id)
+        .person(new.person_id)
+        .family(family_id)
+        .prepare(&txn)
+        .await?;
     let child = FamilyChildRepo::create(
         &txn,
         id,
@@ -212,11 +223,7 @@ pub async fn add_child(
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::create(tree_id, AuditEntity::FamilyChild, id)
-        .person(new.person_id)
-        .family(family_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(child)
 }
@@ -242,14 +249,15 @@ pub async fn remove_child(
     let affected =
         invalidation::affected_persons_for_family_child_change(&txn, family_id, link.person_id)
             .await?;
+    let pending = Change::delete(tree_id, AuditEntity::FamilyChild, link_id)
+        .person(link.person_id)
+        .family(family_id)
+        .prepare(&txn)
+        .await?;
     FamilyChildRepo::delete(&txn, link_id).await?;
     profiles
         .invalidate_for_mutation(&txn, tree_id, &affected)
         .await?;
-    Change::delete(tree_id, AuditEntity::FamilyChild, link_id)
-        .person(link.person_id)
-        .family(family_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }

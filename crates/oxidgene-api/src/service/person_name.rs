@@ -84,6 +84,10 @@ pub async fn create_person_name(
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, person_id).await?;
+    let pending = Change::create(tree_id, AuditEntity::PersonName, id)
+        .person(person_id)
+        .prepare(&txn)
+        .await?;
     let name = PersonNameRepo::create(
         &txn,
         id,
@@ -102,10 +106,7 @@ pub async fn create_person_name(
     )
     .await?;
     refresh(&txn, profiles, tree_id, person_id).await?;
-    Change::create(tree_id, AuditEntity::PersonName, id)
-        .person(person_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(name)
 }
@@ -121,6 +122,10 @@ pub async fn update_person_name(
 ) -> Result<PersonName, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_owned_name(&txn, tree_id, person_id, name_id).await?;
+    let pending = Change::update(tree_id, AuditEntity::PersonName, name_id)
+        .person(person_id)
+        .prepare(&txn)
+        .await?;
     let name = PersonNameRepo::update(
         &txn,
         name_id,
@@ -138,10 +143,7 @@ pub async fn update_person_name(
     )
     .await?;
     refresh(&txn, profiles, tree_id, person_id).await?;
-    Change::update(tree_id, AuditEntity::PersonName, name_id)
-        .person(person_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await?;
     Ok(name)
 }
@@ -156,12 +158,13 @@ pub async fn delete_person_name(
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_owned_name(&txn, tree_id, person_id, name_id).await?;
+    let pending = Change::delete(tree_id, AuditEntity::PersonName, name_id)
+        .person(person_id)
+        .prepare(&txn)
+        .await?;
     PersonNameRepo::delete(&txn, name_id).await?;
     refresh(&txn, profiles, tree_id, person_id).await?;
-    Change::delete(tree_id, AuditEntity::PersonName, name_id)
-        .person(person_id)
-        .record(&txn)
-        .await?;
+    pending.record(&txn).await?;
     commit_tx(txn).await
 }
 

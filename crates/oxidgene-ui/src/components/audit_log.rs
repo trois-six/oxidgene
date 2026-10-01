@@ -90,7 +90,7 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
     }
 }
 
-/// One line of the log, opening onto the versions it produced.
+/// One line of the log, opening onto the states it replaced.
 #[component]
 fn AuditEntryRow(entry: AuditEntry, refresh: Signal<u32>) -> Element {
     let i18n = use_i18n();
@@ -147,7 +147,7 @@ fn AuditEntryRow(entry: AuditEntry, refresh: Signal<u32>) -> Element {
     }
 }
 
-/// The versions one write produced, each compared with the one it replaced.
+/// The states one write replaced, each compared with the state it produced.
 #[component]
 fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element {
     let i18n = use_i18n();
@@ -171,10 +171,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
         move |_| {
             let api = api.clone();
             let Some(change) = restoring() else { return };
-            let Some(previous) = change.previous else {
-                return;
-            };
-            let version = change.version;
+            let (previous, version) = (change.previous, change.version);
             spawn(async move {
                 let reverted = api.revert_record(
                     tree_id,
@@ -206,7 +203,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                             ("record", &record_title(&i18n, &change)),
                             (
                                 "version",
-                                &change.previous.as_ref().map(|p| p.version).unwrap_or_default().to_string(),
+                                &change.previous.version.to_string(),
                             ),
                         ],
                     ),
@@ -242,7 +239,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                                             {i18n.t("history.open_person_history")}
                                         }
                                     }
-                                    if change.previous.as_ref().is_some_and(|p| !p.deleted) {
+                                    if !change.previous.deleted {
                                         button {
                                             class: "btn btn-outline btn-sm",
                                             onclick: {
@@ -257,7 +254,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                                     }
                                 }
                                 VersionDiff {
-                                    before: change.previous.clone(),
+                                    before: Some(change.previous.clone()),
                                     after: change.version.clone(),
                                 }
                             }
@@ -290,11 +287,17 @@ pub(crate) fn load_more_button<T: Clone + 'static>(i18n: &I18n, list: &PagedList
 fn record_title(i18n: &I18n, change: &VersionChange) -> String {
     let version = &change.version;
     let kind = i18n.t(&format!("history.record.{}", version.record_type));
-    let name = match &version.snapshot {
-        RecordSnapshot::Person(person) => snapshot_name(person),
-        RecordSnapshot::Place(place) => Some(place.name.clone()),
-        RecordSnapshot::Source(source) => Some(source.title.clone()),
-        RecordSnapshot::Tree(tree) => Some(tree.name.clone()),
+    // A deletion produced no state: the name is the one the record had.
+    let snapshot = version
+        .snapshot
+        .as_ref()
+        .or(change.previous.snapshot.as_ref());
+    let name = match snapshot {
+        Some(RecordSnapshot::Person(person)) => snapshot_name(person),
+        Some(RecordSnapshot::Place(place)) => Some(place.name.clone()),
+        Some(RecordSnapshot::Source(source)) => Some(source.title.clone()),
+        Some(RecordSnapshot::Tree(tree)) => Some(tree.name.clone()),
+        None => None,
     };
     match name {
         Some(name) => format!("{kind} — {name}"),

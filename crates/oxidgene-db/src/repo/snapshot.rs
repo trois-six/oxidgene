@@ -7,8 +7,8 @@
 //! are snapshots of their own.
 //!
 //! Collections are sorted so that an unchanged record always builds an equal
-//! snapshot: the history service compares a fresh snapshot with the latest
-//! stored one to decide whether a write changed the record at all.
+//! snapshot: the history service compares a record's state before a write
+//! with its state after it to decide whether the write changed it at all.
 //!
 //! Restoring writes a snapshot's state over the live rows, keeping every ID.
 //! Rows the snapshot lacks are removed the way the API removes them — soft
@@ -40,16 +40,7 @@ use crate::entities::{
 };
 use crate::repo::db_err;
 
-/// Which records of a tree to snapshot.
-#[derive(Debug, Clone, Copy)]
-pub enum SnapshotScope<'a> {
-    /// Every live record of the tree.
-    Tree,
-    /// These records, deleted or not. IDs that do not exist are skipped.
-    Ids(&'a [Uuid]),
-}
-
-/// A record's current state, ready to compare and store.
+/// A record's state as its rows hold it now, ready to compare and store.
 #[derive(Debug, Clone)]
 pub struct BuiltSnapshot {
     pub record_id: Uuid,
@@ -63,45 +54,40 @@ pub struct BuiltSnapshot {
 pub struct SnapshotRepo;
 
 impl SnapshotRepo {
-    /// Snapshot records of one type.
+    /// Snapshot records of one type of the tree, deleted or not. IDs that do
+    /// not exist are skipped; the tree's settings are its own ID's.
     pub async fn build(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         record_type: RecordType,
-        scope: SnapshotScope<'_>,
+        ids: &[Uuid],
     ) -> Result<Vec<BuiltSnapshot>, OxidGeneError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
         match record_type {
-            RecordType::Person => Self::persons(db, tree_id, scope).await,
-            RecordType::Place => Self::places(db, tree_id, scope).await,
-            RecordType::Source => Self::sources(db, tree_id, scope).await,
-            RecordType::Tree => Self::tree(db, tree_id).await,
+            RecordType::Person => Self::persons(db, tree_id, ids).await,
+            RecordType::Place => Self::places(db, tree_id, ids).await,
+            RecordType::Source => Self::sources(db, tree_id, ids).await,
+            RecordType::Tree if ids.contains(&tree_id) => Self::tree(db, tree_id).await,
+            RecordType::Tree => Ok(Vec::new()),
         }
     }
 
     async fn persons(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        scope: SnapshotScope<'_>,
+        ids: &[Uuid],
     ) -> Result<Vec<BuiltSnapshot>, OxidGeneError> {
-        let persons: Vec<person::Model> = match scope {
-            SnapshotScope::Tree => person::Entity::find()
+        let persons: Vec<person::Model> = in_chunks(ids, |chunk| async move {
+            person::Entity::find()
                 .filter(person::Column::TreeId.eq(tree_id))
-                .filter(person::Column::DeletedAt.is_null())
+                .filter(person::Column::Id.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(db_err)?,
-            SnapshotScope::Ids(ids) => {
-                in_chunks(ids, |chunk| async move {
-                    person::Entity::find()
-                        .filter(person::Column::TreeId.eq(tree_id))
-                        .filter(person::Column::Id.is_in(chunk))
-                        .all(db)
-                        .await
-                        .map_err(db_err)
-                })
-                .await?
-            }
-        };
+                .map_err(db_err)
+        })
+        .await?;
         if persons.is_empty() {
             return Ok(Vec::new());
         }
@@ -116,26 +102,17 @@ impl SnapshotRepo {
     async fn places(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        scope: SnapshotScope<'_>,
+        ids: &[Uuid],
     ) -> Result<Vec<BuiltSnapshot>, OxidGeneError> {
-        let rows: Vec<place::Model> = match scope {
-            SnapshotScope::Tree => place::Entity::find()
+        let rows: Vec<place::Model> = in_chunks(ids, |chunk| async move {
+            place::Entity::find()
                 .filter(place::Column::TreeId.eq(tree_id))
+                .filter(place::Column::Id.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(db_err)?,
-            SnapshotScope::Ids(ids) => {
-                in_chunks(ids, |chunk| async move {
-                    place::Entity::find()
-                        .filter(place::Column::TreeId.eq(tree_id))
-                        .filter(place::Column::Id.is_in(chunk))
-                        .all(db)
-                        .await
-                        .map_err(db_err)
-                })
-                .await?
-            }
-        };
+                .map_err(db_err)
+        })
+        .await?;
         Ok(rows
             .into_iter()
             .map(|row| BuiltSnapshot {
@@ -154,27 +131,17 @@ impl SnapshotRepo {
     async fn sources(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        scope: SnapshotScope<'_>,
+        ids: &[Uuid],
     ) -> Result<Vec<BuiltSnapshot>, OxidGeneError> {
-        let rows: Vec<source::Model> = match scope {
-            SnapshotScope::Tree => source::Entity::find()
+        let rows: Vec<source::Model> = in_chunks(ids, |chunk| async move {
+            source::Entity::find()
                 .filter(source::Column::TreeId.eq(tree_id))
-                .filter(source::Column::DeletedAt.is_null())
+                .filter(source::Column::Id.is_in(chunk))
                 .all(db)
                 .await
-                .map_err(db_err)?,
-            SnapshotScope::Ids(ids) => {
-                in_chunks(ids, |chunk| async move {
-                    source::Entity::find()
-                        .filter(source::Column::TreeId.eq(tree_id))
-                        .filter(source::Column::Id.is_in(chunk))
-                        .all(db)
-                        .await
-                        .map_err(db_err)
-                })
-                .await?
-            }
-        };
+                .map_err(db_err)
+        })
+        .await?;
         let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
         let notes = in_chunks(&ids, |chunk| async move {
             note::Entity::find()
@@ -1562,8 +1529,9 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         Ok(live)
     }
 
-    /// Make sure an event's place exists, re-creating a deleted one from its
-    /// latest version, or from the label recorded with the snapshot.
+    /// Make sure an event's place exists, re-creating a deleted one from the
+    /// last state its history stored, or from the label recorded with the
+    /// snapshot.
     async fn ensure_place(&mut self, place_id: Uuid) -> Result<bool, OxidGeneError> {
         if let Some(present) = self.places.get(&place_id) {
             return Ok(*present);
@@ -1576,10 +1544,9 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         let present = if exists {
             true
         } else {
-            let latest = HistoryRepo::latest_versions(self.db, RecordType::Place, &[place_id])
+            let latest = HistoryRepo::last_stored_snapshot(self.db, RecordType::Place, place_id)
                 .await?
-                .remove(&place_id)
-                .and_then(|latest| match latest.snapshot {
+                .and_then(|latest| match latest {
                     RecordSnapshot::Place(place) => Some(place),
                     _ => None,
                 });

@@ -74,7 +74,7 @@ pub async fn create_vignette(
     .await?;
     Change::create(tree_id, AuditEntity::Vignette, vignette.id)
         .media(media_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     Ok(vignette)
@@ -124,7 +124,7 @@ pub async fn update_vignette(
     .await?;
     Change::update(tree_id, AuditEntity::Vignette, id)
         .media(existing.media_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await?;
     Ok(vignette)
@@ -149,7 +149,7 @@ pub async fn delete_vignette(
         .await?;
     Change::delete(tree_id, AuditEntity::Vignette, id)
         .media(media_id)
-        .record(&txn)
+        .record_unversioned(&txn)
         .await?;
     commit_tx(txn).await
 }

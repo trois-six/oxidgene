@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:55:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:01:58Z }
 ---
 
 
@@ -880,12 +880,14 @@ depend on the database or API implementation crates.
 
 ## 5. Change History
 
-Every write to a tree is recorded, and the successive states of the tree's
-genealogical records are kept so that two can be compared field by field and an
-earlier one restored. Source of truth in code: `oxidgene-core/src/history.rs`
-(types), `oxidgene-db/src/repo/history.rs` (storage),
+Every write to a tree is recorded, and the past states of the tree's
+genealogical records are kept so that any two states can be compared field by
+field and an earlier one restored. The history holds no copy of live data: it
+stores the states writes replaced, and a record's current state is its live
+rows. Source of truth in code: `oxidgene-core/src/history.rs` (types),
+`oxidgene-db/src/repo/history.rs` (storage and presentation),
 `oxidgene-db/src/repo/snapshot.rs` (building and restoring snapshots), and
-`oxidgene-api/src/service/history.rs` (recording, baseline, restore).
+`oxidgene-api/src/service/history.rs` (recording and restore).
 
 ### 5.1 Audit log: `audit_entry`
 
@@ -898,7 +900,7 @@ leaves no entry, and no entry describes a write that did not happen.
 | `tree_id` | UUID v7 | FK → Tree (cascade) |
 | `occurred_at` | DateTime | |
 | `category` | String | `data`, `settings`, `media`, `import`, `export`, `history` |
-| `action` | String | `create`, `update`, `delete`, `merge`, `import`, `export`, `revert`, `baseline` |
+| `action` | String | `create`, `update`, `delete`, `merge`, `import`, `export`, `revert` |
 | `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `media_tag`, `vignette`, `portrait`, `family_name`, … |
 | `entity_id` | UUID? | The row written, when there is a single one |
 | `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `media`, `tree` |
@@ -915,7 +917,7 @@ What is recorded:
 | `media` | Documents, pages, uploads, metadata, tags, page order, vignettes, media links, portraits, and notes about a media |
 | `import` | Completed GEDCOM, GEDZIP, GeneWeb and Geneanet imports, and the tree a duplication creates (`format: duplicate`) |
 | `export` | Completed GEDCOM and GEDZIP exports, and the tree a duplication copies |
-| `history` | Restores, and the baseline of data written before history existed |
+| `history` | Restores |
 
 Projection maintenance (rebuilding or dropping `person_denorm`) derives data and
 changes none, so it is not recorded. Authentication is not part of the current
@@ -924,7 +926,8 @@ MVP, so an entry records no author.
 An event write names the event's owner as its subject and its type in
 `details.event_type`; a write on a note or citation names what the note or
 citation hangs off. Imports and exports run in transactions of their own and
-record their entry once they complete.
+record their entry once they complete; an import or an export is about the
+tree, its subject.
 
 The log is read newest first, by tree, optionally narrowed to one category or
 to one subject; an index leads with `tree_id` for each of those three reads
@@ -936,14 +939,13 @@ and ends with `id`, so a page of the log is an index range in its own order.
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree (cascade) |
-| `audit_entry_id` | UUID v7 | FK → `audit_entry` (cascade) — the write that produced the version |
+| `audit_entry_id` | UUID v7 | FK → `audit_entry` (cascade) — the write that replaced this state; its `occurred_at` is the state's end |
 | `record_type` | String | `person`, `place`, `source`, `tree` |
 | `record_id` | UUID v7 | The record; the tree's own ID for `tree` |
-| `version` | i32 | 1 for the first state recorded, then one more per change; unique with `(record_type, record_id)` |
-| `deleted` | bool | The record no longer existed after the write |
-| `created_at` | DateTime | |
-| `snapshot` | JSON | `RecordSnapshot`, tagged by `type` |
-| `labels` | JSON | `[{ id, label }]` for everything the snapshot names by ID |
+| `version` | i32 | 1 for the oldest state stored, then one more per state; unique with `(record_type, record_id)` |
+| `deleted` | bool | The record was deleted in this state |
+| `snapshot` | JSON? | `RecordSnapshot`, tagged by `type`; null for a deletion marker and a deleted state |
+| `labels` | JSON? | `[{ id, label }]` for everything the snapshot names by ID; null with the snapshot |
 
 Neither table references the records it describes: a history must outlive them.
 
@@ -960,30 +962,63 @@ root and "self" person.
 **References are IDs.** A snapshot names places, sources, witnesses, spouses,
 children and parent families by ID only, and their display labels travel beside
 it in `labels`. Renaming a place or a relative therefore versions nobody else,
-while a version still reads as it did when it was taken.
+while a version still reads as it did when it was stored.
 
-**When a version is written.** A write names what it touched — a person, a
-family (its spouses), an event (its owner), a place, a source, the settings —
-and each of those records is snapshotted after the write. A snapshot equal to
-the record's latest version, deleted flag included, is dropped. Adding a child
-to a family changes both spouses' unions and the child's parents, so all three
-get a version; renaming the father changes only his. A record a write names that
-no longer exists at all gets a `deleted` version repeating its last state.
+**When a state is stored.** Before it writes, a write names what it will touch
+— a person, a family (its spouses), an event (its owner), a place, a source, the
+settings — and those records are read as they are: families and events resolve
+to persons through the links as they stand before the write, and a record the
+write links in, such as a new spouse, is named directly. After the write each
+one is read again, and what it was before is stored only when the write changed
+it:
 
-**Baseline.** At startup, before serving requests, the server and the desktop
-application give every tree that holds data but no audit entry one `baseline`
-entry versioning all its persons, places, sources and settings, so a first edit
-has a state to compare against. A tree that already has an entry is skipped,
-and the unique version number keeps two instances starting together from
-writing the same baseline twice.
+- a record the write left equal stores nothing, so a write can name generously;
+- a record the write created had no prior state and stores nothing;
+- a changed record stores the state it had, unless that state equals the
+  latest one already stored;
+- a record removed for good (a place) stores the state it had, as a snapshot;
+- a record soft-deleted with its state intact (a person, a source, the tree)
+  stores a **deletion marker**: not deleted, no snapshot, its state being what
+  the soft-deleted rows still hold. A deletion that also changes the record — a
+  merged duplicate whose links moved to the kept person — stores the snapshot
+  instead;
+- a deleted record brought back by a restore stores a **deleted state**:
+  deleted, no snapshot. If its latest stored state is a marker, the marker is
+  given the snapshot first, since the rows it read from are about to change;
+  the same holds for any write changing the rows of a record that stays
+  deleted.
+
+Adding a child to a family therefore stores the prior state of both spouses
+and of the child; renaming the father stores only his. Imports store nothing —
+what they bring is live, and a record nobody changed has no past state — and
+nor do exports and media writes. Everything happens in the write's transaction.
+
+**Reading versions.** A record's versions are its stored states, numbered from
+1, followed by its live state, numbered one past the last stored one and marked
+`current`. A record with no stored state has a single version, its live one.
+The current version is deleted when the record is soft-deleted or gone. A
+deletion marker reads its snapshot from the soft-deleted rows; a deleted state,
+stored or current, has no snapshot. Each version carries the write that
+produced it: the one that stored the version before it, or for version 1, the
+write that created the record — its `create` entry — or else the first import
+completed once the record existed, or nothing when neither was recorded. The
+changes of one audit entry are the states it stored, each beside the version
+that follows it.
+
+A person is *recently modified* when a recorded write names them as its
+subject; imports and exports are about the tree and do not count.
 
 ### 5.3 Restoring a version
 
 A restore writes a version's snapshot back over the live rows, keeping every
 ID, in one transaction with the projection refresh of everyone it reaches. It
-is a write of its own: it records a `revert` entry naming the restored version,
-and the state it restores becomes the record's newest version, so a restore can
-itself be undone.
+is a write of its own: it records a `revert` entry naming the restored version
+and stores the states it replaces, so a restore can itself be undone; the state
+it restores becomes the record's current version. Restoring the version a
+deletion replaced — a marker — undeletes the record as the soft-deleted rows
+hold it. Before writing, the restore names everyone it can change: the
+person's relatives now, the relatives and families the snapshot names with
+their members, and the places and sources it may bring back.
 
 | Record | What a restore does |
 |---|---|
@@ -994,7 +1029,7 @@ itself be undone.
 
 References to persons that no longer exist — a witness, a spouse, a child — are
 dropped rather than resurrected: restoring one person never brings back
-another. A deleted place an event needs is re-created from its latest version,
-or from the label recorded with the snapshot; a deleted source a citation needs
-is undeleted. A version recording a deletion cannot itself be restored: the one
-before it is the state to go back to.
+another. A deleted place an event needs is re-created from the last snapshot
+its history stored, or from the label recorded with the snapshot; a deleted
+source a citation needs is undeleted. A deleted state cannot itself be
+restored: the version before it is the state to go back to.
