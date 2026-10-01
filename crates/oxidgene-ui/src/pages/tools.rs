@@ -28,7 +28,9 @@ use crate::i18n::{I18n, Language, use_i18n};
 use crate::pages::statistics::{date_text, event_type_label, percent};
 use crate::prefs::{store, stored};
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace, use_ui_resource};
+use crate::ui_observability::{
+    UiCommand, UiPage, trace_ui_action, use_traced_resource, use_ui_load_trace, use_ui_resource,
+};
 
 const TAB_STORAGE_KEY: &str = "oxidgene-tools-tab";
 const GENERATIONS_STORAGE_KEY: &str = "oxidgene-tools-generations";
@@ -883,10 +885,9 @@ fn Duplicates(tree_id: Uuid, tree_route: String) -> Element {
         spawn(async move {
             busy.set(true);
             error.set(None);
-            match api
-                .mark_persons_distinct(tree_id, pair.first.person_id, &[pair.second.person_id])
-                .await
-            {
+            let apart = [pair.second.person_id];
+            let marked = api.mark_persons_distinct(tree_id, pair.first.person_id, &apart);
+            match trace_ui_action(UiCommand::MarkDistinct, marked).await {
                 Ok(()) => settled(false),
                 Err(_) => error.set(Some(i18n.t("homonym.distinct_failed"))),
             }

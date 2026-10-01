@@ -58,7 +58,7 @@ use crate::geneanet::{Collect, GeneanetBridge, GeneanetEvent, WindowStrings, use
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::{
     UiAction, UiActionStep, UiActionTrace, trace_ui_action, trace_ui_action_step,
-    use_ui_action_trace, use_ui_resource,
+    use_ui_action_trace,
 };
 
 /// Whether this build can open a Geneanet login window and read local
@@ -2376,11 +2376,14 @@ fn IsolatedHomonyms(tree_id: Uuid, people: Vec<GeneanetIsolatedPerson>) -> Eleme
     let api = use_context::<ApiClient>();
     let mut decided = use_signal(HashMap::<Uuid, HomonymDecision>::new);
 
-    // One small read per person, and there are a few dozen at most.
-    let found = use_ui_resource("geneanet_isolated_homonyms", move || {
+    // One small read per person, and there are a few dozen at most. Part of
+    // the Geneanet import rather than of the screen behind it; the run's own
+    // trace closed when the import landed, so the lookup is a short one of
+    // its own.
+    let found = use_resource(move || {
         let api = api.clone();
         let people = people.clone();
-        async move {
+        let lookup = async move {
             let mut found = Vec::new();
             for person in people {
                 if let Ok(homonyms) = api.person_homonyms(tree_id, person.person_id).await
@@ -2390,7 +2393,11 @@ fn IsolatedHomonyms(tree_id: Uuid, people: Vec<GeneanetIsolatedPerson>) -> Eleme
                 }
             }
             found
-        }
+        };
+        trace_ui_action(
+            UiAction::GeneanetImport,
+            trace_ui_action_step(UiActionStep::GeneanetHomonyms, lookup),
+        )
     });
     let rows = found.read().clone().unwrap_or_default();
     if rows.is_empty() {

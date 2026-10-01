@@ -40,6 +40,36 @@ pub enum UiAction {
     GeneanetImport,
     /// An export, named by the artifact the user asked for.
     Export(&'static str),
+    /// One of the operations a single button starts and finishes.
+    Command(UiCommand),
+}
+
+impl From<UiCommand> for UiAction {
+    fn from(command: UiCommand) -> Self {
+        Self::Command(command)
+    }
+}
+
+/// An operation a single button starts and finishes — mostly a write —
+/// traced as a root of its own rather than as a bare HTTP request.
+#[derive(Clone, Copy)]
+pub enum UiCommand {
+    /// Deleting a whole tree.
+    DeleteTree,
+    /// Copying a whole tree under a new name.
+    DuplicateTree,
+    /// Merging one person into another.
+    Merge,
+    /// Recording two persons as distinct, so they are no longer offered as
+    /// duplicates.
+    MarkDistinct,
+    /// Restoring an earlier version of a record.
+    Restore,
+    /// Attaching a media to a person, a couple or an event, or detaching it
+    /// from an event.
+    MediaLink,
+    /// Printing the page or the chart.
+    Print,
 }
 
 #[derive(Clone, Copy)]
@@ -57,10 +87,14 @@ pub enum UiActionStep {
     GeneanetPoll,
     GeneanetSessionEncode,
     GeneanetSessionDecode,
+    GeneanetHomonyms,
     ExportRequest,
     ExportQueue,
     ExportPoll,
     ExportSave,
+    PrintMeasure,
+    PrintPrepare,
+    PrintDialog,
 }
 
 #[cfg(feature = "telemetry-client")]
@@ -376,7 +410,8 @@ pub fn use_ui_action_trace(action: UiAction) -> UiActionTrace {
 }
 
 /// Run `future` under a root span for the whole operation.
-pub async fn trace_ui_action<T>(action: UiAction, future: impl Future<Output = T>) -> T {
+pub async fn trace_ui_action<T>(action: impl Into<UiAction>, future: impl Future<Output = T>) -> T {
+    let action = action.into();
     #[cfg(feature = "telemetry-client")]
     {
         future.instrument(action_span(action)).await
@@ -415,6 +450,7 @@ fn action_span(action: UiAction) -> tracing::Span {
         UiAction::Export(format) => {
             tracing::info_span!(parent: None, "ui.export", export.format = format)
         }
+        UiAction::Command(command) => command_span(command),
     }
 }
 
@@ -460,10 +496,27 @@ span_names! {
         GeneanetPoll => "ui.geneanet_import.poll",
         GeneanetSessionEncode => "ui.geneanet_import.session_encode",
         GeneanetSessionDecode => "ui.geneanet_import.session_decode",
+        GeneanetHomonyms => "ui.geneanet_import.homonyms",
         ExportRequest => "ui.export.request",
         ExportQueue => "ui.export.queue",
         ExportPoll => "ui.export.poll",
         ExportSave => "ui.export.save",
+        PrintMeasure => "ui.print.measure",
+        PrintPrepare => "ui.print.prepare",
+        PrintDialog => "ui.print.dialog",
+    }
+}
+
+#[cfg(feature = "telemetry-client")]
+span_names! {
+    root fn command_span(UiCommand) {
+        DeleteTree => "ui.delete_tree",
+        DuplicateTree => "ui.duplicate_tree",
+        Merge => "ui.merge",
+        MarkDistinct => "ui.mark_distinct",
+        Restore => "ui.restore",
+        MediaLink => "ui.media_link",
+        Print => "ui.print",
     }
 }
 
@@ -617,6 +670,13 @@ mod tests {
             (UiAction::Import("gedcom"), "ui.import"),
             (UiAction::GeneanetImport, "ui.geneanet_import"),
             (UiAction::Export("gedzip"), "ui.export"),
+            (UiCommand::DeleteTree.into(), "ui.delete_tree"),
+            (UiCommand::DuplicateTree.into(), "ui.duplicate_tree"),
+            (UiCommand::Merge.into(), "ui.merge"),
+            (UiCommand::MarkDistinct.into(), "ui.mark_distinct"),
+            (UiCommand::Restore.into(), "ui.restore"),
+            (UiCommand::MediaLink.into(), "ui.media_link"),
+            (UiCommand::Print.into(), "ui.print"),
         ];
 
         for (action, expected) in actions {

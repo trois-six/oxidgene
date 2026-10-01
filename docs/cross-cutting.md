@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:39:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:03:30Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -330,9 +330,16 @@ the rejected value.
   `TRACE` wrappers are excluded so routed UI load spans and UI action spans
   remain the operational roots.
 - Every user-initiated import, Geneanet import, and export owns a root span of
-  its own: `ui.import`, `ui.geneanet_import`, and `ui.export`. These operations
-  outlive the render that started them, so they never attach to the load span of
-  whichever screen was active. The root records the requested format only.
+  its own: `ui.import`, `ui.geneanet_import`, and `ui.export`. So does every
+  other write a single button starts that would otherwise reach the collector
+  as bare HTTP spans: deleting a tree (`ui.delete_tree`), duplicating one
+  (`ui.duplicate_tree`), merging two persons (`ui.merge`), recording two
+  persons as distinct (`ui.mark_distinct`), restoring an earlier version
+  (`ui.restore`), attaching a media to a person, couple or event or detaching
+  it (`ui.media_link`), and printing (`ui.print`). These operations outlive the
+  render that started them, so they never attach to the load span of whichever
+  screen was active. An import or export root records the requested format
+  only; the others record nothing.
 - One run of the Geneanet assistant is one trace. Its root is opened by the
   first step the user drives, held for as long as the assistant is on screen,
   and closed when the import lands or the assistant is abandoned — so a reader
@@ -344,9 +351,12 @@ the rejected value.
 - Each action root owns bounded phase children named after it:
   `ui.import.upload` and `ui.import.poll`; `ui.geneanet_import.read`, `.write`,
   `.inspect`, `.index`, `.connect`, `.preview`, `.collect`, `.upload`, `.poll`,
-  `.session_encode`, and `.session_decode`; `ui.export.request`, `.queue`,
-  `.poll`, and `.save`. A browser download the page hands to the user agent has
-  no phase span because the transfer is outside the application.
+  `.session_encode`, `.session_decode`, and `.homonyms` (the namesakes of the
+  persons it created, looked up once it has landed, so in a short
+  `ui.geneanet_import` trace of their own); `ui.export.request`,
+  `.queue`, `.poll`, and `.save`; `ui.print.measure`, `.prepare`, and
+  `.dialog`. A browser download the page hands to the user agent has no phase
+  span because the transfer is outside the application.
 - Import traces continue on the server with a format-specific root and bounded
   phase children for parsing, upload or collection, media preparation,
   persistence, projections, and job polling where applicable. Export traces

@@ -16,7 +16,7 @@ use crate::components::history_diff::{
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
-use crate::ui_observability::use_ui_resource;
+use crate::ui_observability::{UiCommand, trace_ui_action, use_ui_resource};
 
 /// The Tools › History section of the tree settings.
 #[component]
@@ -262,15 +262,13 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
             };
             let version = change.version;
             spawn(async move {
-                match api
-                    .revert_record(
-                        tree_id,
-                        version.record_type,
-                        version.record_id,
-                        previous.version,
-                    )
-                    .await
-                {
+                let reverted = api.revert_record(
+                    tree_id,
+                    version.record_type,
+                    version.record_id,
+                    previous.version,
+                );
+                match trace_ui_action(UiCommand::Restore, reverted).await {
                     Ok(_) => {
                         restoring.set(None);
                         restore_error.set(None);

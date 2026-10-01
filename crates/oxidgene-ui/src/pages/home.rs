@@ -13,7 +13,9 @@ use crate::components::search_person::{PersonSearchSummary, render_person_search
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace, use_ui_resource};
+use crate::ui_observability::{
+    UiCommand, UiPage, trace_ui_action, use_traced_resource, use_ui_load_trace, use_ui_resource,
+};
 
 /// How many recently modified persons a tree card lists.
 const RECENT_PERSONS: usize = 5;
@@ -91,7 +93,7 @@ pub fn Home() -> Element {
         };
         deleting.set(true);
         spawn(async move {
-            let result = api.delete_tree(id).await;
+            let result = trace_ui_action(UiCommand::DeleteTree, api.delete_tree(id)).await;
             deleting.set(false);
             match result {
                 Ok(_) => {
@@ -255,7 +257,8 @@ async fn duplicate_tree(
     mut action_error: Signal<Option<String>>,
 ) {
     duplicating.set(Some(tid));
-    let result = api.duplicate_tree(tid, &DuplicateTreeBody { name }).await;
+    let body = DuplicateTreeBody { name };
+    let result = trace_ui_action(UiCommand::DuplicateTree, api.duplicate_tree(tid, &body)).await;
     duplicating.set(None);
     match result {
         Ok(_) => refresh_counter += 1,

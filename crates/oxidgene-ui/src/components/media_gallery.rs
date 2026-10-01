@@ -43,7 +43,7 @@ use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
-use crate::ui_observability::{measure_ui, use_ui_resource};
+use crate::ui_observability::{UiCommand, measure_ui, trace_ui_action, use_ui_resource};
 use crate::utils::parse_privacy;
 use crate::utils::use_synced;
 
@@ -3374,16 +3374,25 @@ async fn attach_media_to(
     media_id: Uuid,
     target: MediaAttachmentTarget,
 ) -> Result<bool, ApiError> {
-    let links = api.list_media_links_of(tree_id, media_id).await?;
-    let already_linked = links.iter().any(|link| match target {
-        MediaAttachmentTarget::Person(person_id) => link.person_id == Some(person_id),
-        MediaAttachmentTarget::Family(family_id) => link.family_id == Some(family_id),
-    });
-    if already_linked {
-        return Ok(false);
-    }
+    trace_ui_action(UiCommand::MediaLink, async {
+        let links = api.list_media_links_of(tree_id, media_id).await?;
+        let already_linked = links.iter().any(|link| match target {
+            MediaAttachmentTarget::Person(person_id) => link.person_id == Some(person_id),
+            MediaAttachmentTarget::Family(family_id) => link.family_id == Some(family_id),
+        });
+        if already_linked {
+            return Ok(false);
+        }
+        api.create_media_link(tree_id, &link_body(media_id, target))
+            .await?;
+        Ok(true)
+    })
+    .await
+}
 
-    let body = CreateMediaLinkBody {
+/// The link attaching `media_id` to `target`.
+fn link_body(media_id: Uuid, target: MediaAttachmentTarget) -> CreateMediaLinkBody {
+    CreateMediaLinkBody {
         media_id,
         person_id: match target {
             MediaAttachmentTarget::Person(person_id) => Some(person_id),
@@ -3396,9 +3405,7 @@ async fn attach_media_to(
         event_id: None,
         source_id: None,
         sort_order: 0,
-    };
-    api.create_media_link(tree_id, &body).await?;
-    Ok(true)
+    }
 }
 
 /// Attach a media to an event, or detach it.
@@ -3413,17 +3420,20 @@ async fn set_event_link(
     event_id: Uuid,
     attach: bool,
 ) -> Result<(), ApiError> {
-    if attach {
-        return api
-            .create_media_link(tree_id, &CreateMediaLinkBody::to_event(media_id, event_id))
-            .await
-            .map(|_| ());
-    }
-    let links = api.list_media_links_of(tree_id, media_id).await?;
-    match links.iter().find(|link| link.event_id == Some(event_id)) {
-        Some(link) => api.delete_media_link(tree_id, link.id).await,
-        None => Ok(()),
-    }
+    trace_ui_action(UiCommand::MediaLink, async {
+        if attach {
+            return api
+                .create_media_link(tree_id, &CreateMediaLinkBody::to_event(media_id, event_id))
+                .await
+                .map(|_| ());
+        }
+        let links = api.list_media_links_of(tree_id, media_id).await?;
+        match links.iter().find(|link| link.event_id == Some(event_id)) {
+            Some(link) => api.delete_media_link(tree_id, link.id).await,
+            None => Ok(()),
+        }
+    })
+    .await
 }
 
 fn vignette_overlay_style(vignette: &Vignette, width: Option<i32>, height: Option<i32>) -> String {

@@ -26,6 +26,7 @@ use dioxus::prelude::*;
 use crate::components::date_input::format_day;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
+use crate::ui_observability::{UiActionStep, UiCommand, trace_ui_action, trace_ui_action_step};
 
 // ── Which pages print ───────────────────────────────────────────────────────
 
@@ -548,20 +549,27 @@ pub fn print_palette_css() -> String {
 /// Prints the page as the print stylesheet lays it out: through the desktop
 /// shell's dialog when there is one, `window.print()` on the web.
 async fn print_now(bridge: Option<PrintBridge>) {
-    match bridge {
-        Some(bridge) => bridge.print(),
-        None => {
-            let _ = document::eval("window.print(); return true;").await;
+    trace_ui_action_step(UiActionStep::PrintDialog, async {
+        match bridge {
+            Some(bridge) => bridge.print(),
+            None => {
+                let _ = document::eval("window.print(); return true;").await;
+            }
         }
-    }
+    })
+    .await;
 }
 
 /// Prints what the chart shows on screen, on one sheet.
 async fn print_screen(bridge: Option<PrintBridge>) {
     // Awaited, so the snapshot exists before a native dialog lays the page
     // out.
-    let _ =
-        document::eval("window.__oxPreparePrint && window.__oxPreparePrint(); return true;").await;
+    trace_ui_action_step(UiActionStep::PrintPrepare, async {
+        let _ =
+            document::eval("window.__oxPreparePrint && window.__oxPreparePrint(); return true;")
+                .await;
+    })
+    .await;
     print_now(bridge).await;
 }
 
@@ -593,8 +601,11 @@ async fn print_tiles(
         "return window.__oxPrepareTiledPrint({});",
         serde_json::to_string(&plan).unwrap_or_else(|_| "{\"tiles\":[]}".to_string())
     );
-    let _ = document::eval(&script).await;
-    draw_whole(everything, false).await;
+    trace_ui_action_step(UiActionStep::PrintPrepare, async {
+        let _ = document::eval(&script).await;
+        draw_whole(everything, false).await;
+    })
+    .await;
     print_now(bridge).await;
 }
 
@@ -650,13 +661,16 @@ pub fn PrintAction() -> Element {
             "aria-label": "{label}",
             onclick: move |_| {
                 let bridge = bridge.clone();
-                spawn(async move {
+                spawn(trace_ui_action(UiCommand::Print, async move {
                     // Measured drawn whole, so what it takes is known even
                     // for the parts the view left out; it stays whole while
                     // the choice is open.
-                    draw_whole(everything, true).await;
-                    let plan = measure_chart()
-                        .await
+                    let chart = trace_ui_action_step(UiActionStep::PrintMeasure, async {
+                        draw_whole(everything, true).await;
+                        measure_chart().await
+                    })
+                    .await;
+                    let plan = chart
                         .filter(|chart| !chart.on_screen)
                         .map(|chart| {
                             tile_plan(chart, |n, total, row, col| sheet_caption(&i18n, n, total, row, col))
@@ -669,7 +683,7 @@ pub fn PrintAction() -> Element {
                             print_screen(bridge).await;
                         }
                     }
-                });
+                }));
             },
             svg {
                 width: "16",
@@ -690,15 +704,17 @@ pub fn PrintAction() -> Element {
                 on_screen: move |_| {
                     choice.set(None);
                     let bridge = bridge_screen.clone();
-                    spawn(async move {
+                    spawn(trace_ui_action(UiCommand::Print, async move {
                         draw_whole(everything, false).await;
                         print_screen(bridge).await;
-                    });
+                    }));
                 },
                 on_tiles: move |plan: TilePlan| {
                     choice.set(None);
                     let bridge = bridge_tiles.clone();
-                    spawn(async move { print_tiles(bridge, plan, everything).await });
+                    spawn(trace_ui_action(UiCommand::Print, async move {
+                        print_tiles(bridge, plan, everything).await;
+                    }));
                 },
                 on_cancel: move |_| {
                     choice.set(None);

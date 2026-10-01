@@ -16,7 +16,9 @@ use crate::components::tree_cache::{fetch_tree_cached, use_track_current_person,
 use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::use_i18n;
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{
+    UiCommand, UiPage, trace_ui_action, use_traced_resource, use_ui_load_trace,
+};
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id/history`.
 #[component]
@@ -152,10 +154,8 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
             };
             let Some(version) = shown_number else { return };
             spawn(async move {
-                match api
-                    .revert_record(tid, RecordType::Person, pid, version)
-                    .await
-                {
+                let reverted = api.revert_record(tid, RecordType::Person, pid, version);
+                match trace_ui_action(UiCommand::Restore, reverted).await {
                     Ok(_) => {
                         confirm_restore.set(false);
                         restore_error.set(None);

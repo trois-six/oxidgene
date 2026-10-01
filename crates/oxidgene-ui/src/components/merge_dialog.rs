@@ -17,7 +17,7 @@ use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
 use crate::i18n::{I18n, use_i18n};
-use crate::ui_observability::use_ui_resource;
+use crate::ui_observability::{UiCommand, trace_ui_action, use_ui_resource};
 use crate::utils::event_type_label_key;
 
 /// Where the wizard stands.
@@ -932,7 +932,8 @@ fn render_actions(view: ActionsView) -> Element {
         spawn(async move {
             busy.set(true);
             error.set(None);
-            match api.merge_persons(tree_id, kept, absorbed, &choices).await {
+            let merged = api.merge_persons(tree_id, kept, absorbed, &choices);
+            match trace_ui_action(UiCommand::Merge, merged).await {
                 Ok(_) => on_merged.call(kept),
                 Err(_) => error.set(Some(i18n.t("homonym.merge_failed"))),
             }
@@ -947,7 +948,9 @@ fn render_actions(view: ActionsView) -> Element {
         spawn(async move {
             busy.set(true);
             error.set(None);
-            match api.mark_persons_distinct(tree_id, absorbed, &[kept]).await {
+            let apart = [kept];
+            let marked = api.mark_persons_distinct(tree_id, absorbed, &apart);
+            match trace_ui_action(UiCommand::MarkDistinct, marked).await {
                 Ok(()) => on_distinct.call(()),
                 Err(_) => error.set(Some(i18n.t("homonym.distinct_failed"))),
             }

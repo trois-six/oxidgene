@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::api::ApiClient;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::i18n::use_i18n;
-use crate::ui_observability::use_ui_resource;
+use crate::ui_observability::{UiCommand, trace_ui_action, use_ui_resource};
 
 /// What the user decided about a person's homonyms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,16 +61,20 @@ async fn decide(
     homonym_ids: &[Uuid],
 ) -> Result<HomonymDecision, &'static str> {
     match target {
-        Some(kept) => api
-            .merge_persons(tree_id, kept, person_id, &Default::default())
-            .await
-            .map(|_| HomonymDecision::Merged(kept))
-            .map_err(|_| "homonym.merge_failed"),
-        None => api
-            .mark_persons_distinct(tree_id, person_id, homonym_ids)
-            .await
-            .map(|()| HomonymDecision::Distinct)
-            .map_err(|_| "homonym.distinct_failed"),
+        Some(kept) => trace_ui_action(
+            UiCommand::Merge,
+            api.merge_persons(tree_id, kept, person_id, &Default::default()),
+        )
+        .await
+        .map(|_| HomonymDecision::Merged(kept))
+        .map_err(|_| "homonym.merge_failed"),
+        None => trace_ui_action(
+            UiCommand::MarkDistinct,
+            api.mark_persons_distinct(tree_id, person_id, homonym_ids),
+        )
+        .await
+        .map(|()| HomonymDecision::Distinct)
+        .map_err(|_| "homonym.distinct_failed"),
     }
 }
 
