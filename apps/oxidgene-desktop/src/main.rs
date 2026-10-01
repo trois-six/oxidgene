@@ -51,7 +51,7 @@ use std::sync::{Arc, Mutex};
 
 use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
-use oxidgene_api::access::{LocalToken, require_local_token};
+use oxidgene_api::access::{AllowedHosts, LocalToken, allowed_hosts, require_local_token};
 use oxidgene_api::startup::{
     ReferenceWarmup, connect_and_migrate, spawn_background_worker, with_health_check,
 };
@@ -325,10 +325,14 @@ fn main() {
                 AppState::new(db, oxidgene_api::media::default_root()).with_local_file_access();
             // This process is the only worker of its SQLite database.
             spawn_background_worker(&state, true, "desktop").await;
-            // Outside the token check, so a refused request still carries its
-            // route, and a panic anywhere below answers the standard envelope.
-            let api_router =
-                request_context::wrap(require_local_token(build_router(state), server_token));
+            // Outside the token and host checks, so a refused request still
+            // carries its route, and a panic anywhere below answers the
+            // standard envelope. The client dials `127.0.0.1`, so loopback
+            // names are the only hosts this server answers under.
+            let api_router = request_context::wrap(allowed_hosts(
+                require_local_token(build_router(state), server_token),
+                AllowedHosts::loopback(),
+            ));
             reference_warmup.finish().await;
 
             #[cfg(feature = "telemetry")]

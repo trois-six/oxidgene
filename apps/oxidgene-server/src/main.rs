@@ -85,7 +85,7 @@ async fn main() {
         "cors_origin",
         "Invalid CORS origin",
     );
-    let app = oxidgene_server::http::app(api_router, cors_origin);
+    let app = oxidgene_server::http::app(api_router, cors_origin, cfg.allowed_hosts());
 
     // ── Bind and serve ───────────────────────────────────────────────
     let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);

@@ -15,6 +15,10 @@
 //! - **The standalone server** is reached by a browser frontend on one trusted
 //!   origin. CORS already stops other origins from *reading*; [`same_origin_writes`]
 //!   stops them from *writing* through the requests CORS lets through unasked.
+//! - **Both** answer only under a host name they are known by
+//!   ([`allowed_hosts`]). A page that rebinds its own DNS name to the
+//!   server's address becomes same-origin with it, past CORS and the origin
+//!   check; the `Host` its browser sends still names the page's domain.
 
 use std::sync::Arc;
 
@@ -126,6 +130,94 @@ async fn check_origin(
     )
 }
 
+/// The host names a server answers under.
+///
+/// Names are compared without their port and without regard to case. The
+/// loopback names are always included: the server binds to loopback by
+/// default, and a probe or a developer reaches it as `127.0.0.1`,
+/// `localhost` or `[::1]`.
+#[derive(Clone, Debug)]
+pub struct AllowedHosts(Arc<[String]>);
+
+impl AllowedHosts {
+    /// The loopback names alone.
+    #[must_use]
+    pub fn loopback() -> Self {
+        Self::new(std::iter::empty::<&str>())
+    }
+
+    /// The loopback names and `hosts`, each a host name or a URL whose host
+    /// is taken (`https://genealogy.example.invalid` allows
+    /// `genealogy.example.invalid`). Blank entries are ignored.
+    #[must_use]
+    pub fn new(hosts: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        let mut names: Vec<String> = ["localhost", "127.0.0.1", "::1"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        for host in hosts {
+            let host = host.as_ref().trim();
+            let authority = host.split_once("://").map_or(host, |(_, rest)| rest);
+            let authority = authority.split(['/', '?', '#']).next().unwrap_or_default();
+            let name = host_name(authority).to_ascii_lowercase();
+            if !name.is_empty() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        Self(names.into())
+    }
+
+    fn allows(&self, authority: &str) -> bool {
+        let name = host_name(authority);
+        self.0
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(name))
+    }
+}
+
+/// The host name of an authority (`host`, `host:port`, `[v6]:port`), without
+/// user information or port.
+fn host_name(authority: &str) -> &str {
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    match host.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None => host.split(':').next().unwrap_or_default(),
+    }
+}
+
+/// Refuse every request to `router` whose `Host` (or HTTP/2 `:authority`)
+/// is not one of `hosts`, with `403 forbidden`.
+///
+/// This is what stops DNS rebinding: the rebinding page is same-origin with
+/// the server, so neither CORS nor [`same_origin_writes`] objects, but its
+/// browser still names the page's own domain as the host.
+pub fn allowed_hosts(router: Router, hosts: AllowedHosts) -> Router {
+    router.layer(middleware::from_fn_with_state(hosts, check_host))
+}
+
+async fn check_host(State(hosts): State<AllowedHosts>, request: Request, next: Next) -> Response {
+    let authority = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| {
+            request
+                .uri()
+                .authority()
+                .map(|authority| authority.as_str())
+        });
+    if authority.is_some_and(|authority| hosts.allows(authority)) {
+        return next.run(request).await;
+    }
+    refusal(
+        StatusCode::FORBIDDEN,
+        "forbidden",
+        "The request host is not allowed",
+    )
+}
+
 fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
     let body = ErrorBody {
         error: code.to_string(),
@@ -146,6 +238,39 @@ mod tests {
         assert_eq!(a.as_str().len(), 64);
         assert_ne!(a.as_str(), b.as_str());
         assert_eq!(format!("{a:?}"), "LocalToken(..)");
+    }
+
+    #[test]
+    fn hosts_match_by_name_whatever_the_port_and_case() {
+        let hosts = AllowedHosts::new(["https://Genealogy.example.invalid/app", "api.internal"]);
+        for allowed in [
+            "localhost",
+            "localhost:8080",
+            "127.0.0.1:18080",
+            "[::1]:8080",
+            "genealogy.example.invalid",
+            "GENEALOGY.example.invalid:443",
+            "api.internal:8080",
+        ] {
+            assert!(hosts.allows(allowed), "{allowed}");
+        }
+        for refused in [
+            "attacker.example",
+            "attacker.example:8080",
+            "genealogy.example.invalid.attacker.example",
+            "127.0.0.2",
+            "",
+        ] {
+            assert!(!hosts.allows(refused), "{refused}");
+        }
+    }
+
+    #[test]
+    fn the_loopback_set_names_only_loopback() {
+        let hosts = AllowedHosts::loopback();
+        assert!(hosts.allows("127.0.0.1:8080"));
+        assert!(hosts.allows("localhost"));
+        assert!(!hosts.allows("oxidgene.example.invalid"));
     }
 
     #[test]

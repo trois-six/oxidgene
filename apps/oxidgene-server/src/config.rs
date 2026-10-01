@@ -10,6 +10,7 @@
 //! | `OXIDGENE_LOG_LEVEL`             | `info`                                     | Tracing filter              |
 //! | `OXIDGENE_LOG_FORMAT`            | `text`                                     | Console format, or `json`   |
 //! | `OXIDGENE_CORS_ORIGIN`           | `http://127.0.0.1:8081`                    | Allowed CORS origin         |
+//! | `OXIDGENE_ALLOWED_HOSTS`         | unset                                      | More `Host` names to answer |
 //! | `OXIDGENE_MEDIA_BACKEND`         | `filesystem`                               | `filesystem` or `s3`        |
 //! | `OXIDGENE_MEDIA_ROOT`            | platform data dir (see below)              | Filesystem media root       |
 //! | `OXIDGENE_S3_BUCKET`             | `oxidgene-media`                            | S3 bucket                   |
@@ -17,6 +18,10 @@
 //! | `OXIDGENE_S3_ENDPOINT`           | unset                                      | S3-compatible endpoint      |
 //! | `OXIDGENE_S3_ACCESS_KEY_ID`      | unset                                      | S3 access key               |
 //! | `OXIDGENE_S3_SECRET_ACCESS_KEY`  | unset                                      | S3 secret key               |
+//!
+//! The server answers only requests whose `Host` is a loopback name, the
+//! host of `OXIDGENE_CORS_ORIGIN`, or one of the comma-separated
+//! `OXIDGENE_ALLOWED_HOSTS` (see `oxidgene_api::access::allowed_hosts`).
 //!
 //! `OXIDGENE_MEDIA_ROOT` defaults to the platform's user-data directory —
 //! `~/.local/share/oxidgene/media` on Linux. A containerised deployment
@@ -29,6 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use config::{Config, Environment, File};
+use oxidgene_api::access::AllowedHosts;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
 use oxidgene_observability::{InvalidLogFormat, LogFormat};
 use serde::Deserialize;
@@ -82,6 +88,11 @@ pub struct ServerConfig {
     #[serde(default = "default_cors_origin")]
     pub cors_origin: String,
 
+    /// Further host names the API answers under, comma-separated, beyond
+    /// the loopback names and the host of [`Self::cors_origin`].
+    #[serde(default)]
+    pub allowed_hosts: String,
+
     /// Directory uploaded media files are stored under.
     #[serde(default = "default_media_root")]
     pub media_root: PathBuf,
@@ -120,6 +131,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("log_level", &self.log_level)
             .field("log_format", &self.log_format)
             .field("cors_origin", &self.cors_origin)
+            .field("allowed_hosts", &self.allowed_hosts)
             .field("media_root", &self.media_root)
             .field("media_backend", &self.media_backend)
             .field("s3_bucket", &self.s3_bucket)
@@ -215,6 +227,14 @@ impl ServerConfig {
             .build()?;
 
         config.try_deserialize()
+    }
+
+    /// The host names the API answers under: loopback, the CORS origin's
+    /// host, and [`Self::allowed_hosts`].
+    pub fn allowed_hosts(&self) -> AllowedHosts {
+        AllowedHosts::new(
+            std::iter::once(self.cors_origin.as_str()).chain(self.allowed_hosts.split(',')),
+        )
     }
 
     /// The console log format `OXIDGENE_LOG_FORMAT` selects.

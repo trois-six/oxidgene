@@ -133,8 +133,8 @@ only.
 
 | Build | Base URL | Credential |
 |---|---|---|
-| Standalone server | The deployment's API origin (`OXIDGENE_HOST`/`OXIDGENE_PORT`, loopback `127.0.0.1:8080` by default) | None. A request whose `Origin` is present and not the frontend's cannot write (`403 forbidden`); `curl` and scripts send none. |
-| Desktop (REST only) | `http://127.0.0.1:<port>`, a port the operating system picks at each launch; loopback only | `Authorization: Bearer <token>`, a token generated at each launch, on every request except `/api/v1/openapi.json`; otherwise `401 unauthenticated`. |
+| Standalone server | The deployment's API origin (`OXIDGENE_HOST`/`OXIDGENE_PORT`, loopback `127.0.0.1:8080` by default) | None. A request whose `Origin` is present and not the frontend's cannot write (`403 forbidden`); `curl` and scripts send none. The `Host` must be a loopback name, the frontend origin's host or one of `OXIDGENE_ALLOWED_HOSTS` (`403 forbidden`). |
+| Desktop (REST only) | `http://127.0.0.1:<port>`, a port the operating system picks at each launch; loopback only | `Authorization: Bearer <token>`, a token generated at each launch, on every request except `/api/v1/openapi.json`; otherwise `401 unauthenticated`. The `Host` must be a loopback name (`403 forbidden`). |
 
 [App Settings §8](ui-app-settings.md) shows the current build's URLs, the
 desktop token, and `curl` examples for the surfaces that build serves.

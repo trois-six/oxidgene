@@ -1,10 +1,10 @@
 //! The HTTP application the server binds: the API behind its CORS policy,
-//! same-origin write check, request context and trace layer, plus the
-//! health check.
+//! host allowlist, same-origin write check, request context and trace layer,
+//! plus the health check.
 
 use axum::Router;
 use axum::http::{HeaderValue, Method};
-use oxidgene_api::access::same_origin_writes;
+use oxidgene_api::access::{AllowedHosts, allowed_hosts, same_origin_writes};
 use oxidgene_api::request_context;
 use oxidgene_api::startup::with_health_check;
 use oxidgene_observability::{make_http_span, on_http_response};
@@ -13,11 +13,13 @@ use tower_http::trace::TraceLayer;
 
 /// Compose the served application around the API router.
 ///
-/// The request context sits outside the origin check, so a refused write
-/// still carries its route, and its panic boundary covers everything below.
-/// Probes call `/healthz` every few seconds: it is answered outside the
-/// trace layer, so they produce neither spans nor metric points.
-pub fn app(api_router: Router, cors_origin: HeaderValue) -> Router {
+/// The request context sits outside the host and origin checks, so a refused
+/// request still carries its route, and its panic boundary covers everything
+/// below. Probes call `/healthz` every few seconds, under whatever address
+/// the orchestrator dials: it is answered outside the host check and the
+/// trace layer, so they are never refused and produce neither spans nor
+/// metric points.
+pub fn app(api_router: Router, cors_origin: HeaderValue, hosts: AllowedHosts) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(cors_origin.clone())
         .allow_methods([
@@ -29,13 +31,16 @@ pub fn app(api_router: Router, cors_origin: HeaderValue) -> Router {
             Method::OPTIONS,
         ])
         .allow_headers(tower_http::cors::Any);
-    let api = request_context::wrap(same_origin_writes(api_router, cors_origin))
-        .layer(cors)
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(make_http_span)
-                .on_response(on_http_response),
-        );
+    let api = request_context::wrap(allowed_hosts(
+        same_origin_writes(api_router, cors_origin),
+        hosts,
+    ))
+    .layer(cors)
+    .layer(
+        TraceLayer::new_for_http()
+            .make_span_with(make_http_span)
+            .on_response(on_http_response),
+    );
     with_health_check(api)
 }
 
@@ -67,22 +72,67 @@ mod tests {
     }
 
     async fn get_status(app: &Router, uri: &str) -> StatusCode {
-        app.clone()
+        get_as(app, uri, "127.0.0.1:8080").await.0
+    }
+
+    /// GET `uri` naming `host`; the status and the body.
+    async fn get_as(app: &Router, uri: &str, host: &str) -> (StatusCode, String) {
+        let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri(uri)
+                    .header("host", host)
                     .body(Body::empty())
                     .expect("valid request"),
             )
             .await
-            .expect("infallible router")
-            .status()
+            .expect("infallible router");
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    #[tokio::test]
+    async fn only_known_hosts_reach_the_api() {
+        let api = Router::new().route("/api/v1/ping", get(|| async { "pong" }));
+        let app = app(
+            api,
+            HeaderValue::from_static("https://genealogy.example.invalid"),
+            AllowedHosts::new(["https://genealogy.example.invalid"]),
+        );
+
+        assert_eq!(
+            get_as(&app, "/api/v1/ping", "genealogy.example.invalid")
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            get_as(&app, "/api/v1/ping", "127.0.0.1:8080").await.0,
+            StatusCode::OK
+        );
+        // A page that rebound its own name to the server's address.
+        let (status, body) = get_as(&app, "/api/v1/ping", "rebound.example:8080").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.contains(r#""error":"forbidden""#), "{body}");
+        // Probes dial the pod's address, which no allowlist names.
+        assert_eq!(
+            get_as(&app, "/healthz", "10.0.0.7:8080").await.0,
+            StatusCode::OK
+        );
     }
 
     #[tokio::test]
     async fn the_frontend_origin_may_send_every_method_the_ui_uses() {
         let api = Router::new().route("/api/v1/ping", get(|| async { "pong" }));
-        let app = app(api, HeaderValue::from_static("http://127.0.0.1:8081"));
+        let app = app(
+            api,
+            HeaderValue::from_static("http://127.0.0.1:8081"),
+            AllowedHosts::loopback(),
+        );
         for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
             let response = app
                 .clone()
@@ -113,7 +163,11 @@ mod tests {
         let _guard =
             tracing::subscriber::set_default(tracing_subscriber::registry().with(names.clone()));
         let api = Router::new().route("/api/v1/ping", get(|| async { "pong" }));
-        let app = app(api, HeaderValue::from_static("http://127.0.0.1:8081"));
+        let app = app(
+            api,
+            HeaderValue::from_static("http://127.0.0.1:8081"),
+            AllowedHosts::loopback(),
+        );
 
         assert_eq!(get_status(&app, "/healthz").await, StatusCode::OK);
         assert!(

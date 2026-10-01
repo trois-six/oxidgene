@@ -19,6 +19,11 @@ backend:
     type: ClusterIP
     port: 8080
   corsOrigin: https://oxidgene.example.invalid
+  # Host names the API answers under besides loopback and the host of
+  # corsOrigin; a request naming any other host is refused, which is what
+  # defeats DNS rebinding. Add an in-cluster name here only if something
+  # calls the backend Service directly.
+  allowedHosts: []
   logLevel: info
   # Console log format, `text` or `json`. With OTLP export enabled, a collector
   # that also scrapes these lines receives every event twice.

@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:40Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -146,7 +146,7 @@ values, never stack traces, SQL, filesystem paths, secrets, or genealogy.
 | 400 | `validation_error` | Invalid field, format, or business input. |
 | 400 | `gedcom_error` | Invalid or unsupported genealogy input. |
 | 401 | `unauthenticated` | The desktop's embedded server received a request without its launch token (§7.1); later, any missing authentication. |
-| 403 | `forbidden` | A browser page on another origin attempted a write (§7.1); later, a viewer lacking access. |
+| 403 | `forbidden` | A browser page on another origin attempted a write, or a request named a host the server does not answer under (§7.1); later, a viewer lacking access. |
 | 404 | `not_found` | Missing or soft-deleted resource. |
 | 409 | `conflict` | State conflicts with an invariant or concurrent change. |
 | 413 | `payload_too_large` | Request exceeds the documented endpoint limit. |
@@ -547,6 +547,12 @@ must never be exposed directly to an untrusted network:
   standalone server refuses any state-changing request whose `Origin` is
   present and different (`403 forbidden`) — CORS withholds responses from
   other origins but lets their form and multipart posts through unasked;
+- both servers answer only under a host name they are known by: loopback
+  names, plus the CORS origin's host and `OXIDGENE_ALLOWED_HOSTS` on the
+  standalone server. Any other `Host` answers `403 forbidden`. A page that
+  rebinds its own DNS name to the server's address is same-origin with it
+  and passes CORS and the origin check, but its browser still names the
+  page's domain as the host. Health probes are answered whatever the host;
 - the desktop's embedded server answers only requests that carry a bearer
   token generated at each launch and handed to the application's own client
   (`401 unauthenticated`). A loopback port is reachable by every local account,
