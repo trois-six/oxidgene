@@ -47,6 +47,9 @@ pub async fn start(
     body: Body,
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
     TreeRepo::get(&state.db, tree_id).await?;
+    // Before the body is read: a waiting upload holds a connection, not a
+    // spool file. The slot is held until the source is in job storage.
+    let _intake = crate::service::intake::slot().await?;
 
     let job_id = Uuid::now_v7();
     let upload = TemporaryUpload::new().map_err(OxidGeneError::Io)?;

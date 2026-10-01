@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:57Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -151,6 +151,7 @@ values, never stack traces, SQL, filesystem paths, secrets, or genealogy.
 | 409 | `conflict` | State conflicts with an invariant or concurrent change. |
 | 413 | `payload_too_large` | Request exceeds the documented endpoint limit. |
 | 415 | `unsupported_media_type` | Payload or media format is unsupported. |
+| 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1). |
 | 500 | `database_error` | Persistence failed unexpectedly. |
 | 500 | `io_error` | Storage or transport I/O failed unexpectedly. |
 | 500 | `internal_error` | Unclassified server failure. |
@@ -547,6 +548,16 @@ must never be exposed directly to an untrusted network:
   standalone server refuses any state-changing request whose `Origin` is
   present and different (`403 forbidden`) — CORS withholds responses from
   other origins but lets their form and multipart posts through unasked;
+- the standalone server bounds what one client can hold. A request must
+  answer within five minutes, an upload (`POST …/import-jobs`,
+  `POST …/media/upload`) within an hour, and a request body that sends
+  nothing for a minute is cut off; past its limit a request answers
+  `503 timeout`, while a response already streaming is never cut. Every file
+  intake — an import job's upload, a media upload on either surface, a
+  Geneanet session decode or import staging — takes one of two process-wide
+  slots before reading its body and keeps it until the bytes are stored;
+  further intakes wait. The desktop's embedded server has the slots but no
+  time limits;
 - both servers answer only under a host name they are known by: loopback
   names, plus the CORS origin's host and `OXIDGENE_ALLOWED_HOSTS` on the
   standalone server. Any other `Host` answers `403 forbidden`. A page that

@@ -108,7 +108,10 @@ identifier in the path that is not a UUID, a body that is not valid JSON or
 lacks a required field, a missing JSON content type, a body over the route's
 limit, a route that does not exist — receives the same envelope:
 `400 validation_error`, `415 unsupported_media_type`, `413 payload_too_large`
-or `404 not_found`.
+or `404 not_found`. The standalone server also answers `503 timeout` when a
+request outlives its time limit (five minutes, an hour for an upload); file
+uploads on both surfaces wait for one of two intake slots first
+([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 
 Mutations refresh affected projections in the same database transaction as the
 normalized write. A successful response guarantees read-after-write
@@ -950,8 +953,9 @@ Metadata-only wizard requests have a **32 MiB body limit**. Session decoding
 is excluded: saved sessions contain media, and have no fixed total-size cap.
 The desktop streams the file to REST; the backend spools the upload to a private
 temporary file and extracts media sequentially to private staging files, without
-buffering the album or converting its media to base64. Two session loads may
-upload or extract concurrently. Failed extraction discards its staged files.
+buffering the album or converting its media to base64. A session load takes one
+of the two file-intake slots every upload shares, so at most two loads, uploads
+or stagings run at once. Failed extraction discards its staged files.
 Temporary storage must accommodate the upload and extracted media.
 Staged media are the account's own photos, so they do not outlive their use:
 queuing the import deletes them once copied to job storage, the wizard

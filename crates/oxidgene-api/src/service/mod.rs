@@ -15,6 +15,7 @@ pub mod gedcom;
 pub mod geneanet;
 pub mod history;
 pub mod image_bytes;
+pub(crate) mod intake;
 pub mod kinship;
 pub mod media;
 pub mod media_library;

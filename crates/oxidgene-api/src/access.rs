@@ -218,7 +218,8 @@ async fn check_host(State(hosts): State<AllowedHosts>, request: Request, next: N
     )
 }
 
-fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
+/// `status` with the standard error envelope of `code` and `message`.
+pub(crate) fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
     let body = ErrorBody {
         error: code.to_string(),
         message: message.to_string(),

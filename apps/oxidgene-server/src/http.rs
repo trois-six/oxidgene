@@ -1,10 +1,11 @@
-//! The HTTP application the server binds: the API behind its CORS policy,
-//! host allowlist, same-origin write check, request context and trace layer,
-//! plus the health check.
+//! The HTTP application the server binds: the API under its time limits,
+//! behind its CORS policy, host allowlist, same-origin write check, request
+//! context and trace layer, plus the health check.
 
 use axum::Router;
 use axum::http::{HeaderValue, Method};
 use oxidgene_api::access::{AllowedHosts, allowed_hosts, same_origin_writes};
+use oxidgene_api::limits::{TimeLimits, with_time_limits};
 use oxidgene_api::request_context;
 use oxidgene_api::startup::with_health_check;
 use oxidgene_observability::{make_http_span, on_http_response};
@@ -32,7 +33,10 @@ pub fn app(api_router: Router, cors_origin: HeaderValue, hosts: AllowedHosts) ->
         ])
         .allow_headers(tower_http::cors::Any);
     let api = request_context::wrap(allowed_hosts(
-        same_origin_writes(api_router, cors_origin),
+        same_origin_writes(
+            with_time_limits(api_router, TimeLimits::default()),
+            cors_origin,
+        ),
         hosts,
     ))
     .layer(cors)

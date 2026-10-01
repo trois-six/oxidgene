@@ -21,8 +21,6 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_geneanet::session::{self, Session};
 use tempfile::TempPath;
 
-pub(crate) static LOADS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-
 /// How long a staged medium waits for its import or its release.
 pub(crate) const STAGED_MEDIA_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 

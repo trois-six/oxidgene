@@ -192,10 +192,7 @@ pub async fn decode_session_handler(
     use tokio::io::{AsyncSeekExt as _, AsyncWriteExt as _};
 
     state.local_file_access.require()?;
-    let permit = crate::service::session_media::LOADS
-        .acquire()
-        .await
-        .map_err(|_| OxidGeneError::Internal("session loading is unavailable".into()))?;
+    let permit = crate::service::intake::slot().await?;
     let mut upload = tokio::fs::File::from_std(tempfile::tempfile().map_err(OxidGeneError::Io)?);
     let mut chunks = body.into_data_stream();
     while let Some(chunk) = chunks.next().await {
@@ -290,6 +287,7 @@ pub async fn import_handler(
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
     state.local_file_access.require()?;
     let gw = decode_gw(&body.gw_base64)?;
+    let _intake = crate::service::intake::slot().await?;
     let job_id = crate::service::background_job::stage_geneanet_import(
         &state.db,
         &*state.media,

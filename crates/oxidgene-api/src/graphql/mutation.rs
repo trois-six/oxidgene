@@ -685,6 +685,7 @@ impl MutationRoot {
         input: UploadMediaFileInput,
     ) -> Result<GqlMedia> {
         let tree_id = live_tree(ctx, &tree_id).await?;
+        let _intake = crate::service::intake::slot().await?;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&input.content_base64)
             .map_err(|_| {
@@ -1141,10 +1142,7 @@ impl MutationRoot {
         archive_base64: String,
     ) -> Result<GqlGeneanetSession> {
         require_local_file_access(ctx)?;
-        let permit = crate::service::session_media::LOADS
-            .acquire()
-            .await
-            .map_err(|_| async_graphql::Error::new("session loading is unavailable"))?;
+        let permit = crate::service::intake::slot().await?;
         let session = crate::service::blocking::spawn(move || {
             let _permit = permit;
             let mut reader = base64::read::DecoderReader::new(
@@ -1195,6 +1193,7 @@ impl MutationRoot {
         let gw = base64::engine::general_purpose::STANDARD
             .decode(&input.gw_base64)
             .map_err(|error| async_graphql::Error::new(format!("invalid .gw base64: {error}")))?;
+        let _intake = crate::service::intake::slot().await?;
         let job_id = crate::service::background_job::stage_geneanet_import(
             db,
             &**media,

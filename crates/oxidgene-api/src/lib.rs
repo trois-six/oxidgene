@@ -10,6 +10,7 @@ mod embedded;
 mod error_contract;
 #[cfg(feature = "graphql")]
 pub mod graphql;
+pub mod limits;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod media;
