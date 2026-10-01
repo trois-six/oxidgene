@@ -261,6 +261,26 @@ impl PersonSearchRepo {
         Ok(())
     }
 
+    /// Merge the SQLite full-text index into one segment, dropping the words
+    /// of deleted rows.
+    ///
+    /// FTS5 deletes by recording a tombstone: the words of a deleted row stay
+    /// in the index segments, live data as far as SQLite is concerned, until
+    /// a merge rewrites them — which `VACUUM` does not do. A purged tree's
+    /// names would survive its purge there. Runs over the whole index, so it
+    /// is for a purge, not for every delete. No-op on PostgreSQL.
+    pub async fn merge_index(db: &impl ConnectionTrait) -> Result<(), OxidGeneError> {
+        if db.get_database_backend() != DbBackend::Sqlite {
+            return Ok(());
+        }
+        db.execute_unprepared(
+            "INSERT INTO person_search_fts (person_search_fts) VALUES ('optimize')",
+        )
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
     /// Whether a tree has any search row (a cold index has none). Every tree
     /// read asks it, so it is one index probe on either backend.
     pub async fn has_tree(db: &impl ConnectionTrait, tree_id: Uuid) -> Result<bool, OxidGeneError> {

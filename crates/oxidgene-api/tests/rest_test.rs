@@ -4332,3 +4332,66 @@ async fn e2e_fixture_is_the_generated_family_blocks_tree() {
     .await;
     assert_eq!(profiles.as_array().map(Vec::len), Some(30));
 }
+
+/// Once a tree is purged, nothing of it can be read back out of the SQLite
+/// file: not from its freed pages, its write-ahead log, nor the full-text
+/// index, which keeps a deleted row's words until its segments merge.
+#[tokio::test]
+async fn a_purged_tree_leaves_no_trace_in_the_database_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("fixture.db");
+    let db = oxidgene_db::repo::connect(&format!("sqlite://{}?mode=rwc", file.display()))
+        .await
+        .unwrap();
+    oxidgene_db::repo::run_migrations(&db).await.unwrap();
+    let app = build_router(AppState::new(db, directory.path().join("media")));
+    let tree_id = create_tree_via_api(&app).await;
+    let (_, person) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        Some(serde_json::json!({ "sex": "unknown" })),
+    )
+    .await;
+    let person_id = person["id"].as_str().unwrap();
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+        Some(serde_json::json!({
+            "name_type": "birth",
+            "given_names": "Quintessa",
+            "surname": "Zyxwvfixture",
+            "is_primary": true,
+        })),
+    )
+    .await;
+    assert!(status.is_success());
+    let traces = ["Zyxwvfixture", "zyxwvfixture", "Quintessa", "quintessa"];
+    let readable = |path: &std::path::Path| {
+        let bytes = std::fs::read(path).unwrap_or_default();
+        traces.iter().any(|trace| {
+            bytes
+                .windows(trace.len())
+                .any(|window| window == trace.as_bytes())
+        })
+    };
+    let wal = directory.path().join("fixture.db-wal");
+    assert!(readable(&file) || readable(&wal), "the name was written");
+
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while readable(&file) || readable(&wal) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the purge erases the tree from the database file");
+}

@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use oxidgene_db::repo::{BackgroundJobRepo, TreeRepo};
+use oxidgene_db::repo::{BackgroundJobRepo, PersonSearchRepo, TreeRepo};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -147,6 +147,7 @@ async fn purge_steps(
     TreeRepo::purge(db, tree_id)
         .await
         .map_err(|_| ("tree_purge", "purge failed; retrying at next start"))?;
+    erase_purged_content(db).await;
     info!(
         elapsed_ms = started.elapsed().as_millis(),
         "purged soft-deleted tree"
@@ -164,4 +165,16 @@ async fn delete_job_objects(
         media.delete_job(job_id).await?;
     }
     Ok(())
+}
+
+/// Leave nothing of the purged rows readable in the database file: the words
+/// the full-text index still holds, then the freed pages and the log.
+async fn erase_purged_content(db: &DatabaseConnection) {
+    if PersonSearchRepo::merge_index(db).await.is_err() {
+        warn!(
+            error = "search_index_merge",
+            "could not drop the purged tree's words from the search index"
+        );
+    }
+    oxidgene_db::repo::erase_deleted_content(db).await;
 }

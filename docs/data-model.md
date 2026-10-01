@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:13:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:55:24Z }
 ---
 
 
@@ -827,6 +827,16 @@ work. On startup or first read, `ensure_materialized` compares the count of
 current-version projections with active people and rebuilds when necessary.
 
 ### 4.5 Deletion and recovery
+
+Deleting a tree flags it and returns; a background worker then purges its rows,
+its media files, and its jobs' files. On SQLite the purge ends by erasing what
+the deleted rows leave readable in the database file: it merges the full-text
+index (FTS5 keeps a deleted row's words until its segments merge), rewrites the
+file from its live content (`VACUUM`, since freed pages keep their bytes) and
+empties the write-ahead log. That rewrite holds the database for about as long
+as copying the file, which a purge, rare and in the background, can afford.
+On PostgreSQL deleted rows' space is reused by autovacuum over time; nothing
+rewrites it at once.
 
 - Soft-deleted people are excluded from projections and search.
 - Dropping projections does not remove domain data; rows rebuild lazily.

@@ -112,6 +112,38 @@ async fn optimize_statistics(db: &DatabaseConnection) {
     }
 }
 
+/// Erase from the SQLite file the bytes of rows deleted so far.
+///
+/// SQLite only unlinks a deleted row: its bytes stay in the page it freed
+/// until something overwrites it, and in the write-ahead log until the log is
+/// reset, readable by anyone who opens the file. After a tree's purge that
+/// is a whole genealogy. `VACUUM` rewrites the file from its live content
+/// alone, and a `TRUNCATE` checkpoint then empties the log. Chosen over
+/// `secure_delete`, which would have to be set on every connection, would
+/// slow every delete, and reaches neither the log's frames nor the words
+/// FTS5 keeps (see `PersonSearchRepo::merge_index`, to run before this).
+///
+/// The rewrite holds the database for as long as it takes — about as long
+/// as copying the file — which is why it follows a purge, a rare and
+/// background operation, and nothing else. Best effort: on failure the
+/// bytes stay until the next purge or the next start's reclaiming pass.
+/// PostgreSQL has no equivalent short of `VACUUM FULL`; its autovacuum
+/// reuses the space of deleted rows over time.
+pub async fn erase_deleted_content(db: &DatabaseConnection) {
+    if db.get_database_backend() != DatabaseBackend::Sqlite {
+        return;
+    }
+    for step in ["VACUUM", "PRAGMA wal_checkpoint(TRUNCATE)"] {
+        if db.execute_unprepared(step).await.is_err() {
+            warn!(
+                error = "sqlite_erase",
+                "could not erase deleted rows from the database file"
+            );
+            return;
+        }
+    }
+}
+
 /// Number of free 4 KiB pages past which a SQLite file is worth rewriting.
 /// 5,000 pages is about 20 MB, above the churn of ordinary use.
 const VACUUM_THRESHOLD_PAGES: i64 = 5_000;
