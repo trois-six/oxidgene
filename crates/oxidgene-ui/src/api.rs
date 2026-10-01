@@ -12,9 +12,7 @@ use base64::Engine as _;
 use opentelemetry::global;
 #[cfg(feature = "telemetry-client")]
 use opentelemetry::propagation::Injector;
-use oxidgene_core::projection::{
-    Pedigree, PedigreeDelta, PersonProfile, SearchEntry, SearchResult,
-};
+use oxidgene_core::projection::{Pedigree, PersonProfile, SearchEntry, SearchResult};
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
     FamilySpouse, ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place,
@@ -58,6 +56,17 @@ pub struct PersonDetail {
 /// Paginated response returned by list endpoints.
 /// Re-uses the same shape as `oxidgene_core::types::Connection<T>`.
 type PaginatedResponse<T> = Connection<T>;
+
+/// The query parameters naming the records a list is restricted to: one per
+/// owner given, none for an owner left out.
+fn owner_filters<const N: usize>(
+    owners: [(&'static str, Option<Uuid>); N],
+) -> Vec<(&'static str, String)> {
+    owners
+        .into_iter()
+        .filter_map(|(name, id)| id.map(|id| (name, id.to_string())))
+        .collect()
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum PersonSearchSort {
@@ -923,20 +932,6 @@ pub struct CreateSourceBody {
     pub repository_name: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct UpdateSourceBody {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub author: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub publisher: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub abbreviation: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub repository_name: Option<Option<String>>,
-}
-
 // ── Citation request bodies ─────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -1574,13 +1569,6 @@ pub struct UpdateVignetteBody {
     pub person_id: Option<Option<uuid::Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<Option<uuid::Uuid>>,
-}
-
-// ── Import / export DTOs ────────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-pub struct ImportGedcomBody {
-    pub gedcom: String,
 }
 
 // ── Geneanet import wizard ──────────────────────────────────────────
@@ -2444,6 +2432,35 @@ impl ApiClient {
             .await
     }
 
+    /// Helper: read every page of a cursor-paginated list.
+    ///
+    /// `filters` are sent with each page; the cursor is the only parameter
+    /// that changes between requests. A page that claims a successor but
+    /// names no cursor ends the walk instead of asking for the first page
+    /// again.
+    async fn collect_pages<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        page_size: u64,
+        filters: Vec<(&'static str, String)>,
+    ) -> Result<Vec<T>, ApiError> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut params = filters.clone();
+            params.push(("first", page_size.to_string()));
+            if let Some(after) = cursor.take() {
+                params.push(("after", after));
+            }
+            let page: PaginatedResponse<T> = self.get_with_query(path, &params).await?;
+            all.extend(page.edges.into_iter().map(|edge| edge.node));
+            match page.page_info.end_cursor {
+                Some(next) if page.page_info.has_next_page => cursor = Some(next),
+                _ => return Ok(all),
+            }
+        }
+    }
+
     /// Helper: send a POST request with a JSON body.
     async fn post<T: serde::de::DeserializeOwned, B: Serialize>(
         &self,
@@ -2459,9 +2476,9 @@ impl ApiClient {
 
     /// Helper: send a POST request with a raw binary body.
     ///
-    /// Used by importers whose payload is a file whose encoding is the file's
-    /// own business (see `import_geneweb`) — wrapping those bytes in JSON would
-    /// force them through UTF-8 first.
+    /// Used for uploads whose payload is a file whose encoding is the file's
+    /// own business (see `inspect_geneweb`) — wrapping those bytes in JSON
+    /// would force them through UTF-8 first.
     async fn post_bytes<T: serde::de::DeserializeOwned, Q: Serialize>(
         &self,
         path: &str,
@@ -2919,23 +2936,6 @@ impl ApiClient {
         .await
     }
 
-    pub async fn get_descendants(
-        &self,
-        tree_id: Uuid,
-        person_id: Uuid,
-        max_depth: Option<i32>,
-    ) -> Result<Vec<AncestryLink>, ApiError> {
-        let mut params = Vec::new();
-        if let Some(d) = max_depth {
-            params.push(("max_depth", d.to_string()));
-        }
-        self.get_with_query(
-            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/descendants"),
-            &params,
-        )
-        .await
-    }
-
     // ── Person Names ────────────────────────────────────────────────
 
     pub async fn list_person_names(
@@ -3026,23 +3026,6 @@ impl ApiClient {
 
     // ── Families ────────────────────────────────────────────────────
 
-    pub async fn list_families(
-        &self,
-        tree_id: Uuid,
-        first: Option<u64>,
-        after: Option<&str>,
-    ) -> Result<PaginatedResponse<Family>, ApiError> {
-        let mut params = Vec::new();
-        if let Some(f) = first {
-            params.push(("first", f.to_string()));
-        }
-        if let Some(a) = after {
-            params.push(("after", a.to_string()));
-        }
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/families"), &params)
-            .await
-    }
-
     pub async fn get_family(&self, tree_id: Uuid, id: Uuid) -> Result<Family, ApiError> {
         self.get(&format!("/api/v1/trees/{tree_id}/families/{id}"))
             .await
@@ -3110,20 +3093,6 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(result)
-    }
-
-    pub async fn remove_spouse(
-        &self,
-        tree_id: Uuid,
-        family_id: Uuid,
-        spouse_id: Uuid,
-    ) -> Result<(), ApiError> {
-        self.delete_no_content(&format!(
-            "/api/v1/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}"
-        ))
-        .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
     }
 
     // ── Family Children ─────────────────────────────────────────────
@@ -3206,11 +3175,6 @@ impl ApiClient {
             .await
     }
 
-    pub async fn get_event(&self, tree_id: Uuid, id: Uuid) -> Result<Event, ApiError> {
-        self.get(&format!("/api/v1/trees/{tree_id}/events/{id}"))
-            .await
-    }
-
     pub async fn create_event(
         &self,
         tree_id: Uuid,
@@ -3288,42 +3252,10 @@ impl ApiClient {
 
     // ── Places ──────────────────────────────────────────────────────
 
-    pub async fn list_places(
-        &self,
-        tree_id: Uuid,
-        first: Option<u64>,
-        after: Option<&str>,
-        search: Option<&str>,
-    ) -> Result<PaginatedResponse<Place>, ApiError> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(f) = first {
-            params.push(("first", f.to_string()));
-        }
-        if let Some(a) = after {
-            params.push(("after", a.to_string()));
-        }
-        if let Some(s) = search {
-            params.push(("search", s.to_string()));
-        }
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/places"), &params)
-            .await
-    }
-
     /// Fetch all places by paginating through all pages.
     pub async fn list_all_places(&self, tree_id: Uuid) -> Result<Vec<Place>, ApiError> {
-        let mut all = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let page = self
-                .list_places(tree_id, Some(500), cursor.as_deref(), None)
-                .await?;
-            all.extend(page.edges.into_iter().map(|e| e.node));
-            if !page.page_info.has_next_page {
-                break;
-            }
-            cursor = page.page_info.end_cursor;
-        }
-        Ok(all)
+        self.collect_pages(&format!("/api/v1/trees/{tree_id}/places"), 500, Vec::new())
+            .await
     }
 
     pub async fn get_place(&self, tree_id: Uuid, id: Uuid) -> Result<Place, ApiError> {
@@ -3356,47 +3288,12 @@ impl ApiClient {
         Ok(result)
     }
 
-    pub async fn delete_place(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
-        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/places/{id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
-    }
-
     // ── Sources ─────────────────────────────────────────────────────
-
-    pub async fn list_sources(
-        &self,
-        tree_id: Uuid,
-        first: Option<u64>,
-        after: Option<&str>,
-    ) -> Result<PaginatedResponse<Source>, ApiError> {
-        let mut params = Vec::new();
-        if let Some(f) = first {
-            params.push(("first", f.to_string()));
-        }
-        if let Some(a) = after {
-            params.push(("after", a.to_string()));
-        }
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/sources"), &params)
-            .await
-    }
 
     /// Fetch all sources by paginating through all pages.
     pub async fn list_all_sources(&self, tree_id: Uuid) -> Result<Vec<Source>, ApiError> {
-        let mut all = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let page = self
-                .list_sources(tree_id, Some(500), cursor.as_deref())
-                .await?;
-            all.extend(page.edges.into_iter().map(|e| e.node));
-            if !page.page_info.has_next_page {
-                break;
-            }
-            cursor = page.page_info.end_cursor;
-        }
-        Ok(all)
+        self.collect_pages(&format!("/api/v1/trees/{tree_id}/sources"), 500, Vec::new())
+            .await
     }
 
     pub async fn get_source(&self, tree_id: Uuid, id: Uuid) -> Result<Source, ApiError> {
@@ -3414,26 +3311,6 @@ impl ApiClient {
             .await?;
         self.invalidate_tree(tree_id);
         Ok(result)
-    }
-
-    pub async fn update_source(
-        &self,
-        tree_id: Uuid,
-        id: Uuid,
-        body: &UpdateSourceBody,
-    ) -> Result<Source, ApiError> {
-        let result = self
-            .put(&format!("/api/v1/trees/{tree_id}/sources/{id}"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
-    }
-
-    pub async fn delete_source(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
-        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/sources/{id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
     }
 
     /// Deletes a source only if no citation, note or media link still points
@@ -3654,35 +3531,14 @@ impl ApiClient {
         family_id: Option<Uuid>,
         source_id: Option<Uuid>,
     ) -> Result<Vec<Citation>, ApiError> {
-        let mut citations = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let mut params = vec![("first", "100".to_string())];
-            if let Some(person_id) = person_id {
-                params.push(("person_id", person_id.to_string()));
-            }
-            if let Some(event_id) = event_id {
-                params.push(("event_id", event_id.to_string()));
-            }
-            if let Some(family_id) = family_id {
-                params.push(("family_id", family_id.to_string()));
-            }
-            if let Some(source_id) = source_id {
-                params.push(("source_id", source_id.to_string()));
-            }
-            if let Some(after) = cursor.as_ref() {
-                params.push(("after", after.clone()));
-            }
-            let page: PaginatedResponse<Citation> = self
-                .get_with_query(&format!("/api/v1/trees/{tree_id}/citations"), &params)
-                .await?;
-            citations.extend(page.edges.into_iter().map(|edge| edge.node));
-            if !page.page_info.has_next_page {
-                break;
-            }
-            cursor = page.page_info.end_cursor;
-        }
-        Ok(citations)
+        let filters = owner_filters([
+            ("person_id", person_id),
+            ("event_id", event_id),
+            ("family_id", family_id),
+            ("source_id", source_id),
+        ]);
+        self.collect_pages(&format!("/api/v1/trees/{tree_id}/citations"), 100, filters)
+            .await
     }
 
     // ── Notes ─────────────────────────────────────────────────────────
@@ -3696,38 +3552,15 @@ impl ApiClient {
         source_id: Option<Uuid>,
         media_id: Option<Uuid>,
     ) -> Result<Vec<Note>, ApiError> {
-        let mut notes = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let mut params = vec![("first", "100".to_string())];
-            if let Some(media_id) = media_id {
-                params.push(("media_id", media_id.to_string()));
-            }
-            if let Some(person_id) = person_id {
-                params.push(("person_id", person_id.to_string()));
-            }
-            if let Some(event_id) = event_id {
-                params.push(("event_id", event_id.to_string()));
-            }
-            if let Some(family_id) = family_id {
-                params.push(("family_id", family_id.to_string()));
-            }
-            if let Some(source_id) = source_id {
-                params.push(("source_id", source_id.to_string()));
-            }
-            if let Some(after) = cursor.as_ref() {
-                params.push(("after", after.clone()));
-            }
-            let page: PaginatedResponse<Note> = self
-                .get_with_query(&format!("/api/v1/trees/{tree_id}/notes"), &params)
-                .await?;
-            notes.extend(page.edges.into_iter().map(|edge| edge.node));
-            if !page.page_info.has_next_page {
-                break;
-            }
-            cursor = page.page_info.end_cursor;
-        }
-        Ok(notes)
+        let filters = owner_filters([
+            ("person_id", person_id),
+            ("event_id", event_id),
+            ("family_id", family_id),
+            ("source_id", source_id),
+            ("media_id", media_id),
+        ]);
+        self.collect_pages(&format!("/api/v1/trees/{tree_id}/notes"), 100, filters)
+            .await
     }
 
     pub async fn create_note(
@@ -4462,70 +4295,6 @@ impl ApiClient {
 
     // ── Import / export ─────────────────────────────────────────────
 
-    pub async fn import_gedcom(
-        &self,
-        tree_id: Uuid,
-        gedcom: &str,
-    ) -> Result<ImportResult, ApiError> {
-        let result = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-                &ImportGedcomBody {
-                    gedcom: gedcom.to_string(),
-                },
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
-    }
-
-    /// Import a GeneWeb `.gw` file.
-    ///
-    /// Takes the raw file bytes, never a `String`: `.gw` is ISO-8859-1 unless
-    /// the file opts into UTF-8 with an `encoding:` directive, so decoding it
-    /// here would mangle accented names. `file_name` is passed through to the
-    /// reader, which records it on every family and quotes it in warnings.
-    pub async fn import_geneweb(
-        &self,
-        tree_id: Uuid,
-        content: Vec<u8>,
-        file_name: &str,
-    ) -> Result<ImportResult, ApiError> {
-        let query = [("filename", file_name.to_string())];
-        let result = self
-            .post_bytes(
-                &format!("/api/v1/trees/{tree_id}/geneweb/import"),
-                content,
-                &query,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
-    }
-
-    /// Import a GEDZIP archive (`.gdz`) — a ZIP wrapping a GEDCOM together
-    /// with the media files it references.
-    ///
-    /// Takes the raw archive: it is binary, so there is nothing to gain from
-    /// wrapping it in JSON and a third of its size to lose. Media the archive
-    /// carries are stored as it is read, so a `.gdz` arrives with its
-    /// photographs where a `.ged` arrives with their names only.
-    pub async fn import_gedzip(
-        &self,
-        tree_id: Uuid,
-        archive: Vec<u8>,
-    ) -> Result<ImportResult, ApiError> {
-        let result = self
-            .post_bytes(
-                &format!("/api/v1/trees/{tree_id}/gedzip/import"),
-                archive,
-                &(),
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
-    }
-
     /// Absolute endpoint used by the browser's XHR upload.
     pub fn file_import_upload_url(&self, tree_id: Uuid) -> String {
         self.url(&format!("/api/v1/trees/{tree_id}/import-jobs"))
@@ -4793,25 +4562,8 @@ impl ApiClient {
         Ok(())
     }
 
-    // ── Pedigree Cache ──────────────────────────────────────────────
+    // ── Pedigrees ───────────────────────────────────────────────────
 
-    /// Helper: send a PATCH request with query parameters (no body).
-    async fn patch_with_query<T: serde::de::DeserializeOwned, Q: Serialize>(
-        &self,
-        path: &str,
-        query: &Q,
-    ) -> Result<T, ApiError> {
-        let url = self.url(path);
-        let resp = self
-            .send_request("PATCH", self.client.patch(&url).query(query))
-            .await?;
-        Self::handle_response("PATCH", resp).await
-    }
-
-    /// Fetch a windowed pedigree for a root person.
-    ///
-    /// Assembled server-side from family links and the stored person
-    /// projections on every call.
     /// Assemble several pedigrees in one operation, in bounded batches.
     ///
     /// A screen that draws one small pedigree per row asks for the whole page
@@ -4853,6 +4605,10 @@ impl ApiClient {
         pedigrees
     }
 
+    /// Fetch a windowed pedigree for a root person.
+    ///
+    /// Assembled server-side from family links and the stored person
+    /// projections on every call.
     pub async fn get_pedigree(
         &self,
         tree_id: Uuid,
@@ -4866,33 +4622,6 @@ impl ApiClient {
         ];
         self.get_with_query(
             &format!("/api/v1/trees/{tree_id}/pedigree/{root_person_id}"),
-            &params,
-        )
-        .await
-    }
-
-    /// Expand a pedigree in one direction, returning only the new nodes and
-    /// edges (delta).
-    ///
-    /// `other_depth` is the depth already loaded in the opposite direction —
-    /// the server keeps no per-client pedigree state, so it has to be told.
-    pub async fn expand_pedigree(
-        &self,
-        tree_id: Uuid,
-        root_person_id: Uuid,
-        direction: &str,
-        from_depth: u32,
-        to_depth: u32,
-        other_depth: u32,
-    ) -> Result<PedigreeDelta, ApiError> {
-        let params = [
-            ("direction", direction.to_string()),
-            ("from_depth", from_depth.to_string()),
-            ("to_depth", to_depth.to_string()),
-            ("other_depth", other_depth.to_string()),
-        ];
-        self.patch_with_query(
-            &format!("/api/v1/trees/{tree_id}/pedigree/{root_person_id}/expand"),
             &params,
         )
         .await
@@ -5303,6 +5032,63 @@ mod tests {
             assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"original");
             assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
         }
+    }
+
+    #[test]
+    fn a_list_is_filtered_only_by_the_owners_given() {
+        let person = Uuid::from_u128(1);
+        let media = Uuid::from_u128(2);
+        assert_eq!(
+            owner_filters([
+                ("person_id", Some(person)),
+                ("event_id", None),
+                ("media_id", Some(media)),
+            ]),
+            vec![
+                ("person_id", person.to_string()),
+                ("media_id", media.to_string()),
+            ]
+        );
+        assert!(owner_filters([("person_id", None)]).is_empty());
+    }
+
+    /// Every page of a paginated list is read, each with the list's filters,
+    /// and a page claiming a successor without a cursor ends the walk. The
+    /// pages are served from the response cache, so no server is needed.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn every_page_of_a_list_is_collected_until_the_last() {
+        let api = ApiClient::new("http://127.0.0.1:9");
+        let path = "/api/v1/trees/t/notes";
+        let filter = ("person_id", "p".to_string());
+        let page = |nodes: &[u32], has_next_page: bool, end_cursor: Option<&str>| {
+            serde_json::to_vec(&serde_json::json!({
+                "edges": nodes.iter().map(|node| {
+                    serde_json::json!({ "cursor": node.to_string(), "node": node })
+                }).collect::<Vec<_>>(),
+                "page_info": { "has_next_page": has_next_page, "end_cursor": end_cursor },
+                "total_count": 5,
+            }))
+            .unwrap()
+        };
+        let key = |after: Option<&str>| {
+            let mut params = vec![filter.clone(), ("first", "2".to_string())];
+            if let Some(after) = after {
+                params.push(("after", after.to_string()));
+            }
+            format!("{path}?{}", serde_json::to_string(&params).unwrap())
+        };
+        api.cache.set(key(None), page(&[1, 2], true, Some("c2")));
+        api.cache
+            .set(key(Some("c2")), page(&[3, 4], true, Some("c4")));
+        api.cache.set(key(Some("c4")), page(&[5], true, None));
+
+        let nodes: Vec<u32> = api
+            .collect_pages(path, 2, vec![filter.clone()])
+            .await
+            .unwrap();
+
+        assert_eq!(nodes, [1, 2, 3, 4, 5]);
     }
 
     #[test]
