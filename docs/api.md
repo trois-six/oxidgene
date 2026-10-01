@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:30:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:37:29Z }
 ---
 
 
@@ -970,6 +970,13 @@ profiles. See [Data Model §4](data-model.md).
 | `GET` | `/trees/{tree_id}/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Assemble a windowed pedigree for a root person |
 | `POST` | `/trees/{tree_id}/pedigrees` | Assemble several pedigrees at once for `{root_person_ids, ancestor_depth, descendant_depth}`. Request order is preserved; a root that cannot be assembled is omitted rather than failing the batch. At most 64 roots per request |
 | `PATCH` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
+
+Every pedigree depth — `ancestor_depth`, `descendant_depth`, `from_depth`,
+`to_depth`, `other_depth`, and their GraphQL counterparts — lies between 0 and
+**10** generations, the range the pedigree view offers; anything else, a
+negative GraphQL `Int` included, is a `validation_error`. REST, GraphQL and
+the assistant tools ([MCP](mcp.md)) enforce the same limit, and the batched
+`pedigrees` checks the tree's projections once for the whole batch.
 
 The profile and pedigree vocabulary is identical across REST and GraphQL. No
 legacy `/cache/*` routes or `cached*` GraphQL aliases are part of the contract.

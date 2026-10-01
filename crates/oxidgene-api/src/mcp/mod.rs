@@ -44,9 +44,7 @@ use crate::rest::error::ErrorBody;
 use crate::service::relation_labels::load_relation_labels;
 use crate::service::scope::{TreeResource, require_tree_resource};
 
-/// Deepest pedigree a tool assembles in either direction — the range the
-/// pedigree view offers, and what fits in a model's context.
-pub const MAX_PEDIGREE_DEPTH: u32 = 10;
+pub use crate::service::pedigrees::MAX_PEDIGREE_DEPTH;
 
 /// Page size of a connection when the caller names none, as on REST.
 const DEFAULT_PAGE_SIZE: u64 = 25;
@@ -342,20 +340,15 @@ impl OxidGeneMcp {
     async fn get_pedigree(&self, params: Parameters<PedigreeParams>) -> CallToolResult {
         let p = params.0;
         respond("get_pedigree", async {
-            if p.ancestor_depth > MAX_PEDIGREE_DEPTH || p.descendant_depth > MAX_PEDIGREE_DEPTH {
-                return Err(OxidGeneError::Validation(format!(
-                    "pedigree depths are limited to {MAX_PEDIGREE_DEPTH} generations"
-                )));
-            }
             self.tree(p.tree_id).await?;
-            self.profiles
-                .get_or_build_pedigree(
-                    p.tree_id,
-                    p.root_person_id,
-                    p.ancestor_depth,
-                    p.descendant_depth,
-                )
-                .await
+            crate::service::pedigrees::pedigree(
+                &self.profiles,
+                p.tree_id,
+                p.root_person_id,
+                p.ancestor_depth.into(),
+                p.descendant_depth.into(),
+            )
+            .await
         })
         .await
     }

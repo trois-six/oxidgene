@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-28T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:37:29Z }
 ---
 
 # Assistant Access (MCP)
@@ -164,7 +164,8 @@ Bounds:
 - Connection pages follow the shared pagination rules (`first` defaults to
   25, maximum 100).
 - `get_pedigree` narrows each depth to 0–10 generations, the same range the
-  pedigree view offers ([Tree Settings §19](ui-settings.md)).
+  pedigree view offers ([Tree Settings §19](ui-settings.md)) and the limit
+  REST and GraphQL enforce.
 
 The first delivery offers no MCP resources and no prompts.
 

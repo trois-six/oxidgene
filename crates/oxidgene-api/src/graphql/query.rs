@@ -1637,9 +1637,14 @@ impl QueryRoot {
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let rid = uuid(&root_person_id)?;
-        let pedigree = profiles
-            .get_or_build_pedigree(tid, rid, ancestor_depth as u32, descendant_depth as u32)
-            .await?;
+        let pedigree = crate::service::pedigrees::pedigree(
+            profiles,
+            tid,
+            rid,
+            ancestor_depth.into(),
+            descendant_depth.into(),
+        )
+        .await?;
         Ok(pedigree.into())
     }
 
@@ -1658,8 +1663,8 @@ impl QueryRoot {
             profiles_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             &root_person_ids,
-            ancestor_depth as u32,
-            descendant_depth as u32,
+            ancestor_depth.into(),
+            descendant_depth.into(),
         )
         .await?
         .into_iter()

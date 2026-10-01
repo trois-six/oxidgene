@@ -250,6 +250,35 @@ impl ProfileService {
         .await
     }
 
+    /// Materialize the projections of tree `tree_id` if they are missing or
+    /// outdated — what [`Self::get_or_build_pedigree`] checks first, for a
+    /// caller assembling several pedigrees that checks it once.
+    pub(crate) async fn ensure_tree_materialized(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        self.ensure_materialized(&self.db, tree_id).await
+    }
+
+    /// Assemble a pedigree of a tree whose projections are known to be
+    /// materialized: [`Self::get_or_build_pedigree`] without the check.
+    pub(crate) async fn assemble_pedigree(
+        &self,
+        tree_id: Uuid,
+        root_person_id: Uuid,
+        ancestor_depth: u32,
+        descendant_depth: u32,
+    ) -> Result<Pedigree, OxidGeneError> {
+        self.build_pedigree(
+            &self.db,
+            tree_id,
+            root_person_id,
+            ancestor_depth,
+            descendant_depth,
+        )
+        .await
+    }
+
     /// Compute the nodes and edges a pedigree gains when expanded from
     /// `from_depth` to `to_depth` in one direction.
     ///

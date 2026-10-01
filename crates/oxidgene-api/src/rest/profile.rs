@@ -139,16 +139,14 @@ pub async fn get_pedigree(
     Path((tree_id, root_person_id)): Path<(Uuid, Uuid)>,
     Query(params): Query<PedigreeQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let pedigree = state
-        .profiles
-        .get_or_build_pedigree(
-            tree_id,
-            root_person_id,
-            params.ancestor_depth,
-            params.descendant_depth,
-        )
-        .await
-        .map_err(ApiError)?;
+    let pedigree = crate::service::pedigrees::pedigree(
+        &state.profiles,
+        tree_id,
+        root_person_id,
+        params.ancestor_depth.into(),
+        params.descendant_depth.into(),
+    )
+    .await?;
 
     Ok(Json(serde_json::to_value(pedigree).unwrap()))
 }
@@ -167,8 +165,8 @@ pub async fn load_pedigrees(
         &state.profiles,
         tree_id,
         &body.root_person_ids,
-        body.ancestor_depth,
-        body.descendant_depth,
+        body.ancestor_depth.into(),
+        body.descendant_depth.into(),
     )
     .await
     .map_err(ApiError)?;
@@ -185,6 +183,7 @@ pub async fn expand_pedigree(
     Path((tree_id, root_person_id)): Path<(Uuid, Uuid)>,
     Query(params): Query<PedigreeExpandQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    use crate::service::pedigrees::Expansion;
     use oxidgene_core::projection::PedigreeDirection;
 
     let direction = match params.direction.as_str() {
@@ -200,27 +199,18 @@ pub async fn expand_pedigree(
         }
     };
 
-    if params.to_depth <= params.from_depth {
-        return Err(ApiError(oxidgene_core::error::OxidGeneError::Validation(
-            format!(
-                "to_depth ({}) must be greater than from_depth ({})",
-                params.to_depth, params.from_depth
-            ),
-        )));
-    }
-
-    let delta = state
-        .profiles
-        .expand_pedigree(
-            tree_id,
-            root_person_id,
+    let delta = crate::service::pedigrees::expand_pedigree(
+        &state.profiles,
+        tree_id,
+        root_person_id,
+        Expansion {
             direction,
-            params.from_depth,
-            params.to_depth,
-            params.other_depth,
-        )
-        .await
-        .map_err(ApiError)?;
+            from_depth: params.from_depth.into(),
+            to_depth: params.to_depth.into(),
+            other_depth: params.other_depth.into(),
+        },
+    )
+    .await?;
 
     Ok(Json(serde_json::to_value(delta).unwrap()))
 }

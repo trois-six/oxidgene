@@ -1459,3 +1459,71 @@ async fn job_status_reads_alike_on_both_surfaces() {
     .await;
     assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
 }
+
+// ── Pedigrees ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn pedigree_depths_are_bounded_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Pedigree").await;
+    let root = common::new_person(&app, &tree_id).await;
+
+    // Within the limit, both answer.
+    common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/pedigree/{root}?ancestor_depth=10&descendant_depth=0"),
+        None,
+    )
+    .await;
+    common::gql_ok(
+        &app,
+        "query($t: ID!, $r: ID!) { pedigree(treeId: $t, rootPersonId: $r, ancestorDepth: 10, descendantDepth: 0) { ancestorDepthLoaded } }",
+        json!({ "t": tree_id, "r": root }),
+    )
+    .await;
+
+    // Past it, or negative, both refuse.
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/pedigree/{root}?ancestor_depth=11&descendant_depth=0"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/pedigrees"),
+        Some(json!({ "root_person_ids": [root], "ancestor_depth": 2, "descendant_depth": 11 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send(
+        &app,
+        Method::PATCH,
+        &format!(
+            "/api/v1/trees/{tree_id}/pedigree/{root}/expand?direction=ancestors&from_depth=2&to_depth=11"
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let vars = json!({ "t": tree_id, "r": root });
+    for operation in [
+        "query($t: ID!, $r: ID!) { pedigree(treeId: $t, rootPersonId: $r, ancestorDepth: -1, descendantDepth: 0) { ancestorDepthLoaded } }",
+        "query($t: ID!, $r: ID!) { pedigree(treeId: $t, rootPersonId: $r, ancestorDepth: 11, descendantDepth: 0) { ancestorDepthLoaded } }",
+        "query($t: ID!, $r: ID!) { pedigrees(treeId: $t, rootPersonIds: [$r], ancestorDepth: 2, descendantDepth: -3) { rootPersonId } }",
+        "mutation($t: ID!, $r: ID!) { expandPedigree(treeId: $t, rootPersonId: $r, direction: ANCESTORS, fromDepth: 2, toDepth: 11) { ancestorDepthLoaded } }",
+        "mutation($t: ID!, $r: ID!) { expandPedigree(treeId: $t, rootPersonId: $r, direction: ANCESTORS, fromDepth: -2, toDepth: 3) { ancestorDepthLoaded } }",
+    ] {
+        let response = gql(&app, operation, vars.clone()).await;
+        assert_eq!(
+            gql_error_code(&response),
+            "VALIDATION_ERROR",
+            "{operation}: {response}"
+        );
+    }
+}

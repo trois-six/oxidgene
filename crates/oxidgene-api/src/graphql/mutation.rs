@@ -9,6 +9,7 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self};
 use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
+use crate::service::pedigrees::Expansion;
 use crate::service::scope::{begin_tx, commit_tx};
 use crate::service::{
     duplicates, event, family, family_names, media, media_link, person, person_name, place, source,
@@ -1304,23 +1305,21 @@ impl MutationRoot {
         let tid = live_tree(ctx, &tree_id).await?;
         let rid = uuid(&root_person_id)?;
 
-        if to_depth <= from_depth {
-            return Err(async_graphql::Error::new(format!(
-                "toDepth ({to_depth}) must be greater than fromDepth ({from_depth})"
-            )));
-        }
-
-        let dir: oxidgene_core::projection::PedigreeDirection = direction.into();
-        let delta = profiles
-            .expand_pedigree(
-                tid,
-                rid,
-                dir,
-                from_depth.max(0) as u32,
-                to_depth.max(0) as u32,
-                other_depth.max(0) as u32,
-            )
-            .await?;
+        // Boxed: the expansion assembles two pedigrees, and inlining that
+        // future into the mutation root's pushed the compiler's Send check
+        // past its recursion limit (rust-lang/rust#159228).
+        let delta = Box::pin(crate::service::pedigrees::expand_pedigree(
+            profiles,
+            tid,
+            rid,
+            Expansion {
+                direction: direction.into(),
+                from_depth: from_depth.into(),
+                to_depth: to_depth.into(),
+                other_depth: other_depth.into(),
+            },
+        ))
+        .await?;
         Ok(delta.into())
     }
 }
