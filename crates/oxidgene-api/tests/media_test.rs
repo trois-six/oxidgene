@@ -1008,6 +1008,38 @@ async fn a_vignette_serves_the_cropped_region_as_its_own_image() {
     assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
     let cropped = image::load_from_memory(&bytes).expect("crop decodes");
     assert_eq!((cropped.width(), cropped.height()), (320, 240));
+
+    // A reload revalidates instead of cutting the scan again.
+    let etag = headers[header::ETAG].to_str().unwrap().to_string();
+    let (status, _, bytes) = raw(
+        &h.app,
+        &format!("/api/v1/trees/{}/vignettes/{id}/image", h.tree_id),
+        &[(header::IF_NONE_MATCH, &etag)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_MODIFIED);
+    assert!(bytes.is_empty());
+
+    // Moving the rectangle changes the picture, and so its validator.
+    let (status, _) = send(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/vignettes/{id}", h.tree_id),
+        Some(json!({"x": 0, "y": 0, "width": 700, "height": 560})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, headers, bytes) = raw(
+        &h.app,
+        &format!("/api/v1/trees/{}/vignettes/{id}/image", h.tree_id),
+        &[(header::IF_NONE_MATCH, &etag)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_ne!(headers[header::ETAG].to_str().unwrap(), etag);
+    // A crop wider than a thumbnail is sent at thumbnail size.
+    let cropped = image::load_from_memory(&bytes).expect("crop decodes");
+    assert_eq!((cropped.width(), cropped.height()), (400, 320));
 }
 
 #[tokio::test]
@@ -2372,6 +2404,81 @@ async fn image_sources_resolve_to_inline_data_in_one_request() {
         slots[2].is_null(),
         "a picture we do not hold draws nothing: {body}"
     );
+}
+
+/// Counts the SQL statements SeaORM runs, as `query_scaling_test` does.
+struct StatementCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for StatementCounter {
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        _id: &tracing::span::Id,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if attributes.metadata().name().starts_with("sea_orm.") {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+/// A screen's pictures are read from the database in a fixed number of
+/// statements, however many there are — it used to be one or two per
+/// picture, up to 2,048 for a full batch.
+#[tokio::test]
+async fn image_data_reads_its_records_in_batches_not_per_picture() {
+    use std::sync::atomic::Ordering;
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+
+    let h = setup().await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let mut sources = Vec::new();
+    for index in 0..8 {
+        let (status, page) = upload(
+            &h.app,
+            h.tree_id,
+            &[("file", Some("scan.png"), &png(40 + index, 30))],
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{page}");
+        let media_id = page["id"].as_str().unwrap().to_string();
+        let (_, vignette) = send(
+            &h.app,
+            Method::POST,
+            &format!("{base}/media/{media_id}/vignettes"),
+            Some(json!({"x": 1, "y": 1, "width": 10, "height": 10})),
+        )
+        .await;
+        sources.push(json!({ "kind": "thumbnail", "media_id": media_id }));
+        sources.push(json!({ "kind": "crop", "vignette_id": vignette["id"] }));
+    }
+
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(std::sync::Arc::clone(&counter)))
+        .set_default();
+    let mut counts = Vec::new();
+    for batch in [&sources[..2], &sources[..]] {
+        counter.store(0, Ordering::Relaxed);
+        let (status, body) = send(
+            &h.app,
+            Method::POST,
+            &format!("{base}/image-data"),
+            Some(json!({ "sources": batch })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let slots = body.as_array().expect("array response");
+        assert!(
+            slots
+                .iter()
+                .all(|slot| slot.as_str().is_some_and(|s| s.starts_with("data:image/"))),
+            "{body}"
+        );
+        counts.push(counter.load(Ordering::Relaxed));
+    }
+    assert_eq!(counts[0], counts[1], "statements for 2 and 16 pictures");
 }
 
 /// A remote page carrying a region of somebody, ready to be read back.

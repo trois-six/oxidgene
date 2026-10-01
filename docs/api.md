@@ -553,7 +553,7 @@ A vignette is a rectangle on a stored media file — one parish-register page ca
 | `GET` | `/trees/{tree_id}/vignettes/{vignette_id}` | Get one |
 | `PUT` | `/trees/{tree_id}/vignettes/{vignette_id}` | Move or re-attribute. The four rectangle fields travel together — all or none |
 | `DELETE` | `/trees/{tree_id}/vignettes/{vignette_id}` | Delete it. Hard delete; the media is untouched |
-| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read. A request decodes at most 128 MiB of pixels: a larger JPEG is decoded at ½, ¼ or ⅛ scale and the vignette comes back that much smaller, and any other image that large is cut from its stored thumbnail (`400` without one). `400` for a PDF — rasterising one needs a rendering engine OxidGene does not ship |
+| `GET` | `/trees/{tree_id}/vignettes/{vignette_id}/image` | The cropped region as its own JPEG, derived on read and scaled down to fit the 400-pixel thumbnail box: a crop is only ever drawn as a thumbnail. A request decodes at most 128 MiB of pixels: a larger JPEG is decoded at ½, ¼ or ⅛ scale and the vignette comes back that much smaller, and any other image that large is cut from its stored thumbnail (`400` without one). It carries an `ETag` derived from the source file's digest and the rectangle, and answers `If-None-Match` with `304`. `400` for a PDF — rasterising one needs a rendering engine OxidGene does not ship |
 
 Creation and updates require a page, never a document shell (`400`), and a live
 parent document. Person/event attributions must be live records in the page's

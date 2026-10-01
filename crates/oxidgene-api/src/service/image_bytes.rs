@@ -11,12 +11,14 @@
 //! Doing that one picture at a time is a request per portrait on a pedigree,
 //! which is what this exists to avoid: it answers for a whole screen at once.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use base64::Engine as _;
 use futures_util::{StreamExt as _, stream};
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::types::ImageSource;
+use oxidgene_core::collections::sorted_unique;
+use oxidgene_core::types::{ImageSource, Media, Vignette};
 use oxidgene_db::repo::{MediaRepo, VignetteRepo};
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
@@ -48,10 +50,17 @@ pub async fn load_image_data_urls(
         )));
     }
 
-    let mut resolved = stream::iter(sources.iter().cloned().enumerate())
-        .map(|(index, source)| {
+    let reads = plan_reads(db, tree_id, sources).await?;
+    let mut resolved = stream::iter(reads.into_iter().enumerate())
+        .map(|(index, read)| {
             let store = Arc::clone(store);
-            async move { (index, load_one(db, &store, tree_id, source).await) }
+            async move {
+                let data = match read {
+                    Some(read) => read.load(&store).await,
+                    None => None,
+                };
+                (index, data)
+            }
         })
         .buffer_unordered(BLOB_READ_CONCURRENCY)
         .collect::<Vec<_>>()
@@ -60,57 +69,103 @@ pub async fn load_image_data_urls(
     Ok(resolved.into_iter().map(|(_, data)| data).collect())
 }
 
-async fn load_one(
-    db: &DatabaseConnection,
-    store: &Arc<dyn MediaStore>,
-    tree_id: Uuid,
-    source: ImageSource,
-) -> Option<String> {
-    match source {
-        // We never proxy somebody else's bandwidth: the client already has the
-        // address and fetches it directly.
-        ImageSource::Remote { .. } => None,
-        ImageSource::Thumbnail { media_id } => load_thumbnail(db, store, tree_id, media_id).await,
-        ImageSource::Crop { vignette_id } => load_crop(db, store, tree_id, vignette_id).await,
+/// What producing one picture takes: a stored blob, and for a crop the
+/// rectangle to cut out of it.
+enum BlobRead {
+    Thumbnail {
+        key: String,
+    },
+    /// A held, drawable medium (its storage key known) and the rectangle.
+    Crop {
+        medium: Box<Media>,
+        rect: (i32, i32, i32, i32),
+    },
+}
+
+impl BlobRead {
+    async fn load(self, store: &Arc<dyn MediaStore>) -> Option<String> {
+        match self {
+            Self::Thumbnail { key } => {
+                let bytes = store.get(&key).await.ok()?;
+                // `ingest` only ever writes `jpg` or `png`, and the key says
+                // which.
+                let mime_type = if key.ends_with(".png") {
+                    "image/png"
+                } else {
+                    "image/jpeg"
+                };
+                Some(data_url(mime_type, &bytes))
+            }
+            Self::Crop { medium, rect } => {
+                let key = medium.storage_key.as_deref()?;
+                let cropped = crate::media::cut_vignette(&**store, &medium, key, rect)
+                    .await
+                    .ok()?;
+                Some(data_url("image/jpeg", &cropped))
+            }
+        }
     }
 }
 
-/// Medium `media_id`'s thumbnail, as a data URL.
-async fn load_thumbnail(
+/// The blob each source needs, in request order, read from the database in
+/// two batches — the vignettes, then every medium named — rather than one or
+/// two queries per picture. `None` where nothing can be drawn: a remote
+/// source (we never proxy somebody else's bandwidth; the client fetches it
+/// itself), a record that is gone or of another tree, a medium without the
+/// file a picture needs.
+async fn plan_reads(
     db: &DatabaseConnection,
-    store: &Arc<dyn MediaStore>,
     tree_id: Uuid,
-    media_id: Uuid,
-) -> Option<String> {
-    let media = MediaRepo::get(db, media_id).await.ok()?;
-    let key = media.thumbnail_key.filter(|_| media.tree_id == tree_id)?;
-    let bytes = store.get(&key).await.ok()?;
-    // `ingest` only ever writes `jpg` or `png`, and the key says which.
-    let mime_type = if key.ends_with(".png") {
-        "image/png"
-    } else {
-        "image/jpeg"
-    };
-    Some(data_url(mime_type, &bytes))
-}
+    sources: &[ImageSource],
+) -> Result<Vec<Option<BlobRead>>, OxidGeneError> {
+    let vignette_ids = sorted_unique(sources.iter().filter_map(|source| match source {
+        ImageSource::Crop { vignette_id } => Some(*vignette_id),
+        _ => None,
+    }));
+    let vignettes: HashMap<Uuid, Vignette> = VignetteRepo::get_many(db, &vignette_ids)
+        .await?
+        .into_iter()
+        .map(|vignette| (vignette.id, vignette))
+        .collect();
+    let media_ids = sorted_unique(
+        sources
+            .iter()
+            .filter_map(|source| match source {
+                ImageSource::Thumbnail { media_id } => Some(*media_id),
+                _ => None,
+            })
+            .chain(vignettes.values().map(|vignette| vignette.media_id)),
+    );
+    let media: HashMap<Uuid, Media> = MediaRepo::get_many(db, &media_ids)
+        .await?
+        .into_iter()
+        .filter(|media| media.tree_id == tree_id)
+        .map(|media| (media.id, media))
+        .collect();
 
-/// Vignette `vignette_id` cut out of its medium, as a data URL.
-async fn load_crop(
-    db: &DatabaseConnection,
-    store: &Arc<dyn MediaStore>,
-    tree_id: Uuid,
-    vignette_id: Uuid,
-) -> Option<String> {
-    let vignette = VignetteRepo::get(db, vignette_id).await.ok()?;
-    let media = MediaRepo::get(db, vignette.media_id).await.ok()?;
-    let drawable =
-        media.tree_id == tree_id && crate::media::thumbnail::can_thumbnail(&media.mime_type);
-    let key = media.storage_key.as_deref().filter(|_| drawable)?;
-    let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
-    let cropped = crate::media::cut_vignette(&**store, &media, key, rect)
-        .await
-        .ok()?;
-    Some(data_url("image/jpeg", &cropped))
+    Ok(sources
+        .iter()
+        .map(|source| match source {
+            ImageSource::Remote { .. } => None,
+            ImageSource::Thumbnail { media_id } => {
+                let key = media.get(media_id)?.thumbnail_key.clone()?;
+                Some(BlobRead::Thumbnail { key })
+            }
+            ImageSource::Crop { vignette_id } => {
+                let vignette = vignettes.get(vignette_id)?;
+                let medium = media.get(&vignette.media_id)?;
+                if !crate::media::thumbnail::can_thumbnail(&medium.mime_type)
+                    || medium.storage_key.is_none()
+                {
+                    return None;
+                }
+                Some(BlobRead::Crop {
+                    medium: Box::new(medium.clone()),
+                    rect: (vignette.x, vignette.y, vignette.width, vignette.height),
+                })
+            }
+        })
+        .collect())
 }
 
 fn data_url(mime_type: &str, bytes: &[u8]) -> String {

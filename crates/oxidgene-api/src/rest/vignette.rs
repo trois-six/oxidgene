@@ -4,7 +4,7 @@
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
+use axum::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
@@ -105,6 +105,7 @@ pub async fn delete_vignette(
 pub async fn vignette_image(
     State(state): State<AppState>,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
+    request_headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     require_tree_resource(&state.reader, tree_id, TreeResource::Vignette, vignette_id).await?;
     let vignette = VignetteRepo::get(&state.reader, vignette_id).await?;
@@ -123,10 +124,28 @@ pub async fn vignette_image(
         ))));
     }
 
+    // The crop is a function of the source bytes and the rectangle alone, so
+    // those make a strong validator: a reload answers 304 without reading or
+    // cutting the original again.
     let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
+    let etag = media
+        .sha256
+        .as_deref()
+        .map(|digest| crop_etag(digest, rect));
+    if let (Some(etag), Some(requested)) = (&etag, request_headers.get(IF_NONE_MATCH))
+        && requested
+            .to_str()
+            .is_ok_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
+    {
+        return Ok(StatusCode::NOT_MODIFIED.into_response());
+    }
+
     let cropped = crate::media::cut_vignette(&*state.media, &media, key, rect).await?;
 
     let mut headers = HeaderMap::new();
+    if let Some(etag) = etag {
+        headers.insert(ETAG, super::media::header_value(&etag));
+    }
     headers.insert(CONTENT_TYPE, super::media::header_value("image/jpeg"));
     headers.insert(
         CONTENT_LENGTH,
@@ -139,4 +158,11 @@ pub async fn vignette_image(
         super::media::header_value("private, max-age=300"),
     );
     Ok((headers, Body::from(cropped)).into_response())
+}
+
+/// The validator of a crop: the source's content digest, the rectangle, and
+/// the size crops are sent at, which changes the bytes when it changes.
+fn crop_etag(source_sha256: &str, (x, y, width, height): (i32, i32, i32, i32)) -> String {
+    let edge = crate::media::thumbnail::THUMBNAIL_MAX_EDGE;
+    format!("\"{source_sha256}-{x}.{y}.{width}.{height}-{edge}\"")
 }

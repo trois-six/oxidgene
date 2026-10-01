@@ -292,6 +292,15 @@ fn encode_crop(
     (x, y, width, height): (u32, u32, u32, u32),
 ) -> Result<Vec<u8>, OxidGeneError> {
     let cropped = DynamicImage::crop_imm(image, x, y, width, height);
+    // A crop is only ever drawn as a thumbnail — a portrait on a card, a tile
+    // in a gallery — so it is sent at thumbnail size. A face marked on a
+    // high-resolution scan can be two thousand pixels wide, and shipping that
+    // for a sixty-pixel card cost the bytes and the client's decoding.
+    let cropped = if cropped.width() > THUMBNAIL_MAX_EDGE || cropped.height() > THUMBNAIL_MAX_EDGE {
+        cropped.thumbnail(THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE)
+    } else {
+        cropped
+    };
 
     let encode = tracing::info_span!("media.encode", media.output_bytes = tracing::field::Empty);
     let _entered = encode.enter();
@@ -561,5 +570,20 @@ mod tests {
                 "{name} under {parent}: {spans:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_crop_is_sent_at_thumbnail_size_and_a_small_one_as_it_is() {
+        let large = crop(&jpeg(1200, 900), (100, 50, 1000, 800))
+            .expect("crop")
+            .expect("small enough to crop whole");
+        assert_eq!(
+            dimensions(&large),
+            Some((THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE * 800 / 1000))
+        );
+        let small = crop(&jpeg(64, 48), (8, 8, 16, 12))
+            .expect("crop")
+            .expect("small enough to crop whole");
+        assert_eq!(dimensions(&small), Some((16, 12)));
     }
 }
