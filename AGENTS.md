@@ -211,5 +211,5 @@ validation described under Git and delivery.
 
 ## Assets
 
-The application logo is available as `assets/OxidGene.png` and
-`assets/OxidGene.svg`.
+The application logo is available as `assets/brand/OxidGene.png` and
+`assets/brand/OxidGene.svg`.

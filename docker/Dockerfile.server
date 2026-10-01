@@ -12,6 +12,8 @@ COPY crates/ crates/
 COPY apps/ apps/
 # Embedded into the API at build time (see docs/place-dictionary.md).
 COPY assets/places/ assets/places/
+COPY assets/basemap/ assets/basemap/
+COPY assets/reference/ assets/reference/
 
 RUN cargo build --locked --release --package oxidgene-server
 

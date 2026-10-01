@@ -3,12 +3,12 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:20:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:16:14Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
 
-![OxidGene](../assets/OxidGene.png)
+![OxidGene](../assets/brand/OxidGene.png)
 
 How to get a Geneanet tree **with its photos** into OxidGene, when neither
 Geneanet export carries the link between the two.

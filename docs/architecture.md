@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T14:23:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:16:14Z }
 ---
 
 
@@ -245,7 +245,7 @@ raw scans.
 Data built into the backend is Brotli-compressed, at quality 11 with a
 16 MiB window, and decompressed once in memory when first needed:
 
-- the reference sheets (`oxidgene-api/src/reference/data/*.json`) and the
+- the reference sheets (`assets/reference/*.json`) and the
     OpenAPI document, compressed by `oxidgene-api`'s build script so the JSON
     sources stay plain in git;
 - the [place dictionary](place-dictionary.md), committed already compressed
@@ -420,7 +420,15 @@ oxidgene/
 ├── Cargo.toml              # Workspace root
 ├── justfile                # Build orchestration
 ├── README.md               # Global README
-├── assets/                 # Logos, screenshots, generated reference data
+├── assets/                 # Every asset the crates and apps embed or ship
+│   ├── brand/              # Logo (PNG, SVG, embedded base64), social preview
+│   ├── screenshots/        # README screenshots
+│   ├── desktop/            # Desktop icon and Windows resource script
+│   ├── themes/             # Shipped UI themes (JSON)
+│   ├── portraits/          # Default portrait silhouettes
+│   ├── reference/          # Occupation and given-name reference sheets
+│   ├── places/             # Place dictionary (generated, Brotli)
+│   └── basemap/            # Statistics map country outlines (generated, Brotli)
 ├── docs/                   # Specifications (this directory)
 ├── crates/
 │   ├── oxidgene-core/      # Domain types, enums, error types

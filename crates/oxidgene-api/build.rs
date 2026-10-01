@@ -39,7 +39,7 @@ const DATA_FILES: &[&str] = &[
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let out_dir = std::env::var("OUT_DIR").unwrap();
-    let data_dir = Path::new(&manifest_dir).join("src/reference/data");
+    let data_dir = Path::new(&manifest_dir).join("../../assets/reference");
 
     for file_name in DATA_FILES {
         let src_path = data_dir.join(file_name);

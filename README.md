@@ -1,7 +1,7 @@
 # OxidGene
 
 <p align="center">
-	<img src="assets/OxidGene.png" alt="OxidGene Logo" width="300">
+	<img src="assets/brand/OxidGene.png" alt="OxidGene Logo" width="300">
 </p>
 
 A modern, high-performance genealogy platform built entirely in Rust.
@@ -14,15 +14,15 @@ the desktop application, the Docker Compose stack, or a Kubernetes deployment.
 <table>
 	<tr>
 		<td rowspan="2" width="68%">
-			<img src="assets/screenshot2.png" alt="OxidGene interactive genealogy tree">
+			<img src="assets/screenshots/screenshot2.png" alt="OxidGene interactive genealogy tree">
 		</td>
 		<td width="32%">
-			<img src="assets/screenshot1.png" alt="OxidGene tree dashboard">
+			<img src="assets/screenshots/screenshot1.png" alt="OxidGene tree dashboard">
 		</td>
 	</tr>
 	<tr>
 		<td width="32%">
-			<img src="assets/screenshot3.png" alt="OxidGene person detail page">
+			<img src="assets/screenshots/screenshot3.png" alt="OxidGene person detail page">
 		</td>
 	</tr>
 </table>

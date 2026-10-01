@@ -68,7 +68,7 @@ use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
-const ICON_PNG: &[u8] = include_bytes!("../assets/icon.png");
+const ICON_PNG: &[u8] = include_bytes!("../../../assets/desktop/icon.png");
 
 #[cfg(any(
     target_os = "linux",

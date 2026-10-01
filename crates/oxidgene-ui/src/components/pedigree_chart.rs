@@ -73,15 +73,15 @@ const ZOOM_MAX: f64 = 4.0;
 
 const PORTRAIT_MALE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/portrait_male.b64"
+    "/../../assets/portraits/male.b64"
 ));
 const PORTRAIT_FEMALE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/portrait_female.b64"
+    "/../../assets/portraits/female.b64"
 ));
 const PORTRAIT_UNKNOWN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/portrait_unknown.b64"
+    "/../../assets/portraits/unknown.b64"
 ));
 
 pub(crate) fn default_portrait(sex: Sex) -> &'static str {

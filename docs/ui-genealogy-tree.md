@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:36:05Z }
 ---
 
 
@@ -155,7 +155,7 @@ The card is drawn as SVG primitives inside one `<g>`; the HTML card and its
 **Portrait**:
 - 50×50px, square in the classic theme; shape, size, and whether a mat is
   painted behind it are set by the theme
-- Displays a **default portrait silhouette** when no profile photo is available, chosen by gender: male (`portrait_male.png`), female (`portrait_female.png`), unknown (`portrait_unknown.png`) — embedded as data URIs in the binary
+- Displays a **default portrait silhouette** when no profile photo is available, chosen by gender: male, female or unknown (`assets/portraits/`) — embedded as data URIs in the binary
 - When a profile photo is available it replaces the default portrait with `object-fit: cover`
 - **SOSA badge**: a 15px disc at the portrait's **bottom-right corner**. An
   ancestor of SOSA 1 gets `var(--pn-sosa)` with a ring cut out of it; SOSA 1

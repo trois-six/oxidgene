@@ -11,8 +11,10 @@ use crate::i18n;
 use crate::router::Route;
 
 /// Logo PNG embedded at compile time (64×64 resize).
-pub const LOGO_PNG_B64: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/logo_64.b64"));
+pub const LOGO_PNG_B64: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/brand/logo_64.b64"
+));
 
 /// Stop a resized `<textarea>` from stranding its own text.
 ///

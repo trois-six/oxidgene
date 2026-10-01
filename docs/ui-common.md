@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:43:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:36:05Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -89,7 +89,7 @@ component geometry are the same under every theme: switching theme repaints
 the application, it never relayouts it.
 
 Themes are JSON documents. The shipped set is whatever
-`crates/oxidgene-ui/assets/themes/` holds, listed in the order
+`assets/themes/` holds, listed in the order
 `BUILTIN_SOURCES` declares; `light` comes first and is the only complete one,
 and every other theme resolves from an earlier entry. Adding or removing one
 is a matter of a file and a line, and is not tracked here.

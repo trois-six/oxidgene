@@ -421,23 +421,32 @@ pub fn parse_custom_theme(source: &str) -> Result<Theme, ThemeError> {
     parse_theme(source, false, &BUILTIN_THEMES)
 }
 
+/// The JSON of a theme shipped in the repository's `assets/themes/`.
+macro_rules! shipped_theme {
+    ($id:literal) => {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../assets/themes/",
+            $id,
+            ".json"
+        ))
+    };
+}
+
 /// The shipped themes, in picker order.
 ///
 /// A theme may only inherit from one listed before it — `dark` from `light`,
 /// and the three palettes from `dark` — so the order here is the resolution
 /// order as well as the order they appear in.
 const BUILTIN_SOURCES: &[(&str, &str)] = &[
-    ("light", include_str!("../assets/themes/light.json")),
-    ("dark", include_str!("../assets/themes/dark.json")),
-    ("geneanet", include_str!("../assets/themes/geneanet.json")),
-    ("solarized", include_str!("../assets/themes/solarized.json")),
-    ("nord", include_str!("../assets/themes/nord.json")),
-    ("omarchy", include_str!("../assets/themes/omarchy.json")),
-    ("ayu", include_str!("../assets/themes/ayu.json")),
-    (
-        "catppuccin",
-        include_str!("../assets/themes/catppuccin.json"),
-    ),
+    ("light", shipped_theme!("light")),
+    ("dark", shipped_theme!("dark")),
+    ("geneanet", shipped_theme!("geneanet")),
+    ("solarized", shipped_theme!("solarized")),
+    ("nord", shipped_theme!("nord")),
+    ("omarchy", shipped_theme!("omarchy")),
+    ("ayu", shipped_theme!("ayu")),
+    ("catppuccin", shipped_theme!("catppuccin")),
 ];
 
 /// The id used when nothing is stored, and when a stored id no longer exists.

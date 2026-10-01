@@ -3,11 +3,11 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: human:maintainer, at: 2026-09-15T00:00:00Z }
+generated: { by: human:maintainer, at: 2026-10-01T19:16:14Z }
 ---
 
 
-![OxidGene](../assets/OxidGene.png)
+![OxidGene](../assets/brand/OxidGene.png)
 
 # General — Vision, Users & Features
 

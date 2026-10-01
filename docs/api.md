@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T14:23:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:36:05Z }
 ---
 
 
@@ -1052,7 +1052,7 @@ name as written in one language, masculine and feminine apart: Jean,
 Jeanne, Johann and Giovanni are four sheets, each with its own saint and
 feast day, while spellings, diminutives and Latin forms met in records
 (Jehan, Joannes) are aliases of one of them. Source content lives in
-`oxidgene-api/src/reference/data/*.json`, one file per language and data type,
+`assets/reference/*.json`, one file per language and data type,
 is Brotli-compressed at build time ([Architecture §7.1](architecture.md)), and is decompressed and indexed once in memory —
 warmed at server and desktop startup so no request pays for it.
 
