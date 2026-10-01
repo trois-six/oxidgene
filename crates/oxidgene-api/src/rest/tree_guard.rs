@@ -12,12 +12,23 @@
 //!
 //! One indexed primary-key lookup per tree-scoped request, applied in one
 //! place instead of repeated across fifteen handlers.
+//!
+//! One request skips it: polling the status of a job this process is running.
+//! On SQLite such a job may hold the database's only connection for its whole
+//! write transaction, and the status handler answers from the job's
+//! in-memory progress precisely so that the poll does not wait for it — a
+//! lookup here would make it wait anyway. That answer carries only the job's
+//! own phase and counters; once the job ends, the poll goes through the
+//! lookup again, and a tree deleted meanwhile answers `404`.
 
 use axum::extract::{Request, State};
+use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use oxidgene_db::repo::TreeRepo;
+use oxidgene_db::repo::{BackgroundJobKind, TreeRepo};
 use uuid::Uuid;
+
+use crate::service::background_job::live_job_progress;
 
 use super::error::ApiError;
 use super::state::AppState;
@@ -33,10 +44,13 @@ pub async fn require_live_tree(
     req: Request,
     next: Next,
 ) -> Response {
-    let first_segment = req.uri().path().trim_start_matches('/');
-    let first_segment = first_segment.split('/').next().unwrap_or_default();
+    let mut segments = req.uri().path().trim_start_matches('/').split('/');
+    let first_segment = segments.next().unwrap_or_default();
 
     if let Ok(tree_id) = Uuid::parse_str(first_segment) {
+        if req.method() == Method::GET && is_running_job_status(tree_id, segments) {
+            return next.run(req).await;
+        }
         // `get` already filters on `deleted_at`, so a soft-deleted tree is a
         // NotFound here just as it is in the tree list. Reusing `ApiError`
         // keeps the body identical to the one the handlers produce.
@@ -52,4 +66,68 @@ pub async fn require_live_tree(
     }
 
     next.run(req).await
+}
+
+/// Whether the path after the tree id, `rest`, is the status of a job of
+/// that tree this process is running: `import-jobs/{id}` or
+/// `export-jobs/{id}`, with nothing after the id.
+fn is_running_job_status<'a>(tree_id: Uuid, mut rest: impl Iterator<Item = &'a str>) -> bool {
+    let kind = match rest.next() {
+        Some("import-jobs") => BackgroundJobKind::Import,
+        Some("export-jobs") => BackgroundJobKind::Export,
+        _ => return false,
+    };
+    let Some(Ok(job_id)) = rest.next().map(Uuid::parse_str) else {
+        return false;
+    };
+    rest.next().is_none() && live_job_progress(tree_id, job_id, kind).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use oxidgene_db::repo::{BackgroundJobKind, TreeRepo, run_migrations};
+    use sea_orm::{ConnectOptions, Database, TransactionTrait};
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    use crate::service::background_job::LiveJobGuard;
+    use crate::{AppState, build_router};
+
+    #[tokio::test]
+    async fn a_running_job_status_does_not_wait_for_the_database() {
+        let mut options = ConnectOptions::new("sqlite::memory:");
+        options.max_connections(1);
+        let db = Database::connect(options).await.expect("connects");
+        run_migrations(&db).await.expect("migrates");
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(&db, tree_id, "Guard Fixture".into(), None)
+            .await
+            .expect("creates tree");
+        let media_root = tempfile::tempdir().expect("creates media root");
+        let app = build_router(AppState::new(db.clone(), media_root.path()));
+
+        for (segment, kind) in [
+            ("import-jobs", BackgroundJobKind::Import),
+            ("export-jobs", BackgroundJobKind::Export),
+        ] {
+            let job_id = Uuid::now_v7();
+            let _live_job = LiveJobGuard::for_test(job_id, tree_id, kind);
+            // As an import holds it for its whole write transaction.
+            let held = db.begin().await.expect("holds the only connection");
+            let request = Request::get(format!("/api/v1/trees/{tree_id}/{segment}/{job_id}"))
+                .body(Body::empty())
+                .unwrap();
+            let response =
+                tokio::time::timeout(Duration::from_secs(2), app.clone().oneshot(request))
+                    .await
+                    .expect("the status poll does not wait for the connection")
+                    .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{segment}");
+            held.rollback().await.unwrap();
+        }
+    }
 }

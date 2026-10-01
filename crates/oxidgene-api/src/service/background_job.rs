@@ -60,11 +60,31 @@ pub(crate) fn live_job_progress(
     })
 }
 
-struct LiveJobGuard {
+pub(crate) struct LiveJobGuard {
     job_id: Uuid,
 }
 
 impl LiveJobGuard {
+    /// Registers a running job of `kind` in `tree_id` at its start.
+    #[cfg(test)]
+    pub(crate) fn for_test(job_id: Uuid, tree_id: Uuid, kind: BackgroundJobKind) -> Self {
+        if let Ok(mut jobs) = live_jobs().lock() {
+            jobs.insert(
+                job_id,
+                LiveJob {
+                    tree_id,
+                    kind: kind.as_str().to_string(),
+                    progress: LiveJobProgress {
+                        phase: "staging".to_string(),
+                        done: 0,
+                        total: 0,
+                    },
+                },
+            );
+        }
+        Self { job_id }
+    }
+
     fn new(job: &BackgroundJob) -> Self {
         if let Ok(mut jobs) = live_jobs().lock() {
             jobs.insert(
