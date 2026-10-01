@@ -2024,6 +2024,29 @@ impl ApiError {
             body: i18n.t("common.invalid_ids"),
         }
     }
+
+    /// A stable category for logs and spans.
+    ///
+    /// The error's message is no such thing: a transport error names the URL
+    /// it failed on and an API error carries the server's answer, either of
+    /// which can hold identifiers or searched values.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Http(_) => "http",
+            Self::Json(_) => "json",
+            Self::Io(_) => "io",
+            Self::Api { .. } => "api",
+        }
+    }
+
+    /// The HTTP status the request ended with, when it got one.
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            Self::Http(error) => error.status().map(|status| status.as_u16()),
+            Self::Api { status, .. } => Some(*status),
+            Self::Json(_) | Self::Io(_) => None,
+        }
+    }
 }
 
 /// Starts the browser save picker during the click, before any network awaits.
@@ -2065,10 +2088,55 @@ impl Drop for BrowserDownload {
     }
 }
 
-/// The path a request is logged under: never its query, which can carry
-/// searched names.
-fn log_path(cache_key: &str) -> &str {
-    cache_key.split('?').next().unwrap_or(cache_key)
+/// The route a request is logged and traced under: its path without the
+/// query, which can carry searched names, and with every identifier — a UUID
+/// or a number — replaced by `{id}`.
+///
+/// Spans name the endpoint so a trace says which request it waited on, but
+/// an identifier is genealogy rather than routing metadata, and would also
+/// give every person a span name of their own. The paths this client builds
+/// hold no other values: the rest are fixed segments and language codes.
+fn route_template(path: &str) -> String {
+    path.split('?')
+        .next()
+        .unwrap_or(path)
+        .split('/')
+        .map(|segment| {
+            let is_number = !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_digit());
+            if is_number || Uuid::parse_str(segment).is_ok() {
+                "{id}"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Takes `gate`, inside a span when another request for `cache_key` holds
+/// it: that wait is where a coalesced request spends its time.
+async fn wait_for_gate<'a>(
+    gate: &'a futures_util::lock::Mutex<()>,
+    cache_key: &str,
+) -> futures_util::lock::MutexGuard<'a, ()> {
+    if let Some(guard) = gate.try_lock() {
+        return guard;
+    }
+    #[cfg(feature = "telemetry-client")]
+    {
+        let route = route_template(cache_key);
+        let span = tracing::info_span!(
+            "ui.request.wait",
+            otel.name = %format!("wait for GET {route}"),
+            http.route = %route,
+        );
+        gate.lock().instrument(span).await
+    }
+    #[cfg(not(feature = "telemetry-client"))]
+    {
+        let _ = cache_key;
+        gate.lock().await
+    }
 }
 
 impl ApiClient {
@@ -2224,15 +2292,22 @@ impl ApiClient {
         method: &'static str,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, reqwest::Error> {
+        let (mut request, backend) = self.prepare(request)?;
+        // A request to the backend is named by its route; a remote download
+        // only by its method, its address being none of the trace's business.
+        let route = backend.then(|| route_template(request.url().path()));
+        let name = route
+            .as_ref()
+            .map_or_else(|| method.to_string(), |route| format!("{method} {route}"));
         let span = tracing::info_span!(
             "http.client.request",
-            otel.name = method,
+            otel.name = %name,
             otel.kind = "client",
             http.request.method = method,
+            http.route = route.as_deref(),
             http.response.status_code = tracing::field::Empty,
             otel.status_code = tracing::field::Empty,
         );
-        let (mut request, backend) = self.prepare(request)?;
         if backend {
             global::get_text_map_propagator(|propagator| {
                 propagator
@@ -2295,7 +2370,7 @@ impl ApiClient {
         }
         let result = {
             let gate = self.cache.gate(cache_key);
-            let _guard = gate.lock().await;
+            let _guard = wait_for_gate(&gate, cache_key).await;
             match self.cached(cache_key, true) {
                 Some(val) => Ok(val),
                 None => self.fetch_and_cache(cache_key, request()).await,
@@ -2315,10 +2390,24 @@ impl ApiClient {
         coalesced: bool,
     ) -> Option<T> {
         let cached = self.cache.get(cache_key)?;
+        // A hit sends nothing, so without a span of its own the data would
+        // appear in the trace from nowhere.
+        #[cfg(feature = "telemetry-client")]
+        let val = {
+            let route = route_template(cache_key);
+            let span = tracing::info_span!(
+                "ui.response.cached",
+                otel.name = %format!("GET {route} (cached)"),
+                http.route = %route,
+                ui.request.coalesced = coalesced,
+            );
+            span.in_scope(|| Self::deserialize(&cached)).ok()?
+        };
+        #[cfg(not(feature = "telemetry-client"))]
         let val = Self::deserialize(&cached).ok()?;
         tracing::debug!(
             method = "GET",
-            path = log_path(cache_key),
+            path = route_template(cache_key),
             cached = true,
             coalesced = coalesced.then_some(true),
             "API request completed"
@@ -2391,7 +2480,12 @@ impl ApiClient {
                     .body(body),
             )
             .await?;
-        tracing::debug!(method = "POST", path, bytes, "API binary request sent");
+        tracing::debug!(
+            method = "POST",
+            path = route_template(path),
+            bytes,
+            "API binary request sent"
+        );
         Self::handle_response("POST", resp).await
     }
 
@@ -2429,9 +2523,9 @@ impl ApiClient {
             .await?;
         let status = resp.status();
         Self::require_success(resp).await.inspect_err(|_| {
-            tracing::debug!(method = "DELETE", path, %status, "API request failed");
+            tracing::debug!(method = "DELETE", path = route_template(path), %status, "API request failed");
         })?;
-        tracing::debug!(method = "DELETE", path, %status, "API request completed");
+        tracing::debug!(method = "DELETE", path = route_template(path), %status, "API request completed");
         Ok(status.as_u16())
     }
 
@@ -2487,7 +2581,7 @@ impl ApiClient {
     /// The body of a successful response, logging how the request ended.
     async fn successful_body(method: &str, resp: reqwest::Response) -> Result<Vec<u8>, ApiError> {
         let status = resp.status();
-        let path = resp.url().path().to_string();
+        let path = route_template(resp.url().path());
         let resp = Self::require_success(resp).await.inspect_err(|_| {
             tracing::debug!(method, path, %status, "API request failed");
         })?;
@@ -3686,7 +3780,7 @@ impl ApiClient {
             .send_request("GET", self.client.get(self.url(path)))
             .await?;
         let status = response.status();
-        let path = response.url().path().to_string();
+        let path = route_template(response.url().path());
         let response = Self::require_success(response).await.inspect_err(|_| {
             tracing::debug!(method = "GET", path, %status, "API binary request failed");
         })?;
@@ -3801,7 +3895,12 @@ impl ApiClient {
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(%error, count = chunk.len(), "pictures could not be loaded");
+                    tracing::warn!(
+                        error.kind = error.kind(),
+                        status = error.status(),
+                        count = chunk.len(),
+                        "pictures could not be loaded"
+                    );
                 }
             }
         }
@@ -3889,7 +3988,12 @@ impl ApiClient {
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(%error, count = person_ids.len(), "portrait image batch could not be loaded");
+                    tracing::warn!(
+                        error.kind = error.kind(),
+                        status = error.status(),
+                        count = person_ids.len(),
+                        "portrait image batch could not be loaded"
+                    );
                 }
             }
         }
@@ -4228,7 +4332,11 @@ impl ApiClient {
                     bundle.vignettes.extend(batch.vignettes);
                 }
                 Err(error) => {
-                    tracing::warn!(%error, "gallery bundle could not be loaded");
+                    tracing::warn!(
+                        error.kind = error.kind(),
+                        status = error.status(),
+                        "gallery bundle could not be loaded"
+                    );
                 }
             }
             media_offset = media_end;
@@ -4733,7 +4841,12 @@ impl ApiClient {
                         .map(|entry| (entry.root_person_id, entry.pedigree)),
                 ),
                 Err(error) => {
-                    tracing::warn!(%error, count = roots.len(), "pedigree batch could not be loaded");
+                    tracing::warn!(
+                        error.kind = error.kind(),
+                        status = error.status(),
+                        count = roots.len(),
+                        "pedigree batch could not be loaded"
+                    );
                 }
             }
         }
@@ -4957,12 +5070,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_logged_request_shows_its_path_but_not_its_query() {
+    fn a_logged_request_shows_its_route_but_not_its_query_or_ids() {
+        let tree = Uuid::now_v7();
+        let person = Uuid::now_v7();
         assert_eq!(
-            log_path(r#"/api/v1/trees/t/persons/search?{"q":"Name A"}"#),
-            "/api/v1/trees/t/persons/search"
+            route_template(&format!(
+                r#"/api/v1/trees/{tree}/persons/search?{{"q":"Name A"}}"#
+            )),
+            "/api/v1/trees/{id}/persons/search"
         );
-        assert_eq!(log_path("/api/v1/trees"), "/api/v1/trees");
+        assert_eq!(
+            route_template(&format!("/api/v1/trees/{tree}/persons/{person}/history")),
+            "/api/v1/trees/{id}/persons/{id}/history"
+        );
+        assert_eq!(
+            route_template(&format!("/api/v1/trees/{tree}/persons/sosa/12")),
+            "/api/v1/trees/{id}/persons/sosa/{id}"
+        );
+        assert_eq!(
+            route_template("/api/v1/reference/fr/places"),
+            "/api/v1/reference/fr/places"
+        );
+        assert_eq!(route_template("/api/v1/trees"), "/api/v1/trees");
+    }
+
+    #[test]
+    fn an_error_is_logged_by_its_kind_and_status_only() {
+        let error = ApiError::Api {
+            status: 404,
+            body: r#"{"message":"Name A not found"}"#.to_string(),
+        };
+        assert_eq!(error.kind(), "api");
+        assert_eq!(error.status(), Some(404));
+        let error = ApiError::Json(serde_json::from_str::<u8>("x").unwrap_err());
+        assert_eq!(error.kind(), "json");
+        assert_eq!(error.status(), None);
     }
 
     #[test]

@@ -228,11 +228,14 @@ Never log or commit:
 Use aggregate counts, stable error categories, sanitized extensions, and
 fictitious fixtures. Debug logging does not weaken this rule.
 
-HTTP request spans record the method and aggregate response outcome, never the
-raw URI or query string. Search terms and resource identifiers may be carried
-by either and are therefore treated as genealogy rather than routing metadata.
-Configuration failures likewise log a stable category without echoing the
-rejected value.
+HTTP request spans and logs record the method, the route template and the
+aggregate response outcome, never the raw URI or query string. Search terms and
+resource identifiers may be carried by either and are therefore treated as
+genealogy rather than routing metadata: a route template replaces every
+identifier with `{id}`. A failed request is logged by its error category and
+status, never by the error's message, which can repeat the URL or the server's
+answer. Configuration failures likewise log a stable category without echoing
+the rejected value.
 
 ### 5.4 Operational behavior
 
@@ -295,6 +298,13 @@ rejected value.
   resource settles, `ui.render.stabilize` waits for two browser animation
   frames before closing the load cycle. The stable resource name is also the
   OpenTelemetry display name so trace waterfalls identify each load directly.
+- The typed API client opens one `http.client.request` span per request to
+  the backend, displayed as the method and route template (`GET
+  /api/v1/trees/{id}/persons/{id}`) and recording `http.route`; a remote
+  download is named by its method only. A response served from the client's
+  cache is a `ui.response.cached` span, marked when the request waited for an
+  identical one already in flight, and that wait is a `ui.request.wait` span
+  of its own, so neither looks like data arriving from nowhere.
 - Client response processing separates `ui.response.read` from
   `ui.response.deserialize`. Expensive synchronous transformations use
   `ui.compute`, including pedigree-data construction and layout. These spans
