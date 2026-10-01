@@ -1866,6 +1866,9 @@ pub struct GqlExportJobStatus {
     pub done: i64,
     pub total: i64,
     pub download_url: Option<String>,
+    /// When the archive stops being downloadable, set exactly when
+    /// `download_url` is.
+    pub expires_at: Option<DateTime<Utc>>,
     pub warnings: Vec<String>,
     pub error: Option<String>,
 }
@@ -1892,6 +1895,7 @@ impl From<crate::service::background_job::ExportJobStatus> for GqlExportJobStatu
             done: status.done,
             total: status.total,
             download_url: status.download_url,
+            expires_at: status.expires_at,
             warnings: status.warnings,
             error: status.error,
         }

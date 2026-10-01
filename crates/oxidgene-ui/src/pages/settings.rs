@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, UpdateTreeBody};
 use crate::components::audit_log::AuditLogSection;
+use crate::components::history_diff::format_timestamp;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
@@ -25,12 +26,31 @@ use crate::ui_observability::{
     use_traced_resource, use_ui_load_trace,
 };
 
+/// A completed GEDZIP export, downloadable again until it expires.
+#[derive(Debug, Clone, PartialEq)]
+struct CompletedExport {
+    /// The API path of the archive.
+    download_path: String,
+    /// When the server stops serving it, an hour after completion.
+    expires_at: chrono::DateTime<chrono::Utc>,
+    /// The name the save dialog proposes.
+    file_name: String,
+}
+
+impl CompletedExport {
+    /// Whether the archive can still be downloaded.
+    fn is_live(&self) -> bool {
+        chrono::Utc::now() < self.expires_at
+    }
+}
+
+/// Queue a GEDZIP export and wait for it: its download path and expiry.
 async fn wait_for_export(
     api: &ApiClient,
     tree_id: Uuid,
     merge_occupations: bool,
     merge_names: bool,
-) -> Result<String, ApiError> {
+) -> Result<(String, chrono::DateTime<chrono::Utc>), ApiError> {
     let started = trace_ui_action_step(
         UiActionStep::ExportQueue,
         api.start_export_job(tree_id, merge_occupations, merge_names),
@@ -41,9 +61,11 @@ async fn wait_for_export(
             let status = api.export_job_status(tree_id, started.job_id).await?;
             match status.phase.as_str() {
                 "completed" => {
-                    return status.download_url.ok_or_else(|| ApiError::Api {
-                        status: 500,
-                        body: "completed export has no artifact".to_string(),
+                    return status.download_url.zip(status.expires_at).ok_or_else(|| {
+                        ApiError::Api {
+                            status: 500,
+                            body: "completed export has no artifact".to_string(),
+                        }
                     });
                 }
                 "failed" => {
@@ -108,33 +130,35 @@ fn save_target(_file_name: &str, _is_gedzip: bool) -> SaveTarget {
 type ExportOutcome = Result<Option<String>, String>;
 
 /// Exports the tree as a GEDZIP, packed by a server job, into the save
-/// picker opened on the click.
+/// picker opened on the click, and keeps it in `completed` for downloading
+/// again.
 #[cfg(target_arch = "wasm32")]
 async fn export_gedzip(
     api: &ApiClient,
     tid: Uuid,
     (merge_occupations, merge_names): (bool, bool),
-    _file_name: &str,
+    file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
+    mut completed: Signal<Option<CompletedExport>>,
 ) -> ExportOutcome {
-    let mut destination = target.expect("GEDZIP save session");
-    match destination.ready().await {
-        Ok(true) => {}
-        Ok(false) => return Ok(None),
-        Err(_) => return Err(i18n.t("media.save_failed")),
-    }
-    let download_path = wait_for_export(api, tid, merge_occupations, merge_names)
+    // The picker comes first: cancelling it starts no job.
+    let Some(destination) = ready_destination(target, i18n).await? else {
+        return Ok(None);
+    };
+    let (download_path, expires_at) = wait_for_export(api, tid, merge_occupations, merge_names)
         .await
         .map_err(|error| error.to_string())?;
-    api.download_in_browser(destination, &download_path)
-        .await
-        .map(|()| Some(i18n.t("settings.export_success")))
-        .map_err(|_| i18n.t("media.download_failed"))
+    completed.set(Some(CompletedExport {
+        download_path: download_path.clone(),
+        expires_at,
+        file_name: file_name.to_string(),
+    }));
+    download_to_destination(api, destination, &download_path, i18n).await
 }
 
 /// Exports the tree as a GEDZIP, packed by a server job, to the file the
-/// user picks.
+/// user picks, and keeps it in `completed` for downloading again.
 #[cfg(not(target_arch = "wasm32"))]
 async fn export_gedzip(
     api: &ApiClient,
@@ -142,14 +166,76 @@ async fn export_gedzip(
     (merge_occupations, merge_names): (bool, bool),
     file_name: &str,
     i18n: &I18n,
-    _target: SaveTarget,
+    target: SaveTarget,
+    mut completed: Signal<Option<CompletedExport>>,
 ) -> ExportOutcome {
-    let download_path = wait_for_export(api, tid, merge_occupations, merge_names)
+    let (download_path, expires_at) = wait_for_export(api, tid, merge_occupations, merge_names)
         .await
         .map_err(|error| error.to_string())?;
+    let export = CompletedExport {
+        download_path,
+        expires_at,
+        file_name: file_name.to_string(),
+    };
+    completed.set(Some(export.clone()));
+    save_gedzip(api, &export, i18n, target).await
+}
+
+/// Downloads a completed GEDZIP export again, into the save picker opened
+/// on the click.
+#[cfg(target_arch = "wasm32")]
+async fn save_gedzip(
+    api: &ApiClient,
+    export: &CompletedExport,
+    i18n: &I18n,
+    target: SaveTarget,
+) -> ExportOutcome {
+    let Some(destination) = ready_destination(target, i18n).await? else {
+        return Ok(None);
+    };
+    download_to_destination(api, destination, &export.download_path, i18n).await
+}
+
+/// The save picker opened on the click, once the user has chosen where to
+/// save; `None` when they cancelled.
+#[cfg(target_arch = "wasm32")]
+async fn ready_destination(
+    target: SaveTarget,
+    i18n: &I18n,
+) -> Result<Option<crate::api::BrowserDownload>, String> {
+    let mut destination = target.expect("GEDZIP save session");
+    match destination.ready().await {
+        Ok(true) => Ok(Some(destination)),
+        Ok(false) => Ok(None),
+        Err(_) => Err(i18n.t("media.save_failed")),
+    }
+}
+
+/// Streams the archive at `download_path` into `destination`.
+#[cfg(target_arch = "wasm32")]
+async fn download_to_destination(
+    api: &ApiClient,
+    destination: crate::api::BrowserDownload,
+    download_path: &str,
+    i18n: &I18n,
+) -> ExportOutcome {
+    api.download_in_browser(destination, download_path)
+        .await
+        .map(|()| Some(i18n.t("settings.export_success")))
+        .map_err(|_| i18n.t("media.download_failed"))
+}
+
+/// Downloads a completed GEDZIP export to the file the user picks.
+#[cfg(not(target_arch = "wasm32"))]
+async fn save_gedzip(
+    api: &ApiClient,
+    export: &CompletedExport,
+    i18n: &I18n,
+    _target: SaveTarget,
+) -> ExportOutcome {
     let Some(file) = rfd::AsyncFileDialog::new()
         .set_title(i18n.t("gedcom.save_file"))
-        .set_file_name(file_name)
+        .set_file_name(&export.file_name)
         .add_filter("GEDZIP", &["gdz"])
         .add_filter("All files", &["*"])
         .save_file()
@@ -160,7 +246,7 @@ async fn export_gedzip(
     let path = file.path().to_path_buf();
     trace_ui_action_step(
         UiActionStep::ExportSave,
-        api.download_to_file(&download_path, &path),
+        api.download_to_file(&export.download_path, &path),
     )
     .await
     .map_err(|error| error.to_string())?;
@@ -257,6 +343,7 @@ pub fn Settings(tree_id: String) -> Element {
     let export_format = use_signal(|| "gedcom".to_string());
     let export_merge_occupations = use_signal(|| false);
     let export_merge_names = use_signal(|| false);
+    let mut last_export = use_signal(|| None::<CompletedExport>);
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
@@ -287,7 +374,7 @@ pub fn Settings(tree_id: String) -> Element {
         let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
         spawn(trace_ui_action(action, async move {
             let outcome = if is_gedzip {
-                export_gedzip(&api, tid, merges, &file_name, &i18n, target).await
+                export_gedzip(&api, tid, merges, &file_name, &i18n, target, last_export).await
             } else {
                 export_gedcom(&api, tid, merges, &file_name, &i18n).await
             };
@@ -299,6 +386,36 @@ pub fn Settings(tree_id: String) -> Element {
             export_loading.set(false);
         }));
     };
+
+    // Download the last GEDZIP export again, while the server keeps it.
+    let api_again = api.clone();
+    let on_download_again = move |_| {
+        let Some(export) = last_export() else {
+            return;
+        };
+        export_error.set(None);
+        export_success.set(None);
+        if !export.is_live() {
+            last_export.set(None);
+            export_error.set(Some(i18n.t("settings.export_expired")));
+            return;
+        }
+        let api = api_again.clone();
+        export_loading.set(true);
+        // Opened during the click, before any network await.
+        let target = save_target(&export.file_name, true);
+        spawn(trace_ui_action(UiAction::Export("gedzip"), async move {
+            match save_gedzip(&api, &export, &i18n, target).await {
+                Ok(Some(message)) => export_success.set(Some(message)),
+                Ok(None) => {}
+                Err(message) => export_error.set(Some(message)),
+            }
+            export_loading.set(false);
+        }));
+    };
+    let downloadable_until = last_export()
+        .filter(CompletedExport::is_live)
+        .map(|export| format_timestamp(&i18n, export.expires_at));
 
     let sec = active_section();
 
@@ -345,6 +462,8 @@ pub fn Settings(tree_id: String) -> Element {
                     "export" => rsx! {
                         ExportSection {
                             on_export,
+                            on_download_again,
+                            downloadable_until: downloadable_until.clone(),
                             loading: export_loading(),
                             error: export_error(),
                             success: export_success(),
@@ -827,6 +946,10 @@ fn EntryOptionsSection(
 #[component]
 fn ExportSection(
     on_export: EventHandler<MouseEvent>,
+    on_download_again: EventHandler<MouseEvent>,
+    /// When the last GEDZIP export stops being downloadable, formatted;
+    /// `None` when there is none to download again.
+    downloadable_until: Option<String>,
     loading: bool,
     error: Option<String>,
     success: Option<String>,
@@ -914,6 +1037,19 @@ fn ExportSection(
                             p { class: "settings-check-desc",
                                 {i18n.t("settings.export_merge_names_desc")}
                             }
+                        }
+                    }
+                }
+                if let Some(until) = &downloadable_until {
+                    div { class: "settings-export-row settings-feedback",
+                        p { class: "settings-card-desc settings-export-info",
+                            {i18n.t_args("settings.export_available_until", &[("time", until)])}
+                        }
+                        button {
+                            class: "btn btn-outline",
+                            disabled: loading,
+                            onclick: on_download_again,
+                            {i18n.t("settings.export_download_again")}
                         }
                     }
                 }

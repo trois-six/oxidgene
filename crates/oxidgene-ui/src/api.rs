@@ -1811,6 +1811,9 @@ pub struct ExportJobStatus {
     pub done: usize,
     pub total: usize,
     pub download_url: Option<String>,
+    /// When `download_url` stops working, set exactly when it is.
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
     pub warnings: Vec<String>,
     pub error: Option<String>,

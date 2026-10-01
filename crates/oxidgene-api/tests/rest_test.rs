@@ -3282,45 +3282,104 @@ async fn test_async_export_job_downloads_the_completed_archive() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(completed["phase"], "completed");
     let download_url = completed["download_url"].as_str().expect("download URL");
+    let expires_at: chrono::DateTime<chrono::Utc> = completed["expires_at"]
+        .as_str()
+        .expect("expiry")
+        .parse()
+        .expect("RFC 3339 expiry");
+    let remaining = expires_at - chrono::Utc::now();
+    assert!(
+        remaining > chrono::Duration::minutes(59) && remaining <= chrono::Duration::hours(1),
+        "an hour after completion: {expires_at}"
+    );
 
     let artifact = media_root.join("jobs").join(job_id);
     assert!(artifact.exists());
 
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri(download_url)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(
-        response.headers()["content-disposition"],
-        "attachment; filename=\"export.gdz\""
-    );
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    assert!(bytes.starts_with(b"PK"));
-
-    // Read to its end, the download releases the artifact: a full copy of
-    // the tree does not stay in store once it has been handed over.
+    // Downloaded any number of times within its hour: a save that went
+    // wrong can be downloaded again.
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(download_url)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["content-disposition"],
+            "attachment; filename=\"export.gdz\""
+        );
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(bytes.starts_with(b"PK"));
+    }
+    assert!(artifact.exists(), "a download keeps the artifact");
     let status_uri = format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}");
-    let released = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            let (_, status) = send(&app, Method::GET, &status_uri, None).await;
-            if status["download_url"].is_null() && !artifact.exists() {
-                break status;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
+    let (_, after) = send(&app, Method::GET, &status_uri, None).await;
+    assert_eq!(after["download_url"], download_url);
+    assert_eq!(after["expires_at"], completed["expires_at"]);
+    let _ = std::fs::remove_dir_all(&media_root);
+}
+
+/// Past its hour an export cannot be downloaded any more, even before the
+/// maintenance pass has deleted its artifact; that pass then deletes it.
+#[tokio::test]
+async fn an_expired_export_is_refused_then_deleted() {
+    use oxidgene_db::entities::background_job;
+    use oxidgene_db::sea_orm::{ActiveModelTrait as _, ActiveValue::Set};
+
+    let db = setup_db().await;
+    let media_root = std::env::temp_dir().join(format!(
+        "oxidgene-test-expired-export-{}",
+        uuid::Uuid::now_v7()
+    ));
+    let state = AppState::new(db.clone(), &media_root);
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-test-expired-export-worker",
+    );
+    let app = build_router(state);
+    let tree_id = create_tree_via_api(&app).await;
+    let (_, started) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs"),
+        None,
+    )
+    .await;
+    let job_id = started["job_id"].as_str().expect("job id").to_string();
+    assert!(worker.run_once().await.expect("run export job"));
+    let status_uri = format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}");
+    let (_, completed) = send(&app, Method::GET, &status_uri, None).await;
+    let download_url = completed["download_url"].as_str().expect("download URL");
+
+    // Completed an hour and a minute ago.
+    background_job::ActiveModel {
+        id: Set(job_id.parse().unwrap()),
+        finished_at: Set(Some(chrono::Utc::now() - chrono::Duration::minutes(61))),
+        ..Default::default()
+    }
+    .update(&db)
     .await
-    .expect("the downloaded artifact is released");
-    assert_eq!(released["phase"], "completed");
+    .expect("backdate the export");
+    let (status, expired) = send(&app, Method::GET, &status_uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(expired["phase"], "completed");
+    assert!(expired["download_url"].is_null(), "{expired}");
+    assert!(expired["expires_at"].is_null(), "{expired}");
     let (status, _) = send(&app, Method::GET, download_url, None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let artifact = media_root.join("jobs").join(&job_id);
+    assert!(artifact.exists(), "not swept yet");
+    worker.maintain(chrono::Utc::now()).await;
+    assert!(!artifact.exists(), "the maintenance pass deletes it");
     let _ = std::fs::remove_dir_all(&media_root);
 }
 

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:02:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:49:26Z }
 ---
 
 
@@ -363,6 +363,15 @@ its artifact is streamed to that destination. Browsers without that capability
 use a native Blob fallback without moving archive contents through WASM or JSON.
 Desktop artifact downloads stream to a temporary file and only replace the
 selected destination on success.
+
+The server keeps a completed GEDZIP for one hour, however often it is
+downloaded ([API Contract](api.md)). For that hour the section shows when the
+archive stops being available and a **Download again** button, which saves
+the same archive again — through a new save picker or dialog — without
+packing another export; a lost or failed save needs no new job. Past the
+expiry the button is gone, and a click that comes too late says the export has
+expired and must be run again. The offer lasts as long as the page: it is not
+kept across a reload.
 
 ---
 

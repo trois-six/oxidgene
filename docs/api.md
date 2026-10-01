@@ -870,8 +870,8 @@ imports the format, it does not produce it.
 | `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to durable job storage and create an asynchronous import. Returns `202 { "job_id": UUID }` after the source is stored and the job is committed. `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. Workers copy the source to disposable scratch space; media extracted from GEDZIP are persisted through `MediaStore` |
 | `GET` | `/trees/{tree_id}/import-jobs/{job_id}` | Poll `{ phase, done, total, result?, geneanet_result?, error? }`. File-import phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`; Geneanet additionally uses `people` and `matching`. A completed status retains either the standard `ImportResponse` or the Geneanet receipt; failure exposes a stable error code rather than internal details |
 | `POST` | `/trees/{tree_id}/export-jobs?merge_occupations=bool&merge_names=bool` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker |
-| `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, warnings, error? }`. `download_url` appears only while the completed artifact is stored. A job ended more than a day ago is gone (`404`) |
-| `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete. A download streamed to its end deletes the artifact, and an artifact never downloaded is deleted an hour after completion; either way a later download answers `404` |
+| `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, expires_at?, warnings, error? }`. `download_url` and `expires_at` (RFC 3339, an hour after completion) appear together, only while the completed artifact can be downloaded. A job ended more than a day ago is gone (`404`) |
+| `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete. The artifact can be downloaded any number of times for an hour after completion, then answers `404` and is deleted by the workers' next maintenance pass |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
 A tree holds at most one queued or running import or export job at a time.
@@ -1630,6 +1630,7 @@ type ExportJobStatus {
   done: Int!
   total: Int!
   downloadUrl: String
+  expiresAt: DateTime
   warnings: [String!]!
   error: String
 }

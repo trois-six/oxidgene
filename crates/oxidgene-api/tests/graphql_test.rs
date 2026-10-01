@@ -3275,7 +3275,7 @@ async fn test_graphql_export_gedzip() {
     assert!(worker.run_once().await.unwrap());
 
     let status_query = format!(
-        r#"{{ exportJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase downloadUrl warnings error }} }}"#
+        r#"{{ exportJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase downloadUrl expiresAt warnings error }} }}"#
     );
     let response = graphql(app.clone(), &status_query, None).await;
     let result = &data(&response)["exportJobStatus"];
@@ -3284,6 +3284,12 @@ async fn test_graphql_export_gedzip() {
         result["downloadUrl"],
         format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download")
     );
+    let expires_at: chrono::DateTime<chrono::Utc> = result["expiresAt"]
+        .as_str()
+        .expect("expiry, as REST")
+        .parse()
+        .expect("RFC 3339 expiry");
+    assert!(expires_at > chrono::Utc::now() + chrono::Duration::minutes(59));
     assert!(result["warnings"].as_array().unwrap().is_empty());
     assert!(result["error"].is_null());
 
@@ -3295,6 +3301,7 @@ async fn test_graphql_export_gedzip() {
     let result = &data(&response)["exportJobStatus"];
     assert_eq!(result["phase"], "completed");
     assert!(result["downloadUrl"].is_null());
+    assert!(result["expiresAt"].is_null());
 }
 
 #[tokio::test]

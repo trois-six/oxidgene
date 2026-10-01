@@ -151,12 +151,12 @@ UI specifications:
     their result for a bounded period.
 - What a job leaves behind is bounded. Its payload (a Geneanet import's
     collection, fetched URLs and archive names) is cleared when it ends,
-    whether completed or failed. An export artifact is deleted once a download
-    has read it to the end, or an hour after completion if never downloaded.
-    Every worker, at start and then hourly, deletes the rows and objects of
-    jobs ended more than a day ago and the objects under `jobs/` that no job
-    needs any more (no row, or ended without an artifact) once they are a day
-    old. Purging a tree deletes its jobs' objects before the rows cascade
+    whether completed or failed. An export artifact can be downloaded for an
+    hour after completion, however many times, then no more. Every worker, at
+    start and then every six minutes, deletes the expired artifacts, the rows
+    and objects of jobs ended more than a day ago and the objects under
+    `jobs/` that no job needs any more (no row, or ended without an artifact)
+    once they are a day old. Purging a tree deletes its jobs' objects before the rows cascade
     away.
 - A crafted file cannot stop the queue. Readers parse on the blocking pool
     behind a task boundary, so a reader that panics fails its job as
@@ -220,10 +220,12 @@ flowchart LR
 
 The export executor reads the tree and its media, writes the GEDZIP archive to
 disposable scratch space, and uploads the completed artifact. The status
-response exposes a same-origin download URL only while the completed artifact
-is stored; the UI then starts the browser download automatically. The artifact
-is a full copy of the tree and its media, so it is deleted as soon as a
-download has streamed it to the end, and an hour after completion otherwise.
+response exposes a same-origin download URL, with its expiry, only while the
+completed artifact can be downloaded; the UI then starts the browser download
+automatically, and offers to download it again until it expires. The artifact
+is a full copy of the tree and its media, so it is kept one hour after
+completion whatever the downloads — long enough to retry a save that went
+wrong — and then refused and deleted.
 
 GEDZIP compresses the textual `gedcom.ged` entry with Deflate. Media formats
 that already carry compression (JPEG, PNG, GIF, WebP, and PDF) are stored

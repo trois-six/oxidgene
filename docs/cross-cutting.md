@@ -451,8 +451,7 @@ the rejected value.
   (`service::blocking`), and work queued for later carries the W3C context
   with it — a background job in its `trace_parent`/`trace_state` columns,
   restored by `background_job.process`, and a tree purge to its `purge.tree`
-  span. Deleting a downloaded export's artifact runs on its own task under an
-  `export.release` child of the download. Only genuinely detached loops start traces of their own, under the
+  span. Only genuinely detached loops start traces of their own, under the
   named roots above. `oxidgene-api/tests/trace_continuity_test.rs` sends a
   `traceparent` to a pedigree, a person detail bundle, statistics,
   anomalies, a media upload, a vignette crop, a GraphQL query and an import

@@ -26,10 +26,12 @@ use crate::profile::ProfileService;
 pub const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(30);
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-/// How long a completed export's artifact waits for its download. A
-/// download removes it at once; this bounds the ones never downloaded — the
-/// UI downloads as soon as the job completes, so only an export whose window
-/// was closed meanwhile waits this long.
+/// How long a completed export's artifact can be downloaded, from the
+/// export's completion and however often it is downloaded meanwhile: long
+/// enough to download it again when a save went wrong, short enough that a
+/// full copy of the tree does not linger in store. Past it, the status
+/// offers no download, the download route answers 404, and the next
+/// maintenance pass deletes the artifact.
 pub const EXPORT_ARTIFACT_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// How long an ended job's row stays, with the result its status reports.
@@ -41,8 +43,10 @@ pub const ENDED_JOB_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 const ORPHAN_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// How often a worker expires artifacts, prunes ended jobs and sweeps
-/// orphaned job objects; it also does so when it starts.
-const MAINTENANCE_PERIOD: Duration = Duration::from_secs(60 * 60);
+/// orphaned job objects; it also does so when it starts. A tenth of
+/// [`EXPORT_ARTIFACT_TTL`], so an expired artifact stays in store a few
+/// minutes at most after nobody can download it any more.
+const MAINTENANCE_PERIOD: Duration = Duration::from_secs(6 * 60);
 
 /// How many times a job is claimed before it is failed unrun.
 ///
@@ -968,7 +972,7 @@ fn created_before(id: Uuid, cutoff: chrono::DateTime<chrono::Utc>) -> bool {
 /// Delete export `job_id`'s artifact `key`: forget it first, so that no
 /// status offers a download of a deleted file, then remove the job's objects.
 /// A crash in between leaves objects the orphan sweep removes.
-pub(crate) async fn release_export_artifact(
+async fn release_export_artifact(
     db: &DatabaseConnection,
     media: &dyn MediaStore,
     job_id: Uuid,
@@ -980,45 +984,21 @@ pub(crate) async fn release_export_artifact(
     Ok(())
 }
 
-/// `stream`, the artifact `key` of export `job_id`, deleting the artifact
-/// once the stream has been read to its end.
-///
-/// An export is downloaded once, as soon as it completes, and left in store
-/// it is a full copy of the tree and its media. Only a download read to the
-/// end releases it: a broken one leaves the artifact for a retry, until
-/// [`EXPORT_ARTIFACT_TTL`]. The deletion runs on its own task so that the
-/// response's last chunk never waits for the database.
-pub(crate) fn release_when_read(
-    stream: crate::media::store::BlobStream,
-    db: DatabaseConnection,
-    media: Arc<dyn MediaStore>,
-    job_id: Uuid,
-    key: String,
-) -> crate::media::store::BlobStream {
-    use futures_util::StreamExt as _;
+/// When the artifact of an export finished at `finished_at` stops being
+/// downloadable.
+fn artifact_expiry(finished_at: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    finished_at + chrono::Duration::from_std(EXPORT_ARTIFACT_TTL).unwrap_or(chrono::TimeDelta::MAX)
+}
 
-    let on_end = futures_util::stream::once(async move {
-        // Spawned, but still part of the download's trace: the span is
-        // opened here, under the response body's span.
-        let span = tracing::info_span!("export.release");
-        tokio::spawn(
-            async move {
-                if release_export_artifact(&db, &*media, job_id, &key)
-                    .await
-                    .is_err()
-                {
-                    tracing::warn!(
-                        error = "export_artifact_release",
-                        "could not delete a downloaded export; it expires later"
-                    );
-                }
-            }
-            .instrument(span),
-        );
-        None
-    })
-    .filter_map(std::future::ready);
-    Box::pin(stream.chain(on_end))
+/// Until when completed export `job` can be downloaded, or `None` when it
+/// cannot (any more): no artifact, or one past [`EXPORT_ARTIFACT_TTL`] that
+/// the maintenance pass has not deleted yet.
+fn downloadable_until(job: &BackgroundJob) -> Option<chrono::DateTime<chrono::Utc>> {
+    if job.status != BackgroundJobStatus::Completed.as_str() || job.artifact_key.is_none() {
+        return None;
+    }
+    let expires_at = artifact_expiry(job.finished_at?);
+    (chrono::Utc::now() < expires_at).then_some(expires_at)
 }
 
 #[cfg(test)]
@@ -1456,9 +1436,15 @@ pub struct ExportJobStatus {
     pub phase: String,
     pub done: i64,
     pub total: i64,
-    /// Where to download the archive, once it is complete.
+    /// Where to download the archive, once it is complete and until
+    /// `expires_at`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub download_url: Option<String>,
+    /// When the archive stops being downloadable: [`EXPORT_ARTIFACT_TTL`]
+    /// after the export completed, whatever the downloads meanwhile. Set
+    /// exactly when `download_url` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
     /// A stable error code, once the job has failed.
@@ -1525,6 +1511,7 @@ pub async fn export_job_status(
             done: count(progress.done),
             total: count(progress.total),
             download_url: None,
+            expires_at: None,
             warnings: Vec::new(),
             error: None,
         });
@@ -1532,15 +1519,16 @@ pub async fn export_job_status(
     let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
     let warnings = receipt::<ExportReceipt>(job.result_json.as_deref())?
         .map_or_else(Vec::new, |receipt| receipt.warnings);
-    // A downloaded or expired artifact is gone, and so is its link.
-    let download_url = (job.status == BackgroundJobStatus::Completed.as_str()
-        && job.artifact_key.is_some())
-    .then(|| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
+    // An expired artifact is gone, or about to be, and so is its link.
+    let expires_at = downloadable_until(&job);
+    let download_url =
+        expires_at.map(|_| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
     Ok(ExportJobStatus {
         phase: job.phase,
         done: count(job.done),
         total: count(job.total),
         download_url,
+        expires_at,
         warnings,
         error: job.error_code,
     })
@@ -1580,8 +1568,9 @@ pub async fn import_job_status(
 }
 
 /// The export artifact of completed job `job_id` of tree `tree_id`: its
-/// storage key. An artifact released by its first complete download, or
-/// expired, is not found.
+/// storage key. It can be downloaded any number of times until
+/// [`EXPORT_ARTIFACT_TTL`] after the export completed; past it, it is not
+/// found, whether or not the maintenance pass has deleted it yet.
 pub async fn export_artifact(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -1593,10 +1582,14 @@ pub async fn export_artifact(
             "export artifact is not ready".into(),
         ));
     }
-    job.artifact_key.ok_or(OxidGeneError::NotFound {
+    let not_found = OxidGeneError::NotFound {
         entity: "ExportArtifact",
         id: job_id,
-    })
+    };
+    if downloadable_until(&job).is_none() {
+        return Err(not_found);
+    }
+    job.artifact_key.ok_or(not_found)
 }
 
 /// Job `job_id` of tree `tree_id`, which must be of `kind` and belong to a

@@ -707,8 +707,8 @@ consumer span; retries retain the original context.
 
 A job's `payload_json` is cleared when it ends; its `result_json` stays for
 the status poll. Workers delete the rows of jobs ended more than a day ago,
-and an export's `artifact_key` is cleared when its artifact is deleted —
-after a complete download, or an hour after completion (see
+and an export's `artifact_key` is cleared when its artifact is deleted, an
+hour after completion whatever the downloads (see
 [Architecture §6](architecture.md)). `cancel_requested` and the `cancelled`
 status are part of the schema but nothing sets them yet: no API cancels a
 job.
