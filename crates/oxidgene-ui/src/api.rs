@@ -5145,35 +5145,57 @@ mod tests {
         );
     }
 
+    /// A one-request HTTP server on a free local port, for the tests that
+    /// need the client to really send something.
+    #[cfg(not(target_arch = "wasm32"))]
+    mod test_server {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
+
+        pub async fn listen() -> (TcpListener, String) {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = format!("http://{}", listener.local_addr().unwrap());
+            (listener, address)
+        }
+
+        /// Accepts one connection and reads its request line and headers.
+        pub async fn accept(listener: &TcpListener) -> (TcpStream, String) {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut head = String::new();
+            let mut reader = tokio::io::BufReader::new(&mut socket);
+            while !head.ends_with("\r\n\r\n") {
+                assert!(reader.read_line(&mut head).await.unwrap() > 0);
+            }
+            (socket, head)
+        }
+
+        /// Answers one request with `response`, returning the request's
+        /// line and headers.
+        pub async fn serve_once(listener: &TcpListener, response: &[u8]) -> String {
+            let (mut socket, head) = accept(listener).await;
+            socket.write_all(response).await.unwrap();
+            head
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn deleting_a_page_accepts_no_content_and_invalidates_the_tree() {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let api = ApiClient::new(&format!("http://{}", listener.local_addr().unwrap()));
+        let (listener, address) = test_server::listen().await;
+        let api = ApiClient::new(&address);
         let tree = Uuid::now_v7();
         let document = Uuid::now_v7();
         let page = Uuid::now_v7();
         let cache_key = format!("/api/v1/trees/{tree}/media");
         api.cache.set(cache_key.clone(), b"cached".to_vec());
-        let server = async {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = String::new();
-            let mut reader = tokio::io::BufReader::new(&mut socket);
-            while !request.ends_with("\r\n\r\n") {
-                assert!(reader.read_line(&mut request).await.unwrap() > 0);
-            }
-            assert!(request.starts_with(&format!(
-                "DELETE /api/v1/trees/{tree}/media/{document}/pages/{page} "
-            )));
-            socket
-                .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
-                .await
-                .unwrap();
-        };
-        let (result, ()) = tokio::join!(api.delete_media_page(tree, document, page), server);
+        let (result, request) = tokio::join!(
+            api.delete_media_page(tree, document, page),
+            test_server::serve_once(&listener, b"HTTP/1.1 204 No Content\r\n\r\n")
+        );
         result.unwrap();
+        assert!(request.starts_with(&format!(
+            "DELETE /api/v1/trees/{tree}/media/{document}/pages/{page} "
+        )));
         assert!(api.cache.get(&cache_key).is_none());
     }
 
@@ -5188,43 +5210,33 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn the_access_token_goes_to_the_backend_and_nowhere_else() {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-
-        async fn accept_one(listener: &tokio::net::TcpListener) -> String {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = String::new();
-            let mut reader = tokio::io::BufReader::new(&mut socket);
-            while !request.ends_with("\r\n\r\n") {
-                assert!(reader.read_line(&mut request).await.unwrap() > 0);
-            }
-            socket
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
-                .await
-                .unwrap();
-            request.to_ascii_lowercase()
-        }
+        const EMPTY_OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
 
         let directory = tempfile::tempdir().unwrap();
-        let backend = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let remote = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let api = ApiClient::new(&format!("http://{}", backend.local_addr().unwrap()))
-            .with_auth_token("s3cret");
+        let (backend, backend_address) = test_server::listen().await;
+        let (remote, remote_address) = test_server::listen().await;
+        let api = ApiClient::new(&backend_address).with_auth_token("s3cret");
 
         let local = directory.path().join("a");
         let (result, request) = tokio::join!(
             api.download_to_file("/api/v1/x", &local),
-            accept_one(&backend)
+            test_server::serve_once(&backend, EMPTY_OK)
         );
         result.unwrap();
-        assert!(request.contains("authorization: bearer s3cret"));
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer s3cret")
+        );
 
-        let remote_url = format!("http://{}/scan.jpg", remote.local_addr().unwrap());
+        let remote_url = format!("{remote_address}/scan.jpg");
         let fetched = directory.path().join("b");
         let (result, request) = tokio::join!(
             api.download_to_file(&remote_url, &fetched),
-            accept_one(&remote)
+            test_server::serve_once(&remote, EMPTY_OK)
         );
         result.unwrap();
+        let request = request.to_ascii_lowercase();
         assert!(!request.contains("authorization"));
         assert!(!request.contains("s3cret"));
     }
@@ -5232,19 +5244,14 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn downloads_write_chunks_to_disk_before_the_response_finishes() {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        use tokio::io::AsyncWriteExt;
 
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("download.bin");
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let api = ApiClient::new(&format!("http://{}", listener.local_addr().unwrap()));
+        let (listener, address) = test_server::listen().await;
+        let api = ApiClient::new(&address);
         let server = async {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = String::new();
-            let mut reader = tokio::io::BufReader::new(&mut socket);
-            while !request.ends_with("\r\n\r\n") {
-                assert!(reader.read_line(&mut request).await.unwrap() > 0);
-            }
+            let (mut socket, _) = test_server::accept(&listener).await;
             socket
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\npart")
                 .await
@@ -5278,8 +5285,6 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn failed_downloads_preserve_existing_files_and_remove_partial_data() {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-
         for response in [
             &b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"[..],
             &b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial"[..],
@@ -5287,19 +5292,13 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let destination = directory.path().join("download.bin");
             tokio::fs::write(&destination, b"original").await.unwrap();
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let remote = format!("http://{}/download", listener.local_addr().unwrap());
+            let (listener, address) = test_server::listen().await;
+            let remote = format!("{address}/download");
             let api = ApiClient::new("http://unused.invalid");
-            let server = async {
-                let (mut socket, _) = listener.accept().await.unwrap();
-                let mut request = String::new();
-                let mut reader = tokio::io::BufReader::new(&mut socket);
-                while !request.ends_with("\r\n\r\n") {
-                    assert!(reader.read_line(&mut request).await.unwrap() > 0);
-                }
-                socket.write_all(response).await.unwrap();
-            };
-            let (result, ()) = tokio::join!(api.download_to_file(&remote, &destination), server);
+            let (result, _) = tokio::join!(
+                api.download_to_file(&remote, &destination),
+                test_server::serve_once(&listener, response)
+            );
             assert!(result.is_err());
             assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"original");
             assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);

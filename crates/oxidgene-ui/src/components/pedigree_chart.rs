@@ -5552,6 +5552,31 @@ mod layout_overlap_tests {
         arena[spouse_idx].is_sibling = true;
     }
 
+    /// The x of every card on row `depth`, left to right.
+    fn row_xs(arena: &[TreeNode], depth: i32) -> Vec<f64> {
+        let mut xs: Vec<f64> = arena
+            .iter()
+            .filter(|n| n.depth == depth)
+            .map(|n| n.x)
+            .collect();
+        xs.sort_by(f64::total_cmp);
+        xs
+    }
+
+    /// Asserts that no two cards on any row of `depths` overlap; cards may
+    /// touch.
+    fn assert_rows_do_not_overlap(arena: &[TreeNode], depths: &[i32]) {
+        for &depth in depths {
+            for pair in row_xs(arena, depth).windows(2) {
+                let gap = pair[1] - pair[0];
+                assert!(
+                    gap + 1e-6 >= CARD_W,
+                    "depth {depth}: cards overlap (gap={gap}, need >= {CARD_W})"
+                );
+            }
+        }
+    }
+
     /// Reproduces a cross-cousin overlap: depth-1 siblings A (with two
     /// depth-2 children, the second one childless-but-married) and B (with
     /// a single depth-2 child) must not have their depth-2 rows collide.
@@ -5599,35 +5624,7 @@ mod layout_overlap_tests {
 
         layout_tree(&mut arena, 0, &METRICS);
 
-        // Every pair of cards at the same depth must not horizontally
-        // overlap (allowing exact edge-touch).
-        let by_depth =
-            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
-
-        eprintln!(
-            "root={root} root_spouse={root_spouse} sib_before={sib_before} a={a} b={b} \
-             sib_after1={sib_after1} a_spouse={a_spouse} \
-             b_spouse={b_spouse} a_child1={a_child1} a_child1_spouse={a_child1_spouse} \
-             a_child2={a_child2} a_child2_spouse={a_child2_spouse} b_child={b_child}"
-        );
-        for (i, n) in arena.iter().enumerate() {
-            eprintln!(
-                "idx={i} depth={} x={} after={} sex={:?}",
-                n.depth, n.x, n.after, n.card.sex
-            );
-        }
-
-        for depth in [0, 1, 2] {
-            let mut xs = by_depth(depth);
-            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            for w in xs.windows(2) {
-                let gap = w[1] - w[0];
-                assert!(
-                    gap + 1e-6 >= CARD_W,
-                    "depth {depth}: cards overlap (gap={gap}, need >= {CARD_W})"
-                );
-            }
-        }
+        assert_rows_do_not_overlap(&arena, &[0, 1, 2]);
     }
 
     /// Reproduces a case one level shallower than the cousin-branch test: a
@@ -5658,20 +5655,7 @@ mod layout_overlap_tests {
 
         layout_tree(&mut arena, 0, &METRICS);
 
-        let by_depth =
-            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
-
-        for depth in [1, 2] {
-            let mut xs = by_depth(depth);
-            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            for w in xs.windows(2) {
-                let gap = w[1] - w[0];
-                assert!(
-                    gap + 1e-6 >= CARD_W,
-                    "depth {depth}: cards overlap (gap={gap}, need >= {CARD_W})"
-                );
-            }
-        }
+        assert_rows_do_not_overlap(&arena, &[1, 2]);
     }
 
     /// Reproduces the exact real-world family shape that still overlapped
@@ -5733,20 +5717,7 @@ mod layout_overlap_tests {
 
         layout_tree(&mut arena, 0, &METRICS);
 
-        let by_depth =
-            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
-
-        for depth in [1, 2, 3] {
-            let mut xs = by_depth(depth);
-            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            for w in xs.windows(2) {
-                let gap = w[1] - w[0];
-                assert!(
-                    gap + 1e-6 >= CARD_W,
-                    "depth {depth}: cards overlap (gap={gap}, need >= {CARD_W})"
-                );
-            }
-        }
+        assert_rows_do_not_overlap(&arena, &[1, 2, 3]);
     }
 
     /// Reproduces a real family shape: the FIRST child of the root couple
@@ -6091,12 +6062,7 @@ mod layout_overlap_tests {
 
         layout_tree(&mut arena, last_level, &METRICS);
 
-        let by_depth =
-            |d: i32| -> Vec<f64> { arena.iter().filter(|n| n.depth == d).map(|n| n.x).collect() };
-
-        let mut compact_xs = by_depth(last_level);
-        compact_xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        for w in compact_xs.windows(2) {
+        for w in row_xs(&arena, last_level).windows(2) {
             let gap = w[1] - w[0];
             assert!(
                 gap < CARD_W - 1e-6,
