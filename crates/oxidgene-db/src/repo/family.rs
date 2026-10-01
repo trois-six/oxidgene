@@ -28,6 +28,34 @@ impl FamilyRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
+    /// How many live families tree `tree_id` holds.
+    pub async fn count(db: &impl ConnectionTrait, tree_id: Uuid) -> Result<i64, OxidGeneError> {
+        let count = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::DeletedAt.is_null())
+            .count(db)
+            .await
+            .map_err(db_err)?;
+        Ok(count as i64)
+    }
+
+    /// The live families among `ids`, in no particular order.
+    pub async fn get_many(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Family>, OxidGeneError> {
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
+    }
+
     /// List all families in a tree without pagination (excludes soft-deleted).
     pub async fn list_all(
         db: &impl ConnectionTrait,

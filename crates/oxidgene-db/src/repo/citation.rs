@@ -104,6 +104,29 @@ impl CitationRepo {
         if !event_ids.is_empty() {
             targets = targets.add(Column::EventId.is_in(event_ids.iter().copied()));
         }
+        Self::list_live(db, tree_id, targets).await
+    }
+
+    /// Citations attached to event `event_id` of tree `tree_id`.
+    pub async fn list_for_event(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        event_id: Uuid,
+    ) -> Result<Vec<Citation>, OxidGeneError> {
+        Self::list_live(
+            db,
+            tree_id,
+            Condition::all().add(Column::EventId.eq(event_id)),
+        )
+        .await
+    }
+
+    /// The citations of tree `tree_id` matching `targets` whose source is live.
+    async fn list_live(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        targets: Condition,
+    ) -> Result<Vec<Citation>, OxidGeneError> {
         let models = Entity::find()
             .join(JoinType::InnerJoin, citation::Relation::Source.def())
             .filter(source::Column::TreeId.eq(tree_id))

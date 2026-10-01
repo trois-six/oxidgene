@@ -1527,3 +1527,144 @@ async fn pedigree_depths_are_bounded_alike_on_both_surfaces() {
         );
     }
 }
+
+// ── GraphQL nested lists ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn graphql_nested_lists_are_complete_past_a_hundred() {
+    use oxidgene_core::{Calendar, Confidence, DateQualifier, EventType, SpouseRole};
+    use oxidgene_db::repo::{
+        CitationRepo, EventRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, SourceRepo,
+    };
+    use uuid::Uuid;
+
+    const MANY: usize = 101;
+    let db = common::setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree_id = common::new_tree(&app, "Large").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let (tree, person): (Uuid, Uuid) = (tree_id.parse().unwrap(), person_id.parse().unwrap());
+    let event = |event_type| {
+        let db = db.clone();
+        async move {
+            EventRepo::create(
+                &db,
+                Uuid::now_v7(),
+                tree,
+                event_type,
+                None,
+                None,
+                None,
+                Some(person),
+                None,
+                None,
+                DateQualifier::default(),
+                None,
+                Calendar::default(),
+                None,
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let birth = event(EventType::Birth).await;
+    let mut family_ids = Vec::new();
+    for i in 0..MANY {
+        let family = FamilyRepo::create(&db, Uuid::now_v7(), tree).await.unwrap();
+        FamilySpouseRepo::create(
+            &db,
+            Uuid::now_v7(),
+            family.id,
+            person,
+            SpouseRole::Husband,
+            0,
+        )
+        .await
+        .unwrap();
+        family_ids.push(family.id);
+        let source = SourceRepo::create(
+            &db,
+            Uuid::now_v7(),
+            tree,
+            format!("Register {i}"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        for (person_id, event_id) in [(Some(person), None), (None, Some(birth.id))] {
+            CitationRepo::create(
+                &db,
+                Uuid::now_v7(),
+                source.id,
+                person_id,
+                event_id,
+                None,
+                None,
+                Confidence::Medium,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        let document = MediaRepo::create_document(
+            &db,
+            Uuid::now_v7(),
+            tree,
+            Some(format!("Scan {i}")),
+            chrono::Utc::now(),
+        )
+        .await
+        .unwrap();
+        for (person_id, event_id) in [(Some(person), None), (None, Some(birth.id))] {
+            MediaLinkRepo::create(
+                &db,
+                Uuid::now_v7(),
+                document.id,
+                person_id,
+                event_id,
+                None,
+                None,
+                i as i32,
+            )
+            .await
+            .unwrap();
+        }
+        event(EventType::Residence).await;
+    }
+
+    let data = common::gql_ok(
+        &app,
+        r#"query($t: ID!, $p: ID!, $b: ID!) {
+            person(treeId: $t, id: $p) {
+                families { id spouses { person { id } } }
+                citations { id }
+                media { id }
+                events { id }
+            }
+            event(treeId: $t, id: $b) { citations { id } media { id } }
+            tree(id: $t) { personCount familyCount }
+        }"#,
+        json!({ "t": tree_id, "p": person_id, "b": birth.id }),
+    )
+    .await;
+    let person = &data["person"];
+    let len = |value: &serde_json::Value| value.as_array().unwrap().len();
+    assert_eq!(len(&person["families"]), MANY);
+    assert!(
+        person["families"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|family| family["spouses"][0]["person"]["id"] == person_id)
+    );
+    assert_eq!(len(&person["citations"]), MANY);
+    assert_eq!(len(&person["media"]), MANY);
+    assert_eq!(len(&person["events"]), MANY + 1);
+    assert_eq!(len(&data["event"]["citations"]), MANY);
+    assert_eq!(len(&data["event"]["media"]), MANY);
+    assert_eq!(data["tree"]["personCount"], 1);
+    assert_eq!(data["tree"]["familyCount"], MANY);
+}

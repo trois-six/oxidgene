@@ -15,9 +15,8 @@ use uuid::Uuid;
 use super::scope::uuid;
 
 use oxidgene_db::repo::{
-    CitationRepo, EventFilter, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams, PersonNameRepo, PersonRepo, PlaceRepo,
-    PortraitRow,
+    CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo,
+    MediaLinkTarget, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, PortraitRow,
 };
 
 // ── GraphQL Enums ────────────────────────────────────────────────────
@@ -811,26 +810,12 @@ impl GqlTree {
 
     /// Count of persons in this tree.
     async fn person_count(&self, ctx: &Context<'_>) -> Result<i64> {
-        let db = db_from_ctx(ctx);
-        let tree_id = uuid(&self.id)?;
-        let params = PaginationParams {
-            first: 0,
-            after: None,
-        };
-        let conn = PersonRepo::list(db, tree_id, &params).await?;
-        Ok(conn.total_count)
+        Ok(PersonRepo::count(db_from_ctx(ctx), uuid(&self.id)?).await?)
     }
 
     /// Count of families in this tree.
     async fn family_count(&self, ctx: &Context<'_>) -> Result<i64> {
-        let db = db_from_ctx(ctx);
-        let tree_id = uuid(&self.id)?;
-        let params = PaginationParams {
-            first: 0,
-            after: None,
-        };
-        let conn = oxidgene_db::repo::FamilyRepo::list(db, tree_id, &params).await?;
-        Ok(conn.total_count)
+        Ok(oxidgene_db::repo::FamilyRepo::count(db_from_ctx(ctx), uuid(&self.id)?).await?)
     }
 }
 
@@ -862,40 +847,12 @@ impl From<crate::service::tree::TreeListItem> for GqlTree {
 
 // ── Tree Connection ──────────────────────────────────────────────────
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlTreeEdge {
-    pub cursor: String,
-    pub node: GqlTree,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlTreeConnection {
-    pub edges: Vec<GqlTreeEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<crate::service::tree::TreeListItem>>
-    for GqlTreeConnection
-{
-    fn from(c: oxidgene_core::types::Connection<crate::service::tree::TreeListItem>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|e| GqlTreeEdge {
-                    cursor: e.cursor,
-                    node: e.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlTreeEdge,
+    GqlTreeConnection,
+    GqlTree,
+    crate::service::tree::TreeListItem
+);
 
 // ── Person ───────────────────────────────────────────────────────────
 
@@ -938,89 +895,39 @@ impl GqlPerson {
 
     /// Events associated with this person.
     async fn events(&self, ctx: &Context<'_>) -> Result<Vec<GqlEvent>> {
-        let db = db_from_ctx(ctx);
-        let person_id = uuid(&self.id)?;
-        let tree_id = uuid(&self.tree_id)?;
-        let filter = EventFilter {
-            event_type: None,
-            person_id: Some(person_id),
-            family_id: None,
-        };
-        let params = PaginationParams {
-            first: 100,
-            after: None,
-        };
-        let conn = EventRepo::list(db, tree_id, &filter, &params).await?;
-        Ok(conn
-            .edges
-            .into_iter()
-            .map(|e| GqlEvent::from(e.node))
-            .collect())
+        let mut events = EventRepo::list_by_persons(db_from_ctx(ctx), &[uuid(&self.id)?]).await?;
+        events.sort_by_key(|event| event.id);
+        Ok(events.into_iter().map(GqlEvent::from).collect())
     }
 
     /// Families this person belongs to (as spouse).
     async fn families(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamily>> {
         let db = db_from_ctx(ctx);
-        let tree_id = uuid(&self.tree_id)?;
-        // Get all families for this tree and filter where person is a spouse
-        let person_id = uuid(&self.id)?;
-        let params = PaginationParams {
-            first: 100,
-            after: None,
-        };
-        let families = oxidgene_db::repo::FamilyRepo::list(db, tree_id, &params).await?;
-        let mut result = Vec::new();
-        for edge in families.edges {
-            let spouses = FamilySpouseRepo::list_by_family(db, edge.node.id).await?;
-            if spouses.iter().any(|s| s.person_id == person_id) {
-                result.push(GqlFamily::from(edge.node));
-            }
-        }
-        Ok(result)
+        let family_ids: Vec<Uuid> = FamilySpouseRepo::list_by_person(db, uuid(&self.id)?)
+            .await?
+            .into_iter()
+            .map(|spouse| spouse.family_id)
+            .collect();
+        let mut families = oxidgene_db::repo::FamilyRepo::get_many(db, &family_ids).await?;
+        families.sort_by_key(|family| family.id);
+        Ok(families.into_iter().map(GqlFamily::from).collect())
     }
 
-    /// Citations referencing this person.
+    /// Citations referencing this person directly.
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
-        let db = db_from_ctx(ctx);
-        let tree_id = uuid(&self.tree_id)?;
-        let person_id = uuid(&self.id)?;
-        // Use note repo pattern — list all sources and filter citations by person_id
-        // For now, iterate sources. This is acceptable for MVP.
-        let source_params = PaginationParams {
-            first: 100,
-            after: None,
-        };
-        let sources = oxidgene_db::repo::SourceRepo::list(db, tree_id, &source_params).await?;
-        let mut citations = Vec::new();
-        for se in sources.edges {
-            let cits = CitationRepo::list_by_source(db, se.node.id).await?;
-            for c in cits {
-                if c.person_id == Some(person_id) {
-                    citations.push(GqlCitation::from(c));
-                }
-            }
-        }
-        Ok(citations)
+        let citations = CitationRepo::list_for_person_events(
+            db_from_ctx(ctx),
+            uuid(&self.tree_id)?,
+            uuid(&self.id)?,
+            &[],
+        )
+        .await?;
+        Ok(citations.into_iter().map(GqlCitation::from).collect())
     }
 
-    /// Media linked to this person.
+    /// Media linked to this person, in gallery order.
     async fn media(&self, ctx: &Context<'_>) -> Result<Vec<GqlMedia>> {
-        let db = db_from_ctx(ctx);
-        let tree_id = uuid(&self.tree_id)?;
-        let person_id = uuid(&self.id)?;
-        let media_params = PaginationParams {
-            first: 100,
-            after: None,
-        };
-        let media_list = MediaRepo::list(db, tree_id, &media_params).await?;
-        let mut result = Vec::new();
-        for me in media_list.edges {
-            let links = MediaLinkRepo::list_by_media(db, me.node.id).await?;
-            if links.iter().any(|l| l.person_id == Some(person_id)) {
-                result.push(GqlMedia::from(me.node));
-            }
-        }
-        Ok(result)
+        linked_media(ctx, MediaLinkTarget::Person, &self.id).await
     }
 
     /// Notes attached to this person.
@@ -1051,38 +958,12 @@ impl From<oxidgene_core::types::Person> for GqlPerson {
 
 // ── Person Connection ────────────────────────────────────────────────
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlPersonEdge {
-    pub cursor: String,
-    pub node: GqlPerson,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlPersonConnection {
-    pub edges: Vec<GqlPersonEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Person>> for GqlPersonConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Person>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|e| GqlPersonEdge {
-                    cursor: e.cursor,
-                    node: e.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlPersonEdge,
+    GqlPersonConnection,
+    GqlPerson,
+    oxidgene_core::types::Person
+);
 
 // ── PersonWithDepth ──────────────────────────────────────────────────
 
@@ -1152,60 +1033,73 @@ impl GqlFamily {
     /// Spouses in this family.
     async fn spouses(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamilySpouseDetail>> {
         let db = db_from_ctx(ctx);
-        let family_id = uuid(&self.id)?;
-        let spouses = FamilySpouseRepo::list_by_family(db, family_id).await?;
-        let mut result = Vec::new();
-        for s in spouses {
-            let person = PersonRepo::get(db, s.person_id).await?;
-            result.push(GqlFamilySpouseDetail {
-                id: ID(s.id.to_string()),
-                person: GqlPerson::from(person),
-                role: s.role.into(),
-                sort_order: s.sort_order,
-            });
-        }
-        Ok(result)
+        let spouses = FamilySpouseRepo::list_by_family(db, uuid(&self.id)?).await?;
+        let mut persons = persons_by_id(db, spouses.iter().map(|s| s.person_id)).await?;
+        Ok(spouses
+            .into_iter()
+            .filter_map(|s| {
+                Some(GqlFamilySpouseDetail {
+                    id: ID(s.id.to_string()),
+                    person: persons.remove(&s.person_id)?.into(),
+                    role: s.role.into(),
+                    sort_order: s.sort_order,
+                })
+            })
+            .collect())
     }
 
     /// Children in this family.
     async fn children(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamilyChildDetail>> {
         let db = db_from_ctx(ctx);
-        let family_id = uuid(&self.id)?;
-        let children = FamilyChildRepo::list_by_family(db, family_id).await?;
-        let mut result = Vec::new();
-        for c in children {
-            let person = PersonRepo::get(db, c.person_id).await?;
-            result.push(GqlFamilyChildDetail {
-                id: ID(c.id.to_string()),
-                person: GqlPerson::from(person),
-                child_type: c.child_type.into(),
-                sort_order: c.sort_order,
-            });
-        }
-        Ok(result)
+        let children = FamilyChildRepo::list_by_family(db, uuid(&self.id)?).await?;
+        let mut persons = persons_by_id(db, children.iter().map(|c| c.person_id)).await?;
+        Ok(children
+            .into_iter()
+            .filter_map(|c| {
+                Some(GqlFamilyChildDetail {
+                    id: ID(c.id.to_string()),
+                    person: persons.remove(&c.person_id)?.into(),
+                    child_type: c.child_type.into(),
+                    sort_order: c.sort_order,
+                })
+            })
+            .collect())
     }
 
     /// Events associated with this family.
     async fn events(&self, ctx: &Context<'_>) -> Result<Vec<GqlEvent>> {
-        let db = db_from_ctx(ctx);
-        let family_id = uuid(&self.id)?;
-        let tree_id = uuid(&self.tree_id)?;
-        let filter = EventFilter {
-            event_type: None,
-            person_id: None,
-            family_id: Some(family_id),
-        };
-        let params = PaginationParams {
-            first: 100,
-            after: None,
-        };
-        let conn = EventRepo::list(db, tree_id, &filter, &params).await?;
-        Ok(conn
-            .edges
-            .into_iter()
-            .map(|e| GqlEvent::from(e.node))
-            .collect())
+        let mut events = EventRepo::list_by_families(db_from_ctx(ctx), &[uuid(&self.id)?]).await?;
+        events.sort_by_key(|event| event.id);
+        Ok(events.into_iter().map(GqlEvent::from).collect())
     }
+}
+
+/// The live persons among `ids`, by id, read in one query.
+async fn persons_by_id(
+    db: &DatabaseConnection,
+    ids: impl Iterator<Item = Uuid>,
+) -> Result<std::collections::HashMap<Uuid, oxidgene_core::types::Person>> {
+    let ids: Vec<Uuid> = ids.collect();
+    Ok(PersonRepo::get_many(db, &ids)
+        .await?
+        .into_iter()
+        .map(|person| (person.id, person))
+        .collect())
+}
+
+/// The media linked to entity `id`, in gallery order, each once.
+async fn linked_media(
+    ctx: &Context<'_>,
+    target: MediaLinkTarget,
+    id: &ID,
+) -> Result<Vec<GqlMedia>> {
+    let rows = MediaLinkRepo::list_with_media(db_from_ctx(ctx), target, uuid(id)?).await?;
+    let mut seen = std::collections::HashSet::new();
+    Ok(rows
+        .into_iter()
+        .filter(|(_, media)| seen.insert(media.id))
+        .map(|(_, media)| GqlMedia::from(media))
+        .collect())
 }
 
 impl From<oxidgene_core::types::Family> for GqlFamily {
@@ -1221,38 +1115,12 @@ impl From<oxidgene_core::types::Family> for GqlFamily {
 
 // ── Family Connection ────────────────────────────────────────────────
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlFamilyEdge {
-    pub cursor: String,
-    pub node: GqlFamily,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlFamilyConnection {
-    pub edges: Vec<GqlFamilyEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Family>> for GqlFamilyConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Family>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|e| GqlFamilyEdge {
-                    cursor: e.cursor,
-                    node: e.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlFamilyEdge,
+    GqlFamilyConnection,
+    GqlFamily,
+    oxidgene_core::types::Family
+);
 
 // ── FamilySpouseDetail ───────────────────────────────────────────────
 
@@ -1342,44 +1210,15 @@ impl GqlEvent {
 
     /// Citations for this event.
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
-        let db = db_from_ctx(ctx);
-        let event_id = uuid(&self.id)?;
-        let tree_id = uuid(&self.tree_id)?;
-        let source_params = PaginationParams {
-            first: 100,
-            after: None,
-        };
-        let sources = oxidgene_db::repo::SourceRepo::list(db, tree_id, &source_params).await?;
-        let mut citations = Vec::new();
-        for se in sources.edges {
-            let cits = CitationRepo::list_by_source(db, se.node.id).await?;
-            for c in cits {
-                if c.event_id == Some(event_id) {
-                    citations.push(GqlCitation::from(c));
-                }
-            }
-        }
-        Ok(citations)
+        let citations =
+            CitationRepo::list_for_event(db_from_ctx(ctx), uuid(&self.tree_id)?, uuid(&self.id)?)
+                .await?;
+        Ok(citations.into_iter().map(GqlCitation::from).collect())
     }
 
-    /// Media linked to this event.
+    /// Media linked to this event, in gallery order.
     async fn media(&self, ctx: &Context<'_>) -> Result<Vec<GqlMedia>> {
-        let db = db_from_ctx(ctx);
-        let event_id = uuid(&self.id)?;
-        let tree_id = uuid(&self.tree_id)?;
-        let media_params = PaginationParams {
-            first: 100,
-            after: None,
-        };
-        let media_list = MediaRepo::list(db, tree_id, &media_params).await?;
-        let mut result = Vec::new();
-        for me in media_list.edges {
-            let links = MediaLinkRepo::list_by_media(db, me.node.id).await?;
-            if links.iter().any(|l| l.event_id == Some(event_id)) {
-                result.push(GqlMedia::from(me.node));
-            }
-        }
-        Ok(result)
+        linked_media(ctx, MediaLinkTarget::Event, &self.id).await
     }
 
     /// Notes for this event.
@@ -1464,38 +1303,12 @@ impl From<oxidgene_core::types::EventWitness> for GqlEventWitness {
 
 // ── Event Connection ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlEventEdge {
-    pub cursor: String,
-    pub node: GqlEvent,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlEventConnection {
-    pub edges: Vec<GqlEventEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Event>> for GqlEventConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Event>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|e| GqlEventEdge {
-                    cursor: e.cursor,
-                    node: e.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlEventEdge,
+    GqlEventConnection,
+    GqlEvent,
+    oxidgene_core::types::Event
+);
 
 // ── Place ────────────────────────────────────────────────────────────
 
@@ -1527,38 +1340,12 @@ impl From<oxidgene_core::types::Place> for GqlPlace {
 
 // ── Place Connection ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlPlaceEdge {
-    pub cursor: String,
-    pub node: GqlPlace,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlPlaceConnection {
-    pub edges: Vec<GqlPlaceEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Place>> for GqlPlaceConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Place>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|e| GqlPlaceEdge {
-                    cursor: e.cursor,
-                    node: e.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlPlaceEdge,
+    GqlPlaceConnection,
+    GqlPlace,
+    oxidgene_core::types::Place
+);
 
 // ── Source ────────────────────────────────────────────────────────────
 
@@ -1606,38 +1393,12 @@ impl From<oxidgene_core::types::Source> for GqlSource {
 
 // ── Source Connection ────────────────────────────────────────────────
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlSourceEdge {
-    pub cursor: String,
-    pub node: GqlSource,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlSourceConnection {
-    pub edges: Vec<GqlSourceEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Source>> for GqlSourceConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Source>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|e| GqlSourceEdge {
-                    cursor: e.cursor,
-                    node: e.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlSourceEdge,
+    GqlSourceConnection,
+    GqlSource,
+    oxidgene_core::types::Source
+);
 
 // ── Citation ─────────────────────────────────────────────────────────
 
@@ -1673,40 +1434,12 @@ impl From<oxidgene_core::types::Citation> for GqlCitation {
     }
 }
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCitationEdge {
-    pub cursor: String,
-    pub node: GqlCitation,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlCitationConnection {
-    pub edges: Vec<GqlCitationEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Citation>>
-    for GqlCitationConnection
-{
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Citation>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|edge| GqlCitationEdge {
-                    cursor: edge.cursor,
-                    node: edge.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlCitationEdge,
+    GqlCitationConnection,
+    GqlCitation,
+    oxidgene_core::types::Citation
+);
 
 // ── Media ────────────────────────────────────────────────────────────
 
@@ -2091,38 +1824,12 @@ impl From<oxidgene_core::types::Note> for GqlNote {
     }
 }
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlNoteEdge {
-    pub cursor: String,
-    pub node: GqlNote,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlNoteConnection {
-    pub edges: Vec<GqlNoteEdge>,
-    pub page_info: GqlPageInfo,
-    pub total_count: i64,
-}
-
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Note>> for GqlNoteConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Note>) -> Self {
-        Self {
-            edges: c
-                .edges
-                .into_iter()
-                .map(|edge| GqlNoteEdge {
-                    cursor: edge.cursor,
-                    node: edge.node.into(),
-                })
-                .collect(),
-            page_info: GqlPageInfo {
-                has_next_page: c.page_info.has_next_page,
-                end_cursor: c.page_info.end_cursor,
-            },
-            total_count: c.total_count,
-        }
-    }
-}
+connection!(
+    GqlNoteEdge,
+    GqlNoteConnection,
+    GqlNote,
+    oxidgene_core::types::Note
+);
 
 // ── Import/Export Results ─────────────────────────────────────────────
 

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:37:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:49:42Z }
 ---
 
 
@@ -1462,6 +1462,11 @@ polls `importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and
 `geneanetResult` is set for a completed Geneanet job.
 
 ### Key Types
+
+The nested lists of `Person`, `Family` and `Event` (names, families, events,
+citations, media, spouses, children, witnesses) are complete — never cut to a
+first page — and each is read with one query, whatever the size of the tree.
+`Tree.personCount` and `familyCount` are counts, not a page of rows.
 
 ```graphql
 type Tree {

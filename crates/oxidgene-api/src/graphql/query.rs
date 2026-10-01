@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use async_graphql::{Context, ID, Object, Result};
 use base64::Engine as _;
+use oxidgene_core::OxidGeneError;
 use oxidgene_geneanet::archive::LocalOriginals;
+use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::service::person::Lineage;
@@ -41,15 +43,28 @@ use super::types::{
     require_local_file_access,
 };
 
-async fn tree_resource_exists(
-    db: &impl sea_orm::ConnectionTrait,
+/// A read's record, or `None` when the record is not there — the shape of
+/// every single-record query. Any other failure is an error.
+fn found<T, G: From<T>>(read: Result<T, OxidGeneError>) -> Result<Option<G>> {
+    match read {
+        Ok(record) => Ok(Some(record.into())),
+        Err(OxidGeneError::NotFound { .. }) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Record `id` of tree `tree_id`, read by `read` once it is known to belong
+/// to the tree; `None` when it is absent, deleted or of another tree.
+async fn in_tree<T, G: From<T>>(
+    db: &DatabaseConnection,
     tree_id: Uuid,
     resource: TreeResource,
     id: Uuid,
-) -> Result<bool> {
+    read: impl std::future::Future<Output = Result<T, OxidGeneError>>,
+) -> Result<Option<G>> {
     match require_tree_resource(db, tree_id, resource, id).await {
-        Ok(()) => Ok(true),
-        Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(false),
+        Ok(()) => found(read.await),
+        Err(OxidGeneError::NotFound { .. }) => Ok(None),
         Err(error) => Err(error.into()),
     }
 }
@@ -234,11 +249,7 @@ impl QueryRoot {
     async fn tree(&self, ctx: &Context<'_>, id: ID) -> Result<Option<GqlTree>> {
         let db = db_from_ctx(ctx);
         let id = uuid(&id)?;
-        match TreeRepo::get(db, id).await {
-            Ok(t) => Ok(Some(t.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        found(TreeRepo::get(db, id).await)
     }
 
     // ── Persons ──────────────────────────────────────────────────────
@@ -267,11 +278,7 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        match PersonRepo::get_in_tree(db, tid, id).await {
-            Ok(p) => Ok(Some(p.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        found(PersonRepo::get_in_tree(db, tid, id).await)
     }
 
     /// Load the names and spouse links needed to label a bounded set of relations.
@@ -427,14 +434,7 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        if !tree_resource_exists(db, tid, TreeResource::Family, id).await? {
-            return Ok(None);
-        }
-        match FamilyRepo::get(db, id).await {
-            Ok(f) => Ok(Some(f.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        in_tree(db, tid, TreeResource::Family, id, FamilyRepo::get(db, id)).await
     }
 
     // ── Events ───────────────────────────────────────────────────────
@@ -471,14 +471,7 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        if !tree_resource_exists(db, tid, TreeResource::Event, id).await? {
-            return Ok(None);
-        }
-        match EventRepo::get(db, id).await {
-            Ok(e) => Ok(Some(e.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        in_tree(db, tid, TreeResource::Event, id, EventRepo::get(db, id)).await
     }
 
     // ── Places ───────────────────────────────────────────────────────
@@ -507,14 +500,7 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        if !tree_resource_exists(db, tid, TreeResource::Place, id).await? {
-            return Ok(None);
-        }
-        match PlaceRepo::get(db, id).await {
-            Ok(p) => Ok(Some(p.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        in_tree(db, tid, TreeResource::Place, id, PlaceRepo::get(db, id)).await
     }
 
     // ── Sources ──────────────────────────────────────────────────────
@@ -542,14 +528,7 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        if !tree_resource_exists(db, tid, TreeResource::Source, id).await? {
-            return Ok(None);
-        }
-        match SourceRepo::get(db, id).await {
-            Ok(s) => Ok(Some(s.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        in_tree(db, tid, TreeResource::Source, id, SourceRepo::get(db, id)).await
     }
 
     /// List citations in a tree with optional entity filters and pagination.
@@ -587,11 +566,7 @@ impl QueryRoot {
     /// Get a single note by ID.
     async fn note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlNote>> {
         let tree_id = live_tree(ctx, &tree_id).await?;
-        match crate::service::note::get_note(db_from_ctx(ctx), tree_id, uuid(&id)?).await {
-            Ok(note) => Ok(Some(note.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        found(crate::service::note::get_note(db_from_ctx(ctx), tree_id, uuid(&id)?).await)
     }
 
     /// List notes in a tree with optional entity filters and pagination.
@@ -1077,14 +1052,7 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        if !tree_resource_exists(db, tid, TreeResource::Media, id).await? {
-            return Ok(None);
-        }
-        match MediaRepo::get(db, id).await {
-            Ok(m) => Ok(Some(m.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        in_tree(db, tid, TreeResource::Media, id, MediaRepo::get(db, id)).await
     }
 
     /// A checked HTTP attachment URL for one stored original of any media type.
@@ -1294,14 +1262,14 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        if !tree_resource_exists(db, tid, TreeResource::Vignette, id).await? {
-            return Ok(None);
-        }
-        match VignetteRepo::get(db, id).await {
-            Ok(v) => Ok(Some(v.into())),
-            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        in_tree(
+            db,
+            tid,
+            TreeResource::Vignette,
+            id,
+            VignetteRepo::get(db, id),
+        )
+        .await
     }
 
     // ── GEDCOM ────────────────────────────────────────────────────────

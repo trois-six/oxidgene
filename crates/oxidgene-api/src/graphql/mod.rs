@@ -1,5 +1,44 @@
 //! GraphQL API layer: schema construction, Axum handlers, and module declarations.
 
+/// A Relay connection type, its edge, and the conversion from the domain's
+/// `Connection` of `$core` nodes — declared once for every paginated list.
+macro_rules! connection {
+    ($edge:ident, $connection:ident, $gql:ident, $core:ty) => {
+        #[derive(Debug, Clone, async_graphql::SimpleObject)]
+        pub struct $edge {
+            pub cursor: String,
+            pub node: $gql,
+        }
+
+        #[derive(Debug, Clone, async_graphql::SimpleObject)]
+        pub struct $connection {
+            pub edges: Vec<$edge>,
+            pub page_info: $crate::graphql::types::GqlPageInfo,
+            pub total_count: i64,
+        }
+
+        impl From<oxidgene_core::types::Connection<$core>> for $connection {
+            fn from(c: oxidgene_core::types::Connection<$core>) -> Self {
+                Self {
+                    edges: c
+                        .edges
+                        .into_iter()
+                        .map(|edge| $edge {
+                            cursor: edge.cursor,
+                            node: edge.node.into(),
+                        })
+                        .collect(),
+                    page_info: $crate::graphql::types::GqlPageInfo {
+                        has_next_page: c.page_info.has_next_page,
+                        end_cursor: c.page_info.end_cursor,
+                    },
+                    total_count: c.total_count,
+                }
+            }
+        }
+    };
+}
+
 mod error;
 pub mod history;
 pub mod inputs;

@@ -9,11 +9,10 @@ use oxidgene_core::history::{
     PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, RecordVersion, SourceSnapshot,
     SpouseLinkSnapshot, TreeSnapshot, UnionSnapshot, VersionChange, WitnessSnapshot,
 };
-use oxidgene_core::types::Connection;
 
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlEventType, GqlNameType,
-    GqlPageInfo, GqlPrivacy, GqlSex, GqlSpouseRole, GqlTreeDefaultPrivacy,
+    GqlPrivacy, GqlSex, GqlSpouseRole, GqlTreeDefaultPrivacy,
 };
 
 /// Declares a GraphQL enum mirroring a history enum, with conversions both
@@ -503,43 +502,6 @@ impl From<VersionChange> for GqlVersionChange {
             previous: c.previous.map(Into::into),
         }
     }
-}
-
-macro_rules! connection {
-    ($edge:ident, $connection:ident, $gql:ident, $core:ty) => {
-        #[derive(Debug, Clone, SimpleObject)]
-        pub struct $edge {
-            pub cursor: String,
-            pub node: $gql,
-        }
-
-        #[derive(Debug, Clone, SimpleObject)]
-        pub struct $connection {
-            pub edges: Vec<$edge>,
-            pub page_info: GqlPageInfo,
-            pub total_count: i64,
-        }
-
-        impl From<Connection<$core>> for $connection {
-            fn from(c: Connection<$core>) -> Self {
-                Self {
-                    edges: c
-                        .edges
-                        .into_iter()
-                        .map(|edge| $edge {
-                            cursor: edge.cursor,
-                            node: edge.node.into(),
-                        })
-                        .collect(),
-                    page_info: GqlPageInfo {
-                        has_next_page: c.page_info.has_next_page,
-                        end_cursor: c.page_info.end_cursor,
-                    },
-                    total_count: c.total_count,
-                }
-            }
-        }
-    };
 }
 
 connection!(
