@@ -9,6 +9,7 @@ pub mod date;
 pub mod export;
 pub mod geneweb;
 pub mod import;
+mod sanitize;
 
 use serde::{Deserialize, Serialize};
 

@@ -1882,6 +1882,9 @@ the next block for a `fam`, and reported as one warning naming its line.
 
 - Repository records (`REPO`)
 - Submitter records (`SUBM`)
-- Age at event (`AGE`)
+- Age at event (`AGE`). A value that is not a GEDCOM age — free text such as
+  `2 AGE majeur`, or an empty `AGE` — would make `ged_io` reject the whole
+  file, so it is left out before parsing and reported as one warning naming
+  its line (never its value)
 - Agency (`AGNC`)
 - Custom/vendor tags (`_CUSTOM`)

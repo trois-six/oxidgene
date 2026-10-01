@@ -386,6 +386,50 @@ fn test_import_place_dedup() {
     assert!(result.places[0].name.contains("London"));
 }
 
+/// A file whose ages are partly free text, which `ged_io` refuses outright.
+const UNREADABLE_AGE_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Branch /Alpha/
+1 BIRT
+2 DATE 1801
+1 MARR
+2 AGE majeur
+1 DEAT
+2 DATE 1870
+2 AGE
+2 PLAC Sample Town
+1 BURI
+2 AGE 69y
+0 TRLR
+";
+
+/// An `AGE` that is not a GEDCOM age costs that line, not the import: the
+/// valid ones are kept, the rest are reported by line number and nothing of
+/// the value leaks into the warning.
+#[test]
+fn an_unreadable_age_is_a_warning_rather_than_a_failed_import() {
+    let result = import_gedcom(UNREADABLE_AGE_GEDCOM, Uuid::now_v7()).expect("imports");
+    assert_eq!(result.persons.len(), 1);
+    let death = event_of(&result, oxidgene_core::EventType::Death);
+    assert_eq!(death.date_value.as_deref(), Some("1870"));
+    assert!(death.place_id.is_some(), "the PLAC after the AGE survives");
+    assert_eq!(result.warnings.len(), 2, "{:?}", result.warnings);
+    assert!(result.warnings[0].starts_with("Line 10:"));
+    assert!(result.warnings[1].starts_with("Line 13:"));
+    assert!(result.warnings.iter().all(|w| !w.contains("majeur")));
+
+    let archive = oxidgene_gedcom::export::export_gedzip(UNREADABLE_AGE_GEDCOM, &[])
+        .expect("writes the archive");
+    let imported =
+        oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7()).expect("imports GEDZIP");
+    assert_eq!(imported.result.persons.len(), 1);
+    assert_eq!(imported.result.warnings.len(), 2);
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();

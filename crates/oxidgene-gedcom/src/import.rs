@@ -40,11 +40,13 @@ const GEDCOM_FILENAME: &str = "gedcom.ged";
 ///
 /// Returns `Err` if the GEDCOM string cannot be parsed.
 pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, String> {
+    let sanitized = crate::sanitize::sanitize(gedcom_str);
     let data = GedcomBuilder::new()
-        .build_from_str(gedcom_str)
+        .build_from_str(&sanitized.text)
         .map_err(|e| format!("GEDCOM parse error: {e}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
+    result.warnings.splice(0..0, sanitized.warnings);
     import_oxidgene_media_extensions(gedcom_str, &mut result);
     assign_portraits(&mut result);
     Ok(result)
@@ -179,12 +181,15 @@ pub fn prepare_gedzip<R: Read + Seek>(
     let gedcom = reader.read_entry(GEDCOM_FILENAME, GEDZIP_GEDCOM_LIMIT)?;
     let (content, _) = ged_io::decode_gedcom_bytes(&gedcom)
         .map_err(|error| format!("GEDZIP parse error: {error}"))?;
+    drop(gedcom);
+    let sanitized = crate::sanitize::sanitize(&content);
     let data = GedcomBuilder::new()
-        .build(content.chars())
+        .build(sanitized.text.chars())
         .map_err(|error| format!("GEDZIP parse error: {error}"))?;
 
     let mut result = import_gedcom_data(&data, tree_id)?;
-    import_oxidgene_media_extensions(&String::from_utf8_lossy(&gedcom), &mut result);
+    result.warnings.splice(0..0, sanitized.warnings);
+    import_oxidgene_media_extensions(&content, &mut result);
     assign_portraits(&mut result);
 
     let entries: HashMap<String, String> = reader
