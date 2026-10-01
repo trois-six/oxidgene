@@ -23,7 +23,7 @@ use super::dto::{
     DecodeSessionResponse, EncodeSessionRequest, FileImportStartedResponse, GeneanetImportRequest,
     GeneanetImportResponse, GeneanetPlanResponse, GeneanetPreviewRequest, GeneanetPreviewResponse,
     ImportGenewebQuery, IndexArchivesRequest, IndexArchivesResponse, IndexedArchive,
-    InspectGenewebResponse, NeededMedia,
+    InspectGenewebResponse, NeededMedia, ReleaseSessionMediaRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -227,6 +227,20 @@ pub async fn decode_session_handler(
         photo_count,
         media: restored.media,
     }))
+}
+
+/// POST /api/v1/geneanet/session/release
+///
+/// Delete the staged media of a decoded session the wizard closed or reset
+/// without importing. Queuing the import releases them too, and those never
+/// released expire a day after they were staged.
+pub async fn release_session_media_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ReleaseSessionMediaRequest>,
+) -> Result<StatusCode, ApiError> {
+    state.local_file_access.require().map_err(ApiError::from)?;
+    crate::service::session_media::remove_owned(body.paths.iter().map(String::as_str));
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// POST /api/v1/geneanet/plan

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:13:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:36:07Z }
 ---
 
 
@@ -876,6 +876,7 @@ bytes are carried in the request and it performs no filesystem handoff.
 | `POST` | `/geneanet/archives` | **Step 2.** JSON `{ "paths": [...] }`. Index each data archive's ZIP central directory **in place** — nothing is extracted and no bytes are uploaded. Returns per-archive `file_count`/`image_count`, and a per-archive `error` for one that could not be read, so the others still stand. Desktop only: it takes filesystem paths, which is sound because there the server is in-process |
 | `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all |
 | `POST` | `/geneanet/session/decode` | Read a ZIP session or raw browser JSON collection, detected by content. Media references must resolve to archive entries; inline base64 media and missing entries are rejected. Refuses anything that is not a collection |
+| `POST` | `/geneanet/session/release` | JSON `{ "paths": [...] }`. Delete the media a decoded session staged that the wizard no longer needs — closed, or reset without importing. A path the backend did not stage is ignored. Returns `204` |
 | `POST` | `/geneanet/preview` | **Step 4.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on |
 | `POST` | `/geneanet/plan` | **Step 4.** List the media the server cannot produce on its own, for the login window to fetch. Same body as the preview. Under `media_fidelity: "renditions"` that is one `normal` rendition per page of every attached deposit; under `"originals"` it is each single-page deposit's download that no archive length accounts for, plus a rendition per document page to recognise it by |
 | `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt |
@@ -901,6 +902,11 @@ temporary file and extracts media sequentially to private staging files, without
 buffering the album or converting its media to base64. Two session loads may
 upload or extract concurrently. Failed extraction discards its staged files.
 Temporary storage must accommodate the upload and extracted media.
+Staged media are the account's own photos, so they do not outlive their use:
+queuing the import deletes them once copied to job storage, the wizard
+releases them when it closes or reloads a session, and any left are deleted a
+day after staging — or, after a restart, by the desktop backend's start-up
+sweep of the application's temporary files older than a day.
 
 GraphQL uses the same extractor and concurrency gate. Its existing base64 input
 is decoded directly to a temporary file, but the GraphQL JSON/string itself is
@@ -1377,6 +1383,7 @@ type Mutation {
   # shared desktop filesystem; the mutation stages them into durable storage.
   encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GeneanetSessionArchive!
   decodeGeneanetSession(archiveBase64: String!): GeneanetSession!
+  releaseGeneanetSessionMedia(paths: [String!]!): Boolean!
   importGeneanet(treeId: ID!, input: GeneanetImportInput!): BackgroundJobStarted!
 
   # History
@@ -1396,7 +1403,7 @@ archive-path and `mediaFidelity` data as REST's preview and plan bodies
 `ORIGINALS`). `GeneanetImportInput` adds the source-URL-to-local-path map. These paths are the staging handoff:
 GraphQL does not carry the corresponding bytes, and the mutation copies every
 input to job-owned durable storage before returning its job id.
-`indexGeneanetArchives` and paths returned from `decodeGeneanetSession` are
+`indexGeneanetArchives`, `releaseGeneanetSessionMedia` and paths returned from `decodeGeneanetSession` are
 desktop-only because they refer to the local filesystem. The runtime capability
 that protects the REST data plane also protects these GraphQL fields. A caller
 polls `importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and

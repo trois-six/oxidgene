@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:13:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:36:07Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -405,8 +405,9 @@ user cannot lose entered data.
 - Privacy settings must not claim to enforce protection before authorization
   is implemented; the UI states the current limitation.
 - Copies of genealogy the application makes for its own work do not outlive
-  that work: export artifacts and job inputs and payloads are deleted when
-  used or after a bounded time, and a tree's purge deletes them with it ([Architecture §6](architecture.md)).
+  that work: export artifacts, job inputs and payloads, and the photos a
+  loaded Geneanet session stages are deleted when used or after a bounded
+  time, and a tree's purge deletes what belongs to it ([Architecture §6](architecture.md)).
 
 ### 7.1 Backend exposure before authentication
 

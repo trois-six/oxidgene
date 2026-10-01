@@ -510,6 +510,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/plan", post(geneanet::plan_handler))
         .route("/session/encode", post(geneanet::encode_session_handler))
         .route(
+            "/session/release",
+            post(geneanet::release_session_media_handler),
+        )
+        .route(
             "/session/decode",
             post(geneanet::decode_session_handler)
                 // Saved sessions contain media bytes, not only metadata paths.

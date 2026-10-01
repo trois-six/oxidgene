@@ -672,9 +672,15 @@ fn GeneanetTab(
 
     // Dismissing the wizard closes the window with it. Without this it would
     // outlive the modal that opened it, with nothing left able to reach it.
+    // It also releases the photos a loaded session staged: once an import is
+    // queued they are already gone, and otherwise nothing will read them.
     {
         let bridge = bridge.clone();
-        use_drop(move || bridge.iter().for_each(GeneanetBridge::close));
+        let api = api.clone();
+        use_drop(move || {
+            bridge.iter().for_each(GeneanetBridge::close);
+            release_gathered_media(&api, fetched);
+        });
     }
 
     let can_connect = move || {
@@ -685,6 +691,7 @@ fn GeneanetTab(
 
     // Changing the answer to step 1 invalidates every decision that depended
     // on it, so they are dropped rather than left to look settled.
+    let api_fidelity = api.clone();
     let choose_fidelity = move |next: MediaFidelity| {
         if next == fidelity() {
             return;
@@ -697,6 +704,7 @@ fn GeneanetTab(
         preview.set(None);
         preview_error.set(None);
         override_mismatch.set(false);
+        release_staged_media(&api_fidelity, &fetched.peek());
         fetched.write().clear();
 
         if next.uses_archives() {
@@ -1104,6 +1112,30 @@ async fn preview_and_plan(
 ) -> Result<Vec<crate::api::NeededMedia>, crate::api::ApiError> {
     preview.set(Some(api.preview_geneanet_import(body).await?));
     api.plan_geneanet_import(body).await.map(|plan| plan.needed)
+}
+
+/// Hand back to the backend the staged media among `media`, which the wizard
+/// no longer needs: a session's photos are the account's own and are not
+/// left in temporary files. Media the login window fetched are its own and
+/// are ignored by the backend. Best effort — what is not released expires.
+fn release_staged_media(api: &ApiClient, media: &HashMap<String, String>) {
+    if media.is_empty() {
+        return;
+    }
+    let api = api.clone();
+    let paths: Vec<String> = media.values().cloned().collect();
+    // Not tied to this component: it runs as the wizard goes away.
+    dioxus::core::spawn_forever(async move {
+        let _ = api.release_geneanet_session_media(paths).await;
+    });
+}
+
+/// [`release_staged_media`] on what `fetched` still holds, as the wizard
+/// goes away; a signal already dropped holds nothing to release.
+fn release_gathered_media(api: &ApiClient, fetched: Signal<HashMap<String, String>>) {
+    if let Ok(media) = fetched.try_peek() {
+        release_staged_media(api, &media);
+    }
 }
 
 /// The addresses to fetch: those `needed` not fetched yet, each once — every
@@ -1877,7 +1909,9 @@ fn SessionControls(
                         photo_count: session.photo_count,
                     }));
                     // A file saved after step 4 brings the media with it, and
-                    // step 4 then asks the window for nothing.
+                    // step 4 then asks the window for nothing. What an earlier
+                    // file staged is not needed any more.
+                    release_staged_media(&api, &fetched.peek());
                     fetched.set(session.media);
                     if let Some(on_loaded) = &on_loaded {
                         on_loaded.call(());

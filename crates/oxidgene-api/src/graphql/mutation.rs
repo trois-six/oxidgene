@@ -1796,6 +1796,19 @@ impl MutationRoot {
         })
     }
 
+    /// Delete the staged media of a decoded session the wizard closed or
+    /// reset without importing, as `POST /geneanet/session/release` does. A
+    /// path the backend did not stage is ignored.
+    async fn release_geneanet_session_media(
+        &self,
+        ctx: &Context<'_>,
+        paths: Vec<String>,
+    ) -> Result<bool> {
+        require_local_file_access(ctx)?;
+        crate::service::session_media::remove_owned(paths.iter().map(String::as_str));
+        Ok(true)
+    }
+
     /// Decode a saved Geneanet session. Its media are staged as local files
     /// for a following desktop import, just as they are through REST.
     async fn decode_geneanet_session(

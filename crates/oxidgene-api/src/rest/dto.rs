@@ -1247,6 +1247,14 @@ pub struct EncodeSessionRequest {
     pub media: std::collections::HashMap<String, String>,
 }
 
+/// The staged media of a decoded session the wizard no longer needs.
+#[derive(Debug, Deserialize)]
+pub struct ReleaseSessionMediaRequest {
+    /// Local paths, as `/geneanet/session/decode` returned them. A path the
+    /// backend did not stage is ignored.
+    pub paths: Vec<String>,
+}
+
 /// What a saved session held.
 #[derive(Debug, Serialize)]
 pub struct DecodeSessionResponse {

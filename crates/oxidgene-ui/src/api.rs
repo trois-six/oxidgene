@@ -4542,6 +4542,16 @@ impl ApiClient {
         Self::handle_response("POST", response).await
     }
 
+    /// Let the backend delete the photos a decoded session staged, once the
+    /// wizard no longer needs them. Paths it did not stage are ignored.
+    pub async fn release_geneanet_session_media(&self, paths: Vec<String>) -> Result<(), ApiError> {
+        self.post_no_content(
+            "/api/v1/geneanet/session/release",
+            &serde_json::json!({ "paths": paths }),
+        )
+        .await
+    }
+
     /// Ask what the login window has to fetch before an import can run.
     ///
     /// The server never reaches Geneanet — every direct request is challenged

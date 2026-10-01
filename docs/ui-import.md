@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:36:07Z }
 ---
 
 
@@ -422,6 +422,10 @@ renditions answer the pass is skipped outright and the reported deposit lengths
 are empty. Once gathering reaches 100%, the login window is hidden while its
 in-memory session retains the staged files. The session is destroyed after the
 backend has copied those files into durable job storage, or if the modal closes.
+The photos a loaded session file brings are staged by the backend instead; the
+wizard releases them (`POST /geneanet/session/release`) when the modal closes,
+when another session file replaces them, and when changing the media answer
+discards them, and the backend deletes any never released a day later.
 Optional enrichment payloads with unsupported shapes do not invalidate
 otherwise usable media links. If the essential collection shape is unreadable,
 step 3 stops with a localized collection error instead of advancing to a

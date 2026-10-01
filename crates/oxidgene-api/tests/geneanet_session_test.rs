@@ -215,3 +215,122 @@ async fn standalone_server_rejects_session_upload_before_reading_it() {
         .unwrap();
     assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
 }
+
+/// POST `body` as JSON to `uri` and return the status with the JSON answer.
+async fn post_json(app: &axum::Router, uri: &str, body: Value) -> (axum::http::StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// A wizard closed without importing releases the photos its session staged;
+/// a path the backend did not stage is ignored.
+async fn released_session_media_are_deleted(graphql: bool) {
+    let db = setup_db().await;
+    let root = tempfile::tempdir().unwrap();
+    let app = build_router(AppState::new(db, root.path()).with_local_file_access());
+    let archive = oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
+        collection: json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
+        media: std::collections::HashMap::from([(
+            "https://example.invalid/medium.jpg".to_string(),
+            "aGVsbG8=".to_string(),
+        )]),
+        ..Default::default()
+    })
+    .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/geneanet/session/decode")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(archive))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let decoded: Value = serde_json::from_slice(&bytes).unwrap();
+    let staged = decoded["media"]["https://example.invalid/medium.jpg"]
+        .as_str()
+        .expect("a staged path")
+        .to_string();
+    assert!(std::path::Path::new(&staged).exists());
+    let unrelated = root.path().join("unrelated-fixture");
+    std::fs::write(&unrelated, b"kept").unwrap();
+    let paths = json!([staged, unrelated.to_string_lossy()]);
+
+    if graphql {
+        let (status, value) = post_json(
+            &app,
+            "/graphql",
+            json!({
+                "query": "mutation($paths: [String!]!) { releaseGeneanetSessionMedia(paths: $paths) }",
+                "variables": {"paths": paths},
+            }),
+        )
+        .await;
+        assert!(status.is_success());
+        assert_eq!(
+            value["data"]["releaseGeneanetSessionMedia"], true,
+            "{value}"
+        );
+    } else {
+        let (status, _) = post_json(
+            &app,
+            "/api/v1/geneanet/session/release",
+            json!({ "paths": paths }),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
+    }
+    assert!(!std::path::Path::new(&staged).exists());
+    assert!(unrelated.exists());
+}
+
+#[tokio::test]
+async fn rest_releases_staged_session_media() {
+    released_session_media_are_deleted(false).await;
+}
+
+#[tokio::test]
+async fn graphql_releases_staged_session_media() {
+    released_session_media_are_deleted(true).await;
+}
+
+#[tokio::test]
+async fn standalone_server_refuses_to_release_session_media() {
+    let db = setup_db().await;
+    let root = tempfile::tempdir().unwrap();
+    let app = build_router(AppState::new(db, root.path()));
+    let (status, _) = post_json(
+        &app,
+        "/api/v1/geneanet/session/release",
+        json!({ "paths": ["/tmp/oxidgene-geneanet-fixture"] }),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+    let (_, value) = post_json(
+        &app,
+        "/graphql",
+        json!({ "query": "mutation { releaseGeneanetSessionMedia(paths: []) }" }),
+    )
+    .await;
+    assert!(value.get("errors").is_some(), "{value}");
+}
