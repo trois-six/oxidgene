@@ -51,7 +51,10 @@ impl MediaBackend {
 }
 
 /// Application configuration.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// Its `Debug` output redacts the credentials it holds: the database URL's
+/// password and the S3 secret key.
+#[derive(Clone, Deserialize)]
 pub struct ServerConfig {
     /// Bind address (default: loopback only).
     #[serde(default = "default_host")]
@@ -106,6 +109,57 @@ pub struct ServerConfig {
     /// Secret key used by the S3 backend.
     #[serde(default)]
     pub s3_secret_access_key: Option<String>,
+}
+
+impl std::fmt::Debug for ServerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("database_url", &redact_url_password(&self.database_url))
+            .field("log_level", &self.log_level)
+            .field("log_format", &self.log_format)
+            .field("cors_origin", &self.cors_origin)
+            .field("media_root", &self.media_root)
+            .field("media_backend", &self.media_backend)
+            .field("s3_bucket", &self.s3_bucket)
+            .field("s3_region", &self.s3_region)
+            .field("s3_endpoint", &self.s3_endpoint)
+            .field("s3_access_key_id", &self.s3_access_key_id)
+            .field(
+                "s3_secret_access_key",
+                &self.s3_secret_access_key.as_ref().map(|_| REDACTED),
+            )
+            .finish()
+    }
+}
+
+/// What a redacted credential prints as.
+const REDACTED: &str = "<redacted>";
+
+/// `url` with the password of its user information, if any, replaced by
+/// [`REDACTED`]: `postgres://user:secret@host/db` prints as
+/// `postgres://user:<redacted>@host/db`.
+fn redact_url_password(url: &str) -> String {
+    let Some(scheme_end) = url.find("://").map(|index| index + 3) else {
+        return url.to_string();
+    };
+    let authority_end = url[scheme_end..]
+        .find(['/', '?', '#'])
+        .map_or(url.len(), |index| scheme_end + index);
+    let Some(at) = url[scheme_end..authority_end].rfind('@') else {
+        return url.to_string();
+    };
+    let user_info = &url[scheme_end..scheme_end + at];
+    match user_info.find(':') {
+        Some(colon) => format!(
+            "{}{}:{REDACTED}{}",
+            &url[..scheme_end],
+            &user_info[..colon],
+            &url[scheme_end + at..]
+        ),
+        None => url.to_string(),
+    }
 }
 
 fn default_host() -> String {
@@ -206,6 +260,43 @@ mod tests {
     #[test]
     fn console_logs_default_to_text() {
         assert_eq!(default_log_format().parse(), Ok(LogFormat::Text));
+    }
+
+    #[test]
+    fn debug_output_redacts_credentials() {
+        let mut config: ServerConfig = Config::builder()
+            .build()
+            .and_then(Config::try_deserialize)
+            .expect("every field has a default");
+        config.database_url = "postgres://fixture:hunter2@db.example.invalid/app".into();
+        config.s3_access_key_id = Some("fixture-key".into());
+        config.s3_secret_access_key = Some("s3-secret-value".into());
+
+        let printed = format!("{config:?}");
+
+        assert!(!printed.contains("hunter2"), "{printed}");
+        assert!(!printed.contains("s3-secret-value"), "{printed}");
+        assert!(
+            printed.contains("postgres://fixture:<redacted>@db.example.invalid/app"),
+            "{printed}"
+        );
+        assert!(printed.contains("fixture-key"), "{printed}");
+    }
+
+    #[test]
+    fn urls_without_a_password_print_unchanged() {
+        for url in [
+            "sqlite:///data/oxidgene.db?mode=rwc",
+            "postgres://db.example.invalid/app",
+            "postgres://fixture@db.example.invalid/app",
+            "postgres://db.example.invalid/app?options=a@b:c",
+        ] {
+            assert_eq!(redact_url_password(url), url);
+        }
+        assert_eq!(
+            redact_url_password("postgres://fixture:p@ss:w@rd@db.example.invalid"),
+            "postgres://fixture:<redacted>@db.example.invalid"
+        );
     }
 
     #[test]

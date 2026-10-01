@@ -450,13 +450,46 @@ impl std::fmt::Debug for S3Store {
     }
 }
 
+/// Whether `endpoint` is a plain `http://` URL whose host is not loopback.
+#[cfg(feature = "s3")]
+fn plain_http_off_loopback(endpoint: &str) -> bool {
+    let Some(rest) = endpoint.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let host = match host.strip_prefix('[') {
+        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        None => host.split(':').next().unwrap_or_default(),
+    };
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
+    !loopback
+}
+
 #[cfg(feature = "s3")]
 impl S3Store {
     pub fn new(config: S3StoreConfig) -> Result<Self, OxidGeneError> {
+        // Plain HTTP is for a development store on this machine or a trusted
+        // private network: media and credentials cross it unencrypted.
         let allow_http = config
             .endpoint
             .as_deref()
             .is_some_and(|endpoint| endpoint.starts_with("http://"));
+        if config
+            .endpoint
+            .as_deref()
+            .is_some_and(plain_http_off_loopback)
+        {
+            tracing::warn!(
+                error = "s3_plain_http",
+                "the S3 endpoint uses plain HTTP beyond loopback: media and signed requests cross the network unencrypted"
+            );
+        }
         let mut builder = AmazonS3Builder::new()
             .with_bucket_name(config.bucket)
             .with_region(config.region)
@@ -915,6 +948,26 @@ mod tests {
 
         assert_eq!(names.len(), 1, "temp files should not survive: {names:?}");
         assert!(names[0].ends_with(".png"));
+    }
+
+    #[cfg(feature = "s3")]
+    #[test]
+    fn plain_http_is_flagged_only_beyond_loopback() {
+        for endpoint in [
+            "http://127.0.0.1:9000",
+            "http://localhost:9000/",
+            "http://[::1]:9000",
+            "https://s3.example.invalid",
+        ] {
+            assert!(!plain_http_off_loopback(endpoint), "{endpoint}");
+        }
+        for endpoint in [
+            "http://rustfs.storage.svc.cluster.local:9000",
+            "http://192.0.2.10:9000",
+            "http://[2001:db8::1]:9000",
+        ] {
+            assert!(plain_http_off_loopback(endpoint), "{endpoint}");
+        }
     }
 
     #[cfg(feature = "s3")]

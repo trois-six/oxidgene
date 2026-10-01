@@ -24,6 +24,7 @@ pub fn app(api_router: Router, cors_origin: HeaderValue) -> Router {
             Method::GET,
             Method::POST,
             Method::PUT,
+            Method::PATCH,
             Method::DELETE,
             Method::OPTIONS,
         ])
@@ -76,6 +77,34 @@ mod tests {
             .await
             .expect("infallible router")
             .status()
+    }
+
+    #[tokio::test]
+    async fn the_frontend_origin_may_send_every_method_the_ui_uses() {
+        let api = Router::new().route("/api/v1/ping", get(|| async { "pong" }));
+        let app = app(api, HeaderValue::from_static("http://127.0.0.1:8081"));
+        for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("OPTIONS")
+                        .uri("/api/v1/ping")
+                        .header("origin", "http://127.0.0.1:8081")
+                        .header("access-control-request-method", method)
+                        .body(Body::empty())
+                        .expect("valid request"),
+                )
+                .await
+                .expect("infallible router");
+            let allowed = response
+                .headers()
+                .get("access-control-allow-methods")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            assert!(allowed.contains(method), "{method} not in {allowed:?}");
+        }
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T16:22:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:14:09Z }
 ---
 
 # OxidGene Quickstart
@@ -190,6 +190,26 @@ The bundled OpenTelemetry Collector receives OTLP/gRPC on
 development log, trace, and metric summaries in `otel-collector` logs. Edit
 `docker/otel-collector.yaml` to forward these signals to a persistent
 observability backend.
+
+### Server configuration
+
+`oxidgene-server` reads an optional `oxidgene.toml` in its working directory
+and the environment, which overrides it. Compose and the Helm chart set these
+for you; a server run by hand reads:
+
+| Variable | Default | Description |
+|---|---|---|
+| `OXIDGENE_HOST` | `127.0.0.1` | Bind address. Keep loopback unless a trusted same-origin gateway is the only way in. |
+| `OXIDGENE_PORT` | `8080` | Bind port. |
+| `OXIDGENE_DATABASE_URL` | `postgres://oxidgene:oxidgene@localhost/oxidgene` | `postgres://…` or `sqlite://…`. Its password never reaches a log. |
+| `OXIDGENE_LOG_LEVEL` | `info` | Tracing filter. |
+| `OXIDGENE_LOG_FORMAT` | `text` | Console format, `text` or `json`. |
+| `OXIDGENE_CORS_ORIGIN` | `http://127.0.0.1:8081` | The one browser origin that may call the API; `*` is refused. Writes from any other origin answer `403 forbidden`. |
+| `OXIDGENE_MEDIA_BACKEND` | `filesystem` | `filesystem` or `s3`. |
+| `OXIDGENE_MEDIA_ROOT` | Platform data directory | Filesystem media root. |
+| `OXIDGENE_S3_BUCKET`, `OXIDGENE_S3_REGION` | `oxidgene-media`, `us-east-1` | S3 bucket and signing region. |
+| `OXIDGENE_S3_ENDPOINT` | Unset (AWS) | S3-compatible endpoint. A plain `http://` endpoint is meant for development: beyond loopback the server starts with an `s3_plain_http` warning, since media and signed requests then cross the network unencrypted. |
+| `OXIDGENE_S3_ACCESS_KEY_ID`, `OXIDGENE_S3_SECRET_ACCESS_KEY` | Unset | S3 credentials; the secret never reaches a log. |
 
 ## 4. Deploy to Kubernetes with Helm
 
@@ -725,7 +745,7 @@ All other `redis-operator.*` values pass through to the upstream operator chart.
 |---|---|---|
 | `s3.mode` | `existing` | Storage mode: `disabled`, `existing`, or `rustfs`. |
 | `s3.filesystem.root` | `/media` | Media directory mounted as an ephemeral `emptyDir` in disabled mode. |
-| `s3.existing.endpoint` | Example URL | Existing S3-compatible endpoint; HTTPS is expected outside trusted local networks. |
+| `s3.existing.endpoint` | Example URL | Existing S3-compatible endpoint; HTTPS is expected outside trusted local networks, and a plain `http://` endpoint beyond loopback logs an `s3_plain_http` warning at startup. |
 | `s3.existing.bucket` | `oxidgene-media` | Existing bucket name. |
 | `s3.existing.region` | `us-east-1` | Existing bucket region. |
 | `s3.existing.credentialsSecret` | `oxidgene-s3` | Secret containing the application S3 credentials. |
