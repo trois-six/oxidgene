@@ -6,21 +6,20 @@
 //! media writes inlined it outgrew a test thread's 2 MiB stack.
 
 use crate::service::citation::{self, CitationPatch, NewCitation};
-use crate::service::history::{self, Change};
+use crate::service::history::{self};
 use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{begin_tx, commit_tx};
 use crate::service::{
-    duplicates, event, family, family_names, media, person, person_name, place, source, tree,
+    duplicates, event, family, family_names, media, media_link, person, person_name, place, source,
+    tree, vignette,
 };
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
-use oxidgene_core::history::AuditEntity;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, MediaLinkRepo, MediaRepo,
-    NewBackgroundJob, TreeRepo, VignetteInput, VignettePatch, VignetteRepo,
+    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, NewBackgroundJob, TreeRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -908,31 +907,11 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateVignetteInput,
     ) -> Result<GqlVignette> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
         let media_id = uuid(&input.media_id)?;
-        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-        let media = MediaRepo::get(db, media_id).await?;
-        crate::media::validate_crop(&media, input.x, input.y, input.width, input.height)?;
-
-        let vignette = VignetteRepo::create(
-            db,
-            Uuid::now_v7(),
-            VignetteInput {
-                media_id,
-                x: input.x,
-                y: input.y,
-                width: input.width,
-                height: input.height,
-                person_id: opt_uuid(input.person_id.as_deref())?,
-                event_id: opt_uuid(input.event_id.as_deref())?,
-            },
-        )
-        .await?;
-        Change::create(tid, AuditEntity::Vignette, vignette.id)
-            .media(media_id)
-            .record(db)
-            .await?;
+        let vignette =
+            vignette::create_vignette(db_from_ctx(ctx), tree_id, media_id, input.try_into()?)
+                .await?;
         Ok(vignette.into())
     }
 
@@ -944,56 +923,23 @@ impl MutationRoot {
         id: ID,
         input: UpdateVignetteInput,
     ) -> Result<GqlVignette> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        require_tree_resource(db, tid, TreeResource::Vignette, id).await?;
-        let existing = VignetteRepo::get(db, id).await?;
-
-        let rect = match (input.x, input.y, input.width, input.height) {
-            (None, None, None, None) => None,
-            (Some(x), Some(y), Some(width), Some(height)) => Some((x, y, width, height)),
-            _ => {
-                return Err(async_graphql::Error::new(
-                    "x, y, width and height must be sent together",
-                ));
-            }
-        };
-
-        if let Some((x, y, width, height)) = rect {
-            let media = MediaRepo::get(db, existing.media_id).await?;
-            crate::media::validate_crop(&media, x, y, width, height)?;
-        }
-
-        let vignette = VignetteRepo::update(
-            db,
-            id,
-            VignettePatch {
-                rect,
-                person_id: patch_id(input.person_id)?,
-                event_id: patch_id(input.event_id)?,
-            },
-        )
-        .await?;
-        Change::update(tid, AuditEntity::Vignette, id)
-            .media(existing.media_id)
-            .record(db)
-            .await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let vignette =
+            vignette::update_vignette(db_from_ctx(ctx), tree_id, uuid(&id)?, input.try_into()?)
+                .await?;
         Ok(vignette.into())
     }
 
     /// Delete a vignette. The media it cropped is untouched.
     async fn delete_vignette(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        require_tree_resource(db, tid, TreeResource::Vignette, id).await?;
-        let media_id = VignetteRepo::get(db, id).await?.media_id;
-        VignetteRepo::delete(db, id).await?;
-        Change::delete(tid, AuditEntity::Vignette, id)
-            .media(media_id)
-            .record(db)
-            .await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        vignette::delete_vignette(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -1004,55 +950,27 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateMediaLinkInput,
     ) -> Result<GqlMediaLink> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = Uuid::now_v7();
-        let media_id = uuid(&input.media_id)?;
-        let person_id = opt_uuid(input.person_id.as_deref())?;
-        let event_id = opt_uuid(input.event_id.as_deref())?;
-        let source_id = opt_uuid(input.source_id.as_deref())?;
-        let family_id = opt_uuid(input.family_id.as_deref())?;
-        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-        for (resource, id) in [
-            (TreeResource::Person, person_id),
-            (TreeResource::Event, event_id),
-            (TreeResource::Source, source_id),
-            (TreeResource::Family, family_id),
-        ] {
-            if let Some(id) = id {
-                require_tree_resource(db, tid, resource, id).await?;
-            }
-        }
-        let link = MediaLinkRepo::create(
-            db,
-            id,
-            media_id,
-            person_id,
-            event_id,
-            source_id,
-            family_id,
-            input.sort_order,
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let link = media_link::create_media_link(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            input.try_into()?,
         )
         .await?;
-        Change::create(tid, AuditEntity::MediaLink, id)
-            .media(media_id)
-            .record(db)
-            .await?;
         Ok(link.into())
     }
 
     /// Delete a media link (hard delete).
     async fn delete_media_link(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        require_tree_resource(db, tid, TreeResource::MediaLink, id).await?;
-        let media_id = MediaLinkRepo::get(db, id).await?.media_id;
-        MediaLinkRepo::delete(db, id).await?;
-        Change::delete(tid, AuditEntity::MediaLink, id)
-            .media(media_id)
-            .record(db)
-            .await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        media_link::delete_media_link(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 

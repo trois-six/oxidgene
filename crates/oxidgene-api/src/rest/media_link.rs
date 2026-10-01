@@ -1,17 +1,17 @@
 //! REST handlers for MediaLink create/delete operations.
 
-use crate::service::history::Change;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::history::AuditEntity;
+use oxidgene_core::types::MediaLink;
 use oxidgene_db::repo::{MediaLinkRepo, MediaLinkTarget};
 use uuid::Uuid;
 
-use super::dto::{CreateMediaLinkRequest, MediaLinkListQuery, MediaLinkListRow, MediaWithLink};
+use super::dto::{MediaLinkListQuery, MediaLinkListRow, MediaWithLink};
 use super::error::ApiError;
 use super::state::AppState;
+use crate::service::media_link::{self, NewMediaLink};
 use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/media-links
@@ -96,57 +96,10 @@ pub async fn list_media_links(
 pub async fn create_media_link(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<CreateMediaLinkRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, body.media_id)
-        .await
-        .map_err(ApiError)?;
-    for (resource, id) in [
-        (TreeResource::Person, body.person_id),
-        (TreeResource::Event, body.event_id),
-        (TreeResource::Source, body.source_id),
-        (TreeResource::Family, body.family_id),
-    ] {
-        if let Some(id) = id {
-            require_tree_resource(&state.db, tree_id, resource, id)
-                .await
-                .map_err(ApiError)?;
-        }
-    }
-    let id = Uuid::now_v7();
-    let link = MediaLinkRepo::create(
-        &state.db,
-        id,
-        body.media_id,
-        body.person_id,
-        body.event_id,
-        body.source_id,
-        body.family_id,
-        body.sort_order,
-    )
-    .await
-    .map_err(ApiError::from)?;
-
-    // A person's portrait is embedded in `person_denorm`, and attaching their
-    // first photograph is exactly what changes it — this never rebuilt, so a
-    // card and a gallery could disagree about whether somebody had a picture
-    // at all.
-    if let Some(person_id) = link.person_id {
-        state
-            .profiles
-            .rebuild_person(&state.db, tree_id, person_id)
-            .await
-            .map_err(ApiError::from)?;
-    }
-    Change::create(tree_id, AuditEntity::MediaLink, id)
-        .media(link.media_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(link).unwrap()),
-    ))
+    Json(body): Json<NewMediaLink>,
+) -> Result<(StatusCode, Json<MediaLink>), ApiError> {
+    let link = media_link::create_media_link(&state.db, &state.profiles, tree_id, body).await?;
+    Ok((StatusCode::CREATED, Json(link)))
 }
 
 /// DELETE /api/v1/trees/:tree_id/media-links/:link_id
@@ -154,29 +107,6 @@ pub async fn delete_media_link(
     State(state): State<AppState>,
     Path((tree_id, link_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::MediaLink, link_id)
-        .await
-        .map_err(ApiError)?;
-    // Read the link before it goes: afterwards there is nothing left to say
-    // whose projection is now wrong.
-    let link = MediaLinkRepo::get(&state.db, link_id)
-        .await
-        .map_err(ApiError::from)?;
-    let person_id = link.person_id;
-    MediaLinkRepo::delete(&state.db, link_id)
-        .await
-        .map_err(ApiError::from)?;
-    if let Some(person_id) = person_id {
-        state
-            .profiles
-            .rebuild_person(&state.db, tree_id, person_id)
-            .await
-            .map_err(ApiError::from)?;
-    }
-    Change::delete(tree_id, AuditEntity::MediaLink, link_id)
-        .media(link.media_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
+    media_link::delete_media_link(&state.db, &state.profiles, tree_id, link_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

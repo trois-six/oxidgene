@@ -1199,3 +1199,158 @@ async fn media_writes_validate_alike_on_both_surfaces() {
     .await;
     assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
 }
+
+// ── Vignettes and media links ───────────────────────────────────────────
+
+#[tokio::test]
+async fn a_vignette_only_names_persons_and_events_of_its_tree() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Crops").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let stranger = common::new_person(&app, &other_tree).await;
+    let foreign_event = new_birth(&app, &other_tree, &stranger).await;
+    let (_, page) = linked_document(&app, &tree_id, &person_id).await;
+
+    // Creation.
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media/{page}/vignettes"),
+        Some(json!({ "x": 0, "y": 0, "width": 10, "height": 10, "person_id": stranger })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = gql(
+        &app,
+        r#"mutation($t: ID!, $m: String!, $p: String!) {
+            createVignette(treeId: $t, input: { mediaId: $m, x: 0, y: 0, width: 10, height: 10, personId: $p }) { id }
+        }"#,
+        json!({ "t": tree_id, "m": page, "p": stranger }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+
+    // Update.
+    let vignette = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media/{page}/vignettes"),
+        Some(json!({ "x": 0, "y": 0, "width": 10, "height": 10, "person_id": person_id })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for body in [
+        json!({ "person_id": stranger }),
+        json!({ "event_id": foreign_event }),
+    ] {
+        let (status, response) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/trees/{tree_id}/vignettes/{vignette}"),
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{response}");
+    }
+    for input in ["personId: $x", "eventId: $x"] {
+        let response = gql(
+            &app,
+            &format!(
+                "mutation($t: ID!, $v: ID!, $x: String!) {{ updateVignette(treeId: $t, id: $v, input: {{ {input} }}) {{ id }} }}"
+            ),
+            json!({ "t": tree_id, "v": vignette, "x": if input.starts_with("person") { &stranger } else { &foreign_event } }),
+        )
+        .await;
+        assert_eq!(
+            gql_error_code(&response),
+            "NOT_FOUND",
+            "{input}: {response}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn deleting_a_portrait_crop_rewrites_the_card_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Crops").await;
+    let rest_person = common::new_person(&app, &tree_id).await;
+    let gql_person = common::new_person(&app, &tree_id).await;
+    let mut crops = Vec::new();
+    for person in [&rest_person, &gql_person] {
+        let (_, page) = linked_document(&app, &tree_id, person).await;
+        let vignette = common::ok(
+            &app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/media/{page}/vignettes"),
+            Some(json!({ "x": 1, "y": 1, "width": 5, "height": 5, "person_id": person })),
+        )
+        .await["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        common::ok(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/trees/{tree_id}/persons/{person}/portrait"),
+            Some(json!({ "vignette_id": vignette })),
+        )
+        .await;
+        let card = profile(&app, &tree_id, person).await;
+        assert_eq!(card["primary_media"]["vignette_id"], vignette, "{card}");
+        crops.push(vignette);
+    }
+
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/vignettes/{}", crops[0]),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!, $v: ID!) { deleteVignette(treeId: $t, id: $v) }",
+        json!({ "t": tree_id, "v": crops[1] }),
+    )
+    .await;
+
+    // Back to the first linked picture, whole.
+    for person in [&rest_person, &gql_person] {
+        let card = profile(&app, &tree_id, person).await;
+        assert!(card["primary_media"].is_object(), "{card}");
+        assert!(card["primary_media"]["vignette_id"].is_null(), "{card}");
+    }
+}
+
+#[tokio::test]
+async fn linking_a_picture_over_graphql_rewrites_the_card_as_rest_does() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Links").await;
+    let owner = common::new_person(&app, &tree_id).await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let (document, _) = linked_document(&app, &tree_id, &owner).await;
+
+    let data = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $m: String!, $p: String!) { createMediaLink(treeId: $t, input: { mediaId: $m, personId: $p }) { id } }",
+        json!({ "t": tree_id, "m": document, "p": person_id }),
+    )
+    .await;
+    let card = profile(&app, &tree_id, &person_id).await;
+    assert_eq!(card["media_count"], 1, "{card}");
+    assert!(card["primary_media"].is_object(), "{card}");
+
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!, $l: ID!) { deleteMediaLink(treeId: $t, id: $l) }",
+        json!({ "t": tree_id, "l": data["createMediaLink"]["id"] }),
+    )
+    .await;
+    let card = profile(&app, &tree_id, &person_id).await;
+    assert_eq!(card["media_count"], 0, "{card}");
+    assert!(card["primary_media"].is_null(), "{card}");
+}

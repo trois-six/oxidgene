@@ -214,6 +214,20 @@ impl PersonRepo {
         Ok(models.into_iter().map(|model| model.id).collect())
     }
 
+    /// The live persons whose chosen portrait is crop `vignette_id`.
+    pub async fn portrayed_by_vignette(
+        db: &impl ConnectionTrait,
+        vignette_id: Uuid,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::PortraitVignetteId.eq(vignette_id))
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(models.into_iter().map(|model| model.id).collect())
+    }
+
     /// Get a person only when it belongs to the requested tree.
     pub async fn get_in_tree(
         db: &impl ConnectionTrait,

@@ -683,6 +683,36 @@ pub struct UpdateVignetteInput {
     pub event_id: MaybeUndefined<String>,
 }
 
+impl TryFrom<CreateVignetteInput> for crate::service::vignette::NewVignette {
+    type Error = Error;
+
+    fn try_from(input: CreateVignetteInput) -> Result<Self> {
+        Ok(Self {
+            x: input.x,
+            y: input.y,
+            width: input.width,
+            height: input.height,
+            person_id: opt_uuid(input.person_id)?,
+            event_id: opt_uuid(input.event_id)?,
+        })
+    }
+}
+
+impl TryFrom<UpdateVignetteInput> for crate::service::vignette::VignetteUpdate {
+    type Error = Error;
+
+    fn try_from(input: UpdateVignetteInput) -> Result<Self> {
+        Ok(Self {
+            x: input.x,
+            y: input.y,
+            width: input.width,
+            height: input.height,
+            person_id: patch_id(input.person_id)?,
+            event_id: patch_id(input.event_id)?,
+        })
+    }
+}
+
 // ── MediaLink Inputs ─────────────────────────────────────────────────
 
 /// Input for creating a media link.
@@ -695,6 +725,21 @@ pub struct CreateMediaLinkInput {
     pub family_id: Option<String>,
     #[graphql(default)]
     pub sort_order: i32,
+}
+
+impl TryFrom<CreateMediaLinkInput> for crate::service::media_link::NewMediaLink {
+    type Error = Error;
+
+    fn try_from(input: CreateMediaLinkInput) -> Result<Self> {
+        Ok(Self {
+            media_id: uuid(&input.media_id)?,
+            person_id: opt_uuid(input.person_id)?,
+            event_id: opt_uuid(input.event_id)?,
+            source_id: opt_uuid(input.source_id)?,
+            family_id: opt_uuid(input.family_id)?,
+            sort_order: input.sort_order,
+        })
+    }
 }
 
 // ── Note Inputs ──────────────────────────────────────────────────────

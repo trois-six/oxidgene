@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:04:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:17:37Z }
 ---
 
 
@@ -505,7 +505,9 @@ The rectangle must have a nonnegative origin, positive dimensions and
 non-overflowing extents, and fit each known page dimension (`400`). Unknown
 dimensions on imported pages and PDFs do not impose invented bounds. REST and
 GraphQL use the same domain and repository validation, including attribution-only
-updates.
+updates. Each write runs in one transaction with its audit entry; deleting a
+vignette a person uses as their portrait clears it and rewrites that person's
+projection in the same transaction.
 
 `PUT /trees/{id}` accepts `default_privacy` (`"public" | "private"`) — what
 `"default"` resolves to for everything in that tree — and `entry_suggestions`
@@ -568,6 +570,11 @@ document; posting a child page media id attaches that page only. No separate
 page field is accepted. Person-profile galleries include direct person links,
 links to the person's conjugal families, and person-attributed vignettes;
 duplicate attachment tiles for the same media are collapsed client-side.
+
+Creating or deleting a link runs in one transaction with its audit entry, and
+a link to a person rewrites that person's projection in it — their first
+linked picture is what their card draws when no portrait is chosen — on both
+surfaces.
 
 ### Notes
 

@@ -4,8 +4,6 @@ use oxidgene_core::types::{Place, Source};
 use oxidgene_core::{DateQualifier, EventType};
 use serde::{Deserialize, Serialize};
 
-use crate::service::patch::double_option;
-
 // ── Pagination query params ──────────────────────────────────────────
 
 /// Query parameters for cursor-based pagination.
@@ -309,32 +307,6 @@ pub struct VignetteListQuery {
     pub event_id: Option<uuid::Uuid>,
 }
 
-/// Request body for cropping a region out of a media file.
-#[derive(Debug, Deserialize)]
-pub struct CreateVignetteRequest {
-    pub x: i32,
-    pub y: i32,
-    pub width: i32,
-    pub height: i32,
-    pub person_id: Option<uuid::Uuid>,
-    pub event_id: Option<uuid::Uuid>,
-}
-
-/// Request body for moving or re-attributing a vignette.
-///
-/// The four rectangle fields travel together: send all of them or none.
-#[derive(Debug, Deserialize)]
-pub struct UpdateVignetteRequest {
-    pub x: Option<i32>,
-    pub y: Option<i32>,
-    pub width: Option<i32>,
-    pub height: Option<i32>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub person_id: Option<Option<uuid::Uuid>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub event_id: Option<Option<uuid::Uuid>>,
-}
-
 // ── MediaLink DTOs ──────────────────────────────────────────────────
 
 /// Row returned by the bulk media-links endpoint.
@@ -374,18 +346,6 @@ pub struct MediaWithLink {
     pub sort_order: i32,
     #[serde(flatten)]
     pub media: oxidgene_core::types::Media,
-}
-
-/// Request body for creating a media link.
-#[derive(Debug, Deserialize)]
-pub struct CreateMediaLinkRequest {
-    pub media_id: uuid::Uuid,
-    pub person_id: Option<uuid::Uuid>,
-    pub event_id: Option<uuid::Uuid>,
-    pub source_id: Option<uuid::Uuid>,
-    pub family_id: Option<uuid::Uuid>,
-    #[serde(default)]
-    pub sort_order: i32,
 }
 
 // ── Note DTOs ───────────────────────────────────────────────────────

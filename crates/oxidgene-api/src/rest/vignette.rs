@@ -1,7 +1,6 @@
 //! REST handlers for vignettes — named rectangles cut out of a stored media
 //! file, and the cropped images they stand for.
 
-use crate::service::history::Change;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -9,15 +8,15 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{Media, Vignette};
-use oxidgene_db::repo::{MediaRepo, VignetteInput, VignettePatch, VignetteRepo};
+use oxidgene_core::types::Vignette;
+use oxidgene_db::repo::{MediaRepo, VignetteRepo};
 use uuid::Uuid;
 
-use super::dto::{CreateVignetteRequest, UpdateVignetteRequest, VignetteListQuery};
+use super::dto::VignetteListQuery;
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::scope::{TreeResource, require_tree_resource};
+use crate::service::vignette::{self, NewVignette, VignetteUpdate};
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/vignettes
 pub async fn list_media_vignettes(
@@ -69,46 +68,9 @@ pub async fn list_vignettes(
 pub async fn create_vignette(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<CreateVignetteRequest>,
+    Json(body): Json<NewVignette>,
 ) -> Result<(StatusCode, Json<Vignette>), ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    if let Some(person_id) = body.person_id {
-        require_tree_resource(&state.db, tree_id, TreeResource::Person, person_id)
-            .await
-            .map_err(ApiError)?;
-    }
-    if let Some(event_id) = body.event_id {
-        require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id)
-            .await
-            .map_err(ApiError)?;
-    }
-    let media = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    check_rect(&media, body.x, body.y, body.width, body.height)?;
-
-    let vignette = VignetteRepo::create(
-        &state.db,
-        Uuid::now_v7(),
-        VignetteInput {
-            media_id,
-            x: body.x,
-            y: body.y,
-            width: body.width,
-            height: body.height,
-            person_id: body.person_id,
-            event_id: body.event_id,
-        },
-    )
-    .await
-    .map_err(ApiError::from)?;
-    Change::create(tree_id, AuditEntity::Vignette, vignette.id)
-        .media(media_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
+    let vignette = vignette::create_vignette(&state.db, tree_id, media_id, body).await?;
     Ok((StatusCode::CREATED, Json(vignette)))
 }
 
@@ -130,52 +92,11 @@ pub async fn get_vignette(
 pub async fn update_vignette(
     State(state): State<AppState>,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<UpdateVignetteRequest>,
+    Json(body): Json<VignetteUpdate>,
 ) -> Result<Json<Vignette>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
-        .await
-        .map_err(ApiError)?;
-    let existing = VignetteRepo::get(&state.db, vignette_id)
-        .await
-        .map_err(ApiError::from)?;
-
-    // A rectangle is four numbers that only mean anything together, so the
-    // patch takes all four or none — moving one edge in isolation would let a
-    // client build a crop the media cannot contain.
-    let rect = match (body.x, body.y, body.width, body.height) {
-        (None, None, None, None) => None,
-        (Some(x), Some(y), Some(width), Some(height)) => Some((x, y, width, height)),
-        _ => {
-            return Err(ApiError(OxidGeneError::Validation(
-                "x, y, width and height must be sent together".into(),
-            )));
-        }
-    };
-
-    if let Some((x, y, width, height)) = rect {
-        let media = MediaRepo::get(&state.db, existing.media_id)
-            .await
-            .map_err(ApiError::from)?;
-        check_rect(&media, x, y, width, height)?;
-    }
-
-    let vignette = VignetteRepo::update(
-        &state.db,
-        vignette_id,
-        VignettePatch {
-            rect,
-            person_id: body.person_id,
-            event_id: body.event_id,
-        },
-    )
-    .await
-    .map_err(ApiError::from)?;
-    Change::update(tree_id, AuditEntity::Vignette, vignette_id)
-        .media(existing.media_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-    Ok(Json(vignette))
+    Ok(Json(
+        vignette::update_vignette(&state.db, tree_id, vignette_id, body).await?,
+    ))
 }
 
 /// DELETE /api/v1/trees/:tree_id/vignettes/:vignette_id
@@ -183,21 +104,7 @@ pub async fn delete_vignette(
     State(state): State<AppState>,
     Path((tree_id, vignette_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Vignette, vignette_id)
-        .await
-        .map_err(ApiError)?;
-    let media_id = VignetteRepo::get(&state.db, vignette_id)
-        .await
-        .map_err(ApiError::from)?
-        .media_id;
-    VignetteRepo::delete(&state.db, vignette_id)
-        .await
-        .map_err(ApiError::from)?;
-    Change::delete(tree_id, AuditEntity::Vignette, vignette_id)
-        .media(media_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
+    vignette::delete_vignette(&state.db, &state.profiles, tree_id, vignette_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -254,9 +161,4 @@ pub async fn vignette_image(
         super::media::header_value("private, max-age=300"),
     );
     Ok((headers, Body::from(cropped)).into_response())
-}
-
-/// Thin wrapper over [`crate::media::validate_crop`] that speaks `ApiError`.
-fn check_rect(media: &Media, x: i32, y: i32, width: i32, height: i32) -> Result<(), ApiError> {
-    crate::media::validate_crop(media, x, y, width, height).map_err(ApiError::from)
 }
