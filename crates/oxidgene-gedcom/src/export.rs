@@ -1396,17 +1396,16 @@ fn gedcom_type_label(et: EventType) -> Option<&'static str> {
     }
 }
 
-/// The `QUAY` a confidence is written as; `None` for `Medium`, the level a
-/// citation has until somebody assesses it, which GEDCOM states by writing no
-/// `QUAY` at all. The inverse of `import`'s `convert_quay`.
-fn convert_confidence(c: Confidence) -> Option<CertaintyAssessment> {
-    match c {
-        Confidence::VeryLow => Some(CertaintyAssessment::Unreliable),
-        Confidence::Low => Some(CertaintyAssessment::Questionable),
-        Confidence::Medium => None,
-        Confidence::High => Some(CertaintyAssessment::Secondary),
-        Confidence::VeryHigh => Some(CertaintyAssessment::Direct),
-    }
+/// The `QUAY` a confidence is written as; none for a citation nobody
+/// assessed. `QUAY` has four values for five levels, so `VeryHigh` shares
+/// `3` with `High`. The inverse of `import`'s `convert_quay`.
+fn convert_confidence(c: Option<Confidence>) -> Option<CertaintyAssessment> {
+    Some(match c? {
+        Confidence::VeryLow => CertaintyAssessment::Unreliable,
+        Confidence::Low => CertaintyAssessment::Questionable,
+        Confidence::Medium => CertaintyAssessment::Secondary,
+        Confidence::High | Confidence::VeryHigh => CertaintyAssessment::Direct,
+    })
 }
 
 fn to_ged_note(text: &str) -> GedNote {
@@ -1724,6 +1723,21 @@ mod tests {
     use oxidgene_core::enums::{Calendar, DateQualifier, DocumentCategory, Privacy};
     use oxidgene_core::types::DOCUMENT_MIME;
 
+    /// `QUAY` has no fifth value: `VeryHigh` is written as `3`, like `High`,
+    /// and a citation nobody assessed gets no `QUAY`.
+    #[test]
+    fn confidence_maps_onto_the_four_quay_values() {
+        assert_eq!(
+            convert_confidence(Some(Confidence::VeryHigh)),
+            Some(CertaintyAssessment::Direct)
+        );
+        assert_eq!(
+            convert_confidence(Some(Confidence::Medium)),
+            Some(CertaintyAssessment::Secondary)
+        );
+        assert_eq!(convert_confidence(None), None);
+    }
+
     fn person_row() -> Person {
         Person {
             id: Uuid::now_v7(),
@@ -1817,7 +1831,7 @@ mod tests {
             event_id: None,
             family_id: Some(family.id),
             page: Some("folio 12".to_string()),
-            confidence: Confidence::High,
+            confidence: Some(Confidence::High),
             text: None,
             created_at: now,
             updated_at: now,

@@ -565,8 +565,12 @@ fn citation_group(
     );
     group.row(
         i18n.t("history.field.confidence"),
-        before.map(|c| confidence(i18n, c.confidence)),
-        after.map(|c| confidence(i18n, c.confidence)),
+        before
+            .and_then(|c| c.confidence)
+            .map(|c| confidence(i18n, c)),
+        after
+            .and_then(|c| c.confidence)
+            .map(|c| confidence(i18n, c)),
     );
     group.row(
         i18n.t("history.field.text"),

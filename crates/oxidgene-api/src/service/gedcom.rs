@@ -604,7 +604,7 @@ async fn insert_attached_records(
                 event_id: Set(c.event_id),
                 family_id: Set(c.family_id),
                 page: Set(c.page.clone()),
-                confidence: Set(sea_enums::Confidence::from(c.confidence)),
+                confidence: Set(c.confidence.map(sea_enums::Confidence::from)),
                 text: Set(c.text.clone()),
                 created_at: Set(now),
                 updated_at: Set(now),

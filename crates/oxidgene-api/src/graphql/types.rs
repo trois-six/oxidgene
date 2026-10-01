@@ -1426,7 +1426,8 @@ pub struct GqlCitation {
     pub event_id: Option<ID>,
     pub family_id: Option<ID>,
     pub page: Option<String>,
-    pub confidence: GqlConfidence,
+    /// Null when the evidence is not assessed.
+    pub confidence: Option<GqlConfidence>,
     pub text: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -1441,7 +1442,7 @@ impl From<oxidgene_core::types::Citation> for GqlCitation {
             event_id: c.event_id.map(|id| ID(id.to_string())),
             family_id: c.family_id.map(|id| ID(id.to_string())),
             page: c.page,
-            confidence: c.confidence.into(),
+            confidence: c.confidence.map(Into::into),
             text: c.text,
             created_at: c.created_at,
             updated_at: c.updated_at,

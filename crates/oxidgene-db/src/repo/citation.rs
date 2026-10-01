@@ -190,7 +190,7 @@ impl CitationRepo {
         event_id: Option<Uuid>,
         family_id: Option<Uuid>,
         page: Option<String>,
-        confidence: Confidence,
+        confidence: Option<Confidence>,
         text: Option<String>,
     ) -> Result<Citation, OxidGeneError> {
         let now = Utc::now();
@@ -201,7 +201,7 @@ impl CitationRepo {
             event_id: Set(event_id),
             family_id: Set(family_id),
             page: Set(page),
-            confidence: Set(sea_enums::Confidence::from(confidence)),
+            confidence: Set(confidence.map(sea_enums::Confidence::from)),
             text: Set(text),
             created_at: Set(now),
             updated_at: Set(now),
@@ -221,7 +221,7 @@ impl CitationRepo {
         id: Uuid,
         source_id: Option<Uuid>,
         page: Option<Option<String>>,
-        confidence: Option<Confidence>,
+        confidence: Option<Option<Confidence>>,
         text: Option<Option<String>>,
     ) -> Result<Citation, OxidGeneError> {
         let existing = Entity::find_by_id(id)
@@ -241,7 +241,7 @@ impl CitationRepo {
             active.page = Set(page);
         }
         if let Some(confidence) = confidence {
-            active.confidence = Set(sea_enums::Confidence::from(confidence));
+            active.confidence = Set(confidence.map(sea_enums::Confidence::from));
         }
         if let Some(text) = text {
             active.text = Set(text);
@@ -273,7 +273,7 @@ fn into_domain(m: citation::Model) -> Citation {
         event_id: m.event_id,
         family_id: m.family_id,
         page: m.page,
-        confidence: m.confidence.into(),
+        confidence: m.confidence.map(Into::into),
         text: m.text,
         created_at: m.created_at,
         updated_at: m.updated_at,

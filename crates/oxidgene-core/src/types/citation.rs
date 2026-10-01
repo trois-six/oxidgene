@@ -14,7 +14,8 @@ pub struct Citation {
     pub family_id: Option<Uuid>,
     /// Page or location within the source.
     pub page: Option<String>,
-    pub confidence: Confidence,
+    /// How reliable the cited evidence is; `None` when nobody assessed it.
+    pub confidence: Option<Confidence>,
     /// Extracted text from the source.
     pub text: Option<String>,
     pub created_at: DateTime<Utc>,

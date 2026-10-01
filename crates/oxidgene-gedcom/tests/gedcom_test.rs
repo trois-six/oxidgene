@@ -358,7 +358,7 @@ fn test_import_source_and_citation() {
     let cite = &result.citations[0];
     assert_eq!(cite.source_id, src.id);
     assert_eq!(cite.page.as_deref(), Some("p. 42"));
-    assert_eq!(cite.confidence, oxidgene_core::Confidence::VeryHigh);
+    assert_eq!(cite.confidence, Some(oxidgene_core::Confidence::High));
 }
 
 #[test]
@@ -784,6 +784,24 @@ fn every_quay_and_its_absence_survive_a_round_trip() {
             .collect()
     };
     let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    use oxidgene_core::Confidence::{High, Low, Medium, VeryLow};
+    let levels: Vec<_> = imported
+        .citations
+        .iter()
+        .map(|c| (c.page.clone().unwrap_or_default(), c.confidence))
+        .collect();
+    for expected in [
+        ("p0", Some(VeryLow)),
+        ("p1", Some(Low)),
+        ("p2", Some(Medium)),
+        ("p3", Some(High)),
+        ("none", None),
+    ] {
+        assert!(
+            levels.contains(&(expected.0.to_string(), expected.1)),
+            "{levels:?}"
+        );
+    }
     let exported = reexport(&imported);
     assert_eq!(quays(&exported), quays(&gedcom), "{exported}");
     assert!(quays(&gedcom).contains(&("none".to_string(), None)));

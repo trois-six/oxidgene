@@ -473,7 +473,7 @@ mod tests {
             Some(relevant_event),
             None,
             None,
-            Confidence::High,
+            Some(Confidence::High),
             None,
         )
         .await
@@ -486,7 +486,7 @@ mod tests {
             Some(unrelated_event),
             None,
             None,
-            Confidence::Low,
+            Some(Confidence::Low),
             None,
         )
         .await

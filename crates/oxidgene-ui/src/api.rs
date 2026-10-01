@@ -941,7 +941,8 @@ pub struct CreateCitationBody {
     pub event_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub page: Option<String>,
-    pub confidence: Confidence,
+    /// `None` when the evidence is not assessed.
+    pub confidence: Option<Confidence>,
     pub text: Option<String>,
 }
 
@@ -953,7 +954,7 @@ pub struct UpdateCitationBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub confidence: Option<Confidence>,
+    pub confidence: Option<Option<Confidence>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<Option<String>>,
 }

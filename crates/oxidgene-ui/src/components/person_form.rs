@@ -31,7 +31,7 @@ use crate::utils::{
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
-use oxidgene_core::{ChildType, Confidence, EventType, NameType, SpouseRole};
+use oxidgene_core::{ChildType, EventType, NameType, SpouseRole};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -2762,7 +2762,7 @@ pub(crate) async fn save_notes_source(
                         event_id,
                         family_id: None,
                         page: None,
-                        confidence: Confidence::Medium,
+                        confidence: None,
                         text: None,
                     },
                 )
@@ -3402,7 +3402,7 @@ mod information_form_tests {
                     "/citations",
                     json!({"edges": [{"cursor": citation, "node": {
                     "id": citation, "source_id": source, "person_id": person,
-                    "confidence": Confidence::Medium, "text": "Imported source evidence",
+                    "confidence": null, "text": "Imported source evidence",
                     "created_at": now, "updated_at": now
                 }}], "total_count": 1,
                     "page_info": {"has_next_page": false, "end_cursor": null}}),

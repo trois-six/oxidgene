@@ -847,7 +847,7 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid_null(Citation::EventId))
                 .col(uuid_null(Citation::FamilyId))
                 .col(string_null(Citation::Page))
-                .col(string_len(Citation::Confidence, 10))
+                .col(string_len_null(Citation::Confidence, 10))
                 .col(text_null(Citation::Text))
                 .col(timestamp_with_time_zone(Citation::CreatedAt))
                 .col(timestamp_with_time_zone(Citation::UpdatedAt))

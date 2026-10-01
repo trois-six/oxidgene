@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T22:39:03Z }
 ---
 
 
@@ -261,7 +261,7 @@ text is valid.
 | `event_id` | UUID v7? | FK → Event |
 | `family_id` | UUID v7? | FK → Family |
 | `page` | String? | Where in the source |
-| `confidence` | Confidence | Enum |
+| `confidence` | Confidence? | Enum; NULL when the evidence is not assessed |
 | `text` | String? | Extracted text |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
@@ -630,13 +630,14 @@ enum EventType {
     Other,               // EVEN + TYPE
 }
 
-// Maps one to one to GEDCOM QUAY (Certainty Assessment)
+// GEDCOM QUAY (Certainty Assessment). A citation without a confidence is not
+// assessed and is written without QUAY.
 enum Confidence {
     VeryLow,   // QUAY 0 (Unreliable)
     Low,       // QUAY 1 (Questionable)
-    Medium,    // no QUAY: not assessed, the level a new citation gets
-    High,      // QUAY 2 (Secondary evidence)
-    VeryHigh,  // QUAY 3 (Direct and primary evidence)
+    Medium,    // QUAY 2 (Secondary evidence)
+    High,      // QUAY 3 (Direct and primary evidence)
+    VeryHigh,  // written as QUAY 3: GEDCOM has no higher level
 }
 ```
 

@@ -522,7 +522,8 @@ pub struct CreateCitationInput {
     pub event_id: Option<String>,
     pub family_id: Option<String>,
     pub page: Option<String>,
-    pub confidence: GqlConfidence,
+    /// Omitted or null when the evidence is not assessed.
+    pub confidence: Option<GqlConfidence>,
     pub text: Option<String>,
 }
 
@@ -532,7 +533,8 @@ pub struct UpdateCitationInput {
     /// Repoints the citation at another source.
     pub source_id: Option<ID>,
     pub page: MaybeUndefined<String>,
-    pub confidence: Option<GqlConfidence>,
+    /// Null marks the evidence as not assessed.
+    pub confidence: MaybeUndefined<GqlConfidence>,
     pub text: MaybeUndefined<String>,
 }
 

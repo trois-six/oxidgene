@@ -613,7 +613,7 @@ impl MutationRoot {
             event_id: opt_uuid(input.event_id)?,
             family_id: opt_uuid(input.family_id)?,
             page: input.page,
-            confidence: input.confidence.into(),
+            confidence: input.confidence.map(Into::into),
             text: input.text,
         };
         let citation =
@@ -634,7 +634,7 @@ impl MutationRoot {
         let patch = CitationPatch {
             source_id: opt_uuid(input.source_id)?,
             page: patch(input.page),
-            confidence: input.confidence.map(|c| c.into()),
+            confidence: patch(input.confidence).map(|c| c.map(Into::into)),
             text: patch(input.text),
         };
         let citation =

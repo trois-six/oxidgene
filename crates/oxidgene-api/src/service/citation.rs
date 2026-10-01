@@ -26,7 +26,9 @@ pub struct NewCitation {
     pub event_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub page: Option<String>,
-    pub confidence: Confidence,
+    /// `None` (or omitted) when the evidence is not assessed.
+    #[serde(default)]
+    pub confidence: Option<Confidence>,
     pub text: Option<String>,
 }
 
@@ -38,7 +40,9 @@ pub struct CitationPatch {
     pub source_id: Option<Uuid>,
     #[serde(default, deserialize_with = "double_option")]
     pub page: Option<Option<String>>,
-    pub confidence: Option<Confidence>,
+    /// `Some(None)` (JSON `null`) marks the evidence as not assessed.
+    #[serde(default, deserialize_with = "double_option")]
+    pub confidence: Option<Option<Confidence>>,
     #[serde(default, deserialize_with = "double_option")]
     pub text: Option<Option<String>>,
 }

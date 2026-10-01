@@ -2141,21 +2141,20 @@ fn privacy_from_restriction(resn: Option<&str>) -> Privacy {
     }
 }
 
-/// The confidence a `QUAY` stands for.
-///
-/// The four `QUAY` values and its absence map one to one onto the five
-/// levels: a citation nobody assessed is `Medium`, the level OxidGene gives a
-/// new one, and an assessed one is below it (`0`, `1`) or above it (`2`,
-/// secondary evidence; `3`, direct and primary evidence). So an export writes
-/// back exactly the `QUAY` it read, and none where there was none.
-fn convert_quay(quay: Option<&ged_io::types::source::quay::CertaintyAssessment>) -> Confidence {
+/// The confidence a `QUAY` stands for: `0` to `3` are `VeryLow`, `Low`,
+/// `Medium` and `High`, and a citation without a readable `QUAY` is not
+/// assessed (`None`), so an export writes back the `QUAY` it read and none
+/// where there was none.
+fn convert_quay(
+    quay: Option<&ged_io::types::source::quay::CertaintyAssessment>,
+) -> Option<Confidence> {
     use ged_io::types::source::quay::CertaintyAssessment;
-    match quay {
-        Some(CertaintyAssessment::Unreliable) => Confidence::VeryLow,
-        Some(CertaintyAssessment::Questionable) => Confidence::Low,
-        Some(CertaintyAssessment::Secondary) => Confidence::High,
-        Some(CertaintyAssessment::Direct) => Confidence::VeryHigh,
-        Some(CertaintyAssessment::None) | None => Confidence::Medium,
+    match quay? {
+        CertaintyAssessment::Unreliable => Some(Confidence::VeryLow),
+        CertaintyAssessment::Questionable => Some(Confidence::Low),
+        CertaintyAssessment::Secondary => Some(Confidence::Medium),
+        CertaintyAssessment::Direct => Some(Confidence::High),
+        CertaintyAssessment::None => None,
     }
 }
 

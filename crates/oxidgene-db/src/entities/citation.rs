@@ -14,7 +14,7 @@ pub struct Model {
     pub event_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub page: Option<String>,
-    pub confidence: Confidence,
+    pub confidence: Option<Confidence>,
     #[sea_orm(column_type = "Text")]
     pub text: Option<String>,
     pub created_at: DateTimeUtc,

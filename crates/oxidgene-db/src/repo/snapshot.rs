@@ -797,7 +797,7 @@ impl Attached<citation::Model> {
                 id: c.id,
                 source_id: c.source_id,
                 page: c.page.clone(),
-                confidence: c.confidence.into(),
+                confidence: c.confidence.map(Into::into),
                 text: c.text.clone(),
             })
             .collect()
@@ -1324,7 +1324,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 event_id: Set(event_id),
                 family_id: Set(family_id),
                 page: Set(snapshot.page.clone()),
-                confidence: Set(snapshot.confidence.into()),
+                confidence: Set(snapshot.confidence.map(Into::into)),
                 text: Set(snapshot.text.clone()),
                 created_at: Set(now),
                 updated_at: Set(now),

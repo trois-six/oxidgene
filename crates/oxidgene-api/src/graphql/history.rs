@@ -200,7 +200,7 @@ pub struct GqlCitationSnapshot {
     pub id: ID,
     pub source_id: ID,
     pub page: Option<String>,
-    pub confidence: GqlConfidence,
+    pub confidence: Option<GqlConfidence>,
     pub text: Option<String>,
 }
 
@@ -210,7 +210,7 @@ impl From<CitationSnapshot> for GqlCitationSnapshot {
             id: id(c.id),
             source_id: id(c.source_id),
             page: c.page,
-            confidence: c.confidence.into(),
+            confidence: c.confidence.map(Into::into),
             text: c.text,
         }
     }

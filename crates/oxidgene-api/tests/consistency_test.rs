@@ -934,6 +934,79 @@ async fn a_place_needs_a_name_and_a_source_a_title_on_both_surfaces() {
     assert_eq!(place["name"], "Southmere");
 }
 
+/// A citation's confidence is optional: omitted at creation it is not
+/// assessed (null), an update leaves it alone when omitted and clears it on
+/// null — on both surfaces.
+#[tokio::test]
+async fn a_citation_confidence_is_optional_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Assessed").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let source_id = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        Some(json!({ "title": "Parish register" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // REST.
+    let created = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/citations"),
+        Some(json!({ "source_id": source_id, "person_id": person_id })),
+    )
+    .await;
+    assert!(created["confidence"].is_null(), "{created}");
+    let uri = format!(
+        "/api/v1/trees/{tree_id}/citations/{}",
+        created["id"].as_str().unwrap()
+    );
+    let assessed = common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "confidence": "low" })),
+    )
+    .await;
+    assert_eq!(assessed["confidence"], "low");
+    let kept = common::ok(&app, Method::PUT, &uri, Some(json!({ "page": "f. 2" }))).await;
+    assert_eq!(kept["confidence"], "low");
+    let cleared = common::ok(&app, Method::PUT, &uri, Some(json!({ "confidence": null }))).await;
+    assert!(cleared["confidence"].is_null(), "{cleared}");
+
+    // GraphQL.
+    let vars = json!({ "t": tree_id, "s": source_id, "p": person_id });
+    let created = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $s: String!, $p: String!) { createCitation(treeId: $t, input: { sourceId: $s, personId: $p }) { id confidence } }",
+        vars,
+    )
+    .await;
+    let citation = &created["createCitation"];
+    assert!(citation["confidence"].is_null(), "{created}");
+    let vars = json!({ "t": tree_id, "c": citation["id"] });
+    for (input, expected) in [
+        ("{ confidence: LOW }", json!("LOW")),
+        (r#"{ page: "f. 2" }"#, json!("LOW")),
+        ("{ confidence: null }", serde_json::Value::Null),
+    ] {
+        let updated = common::gql_ok(
+            &app,
+            &format!(
+                "mutation($t: ID!, $c: ID!) {{ updateCitation(treeId: $t, id: $c, input: {input}) {{ confidence }} }}"
+            ),
+            vars.clone(),
+        )
+        .await;
+        assert_eq!(updated["updateCitation"]["confidence"], expected, "{input}");
+    }
+}
+
 #[tokio::test]
 async fn a_citation_filter_naming_another_tree_is_not_found_on_both_surfaces() {
     let app = setup_app().await;
@@ -1603,7 +1676,7 @@ async fn graphql_nested_lists_are_complete_past_a_hundred() {
                 event_id,
                 None,
                 None,
-                Confidence::Medium,
+                Some(Confidence::Medium),
                 None,
             )
             .await

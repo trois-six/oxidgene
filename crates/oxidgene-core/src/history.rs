@@ -400,7 +400,8 @@ pub struct CitationSnapshot {
     pub id: Uuid,
     pub source_id: Uuid,
     pub page: Option<String>,
-    pub confidence: Confidence,
+    #[serde(default)]
+    pub confidence: Option<Confidence>,
     pub text: Option<String>,
 }
 

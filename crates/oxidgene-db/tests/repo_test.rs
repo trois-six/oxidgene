@@ -999,12 +999,12 @@ async fn source_and_citation_lifecycle() {
         None,
         None,
         Some("p. 42".into()),
-        Confidence::High,
+        Some(Confidence::High),
         Some("Baptism recorded".into()),
     )
     .await
     .unwrap();
-    assert_eq!(citation.confidence, Confidence::High);
+    assert_eq!(citation.confidence, Some(Confidence::High));
     assert_eq!(citation.page.as_deref(), Some("p. 42"));
 
     // List citations by source
@@ -1017,13 +1017,20 @@ async fn source_and_citation_lifecycle() {
         cit_id,
         None,
         Some(Some("p. 43".into())),
-        Some(Confidence::VeryHigh),
+        Some(Some(Confidence::VeryHigh)),
         None,
     )
     .await
     .unwrap();
     assert_eq!(updated_cit.page.as_deref(), Some("p. 43"));
-    assert_eq!(updated_cit.confidence, Confidence::VeryHigh);
+    assert_eq!(updated_cit.confidence, Some(Confidence::VeryHigh));
+
+    // Marking it not assessed clears the level.
+    let unassessed = CitationRepo::update(&db, cit_id, None, None, Some(None), None)
+        .await
+        .unwrap();
+    assert_eq!(unassessed.confidence, None);
+    assert_eq!(unassessed.page.as_deref(), Some("p. 43"));
     assert_eq!(
         updated_cit.source_id, src_id,
         "source left alone when omitted"
@@ -1104,7 +1111,7 @@ async fn source_is_only_collected_once_nothing_points_at_it() {
         None,
         None,
         None,
-        Confidence::High,
+        Some(Confidence::High),
         None,
     )
     .await
@@ -2857,7 +2864,7 @@ async fn dictionary_sources_with_usage_counts_citations() {
         None,
         None,
         None,
-        Confidence::High,
+        Some(Confidence::High),
         None,
     )
     .await
@@ -2890,7 +2897,7 @@ async fn dictionary_sources_with_usage_counts_citations() {
         Some(event_id),
         None,
         None,
-        Confidence::Medium,
+        None,
         None,
     )
     .await
