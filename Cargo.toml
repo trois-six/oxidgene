@@ -225,6 +225,15 @@ codegen-units = 1    # required for full LTO
 strip = true         # remove debug symbols
 panic = "abort"      # no unwinding machinery
 
+# The profile `dx build --release` compiles the web bundle with. It is the
+# release profile but for `strip`: since LLVM 23 stripping removes every custom
+# section, the `__wasm_bindgen_unstable` one included, and wasm-bindgen then
+# refuses the module. Nothing is lost by keeping them here — wasm-bindgen drops
+# the names and producers and wasm-opt the debug information when dx bundles.
+[profile.wasm-release]
+inherits = "release"
+strip = false
+
 
 # Size is the right default for a desktop download, but "z" is a poor trade for
 # the three crates that do the Geneanet content matching: measured on a real
