@@ -12,8 +12,17 @@
 //! `Note::text` without each having to remember to filter it. The trade-off is
 //! that the stored text is no longer byte-identical to the imported file, so a
 //! GEDCOM export round-trip returns the sanitized body, not the original.
-//! Existing rows are expected to have passed through the same write-time
-//! normalization.
+//! Every write path goes through it: the note repository, imports, and a
+//! history restore, which writes a stored version back.
+//!
+//! # Remote content
+//!
+//! A note keeps no image. An `<img>` makes the reader's browser fetch its
+//! source the moment the note is shown — a GEDCOM can carry a tracking pixel
+//! that way, and a relative source would resolve against whatever origin
+//! renders the note, which on the desktop is the application's own media
+//! proxy. Links stay: nothing is fetched until somebody follows one, and a
+//! link with a relative URL is dropped like the image for the same reason.
 //!
 //! # Line breaks
 //!
@@ -35,10 +44,11 @@
 
 use std::sync::LazyLock;
 
-use ammonia::Builder;
+use ammonia::{Builder, UrlRelative};
 
 /// Elements a note body may keep. Structure and inline formatting, plus links
-/// and images — everything else is unwrapped to its text content.
+/// — everything else is unwrapped to its text content. Images are absent on
+/// purpose (see the module docs).
 const ALLOWED_TAGS: &[&str] = &[
     "a",
     "b",
@@ -55,7 +65,6 @@ const ALLOWED_TAGS: &[&str] = &[
     "h6",
     "hr",
     "i",
-    "img",
     "li",
     "ol",
     "p",
@@ -91,12 +100,6 @@ static NOTE_SANITIZER: LazyLock<Builder<'static>> = LazyLock::new(|| {
         .tag_attributes(
             [
                 ("a", ["href", "title"].into_iter().collect()),
-                (
-                    "img",
-                    ["src", "alt", "title", "width", "height"]
-                        .into_iter()
-                        .collect(),
-                ),
                 ("td", ["colspan", "rowspan"].into_iter().collect()),
                 ("th", ["colspan", "rowspan"].into_iter().collect()),
             ]
@@ -106,6 +109,10 @@ static NOTE_SANITIZER: LazyLock<Builder<'static>> = LazyLock::new(|| {
         // `data:` is deliberately absent: an SVG data URI is a script carrier
         // in any context that is not a plain `<img>`.
         .url_schemes(["http", "https", "mailto"].into_iter().collect())
+        // A relative URL resolves against the origin rendering the note — the
+        // API's on the web, the media proxy's on the desktop — never against
+        // anything the note's author meant.
+        .url_relative(UrlRelative::Deny)
         // Neutralise reverse-tabnabbing on links opened in a new tab.
         .link_rel(Some("noopener noreferrer"));
     builder
@@ -314,10 +321,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keeps_formatting_links_and_images() {
+    fn keeps_formatting_and_links() {
         let clean = sanitize_note_html(
-            r#"<p>Ne <b>en 1802</b><br>a <a href="https://example.org/x">la source</a></p>
-<img src="https://example.org/p.jpg" alt="portrait">"#,
+            r#"<p>Ne <b>en 1802</b><br>a <a href="https://example.org/x">la source</a></p>"#,
         );
         assert!(clean.contains("<b>en 1802</b>"), "got: {clean}");
         assert!(clean.contains("1802</b>\na "), "got: {clean}");
@@ -325,11 +331,29 @@ mod tests {
             clean.contains(r#"href="https://example.org/x""#),
             "got: {clean}"
         );
+    }
+
+    #[test]
+    fn drops_every_image() {
+        // A remote image is a request the reader never asked for — a tracking
+        // pixel in an imported file — and a relative one would be fetched
+        // from whatever origin renders the note.
+        let clean = sanitize_note_html(
+            r#"before<img src="https://tracker.example/p.gif" width="1" height="1"><img src="/oxidgene-media/api/v1/trees/x/media/y/file">after"#,
+        );
+        assert_eq!(clean, "beforeafter");
+    }
+
+    #[test]
+    fn drops_relative_link_targets_but_keeps_their_text() {
+        let clean = sanitize_note_html(
+            r#"<a href="/api/v1/trees">here</a> <a href="../x">there</a> <a href="//cdn.example/x">far</a>"#,
+        );
+        assert!(!clean.contains("href"), "got: {clean}");
         assert!(
-            clean.contains(r#"src="https://example.org/p.jpg""#),
+            clean.contains("here") && clean.contains("there") && clean.contains("far"),
             "got: {clean}"
         );
-        assert!(clean.contains(r#"alt="portrait""#), "got: {clean}");
     }
 
     #[test]

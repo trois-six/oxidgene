@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:03:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:27Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -526,6 +526,12 @@ user cannot lose entered data.
   that work: export artifacts, job inputs and payloads, and the photos a
   loaded Geneanet session stages are deleted when used or after a bounded
   time, and a tree's purge deletes what belongs to it ([Architecture §6](architecture.md)).
+- Showing a tree makes no request the user did not ask for. Note bodies keep
+  no image: a remote one would be fetched by every reader's browser — an
+  imported file can carry a tracking pixel — and a relative one would resolve
+  against the application's own origin. Links stay, minus any relative
+  target, since nothing is fetched until somebody follows one. The rule is
+  enforced when a note is written ([Data Model §Note](data-model.md#note)).
 
 ### 7.1 Backend exposure before authentication
 

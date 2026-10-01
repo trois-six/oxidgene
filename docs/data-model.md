@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:11:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:27Z }
 ---
 
 
@@ -460,7 +460,7 @@ page number of its own: the page it belongs to is the media it points at.
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree |
-| `text` | String | Required |
+| `text` | String | Required. Sanitized HTML (see below) |
 | `person_id` | UUID v7? | FK → Person |
 | `event_id` | UUID v7? | FK → Event |
 | `family_id` | UUID v7? | FK → Family |
@@ -469,6 +469,16 @@ page number of its own: the page it belongs to is the media it points at.
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
+
+A note body is rendered as HTML, because imported notes carry markup, so it
+is stored already sanitized (`oxidgene_db::html::sanitize_note_html`). Every
+write path applies it: the note repository behind REST, GraphQL and the
+assistant, imports, and a history restore writing back a stored version. It
+keeps structure and inline formatting and links with an `http`, `https` or
+`mailto` target; it drops scripts, event handlers, every other URL scheme,
+every relative URL and every image (see [Cross-cutting Rules
+§7](cross-cutting.md#7-privacy-and-anonymization)), and stores every line
+break as `\n`.
 
 ### Ancestry traversal (no table)
 
