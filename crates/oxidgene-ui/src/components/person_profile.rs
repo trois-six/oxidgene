@@ -27,11 +27,12 @@ use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
-use crate::components::pedigree_chart::SharedPedigree;
+use crate::components::pedigree_chart::{AncestorSet, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
 use crate::router::Route;
+use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, use_traced_resource};
 use crate::utils::{event_type_label_key, note_html_for_display, opt_str, resolve_name};
 
@@ -1019,14 +1020,14 @@ pub(crate) fn use_tree_resource(
     })
 }
 
-/// The SOSA root's ancestors (same query as the tree view), used to show the
-/// green SOSA mark in the family narrative.
+/// The SOSA root's ancestors, which the tree view badges and the family
+/// narrative marks in green.
 pub(crate) fn use_sosa_ancestors(
     load_trace: UiLoadTrace,
     api: ApiClient,
     tree_id: Signal<Option<Uuid>>,
     tree_resource: Resource<Result<Tree, ApiError>>,
-) -> Resource<HashSet<Uuid>> {
+) -> Resource<AncestorSet> {
     let tree_cache = use_tree_cache();
     use_traced_resource(load_trace, "sosa_ancestors", move || {
         let api = api.clone();
@@ -1038,11 +1039,11 @@ pub(crate) fn use_sosa_ancestors(
         };
         async move {
             let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
-                return HashSet::new();
+                return AncestorSet::default();
             };
             match api.get_ancestors(tid, sosa_id, None).await {
-                Ok(entries) => entries.into_iter().map(|a| a.person_id).collect(),
-                Err(_) => HashSet::new(),
+                Ok(entries) => Shared::new(entries.into_iter().map(|a| a.person_id).collect()),
+                Err(_) => AncestorSet::default(),
             }
         }
     })

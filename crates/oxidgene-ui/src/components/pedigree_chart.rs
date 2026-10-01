@@ -11,7 +11,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use chrono::NaiveDate;
 use dioxus::prelude::*;
@@ -37,6 +36,7 @@ use oxidgene_core::{ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRol
 use crate::components::pedigree_view::PedigreeView;
 use crate::i18n::{I18n, use_i18n};
 use crate::prefs::use_pedigree_defaults;
+use crate::shared::Shared;
 
 use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
 
@@ -304,10 +304,6 @@ pub struct PedigreeData {
     /// A portrait that arrives as a region of a larger photograph carries that
     /// region, and the card cuts it itself.
     pub photos: HashMap<Uuid, CroppedSource>,
-    /// Pre-computed SOSA ancestor set (persons who are ancestors of the SOSA root).
-    pub sosa_ancestors: HashSet<Uuid>,
-    /// The SOSA root person ID (from tree settings).
-    pub sosa_root_id: Option<Uuid>,
     /// The person this tree identifies as the current user.
     pub self_person_id: Option<Uuid>,
     /// How many generations each way the data was fetched for, when it came
@@ -318,40 +314,14 @@ pub struct PedigreeData {
 }
 
 /// A [`PedigreeData`] shared between the page that assembled it, the handlers
-/// that read it and the chart that draws it.
-///
-/// The data behind it is large — every person, name, event and place the
-/// pedigree pulled in, plus a portrait picture each — and a page reads it from
-/// a dozen closures. Handing each of them an owned copy meant rebuilding all of
-/// that on every render, including the renders that only opened a context menu.
-///
-/// Equality is identity, which is what makes it a usable prop: assembling the
-/// pedigree again produces a new handle and redraws the chart, while a render
-/// that changed nothing about the pedigree passes the same handle and does not.
-/// Comparing the contents instead would cost as much as rebuilding them.
-#[derive(Clone, Debug)]
-pub struct SharedPedigree(Arc<PedigreeData>);
+/// that read it and the chart that draws it, compared by identity (see
+/// [`Shared`]).
+pub type SharedPedigree = Shared<PedigreeData>;
 
-impl SharedPedigree {
-    #[must_use]
-    pub fn new(data: PedigreeData) -> Self {
-        Self(Arc::new(data))
-    }
-}
-
-impl PartialEq for SharedPedigree {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl std::ops::Deref for SharedPedigree {
-    type Target = PedigreeData;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+/// The SOSA root's ancestors, shared by identity: the set runs to thousands
+/// of persons on a large tree, and the chart compares it on every render to
+/// decide whether its layout is still current.
+pub type AncestorSet = Shared<HashSet<Uuid>>;
 
 /// Turn a projection event back into the domain shape the chart and the events
 /// panel already speak.
@@ -643,8 +613,6 @@ impl PedigreeData {
             events_by_family,
             places: HashMap::new(),
             photos: HashMap::new(),
-            sosa_ancestors: HashSet::new(),
-            sosa_root_id: None,
             self_person_id: None,
             ancestor_depth_loaded: Some(pedigree.ancestor_depth_loaded as usize),
             descendant_depth_loaded: Some(pedigree.descendant_depth_loaded as usize),
@@ -2432,7 +2400,7 @@ struct LayoutKey {
     root: Uuid,
     data: SharedPedigree,
     sosa_root: Option<Uuid>,
-    sosa_ids: Option<HashSet<Uuid>>,
+    sosa_ids: Option<AncestorSet>,
     shape: SceneShape,
 }
 
@@ -2495,14 +2463,14 @@ impl ChartScene {
 
 /// The SOSA root's ancestors: the server's set when it sent one, else a
 /// traversal that only sees the pedigree window.
-fn resolve_sosa_ancestors(props: &PedigreeChartProps) -> HashSet<Uuid> {
+fn resolve_sosa_ancestors(props: &PedigreeChartProps) -> AncestorSet {
     props
         .sosa_ancestor_ids
         .clone()
         .or_else(|| {
             props
                 .sosa_root_person_id
-                .map(|sosa_id| props.data.ancestor_set(sosa_id))
+                .map(|sosa_id| Shared::new(props.data.ancestor_set(sosa_id)))
         })
         .unwrap_or_default()
 }
@@ -3540,8 +3508,8 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         compute_layout(
             props.root_person_id,
             &props.data,
-            props.data.sosa_root_id,
-            &props.data.sosa_ancestors,
+            None,
+            &HashSet::new(),
             PedigreeLayoutOptions::mini(props.ancestor_levels, props.descendant_levels),
             theme,
         )
@@ -3695,7 +3663,7 @@ pub struct PedigreeChartProps {
     /// table). When provided, used instead of traversing the limited pedigree
     /// graph — ensures badges appear even when jumping to distant ancestors.
     #[props(default)]
-    pub sosa_ancestor_ids: Option<std::collections::HashSet<Uuid>>,
+    pub sosa_ancestor_ids: Option<AncestorSet>,
     /// Incremented by the parent to force re-centering on the root person,
     /// even when `root_person_id` hasn't changed (e.g. navigating back from
     /// the person profile page).
@@ -6433,8 +6401,6 @@ mod geometry_golden_tests {
                 events_by_family: HashMap::new(),
                 places: HashMap::new(),
                 photos: HashMap::new(),
-                sosa_ancestors: HashSet::new(),
-                sosa_root_id: None,
                 self_person_id: None,
                 ancestor_depth_loaded: None,
                 descendant_depth_loaded: None,

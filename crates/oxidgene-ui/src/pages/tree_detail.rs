@@ -4,7 +4,7 @@
 //! main view, a context menu for person actions (including search-or-create
 //! flows for AddSpouse/AddParents/AddChild), and union editing.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use dioxus::router::Navigator;
@@ -22,6 +22,7 @@ use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
+use crate::components::person_profile::use_sosa_ancestors;
 use crate::components::print::PrintHeading;
 use crate::components::search_person::SearchPerson;
 use crate::components::topbar_search::TopbarSearch;
@@ -402,22 +403,6 @@ fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
     }
 }
 
-/// The ancestors of the tree's SOSA root: the green badge on their cards,
-/// even when jumping to a distant ancestor outside the pedigree window.
-async fn sosa_ancestor_ids(
-    api: &ApiClient,
-    tid: Option<Uuid>,
-    sosa_root: Option<Uuid>,
-) -> HashSet<Uuid> {
-    let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
-        return HashSet::new();
-    };
-    match api.get_ancestors(tid, sosa_id, None).await {
-        Ok(entries) => entries.into_iter().map(|a| a.person_id).collect(),
-        Err(_) => HashSet::new(),
-    }
-}
-
 /// The chart's root: the selected person, else the tree's SOSA root, else
 /// its first person.
 async fn pedigree_root(
@@ -511,19 +496,12 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         _ => None,
     };
 
-    let api_sosa = api.clone();
-    let sosa_ancestors_resource =
-        use_traced_resource(load_trace.clone(), "sosa_ancestors", move || {
-            let api = api_sosa.clone();
-            let tid = tree_id_parsed();
-            let _gen = tree_cache.generation();
-            // Read sosa_root_person_id reactively from tree_resource.
-            let sosa_root = match &*tree_resource.read() {
-                Some(Ok(tree)) => tree.sosa_root_person_id,
-                _ => None,
-            };
-            async move { sosa_ancestor_ids(&api, tid, sosa_root).await }
-        });
+    let sosa_ancestors_resource = use_sosa_ancestors(
+        load_trace.clone(),
+        api.clone(),
+        tree_id_parsed,
+        tree_resource,
+    );
 
     // ── Fetch pedigree from the API ──
     let api_pedigree = api.clone();

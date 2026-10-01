@@ -18,6 +18,7 @@ pub mod image_host;
 pub mod pages;
 pub mod prefs;
 pub mod router;
+pub mod shared;
 pub mod theme;
 pub mod ui_observability;
 pub mod utils;
