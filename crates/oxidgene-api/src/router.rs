@@ -14,6 +14,15 @@ use axum::routing::{delete, get, patch, post, put};
 /// one body: it is streamed to an import job, which enforces its own limit.
 const GENEANET_BODY_LIMIT: usize = 32 * 1024 * 1024;
 
+/// Body limit for the Geneanet import itself (1 GiB).
+///
+/// The import body is the preview's plus the fetched-media map, and that map
+/// is what outgrows the wizard's allowance on a real tree: every deposit and
+/// view a large Geneanet account holds is listed in it. A real tree's import
+/// needed more than 32 MiB, so the import keeps the 1 GiB ceiling the other
+/// imports had; the media bytes still never travel in it.
+const GENEANET_IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
+
 use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]
@@ -446,10 +455,11 @@ pub fn build_router(state: AppState) -> Router {
             get(gedcom::export_gedcom_handler),
         )
         // The wizard's import body is its preview body plus the fetched-media
-        // map, so it shares the wizard's allowance.
+        // map, which is what a large account fills: see
+        // `GENEANET_IMPORT_BODY_LIMIT`.
         .route(
             "/{tree_id}/geneanet/import",
-            post(geneanet::import_handler).layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT)),
+            post(geneanet::import_handler).layer(DefaultBodyLimit::max(GENEANET_IMPORT_BODY_LIMIT)),
         );
 
     // The wizard's first steps run before a tree has been chosen — indeed

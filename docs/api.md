@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:42:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:50:21Z }
 ---
 
 
@@ -970,8 +970,9 @@ is decoded directly to a temporary file, but the GraphQL JSON/string itself is
 still buffered. The desktop therefore uses streamed REST for session loading.
 The GraphQL HTTP body cap is disabled only in the local-file-enabled desktop
 backend; the standalone server retains its default cap and rejects session
-operations. The import body shares the wizard's 32 MiB limit: it carries the
-same `.gw` and collection as the preview, plus the fetched-media map.
+operations. The import body has a **1 GiB limit**: it carries the same `.gw`
+and collection as the preview plus the fetched-media map, which a large
+account fills well past the wizard's 32 MiB.
 
 Used by: [Import](ui-import.md) (From Geneanet tab)
 
