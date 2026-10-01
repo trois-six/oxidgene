@@ -103,11 +103,11 @@ tempfile = "3"
 # Logging & tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-opentelemetry = "0.33"
-opentelemetry = "0.32"
-opentelemetry-appender-tracing = "0.32"
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "logs", "metrics", "trace"] }
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+tracing-opentelemetry = "0.34"
+opentelemetry = "0.33"
+opentelemetry-appender-tracing = "0.33"
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "logs", "metrics", "trace"] }
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 
 # GEDCOM
 ged_io = { version = "0.16.3", features = ["json", "gedzip", "calendar"] }
