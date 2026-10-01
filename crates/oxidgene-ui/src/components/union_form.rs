@@ -338,7 +338,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         class: "btn btn-primary",
                         r#type: "button",
                         disabled: saving(),
-                        onclick: scope.apply_detachments(pending_detach, saving, props.on_close),
+                        onclick: scope.apply_detachments(children_resource, pending_detach, saving, props.on_close),
                         if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
                     }
                 }
@@ -356,6 +356,16 @@ fn use_seed_privacy(family: Resource<Option<Family>>, mut privacy: Signal<String
         privacy.set(format!("{:?}", family.privacy));
         loaded.set(true);
     }
+}
+
+/// The links to delete to detach the children staged by person: the family's
+/// child endpoint names the link between family and child, not the person.
+fn links_to_detach(children: &[FamilyChild], staged_persons: &HashSet<Uuid>) -> Vec<Uuid> {
+    children
+        .iter()
+        .filter(|child| staged_persons.contains(&child.person_id))
+        .map(|child| child.id)
+        .collect()
 }
 
 /// The family's spouses and children, once both lists are loaded.
@@ -554,6 +564,7 @@ impl FormScope {
     /// Applies the staged child detachments, then closes.
     fn apply_detachments(
         &self,
+        children: Resource<Result<Vec<FamilyChild>, ApiError>>,
         pending_detach: Signal<HashSet<Uuid>>,
         mut saving: Signal<bool>,
         on_close: EventHandler<()>,
@@ -562,11 +573,14 @@ impl FormScope {
         move |_| {
             let scope = scope.clone();
             let mut save_error = scope.writes.save_error;
-            let to_detach: Vec<Uuid> = pending_detach().into_iter().collect();
+            let to_detach = match &*children.read() {
+                Some(Ok(children)) => links_to_detach(children, &pending_detach.read()),
+                _ => Vec::new(),
+            };
             spawn(async move {
                 saving.set(true);
-                for cid in to_detach {
-                    if let Err(e) = scope.api.remove_child(scope.tid, scope.fid, cid).await {
+                for link_id in to_detach {
+                    if let Err(e) = scope.api.remove_child(scope.tid, scope.fid, link_id).await {
                         save_error.set(Some(format!("{e}")));
                         saving.set(false);
                         return;
@@ -1164,5 +1178,35 @@ impl ChildrenSection<'_> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn child(link: u128, person: u128) -> FamilyChild {
+        serde_json::from_value(serde_json::json!({
+            "id": Uuid::from_u128(link),
+            "family_id": Uuid::from_u128(99),
+            "person_id": Uuid::from_u128(person),
+            "child_type": "biological",
+            "sort_order": 0,
+        }))
+        .unwrap()
+    }
+
+    /// A detachment is staged by person, but the endpoint deletes a
+    /// family-child link: sending the person's id answered 404.
+    #[test]
+    fn a_detachment_deletes_the_childs_link_not_the_person() {
+        let children = [child(1, 10), child(2, 20), child(3, 30)];
+        let staged = HashSet::from([Uuid::from_u128(20), Uuid::from_u128(30)]);
+
+        assert_eq!(
+            links_to_detach(&children, &staged),
+            [Uuid::from_u128(2), Uuid::from_u128(3)]
+        );
+        assert!(links_to_detach(&children, &HashSet::new()).is_empty());
     }
 }

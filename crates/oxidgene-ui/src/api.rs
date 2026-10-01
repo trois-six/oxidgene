@@ -3211,14 +3211,16 @@ impl ApiClient {
         .await
     }
 
+    /// Detaches a child from a family by deleting `link_id`, the
+    /// family-child link — not the child's person id.
     pub async fn remove_child(
         &self,
         tree_id: Uuid,
         family_id: Uuid,
-        child_id: Uuid,
+        link_id: Uuid,
     ) -> Result<(), ApiError> {
         self.delete_no_content(&format!(
-            "/api/v1/trees/{tree_id}/families/{family_id}/children/{child_id}"
+            "/api/v1/trees/{tree_id}/families/{family_id}/children/{link_id}"
         ))
         .await
     }

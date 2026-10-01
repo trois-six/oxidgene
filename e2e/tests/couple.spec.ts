@@ -42,12 +42,7 @@ test("the union form stages a child's detachment and undoes it", async ({ page, 
     await expect(form.locator(".uf-child-row")).toHaveCount(3);
 });
 
-// Known defect: the form sends the child's person id where
-// `DELETE /families/{family_id}/children/{child_id}` expects the id of the
-// family-child link, so saving answers 404 and nothing is detached. Remove
-// `test.fail` once the union form is fixed.
 test("saving a staged detachment removes the child from the union", async ({ page, tree }) => {
-    test.fail();
     let form = await openParentsUnionForm(page, tree);
     await stageDetachment(form, "Delia Ashdown");
     await form.getByRole("button", { name: "Save", exact: true }).click();
