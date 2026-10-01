@@ -186,16 +186,7 @@ impl PersonRepo {
 
     /// Get a single person by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Person, OxidGeneError> {
-        Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .map(into_domain)
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Person",
-                id,
-            })
+        find_live(db, id).await.map(into_domain)
     }
 
     /// The live persons whose chosen portrait is one of `media_ids`, or a
@@ -288,15 +279,7 @@ impl PersonRepo {
         sex: Option<Sex>,
         privacy: Option<Privacy>,
     ) -> Result<Person, OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Person",
-                id,
-            })?;
+        let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(sex) = sex {
@@ -313,15 +296,7 @@ impl PersonRepo {
 
     /// Soft-delete a person.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Person",
-                id,
-            })?;
+        let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
@@ -548,15 +523,7 @@ impl PersonRepo {
         person_id: Uuid,
         portrait: Portrait,
     ) -> Result<Person, OxidGeneError> {
-        let person = Entity::find_by_id(person_id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Person",
-                id: person_id,
-            })?;
+        let person = find_live(db, person_id).await?;
 
         let (media_id, vignette_id) = portrait.to_columns();
         let mut active: person::ActiveModel = person.into();
@@ -580,4 +547,12 @@ fn into_domain(m: person::Model) -> Person {
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Row `id`, unless it is missing or soft-deleted.
+async fn find_live(
+    db: &impl ConnectionTrait,
+    id: Uuid,
+) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
+    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Person").await
 }

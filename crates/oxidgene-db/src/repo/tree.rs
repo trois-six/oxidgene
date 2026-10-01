@@ -45,13 +45,7 @@ impl TreeRepo {
 
     /// Get a single tree by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Tree, OxidGeneError> {
-        Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .map(into_domain)
-            .ok_or(OxidGeneError::NotFound { entity: "Tree", id })
+        find_live(db, id).await.map(into_domain)
     }
 
     /// Create a new tree.
@@ -84,12 +78,7 @@ impl TreeRepo {
         id: Uuid,
         changes: TreeChanges,
     ) -> Result<Tree, OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound { entity: "Tree", id })?;
+        let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(name) = changes.name {
@@ -181,4 +170,12 @@ fn into_domain(m: tree::Model) -> Tree {
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Row `id`, unless it is missing or soft-deleted.
+async fn find_live(
+    db: &impl ConnectionTrait,
+    id: Uuid,
+) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
+    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Tree").await
 }

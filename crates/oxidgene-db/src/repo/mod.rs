@@ -76,6 +76,28 @@ pub use source::SourceRepo;
 pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};
 
+/// Row `id` of entity `E` unless it is missing or soft-deleted (its
+/// `deleted_at` column set); `NotFound` naming `entity` otherwise. What every
+/// repository's own `find_live` reads through.
+pub(crate) async fn find_live<E>(
+    db: &impl sea_orm::ConnectionTrait,
+    id: uuid::Uuid,
+    deleted_at: E::Column,
+    entity: &'static str,
+) -> Result<E::Model, oxidgene_core::OxidGeneError>
+where
+    E: sea_orm::EntityTrait,
+    E::PrimaryKey: sea_orm::PrimaryKeyTrait<ValueType = uuid::Uuid>,
+{
+    use sea_orm::{ColumnTrait, QueryFilter};
+    E::find_by_id(id)
+        .filter(deleted_at.is_null())
+        .one(db)
+        .await
+        .map_err(db_err)?
+        .ok_or(oxidgene_core::OxidGeneError::NotFound { entity, id })
+}
+
 /// A database error as the domain reports it.
 ///
 /// Public so that every layer maps a `DbErr` the same way: the API's services

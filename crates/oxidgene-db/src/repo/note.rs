@@ -67,13 +67,7 @@ impl NoteRepo {
 
     /// Get a single note by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Note, OxidGeneError> {
-        Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .map(into_domain)
-            .ok_or(OxidGeneError::NotFound { entity: "Note", id })
+        find_live(db, id).await.map(into_domain)
     }
 
     /// List all notes in a tree without pagination (excludes soft-deleted).
@@ -182,12 +176,7 @@ impl NoteRepo {
         id: Uuid,
         text: Option<String>,
     ) -> Result<Note, OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound { entity: "Note", id })?;
+        let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(text) = text {
@@ -201,12 +190,7 @@ impl NoteRepo {
 
     /// Soft-delete a note.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound { entity: "Note", id })?;
+        let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
@@ -229,4 +213,12 @@ fn into_domain(m: note::Model) -> Note {
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Row `id`, unless it is missing or soft-deleted.
+async fn find_live(
+    db: &impl ConnectionTrait,
+    id: Uuid,
+) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
+    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Note").await
 }

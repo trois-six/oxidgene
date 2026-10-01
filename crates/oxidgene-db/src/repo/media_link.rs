@@ -195,24 +195,7 @@ impl MediaLinkRepo {
             MediaLinkTarget::Event => Column::EventId,
             MediaLinkTarget::Source => Column::SourceId,
         };
-        let rows = Entity::find()
-            .filter(column.eq(entity_id))
-            .find_also_related(crate::entities::media::Entity)
-            .order_by_asc(Column::SortOrder)
-            .order_by_asc(Column::Id)
-            .all(db)
-            .await
-            .map_err(db_err)?;
-
-        Ok(rows
-            .into_iter()
-            .filter_map(|(link, media)| {
-                // A soft-deleted media keeps its links; the gallery should not
-                // show it, and dropping it here beats every caller remembering.
-                let media = media.filter(|m| m.deleted_at.is_none())?;
-                Some((into_domain(link), crate::repo::media::into_domain(media)))
-            })
-            .collect())
+        Self::with_media(db, Condition::all().add(column.eq(entity_id))).await
     }
 
     /// Every media attached directly to a person or one of their families.
@@ -225,22 +208,7 @@ impl MediaLinkRepo {
         if !family_ids.is_empty() {
             targets = targets.add(Column::FamilyId.is_in(family_ids.iter().copied()));
         }
-        let rows = Entity::find()
-            .filter(targets)
-            .find_also_related(crate::entities::media::Entity)
-            .order_by_asc(Column::SortOrder)
-            .order_by_asc(Column::Id)
-            .all(db)
-            .await
-            .map_err(db_err)?;
-
-        Ok(rows
-            .into_iter()
-            .filter_map(|(link, media)| {
-                let media = media.filter(|item| item.deleted_at.is_none())?;
-                Some((into_domain(link), crate::repo::media::into_domain(media)))
-            })
-            .collect())
+        Self::with_media(db, targets).await
     }
 
     /// Every media tile attached to any of the supplied events.
@@ -251,19 +219,33 @@ impl MediaLinkRepo {
         if event_ids.is_empty() {
             return Ok(Vec::new());
         }
+        Self::with_media(
+            db,
+            Condition::all().add(Column::EventId.is_in(event_ids.iter().copied())),
+        )
+        .await
+    }
+
+    /// The links matching `targets`, each with its media, in gallery order.
+    ///
+    /// A soft-deleted media keeps its links; no gallery shows it, and dropping
+    /// it here beats every caller remembering to.
+    async fn with_media(
+        db: &impl ConnectionTrait,
+        targets: Condition,
+    ) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
         let rows = Entity::find()
-            .filter(Column::EventId.is_in(event_ids.iter().copied()))
+            .filter(targets)
             .find_also_related(crate::entities::media::Entity)
             .order_by_asc(Column::SortOrder)
             .order_by_asc(Column::Id)
             .all(db)
             .await
             .map_err(db_err)?;
-
         Ok(rows
             .into_iter()
             .filter_map(|(link, media)| {
-                let media = media.filter(|item| item.deleted_at.is_none())?;
+                let media = media.filter(|m| m.deleted_at.is_none())?;
                 Some((into_domain(link), crate::repo::media::into_domain(media)))
             })
             .collect())

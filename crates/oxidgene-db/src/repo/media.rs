@@ -155,16 +155,7 @@ impl MediaRepo {
 
     /// Get a single media by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Media, OxidGeneError> {
-        let mut media = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id,
-            })
-            .map(into_domain)?;
+        let mut media = find_live(db, id).await.map(into_domain)?;
         hydrate_tags(db, std::slice::from_mut(&mut media)).await?;
         Ok(media)
     }
@@ -287,15 +278,7 @@ impl MediaRepo {
         id: Uuid,
         upload: UploadedMedia,
     ) -> Result<Media, OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id,
-            })?;
+        let existing = find_live(db, id).await?;
 
         page_document(db, existing.tree_id, existing.parent_media_id).await?;
         let mut page = into_domain(existing.clone());
@@ -463,15 +446,7 @@ impl MediaRepo {
         document_id: Uuid,
         page_id: Uuid,
     ) -> Result<MediaPurge, OxidGeneError> {
-        let page = Entity::find_by_id(page_id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id: page_id,
-            })?;
+        let page = find_live(db, page_id).await?;
         if page.parent_media_id != Some(document_id) {
             return Err(OxidGeneError::Validation(
                 "the media is not a page of this document".into(),
@@ -511,15 +486,7 @@ impl MediaRepo {
         id: Uuid,
         patch: MediaPatch,
     ) -> Result<Media, OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id,
-            })?;
+        let existing = find_live(db, id).await?;
 
         validate_patch(db, &existing, &patch).await?;
 
@@ -539,15 +506,7 @@ impl MediaRepo {
     /// API layer removes those objects from its configured media store after
     /// its transaction commits.
     pub async fn purge(db: &impl ConnectionTrait, id: Uuid) -> Result<MediaPurge, OxidGeneError> {
-        let root = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id,
-            })?;
+        let root = find_live(db, id).await?;
         let pages = if root.parent_media_id.is_none() {
             Entity::find()
                 .filter(Column::ParentMediaId.eq(id))
@@ -600,15 +559,7 @@ impl MediaRepo {
         id: Uuid,
         allowed_link_id: Uuid,
     ) -> Result<bool, OxidGeneError> {
-        let media = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id,
-            })?;
+        let media = find_live(db, id).await?;
         if media.parent_media_id.is_some() {
             return Ok(false);
         }
@@ -955,6 +906,14 @@ async fn hydrate_tags(db: &impl ConnectionTrait, media: &mut [Media]) -> Result<
         item.tags = tags_by_media.remove(&item.id).unwrap_or_default();
     }
     Ok(())
+}
+
+/// Row `id`, unless it is missing or soft-deleted.
+async fn find_live(
+    db: &impl ConnectionTrait,
+    id: Uuid,
+) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
+    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Media").await
 }
 
 #[cfg(test)]

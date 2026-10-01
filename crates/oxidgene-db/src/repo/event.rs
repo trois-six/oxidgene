@@ -100,16 +100,7 @@ impl EventRepo {
 
     /// Get a single event by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Event, OxidGeneError> {
-        Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .map(into_domain)
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Event",
-                id,
-            })
+        find_live(db, id).await.map(into_domain)
     }
 
     /// Create a new event.
@@ -168,15 +159,7 @@ impl EventRepo {
         calendar: Option<Calendar>,
         cause: Option<Option<String>>,
     ) -> Result<Event, OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Event",
-                id,
-            })?;
+        let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(event_type) = event_type {
@@ -214,15 +197,7 @@ impl EventRepo {
 
     /// Soft-delete an event.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Event",
-                id,
-            })?;
+        let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         active.deleted_at = Set(Some(Utc::now()));
@@ -250,4 +225,12 @@ fn into_domain(m: event::Model) -> Event {
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// Row `id`, unless it is missing or soft-deleted.
+async fn find_live(
+    db: &impl ConnectionTrait,
+    id: Uuid,
+) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
+    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Event").await
 }
