@@ -556,6 +556,22 @@ pub struct UploadMediaInput {
     pub description: Option<String>,
 }
 
+impl TryFrom<UploadMediaInput> for crate::service::media::NewPage {
+    type Error = Error;
+
+    fn try_from(input: UploadMediaInput) -> Result<Self> {
+        Ok(Self {
+            document_id: uuid(&input.document_id)?,
+            file_name: input.file_name,
+            mime_type: input.mime_type,
+            file_path: input.file_path,
+            file_size: input.file_size,
+            title: input.title,
+            description: input.description,
+        })
+    }
+}
+
 /// Input for uploading a file's actual bytes.
 ///
 /// The content travels base64-encoded in the request body, the same choice the
@@ -611,6 +627,33 @@ pub struct UpdateMediaInput {
     /// sets the medium it implies, so a census return does not export as
     /// `OTHER`.
     pub document_category: MaybeUndefined<GqlDocumentCategory>,
+}
+
+impl TryFrom<UpdateMediaInput> for crate::service::media::MediaUpdate {
+    type Error = Error;
+
+    fn try_from(input: UpdateMediaInput) -> Result<Self> {
+        Ok(Self {
+            title: patch(input.title),
+            description: patch(input.description),
+            date_value: patch(input.date_value),
+            date_value2: patch(input.date_value2),
+            date_qualifier: input.date_qualifier.map(Into::into),
+            calendar: input.calendar.map(Into::into),
+            place_id: patch_id(input.place_id)?,
+            file_path: input.file_path,
+            mime_type: input.mime_type,
+            width: input.width,
+            height: input.height,
+            privacy: input.privacy.map(Into::into),
+            source_media_type: input.source_media_type.map(Into::into),
+            document_category: match input.document_category {
+                MaybeUndefined::Undefined => None,
+                MaybeUndefined::Null => Some(None),
+                MaybeUndefined::Value(category) => Some(Some(category.into())),
+            },
+        })
+    }
 }
 
 // ── Vignette Inputs ──────────────────────────────────────────────────

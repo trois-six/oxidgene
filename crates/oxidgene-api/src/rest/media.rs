@@ -11,25 +11,23 @@ use axum::response::{IntoResponse, Response};
 use futures_util::TryStreamExt;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::types::{Connection, Media, last_path_segment};
-use oxidgene_db::repo::{
-    MediaPatch, MediaRepo, MediaTagRepo, PaginationParams, TreeRepo, UploadedMedia,
-};
+use oxidgene_db::repo::{MediaRepo, PaginationParams};
 use uuid::Uuid;
 
-use crate::media::{self, MAX_UPLOAD_BYTES};
-use crate::service::event_date;
-use crate::service::history::Change;
+use crate::media::MAX_UPLOAD_BYTES;
+use crate::service::media::{
+    self as media_service, MediaUpdate, NewPage, NewUpload, UploadTarget, archive_pages,
+    download_record, stored_key,
+};
 use crate::service::media_library::{self, MediaListItem};
-use oxidgene_core::history::{AuditAction, AuditEntity};
 
 use super::dto::{
-    CreateDocumentRequest, CreateMediaRequest, DeleteMediaQuery, GalleryBundleRequest,
-    MediaDeletionStatusQuery, MediaListQuery, MediaTagRequest, ReorderPagesRequest,
-    UpdateMediaRequest,
+    CreateDocumentRequest, DeleteMediaQuery, GalleryBundleRequest, MediaDeletionStatusQuery,
+    MediaListQuery, MediaTagRequest, ReorderPagesRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// POST /api/v1/trees/:tree_id/image-data
 ///
@@ -115,201 +113,30 @@ pub async fn list_media_facets(
 pub async fn create_media(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<CreateMediaRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    if body.file_name.trim().is_empty() {
-        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
-            "file_name must not be empty".to_string(),
-        )));
-    }
-    let id = Uuid::now_v7();
-    // The last write path that could still store `application/octet-stream`:
-    // this one takes the MIME type from the caller. Upload sniffs the bytes,
-    // GEDCOM import reads the `FORM` or the file name, and repointing at a URL
-    // guesses from its extension — normalising here means every row in the
-    // table has a MIME type worth believing, so no reader has to second-guess
-    // one.
-    let mime_type = oxidgene_core::types::normalize_mime(
-        Some(&body.mime_type),
-        if body.file_path.is_empty() {
-            &body.file_name
-        } else {
-            &body.file_path
-        },
-    );
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, body.document_id)
-        .await
-        .map_err(ApiError)?;
-    let media = MediaRepo::create(
-        &state.db,
-        id,
-        tree_id,
-        Some(body.document_id),
-        body.file_name,
-        mime_type,
-        body.file_path,
-        body.file_size,
-        body.title,
-        body.description,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    MediaRepo::refresh_page_count(&state.db, body.document_id)
-        .await
-        .map_err(ApiError::from)?;
-    Change::create(tree_id, AuditEntity::MediaPage, id)
-        .media(body.document_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(media).unwrap()),
-    ))
+    Json(body): Json<NewPage>,
+) -> Result<(StatusCode, Json<Media>), ApiError> {
+    let page = media_service::create_page(&state.db, &state.profiles, tree_id, body).await?;
+    Ok((StatusCode::CREATED, Json(page)))
 }
 
 /// GET /api/v1/trees/:tree_id/media/:media_id
 pub async fn get_media(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let media = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(media).unwrap()))
+) -> Result<Json<Media>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
+    Ok(Json(MediaRepo::get(&state.db, media_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/media/:media_id
 pub async fn update_media(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<UpdateMediaRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let stored = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    let patch = media_patch(&stored, body)?;
-    let media = MediaRepo::update(&state.db, media_id, patch)
-        .await
-        .map_err(ApiError::from)?;
-    Change::update(tree_id, AuditEntity::Media, media_id)
-        .media(media_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(media).unwrap()))
-}
-
-/// Turn an update request into a repo patch, deriving what the client may not
-/// set and rejecting what it may not change.
-pub(crate) fn media_patch(
-    stored: &Media,
-    body: UpdateMediaRequest,
-) -> Result<MediaPatch, ApiError> {
-    // A media is one of three things, and only one of them owns its path.
-    //
-    //  - stored:  we hold the bytes (`storage_key` set). `file_path` is the
-    //             GEDCOM value an export writes back; repointing it would make
-    //             the export describe a file we are not serving.
-    //  - remote:  `file_path` is an http(s) URL, the bytes are somebody else's,
-    //             and editing it is how a dead link gets fixed.
-    //  - unheld:  a GEDCOM record naming a local file nobody uploaded. Editing
-    //             the path is how it gets pointed at a URL instead.
-    let mut file_path = None;
-    let mut mime_type = None;
-    if let Some(requested) = body.file_path {
-        let requested = requested.trim().to_string();
-        if stored.storage_key.is_some() {
-            return Err(ApiError(OxidGeneError::Validation(
-                "cannot repoint a media whose file is stored here; upload a replacement instead"
-                    .into(),
-            )));
-        }
-        if requested.is_empty() {
-            return Err(ApiError(OxidGeneError::Validation(
-                "file_path must not be empty".into(),
-            )));
-        }
-        // No sniffing is possible for a URL — fetching it is exactly what a
-        // remote media exists to avoid — so the extension is the only evidence
-        // there is. It decides whether the profile embeds the media or offers
-        // it as a download, so a wrong guess costs a click.
-        mime_type = body
-            .mime_type
-            .map(|m| m.trim().to_string())
-            .filter(|m| !m.is_empty())
-            .or_else(|| media::guess_mime(&requested).map(str::to_string));
-        file_path = Some(requested);
-    } else if let Some(requested) = body.mime_type {
-        let requested = requested.trim().to_string();
-        if !requested.is_empty() {
-            // Our own copy was typed by sniffing its bytes, and that type is
-            // what it is served as. Letting a caller relabel a PNG `text/html`
-            // would turn a crafted image into a page.
-            if stored.storage_key.is_some() {
-                return Err(ApiError(OxidGeneError::Validation(
-                    "the type of a file stored here is read from its bytes".into(),
-                )));
-            }
-            mime_type = Some(requested);
-        }
-    }
-
-    // Half a size is not a size: a width without a height cannot scale
-    // anything, so the pair is required rather than half-applied.
-    let dimensions = match (body.width, body.height) {
-        (None, None) => None,
-        (Some(width), Some(height)) => {
-            if stored.storage_key.is_some() {
-                return Err(ApiError(OxidGeneError::Validation(
-                    "the dimensions of a file stored here are read from its bytes".into(),
-                )));
-            }
-            if width <= 0 || height <= 0 {
-                return Err(ApiError(OxidGeneError::Validation(
-                    "image dimensions must be positive".into(),
-                )));
-            }
-            Some((width, height))
-        }
-        _ => {
-            return Err(ApiError(OxidGeneError::Validation(
-                "width and height are sent together or not at all".into(),
-            )));
-        }
-    };
-
-    // The calendar and the value are only meaningful together, so a patch that
-    // moves one re-reads the other from the stored row before converting.
-    let date_sort = Some(event_date::derive_patch(
-        stored.calendar,
-        stored.date_value.as_deref(),
-        body.calendar,
-        body.date_value.as_ref().map(|v| v.as_deref()),
-    ));
-
-    Ok(MediaPatch {
-        title: body.title,
-        description: body.description,
-        date_value: body.date_value,
-        date_value2: body.date_value2,
-        date_qualifier: body.date_qualifier,
-        calendar: body.calendar,
-        place_id: body.place_id,
-        file_path,
-        mime_type,
-        dimensions,
-        privacy: body.privacy,
-        source_media_type: body.source_media_type,
-        document_category: body.document_category,
-        date_sort,
-    })
+    Json(body): Json<MediaUpdate>,
+) -> Result<Json<Media>, ApiError> {
+    let media =
+        media_service::update_media(&state.db, &state.profiles, tree_id, media_id, body).await?;
+    Ok(Json(media))
 }
 
 /// POST /api/v1/trees/:tree_id/media/:media_id/tags
@@ -317,28 +144,10 @@ pub async fn add_tag(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MediaTagRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let media = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    let (tag, normalized_tag) = crate::service::media_library::normalize_tag(&body.tag)
-        .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
-    let target_id = media.parent_media_id.unwrap_or(media.id);
-    MediaTagRepo::create(&state.db, target_id, tag.clone(), normalized_tag)
-        .await
-        .map_err(ApiError::from)?;
-    Change::new(tree_id, AuditAction::Create, AuditEntity::MediaTag, None)
-        .media(target_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-    let media = MediaRepo::get(&state.db, target_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(media).unwrap()))
+) -> Result<Json<Media>, ApiError> {
+    Ok(Json(
+        media_service::add_tag(&state.db, tree_id, media_id, &body.tag).await?,
+    ))
 }
 
 /// DELETE /api/v1/trees/:tree_id/media/:media_id/tags
@@ -347,23 +156,7 @@ pub async fn remove_tag(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MediaTagRequest>,
 ) -> Result<StatusCode, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let media = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    let (_, normalized_tag) = crate::service::media_library::normalize_tag(&body.tag)
-        .ok_or_else(|| ApiError(OxidGeneError::Validation("tag must not be empty".into())))?;
-    let target_id = media.parent_media_id.unwrap_or(media.id);
-    MediaTagRepo::delete(&state.db, target_id, &normalized_tag)
-        .await
-        .map_err(ApiError::from)?;
-    Change::new(tree_id, AuditAction::Delete, AuditEntity::MediaTag, None)
-        .media(target_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
+    media_service::remove_tag(&state.db, tree_id, media_id, &body.tag).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -375,39 +168,18 @@ pub async fn create_document(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<CreateDocumentRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let media = MediaRepo::create_document(
-        &state.db,
-        Uuid::now_v7(),
-        tree_id,
-        body.title,
-        chrono::Utc::now(),
-    )
-    .await
-    .map_err(ApiError::from)?;
-    Change::create(tree_id, AuditEntity::Media, media.id)
-        .media(media.id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(media).unwrap()),
-    ))
+) -> Result<(StatusCode, Json<Media>), ApiError> {
+    let document = media_service::create_document(&state.db, tree_id, body.title).await?;
+    Ok((StatusCode::CREATED, Json(document)))
 }
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/pages
 pub async fn list_pages(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let pages = MediaRepo::list_pages(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(pages).unwrap()))
+) -> Result<Json<Vec<Media>>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
+    Ok(Json(MediaRepo::list_pages(&state.db, media_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/media/:media_id/pages
@@ -418,24 +190,16 @@ pub async fn reorder_pages(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<ReorderPagesRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    for page_id in &body.page_ids {
-        require_tree_resource(&state.db, tree_id, TreeResource::Media, *page_id)
-            .await
-            .map_err(ApiError)?;
-    }
-    let pages = MediaRepo::reorder_pages(&state.db, media_id, &body.page_ids)
-        .await
-        .map_err(ApiError::from)?;
-    Change::new(tree_id, AuditAction::Update, AuditEntity::MediaPage, None)
-        .media(media_id)
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(pages).unwrap()))
+) -> Result<Json<Vec<Media>>, ApiError> {
+    let pages = media_service::reorder_pages(
+        &state.db,
+        &state.profiles,
+        tree_id,
+        media_id,
+        &body.page_ids,
+    )
+    .await?;
+    Ok(Json(pages))
 }
 
 /// DELETE /api/v1/trees/:tree_id/media/:media_id/pages/:page_id
@@ -448,27 +212,15 @@ pub async fn delete_page(
     State(state): State<AppState>,
     Path((tree_id, media_id, page_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError::from)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Media, page_id)
-        .await
-        .map_err(ApiError)?;
-    let purge = MediaRepo::delete_page(&txn, media_id, page_id)
-        .await
-        .map_err(ApiError::from)?;
-    Change::delete(tree_id, AuditEntity::MediaPage, page_id)
-        .media(media_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError::from)?;
-    // Only once the transaction holds: a key deleted before the commit is a
-    // file gone from a page the database would still list.
-    for key in purge.storage_keys {
-        state.media.delete(&key).await.map_err(ApiError::from)?;
-    }
+    media_service::delete_page(
+        &state.db,
+        &state.profiles,
+        &*state.media,
+        tree_id,
+        media_id,
+        page_id,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -484,43 +236,24 @@ pub async fn delete_media(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteMediaQuery>,
 ) -> Result<StatusCode, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    let allowed_link_id = if query.only_if_unreferenced_elsewhere {
-        let link_id = query.allowed_link_id.ok_or_else(|| {
-            ApiError(OxidGeneError::Validation(
+    let allowed_link_id = match (query.only_if_unreferenced_elsewhere, query.allowed_link_id) {
+        (false, _) => None,
+        (true, Some(link_id)) => Some(link_id),
+        (true, None) => {
+            return Err(ApiError(OxidGeneError::Validation(
                 "allowed_link_id is required for conditional media deletion".into(),
-            ))
-        })?;
-        require_tree_resource(&state.db, tree_id, TreeResource::MediaLink, link_id)
-            .await
-            .map_err(ApiError)?;
-        Some(link_id)
-    } else {
-        None
+            )));
+        }
     };
-    // Read before the purge removes the row the label comes from.
-    let label = MediaRepo::get(&state.db, media_id)
-        .await
-        .map_err(ApiError::from)?
-        .display_label();
-    let deleted = crate::service::media::purge_media(
+    let deleted = media_service::delete_media(
         &state.db,
-        state.media.as_ref(),
+        &state.profiles,
+        &*state.media,
+        tree_id,
         media_id,
         allowed_link_id,
     )
-    .await
-    .map_err(ApiError::from)?;
-    if deleted {
-        Change::delete(tree_id, AuditEntity::Media, media_id)
-            .media(media_id)
-            .label(label)
-            .record(&state.db)
-            .await
-            .map_err(ApiError)?;
-    }
+    .await?;
     Ok(if deleted {
         StatusCode::NO_CONTENT
     } else {
@@ -537,21 +270,9 @@ pub async fn media_deletion_status(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<MediaDeletionStatusQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-        .await
-        .map_err(ApiError)?;
-    require_tree_resource(
-        &state.db,
-        tree_id,
-        TreeResource::MediaLink,
-        query.allowed_link_id,
-    )
-    .await
-    .map_err(ApiError)?;
     let can_delete =
-        MediaRepo::can_purge_if_unreferenced_elsewhere(&state.db, media_id, query.allowed_link_id)
-            .await
-            .map_err(ApiError::from)?;
+        media_service::can_delete_media(&state.db, tree_id, media_id, query.allowed_link_id)
+            .await?;
     Ok(Json(serde_json::json!({ "can_delete": can_delete })))
 }
 
@@ -566,88 +287,42 @@ pub async fn upload_media(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     multipart: Multipart,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+) -> Result<(StatusCode, Json<Media>), ApiError> {
     let form = read_upload_form(multipart).await?;
     let Some((file_name, bytes)) = form.file else {
         return Err(ApiError(OxidGeneError::Validation(
             "multipart form has no `file` part".into(),
         )));
     };
-
-    let ingested = media::ingest(&*state.media, tree_id, &file_name, bytes).await?;
-    let upload = UploadedMedia {
-        file_name: ingested.file_name,
-        mime_type: ingested.mime_type,
-        storage_key: ingested.storage_key,
-        sha256: ingested.sha256,
-        file_size: ingested.file_size,
-        thumbnail_key: ingested.thumbnail_key,
-        width: ingested.width,
-        height: ingested.height,
-        page_count: ingested.page_count,
-        title: form.title,
-        description: form.description,
-        created_at: chrono::Utc::now(),
-        metadata: Default::default(),
-    };
-
-    let (status, media) = match form.media_id {
-        Some(media_id) => {
-            require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id)
-                .await
-                .map_err(ApiError)?;
-            (
-                StatusCode::OK,
-                MediaRepo::attach_file(&state.db, media_id, upload)
-                    .await
-                    .map_err(ApiError::from)?,
-            )
-        }
-        None => {
-            // A page belongs to its document from the moment it lands. Born
-            // attached rather than created loose and adopted afterwards: an
-            // upload that succeeded but was not attached would sit in the tree
-            // as a scan belonging to nothing, which is not a shape any reader
-            // knows how to show.
-            let document_id = form.document_id.ok_or_else(|| {
-                ApiError(OxidGeneError::Validation(
-                    "multipart form has no `document_id` part".into(),
-                ))
-            })?;
-            require_tree_resource(&state.db, tree_id, TreeResource::Media, document_id)
-                .await
-                .map_err(ApiError)?;
-            (
-                StatusCode::CREATED,
-                MediaRepo::create_uploaded(
-                    &state.db,
-                    Uuid::now_v7(),
-                    tree_id,
-                    Some(document_id),
-                    upload,
-                )
-                .await
-                .map_err(ApiError::from)?,
-            )
+    let target = match (form.media_id, form.document_id) {
+        (Some(media_id), _) => UploadTarget::Attach { media_id },
+        (None, Some(document_id)) => UploadTarget::NewPage { document_id },
+        (None, None) => {
+            return Err(ApiError(OxidGeneError::Validation(
+                "multipart form has no `document_id` part".into(),
+            )));
         }
     };
-    if let Some(document_id) = media.parent_media_id {
-        MediaRepo::refresh_page_count(&state.db, document_id)
-            .await
-            .map_err(ApiError::from)?;
-    }
-    let change = if form.media_id.is_some() {
-        Change::update(tree_id, AuditEntity::Media, media.id)
+    let (page, created) = media_service::upload(
+        &state.db,
+        &state.profiles,
+        &*state.media,
+        tree_id,
+        NewUpload {
+            file_name,
+            bytes,
+            title: form.title,
+            description: form.description,
+            target,
+        },
+    )
+    .await?;
+    let status = if created {
+        StatusCode::CREATED
     } else {
-        Change::create(tree_id, AuditEntity::MediaPage, media.id)
+        StatusCode::OK
     };
-    change
-        .media(media.parent_media_id.unwrap_or(media.id))
-        .record(&state.db)
-        .await
-        .map_err(ApiError)?;
-
-    Ok((status, Json(serde_json::to_value(media).unwrap())))
+    Ok((status, Json(page)))
 }
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/file
@@ -659,7 +334,7 @@ pub async fn download_media(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let media = download_record(&state.db, tree_id, media_id).await?;
-    let key = stored_key(&media, media.storage_key.as_deref())?;
+    let key = stored_key(&media)?;
     serve(
         &state,
         key,
@@ -752,7 +427,7 @@ fn write_page_archive(
             writer.write_all(internet_shortcut(&page.file_path).as_bytes())?;
             continue;
         }
-        let key = stored_key(page, page.storage_key.as_deref())?;
+        let key = stored_key(page)?;
         let mut stream = runtime.block_on(media.get_stream(key))?;
         let name = format!("{position:0digits$}_{}", zip_safe(&page.file_name));
         writer.start_file(name, options).map_err(entry_failed)?;
@@ -771,52 +446,6 @@ fn write_page_archive(
         .map_err(|_| OxidGeneError::Internal("archive finalization failed".into()))?;
     file.rewind()?;
     Ok(file)
-}
-
-/// Download reads must not outlive a soft-deleted tree or parent document,
-/// even while the asynchronous purge has not removed the page rows yet.
-pub(crate) async fn download_record(
-    db: &impl sea_orm::ConnectionTrait,
-    tree_id: Uuid,
-    media_id: Uuid,
-) -> Result<Media, OxidGeneError> {
-    TreeRepo::get(db, tree_id).await?;
-    require_tree_resource(db, tree_id, TreeResource::Media, media_id).await?;
-    let media = MediaRepo::get(db, media_id).await?;
-    if let Some(parent) = media.parent_media_id {
-        require_tree_resource(db, tree_id, TreeResource::Media, parent).await?;
-    }
-    Ok(media)
-}
-
-/// Validate the complete document for both HTTP and GraphQL download requests.
-pub(crate) async fn archive_pages(
-    db: &impl sea_orm::ConnectionTrait,
-    tree_id: Uuid,
-    media_id: Uuid,
-) -> Result<(Media, Vec<Media>), OxidGeneError> {
-    let document = download_record(db, tree_id, media_id).await?;
-    let pages = MediaRepo::list_pages(db, media_id).await?;
-    if pages.is_empty() {
-        return Err(OxidGeneError::NotFound {
-            entity: "Media file",
-            id: media_id,
-        });
-    }
-    for page in &pages {
-        if page.tree_id != tree_id {
-            return Err(OxidGeneError::NotFound {
-                entity: "Media file",
-                id: media_id,
-            });
-        }
-        // A page we never received has no bytes to pack, but it does have the
-        // one thing we ever held about it. It travels as a shortcut instead.
-        if !oxidgene_core::types::is_remote_url(&page.file_path) {
-            stored_key(page, page.storage_key.as_deref())?;
-        }
-    }
-    Ok((document, pages))
 }
 
 /// The entry a remote page contributes to an archive: an Internet Shortcut.
@@ -982,22 +611,6 @@ async fn read_upload_form(mut multipart: Multipart) -> Result<UploadForm, ApiErr
     Ok(form)
 }
 
-/// The storage key of a record that has one, or a `404`-shaped error.
-///
-/// A media row with no key is a file we know the name of and not the content —
-/// every GEDCOM import produces those. Telling the client "not found" is
-/// accurate: there are no bytes to serve.
-pub(crate) fn stored_key<'a>(
-    media: &Media,
-    key: Option<&'a str>,
-) -> Result<&'a str, OxidGeneError> {
-    key.filter(|key| key.starts_with(&format!("{}/", media.tree_id)))
-        .ok_or(OxidGeneError::NotFound {
-            entity: "Media file",
-            id: media.id,
-        })
-}
-
 /// Serve stored bytes, honouring conditional requests.
 async fn serve(
     state: &AppState,
@@ -1098,7 +711,7 @@ pub async fn download_attachment(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
     let media = download_record(&state.db, tree_id, media_id).await?;
-    let key = stored_key(&media, media.storage_key.as_deref())?;
+    let key = stored_key(&media)?;
     let stream = state.media.get_stream(key).await?;
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, header_value(&media.mime_type));

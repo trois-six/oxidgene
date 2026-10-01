@@ -2240,17 +2240,6 @@ async fn write_media(
         metadata,
     } = media;
     let upload = UploadedMedia {
-        file_name: ingested.file_name,
-        mime_type: ingested.mime_type,
-        storage_key: ingested.storage_key,
-        sha256: ingested.sha256,
-        file_size: ingested.file_size,
-        thumbnail_key: ingested.thumbnail_key,
-        width: ingested.width,
-        height: ingested.height,
-        page_count: ingested.page_count,
-        title,
-        description: None,
         created_at,
         metadata: UploadedMediaMetadata {
             privacy,
@@ -2263,6 +2252,7 @@ async fn write_media(
             date_sort: metadata.date.sort,
             place_id: metadata.place_id,
         },
+        ..ingested.into_upload(title, None)
     };
 
     match MediaRepo::create_uploaded(db, Uuid::now_v7(), tree_id, Some(document_id), upload).await {

@@ -133,6 +133,32 @@ pub struct IngestedMedia {
     pub deduplicated: bool,
 }
 
+impl IngestedMedia {
+    /// The row recording these bytes, with the caller's title and
+    /// description, created now and with default metadata.
+    pub fn into_upload(
+        self,
+        title: Option<String>,
+        description: Option<String>,
+    ) -> oxidgene_db::repo::UploadedMedia {
+        oxidgene_db::repo::UploadedMedia {
+            file_name: self.file_name,
+            mime_type: self.mime_type,
+            storage_key: self.storage_key,
+            sha256: self.sha256,
+            file_size: self.file_size,
+            thumbnail_key: self.thumbnail_key,
+            width: self.width,
+            height: self.height,
+            page_count: self.page_count,
+            title,
+            description,
+            created_at: chrono::Utc::now(),
+            metadata: Default::default(),
+        }
+    }
+}
+
 /// Validate an uploaded file, store it, and derive its thumbnail and page count.
 ///
 /// Runs the CPU-bound derivations on a blocking thread. A failure to

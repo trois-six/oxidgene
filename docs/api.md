@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:50:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:04:47Z }
 ---
 
 
@@ -371,6 +371,17 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Permanently delete the media, its related rows and unshared stored objects. With `?only_if_unreferenced_elsewhere=true&allowed_link_id={link_id}`, keep it when any reference other than that gallery link remains (`204` deleted, `200` retained) |
 
 GraphQL mirrors the status endpoint with `canDeleteMedia(treeId:, id:, allowedLinkId:)`, returning the same eligibility boolean before `deleteMedia` is called.
+
+Every media write — a page, an upload, a metadata update, a tag, a page
+order, a deletion — runs in one transaction with its audit entry, so a
+failed audit record undoes the write. A write that changes what a person's
+card draws rewrites that person's projection in the same transaction: the
+persons linked to the document or any of its pages, and those whose chosen
+portrait is one of them or a crop of one. Deleting a media or a page, adding
+or reordering pages and updating the metadata all do; a stored file leaves
+the media store only once the deletion is committed. A `place_id` of another
+tree is `not_found`; a blank `file_name` on a new page is a
+`validation_error`.
 
 **Media library.** `GET .../media` lists documents only — a page is reached
 through its document — in creation order, the cursor being the last id seen.

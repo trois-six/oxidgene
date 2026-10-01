@@ -1,20 +1,26 @@
 //! GraphQL mutation root with all write operations.
+//!
+//! Every resolver is a thin adapter over a `service` function. Those whose
+//! futures are large are awaited through `Box::pin`: async-graphql resolves
+//! a field inside one future sized for the largest resolver, and with the
+//! media writes inlined it outgrew a test thread's 2 MiB stack.
 
 use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
+use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::{
-    duplicates, event, family, family_names, person, person_name, place, source, tree,
+    duplicates, event, family, family_names, media, person, person_name, place, source, tree,
 };
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
-use oxidgene_core::history::{AuditAction, AuditEntity};
+use oxidgene_core::history::AuditEntity;
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, MediaLinkRepo, MediaRepo, MediaTagRepo,
-    NewBackgroundJob, TreeRepo, UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
+    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, MediaLinkRepo, MediaRepo,
+    NewBackgroundJob, TreeRepo, VignetteInput, VignettePatch, VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -651,56 +657,29 @@ impl MutationRoot {
 
     // ── Media Mutations ──────────────────────────────────────────────
 
-    /// Upload media metadata (no actual file upload in MVP).
+    /// Add a page naming a file we do not hold — a URL, or a path a GEDCOM
+    /// mentioned — to a document. Mirrors `POST /trees/{treeId}/media`.
     async fn upload_media(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         input: UploadMediaInput,
     ) -> Result<GqlMedia> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = Uuid::now_v7();
-        // Normalised for the same reason as the REST twin: a MIME type the
-        // caller supplied is a claim, not evidence.
-        let mime_type = oxidgene_core::types::normalize_mime(
-            Some(&input.mime_type),
-            if input.file_path.is_empty() {
-                &input.file_name
-            } else {
-                &input.file_path
-            },
-        );
-        let document_id = uuid(&input.document_id)?;
-        require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
-        let media = MediaRepo::create(
-            db,
-            id,
-            tid,
-            Some(document_id),
-            input.file_name,
-            mime_type,
-            input.file_path,
-            input.file_size,
-            input.title,
-            input.description,
-        )
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let page = Box::pin(media::create_page(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            input.try_into()?,
+        ))
         .await?;
-        // `create` writes the row but does not count it: the document's
-        // `page_count` is maintained by whoever adds the page. The REST twin
-        // refreshes it here, and a page added over GraphQL is the same page.
-        MediaRepo::refresh_page_count(db, document_id).await?;
-        Change::create(tid, AuditEntity::MediaPage, id)
-            .media(document_id)
-            .record(db)
-            .await?;
-        Ok(media.into())
+        Ok(page.into())
     }
 
     /// Upload a file's bytes, base64-encoded.
     ///
-    /// Creates a media record, or fills in an existing one when `mediaId` is
-    /// given. Mirrors `POST /trees/{treeId}/media/upload`; see
+    /// Creates a page of `documentId`, or fills in an existing page when
+    /// `mediaId` is given. Mirrors `POST /trees/{treeId}/media/upload`; see
     /// [`UploadMediaFileInput`] for why the content is base64 rather than an
     /// `Upload` scalar.
     async fn upload_media_file(
@@ -709,62 +688,37 @@ impl MutationRoot {
         tree_id: ID,
         input: UploadMediaFileInput,
     ) -> Result<GqlMedia> {
-        use base64::Engine as _;
-
-        let db = db_from_ctx(ctx);
-        let store = media_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&input.content_base64)
-            .map_err(|e| async_graphql::Error::new(format!("contentBase64 is not base64: {e}")))?;
-
-        let ingested = crate::media::ingest(&**store, tid, &input.file_name, bytes).await?;
-        let upload = UploadedMedia {
-            file_name: ingested.file_name,
-            mime_type: ingested.mime_type,
-            storage_key: ingested.storage_key,
-            sha256: ingested.sha256,
-            file_size: ingested.file_size,
-            thumbnail_key: ingested.thumbnail_key,
-            width: ingested.width,
-            height: ingested.height,
-            page_count: ingested.page_count,
-            title: input.title,
-            description: input.description,
-            created_at: chrono::Utc::now(),
-            metadata: Default::default(),
-        };
-
-        let attached = input.media_id.is_some();
-        let media = match input.media_id {
-            Some(media_id) => {
-                let media_id = uuid(&media_id)?;
-                require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-                MediaRepo::attach_file(db, media_id, upload).await?
-            }
-            None => {
-                // Born attached: a page belongs to its document from the
-                // moment it lands.
-                let document_id = input
-                    .document_id
-                    .as_deref()
-                    .ok_or_else(|| async_graphql::Error::new("documentId is required"))
-                    .and_then(uuid)?;
-                require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
-                MediaRepo::create_uploaded(db, Uuid::now_v7(), tid, Some(document_id), upload)
-                    .await?
+            .map_err(|_| {
+                oxidgene_core::OxidGeneError::Validation("contentBase64 is not base64".into())
+            })?;
+        let target = match (opt_uuid(input.media_id)?, opt_uuid(input.document_id)?) {
+            (Some(media_id), _) => UploadTarget::Attach { media_id },
+            (None, Some(document_id)) => UploadTarget::NewPage { document_id },
+            (None, None) => {
+                return Err(oxidgene_core::OxidGeneError::Validation(
+                    "documentId is required".into(),
+                )
+                .into());
             }
         };
-        let change = if attached {
-            Change::update(tid, AuditEntity::Media, media.id)
-        } else {
-            Change::create(tid, AuditEntity::MediaPage, media.id)
-        };
-        change
-            .media(media.parent_media_id.unwrap_or(media.id))
-            .record(db)
-            .await?;
-        Ok(media.into())
+        let (page, _) = Box::pin(media::upload(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            &**media_from_ctx(ctx),
+            tree_id,
+            NewUpload {
+                file_name: input.file_name,
+                bytes,
+                title: input.title,
+                description: input.description,
+                target,
+            },
+        ))
+        .await?;
+        Ok(page.into())
     }
 
     /// Update media metadata.
@@ -775,42 +729,15 @@ impl MutationRoot {
         id: ID,
         input: UpdateMediaInput,
     ) -> Result<GqlMedia> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        require_tree_resource(db, tid, TreeResource::Media, id).await?;
-        let stored = MediaRepo::get(db, id).await?;
-
-        // Built as the REST request shape and handed to the REST patch
-        // builder, so the two surfaces cannot drift: the rules about which
-        // media may be repointed, and how `date_sort` is derived, live once.
-        let request = crate::rest::dto::UpdateMediaRequest {
-            title: patch(input.title),
-            description: patch(input.description),
-            date_value: patch(input.date_value),
-            date_value2: patch(input.date_value2),
-            date_qualifier: input.date_qualifier.map(Into::into),
-            calendar: input.calendar.map(Into::into),
-            place_id: patch_id(input.place_id)?,
-            file_path: input.file_path,
-            mime_type: input.mime_type,
-            width: input.width,
-            height: input.height,
-            privacy: input.privacy.map(Into::into),
-            source_media_type: input.source_media_type.map(Into::into),
-            document_category: match input.document_category {
-                MaybeUndefined::Undefined => None,
-                MaybeUndefined::Null => Some(None),
-                MaybeUndefined::Value(c) => Some(Some(c.into())),
-            },
-        };
-        let media_patch = crate::rest::media::media_patch(&stored, request)
-            .map_err(|e| async_graphql::Error::new(e.0.to_string()))?;
-        let media = MediaRepo::update(db, id, media_patch).await?;
-        Change::update(tid, AuditEntity::Media, id)
-            .media(id)
-            .record(db)
-            .await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let media = Box::pin(media::update_media(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+            input.try_into()?,
+        ))
+        .await?;
         Ok(media.into())
     }
 
@@ -822,20 +749,12 @@ impl MutationRoot {
         id: ID,
         tag: String,
     ) -> Result<GqlMedia> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let media_id = uuid(&id)?;
-        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-        let media = MediaRepo::get(db, media_id).await?;
-        let (tag, normalized_tag) = crate::service::media_library::normalize_tag(&tag)
-            .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
-        let target_id = media.parent_media_id.unwrap_or(media.id);
-        MediaTagRepo::create(db, target_id, tag, normalized_tag).await?;
-        Change::new(tid, AuditAction::Create, AuditEntity::MediaTag, None)
-            .media(target_id)
-            .record(db)
-            .await?;
-        Ok(MediaRepo::get(db, target_id).await?.into())
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(
+            Box::pin(media::add_tag(db_from_ctx(ctx), tree_id, uuid(&id)?, &tag))
+                .await?
+                .into(),
+        )
     }
 
     /// Atomically remove one tag without replacing the media's other tags.
@@ -846,19 +765,14 @@ impl MutationRoot {
         id: ID,
         tag: String,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let media_id = uuid(&id)?;
-        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-        let media = MediaRepo::get(db, media_id).await?;
-        let (_, normalized_tag) = crate::service::media_library::normalize_tag(&tag)
-            .ok_or_else(|| async_graphql::Error::new("tag must not be empty"))?;
-        let target_id = media.parent_media_id.unwrap_or(media.id);
-        MediaTagRepo::delete(db, target_id, &normalized_tag).await?;
-        Change::new(tid, AuditAction::Delete, AuditEntity::MediaTag, None)
-            .media(target_id)
-            .record(db)
-            .await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Box::pin(media::remove_tag(
+            db_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+            &tag,
+        ))
+        .await?;
         Ok(true)
     }
 
@@ -876,39 +790,26 @@ impl MutationRoot {
         #[graphql(default = false)] only_if_unreferenced_elsewhere: bool,
         allowed_link_id: Option<ID>,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        require_tree_resource(db, tid, TreeResource::Media, id).await?;
-        let allowed_link_id = if only_if_unreferenced_elsewhere {
-            let link_id = allowed_link_id.ok_or_else(|| {
-                async_graphql::Error::new(
-                    "allowedLinkId is required for conditional media deletion",
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let allowed_link_id = match (only_if_unreferenced_elsewhere, opt_uuid(allowed_link_id)?) {
+            (false, _) => None,
+            (true, Some(link_id)) => Some(link_id),
+            (true, None) => {
+                return Err(oxidgene_core::OxidGeneError::Validation(
+                    "allowedLinkId is required for conditional media deletion".into(),
                 )
-            })?;
-            let link_id = uuid(&link_id)?;
-            require_tree_resource(db, tid, TreeResource::MediaLink, link_id).await?;
-            Some(link_id)
-        } else {
-            None
+                .into());
+            }
         };
-        // Read before the purge removes the row the label comes from.
-        let label = MediaRepo::get(db, id).await?.display_label();
-        let deleted = crate::service::media::purge_media(
-            db,
-            media_from_ctx(ctx).as_ref(),
-            id,
+        Ok(Box::pin(media::delete_media(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            &**media_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
             allowed_link_id,
-        )
-        .await?;
-        if deleted {
-            Change::delete(tid, AuditEntity::Media, id)
-                .media(id)
-                .label(label)
-                .record(db)
-                .await?;
-        }
-        Ok(deleted)
+        ))
+        .await?)
     }
 
     /// Choose what represents a person: a whole media, a region of one, or
@@ -946,15 +847,12 @@ impl MutationRoot {
         tree_id: ID,
         title: Option<String>,
     ) -> Result<GqlMedia> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let media =
-            MediaRepo::create_document(db, Uuid::now_v7(), tid, title, chrono::Utc::now()).await?;
-        Change::create(tid, AuditEntity::Media, media.id)
-            .media(media.id)
-            .record(db)
-            .await?;
-        Ok(media.into())
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(
+            Box::pin(media::create_document(db_from_ctx(ctx), tree_id, title))
+                .await?
+                .into(),
+        )
     }
 
     /// Set a document's page order. The list must name exactly its pages.
@@ -965,19 +863,15 @@ impl MutationRoot {
         document_id: ID,
         page_ids: Vec<ID>,
     ) -> Result<Vec<GqlMedia>> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let document_id = uuid(&document_id)?;
-        require_tree_resource(db, tid, TreeResource::Media, document_id).await?;
-        let ids: Vec<Uuid> = uuids(&page_ids)?;
-        for page_id in &ids {
-            require_tree_resource(db, tid, TreeResource::Media, *page_id).await?;
-        }
-        let pages = MediaRepo::reorder_pages(db, document_id, &ids).await?;
-        Change::new(tid, AuditAction::Update, AuditEntity::MediaPage, None)
-            .media(document_id)
-            .record(db)
-            .await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let pages = Box::pin(media::reorder_pages(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&document_id)?,
+            &uuids(&page_ids)?,
+        ))
+        .await?;
         Ok(pages.into_iter().map(Into::into).collect())
     }
 
@@ -992,23 +886,16 @@ impl MutationRoot {
         document_id: ID,
         page_id: ID,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let store = media_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let document_id = uuid(&document_id)?;
-        let page_id = uuid(&page_id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Media, document_id).await?;
-        require_tree_resource(&txn, tid, TreeResource::Media, page_id).await?;
-        let purge = MediaRepo::delete_page(&txn, document_id, page_id).await?;
-        Change::delete(tid, AuditEntity::MediaPage, page_id)
-            .media(document_id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
-        for key in purge.storage_keys {
-            store.delete(&key).await?;
-        }
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Box::pin(media::delete_page(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            &**media_from_ctx(ctx),
+            tree_id,
+            uuid(&document_id)?,
+            uuid(&page_id)?,
+        ))
+        .await?;
         Ok(true)
     }
 

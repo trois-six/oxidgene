@@ -1098,8 +1098,8 @@ impl QueryRoot {
         let db = db_from_ctx(ctx);
         let tree_id = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        let media = crate::rest::media::download_record(db, tree_id, id).await?;
-        let key = crate::rest::media::stored_key(&media, media.storage_key.as_deref())?;
+        let media = crate::service::media::download_record(db, tree_id, id).await?;
+        let key = crate::service::media::stored_key(&media)?;
         // Open without collecting the body, preserving storage errors and bounded memory.
         let _stream = media_from_ctx(ctx).get_stream(key).await?;
         Ok(GqlMediaDownload {
@@ -1116,14 +1116,15 @@ impl QueryRoot {
     ) -> Result<GqlMediaDownload> {
         let tree_id = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
-        let (_, pages) = crate::rest::media::archive_pages(db_from_ctx(ctx), tree_id, id).await?;
+        let (_, pages) =
+            crate::service::media::archive_pages(db_from_ctx(ctx), tree_id, id).await?;
         for page in &pages {
             // A remote page contributes a shortcut, not bytes: there is no
             // stored file to check before promising the archive.
             if oxidgene_core::types::is_remote_url(&page.file_path) {
                 continue;
             }
-            let key = crate::rest::media::stored_key(page, page.storage_key.as_deref())?;
+            let key = crate::service::media::stored_key(page)?;
             let _stream = media_from_ctx(ctx).get_stream(key).await?;
         }
         Ok(GqlMediaDownload {
@@ -1140,13 +1141,14 @@ impl QueryRoot {
         id: ID,
         allowed_link_id: ID,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let media_id = uuid(&id)?;
-        let link_id = uuid(&allowed_link_id)?;
-        require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
-        require_tree_resource(db, tid, TreeResource::MediaLink, link_id).await?;
-        Ok(MediaRepo::can_purge_if_unreferenced_elsewhere(db, media_id, link_id).await?)
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(crate::service::media::can_delete_media(
+            db_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+            uuid(&allowed_link_id)?,
+        )
+        .await?)
     }
 
     /// Every media attached to one entity, with its link.

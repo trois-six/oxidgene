@@ -187,6 +187,33 @@ impl PersonRepo {
             })
     }
 
+    /// The live persons whose chosen portrait is one of `media_ids`, or a
+    /// crop of one of them.
+    pub async fn portrayed_by(
+        db: &impl ConnectionTrait,
+        media_ids: &[Uuid],
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        if media_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let crops: Vec<Uuid> = crate::repo::VignetteRepo::list_for_medias(db, media_ids)
+            .await?
+            .into_iter()
+            .map(|vignette| vignette.id)
+            .collect();
+        let models = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(Column::PortraitMediaId.is_in(media_ids.iter().copied()))
+                    .add(Column::PortraitVignetteId.is_in(crops)),
+            )
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(models.into_iter().map(|model| model.id).collect())
+    }
+
     /// Get a person only when it belongs to the requested tree.
     pub async fn get_in_tree(
         db: &impl ConnectionTrait,

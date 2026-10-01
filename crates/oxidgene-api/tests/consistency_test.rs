@@ -1016,3 +1016,186 @@ async fn a_single_note_is_readable_on_both_surfaces() {
     .await;
     assert!(data["note"].is_null(), "{data}");
 }
+
+// ── Media ───────────────────────────────────────────────────────────────
+
+/// A document of `tree_id` with one page naming a remote picture, linked to
+/// `person_id`; the document's id and the page's.
+async fn linked_document(app: &axum::Router, tree_id: &str, person_id: &str) -> (String, String) {
+    let document = common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media/document"),
+        Some(json!({ "title": "Portrait" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let page = common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media"),
+        Some(json!({
+            "document_id": document,
+            "file_name": "portrait.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": "https://example.org/portrait.jpg",
+            "file_size": 0
+        })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media-links"),
+        Some(json!({ "media_id": document, "person_id": person_id })),
+    )
+    .await;
+    (document, page)
+}
+
+/// The projection of `person_id`.
+async fn profile(app: &axum::Router, tree_id: &str, person_id: &str) -> serde_json::Value {
+    common::ok(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{person_id}"),
+        None,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn deleting_a_media_rewrites_the_cards_that_drew_it_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Album").await;
+    let rest_person = common::new_person(&app, &tree_id).await;
+    let gql_person = common::new_person(&app, &tree_id).await;
+    let (rest_document, _) = linked_document(&app, &tree_id, &rest_person).await;
+    let (gql_document, _) = linked_document(&app, &tree_id, &gql_person).await;
+    for person in [&rest_person, &gql_person] {
+        let card = profile(&app, &tree_id, person).await;
+        assert!(card["primary_media"].is_object(), "{card}");
+        assert_eq!(card["media_count"], 1);
+    }
+
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/media/{rest_document}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!, $m: ID!) { deleteMedia(treeId: $t, id: $m) }",
+        json!({ "t": tree_id, "m": gql_document }),
+    )
+    .await;
+
+    for person in [&rest_person, &gql_person] {
+        let card = profile(&app, &tree_id, person).await;
+        assert!(card["primary_media"].is_null(), "{card}");
+        assert_eq!(card["media_count"], 0, "{card}");
+    }
+}
+
+#[tokio::test]
+async fn deleting_the_page_a_card_drew_rewrites_the_card_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Pages").await;
+    let rest_person = common::new_person(&app, &tree_id).await;
+    let gql_person = common::new_person(&app, &tree_id).await;
+    let (rest_document, rest_page) = linked_document(&app, &tree_id, &rest_person).await;
+    let (gql_document, gql_page) = linked_document(&app, &tree_id, &gql_person).await;
+
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/media/{rest_document}/pages/{rest_page}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!, $d: ID!, $p: ID!) { deleteMediaPage(treeId: $t, documentId: $d, pageId: $p) }",
+        json!({ "t": tree_id, "d": gql_document, "p": gql_page }),
+    )
+    .await;
+
+    // The documents stand, linked and empty: nothing left to draw.
+    for person in [&rest_person, &gql_person] {
+        let card = profile(&app, &tree_id, person).await;
+        assert!(card["primary_media"].is_null(), "{card}");
+    }
+}
+
+#[tokio::test]
+async fn media_writes_validate_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Media").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let (document, page) = linked_document(&app, &tree_id, &person_id).await;
+    let foreign_place = new_place(&app, &other_tree, "Westford").await;
+
+    // A page needs a file name.
+    let (status, _) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/media"),
+        Some(json!({
+            "document_id": document,
+            "file_name": " ",
+            "mime_type": "image/jpeg",
+            "file_path": "https://example.org/x.jpg",
+            "file_size": 0
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let response = gql(
+        &app,
+        r#"mutation($t: ID!, $d: String!) {
+            uploadMedia(treeId: $t, input: {
+                documentId: $d, fileName: " ", mimeType: "image/jpeg",
+                filePath: "https://example.org/x.jpg", fileSize: 0
+            }) { id }
+        }"#,
+        json!({ "t": tree_id, "d": document }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+
+    // A place of another tree is not found, and the error is classified.
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/media/{page}"),
+        Some(json!({ "place_id": foreign_place })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = gql(
+        &app,
+        "mutation($t: ID!, $m: ID!, $p: String!) { updateMedia(treeId: $t, id: $m, input: { placeId: $p }) { id } }",
+        json!({ "t": tree_id, "m": page, "p": foreign_place }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+
+    // A stored-file rule refused by the service keeps its code over GraphQL.
+    let response = gql(
+        &app,
+        "mutation($t: ID!, $m: ID!) { updateMedia(treeId: $t, id: $m, input: { width: 10 }) { id } }",
+        json!({ "t": tree_id, "m": page }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+}

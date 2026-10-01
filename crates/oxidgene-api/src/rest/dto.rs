@@ -1,7 +1,7 @@
 //! Request/response DTOs for REST endpoints.
 
 use oxidgene_core::types::{Place, Source};
-use oxidgene_core::{Calendar, DateQualifier, EventType};
+use oxidgene_core::{DateQualifier, EventType};
 use serde::{Deserialize, Serialize};
 
 use crate::service::patch::double_option;
@@ -233,76 +233,6 @@ pub struct CitationListQuery {
 }
 
 // ── Media DTOs ──────────────────────────────────────────────────────
-
-/// Request body for creating a media record (metadata only).
-#[derive(Debug, Deserialize)]
-pub struct CreateMediaRequest {
-    /// The document this becomes a page of.
-    ///
-    /// Required: bytes and URLs live on pages, and a page always belongs to a
-    /// document. Create the document first with `POST /media/document`.
-    pub document_id: uuid::Uuid,
-    pub file_name: String,
-    pub mime_type: String,
-    pub file_path: String,
-    pub file_size: i64,
-    pub title: Option<String>,
-    pub description: Option<String>,
-}
-
-/// Request body for updating media metadata.
-///
-/// A media carries the same descriptive fields a fact does — a date with its
-/// qualifier and calendar, a place, a description — because "a photograph taken
-/// around 1890 at Nantes" is the same kind of statement as an event. There is
-/// deliberately **no source field**: a media *is* a source document, and asking
-/// which source backs a scan of a parish register asks it to cite itself.
-///
-/// `date_sort` is absent on purpose: the server derives it from `calendar` +
-/// `date_value`, exactly as it does for an event.
-#[derive(Debug, Deserialize)]
-pub struct UpdateMediaRequest {
-    #[serde(default, deserialize_with = "double_option")]
-    pub title: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub description: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub date_value: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub date_value2: Option<Option<String>>,
-    pub date_qualifier: Option<DateQualifier>,
-    pub calendar: Option<Calendar>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub place_id: Option<Option<uuid::Uuid>>,
-    /// Where the file is. For a remote media this is the URL, and editing it is
-    /// how a broken link gets fixed. Ignored for a media whose bytes we hold —
-    /// there `file_path` is the GEDCOM value an export writes back, and
-    /// repointing it would make the export lie about a file we are serving.
-    pub file_path: Option<String>,
-    /// Only meaningful alongside a `file_path` we cannot sniff. Left out, the
-    /// server guesses from the URL's extension.
-    pub mime_type: Option<String>,
-    /// The picture's pixel size, sent together or not at all.
-    ///
-    /// Accepted only for a page we do not hold. We never fetch a remote file,
-    /// so the client that displayed it is the only witness to how big it is —
-    /// and without that, a region of it cannot be drawn at the right scale.
-    /// For a file we do hold, the size is decoded from our own bytes and a
-    /// caller's claim about it is refused rather than believed.
-    pub width: Option<i32>,
-    pub height: Option<i32>,
-    /// Whether this is shown when the tree is published. Recorded now,
-    /// enforced when authentication lands.
-    pub privacy: Option<oxidgene_core::enums::Privacy>,
-    /// What the medium physically is, in GEDCOM's own vocabulary.
-    pub source_media_type: Option<oxidgene_core::enums::SourceMediaType>,
-    /// What kind of record it is. Clearing it is meaningful — a scan can stop
-    /// being classified — so this distinguishes "absent" from "set to null".
-    /// Setting it without a `source_media_type` also sets the medium it
-    /// implies, so a census return does not export as `OTHER`.
-    #[serde(default, deserialize_with = "double_option")]
-    pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
-}
 
 /// One free-form tag to attach to or remove from a media item.
 #[derive(Debug, Deserialize)]
