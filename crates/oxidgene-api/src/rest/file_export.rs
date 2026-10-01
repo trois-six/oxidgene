@@ -72,8 +72,10 @@ pub async fn status(
         .map(serde_json::from_str::<ExportResult>)
         .transpose()
         .map_err(|error| ApiError(OxidGeneError::Internal(error.to_string())))?;
-    let download_url = (job.status == BackgroundJobStatus::Completed.as_str())
-        .then(|| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
+    // A downloaded or expired artifact is gone, and so is its link.
+    let download_url = (job.status == BackgroundJobStatus::Completed.as_str()
+        && job.artifact_key.is_some())
+    .then(|| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
     Ok(Json(ExportJobStatusResponse {
         phase: job.phase,
         done: as_usize(job.done),
@@ -95,11 +97,19 @@ pub async fn download(
             "export artifact is not ready".into(),
         )));
     }
-    let artifact_key = job
-        .artifact_key
-        .as_deref()
-        .ok_or_else(|| ApiError(OxidGeneError::Internal("export artifact is missing".into())))?;
-    let stream = state.media.get_stream(artifact_key).await?;
+    // Released by its first complete download, or expired.
+    let artifact_key = job.artifact_key.ok_or(ApiError(OxidGeneError::NotFound {
+        entity: "ExportArtifact",
+        id: job_id,
+    }))?;
+    let stream = state.media.get_stream(&artifact_key).await?;
+    let stream = crate::service::background_job::release_when_read(
+        stream,
+        state.db.clone(),
+        std::sync::Arc::clone(&state.media),
+        job_id,
+        artifact_key,
+    );
     Ok((
         [
             (header::CONTENT_TYPE, "application/zip"),

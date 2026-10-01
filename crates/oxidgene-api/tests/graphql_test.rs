@@ -3203,14 +3203,10 @@ async fn test_graphql_export_gedzip() {
     );
     assert!(worker.run_once().await.unwrap());
 
-    let response = graphql(
-        app,
-        &format!(
-            r#"{{ exportJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase downloadUrl warnings error }} }}"#
-        ),
-        None,
-    )
-    .await;
+    let status_query = format!(
+        r#"{{ exportJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase downloadUrl warnings error }} }}"#
+    );
+    let response = graphql(app.clone(), &status_query, None).await;
     let result = &data(&response)["exportJobStatus"];
     assert_eq!(result["phase"], "completed");
     assert_eq!(
@@ -3219,6 +3215,15 @@ async fn test_graphql_export_gedzip() {
     );
     assert!(result["warnings"].as_array().unwrap().is_empty());
     assert!(result["error"].is_null());
+
+    // Once the artifact has expired, the status offers no download, as REST.
+    worker
+        .maintain(chrono::Utc::now() + chrono::Duration::hours(2))
+        .await;
+    let response = graphql(app, &status_query, None).await;
+    let result = &data(&response)["exportJobStatus"];
+    assert_eq!(result["phase"], "completed");
+    assert!(result["downloadUrl"].is_null());
 }
 
 #[tokio::test]

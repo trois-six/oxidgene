@@ -1415,8 +1415,10 @@ impl QueryRoot {
             .and_then(|result| result.get("warnings").cloned())
             .and_then(|warnings| serde_json::from_value(warnings).ok())
             .unwrap_or_default();
-        let download_url = (job.status == BackgroundJobStatus::Completed.as_str())
-            .then(|| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
+        // A downloaded or expired artifact is gone, and so is its link.
+        let download_url = (job.status == BackgroundJobStatus::Completed.as_str()
+            && job.artifact_key.is_some())
+        .then(|| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
         Ok(GqlExportJobStatus {
             phase: job.phase,
             done: job.done,

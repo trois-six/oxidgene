@@ -262,6 +262,120 @@ async fn background_jobs_are_exclusive_and_expired_leases_are_reclaimed() {
     );
 }
 
+/// A job that ends drops its inputs' payload; once ended long enough it can
+/// be pruned, and an export's artifact found for expiry and forgotten.
+#[tokio::test]
+async fn ended_jobs_drop_their_payload_and_can_be_pruned() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let job = |id, kind| NewBackgroundJob {
+        id,
+        tree_id,
+        kind,
+        format: "geneanet".into(),
+        source_key: None,
+        payload_json: Some(r#"{"collection":"fixture"}"#.into()),
+        original_filename: None,
+        merge_occupations: false,
+        merge_names: false,
+    };
+    let (import, export) = (Uuid::now_v7(), Uuid::now_v7());
+
+    BackgroundJobRepo::create(&db, job(import, BackgroundJobKind::Import))
+        .await
+        .unwrap();
+    BackgroundJobRepo::claim_next(&db, "worker", chrono::Duration::minutes(5))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        BackgroundJobRepo::fail(&db, import, "worker", "job_failed")
+            .await
+            .unwrap()
+    );
+    let failed = BackgroundJobRepo::get_in_tree(&db, tree_id, import)
+        .await
+        .unwrap();
+    assert_eq!(failed.payload_json, None);
+
+    BackgroundJobRepo::create(&db, job(export, BackgroundJobKind::Export))
+        .await
+        .unwrap();
+    BackgroundJobRepo::claim_next(&db, "worker", chrono::Duration::minutes(5))
+        .await
+        .unwrap()
+        .unwrap();
+    let key = format!("jobs/{export}/artifact.gdz");
+    assert!(
+        BackgroundJobRepo::complete(&db, export, "worker", Some(key.clone()), None)
+            .await
+            .unwrap()
+    );
+    let completed = BackgroundJobRepo::get_in_tree(&db, tree_id, export)
+        .await
+        .unwrap();
+    assert_eq!(completed.payload_json, None);
+
+    let later = chrono::Utc::now() + chrono::Duration::minutes(1);
+    let earlier = chrono::Utc::now() - chrono::Duration::minutes(1);
+    assert_eq!(
+        BackgroundJobRepo::artifacts_finished_before(&db, later)
+            .await
+            .unwrap(),
+        vec![(export, key.clone())]
+    );
+    assert!(
+        BackgroundJobRepo::artifacts_finished_before(&db, earlier)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        BackgroundJobRepo::holding_objects(&db, &[import, export])
+            .await
+            .unwrap(),
+        std::collections::HashSet::from([export])
+    );
+    assert!(
+        BackgroundJobRepo::clear_artifact(&db, export, &key)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !BackgroundJobRepo::clear_artifact(&db, export, &key)
+            .await
+            .unwrap()
+    );
+    assert!(
+        BackgroundJobRepo::holding_objects(&db, &[import, export])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    assert!(
+        BackgroundJobRepo::ended_before(&db, earlier)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let mut ended = BackgroundJobRepo::ended_before(&db, later).await.unwrap();
+    ended.sort();
+    let mut both = vec![import, export];
+    both.sort();
+    assert_eq!(ended, both);
+    assert_eq!(
+        BackgroundJobRepo::delete_ended(&db, &ended).await.unwrap(),
+        2
+    );
+    assert!(
+        BackgroundJobRepo::ids_in_tree(&db, tree_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
 #[tokio::test]
 async fn requeue_running_preserves_the_import_checkpoint() {
     let db = setup_db().await;

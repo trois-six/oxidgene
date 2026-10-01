@@ -1,5 +1,7 @@
 //! Durable queue operations for import and export workers.
 
+use std::collections::HashSet;
+
 use chrono::{Duration, Utc};
 use oxidgene_core::OxidGeneError;
 use sea_orm::entity::prelude::*;
@@ -11,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::entities::background_job::{self, Column, Entity};
+use crate::repo::batch::{MAX_BOUND_IDS, in_chunks};
 use crate::repo::db_err;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -311,6 +314,9 @@ impl BackgroundJobRepo {
             .col_expr(Column::Status, Expr::value(status.as_str()))
             .col_expr(Column::Phase, Expr::value(phase))
             .col_expr(Column::ArtifactKey, Expr::value(artifact_key))
+            // Nothing reads a job's inputs once it has ended, and a Geneanet
+            // import's are megabytes of the account's collection.
+            .col_expr(Column::PayloadJson, Expr::value(Option::<String>::None))
             .col_expr(Column::ResultJson, Expr::value(result_json))
             .col_expr(Column::ErrorCode, Expr::value(error_code))
             .col_expr(Column::LeaseOwner, Expr::value(Option::<String>::None))
@@ -324,6 +330,127 @@ impl BackgroundJobRepo {
             .await
             .map_err(db_err)?;
         Ok(result.rows_affected == 1)
+    }
+}
+
+/// The statuses of a job that has ended.
+const TERMINAL: [BackgroundJobStatus; 3] = [
+    BackgroundJobStatus::Completed,
+    BackgroundJobStatus::Failed,
+    BackgroundJobStatus::Cancelled,
+];
+
+impl BackgroundJobRepo {
+    /// The ids of a tree's jobs, whatever their state.
+    pub async fn ids_in_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::TreeId.eq(tree_id))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)
+    }
+
+    /// The completed exports that finished before `cutoff` and still record
+    /// an artifact, with its key.
+    pub async fn artifacts_finished_before(
+        db: &impl ConnectionTrait,
+        cutoff: DateTimeUtc,
+    ) -> Result<Vec<(Uuid, String)>, OxidGeneError> {
+        Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::ArtifactKey])
+            .filter(Column::Kind.eq(BackgroundJobKind::Export.as_str()))
+            .filter(Column::Status.eq(BackgroundJobStatus::Completed.as_str()))
+            .filter(Column::ArtifactKey.is_not_null())
+            .filter(Column::FinishedAt.lt(cutoff))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)
+    }
+
+    /// Forget job `id`'s artifact once its object is gone. `false` when the
+    /// job no longer records `key`.
+    pub async fn clear_artifact(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        key: &str,
+    ) -> Result<bool, OxidGeneError> {
+        let result = Entity::update_many()
+            .col_expr(Column::ArtifactKey, Expr::value(Option::<String>::None))
+            .col_expr(Column::UpdatedAt, Expr::value(Utc::now()))
+            .filter(Column::Id.eq(id))
+            .filter(Column::ArtifactKey.eq(key))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        Ok(result.rows_affected == 1)
+    }
+
+    /// The jobs that ended before `cutoff`.
+    pub async fn ended_before(
+        db: &impl ConnectionTrait,
+        cutoff: DateTimeUtc,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::Status.is_in(TERMINAL.map(BackgroundJobStatus::as_str)))
+            .filter(Column::FinishedAt.lt(cutoff))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)
+    }
+
+    /// Delete the ended jobs among `ids`; a job that has not ended is kept.
+    pub async fn delete_ended(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<u64, OxidGeneError> {
+        let mut deleted = 0;
+        for chunk in ids.chunks(MAX_BOUND_IDS) {
+            deleted += Entity::delete_many()
+                .filter(Column::Id.is_in(chunk.iter().copied()))
+                .filter(Column::Status.is_in(TERMINAL.map(BackgroundJobStatus::as_str)))
+                .exec(db)
+                .await
+                .map_err(db_err)?
+                .rows_affected;
+        }
+        Ok(deleted)
+    }
+
+    /// Of `ids`, the jobs whose stored objects are still needed: those not
+    /// ended yet, which will read their inputs, and those holding an
+    /// artifact still to be downloaded.
+    pub async fn holding_objects(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<HashSet<Uuid>, OxidGeneError> {
+        let held = in_chunks(ids, |chunk| async move {
+            Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .filter(Column::Id.is_in(chunk))
+                .filter(
+                    Condition::any()
+                        .add(Column::Status.is_not_in(TERMINAL.map(BackgroundJobStatus::as_str)))
+                        .add(Column::ArtifactKey.is_not_null()),
+                )
+                .into_tuple::<Uuid>()
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
+        Ok(held.into_iter().collect())
     }
 }
 

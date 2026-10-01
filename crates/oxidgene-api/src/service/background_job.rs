@@ -23,6 +23,24 @@ use crate::profile::ProfileService;
 pub const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(30);
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+/// How long a completed export's artifact waits for its download. A
+/// download removes it at once; this bounds the ones never downloaded — the
+/// UI downloads as soon as the job completes, so only an export whose window
+/// was closed meanwhile waits this long.
+pub const EXPORT_ARTIFACT_TTL: Duration = Duration::from_secs(60 * 60);
+
+/// How long an ended job's row stays, with the result its status reports.
+pub const ENDED_JOB_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// How old an entry under `jobs/` that no job needs must be before it is
+/// swept: a job's inputs are stored before its row is created, and staging a
+/// Geneanet import's archives can take a while.
+const ORPHAN_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// How often a worker expires artifacts, prunes ended jobs and sweeps
+/// orphaned job objects; it also does so when it starts.
+const MAINTENANCE_PERIOD: Duration = Duration::from_secs(60 * 60);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LiveJobProgress {
     pub phase: String,
@@ -202,7 +220,12 @@ impl BackgroundJobWorker {
 
     /// Run until the process is shut down.
     pub async fn run(self) {
+        let mut next_maintenance = tokio::time::Instant::now();
         loop {
+            if tokio::time::Instant::now() >= next_maintenance {
+                self.maintain(chrono::Utc::now()).await;
+                next_maintenance = tokio::time::Instant::now() + MAINTENANCE_PERIOD;
+            }
             match self.run_once().await {
                 Ok(true) => {}
                 Ok(false) => tokio::time::sleep(self.poll_interval).await,
@@ -215,6 +238,28 @@ impl BackgroundJobWorker {
                 }
             }
         }
+    }
+
+    /// Bound what ended jobs leave behind, as of `now`: delete the
+    /// artifacts of exports completed more than [`EXPORT_ARTIFACT_TTL`] ago,
+    /// the rows (and any objects) of jobs ended more than
+    /// [`ENDED_JOB_RETENTION`] ago, and the objects under `jobs/` that no job
+    /// needs any more, once older than a day. Failures are logged; the next
+    /// pass retries.
+    pub async fn maintain(&self, now: chrono::DateTime<chrono::Utc>) {
+        let media = &*self.media;
+        log_maintenance_failure(
+            "export_artifact_expiry",
+            expire_artifacts(&self.db, media, now).await,
+        );
+        log_maintenance_failure(
+            "ended_job_pruning",
+            prune_ended_jobs(&self.db, media, now).await,
+        );
+        log_maintenance_failure(
+            "job_object_sweep",
+            sweep_orphaned_job_objects(&self.db, media, now).await,
+        );
     }
 
     #[tracing::instrument(
@@ -703,6 +748,136 @@ impl BackgroundJobWorker {
 
 fn progress_period(poll_interval: Duration, lease_duration: Duration) -> Duration {
     poll_interval.min(lease_duration / 3)
+}
+
+/// Log a failed maintenance pass under `code`; it is retried by the next.
+fn log_maintenance_failure(code: &'static str, result: Result<(), OxidGeneError>) {
+    if result.is_err() {
+        tracing::warn!(
+            error = code,
+            "background job maintenance failed; the next pass retries"
+        );
+    }
+}
+
+/// `now` less `age`.
+fn before(now: chrono::DateTime<chrono::Utc>, age: Duration) -> chrono::DateTime<chrono::Utc> {
+    now - chrono::Duration::from_std(age).unwrap_or(chrono::TimeDelta::MAX)
+}
+
+/// Delete the artifacts of the exports completed before `now` less
+/// [`EXPORT_ARTIFACT_TTL`].
+async fn expire_artifacts(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), OxidGeneError> {
+    let cutoff = before(now, EXPORT_ARTIFACT_TTL);
+    for (job_id, key) in BackgroundJobRepo::artifacts_finished_before(db, cutoff).await? {
+        release_export_artifact(db, media, job_id, &key).await?;
+    }
+    Ok(())
+}
+
+/// Delete the rows and the objects of the jobs ended before `now` less
+/// [`ENDED_JOB_RETENTION`]. Objects first, so that an interrupted pass
+/// leaves rows to find again rather than objects nothing points at.
+async fn prune_ended_jobs(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), OxidGeneError> {
+    let ended = BackgroundJobRepo::ended_before(db, before(now, ENDED_JOB_RETENTION)).await?;
+    for job_id in &ended {
+        media.delete_job(*job_id).await?;
+    }
+    BackgroundJobRepo::delete_ended(db, &ended).await?;
+    Ok(())
+}
+
+/// Delete the objects under `jobs/` that no job needs — its row gone, or
+/// ended without an artifact to download — once they are older than
+/// [`ORPHAN_GRACE`], measured by the job id's own time stamp. A crash
+/// between storing a job's inputs and creating its row, or between ending
+/// it and removing them, leaves such objects.
+async fn sweep_orphaned_job_objects(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), OxidGeneError> {
+    let cutoff = before(now, ORPHAN_GRACE);
+    let old: Vec<Uuid> = media
+        .job_ids()
+        .await?
+        .into_iter()
+        .filter(|job_id| created_before(*job_id, cutoff))
+        .collect();
+    let needed = BackgroundJobRepo::holding_objects(db, &old).await?;
+    for job_id in old.into_iter().filter(|job_id| !needed.contains(job_id)) {
+        media.delete_job(job_id).await?;
+    }
+    Ok(())
+}
+
+/// Whether the UUID v7 `id` was minted before `cutoff`; an id without a
+/// time stamp never is.
+fn created_before(id: Uuid, cutoff: chrono::DateTime<chrono::Utc>) -> bool {
+    id.get_timestamp()
+        .and_then(|stamp| {
+            let (seconds, nanos) = stamp.to_unix();
+            chrono::DateTime::from_timestamp(i64::try_from(seconds).ok()?, nanos)
+        })
+        .is_some_and(|minted| minted < cutoff)
+}
+
+/// Delete export `job_id`'s artifact `key`: forget it first, so that no
+/// status offers a download of a deleted file, then remove the job's objects.
+/// A crash in between leaves objects the orphan sweep removes.
+pub(crate) async fn release_export_artifact(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    job_id: Uuid,
+    key: &str,
+) -> Result<(), OxidGeneError> {
+    if BackgroundJobRepo::clear_artifact(db, job_id, key).await? {
+        media.delete_job(job_id).await?;
+    }
+    Ok(())
+}
+
+/// `stream`, the artifact `key` of export `job_id`, deleting the artifact
+/// once the stream has been read to its end.
+///
+/// An export is downloaded once, as soon as it completes, and left in store
+/// it is a full copy of the tree and its media. Only a download read to the
+/// end releases it: a broken one leaves the artifact for a retry, until
+/// [`EXPORT_ARTIFACT_TTL`]. The deletion runs on its own task so that the
+/// response's last chunk never waits for the database.
+pub(crate) fn release_when_read(
+    stream: crate::media::store::BlobStream,
+    db: DatabaseConnection,
+    media: Arc<dyn MediaStore>,
+    job_id: Uuid,
+    key: String,
+) -> crate::media::store::BlobStream {
+    use futures_util::StreamExt as _;
+
+    let on_end = futures_util::stream::once(async move {
+        tokio::spawn(async move {
+            if release_export_artifact(&db, &*media, job_id, &key)
+                .await
+                .is_err()
+            {
+                tracing::warn!(
+                    error = "export_artifact_release",
+                    "could not delete a downloaded export; it expires later"
+                );
+            }
+        });
+        None
+    })
+    .filter_map(std::future::ready);
+    Box::pin(stream.chain(on_end))
 }
 
 #[cfg(test)]

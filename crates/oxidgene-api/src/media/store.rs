@@ -94,6 +94,13 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
 
     /// Remove everything stored for `tree_id`. Used by the purge worker.
     async fn delete_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError>;
+
+    /// Remove everything stored for job `job_id` — its inputs and its
+    /// artifact, under `jobs/{job_id}/`. Removing nothing is not an error.
+    async fn delete_job(&self, job_id: Uuid) -> Result<(), OxidGeneError>;
+
+    /// The jobs that have anything stored under `jobs/`.
+    async fn job_ids(&self) -> Result<Vec<Uuid>, OxidGeneError>;
 }
 
 /// Lowercase hex SHA-256 of `bytes`.
@@ -383,12 +390,40 @@ impl MediaStore for FsStore {
     }
 
     async fn delete_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        let path = self.root.join(tree_id.to_string());
-        match tokio::fs::remove_dir_all(&path).await {
-            Ok(()) => Ok(()),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(err) => Err(err.into()),
+        remove_dir(&self.root.join(tree_id.to_string())).await
+    }
+
+    async fn delete_job(&self, job_id: Uuid) -> Result<(), OxidGeneError> {
+        remove_dir(&self.root.join("jobs").join(job_id.to_string())).await
+    }
+
+    async fn job_ids(&self) -> Result<Vec<Uuid>, OxidGeneError> {
+        let mut entries = match tokio::fs::read_dir(self.root.join("jobs")).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err.into()),
+        };
+        let mut ids = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            if let Some(id) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse().ok())
+            {
+                ids.push(id);
+            }
         }
+        Ok(ids)
+    }
+}
+
+/// Remove the directory at `path` and everything in it; a missing one is
+/// already removed.
+async fn remove_dir(path: &Path) -> Result<(), OxidGeneError> {
+    match tokio::fs::remove_dir_all(path).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -586,17 +621,48 @@ impl MediaStore for S3Store {
     }
 
     async fn delete_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        let prefix = object_store::path::Path::from(tree_id.to_string());
+        self.delete_prefix(&object_store::path::Path::from(tree_id.to_string()))
+            .await
+            .map_err(|_| s3_error("tree delete"))
+    }
+
+    async fn delete_job(&self, job_id: Uuid) -> Result<(), OxidGeneError> {
+        let prefix = object_store::path::Path::from_iter(["jobs".to_string(), job_id.to_string()]);
+        self.delete_prefix(&prefix)
+            .await
+            .map_err(|_| s3_error("job delete"))
+    }
+
+    async fn job_ids(&self) -> Result<Vec<Uuid>, OxidGeneError> {
+        let listing = self
+            .store
+            .list_with_delimiter(Some(&object_store::path::Path::from("jobs")))
+            .await
+            .map_err(|_| s3_error("job listing"))?;
+        Ok(listing
+            .common_prefixes
+            .iter()
+            .filter_map(|prefix| prefix.filename()?.parse().ok())
+            .collect())
+    }
+}
+
+#[cfg(feature = "s3")]
+impl S3Store {
+    /// Delete every object under `prefix`.
+    async fn delete_prefix(
+        &self,
+        prefix: &object_store::path::Path,
+    ) -> Result<(), object_store::Error> {
         let locations = self
             .store
-            .list(Some(&prefix))
+            .list(Some(prefix))
             .map_ok(|object| object.location)
             .boxed();
         self.store
             .delete_stream(locations)
             .try_collect::<Vec<_>>()
-            .await
-            .map_err(|_| s3_error("tree delete"))?;
+            .await?;
         Ok(())
     }
 }

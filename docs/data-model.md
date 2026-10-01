@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:53:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:13:07Z }
 ---
 
 
@@ -694,6 +694,14 @@ process after the originating request has completed. Its nullable
 the job is created. They contain no user or genealogical data and do not affect
 job execution when absent. A worker restores them only as the parent of its
 consumer span; retries retain the original context.
+
+A job's `payload_json` is cleared when it ends; its `result_json` stays for
+the status poll. Workers delete the rows of jobs ended more than a day ago,
+and an export's `artifact_key` is cleared when its artifact is deleted —
+after a complete download, or an hour after completion (see
+[Architecture §6](architecture.md)). `cancel_requested` and the `cancelled`
+status are part of the schema but nothing sets them yet: no API cancels a
+job.
 
 Read models are durable database data, not a cache tier. They are derived from
 the normalized entities above, refreshed with mutations, and rebuilt when

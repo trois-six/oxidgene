@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use oxidgene_db::repo::TreeRepo;
+use oxidgene_db::repo::{BackgroundJobRepo, TreeRepo};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -134,6 +134,15 @@ async fn purge_steps(
             "could not remove media files; retrying at next start",
         )
     })?;
+    // Job objects live under `jobs/`, outside the tree's prefix: an export
+    // artifact is a full copy of the tree. The job rows cascade with the
+    // tree, so this is the last moment anything points at them.
+    delete_job_objects(db, media, tree_id).await.map_err(|_| {
+        (
+            "job_object_deletion",
+            "could not remove the tree's job files; retrying at next start",
+        )
+    })?;
 
     TreeRepo::purge(db, tree_id)
         .await
@@ -142,5 +151,17 @@ async fn purge_steps(
         elapsed_ms = started.elapsed().as_millis(),
         "purged soft-deleted tree"
     );
+    Ok(())
+}
+
+/// Remove the stored inputs and artifacts of every job of `tree_id`.
+async fn delete_job_objects(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+) -> Result<(), oxidgene_core::OxidGeneError> {
+    for job_id in BackgroundJobRepo::ids_in_tree(db, tree_id).await? {
+        media.delete_job(job_id).await?;
+    }
     Ok(())
 }

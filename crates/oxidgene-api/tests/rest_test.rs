@@ -3150,10 +3150,11 @@ async fn test_geneanet_import_resumes_from_projection_checkpoint() {
 #[tokio::test]
 async fn test_async_export_job_downloads_the_completed_archive() {
     let db = setup_db().await;
-    let state = AppState::new(
-        db,
-        std::env::temp_dir().join("oxidgene-test-async-export-media"),
-    );
+    let media_root = std::env::temp_dir().join(format!(
+        "oxidgene-test-async-export-{}",
+        uuid::Uuid::now_v7()
+    ));
+    let state = AppState::new(db, &media_root);
     let worker = BackgroundJobWorker::new(
         state.db.clone(),
         std::sync::Arc::clone(&state.profiles),
@@ -3185,7 +3186,11 @@ async fn test_async_export_job_downloads_the_completed_archive() {
     assert_eq!(completed["phase"], "completed");
     let download_url = completed["download_url"].as_str().expect("download URL");
 
+    let artifact = media_root.join("jobs").join(job_id);
+    assert!(artifact.exists());
+
     let response = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri(download_url)
@@ -3201,6 +3206,134 @@ async fn test_async_export_job_downloads_the_completed_archive() {
     );
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     assert!(bytes.starts_with(b"PK"));
+
+    // Read to its end, the download releases the artifact: a full copy of
+    // the tree does not stay in store once it has been handed over.
+    let status_uri = format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}");
+    let released = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let (_, status) = send(&app, Method::GET, &status_uri, None).await;
+            if status["download_url"].is_null() && !artifact.exists() {
+                break status;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the downloaded artifact is released");
+    assert_eq!(released["phase"], "completed");
+    let (status, _) = send(&app, Method::GET, download_url, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let _ = std::fs::remove_dir_all(&media_root);
+}
+
+/// What ended jobs leave behind is bounded: an export never downloaded
+/// loses its artifact after an hour, an ended job its row after a day, and
+/// objects under `jobs/` that no job needs go once a day old.
+#[tokio::test]
+async fn job_maintenance_bounds_what_ended_jobs_leave_behind() {
+    let db = setup_db().await;
+    let media_root = std::env::temp_dir().join(format!(
+        "oxidgene-test-job-maintenance-{}",
+        uuid::Uuid::now_v7()
+    ));
+    let state = AppState::new(db, &media_root);
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-test-maintenance-worker",
+    );
+    let app = build_router(state.clone());
+    let tree_id = create_tree_via_api(&app).await;
+    let (_, started) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs"),
+        None,
+    )
+    .await;
+    let job_id = started["job_id"].as_str().expect("job id").to_string();
+    assert!(worker.run_once().await.expect("run export job"));
+    let artifact = media_root.join("jobs").join(&job_id);
+    assert!(artifact.exists());
+
+    // An object no job row points at: inputs stored by a crashed request.
+    let orphan = uuid::Uuid::now_v7();
+    let input = media_root.join("orphan-input");
+    std::fs::write(&input, b"fixture").unwrap();
+    state
+        .media
+        .put_file(&format!("jobs/{orphan}/source.ged"), &input)
+        .await
+        .unwrap();
+
+    let now = chrono::Utc::now();
+    worker.maintain(now).await;
+    assert!(artifact.exists(), "a fresh artifact waits for its download");
+    assert!(media_root.join("jobs").join(orphan.to_string()).exists());
+
+    worker.maintain(now + chrono::Duration::hours(2)).await;
+    assert!(!artifact.exists(), "an undownloaded artifact expires");
+    let status_uri = format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}");
+    let (status, body) = send(&app, Method::GET, &status_uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["download_url"].is_null());
+    assert!(media_root.join("jobs").join(orphan.to_string()).exists());
+
+    worker.maintain(now + chrono::Duration::hours(25)).await;
+    let (status, _) = send(&app, Method::GET, &status_uri, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "an ended job is pruned");
+    assert!(!media_root.join("jobs").join(orphan.to_string()).exists());
+    let _ = std::fs::remove_dir_all(&media_root);
+}
+
+/// Deleting a tree deletes its export artifacts, which live outside the
+/// tree's own media prefix.
+#[tokio::test]
+async fn deleting_a_tree_deletes_its_export_artifacts() {
+    let db = setup_db().await;
+    let media_root = std::env::temp_dir().join(format!(
+        "oxidgene-test-export-purge-{}",
+        uuid::Uuid::now_v7()
+    ));
+    let state = AppState::new(db, &media_root);
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-test-export-purge-worker",
+    );
+    let app = build_router(state);
+    let tree_id = create_tree_via_api(&app).await;
+    let (_, started) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs"),
+        None,
+    )
+    .await;
+    let job_id = started["job_id"].as_str().expect("job id").to_string();
+    assert!(worker.run_once().await.expect("run export job"));
+    let artifact = media_root.join("jobs").join(&job_id);
+    assert!(artifact.exists());
+
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while artifact.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the purge deletes the tree's export artifact");
+    let _ = std::fs::remove_dir_all(&media_root);
 }
 
 #[tokio::test]

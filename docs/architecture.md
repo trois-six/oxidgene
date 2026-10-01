@@ -130,6 +130,15 @@ UI specifications:
 - At most one import or export job is active for a tree. An expired lease makes
     interrupted work claimable again; terminal jobs release the tree and retain
     their result for a bounded period.
+- What a job leaves behind is bounded. Its payload (a Geneanet import's
+    collection, fetched URLs and archive names) is cleared when it ends,
+    whether completed or failed. An export artifact is deleted once a download
+    has read it to the end, or an hour after completion if never downloaded.
+    Every worker, at start and then hourly, deletes the rows and objects of
+    jobs ended more than a day ago and the objects under `jobs/` that no job
+    needs any more (no row, or ended without an artifact) once they are a day
+    old. Purging a tree deletes its jobs' objects before the rows cascade
+    away.
 - Import database writes and their durable phase transition commit together.
     Once data have committed, recovery resumes projection rebuilding rather than
     inserting the imported records again.
@@ -184,8 +193,10 @@ flowchart LR
 
 The export executor reads the tree and its media, writes the GEDZIP archive to
 disposable scratch space, and uploads the completed artifact. The status
-response exposes a same-origin download URL only after the job completes; the
-UI then starts the browser download automatically.
+response exposes a same-origin download URL only while the completed artifact
+is stored; the UI then starts the browser download automatically. The artifact
+is a full copy of the tree and its media, so it is deleted as soon as a
+download has streamed it to the end, and an hour after completion otherwise.
 
 GEDZIP compresses the textual `gedcom.ged` entry with Deflate. Media formats
 that already carry compression (JPEG, PNG, GIF, WebP, and PDF) are stored
