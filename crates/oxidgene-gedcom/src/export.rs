@@ -1292,12 +1292,16 @@ fn gedcom_type_label(et: EventType) -> Option<&'static str> {
     }
 }
 
-fn convert_confidence(c: Confidence) -> CertaintyAssessment {
+/// The `QUAY` a confidence is written as; `None` for `Medium`, the level a
+/// citation has until somebody assesses it, which GEDCOM states by writing no
+/// `QUAY` at all. The inverse of `import`'s `convert_quay`.
+fn convert_confidence(c: Confidence) -> Option<CertaintyAssessment> {
     match c {
-        Confidence::VeryLow => CertaintyAssessment::Unreliable,
-        Confidence::Low => CertaintyAssessment::Questionable,
-        Confidence::Medium => CertaintyAssessment::Secondary,
-        Confidence::High | Confidence::VeryHigh => CertaintyAssessment::Direct,
+        Confidence::VeryLow => Some(CertaintyAssessment::Unreliable),
+        Confidence::Low => Some(CertaintyAssessment::Questionable),
+        Confidence::Medium => None,
+        Confidence::High => Some(CertaintyAssessment::Secondary),
+        Confidence::VeryHigh => Some(CertaintyAssessment::Direct),
     }
 }
 
@@ -1524,7 +1528,7 @@ fn to_ged_citation(
                 }),
             }),
         note: None,
-        certainty_assessment: Some(convert_confidence(cite.confidence)),
+        certainty_assessment: convert_confidence(cite.confidence),
         submitter_registered_rfn: None,
         multimedia: Vec::new(),
         custom_data: Vec::new(),

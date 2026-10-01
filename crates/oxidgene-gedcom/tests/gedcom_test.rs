@@ -358,7 +358,7 @@ fn test_import_source_and_citation() {
     let cite = &result.citations[0];
     assert_eq!(cite.source_id, src.id);
     assert_eq!(cite.page.as_deref(), Some("p. 42"));
-    assert_eq!(cite.confidence, oxidgene_core::Confidence::High);
+    assert_eq!(cite.confidence, oxidgene_core::Confidence::VeryHigh);
 }
 
 #[test]
@@ -756,6 +756,37 @@ fn a_citation_text_survives_a_round_trip() {
     let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
     assert_eq!(back.citations[0].text.as_deref(), Some(quoted));
     assert_eq!(back.citations[0].page.as_deref(), Some("folio 3"));
+}
+
+/// Every `QUAY`, and its absence, comes back as it was: an unassessed
+/// citation is not exported with an assessment it never had.
+#[test]
+fn every_quay_and_its_absence_survive_a_round_trip() {
+    let gedcom = CITATION_TEXT_GEDCOM.replace(
+        "3 PAGE folio 3\n",
+        "3 PAGE p0\n3 QUAY 0\n2 SOUR @S1@\n3 PAGE p1\n3 QUAY 1\n2 SOUR @S1@\n\
+         3 PAGE p2\n3 QUAY 2\n2 SOUR @S1@\n3 PAGE p3\n3 QUAY 3\n2 SOUR @S1@\n3 PAGE none\n",
+    );
+    let quays = |gedcom: &str| -> Vec<(String, Option<String>)> {
+        let lines: Vec<&str> = gedcom.lines().collect();
+        lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                let page = line.strip_prefix("3 PAGE ")?.to_string();
+                let quay = lines[i + 1..]
+                    .iter()
+                    .take_while(|next| !next.starts_with("2 ") && !next.starts_with("1 "))
+                    .find_map(|next| next.strip_prefix("3 QUAY "))
+                    .map(str::to_string);
+                Some((page, quay))
+            })
+            .collect()
+    };
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let exported = reexport(&imported);
+    assert_eq!(quays(&exported), quays(&gedcom), "{exported}");
+    assert!(quays(&gedcom).contains(&("none".to_string(), None)));
 }
 
 #[test]

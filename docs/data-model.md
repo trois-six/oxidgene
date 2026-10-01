@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:01:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:11:43Z }
 ---
 
 
@@ -620,13 +620,13 @@ enum EventType {
     Other,               // EVEN + TYPE
 }
 
-// Maps to GEDCOM QUAY (Certainty Assessment)
+// Maps one to one to GEDCOM QUAY (Certainty Assessment)
 enum Confidence {
     VeryLow,   // QUAY 0 (Unreliable)
     Low,       // QUAY 1 (Questionable)
-    Medium,    // QUAY 2 (Secondary)
-    High,      // QUAY 3 (Direct)
-    VeryHigh,  // app-specific fifth level
+    Medium,    // no QUAY: not assessed, the level a new citation gets
+    High,      // QUAY 2 (Secondary evidence)
+    VeryHigh,  // QUAY 3 (Direct and primary evidence)
 }
 ```
 
