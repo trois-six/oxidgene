@@ -306,7 +306,13 @@ fn write_gedcom(data: &GedcomData) -> Result<String, String> {
     let write_span =
         tracing::info_span!("export.write", export.output_bytes = tracing::field::Empty,);
     let gedcom = write_span
-        .in_scope(|| GedcomWriter::new().write_to_string(data))
+        // Unwrapped: `crate::finish` continues long lines itself, as
+        // `ged_io` would split them beside a space.
+        .in_scope(|| {
+            GedcomWriter::new()
+                .max_line_length(usize::MAX)
+                .write_to_string(data)
+        })
         .map_err(|e| format!("GEDCOM write error: {e}"))?;
     write_span.record("export.output_bytes", gedcom.len());
     Ok(gedcom)

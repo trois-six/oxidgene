@@ -580,6 +580,56 @@ fn a_long_note_survives_a_round_trip_word_for_word() {
     );
 }
 
+/// What earlier exports wrote for a long note: `ged_io` split it at the 255th
+/// byte, which fell just before a space, so the continuation opens with the
+/// space GEDCOM keeps and `ged_io` trims.
+#[test]
+fn a_continuation_opening_with_a_space_keeps_it() {
+    let head = "x".repeat(248);
+    let gedcom = MINIMAL_GEDCOM.replace(
+        "0 TRLR",
+        &format!("1 NOTE {head}\n2 CONC  tail\n2 CONC   two spaces\n0 TRLR"),
+    );
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let expected = format!("{head} tail  two spaces");
+    assert_eq!(
+        note_texts(&imported, |n| n.person_id.is_some()),
+        [expected.as_str()]
+    );
+}
+
+/// A long source title, citation page and death cause are continued between
+/// two words' letters, and come back as they were.
+#[test]
+fn long_values_survive_a_round_trip_word_for_word() {
+    let long = |word: &str| format!("{}{word} closing words", "word ".repeat(55));
+    let gedcom = MINIMAL_GEDCOM
+        .replace(
+            "1 DEAT\n",
+            &format!(
+                "1 DEAT\n2 CAUS {}\n2 SOUR @S1@\n3 PAGE {}\n",
+                long("cause"),
+                long("page")
+            ),
+        )
+        .replace(
+            "0 TRLR",
+            &format!("0 @S1@ SOUR\n1 TITL {}\n0 TRLR", long("title")),
+        );
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let exported = reexport(&imported);
+    assert!(exported.lines().all(|line| line.len() <= 255), "{exported}");
+    assert_eq!(exported.matches(" CONC ").count(), 3, "{exported}");
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let death = event_of(&back, oxidgene_core::EventType::Death);
+    assert_eq!(death.cause.as_deref(), Some(long("cause").as_str()));
+    assert_eq!(
+        back.citations[0].page.as_deref(),
+        Some(long("page").as_str())
+    );
+    assert_eq!(back.sources[0].title, long("title"));
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();

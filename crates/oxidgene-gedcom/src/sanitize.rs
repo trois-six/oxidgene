@@ -17,7 +17,11 @@
 //! - the several notes of a person, or of one of their or a family's events
 //!   and attributes, which `ged_io` would collapse to the last one, are
 //!   joined into one with [`NOTE_SEPARATOR`] between them, for the import to
-//!   split apart again.
+//!   split apart again;
+//! - the spaces opening a `CONC` value, which GEDCOM keeps beyond the one
+//!   delimiting it but `ged_io` trims — gluing together the words a writer
+//!   split between, as earlier OxidGene exports did — move to the end of the
+//!   line it continues, where they are read.
 //!
 //! The pass works one level-0 record at a time and leaves every record it does
 //! not need to touch byte for byte as it was. A file with nothing to repair is
@@ -201,12 +205,15 @@ fn continue_text(text: &mut String, line: Line<'_>) {
     text.push_str(line.value.unwrap_or_default());
 }
 
-/// What happens to one line of a record, and to everything beneath it.
+/// What happens to one line of a record.
 enum Edit {
-    /// Left out.
+    /// Left out, with everything beneath it.
     Drop,
-    /// Written as this text instead, line terminators included.
+    /// Written as this text instead of it and everything beneath it, line
+    /// terminators included.
     Replace(String),
+    /// Written as this text instead of it alone, terminator included.
+    Retext(String),
 }
 
 /// The repaired text of one record, as `(start, end, replacement)` over the
@@ -221,6 +228,7 @@ fn repair_record(
     let mut edits: Vec<Option<Edit>> = record.iter().map(|_| None).collect();
     drop_unreadable_ages(record, &mut edits, warnings);
     rewrite_notes(record, notes, &mut edits, warnings);
+    shift_conc_spaces(gedcom, record, &mut edits);
     if edits.iter().all(Option::is_none) {
         return None;
     }
@@ -241,9 +249,56 @@ fn repair_record(
                 text.push_str(replacement);
                 skip_below = line.level;
             }
+            Some(Edit::Retext(replacement)) => text.push_str(replacement),
         }
     }
     Some((first.start, last.next, text))
+}
+
+/// Moves the spaces opening each `CONC` value to the end of the line it
+/// continues, where `ged_io` reads them rather than trims them.
+///
+/// Only when that line is the one just before, at the level a `CONC`
+/// continues, and holds a value of its own — trailing spaces after a bare tag
+/// would be trimmed all the same.
+fn shift_conc_spaces(gedcom: &str, record: &[Line<'_>], edits: &mut [Option<Edit>]) {
+    let mut stripped = vec![0usize; record.len()];
+    let mut appended: Vec<&str> = vec![""; record.len()];
+    for index in 1..record.len() {
+        let (previous, line) = (record[index - 1], record[index]);
+        let (Some(level), Some(value), Some(previous_level)) =
+            (line.level, line.value, previous.level)
+        else {
+            continue;
+        };
+        let spaces = value.len() - value.trim_start_matches([' ', '\t']).len();
+        let continued = previous_level.saturating_add(1) == level
+            || (previous_level == level && matches!(previous.tag, "CONT" | "CONC"));
+        let previous_value = previous.value.unwrap_or_default();
+        if line.tag != "CONC" || spaces == 0 || !continued {
+            continue;
+        }
+        if previous_value.len() <= stripped[index - 1] {
+            continue;
+        }
+        stripped[index] = spaces;
+        appended[index - 1] = &value[..spaces];
+    }
+    for (index, line) in record.iter().enumerate() {
+        if edits[index].is_some() || (stripped[index] == 0 && appended[index].is_empty()) {
+            continue;
+        }
+        let raw = &gedcom[line.start..line.next];
+        let content = raw.trim_end_matches(['\r', '\n']);
+        let value = line.value.unwrap_or_default();
+        let prefix = &content[..content.len() - value.len()];
+        edits[index] = Some(Edit::Retext(format!(
+            "{prefix}{}{}{}",
+            &value[stripped[index]..],
+            appended[index],
+            &raw[content.len()..]
+        )));
+    }
 }
 
 /// Leaves out every `AGE` `ged_io` would fail the file over.
@@ -516,7 +571,7 @@ mod tests {
         assert_eq!(
             sanitized.text,
             "0 HEAD\n0 @I1@ INDI\n1 NOTE First line\n2 CONT second half\n1 BIRT\n\
-             2 NOTE Shared\n0 @N1@ NOTE First line\n1 CONT second\n1 CONC  half\n\
+             2 NOTE Shared\n0 @N1@ NOTE First line\n1 CONT second \n1 CONC half\n\
              0 @N2@ SNOTE Shared\n0 TRLR\n"
         );
         assert!(sanitized.warnings.is_empty());
@@ -541,6 +596,20 @@ mod tests {
             sanitized.text,
             "0 @I1@ INDI\n1 NOTE First half\n2 CONT \u{1}\n2 CONT Second\n2 CONT line\n\
              1 BIRT\n2 NOTE A\n3 CONT \u{1}\n3 CONT B\n2 SOUR @S1@\n0 @N1@ NOTE B\n"
+        );
+    }
+
+    #[test]
+    fn the_spaces_opening_a_conc_value_move_to_the_line_it_continues() {
+        let gedcom = "0 @I1@ INDI\r\n1 NOTE abc\r\n2 CONC  def\r\n2 CONC   ghi\r\n\
+                      2 CONT jkl\r\n2 CONC \tmno\r\n0 @S1@ SOUR\n1 TITL A\n2 CONC  B\n\
+                      1 NOTE\n2 CONC  bare\n";
+        let sanitized = sanitize(gedcom);
+        assert_eq!(
+            sanitized.text,
+            "0 @I1@ INDI\r\n1 NOTE abc \r\n2 CONC def  \r\n2 CONC ghi\r\n\
+             2 CONT jkl\t\r\n2 CONC mno\r\n0 @S1@ SOUR\n1 TITL A \n2 CONC B\n\
+             1 NOTE\n2 CONC  bare\n"
         );
     }
 

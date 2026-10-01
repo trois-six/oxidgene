@@ -5,6 +5,13 @@
 //! them any number. Until the upstream fix ships, the export hands the model
 //! a placeholder note for each record that has notes, and this pass writes
 //! every one of that record's notes in its place.
+//!
+//! It also continues the long lines. `ged_io` splits a value at its 255th
+//! byte wherever that falls, and when it falls beside a space the space is
+//! lost to every reader that trims a `CONC` value, `ged_io` included. The
+//! export asks `ged_io` not to split at all, and this pass splits each line a
+//! reader continues — notes, texts, causes, pages and a source's title,
+//! author, publication and abbreviation — between two non-space characters.
 
 use ged_io::types::note::Note as GedNote;
 use uuid::Uuid;
@@ -20,23 +27,65 @@ pub(crate) fn note_slot(owner: Uuid, has_notes: bool) -> Option<GedNote> {
     })
 }
 
-/// Writes the notes `notes_of` gives for each placeholder in its place.
+/// Writes the notes `notes_of` gives for each placeholder in its place, and
+/// continues every line too long for GEDCOM that a reader continues.
 pub(crate) fn finish<'n>(gedcom: &str, notes_of: impl Fn(Uuid) -> Vec<&'n str>) -> String {
-    let mut out = String::with_capacity(gedcom.len());
+    let mut out = String::with_capacity(gedcom.len() + gedcom.len() / 64);
+    let mut record = "";
     for line in gedcom.lines() {
-        match note_slot_of(line) {
-            Some((level, owner)) => {
-                for text in notes_of(owner) {
-                    push_text(&mut out, level, "NOTE", text);
-                }
+        if let Some((level, owner)) = note_slot_of(line) {
+            for text in notes_of(owner) {
+                push_text(&mut out, level, "NOTE", text);
             }
-            None => {
-                out.push_str(line);
-                out.push('\n');
+            continue;
+        }
+        let (level, tag, value) = split_line(line);
+        if level == Some(0) {
+            record = tag;
+        }
+        match (level, value) {
+            (Some(level), Some(value)) if continued(level, tag, record) => {
+                let prefix = &line[..line.len() - value.len() - 1];
+                let conc_level = if matches!(tag, "CONT" | "CONC") {
+                    level
+                } else {
+                    level.saturating_add(1)
+                };
+                push_wrapped(&mut out, prefix, value, conc_level);
             }
+            _ => push_line(&mut out, line, ""),
         }
     }
     out
+}
+
+/// The level, tag and value of a line as `ged_io` writes it; the tag of a
+/// record (`0 @I1@ INDI`) is the one after its xref.
+fn split_line(line: &str) -> (Option<u8>, &str, Option<&str>) {
+    let Some((level, rest)) = line.split_once(' ') else {
+        return (None, "", None);
+    };
+    let rest = match rest.strip_prefix('@') {
+        Some(after) => after.split_once(' ').map_or("", |(_, tag)| tag),
+        None => rest,
+    };
+    let (tag, value) = match rest.split_once(' ') {
+        Some((tag, value)) => (tag, Some(value)),
+        None => (rest, None),
+    };
+    (level.parse().ok(), tag, value)
+}
+
+/// Whether a reader joins the `CONC` lines following a `tag` line — and so
+/// whether it may be continued on them. Elsewhere a long value stays whole on
+/// its line: `ged_io` reads a long line, but not a continuation it does not
+/// expect.
+fn continued(level: u8, tag: &str, record: &str) -> bool {
+    match tag {
+        "NOTE" | "CONT" | "CONC" | "TEXT" | "CAUS" | "PAGE" => true,
+        "TITL" | "AUTH" | "PUBL" | "ABBR" => level == 1 && record == "SOUR",
+        _ => false,
+    }
 }
 
 /// The level and owner of a placeholder note line.
@@ -164,6 +213,24 @@ mod tests {
         let mut out = String::new();
         push_text(&mut out, 1, "NOTE", &text);
         assert_eq!(out, format!("1 NOTE {text}\n"));
+    }
+
+    #[test]
+    fn only_the_lines_a_reader_continues_are_continued() {
+        let long = format!("{} end", "z".repeat(300));
+        let gedcom = format!(
+            "0 @S1@ SOUR\n1 TITL {long}\n1 NOTE {long}\n2 CONT {long}\n\
+             0 @I1@ INDI\n1 TITL {long}\n1 DEAT\n2 CAUS {long}\n2 PLAC {long}\n0 TRLR"
+        );
+        let out = finish(&gedcom, |_| Vec::new());
+        let continued: Vec<&str> = out
+            .lines()
+            .filter(|line| line.contains(" CONC "))
+            .map(|line| line.split(' ').next().unwrap_or_default())
+            .collect();
+        assert_eq!(continued, ["2", "2", "2", "3"], "{out}");
+        assert!(out.contains(&format!("1 TITL {long}\n1 DEAT")));
+        assert!(out.contains(&format!("2 PLAC {long}\n0 TRLR\n")));
     }
 
     #[test]
