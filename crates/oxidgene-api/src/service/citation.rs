@@ -12,8 +12,8 @@ use oxidgene_db::sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
-use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::history::Change;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// A citation to create: the source it cites, what it is attached to, and
 /// what it says.

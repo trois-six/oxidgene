@@ -13,9 +13,9 @@ use uuid::Uuid;
 
 use crate::profile::{ProfileService, invalidation};
 use crate::rest::dto::CreateEventRequest;
-use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::event_date;
 use crate::service::history::Change;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// Create an event in `tree_id`.
 pub async fn create_event(

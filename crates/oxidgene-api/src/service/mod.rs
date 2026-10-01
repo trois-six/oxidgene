@@ -23,6 +23,7 @@ pub mod person_detail;
 pub mod portrait;
 pub mod purge;
 pub mod relation_labels;
+pub mod scope;
 pub(crate) mod session_media;
 pub mod statistics;
 pub mod suggestions;

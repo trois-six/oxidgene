@@ -42,8 +42,8 @@ use crate::rest::dto::{
 };
 use crate::rest::error::ErrorBody;
 use crate::rest::person::resolve_sosa_number;
-use crate::rest::state::{TreeResource, require_tree_resource};
 use crate::service::relation_labels::load_relation_labels;
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// Deepest pedigree a tool assembles in either direction — the range the
 /// pedigree view offers, and what fits in a model's context.

@@ -24,7 +24,8 @@ use super::dto::{
     RecentlyModifiedQuery, UpdatePersonRequest,
 };
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::AppState;
+use crate::service::scope::{begin_tx, commit_tx};
 
 /// Walks down from the tree's SOSA root to find the person at SOSA number
 /// `number` (root = 1, father = 2n, mother = 2n+1). Returns `Ok(None)` if

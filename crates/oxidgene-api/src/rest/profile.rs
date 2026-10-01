@@ -18,7 +18,8 @@ use super::dto::{
     ProfileRebuildResponse,
 };
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::AppState;
+use crate::service::scope::{begin_tx, commit_tx};
 
 /// `GET /api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle`
 ///

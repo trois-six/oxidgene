@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use crate::profile::ProfileService;
 use crate::rest::dto::SetPortraitRequest;
-use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::history::Change;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 const MAX_PORTRAITS_PER_REQUEST: usize = 1_024;
 

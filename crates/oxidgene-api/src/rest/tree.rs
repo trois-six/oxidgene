@@ -8,9 +8,10 @@ use uuid::Uuid;
 
 use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::AppState;
 use crate::service::gedcom;
 use crate::service::history::{self, Change};
+use crate::service::scope::{begin_tx, commit_tx};
 use oxidgene_core::history::AuditEntity;
 
 /// GET /api/v1/trees

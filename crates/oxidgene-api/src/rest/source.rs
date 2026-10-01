@@ -8,8 +8,9 @@ use uuid::Uuid;
 
 use super::dto::{CreateSourceRequest, DeleteSourceQuery, PaginationQuery, UpdateSourceRequest};
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use super::state::AppState;
 use crate::service::history::Change;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use oxidgene_core::history::AuditEntity;
 
 /// GET /api/v1/trees/:tree_id/sources

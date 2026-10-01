@@ -5,7 +5,7 @@ use base64::Engine as _;
 use oxidgene_geneanet::archive::LocalOriginals;
 use uuid::Uuid;
 
-use crate::rest::state::{TreeResource, require_tree_resource};
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
     AncestryRepo, AuditFilter, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus,

@@ -16,7 +16,8 @@ use uuid::Uuid;
 
 use super::dto::{CreateVignetteRequest, UpdateVignetteRequest, VignetteListQuery};
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, require_tree_resource};
+use super::state::AppState;
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/media/:media_id/vignettes
 pub async fn list_media_vignettes(

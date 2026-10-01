@@ -11,7 +11,8 @@ use uuid::Uuid;
 
 use super::dto::{AddChildRequest, AddSpouseRequest};
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use super::state::AppState;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 // ── Spouses ──────────────────────────────────────────────────────────
 

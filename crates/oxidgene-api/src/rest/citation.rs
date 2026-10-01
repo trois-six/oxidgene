@@ -8,8 +8,9 @@ use uuid::Uuid;
 
 use super::dto::{CitationListQuery, CreateCitationRequest, UpdateCitationRequest};
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, require_tree_resource};
+use super::state::AppState;
 use crate::service::citation::{self, CitationPatch, NewCitation};
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/citations
 pub async fn list_citations(

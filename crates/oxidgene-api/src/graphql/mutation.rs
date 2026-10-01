@@ -1,10 +1,10 @@
 //! GraphQL mutation root with all write operations.
 
 use crate::profile::invalidation;
-use crate::rest::state::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
 use crate::service::note::{self, NewNote};
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 use crate::service::{duplicates, event_date, family_names};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;

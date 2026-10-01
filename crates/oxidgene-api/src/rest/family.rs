@@ -11,7 +11,8 @@ use uuid::Uuid;
 
 use super::dto::PaginationQuery;
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use super::state::AppState;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/families
 pub async fn list_families(

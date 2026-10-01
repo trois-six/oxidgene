@@ -14,7 +14,8 @@ use super::dto::{
     SourcePrefixQuery,
 };
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use super::state::AppState;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/dictionary/family-names
 pub async fn family_names(

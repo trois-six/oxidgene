@@ -9,8 +9,9 @@ use uuid::Uuid;
 
 use super::dto::{AuditQuery, PaginationQuery, RevertRecordRequest};
 use super::error::ApiError;
-use super::state::{AppState, begin_tx, commit_tx};
+use super::state::AppState;
 use crate::service::history;
+use crate::service::scope::{begin_tx, commit_tx};
 
 /// GET /api/v1/trees/:tree_id/audit
 ///

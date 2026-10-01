@@ -12,7 +12,8 @@ use oxidgene_core::history::AuditEntity;
 
 use super::dto::{CreatePlaceRequest, PlaceListQuery, UpdatePlaceRequest};
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use super::state::AppState;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/places
 pub async fn list_places(

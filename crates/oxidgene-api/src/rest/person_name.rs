@@ -11,7 +11,8 @@ use uuid::Uuid;
 
 use super::dto::{CreatePersonNameRequest, RelationLabelsRequest, UpdatePersonNameRequest};
 use super::error::ApiError;
-use super::state::{AppState, TreeResource, begin_tx, commit_tx, require_tree_resource};
+use super::state::AppState;
+use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/persons/:person_id/names
 pub async fn list_person_names(
