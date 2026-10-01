@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:51:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:54:21Z }
 ---
 
 # Development Environment and Workflows
@@ -306,7 +306,11 @@ one already listening on those ports:
    the web origin as its CORS origin. The suite never sees a developer's data.
 - `e2e/scripts/static-server.mjs` serves `target/dx/oxidgene-web/debug/web/public`,
    answering client-side routes with `index.html`, plus the web image's
-   `docker/runtime-config.js`.
+   `docker/runtime-config.js`, with the security headers of
+   `docker/security-headers.conf`: the suite runs under the deployed
+   Content-Security-Policy, which it extends only with what the debug bundle
+   adds (the hash of `dx`'s inline development-toast script and its web
+   font).
 
 Each test that needs data seeds its own tree through the REST API, as an
 import job the backend's embedded worker runs, from

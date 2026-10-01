@@ -218,6 +218,42 @@ async fn check_host(State(hosts): State<AllowedHosts>, request: Request, next: N
     )
 }
 
+/// Give `response` the security headers every API response carries, unless
+/// its handler set them itself.
+///
+/// - `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and
+///   `Referrer-Policy: no-referrer` on every response: nothing the API serves
+///   is meant to be sniffed, framed or followed with a referrer.
+/// - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` on
+///   JSON, which is data and never a page. Other responses keep the policy
+///   their handler chose: stored files are sandboxed except PDFs, which a
+///   browser's viewer must be free to render, and GraphiQL is a page.
+pub(crate) async fn security_headers(mut response: Response) -> Response {
+    let json = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json"));
+    let headers = response.headers_mut();
+    headers
+        .entry(header::X_CONTENT_TYPE_OPTIONS)
+        .or_insert(HeaderValue::from_static("nosniff"));
+    headers
+        .entry(header::X_FRAME_OPTIONS)
+        .or_insert(HeaderValue::from_static("DENY"));
+    headers
+        .entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static("no-referrer"));
+    if json {
+        headers
+            .entry(header::CONTENT_SECURITY_POLICY)
+            .or_insert(HeaderValue::from_static(
+                "default-src 'none'; frame-ancestors 'none'",
+            ));
+    }
+    response
+}
+
 /// `status` with the standard error envelope of `code` and `message`.
 pub(crate) fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
     let body = ErrorBody {

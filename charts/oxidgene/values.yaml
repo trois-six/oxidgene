@@ -106,8 +106,13 @@ frontend:
     type: ClusterIP
     port: 80
   # Public OTLP/HTTP base URL embedded in runtime-config.js. Empty disables
-  # browser trace export while leaving console logs enabled.
+  # browser trace export while leaving console logs enabled. Its origin is
+  # added to the page's Content-Security-Policy `connect-src`.
   otlpEndpoint: ""
+  # Further origins the page may connect to (CSP `connect-src`), such as an
+  # API served from another origin than the frontend. The page's own origin
+  # is always allowed.
+  extraConnectSrc: []
   resources:
     requests:
       cpu: 25m

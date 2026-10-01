@@ -502,6 +502,14 @@ fn shutdown_telemetry(telemetry: &Mutex<Option<TelemetryGuard>>) {
 /// webview's data directory under `data_dir`.
 fn window_config(data_dir: &std::path::Path) -> Config {
     let mut cfg = Config::new()
+        // The window's page loads no plugin and resolves no URL against a
+        // `<base>` some markup could slip in. Scripts and styles stay as the
+        // Dioxus runtime needs them: it evaluates scripts and writes styles
+        // at run time.
+        .with_custom_head(
+            r#"<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'">"#
+                .to_string(),
+        )
         .with_data_directory(data_dir.join("webview"))
         .with_menu(None::<dioxus::desktop::muda::Menu>)
         .with_window(

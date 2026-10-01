@@ -18,6 +18,36 @@ use tower::ServiceExt;
 
 use common::{send, setup_app, setup_db};
 
+/// Every API response says it is not to be sniffed, framed or followed with a
+/// referrer, and JSON says it is no page at all.
+#[tokio::test]
+async fn api_responses_carry_the_security_headers() {
+    let app = setup_app().await;
+    for uri in ["/api/v1/trees", "/api/v1/no-such-route"] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let headers = response.headers();
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(header("x-content-type-options"), "nosniff", "{uri}");
+        assert_eq!(header("x-frame-options"), "DENY", "{uri}");
+        assert_eq!(header("referrer-policy"), "no-referrer", "{uri}");
+        assert_eq!(
+            header("content-security-policy"),
+            "default-src 'none'; frame-ancestors 'none'",
+            "{uri}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn given_name_reference_bundle_is_bounded_per_request() {
     let app = setup_app().await;

@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:14:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:54:21Z }
 ---
 
 # OxidGene Quickstart
@@ -674,6 +674,8 @@ private network reaches. The release notes repeat the warning.
 | `frontend.image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy. |
 | `frontend.service.type` | `ClusterIP` | Frontend Service type. |
 | `frontend.service.port` | `80` | Frontend Service port. |
+| `frontend.otlpEndpoint` | `""` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. Its origin is added to the page's Content-Security-Policy `connect-src`. |
+| `frontend.extraConnectSrc` | `[]` | Further origins the page may connect to, such as an API served from another origin than the frontend. |
 | `frontend.resources` | See `values.yaml` | CPU and memory requests and limits. |
 | `frontend.podAnnotations` | `{}` | Additional Pod annotations. |
 | `frontend.podLabels` | `{}` | Additional Pod labels. |

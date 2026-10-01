@@ -118,6 +118,7 @@ fn silhouette(slug: &str) -> Option<Response<Vec<u8>>> {
     Response::builder()
         .status(200)
         .header("Content-Type", "image/png")
+        .header("X-Content-Type-Options", "nosniff")
         // Compiled into the binary: it cannot change while the window is open.
         .header("Cache-Control", "private, max-age=31536000, immutable")
         .body(oxidgene_ui::components::pedigree_chart::silhouette_png(sex).to_vec())

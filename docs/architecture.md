@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:51:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:54:21Z }
 ---
 
 
@@ -313,6 +313,15 @@ bundle would weigh more than it saves.
     `OTEL_EXPORTER_OTLP_ENDPOINT` is configured. The Helm chart connects the
     backend and worker to a cluster-managed collector; it does not prescribe or
     operate a telemetry storage backend.
+- The frontend image's nginx sends the security headers of
+    `docker/security-headers.conf` with every page and asset. Its
+    Content-Security-Policy lets the page connect to its own origin and to
+    `$csp_connect_src`, which `/etc/nginx/csp-connect-src.conf` sets: the image
+    writes it from its `OXIDGENE_API_URL` and `OTEL_EXPORTER_OTLP_ENDPOINT`
+    build arguments, and the Helm chart replaces it with the origin of
+    `frontend.otlpEndpoint` and `frontend.extraConnectSrc`. The e2e static
+    server sends the same file's headers, so the suite runs under the deployed
+    policy.
 - Browser builds can export client spans over OTLP/HTTP and inject W3C Trace
     Context into REST and GraphQL requests. The API continues the context into
     SeaORM operations and stores it with durable jobs; workers restore it before

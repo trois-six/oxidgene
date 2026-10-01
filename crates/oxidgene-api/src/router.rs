@@ -548,9 +548,15 @@ pub fn build_router(state: AppState) -> Router {
             .route("/graphql", post(graphql_handler).get(graphql_playground))
             .layer(graphql_body_limit)
             .with_state(schema);
-        rest_router.merge(graphql_routes)
+        rest_router
+            .merge(graphql_routes)
+            .layer(axum::middleware::map_response(
+                crate::access::security_headers,
+            ))
     }
 
     #[cfg(not(feature = "graphql"))]
-    rest_router
+    rest_router.layer(axum::middleware::map_response(
+        crate::access::security_headers,
+    ))
 }

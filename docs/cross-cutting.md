@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:58Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -573,6 +573,17 @@ must never be exposed directly to an untrusted network:
   context, to the backend alone, never to a remote address a download names. App Settings shows the token so the user
   can hand it to an external client of their choosing, behind a warning that
   it grants read and write access to every tree until the application quits;
+- every response says it is not to be sniffed, framed or followed with a
+  referrer. The web frontend's nginx sends a Content-Security-Policy that
+  allows scripts from its own origin only (plus `'wasm-unsafe-eval'` for the
+  WebAssembly and `'unsafe-eval'` for Dioxus' `document::eval`, never an
+  inline script), connections to its own origin and the API's and OTLP
+  endpoint's, no plugin, no `<base>`, no form submission and no framing
+  (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), with
+  `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`. The
+  API adds the last three to every response, and
+  `default-src 'none'; frame-ancestors 'none'` to JSON. The desktop window
+  loads no plugin and honours no `<base>`;
 - stored files are served with `X-Content-Type-Options: nosniff` and, except
   for PDFs, `Content-Security-Policy: sandbox`, so a file cannot run as a page
   of the origin that serves it; the type of a held file is the one sniffed from

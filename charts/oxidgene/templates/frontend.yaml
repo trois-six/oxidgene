@@ -8,6 +8,17 @@ metadata:
 data:
   runtime-config.js: |
     globalThis.OXIDGENE_OTLP_ENDPOINT = {{ .Values.frontend.otlpEndpoint | quote }};
+  {{- $connect := list }}
+  {{- with .Values.frontend.otlpEndpoint }}
+  {{- $connect = append $connect (regexFind "^https?://[^/]+" .) }}
+  {{- end }}
+  {{- range .Values.frontend.extraConnectSrc }}
+  {{- $connect = append $connect . }}
+  {{- end }}
+  # Origins the page may connect to besides its own, read by the
+  # Content-Security-Policy of nginx's security-headers.conf.
+  csp-connect-src.conf: |
+    set $csp_connect_src {{ join " " (compact $connect) | quote }};
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -71,6 +82,10 @@ spec:
             - name: runtime-config
               mountPath: /usr/share/nginx/html/runtime-config.js
               subPath: runtime-config.js
+              readOnly: true
+            - name: runtime-config
+              mountPath: /etc/nginx/csp-connect-src.conf
+              subPath: csp-connect-src.conf
               readOnly: true
       volumes:
         - name: tmp
