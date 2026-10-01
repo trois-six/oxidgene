@@ -882,6 +882,26 @@ fn a_qualified_date_in_another_calendar_survives_a_round_trip() {
     );
 }
 
+/// The death reason the `geneweb` crate writes into a death's note becomes
+/// the death's cause, exported as `CAUS`.
+#[test]
+fn a_geneweb_death_reason_is_the_cause_of_death() {
+    let gedcom = MINIMAL_GEDCOM.replace(
+        "2 PLAC Paris, France\n",
+        "2 PLAC Paris, France\n2 NOTE Sample remark\n3 CONT _GWDEATH killed\n",
+    );
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let death = event_of(&imported, oxidgene_core::EventType::Death);
+    assert_eq!(death.cause.as_deref(), Some("killed"));
+    assert_eq!(
+        note_texts(&imported, |n| n.event_id == Some(death.id)),
+        ["Sample remark"]
+    );
+    let exported = reexport(&imported);
+    assert!(exported.contains("2 CAUS killed\n"), "{exported}");
+    assert!(!exported.contains("_GWDEATH"), "{exported}");
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();

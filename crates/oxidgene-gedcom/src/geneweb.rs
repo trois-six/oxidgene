@@ -261,7 +261,7 @@ end
     }
 
     #[test]
-    fn the_death_reason_stays_on_the_death_event() {
+    fn the_death_reason_is_the_death_events_cause() {
         let result = import(concat!(
             "fam Doe John k1900 + Roe Jane\n",
             "pevt Doe John\n#deat 1900\nend pevt\n",
@@ -272,14 +272,16 @@ end
             .iter()
             .filter(|e| e.person_id == Some(john) && e.event_type == EventType::Death)
             .collect();
-        // The `pevt` death replaces the line's, and keeps how the person died.
+        // The `pevt` death replaces the line's, and keeps how the person died
+        // as its cause rather than as a note.
         assert_eq!(deaths.len(), 1);
-        let note = result
-            .notes
-            .iter()
-            .find(|n| n.event_id == Some(deaths[0].id))
-            .expect("the death reason");
-        assert_eq!(note.text, "_GWDEATH killed");
+        assert_eq!(deaths[0].cause.as_deref(), Some("killed"));
+        assert!(
+            result
+                .notes
+                .iter()
+                .all(|n| n.event_id != Some(deaths[0].id))
+        );
     }
 
     #[test]

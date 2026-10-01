@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:28:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:38:35Z }
 ---
 
 
@@ -1868,7 +1868,7 @@ conversion produces, and so what a `.gw` imports as:
 |---|---|
 | Witness of a `pevt` or `fevt` event | A witness of that event only, whether the file defines the witness elsewhere, inline, or nowhere else |
 | Witness on a `fam` line | A witness of the union's marriage, created for it when the line gives no other detail, and joined to a `fevt` marriage that replaces the line's |
-| Death reason (`k`, `m`, `e`, `s`, died young, presumed dead) | A `_GWDEATH <reason>` line in the death event's note, after the person's note on the death, also when a `pevt` death replaces the line's |
+| Death reason (`k`, `m`, `e`, `s`, died young, presumed dead) | The death event's cause — `killed`, `murdered`, `executed`, `disappeared`, `died young` or `presumed dead`, as the `geneweb` crate words it — also when a `pevt` death replaces the line's, and exported as `CAUS`. The crate carries it as a `_GWDEATH <reason>` line in the death's note; any GEDCOM holding that line imports the same way, the line leaving the note and joining a cause the file states |
 | Title `[name:title:domain:start:end:nth]` | A `NobilityTitle` described `title, domain, nth`, dated `FROM start TO end`, with the name it is held under as its note; the domain is no place |
 | Adoptive and foster parents (`rel`) | A family of their own with the child as `Adopted` or `Foster`; an adoption also gives the child an `Adoption` event |
 | Godparents (`rel`) | Witnesses of the child's baptism, else birth, else first event, as `GODF` and `GODM` |

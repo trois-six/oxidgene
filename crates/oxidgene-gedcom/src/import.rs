@@ -2189,7 +2189,7 @@ fn import_event_detail(
 
     let place_id = import_place(detail.place.as_ref(), get_or_create_place, result);
 
-    let cause = detail.cause.clone();
+    let (cause, note) = death_cause(event_type, detail);
 
     // The GEDCOM `TYPE` sub-tag classifies a generic `EVEN`/`FACT` event
     // (e.g. "PACS", "Concubinage") — preserve it as the description so the
@@ -2271,18 +2271,63 @@ fn import_event_detail(
     );
 
     // Note on the event
-    if let Some(ref note) = detail.note {
-        import_note(
-            &note.value,
-            tree_id,
-            now,
-            None,
-            Some(event_id),
-            None,
-            None,
-            result,
-        );
+    import_note(
+        &note,
+        tree_id,
+        now,
+        None,
+        Some(event_id),
+        None,
+        None,
+        result,
+    );
+}
+
+/// The marker the `geneweb` crate writes into a death event's note, followed
+/// by how the person died: `killed`, `murdered`, `executed`, `disappeared`,
+/// `died young` or `presumed dead`.
+///
+/// GEDCOM's word for it is `CAUS`, but the crate writes into a model with no
+/// room for a custom tag on an event, so the reason rides in the note.
+const GENEWEB_DEATH_REASON_MARKER: &str = "_GWDEATH";
+
+/// An event's cause and note text, with a GeneWeb death reason moved out of
+/// the note into the cause — after the cause the file states, if any.
+fn death_cause(
+    event_type: EventType,
+    detail: &ged_io::types::event::detail::Detail,
+) -> (Option<String>, Option<String>) {
+    let cause = detail.cause.clone();
+    let note = detail.note.as_ref().and_then(|note| note.value.clone());
+    let (EventType::Death, Some(text)) = (event_type, note.as_deref()) else {
+        return (cause, note);
+    };
+    let mut reasons = Vec::new();
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            match line
+                .trim_start()
+                .strip_prefix(GENEWEB_DEATH_REASON_MARKER)
+                .filter(|rest| rest.starts_with(char::is_whitespace))
+            {
+                Some(reason) => {
+                    reasons.push(reason.trim());
+                    false
+                }
+                None => true,
+            }
+        })
+        .collect();
+    if reasons.is_empty() {
+        return (cause, note);
     }
+    let reason = reasons.join("; ");
+    let cause = match cause.filter(|cause| !cause.trim().is_empty()) {
+        Some(cause) => format!("{cause}; {reason}"),
+        None => reason,
+    };
+    (Some(cause), Some(kept.join("\n")))
 }
 
 /// Imports a GEDCOM individual attribute (OCCU, RESI, TITL, ...) as one or
@@ -2521,12 +2566,9 @@ const GENEWEB_EVENT_TAG_MARKER: &str = "_GWTAG";
 /// one is already the event's description, verbatim — the marker only ever
 /// restates one of the two.
 ///
-/// Deliberately not extended to the crate's other in-note marker,
-/// `_GWDEATH`: that one carries a death reason ("died young", "presumed
-/// dead", a cause label) which nothing else in the import captures, so
-/// dropping it would lose the only copy. The crate writes it on the death
-/// event whichever line states the death, the person's own or a `pevt`, after
-/// the person's note on the death when there is one.
+/// The crate's other in-note marker, `_GWDEATH`, carries information of its
+/// own — how the person died — and becomes the death's cause instead: see
+/// [`death_cause`].
 fn strip_geneweb_event_marker(text: &str) -> String {
     if !text.contains(GENEWEB_EVENT_TAG_MARKER) {
         return text.to_string();
@@ -2879,12 +2921,49 @@ mod geneweb_marker_tests {
         }
     }
 
+    /// A death read by `ged_io`, with this cause and this note.
+    fn death_with(cause: Option<&str>, note: &str) -> ged_io::types::event::detail::Detail {
+        let mut gedcom = String::from("0 HEAD\n0 @I1@ INDI\n1 DEAT\n");
+        if let Some(cause) = cause {
+            gedcom.push_str(&format!("2 CAUS {cause}\n"));
+        }
+        for (index, line) in note.lines().enumerate() {
+            let tag = if index == 0 { "2 NOTE" } else { "3 CONT" };
+            gedcom.push_str(&format!("{tag} {line}\n"));
+        }
+        gedcom.push_str("0 TRLR\n");
+        let mut data = GedcomBuilder::new()
+            .build_from_str(&gedcom)
+            .expect("parses");
+        data.individuals.remove(0).events.remove(0)
+    }
+
     #[test]
-    fn the_death_reason_marker_is_not_touched() {
-        // `_GWDEATH` is the only copy of that information — see the doc on
-        // `strip_geneweb_event_marker`.
-        let text = "Mort au combat\n_GWDEATH killed";
-        assert_eq!(strip_geneweb_event_marker(text), text);
+    fn the_death_reason_becomes_the_cause_and_leaves_the_note() {
+        let detail = death_with(None, "Sample remark\n_GWDEATH killed");
+        assert_eq!(
+            death_cause(EventType::Death, &detail),
+            (Some("killed".into()), Some("Sample remark".into()))
+        );
+        let detail = death_with(Some("Fever"), "_GWDEATH died young");
+        assert_eq!(
+            death_cause(EventType::Death, &detail),
+            (Some("Fever; died young".into()), Some(String::new()))
+        );
+    }
+
+    #[test]
+    fn a_death_note_without_the_marker_and_other_events_are_left_alone() {
+        let detail = death_with(None, "Mentions _GWDEATH in passing");
+        assert_eq!(
+            death_cause(EventType::Death, &detail),
+            (None, Some("Mentions _GWDEATH in passing".into()))
+        );
+        let detail = death_with(None, "_GWDEATH killed");
+        assert_eq!(
+            death_cause(EventType::Burial, &detail),
+            (None, Some("_GWDEATH killed".into()))
+        );
     }
 }
 
