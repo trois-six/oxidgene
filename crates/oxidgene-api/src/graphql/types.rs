@@ -2402,6 +2402,24 @@ pub struct GqlSearchEntry {
     pub father_name: Option<String>,
     pub mother_name: Option<String>,
     pub children_count: i32,
+    /// Where the row's portrait is drawn from, when the person has one.
+    pub portrait: Option<GqlPortraitRef>,
+}
+
+/// One tree's most recently modified persons, from a batch.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlTreeRecentPersons {
+    pub tree_id: ID,
+    pub persons: Vec<GqlSearchEntry>,
+}
+
+impl From<crate::service::history::TreeRecentPersons> for GqlTreeRecentPersons {
+    fn from(tree: crate::service::history::TreeRecentPersons) -> Self {
+        Self {
+            tree_id: ID(tree.tree_id.to_string()),
+            persons: tree.persons.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 /// Two records of a tree that may be one person.
@@ -2631,6 +2649,8 @@ pub struct GqlSourceDictionaryDrill {
     pub prefix: String,
     pub total: i64,
     pub groups: Vec<GqlSourceDictionaryGroup>,
+    /// The sources under `prefix`, when there is no group left to choose.
+    pub sources: Option<Vec<GqlSourceDictionaryEntry>>,
 }
 
 /// Static reference information for one occupation label.
@@ -2818,6 +2838,24 @@ impl From<oxidgene_core::types::ImageCrop> for GqlImageCrop {
     }
 }
 
+/// Where a person's portrait is drawn from, as pedigree nodes and search rows
+/// carry it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlPortraitRef {
+    pub source: GqlImageSource,
+    /// Set when `source` is a whole picture the client must crop itself.
+    pub crop: Option<GqlImageCrop>,
+}
+
+impl From<oxidgene_core::types::PortraitRef> for GqlPortraitRef {
+    fn from(portrait: oxidgene_core::types::PortraitRef) -> Self {
+        Self {
+            source: portrait.source.into(),
+            crop: portrait.crop.map(Into::into),
+        }
+    }
+}
+
 /// One display-ready portrait returned by the batched image query.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlPortraitImage {
@@ -2961,6 +2999,49 @@ pub struct GqlPersonDetailBundle {
     pub profile_vignettes: Vec<GqlVignette>,
     pub event_media: Vec<GqlEventMediaTile>,
     pub gallery: GqlGalleryBundle,
+    /// Where the person's own portrait is drawn from.
+    pub portrait: Option<GqlPortraitRef>,
+    /// Those of `persons` who are the SOSA root or one of its ancestors.
+    pub sosa_ancestor_ids: Vec<ID>,
+}
+
+/// Everything the couple page draws. Mirrors REST's
+/// `GET /families/{familyId}/detail-bundle`.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlCoupleDetailBundle {
+    pub family: GqlFamily,
+    pub spouses: Vec<GqlFamilySpouse>,
+    /// One per spouse, in the order of `spouses`.
+    pub persons: Vec<GqlPersonDetailBundle>,
+    /// The family's notes, then each spouse's.
+    pub notes: Vec<GqlNote>,
+    /// The media attached to the family itself.
+    pub media: Vec<GqlProfileMediaTile>,
+    pub gallery: GqlGalleryBundle,
+}
+
+impl From<crate::service::couple_detail::CoupleDetailBundle> for GqlCoupleDetailBundle {
+    fn from(bundle: crate::service::couple_detail::CoupleDetailBundle) -> Self {
+        Self {
+            family: bundle.family.into(),
+            spouses: bundle.spouses.into_iter().map(Into::into).collect(),
+            persons: bundle.persons.into_iter().map(Into::into).collect(),
+            notes: bundle.notes.into_iter().map(Into::into).collect(),
+            media: bundle.media.into_iter().map(Into::into).collect(),
+            gallery: bundle.gallery.into(),
+        }
+    }
+}
+
+impl From<crate::service::person_detail::ProfileMediaTile> for GqlProfileMediaTile {
+    fn from(item: crate::service::person_detail::ProfileMediaTile) -> Self {
+        Self {
+            link_id: ID(item.link_id.to_string()),
+            sort_order: item.sort_order,
+            family_id: item.family_id.map(|id| ID(id.to_string())),
+            media: item.media.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, SimpleObject)]
@@ -3008,16 +3089,7 @@ impl From<crate::service::person_detail::PersonDetailBundle> for GqlPersonDetail
             children: bundle.children.into_iter().map(Into::into).collect(),
             citations: bundle.citations.into_iter().map(Into::into).collect(),
             sources: bundle.sources.into_iter().map(Into::into).collect(),
-            profile_media: bundle
-                .profile_media
-                .into_iter()
-                .map(|item| GqlProfileMediaTile {
-                    link_id: ID(item.link_id.to_string()),
-                    sort_order: item.sort_order,
-                    family_id: item.family_id.map(|id| ID(id.to_string())),
-                    media: item.media.into(),
-                })
-                .collect(),
+            profile_media: bundle.profile_media.into_iter().map(Into::into).collect(),
             profile_vignettes: bundle
                 .profile_vignettes
                 .into_iter()
@@ -3034,6 +3106,12 @@ impl From<crate::service::person_detail::PersonDetailBundle> for GqlPersonDetail
                 })
                 .collect(),
             gallery: bundle.gallery.into(),
+            portrait: bundle.portrait.map(Into::into),
+            sosa_ancestor_ids: bundle
+                .sosa_ancestor_ids
+                .into_iter()
+                .map(|id| ID(id.to_string()))
+                .collect(),
         }
     }
 }
@@ -3217,6 +3295,7 @@ impl From<oxidgene_core::projection::SearchEntry> for GqlSearchEntry {
             father_name: e.father_name,
             mother_name: e.mother_name,
             children_count: e.children_count as i32,
+            portrait: e.portrait.map(Into::into),
         }
     }
 }
@@ -3298,6 +3377,10 @@ pub struct GqlPedigreeNode {
     pub generation: i32,
     /// Sosa-Stradonitz number if on ancestor path.
     pub sosa_number: Option<String>,
+    /// Where the card's portrait is drawn from, when the person has one.
+    pub portrait: Option<GqlPortraitRef>,
+    /// Whether the person is the tree's SOSA root or one of its ancestors.
+    pub sosa_ancestor: bool,
 }
 
 /// An edge connecting a parent to a child within a family.
@@ -3359,6 +3442,8 @@ impl From<oxidgene_core::projection::PedigreeNode> for GqlPedigreeNode {
             primary_media_path: n.primary_media_path,
             generation: n.generation,
             sosa_number: n.sosa_number.map(|s| s.to_string()),
+            portrait: n.portrait.map(Into::into),
+            sosa_ancestor: n.sosa_ancestor,
         }
     }
 }

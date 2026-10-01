@@ -100,6 +100,15 @@ pub struct RecentlyModifiedQuery {
     pub limit: Option<usize>,
 }
 
+/// Query parameters for GET /api/v1/trees/recent-persons.
+#[derive(Debug, Deserialize)]
+pub struct RecentPersonsQuery {
+    /// The trees, comma-separated.
+    pub tree_ids: String,
+    /// Maximum persons per tree (as [`RecentlyModifiedQuery::limit`]).
+    pub limit: Option<usize>,
+}
+
 /// Response for GET /api/v1/trees/:tree_id/persons/:person_id.
 /// Wraps the core `Person` with the server-computed SOSA number.
 #[derive(Debug, Serialize)]
@@ -643,14 +652,16 @@ pub struct SourceGroupDto {
 /// town's records nested under a department that otherwise branches many
 /// ways — so `prefix` may be longer than the request's `prefix` query
 /// parameter. `groups` is empty once `total` has dropped to <= the drill
-/// threshold; the caller should then fetch the final flat list via
-/// `GET .../dictionary/sources?prefix={prefix}` instead of rendering
-/// another drill-down level.
+/// threshold, and the final flat list of the level comes with it in
+/// `sources`, so the page needs no second request.
 #[derive(Debug, Serialize)]
 pub struct SourceDrillResponse {
     pub prefix: String,
     pub total: i64,
     pub groups: Vec<SourceGroupDto>,
+    /// The sources under `prefix`, when there is no group left to choose.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sources: Option<Vec<SourceDictionaryEntry>>,
 }
 
 /// A person resolved for a dictionary usage drill-down list: name parts +

@@ -73,6 +73,9 @@ use crate::rest::vignette;
 pub fn build_router(state: AppState) -> Router {
     let tree_routes = Router::new()
         .route("/", get(tree::list_trees).post(tree::create_tree))
+        // Names no tree, so the tree guard lets it through; the handler
+        // checks each tree it is asked about.
+        .route("/recent-persons", get(tree::recent_persons))
         .route(
             "/{tree_id}",
             get(tree::get_tree)
@@ -159,6 +162,10 @@ pub fn build_router(state: AppState) -> Router {
             get(family::get_family)
                 .put(family::update_family)
                 .delete(family::delete_family),
+        )
+        .route(
+            "/{tree_id}/families/{family_id}/detail-bundle",
+            get(family::get_couple_detail_bundle),
         );
 
     let family_member_routes = Router::new()
@@ -443,6 +450,7 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/profiles/{person_id}",
             get(profile::get_person_profile),
         )
+        .route("/{tree_id}/pedigree", get(profile::get_default_pedigree))
         .route(
             "/{tree_id}/pedigree/{root_person_id}",
             get(profile::get_pedigree),

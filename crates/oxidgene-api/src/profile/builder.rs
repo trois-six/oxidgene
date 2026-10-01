@@ -635,6 +635,7 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
             .and_then(|c| c.mother_display_name.clone()),
         children_count,
         date_sort: birth.and_then(|e| e.date_sort),
+        portrait: None,
     }
 }
 
@@ -724,6 +725,7 @@ pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> Search
         date_sort: row
             .date_sort
             .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+        portrait: None,
     }
 }
 
@@ -784,6 +786,9 @@ pub fn build_pedigree_node(
         primary_media_path: person.primary_media.as_ref().map(|m| m.file_path.clone()),
         generation,
         sosa_number,
+        // Filled by the assembly, which reads them for the whole window.
+        portrait: None,
+        sosa_ancestor: false,
     }
 }
 
@@ -848,6 +853,7 @@ mod tests {
             mother_name: Some("Mother One".to_string()),
             children_count: 3,
             date_sort: chrono::NaiveDate::from_ymd_opt(1850, 6, 1),
+            portrait: None,
         };
         let tree_id = Uuid::now_v7();
 

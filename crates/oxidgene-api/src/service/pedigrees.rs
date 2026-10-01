@@ -51,6 +51,37 @@ pub async fn pedigree(
         .await
 }
 
+/// The person a tree's pedigree is drawn around when nobody was chosen: its
+/// SOSA root while that is a live person of the tree, else its first person.
+/// A tree without anyone has no pedigree (`not_found`).
+pub async fn default_root(
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+) -> Result<Uuid, OxidGeneError> {
+    use oxidgene_db::repo::{PaginationParams, PersonRepo, TreeRepo};
+
+    if let Some(root) = TreeRepo::get(db, tree_id).await?.sosa_root_person_id {
+        match PersonRepo::get_in_tree(db, tree_id, root).await {
+            Ok(_) => return Ok(root),
+            Err(OxidGeneError::NotFound { .. }) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    let first = PaginationParams {
+        first: 1,
+        after: None,
+    };
+    PersonRepo::list_filtered(db, tree_id, None, &first)
+        .await?
+        .edges
+        .first()
+        .map(|edge| edge.node.id)
+        .ok_or(OxidGeneError::NotFound {
+            entity: "Person",
+            id: tree_id,
+        })
+}
+
 /// A pedigree expansion: in `direction`, from `from_depth` to `to_depth`
 /// generations, the opposite direction being loaded to `other_depth`.
 pub struct Expansion {

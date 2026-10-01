@@ -53,6 +53,18 @@ pub struct LocalName {
     pub name: String,
 }
 
+/// A strong validator of the base map: a digest of the embedded data, which
+/// only a new build changes.
+pub fn basemap_etag() -> &'static str {
+    use sha2::{Digest as _, Sha256};
+    static ETAG: OnceLock<String> = OnceLock::new();
+    ETAG.get_or_init(|| {
+        let digest = Sha256::digest(BASEMAP);
+        let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+        format!("\"{hex}\"")
+    })
+}
+
 /// Every country's outline, decompressed once.
 pub fn basemap() -> &'static [BasemapCountry] {
     static COUNTRIES: OnceLock<Vec<BasemapCountry>> = OnceLock::new();

@@ -39,11 +39,11 @@ use super::types::{
     GqlPedigreeEntry, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
     GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
     GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
-    GqlRepository, GqlRepositoryConnection,
-    GqlSearchEntry, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
-    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree,
-    GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
-    media_from_ctx, profiles_from_ctx, reader_from_ctx, require_local_file_access,
+    GqlRepository, GqlRepositoryConnection, GqlSearchEntry, GqlSearchResult, GqlSource,
+    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
+    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree, GqlTreeConnection, GqlTreeMediaLink,
+    GqlValueSuggestion, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
+    reader_from_ctx, require_local_file_access,
 };
 
 /// A read's record, or `None` when the record is not there — the shape of
@@ -121,6 +121,24 @@ impl QueryRoot {
             reader_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             uuid(&person_id)?,
+        )
+        .await?
+        .into())
+    }
+
+    /// Load everything one couple page draws: the family, its spouses and
+    /// their person bundles, the family's and spouses' notes, the family's
+    /// media. Mirrors `GET /trees/{treeId}/families/{familyId}/detail-bundle`.
+    async fn couple_detail_bundle(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        family_id: ID,
+    ) -> Result<super::types::GqlCoupleDetailBundle> {
+        Ok(crate::service::couple_detail::load_couple_detail_bundle(
+            reader_from_ctx(ctx),
+            live_tree(ctx, &tree_id).await?,
+            uuid(&family_id)?,
         )
         .await?
         .into())
@@ -711,13 +729,29 @@ impl QueryRoot {
         prefix: Option<String>,
     ) -> Result<GqlSourceDictionaryDrill> {
         let db = reader_from_ctx(ctx);
+        let tree_id = live_tree(ctx, &tree_id).await?;
         let (prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(
             db,
-            live_tree(ctx, &tree_id).await?,
+            tree_id,
             prefix.as_deref().unwrap_or_default(),
             SOURCE_DRILL_THRESHOLD,
         )
         .await?;
+        let sources = if groups.is_empty() {
+            let entries = crate::service::source::dictionary_sources(db, tree_id, &prefix).await?;
+            Some(
+                entries
+                    .into_iter()
+                    .map(|entry| GqlSourceDictionaryEntry {
+                        source: entry.source.into(),
+                        count: entry.count,
+                        repositories: entry.repositories,
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
         Ok(GqlSourceDictionaryDrill {
             prefix,
             total,
@@ -725,6 +759,7 @@ impl QueryRoot {
                 .into_iter()
                 .map(|(label, count)| GqlSourceDictionaryGroup { label, count })
                 .collect(),
+            sources,
         })
     }
 
@@ -1617,6 +1652,27 @@ impl QueryRoot {
         Ok(persons.into_iter().map(Into::into).collect())
     }
 
+    /// The persons modified most recently in each of several trees, in one
+    /// operation; a tree that is missing or deleted is left out. Mirrors
+    /// `GET /trees/recent-persons`.
+    async fn recent_persons_of_trees(
+        &self,
+        ctx: &Context<'_>,
+        tree_ids: Vec<ID>,
+        #[graphql(default_with = "crate::service::history::RECENT_PERSONS_DEFAULT_LIMIT")]
+        limit: usize,
+    ) -> Result<Vec<super::types::GqlTreeRecentPersons>> {
+        let tree_ids = uuids(&tree_ids)?;
+        let trees = crate::service::history::recently_modified_persons_of_trees(
+            reader_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            &tree_ids,
+            limit,
+        )
+        .await?;
+        Ok(trees.into_iter().map(Into::into).collect())
+    }
+
     /// Every way found to go from a person to another: their blood
     /// relationships, or the shortest paths through unions when they share
     /// no ancestor.
@@ -1648,13 +1704,19 @@ impl QueryRoot {
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
-        root_person_id: ID,
+        #[graphql(
+            desc = "The person to draw the pedigree around; without it, the tree's SOSA root, else its first person (as REST's `GET /pedigree`)."
+        )]
+        root_person_id: Option<ID>,
         ancestor_depth: i32,
         descendant_depth: i32,
     ) -> Result<GqlPedigree> {
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
-        let rid = uuid(&root_person_id)?;
+        let rid = match root_person_id {
+            Some(root) => uuid(&root)?,
+            None => crate::service::pedigrees::default_root(reader_from_ctx(ctx), tid).await?,
+        };
         let pedigree = crate::service::pedigrees::pedigree(
             profiles,
             tid,

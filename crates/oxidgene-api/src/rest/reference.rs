@@ -90,6 +90,33 @@ pub async fn places(
 /// GET /api/v1/reference/basemap
 ///
 /// The country outlines the statistics heat map is drawn over.
-pub async fn basemap() -> Json<&'static [reference::BasemapCountry]> {
-    Json(reference::basemap())
+///
+/// Built into the binary, so it only changes with a new release: it is
+/// cacheable by anyone for a week without asking again, and its `ETag`
+/// answers a revalidation with `304` and no body (1.6 MB of JSON otherwise).
+pub async fn basemap(headers: axum::http::HeaderMap) -> axum::response::Response {
+    use axum::http::header::{CACHE_CONTROL, ETAG, IF_NONE_MATCH};
+    use axum::http::{HeaderValue, StatusCode};
+    use axum::response::IntoResponse as _;
+
+    let etag = reference::basemap_etag();
+    let cache = [
+        (
+            CACHE_CONTROL,
+            HeaderValue::from_static(BASEMAP_CACHE_CONTROL),
+        ),
+        (ETAG, HeaderValue::from_static(etag)),
+    ];
+    let revalidated = headers
+        .get(IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag));
+    if revalidated {
+        return (StatusCode::NOT_MODIFIED, cache).into_response();
+    }
+    (cache, Json(reference::basemap())).into_response()
 }
+
+/// How long the base map may be reused without asking: a week, and never
+/// revalidated meanwhile — only a release changes it.
+const BASEMAP_CACHE_CONTROL: &str = "public, max-age=604800, immutable";

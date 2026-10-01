@@ -76,3 +76,18 @@ pub async fn delete_family(
     family::delete_family(&state.db, &state.profiles, tree_id, family_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// GET /api/v1/trees/:tree_id/families/:family_id/detail-bundle
+///
+/// Everything the couple page draws in one answer: the family, its spouses,
+/// each spouse's person bundle, the family's and the spouses' notes, and the
+/// family's own media.
+pub async fn get_couple_detail_bundle(
+    State(state): State<AppState>,
+    Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<crate::service::couple_detail::CoupleDetailBundle>, ApiError> {
+    Ok(Json(
+        crate::service::couple_detail::load_couple_detail_bundle(&state.reader, tree_id, family_id)
+            .await?,
+    ))
+}

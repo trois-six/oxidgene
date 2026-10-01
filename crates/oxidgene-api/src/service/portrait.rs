@@ -9,7 +9,7 @@
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{ImageCrop, ImageSource, Person, Portrait, is_remote_url};
+use oxidgene_core::types::{ImageCrop, ImageSource, Person, Portrait, PortraitRef, is_remote_url};
 use oxidgene_db::repo::{PersonRepo, PortraitRow};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -111,6 +111,46 @@ pub async fn load_portrait_images(
         .into_iter()
         .filter_map(portrait_image)
         .collect())
+}
+
+/// Where each of `person_ids` that has a portrait draws it from, read in one
+/// query (one per thousand people).
+pub async fn portrait_refs(
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+    person_ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, PortraitRef>, OxidGeneError> {
+    if person_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    Ok(PersonRepo::list_portraits_for(db, tree_id, person_ids)
+        .await?
+        .into_iter()
+        .filter_map(portrait_image)
+        .map(|image| {
+            (
+                image.person_id,
+                PortraitRef {
+                    source: image.source,
+                    crop: image.crop,
+                },
+            )
+        })
+        .collect())
+}
+
+/// Give each search row the portrait its person has, if any.
+pub async fn with_portraits(
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+    entries: &mut [oxidgene_core::projection::SearchEntry],
+) -> Result<(), OxidGeneError> {
+    let ids: Vec<Uuid> = entries.iter().map(|entry| entry.person_id).collect();
+    let mut portraits = portrait_refs(db, tree_id, &ids).await?;
+    for entry in entries {
+        entry.portrait = portraits.remove(&entry.person_id);
+    }
+    Ok(())
 }
 
 fn portrait_image(row: PortraitRow) -> Option<PortraitImage> {

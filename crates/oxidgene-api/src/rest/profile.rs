@@ -139,6 +139,27 @@ pub async fn get_pedigree(
     Ok(Json(pedigree))
 }
 
+/// `GET /api/v1/trees/{tree_id}/pedigree?ancestor_depth=N&descendant_depth=N`
+///
+/// The pedigree around the tree's default root — its SOSA root, else its
+/// first person — so a client opening a tree needs nothing else first.
+pub async fn get_default_pedigree(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+    Query(params): Query<PedigreeQuery>,
+) -> Result<Json<Pedigree>, ApiError> {
+    let root = crate::service::pedigrees::default_root(&state.reader, tree_id).await?;
+    let pedigree = crate::service::pedigrees::pedigree(
+        &state.profiles,
+        tree_id,
+        root,
+        params.ancestor_depth.into(),
+        params.descendant_depth.into(),
+    )
+    .await?;
+    Ok(Json(pedigree))
+}
+
 /// `POST /api/v1/trees/{tree_id}/pedigrees`
 ///
 /// Assemble the pedigrees of several roots in one operation, for a screen that

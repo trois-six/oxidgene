@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole};
+use crate::types::PortraitRef;
 
 /// The shape of a stored [`PersonProfile`] payload.
 ///
@@ -273,6 +274,14 @@ pub struct PedigreeNode {
     pub primary_media_path: Option<String>,
     pub generation: i32,
     pub sosa_number: Option<u64>,
+    /// Where the card's portrait is drawn from, when the person has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portrait: Option<PortraitRef>,
+    /// Whether the person is the tree's SOSA root or one of its ancestors,
+    /// whatever the window: the chart marks them without loading the whole
+    /// ancestry.
+    #[serde(default)]
+    pub sosa_ancestor: bool,
 }
 
 /// A parent-child edge in the pedigree.
@@ -373,6 +382,10 @@ pub struct SearchEntry {
     pub children_count: u32,
     // For sorting / filtering
     pub date_sort: Option<NaiveDate>,
+    /// Where the row's portrait is drawn from, when the person has one.
+    /// Filled where a row leaves the API, not in the search index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portrait: Option<PortraitRef>,
 }
 
 /// Paginated search results.

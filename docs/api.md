@@ -173,8 +173,10 @@ Base path: `/api/v1`.
 | `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`, which must name persons of the tree — another tree's person is `not_found`); a blank `name` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
 | `POST` | `/trees/{tree_id}/duplicate` | Duplicate a tree (deep copy) |
+| `GET` | `/trees/recent-persons?tree_ids=ID,ID&limit=N` | The persons modified most recently in each of up to 64 trees, `[{tree_id, persons}]` in the order asked, `persons` being `SearchEntry` rows as for one tree's `recently-modified`; a missing or deleted tree is left out, an id that is not a UUID is a `validation_error`. GraphQL: `recentPersonsOfTrees(treeIds, limit)` |
 
-Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
+Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete, each
+card's recent persons in one request)
 
 ### Persons
 
@@ -205,7 +207,11 @@ included event, and only the sources referenced by those citations. It also
 contains media attached directly to the person or their conjugal families,
 vignettes identifying the person, event media links, and one display-ready
 gallery bundle for those bounded sets. It never expands these collections to
-all records in the tree.
+all records in the tree. It carries the person's own `portrait` (an image
+source and its crop, as a pedigree node's) so the page resolves it with the
+gallery's pictures in one request, and `sosa_ancestor_ids`: those of its
+persons who are the tree's SOSA root or one of its ancestors, for the marks of
+the family narrative, so the page never loads the whole ancestry.
 
 Each profile media tile carries `family_id` (`familyId` in GraphQL): the
 conjugal family the media reaches the profile through, or `null` when it is
@@ -306,6 +312,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Moda
 | `GET` | `/trees/{tree_id}/families/{family_id}` | Get a family record; its spouses and children come from the member endpoints below |
 | `PUT` | `/trees/{tree_id}/families/{family_id}` | Update a family (`{ "privacy": … }`). The body is optional — an empty one only touches `updated_at` — but a body that is there must be a valid update, `validation_error` otherwise |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}` | Soft-delete a family |
+| `GET` | `/trees/{tree_id}/families/{family_id}/detail-bundle` | Everything the couple profile draws, in one answer: `family`, `spouses`, `persons` (each spouse's person detail bundle, in the order of `spouses`), `notes` (the family's, then each spouse's, at most 100 per owner), `media` (the family's own media tiles) and their `gallery`. A family of another tree is `not_found`. GraphQL: `coupleDetailBundle(treeId, familyId)` |
 
 Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](ui-person-edit-modal.md) (couple edit)
 
@@ -672,6 +679,7 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 | `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
 | `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
 | `GET` | `/trees/{tree_id}/dictionary/sources` | Sources + citation counts |
+| `GET` | `/trees/{tree_id}/dictionary/sources/groups?prefix=` | The Sources tab's next drill-down level: `{prefix, total, groups}`, single-choice levels skipped so `prefix` may be longer than asked. Once no group is left (`total` within the drill threshold), the level's sources come with it in `sources`, so the tab needs no second request. GraphQL: `dictionarySourceDrill` |
 | `GET` | `/trees/{tree_id}/dictionary/sources/{source_id}/usage` | Persons citing a source |
 | `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
 | `GET` | `/trees/{tree_id}/dictionary/places/{place_id}/usage` | Persons referencing a place: those whose own events take place there, the spouses of the couples whose events do, and the persons a media filed there (or one of its pages) is linked to — directly, through one of their events or couples — or shows in a crop. Deleted persons are left out |
@@ -922,7 +930,10 @@ city `{name, names: [{lang, name}], lon, lat, zoom, population}`: its names
 in the interface languages where they differ, its position in tenths of a
 degree, the web map zoom it is named from in tenths, and its population in
 thousands, ordered by zoom then population. From Natural Earth (public
-domain), embedded and Brotli-compressed like the place dictionary.
+domain), embedded and Brotli-compressed like the place dictionary. Only a
+release changes it, so it is served with `Cache-Control: public,
+max-age=604800, immutable` and a strong `ETag` (a digest of the embedded
+data) that answers `If-None-Match` with `304`.
 
 ### Import / export
 
@@ -1054,6 +1065,7 @@ profiles. See [Data Model §4](data-model.md).
 | `POST` | `/trees/{tree_id}/profiles/rebuild/{person_id}` | Rebuild a single person's projection |
 | `DELETE` | `/trees/{tree_id}/profiles` | Drop a tree's projections (rebuilt lazily on next read) |
 | `GET` | `/trees/{tree_id}/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Assemble a windowed pedigree for a root person |
+| `GET` | `/trees/{tree_id}/pedigree?ancestor_depth=N&descendant_depth=N` | The same around the tree's default root: its SOSA root while that is a live person of the tree, else its first person; a tree without anyone is `not_found`. GraphQL: `pedigree` without `rootPersonId` |
 | `POST` | `/trees/{tree_id}/pedigrees` | Assemble several pedigrees at once for `{root_person_ids, ancestor_depth, descendant_depth}`. Request order is preserved; a root that cannot be assembled is omitted rather than failing the batch. At most 64 roots per request |
 | `GET` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
 
@@ -1066,6 +1078,14 @@ the assistant tools ([MCP](mcp.md)) enforce the same limit, and the batched
 
 The profile and pedigree vocabulary is identical across REST and GraphQL. No
 legacy `/cache/*` routes or `cached*` GraphQL aliases are part of the contract.
+
+**A pedigree node carries its portrait and its SOSA mark.** `portrait` is
+the node's portrait source and crop, absent when the person has none, so a
+chart goes straight to the pictures; `sosa_ancestor` (`sosaAncestor`) says
+whether the person is the tree's SOSA root or one of its ancestors, whatever
+the window, so a chart marks them without loading the whole ancestry. Both are
+read once for the whole window (and for each of a batch's pedigrees), never
+stored.
 
 **A pedigree node carries whole events, not extracted years.** `PedigreeNode` and `PedigreeFamilyMember` expose `birth` / `death` as `ProfileEvent`s. They used to hold a `birth_year` string plus a `birth_place` string, and everything that did not fit those two — the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id — was gone before any client saw it: a birth on 2 Nov 1788 arrived as `"1788"`, and a death recorded as "between 11 Nov 1691 and 20 Aug 1693" as a qualifier promising a second date the payload could not carry. `ProfileEvent` therefore also carries `date_qualifier`, `date_value2` and `calendar`, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
 
@@ -1111,7 +1131,10 @@ father and mother, and the number of children — so a result can be rendered
 without a follow-up request. Birth and death years fall back to the baptism and
 the burial when the primary event carries no date, and each year is accompanied
 by its own qualifier; a client must render the two together rather than
-displaying a bare year.
+displaying a bare year. A row whose person has a portrait carries it in
+`portrait` — `{source, crop?}`, an [image source](#image-sources) and, for a
+picture the client cuts itself, the region — on every list of rows the API
+answers: search, homonyms, recently modified persons and kinship.
 
 Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Profile](ui-person-profile.md) (person detail) · [Search Results](ui-search-results.md) (search)
 
@@ -1296,10 +1319,12 @@ type Query {
   persons(treeId: ID!, first: Int, after: String, search: String): PersonConnection!
   person(treeId: ID!, id: ID!): Person
   personDetailBundle(treeId: ID!, personId: ID!): PersonDetailBundle!
+  coupleDetailBundle(treeId: ID!, familyId: ID!): CoupleDetailBundle!  # mirrors GET …/families/{family_id}/detail-bundle
   relationLabels(treeId: ID!, personIds: [ID!]!, familyIds: [ID!]!): RelationLabels!
   personBySosa(treeId: ID!, number: Int!): Person
   personHomonyms(treeId: ID!, personId: ID!): [SearchEntry!]!
   recentlyModifiedPersons(treeId: ID!, limit: Int = 5): [SearchEntry!]!
+  recentPersonsOfTrees(treeIds: [ID!]!, limit: Int = 5): [TreeRecentPersons!]!  # mirrors GET /trees/recent-persons
   ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   descendants(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
   kinship(treeId: ID!, personId: ID!, otherPersonId: ID!): Kinship!
@@ -1404,7 +1429,7 @@ type Query {
   # Read projections (see Data Model section 4) — mirrors the REST routes
   personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
   personProfiles(treeId: ID!, first: Int, after: String): GqlPersonProfileConnection!
-  pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
+  pedigree(treeId: ID!, rootPersonId: ID, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
   pedigrees(treeId: ID!, rootPersonIds: [ID!]!, ancestorDepth: Int!, descendantDepth: Int!): [PedigreeEntry!]!
   # A read, like REST's `GET …/expand`: only what an expansion adds.
   expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
@@ -1880,6 +1905,8 @@ type PedigreeNode {
   primaryMediaPath: String
   generation: Int!
   sosaNumber: Int
+  portrait: PortraitRef         # absent without a portrait
+  sosaAncestor: Boolean!        # the SOSA root or one of its ancestors
 }
 
 type PedigreeEdge {
@@ -1916,6 +1943,14 @@ type SearchEntry {
   fatherName: String
   motherName: String
   childrenCount: Int!
+  portrait: PortraitRef         # absent without a portrait
+}
+
+# Where a portrait is drawn from: an image source and, for a picture the
+# client cuts itself, the region.
+type PortraitRef {
+  source: ImageSource!
+  crop: ImageCrop
 }
 
 enum PedigreeDirection {

@@ -5,7 +5,8 @@ use std::collections::HashSet;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::types::{
-    Citation, Event, FamilyChild, FamilySpouse, Media, Person, PersonName, Place, Source, Vignette,
+    Citation, Event, FamilyChild, FamilySpouse, Media, Person, PersonName, Place, PortraitRef,
+    Source, Vignette,
 };
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo,
@@ -34,6 +35,13 @@ pub struct PersonDetailBundle {
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
     pub gallery: GalleryBundle,
+    /// Where the person's own portrait is drawn from, so the page resolves
+    /// it with its gallery's pictures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portrait: Option<PortraitRef>,
+    /// Those of `persons` who are the tree's SOSA root or one of its
+    /// ancestors, for the marks of the family narrative.
+    pub sosa_ancestor_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -183,29 +191,12 @@ pub async fn load_person_detail_bundle(
             .chain(profile_media.iter().map(|item| item.media.id)),
     );
     let vignette_ids = sorted_unique(profile_vignettes.iter().map(|item| item.id));
-    let mut gallery = GalleryBundle {
-        media: Vec::new(),
-        vignettes: Vec::new(),
-    };
-    let (mut media_offset, mut vignette_offset) = (0, 0);
-    while media_offset < media_ids.len() || vignette_offset < vignette_ids.len() {
-        let media_end = (media_offset + GALLERY_BATCH_SIZE).min(media_ids.len());
-        let remaining = GALLERY_BATCH_SIZE - (media_end - media_offset);
-        let vignette_end = (vignette_offset + remaining).min(vignette_ids.len());
-        let batch = load_gallery_bundle(
-            db,
-            tree_id,
-            &media_ids[media_offset..media_end],
-            &vignette_ids[vignette_offset..vignette_end],
-        )
-        .await?;
-        gallery.media.extend(batch.media);
-        gallery.vignettes.extend(batch.vignettes);
-        media_offset = media_end;
-        vignette_offset = vignette_end;
-    }
+    let gallery = load_page_gallery(db, tree_id, &media_ids, &vignette_ids).await?;
+    let (portrait, sosa_ancestor_ids) = page_marks(db, tree_id, person_id, &persons).await?;
 
     Ok(PersonDetailBundle {
+        portrait,
+        sosa_ancestor_ids,
         sosa_number,
         persons,
         names,
@@ -238,6 +229,81 @@ pub async fn compute_sosa_number(
         Err(OxidGeneError::NotFound { .. }) => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// The gallery of a page's media and vignettes, read in bounded batches.
+async fn load_page_gallery(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    media_ids: &[Uuid],
+    vignette_ids: &[Uuid],
+) -> Result<GalleryBundle, OxidGeneError> {
+    let mut gallery = GalleryBundle {
+        media: Vec::new(),
+        vignettes: Vec::new(),
+    };
+    let (mut media_offset, mut vignette_offset) = (0, 0);
+    while media_offset < media_ids.len() || vignette_offset < vignette_ids.len() {
+        let media_end = (media_offset + GALLERY_BATCH_SIZE).min(media_ids.len());
+        let remaining = GALLERY_BATCH_SIZE - (media_end - media_offset);
+        let vignette_end = (vignette_offset + remaining).min(vignette_ids.len());
+        let batch = load_gallery_bundle(
+            db,
+            tree_id,
+            &media_ids[media_offset..media_end],
+            &vignette_ids[vignette_offset..vignette_end],
+        )
+        .await?;
+        gallery.media.extend(batch.media);
+        gallery.vignettes.extend(batch.vignettes);
+        media_offset = media_end;
+        vignette_offset = vignette_end;
+    }
+    Ok(gallery)
+}
+
+/// The person's own portrait, and those of `persons` who are SOSA ancestors.
+async fn page_marks(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    person_id: Uuid,
+    persons: &[Person],
+) -> Result<(Option<PortraitRef>, Vec<Uuid>), OxidGeneError> {
+    let mut portraits =
+        crate::service::portrait::portrait_refs(db, tree_id, std::slice::from_ref(&person_id))
+            .await?;
+    let sosa = sosa_ancestors_among(db, tree_id, persons.iter().map(|person| person.id)).await?;
+    Ok((portraits.remove(&person_id), sorted_unique(sosa)))
+}
+
+/// Those of `candidates` that are the tree's SOSA root or one of its
+/// ancestors.
+///
+/// One walk up the root's ancestry, kept for the request only, so a screen
+/// can mark them without the client loading the whole ancestry.
+pub async fn sosa_ancestors_among(
+    db: &impl sea_orm::ConnectionTrait,
+    tree_id: Uuid,
+    candidates: impl IntoIterator<Item = Uuid>,
+) -> Result<HashSet<Uuid>, OxidGeneError> {
+    let Some(root) = TreeRepo::get(db, tree_id).await?.sosa_root_person_id else {
+        return Ok(HashSet::new());
+    };
+    match PersonRepo::get_in_tree(db, tree_id, root).await {
+        Ok(_) => {}
+        Err(OxidGeneError::NotFound { .. }) => return Ok(HashSet::new()),
+        Err(error) => return Err(error),
+    }
+    let ancestry: HashSet<Uuid> = AncestryRepo::ancestors(db, root, None)
+        .await?
+        .into_iter()
+        .map(|link| link.person_id)
+        .chain(std::iter::once(root))
+        .collect();
+    Ok(candidates
+        .into_iter()
+        .filter(|id| ancestry.contains(id))
+        .collect())
 }
 
 #[cfg(test)]

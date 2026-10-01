@@ -24,8 +24,8 @@ pub use event::{Event, EventWitness, QualifiedYear, SpouseAge, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
 pub use kinship::{Kinship, KinshipPath, KinshipSegment};
 pub use media::{
-    DOCUMENT_MIME, ImageCrop, ImageSource, Media, MediaLink, Portrait, Vignette, guess_mime,
-    is_image_mime, is_remote_url, last_path_segment, may_draw_as_image, normalize_mime,
+    DOCUMENT_MIME, ImageCrop, ImageSource, Media, MediaLink, Portrait, PortraitRef, Vignette,
+    guess_mime, is_image_mime, is_remote_url, last_path_segment, may_draw_as_image, normalize_mime,
 };
 pub use note::Note;
 pub use pagination::{Connection, Edge, PageInfo};

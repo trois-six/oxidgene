@@ -300,6 +300,19 @@ pub enum ImageSource {
     Crop { vignette_id: Uuid },
 }
 
+/// Where a person's portrait is drawn from: the picture's address and, for a
+/// whole picture the client has to cut itself, the region to take out of it.
+///
+/// Carried by the payloads that list people a screen draws with their
+/// portrait — pedigree nodes, search rows, a person page — so the client goes
+/// straight to the pictures without first asking whose portrait is what.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortraitRef {
+    pub source: ImageSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<ImageCrop>,
+}
+
 /// Whether a MIME type names a picture an `<img>` can draw.
 #[must_use]
 pub fn is_image_mime(mime_type: &str) -> bool {

@@ -5,6 +5,7 @@ pub mod anomalies;
 pub mod background_job;
 pub(crate) mod blocking;
 pub mod citation;
+pub mod couple_detail;
 pub mod duplicates;
 pub mod event;
 pub mod event_date;

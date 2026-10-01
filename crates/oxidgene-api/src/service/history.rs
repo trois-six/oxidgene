@@ -794,6 +794,42 @@ pub async fn recently_modified_persons(
     profiles.search_entries(tree_id, &person_ids).await
 }
 
+/// The most trees one request may ask the recent persons of.
+pub const MAX_RECENT_PERSON_TREES: usize = 64;
+
+/// One tree's most recently modified persons, in a batch.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TreeRecentPersons {
+    pub tree_id: Uuid,
+    pub persons: Vec<SearchEntry>,
+}
+
+/// [`recently_modified_persons`] for several trees in one operation, for a
+/// page that shows each tree's latest persons — the home page's cards. Order
+/// is kept; a tree that is missing or deleted is left out rather than
+/// failing the batch.
+pub async fn recently_modified_persons_of_trees(
+    db: &impl ConnectionTrait,
+    profiles: &ProfileService,
+    tree_ids: &[Uuid],
+    limit: usize,
+) -> Result<Vec<TreeRecentPersons>, OxidGeneError> {
+    if tree_ids.len() > MAX_RECENT_PERSON_TREES {
+        return Err(OxidGeneError::Validation(format!(
+            "at most {MAX_RECENT_PERSON_TREES} trees can be read at once"
+        )));
+    }
+    let mut out = Vec::with_capacity(tree_ids.len());
+    for &tree_id in tree_ids {
+        match recently_modified_persons(db, profiles, tree_id, limit).await {
+            Ok(persons) => out.push(TreeRecentPersons { tree_id, persons }),
+            Err(OxidGeneError::NotFound { .. }) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(out)
+}
+
 /// Put a record back as one of its versions had it.
 ///
 /// Runs on the caller's transaction, refreshes the projections it reaches,

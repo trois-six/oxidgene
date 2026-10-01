@@ -409,8 +409,11 @@ impl ProfileService {
             offset as u64,
         )
         .await?;
+        let mut entries: Vec<SearchEntry> =
+            page.entries.into_iter().map(search_entry_from_db).collect();
+        crate::service::portrait::with_portraits(conn, tree_id, &mut entries).await?;
         Ok(SearchResult {
-            entries: page.entries.into_iter().map(search_entry_from_db).collect(),
+            entries,
             total_count: page.total_count as usize,
         })
     }
@@ -432,11 +435,13 @@ impl ProfileService {
         let distinct = PersonDistinctRepo::distinct_from(conn, person_id).await?;
         let rows =
             PersonSearchRepo::homonyms(conn, tree_id, person_id, SEARCH_MAX_LIMIT as u64).await?;
-        Ok(rows
+        let mut entries: Vec<SearchEntry> = rows
             .into_iter()
             .filter(|row| !distinct.contains(&row.person_id))
             .map(search_entry_from_db)
-            .collect())
+            .collect();
+        crate::service::portrait::with_portraits(conn, tree_id, &mut entries).await?;
+        Ok(entries)
     }
 
     /// Search rows for a bounded set of persons, in the order asked for.
@@ -455,10 +460,12 @@ impl ProfileService {
             .iter()
             .map(|profile| (profile.person_id, builder::build_search_entry(profile)))
             .collect();
-        Ok(person_ids
+        let mut entries: Vec<SearchEntry> = person_ids
             .iter()
             .filter_map(|id| by_id.remove(id))
-            .collect())
+            .collect();
+        crate::service::portrait::with_portraits(&self.reader, tree_id, &mut entries).await?;
+        Ok(entries)
     }
 
     // ── Invalidation ─────────────────────────────────────────────────────
@@ -774,6 +781,27 @@ impl ProfileService {
         self.projections_for(conn, tree_id, person_ids).await
     }
 
+    /// Give each node of a window its portrait and whether it is a SOSA
+    /// ancestor: two queries for the whole window, so the client neither
+    /// asks whose portrait is what nor loads the tree's whole ancestry.
+    async fn decorate_nodes(
+        &self,
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+        nodes: &mut HashMap<Uuid, PedigreeNode>,
+    ) -> Result<(), OxidGeneError> {
+        let ids: Vec<Uuid> = nodes.keys().copied().collect();
+        let mut portraits = crate::service::portrait::portrait_refs(conn, tree_id, &ids).await?;
+        let sosa =
+            crate::service::person_detail::sosa_ancestors_among(conn, tree_id, ids.iter().copied())
+                .await?;
+        for (id, node) in nodes.iter_mut() {
+            node.portrait = portraits.remove(id);
+            node.sosa_ancestor = sosa.contains(id);
+        }
+        Ok(())
+    }
+
     /// Assemble a pedigree window for a root person from family links
     /// and the stored projections.
     #[instrument(
@@ -823,7 +851,8 @@ impl ProfileService {
             person_ids.push(p.person_id);
         }
 
-        let nodes = pedigree::nodes(&person_ids, &persons, &depths, root_person_id);
+        let mut nodes = pedigree::nodes(&person_ids, &persons, &depths, root_person_id);
+        self.decorate_nodes(conn, tree_id, &mut nodes).await?;
         let edges = pedigree::edges(&persons, &nodes);
         let family_events = pedigree::family_events(&persons);
 

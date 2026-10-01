@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use oxidgene_core::OxidGeneError;
 use serde::Serialize;
 
-pub use basemap::{BasemapCity, BasemapCountry, LocalName, basemap};
+pub use basemap::{BasemapCity, BasemapCountry, LocalName, basemap, basemap_etag};
 pub use loader::{
     GivenNameEntry, OccupationEntry, ReferenceKind, ReferenceLang, UNSUPPORTED_LANGUAGE, has_sheet,
     lookup_given_name, lookup_occupation, preheat, starts_a_word, suggest_terms,

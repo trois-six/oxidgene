@@ -75,6 +75,14 @@ pub async fn source_groups(
         SOURCE_DRILL_THRESHOLD,
     )
     .await?;
+    let sources = if groups.is_empty() {
+        Some(
+            crate::service::source::dictionary_sources(&state.reader, tree_id, &resolved_prefix)
+                .await?,
+        )
+    } else {
+        None
+    };
     Ok(Json(SourceDrillResponse {
         prefix: resolved_prefix,
         total,
@@ -82,6 +90,7 @@ pub async fn source_groups(
             .into_iter()
             .map(|(label, count)| SourceGroupDto { label, count })
             .collect(),
+        sources,
     }))
 }
 
