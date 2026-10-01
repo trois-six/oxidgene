@@ -214,6 +214,57 @@ async fn openapi_spec_is_generated_from_the_rest_router() {
     );
     assert_eq!(error_schema["properties"]["error"]["type"], "string");
     assert_eq!(error_schema["properties"]["request_id"]["format"], "uuid");
+
+    // Query parameters come from the handler's `Query<…>` type.
+    let search = &document["paths"]["/api/v1/trees/{tree_id}/persons/search"]["get"];
+    let parameter = |operation: &Value, name: &str| {
+        operation["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|parameter| parameter["name"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("no parameter {name}: {operation}"))
+    };
+    assert_eq!(parameter(search, "q")["in"], "query");
+    assert_eq!(parameter(search, "limit")["schema"]["type"], "integer");
+    assert_eq!(parameter(search, "limit")["required"], false);
+
+    // Request bodies come from its `Json<…>` type, described once.
+    let create_source = &document["paths"]["/api/v1/trees/{tree_id}/sources"]["post"];
+    let body = &create_source["requestBody"]["content"]["application/json"]["schema"];
+    let name = body["$ref"].as_str().expect("a referenced schema");
+    let schema = &document["components"]["schemas"][name.rsplit('/').next().unwrap()];
+    assert_eq!(schema["properties"]["title"]["type"], "string", "{schema}");
+    assert!(
+        schema["required"]
+            .as_array()
+            .is_some_and(|required| required.contains(&serde_json::json!("title"))),
+        "{schema}"
+    );
+
+    // Path parameters are typed from its `Path<…>` type.
+    let version = &document["paths"]["/api/v1/trees/{tree_id}/history/{record_type}/{record_id}/{version}"]
+        ["get"];
+    assert_eq!(parameter(version, "version")["schema"]["type"], "integer");
+    assert!(
+        parameter(version, "record_type")["schema"]["enum"]
+            .as_array()
+            .is_some_and(|values| values.contains(&serde_json::json!("person"))),
+        "{version}"
+    );
+    let occupation = &document["paths"]["/api/v1/reference/{lang}/occupations"]["get"];
+    assert_eq!(parameter(occupation, "lang")["schema"]["enum"][0], "fr");
+    assert_eq!(parameter(occupation, "term")["required"], true);
+    let suggest = &document["paths"]["/api/v1/trees/{tree_id}/suggestions/{field}"]["get"];
+    assert!(
+        parameter(suggest, "field")["schema"]["enum"]
+            .as_array()
+            .is_some_and(|values| values.contains(&serde_json::json!("family-names"))),
+        "{suggest}"
+    );
+    let upload = &document["paths"]["/api/v1/trees/{tree_id}/media/upload"]["post"];
+    assert!(upload["requestBody"]["content"]["multipart/form-data"].is_object());
 }
 
 // ───────────────────────── Tree guard tests ─────────────────────────

@@ -131,7 +131,15 @@ The REST API exposes its OpenAPI 3.1 description at
 `GET /api/v1/openapi.json`. The build script generates the document from the
 Axum router AST on every API build, including nested and merged routers, so its
 paths, HTTP methods, operation identifiers, and path parameters track the
-compiled REST surface. The document also defines the shared error envelope.
+compiled REST surface. Each handler's extractors are read from the sources too:
+path parameters are typed from its `Path<…>` (a UUID, an integer, or the values
+of an enum such as `{record_type}` or `{field}`; `{lang}` lists the interface
+languages), query parameters come from the fields of its `Query<…>` type, and
+the request body from its `Json<…>` type, described once under
+`components.schemas` with the serde names, defaults and flattening applied, or
+as `multipart/form-data` or raw bytes. Response bodies are not described: this
+specification is their reference. The document also defines the shared error
+envelope.
 
 GraphQL uses its executable schema and standard introspection instead of a
 separate OpenAPI description. The `graphql` feature is enabled in the
