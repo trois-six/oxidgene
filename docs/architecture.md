@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:16:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:51:37Z }
 ---
 
 
@@ -158,6 +158,14 @@ UI specifications:
     needs any more (no row, or ended without an artifact) once they are a day
     old. Purging a tree deletes its jobs' objects before the rows cascade
     away.
+- A crafted file cannot stop the queue. Readers parse on the blocking pool
+    behind a task boundary, so a reader that panics fails its job as
+    unreadable input (`invalid_job_input`) instead of reaching the worker. The
+    worker loop runs on a task of its own and is restarted if it panics. A
+    release build aborts on panic, so a job is also failed unrun
+    (`job_attempts_exhausted`) once it has been claimed more than three times:
+    a job that brings the process down is retried at the next starts, not
+    forever. Other failures report `job_failed`.
 - Import database writes and their durable phase transition commit together.
     Once data have committed, recovery resumes projection rebuilding rather than
     inserting the imported records again.

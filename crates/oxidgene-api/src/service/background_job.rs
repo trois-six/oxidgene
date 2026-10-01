@@ -44,6 +44,15 @@ const ORPHAN_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 /// orphaned job objects; it also does so when it starts.
 const MAINTENANCE_PERIOD: Duration = Duration::from_secs(60 * 60);
 
+/// How many times a job is claimed before it is failed unrun.
+///
+/// A job is claimed again after its worker stopped mid-run: a restart, an
+/// expired lease. Most such stops are the host's doing, but one that the job
+/// itself causes — a file that crashes the process, which a release build,
+/// compiled to abort on panic, cannot catch — would otherwise be retried at
+/// every start, forever, taking every job queued behind it down with it.
+pub const MAX_ATTEMPTS: i32 = 3;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LiveJobProgress {
     pub phase: String,
@@ -189,6 +198,10 @@ impl BackgroundJobWorker {
         };
         let _live_job =
             (self.db.get_database_backend() == DbBackend::Sqlite).then(|| LiveJobGuard::new(&job));
+        if job.attempt > MAX_ATTEMPTS {
+            self.fail_exhausted(&job).await?;
+            return Ok(true);
+        }
 
         let span = tracing::info_span!(
             "background_job.process",
@@ -229,8 +242,36 @@ impl BackgroundJobWorker {
         Ok(true)
     }
 
+    /// Fail `job`, claimed more than [`MAX_ATTEMPTS`] times, without running
+    /// it again.
+    async fn fail_exhausted(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
+        tracing::error!(
+            error.category = "job_attempts_exhausted",
+            job.kind = %job.kind,
+            job.format = %job.format,
+            job.attempt = job.attempt,
+            "background job stopped too many times; failed without running it again"
+        );
+        if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, "job_attempts_exhausted")
+            .await?
+        {
+            remove_live_job(job.id);
+            self.cleanup_import_inputs(job).await;
+        }
+        Ok(())
+    }
+
     /// Run until the process is shut down.
+    ///
+    /// The loop runs on a task of its own, restarted after a pause if it
+    /// panics: one job's failure must not end every job after it. Dropping
+    /// this future stops the loop.
     pub async fn run(self) {
+        let pause = self.poll_interval;
+        supervise(move || self.clone().run_loop(), pause).await;
+    }
+
+    async fn run_loop(self) {
         let mut next_maintenance = tokio::time::Instant::now();
         loop {
             if tokio::time::Instant::now() >= next_maintenance {
@@ -349,9 +390,11 @@ impl BackgroundJobWorker {
             "gedcom" => {
                 progress.enter(gedcom::FileImportPhase::Parsing);
                 let source = tokio::fs::read(source).await?;
-                tracing::info_span!("import.parse", import.format = "gedcom")
-                    .in_scope(|| oxidgene_gedcom::import::import_gedcom_bytes(&source, job.tree_id))
-                    .map_err(OxidGeneError::Gedcom)
+                let tree_id = job.tree_id;
+                parse_off_thread("gedcom", move || {
+                    oxidgene_gedcom::import::import_gedcom_bytes(&source, tree_id)
+                })
+                .await
             }
             "gedzip" => {
                 gedcom::prepare_gedzip_file(&*self.media, job.tree_id, source, progress).await
@@ -360,11 +403,23 @@ impl BackgroundJobWorker {
                 progress.enter(gedcom::FileImportPhase::Parsing);
                 let source = tokio::fs::read(source).await?;
                 let origin = safe_origin_file(job.original_filename.as_deref());
-                tracing::info_span!("import.parse", import.format = "geneweb")
-                    .in_scope(|| {
-                        oxidgene_gedcom::geneweb::import_geneweb(&source, &origin, job.tree_id)
-                    })
-                    .map_err(OxidGeneError::Gedcom)
+                let tree_id = job.tree_id;
+                parse_off_thread("geneweb", move || {
+                    oxidgene_gedcom::geneweb::import_geneweb(&source, &origin, tree_id)
+                })
+                .await
+            }
+            // A reader that panics, standing in for one a crafted file
+            // crashes.
+            #[cfg(test)]
+            "test-panic" => {
+                parse_off_thread(
+                    "test-panic",
+                    || -> Result<oxidgene_gedcom::ImportResult, String> {
+                        panic!("a reader crashed")
+                    },
+                )
+                .await
             }
             _ => Err(OxidGeneError::Validation("unknown import format".into())),
         }
@@ -763,6 +818,69 @@ impl BackgroundJobWorker {
     }
 }
 
+/// Run `parse`, a file reader, on the blocking pool under an `import.parse`
+/// span of `format`.
+///
+/// Off the async workers, so a large file does not stall them, and behind a
+/// task boundary: a reader that panics on a crafted file fails this job as
+/// unreadable input instead of taking the worker loop down with it. (A
+/// release build aborts on panic; [`MAX_ATTEMPTS`] covers that case.)
+pub(crate) async fn parse_off_thread<F>(
+    format: &'static str,
+    parse: F,
+) -> Result<oxidgene_gedcom::ImportResult, OxidGeneError>
+where
+    F: FnOnce() -> Result<oxidgene_gedcom::ImportResult, String> + Send + 'static,
+{
+    let span = tracing::info_span!("import.parse", import.format = format);
+    match crate::service::blocking::spawn_in(span, parse).await {
+        Ok(parsed) => parsed.map_err(OxidGeneError::Gedcom),
+        Err(error) if error.is_panic() => {
+            tracing::error!(
+                error.category = "import_reader_panicked",
+                import.format = format,
+                "the file reader crashed; the import fails as unreadable input"
+            );
+            Err(OxidGeneError::Gedcom("the file could not be read".into()))
+        }
+        Err(_) => Err(OxidGeneError::Internal(
+            "import parsing was cancelled".into(),
+        )),
+    }
+}
+
+/// Run the future `make` returns until it ends, starting a fresh one, after
+/// `pause`, each time one panics.
+///
+/// The future runs on a task of its own, which is what lets its panic be
+/// seen; the task is aborted when this future is dropped.
+async fn supervise<F, Fut>(make: F, pause: Duration)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    struct AbortOnDrop(tokio::task::JoinHandle<()>);
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
+    loop {
+        let mut task = AbortOnDrop(tokio::spawn(make()));
+        match (&mut task.0).await {
+            Err(error) if error.is_panic() => {
+                tracing::error!(
+                    error.category = "worker_panicked",
+                    "background job worker panicked; restarting it"
+                );
+                tokio::time::sleep(pause).await;
+            }
+            _ => return,
+        }
+    }
+}
+
 fn progress_period(poll_interval: Duration, lease_duration: Duration) -> Duration {
     poll_interval.min(lease_duration / 3)
 }
@@ -922,6 +1040,135 @@ mod tests {
             let decoded: GeneanetJobPayload = serde_json::from_value(payload.clone()).unwrap();
             assert_eq!(decoded.media_fidelity, fidelity);
         }
+    }
+
+    /// A temporary media store and an import job of `format` queued in
+    /// `db`, its source stored; the store's directory and the job's id.
+    async fn queued_import(
+        db: &DatabaseConnection,
+        format: &str,
+    ) -> (tempfile::TempDir, Arc<dyn MediaStore>, Uuid) {
+        let root = tempfile::tempdir().expect("creates media root");
+        let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(db, tree_id, "Worker".into(), None)
+            .await
+            .expect("creates tree");
+        let job_id = Uuid::now_v7();
+        let source = tempfile::NamedTempFile::new().expect("creates source");
+        std::fs::write(source.path(), b"0 HEAD\n0 TRLR\n").expect("writes source");
+        let source_key = job_blob_key(job_id, "source", "ged").expect("job key");
+        media
+            .put_file(&source_key, source.path())
+            .await
+            .expect("stores source");
+        BackgroundJobRepo::create(
+            db,
+            NewBackgroundJob {
+                id: job_id,
+                tree_id,
+                kind: BackgroundJobKind::Import,
+                format: format.to_string(),
+                source_key: Some(source_key),
+                payload_json: None,
+                original_filename: None,
+                merge_occupations: false,
+                merge_names: false,
+            },
+        )
+        .await
+        .expect("queues job");
+        (root, media, job_id)
+    }
+
+    async fn migrated_db() -> DatabaseConnection {
+        let db = oxidgene_db::repo::connect("sqlite::memory:")
+            .await
+            .expect("connects");
+        oxidgene_db::repo::run_migrations(&db)
+            .await
+            .expect("migrates");
+        db
+    }
+
+    async fn job(db: &DatabaseConnection, job_id: Uuid) -> BackgroundJob {
+        use sea_orm::EntityTrait as _;
+        oxidgene_db::entities::background_job::Entity::find_by_id(job_id)
+            .one(db)
+            .await
+            .expect("reads job")
+            .expect("job exists")
+    }
+
+    #[tokio::test]
+    async fn a_reader_that_panics_fails_its_job_once_and_for_all() {
+        let db = migrated_db().await;
+        let (_root, media, job_id) = queued_import(&db, "test-panic").await;
+        let worker = BackgroundJobWorker::new(
+            db.clone(),
+            Arc::new(ProfileService::new(db.clone())),
+            media,
+            "test",
+        );
+
+        assert!(worker.run_once().await.expect("the iteration survives"));
+
+        let failed = job(&db, job_id).await;
+        assert_eq!(failed.status, "failed");
+        assert_eq!(failed.error_code.as_deref(), Some("invalid_job_input"));
+        // Not queued again: the next iteration finds nothing to do.
+        assert!(!worker.run_once().await.expect("polls"));
+    }
+
+    #[tokio::test]
+    async fn a_job_stopped_too_often_is_failed_without_running() {
+        let db = migrated_db().await;
+        let (_root, media, job_id) = queued_import(&db, "gedcom").await;
+        // Each start claims it and dies mid-run, as a process aborting on a
+        // crafted file would; the next start puts it back in the queue.
+        for _ in 0..MAX_ATTEMPTS {
+            BackgroundJobRepo::claim_next(&db, "crashed", chrono::Duration::hours(1))
+                .await
+                .expect("claims")
+                .expect("a queued job");
+            BackgroundJobRepo::requeue_running(&db)
+                .await
+                .expect("requeues");
+        }
+        let worker = BackgroundJobWorker::new(
+            db.clone(),
+            Arc::new(ProfileService::new(db.clone())),
+            media,
+            "test",
+        );
+
+        assert!(worker.run_once().await.expect("claims the job"));
+
+        let failed = job(&db, job_id).await;
+        assert_eq!(failed.status, "failed");
+        assert_eq!(failed.error_code.as_deref(), Some("job_attempts_exhausted"));
+        assert_eq!(failed.phase, "failed");
+    }
+
+    #[tokio::test]
+    async fn a_panicking_loop_is_restarted() {
+        let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = Arc::clone(&starts);
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            supervise(
+                move || {
+                    let start = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    async move {
+                        assert!(start > 0, "the first run panics");
+                    }
+                },
+                Duration::from_millis(1),
+            ),
+        )
+        .await
+        .expect("the second run ends the supervision");
+        assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]
