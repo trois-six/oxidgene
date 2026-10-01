@@ -4,7 +4,6 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::media_gallery::MediaOwner;
 use crate::components::merge_dialog::MergeDialog;
@@ -16,12 +15,12 @@ use crate::components::person_profile::{
     refresh_button, timeline_placeholder, timeline_section, use_ancestor_pedigree,
     use_mini_pedigree, use_sosa_ancestors, use_tree_resource,
 };
-use crate::components::print::PrintHeading;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
+use crate::components::tree_page::ToolPageFrame;
 use crate::i18n::use_i18n;
-use crate::router::Route;
+use crate::router::{Route, person_route, push_tree_route};
 use crate::shared::Shared;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
@@ -222,31 +221,23 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
     });
 
     rsx! {
-        div { class: "sub-page",
-        // Breadcrumb
-        div { class: "td-topbar",
-            TreeBreadcrumb {
-                tree_id: tree_id.clone(),
-                tree_name: tree_name_str.clone(),
-                span { class: "td-bc-current", "{display_name}" }
-            }
-            TopbarSearch { tree_id: tree_id.clone(), from_person: true }
-            PrintHeading {
-                tree_name: tree_name_str.clone(),
-                title: display_name.clone(),
-            }
-        }
-
-        div { class: "pd-page-shell",
-        ProfilePageSidebar {
+        ToolPageFrame {
             tree_id: tree_id.clone(),
-            active_view: TreeSidebarView::Profile,
-            selected_person_id: person_id_parsed(),
-            couple_family_id,
-            on_add_person: move |_| show_create_person.set(true),
-        }
-
-        div { class: "sub-page-content pd-content",
+            tree_name: tree_name_str.clone(),
+            title: display_name.clone(),
+            topbar: rsx! {
+                TopbarSearch { tree_id: tree_id.clone(), from_person: true }
+            },
+            sidebar: rsx! {
+                ProfilePageSidebar {
+                    tree_id: tree_id.clone(),
+                    active_view: TreeSidebarView::Profile,
+                    selected_person_id: person_id_parsed(),
+                    couple_family_id,
+                    on_add_person: move |_| show_create_person.set(true),
+                }
+            },
+            content_class: "pd-content",
 
         // Person edit modal (civil status, names, birth/death — see PersonForm).
         if let (true, Some(tid)) = (show_edit_person(), tree_id_parsed()) {
@@ -333,24 +324,13 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 );
                 let events: Vec<_> = profile.events.iter().collect();
                 let event_links = media_event_links(profile.events.iter(), &i18n);
-                let on_navigate = {
-                    let tid = tree_id.clone();
-                    EventHandler::new(move |pid: Uuid| {
-                        nav.push(Route::PersonDetail { tree_id: tid.clone(), person_id: pid.to_string() });
-                    })
-                };
+                let on_navigate = push_tree_route(&tree_id, person_route);
                 rsx! {
                     {header_section(
                         ctx,
                         profile,
                         photo,
                         is_self,
-                        {
-                            let tree_id = tree_id.clone();
-                            EventHandler::new(move |()| {
-                                nav.push(Route::Settings { tree_id: tree_id.clone() });
-                            })
-                        },
                         header_actions(
                             &i18n,
                             move || {
@@ -406,9 +386,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                 {timeline_placeholder(&i18n, detail_error.as_deref())}
             },
         }
-        } // close sub-page-content
-        } // close pd-page-shell
-        } // close sub-page
+        }
     }
 }
 

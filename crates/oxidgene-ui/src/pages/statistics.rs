@@ -15,16 +15,13 @@ use crate::api::{
     ApiClient, GrowthDay, StatCount, StatDate, StatPerson, StatPersonRef, StatRecord, StatSummary,
     StatYearCounts, StatYearSum, TreeGrowth, TreeStatistics,
 };
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::charts::{
     BarChart, ChartCard, ChartMarker, ChartSeries, DonutChart, HeatMap, LineChart, MapCity,
     MapFocus, PALETTE, Pyramid, YearRuler, basemap_cities, basemap_paths,
 };
 use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
-use crate::components::print::PrintHeading;
-use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::prefs::{store, stored};
 use crate::router::Route;
@@ -138,8 +135,8 @@ pub fn Statistics(tree_id: String) -> Element {
     let i18n = use_i18n();
     let language: Signal<Language> = use_context();
     let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
     let load_trace = use_ui_load_trace(UiPage::Statistics);
+    let page = use_tree_page(&tree_id);
     let tid = tree_id.parse::<Uuid>().ok();
 
     let mut tab = use_signal(|| StatsTab::Overview);
@@ -178,20 +175,6 @@ pub fn Statistics(tree_id: String) -> Element {
     let list = use_signal(|| ListTab::Births);
     let map_focus = use_signal(|| None);
 
-    let api_tree = api.clone();
-    let tree = use_traced_resource(load_trace.clone(), "tree", move || {
-        let api = api_tree.clone();
-        let _gen = tree_cache.generation();
-        async move { fetch_tree_cached(&api, &tree_cache, tid?).await.ok() }
-    });
-    // The person last shown in this tree, else its SOSA root.
-    let current_person = use_current_person();
-    let selected_person_id = tid.and_then(|tid| current_person.get(tid)).or_else(|| {
-        tree.read()
-            .as_ref()
-            .and_then(|tree| tree.as_ref())
-            .and_then(|tree| tree.sosa_root_person_id)
-    });
     // The series come by year: the interval and the range of years only
     // regroup them here. Only the dates option and the language, which
     // names the places' countries, ask again.
@@ -244,24 +227,20 @@ pub fn Statistics(tree_id: String) -> Element {
         })
     });
 
-    let tree_name = tree
-        .read()
-        .as_ref()
-        .and_then(|t| t.as_ref().map(|t| t.name.clone()))
-        .unwrap_or_default();
     let stats_read = stats.read();
     let stats_value = stats_read.as_ref().and_then(Option::as_ref);
     let growth_read = growth.read();
     let growth_value = growth_read.as_ref().and_then(Option::as_ref);
 
     rsx! {
-        div { class: "sub-page stats-page",
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    tree_id: tree_id.clone(),
-                    tree_name: tree_name.clone(),
-                    span { class: "td-bc-current", {i18n.t("stats.breadcrumb")} }
-                }
+        ToolPageFrame {
+            tree_id: tree_id.clone(),
+            tree_name: page.name(),
+            title: i18n.t("stats.breadcrumb"),
+            selected_person_id: page.selected_person_id,
+            page_class: "stats-page",
+            content_class: "stats-content",
+            topbar: rsx! {
                 label {
                     class: "stats-option",
                     title: "{i18n.t(\"stats.approximate_hint\")}",
@@ -273,64 +252,50 @@ pub fn Statistics(tree_id: String) -> Element {
                     }
                     {i18n.t("stats.approximate")}
                 }
-                PrintHeading {
-                    tree_name: tree_name.clone(),
-                    title: i18n.t("stats.breadcrumb"),
-                }
-            }
-
-            div { class: "pd-page-shell",
-                ToolPageSidebar {
-                    tree_id: tree_id.clone(),
-                    selected_person_id,
-                }
-
-                div { class: "sub-page-content stats-content",
-                    // The tabs show once the viewer's stored tab is known.
-                    if approximate().is_some() {
-                        div { class: "dict-tabs stats-tabs", role: "tablist",
-                            for choice in StatsTab::ALL {
-                                button {
-                                    key: "{choice.key()}",
-                                    role: "tab",
-                                    "aria-selected": tab() == choice,
-                                    class: if tab() == choice { "dict-tab active" } else { "dict-tab" },
-                                    onclick: move |_| choose_tab(choice),
-                                    {i18n.t(&format!("stats.tab.{}", choice.key()))}
-                                }
-                            }
+            },
+            // The tabs show once the viewer's stored tab is known.
+            if approximate().is_some() {
+                div { class: "dict-tabs stats-tabs", role: "tablist",
+                    for choice in StatsTab::ALL {
+                        button {
+                            key: "{choice.key()}",
+                            role: "tab",
+                            "aria-selected": tab() == choice,
+                            class: if tab() == choice { "dict-tab active" } else { "dict-tab" },
+                            onclick: move |_| choose_tab(choice),
+                            {i18n.t(&format!("stats.tab.{}", choice.key()))}
                         }
                     }
-                    match (tab(), stats_value) {
-                        (StatsTab::Growth, _) => match growth_value {
-                            None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-                            Some(value) => measure_ui("statistics_growth", || {
-                                render_growth(value, Utc::now().date_naive(), &i18n)
-                            }),
-                        },
-                        (_, None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-                        (current, Some(value)) => rsx! {
-                            match current {
-                                StatsTab::Overview => render_overview(value, &i18n),
-                                StatsTab::Population => rsx! {
-                                    PeriodCharts { stats, interval, range, view: PeriodView::Population }
-                                },
-                                StatsTab::Families => rsx! {
-                                    PeriodCharts { stats, interval, range, view: PeriodView::Families }
-                                },
-                                StatsTab::Places => measure_ui("statistics_places", || {
-                                    render_places(value, paths, cities, map_focus, &i18n)
-                                }),
-                                StatsTab::Names => render_names(value, &i18n),
-                                StatsTab::Records => rsx! {
-                                    {render_extremes(value, &tree_id, &i18n)}
-                                    {render_lists(value, &tree_id, list, &i18n)}
-                                },
-                                StatsTab::Growth => rsx! {},
-                            }
-                        },
-                    }
                 }
+            }
+            match (tab(), stats_value) {
+                (StatsTab::Growth, _) => match growth_value {
+                    None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
+                    Some(value) => measure_ui("statistics_growth", || {
+                        render_growth(value, Utc::now().date_naive(), &i18n)
+                    }),
+                },
+                (_, None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
+                (current, Some(value)) => rsx! {
+                    match current {
+                        StatsTab::Overview => render_overview(value, &i18n),
+                        StatsTab::Population => rsx! {
+                            PeriodCharts { stats, interval, range, view: PeriodView::Population }
+                        },
+                        StatsTab::Families => rsx! {
+                            PeriodCharts { stats, interval, range, view: PeriodView::Families }
+                        },
+                        StatsTab::Places => measure_ui("statistics_places", || {
+                            render_places(value, paths, cities, map_focus, &i18n)
+                        }),
+                        StatsTab::Names => render_names(value, &i18n),
+                        StatsTab::Records => rsx! {
+                            {render_extremes(value, &tree_id, &i18n)}
+                            {render_lists(value, &tree_id, list, &i18n)}
+                        },
+                        StatsTab::Growth => rsx! {},
+                    }
+                },
             }
         }
     }

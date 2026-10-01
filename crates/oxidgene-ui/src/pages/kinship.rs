@@ -11,13 +11,10 @@ use oxidgene_core::types::{Kinship as KinshipReport, KinshipPath, KinshipSegment
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, CroppedSource};
-use crate::components::breadcrumb::TreeBreadcrumb;
-use crate::components::print::PrintHeading;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
-use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
-use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
@@ -46,7 +43,6 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
-    let tree_cache = use_tree_cache();
     let load_trace = use_ui_load_trace(UiPage::Kinship);
 
     // Signals kept in sync with the props: the router reuses this component
@@ -70,13 +66,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     }
     let mut picking = use_signal(|| None::<End>);
 
-    let api_tree = api.clone();
-    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
-        let api = api_tree.clone();
-        let _generation = tree_cache.generation();
-        let tid = tree_id_parsed();
-        async move { fetch_tree_cached(&api, &tree_cache, tid?).await.ok() }
-    });
+    let page = use_tree_page(&tree_id);
 
     // The two ends, shown before and while the paths load.
     let api_ends = api.clone();
@@ -117,13 +107,6 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
         }
     });
 
-    let tree_name = tree_cache
-        .loaded_or_cached(
-            tree_id_parsed(),
-            tree_resource.read().as_ref().and_then(Option::as_ref),
-        )
-        .map(|tree| tree.name)
-        .unwrap_or_default();
     let ends = ends_resource.read().clone().unwrap_or_default();
     let portraits = portraits_resource.read().clone().unwrap_or_default();
     let choosing_from = picking() == Some(End::From) || from_parsed().is_none();
@@ -158,73 +141,57 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     };
 
     rsx! {
-        div { class: "sub-page",
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    tree_id: tree_id.clone(),
-                    tree_name: tree_name.clone(),
-                    span { class: "td-bc-current", {i18n.t("kinship.breadcrumb")} }
+        ToolPageFrame {
+            tree_id: tree_id.clone(),
+            tree_name: page.name(),
+            title: i18n.t("kinship.breadcrumb"),
+            selected_person_id: from_parsed(),
+            content_class: "kin-content",
+            div { class: "card kin-ends",
+                {end_slot(EndSlot {
+                    label: i18n.t("kinship.from"),
+                    id: from_parsed(),
+                    choosing: choosing_from,
+                    on_change: EventHandler::new(move |()| picking.set(Some(End::From))),
+                    on_pick: EventHandler::new(on_pick_from),
+                    on_cancel: EventHandler::new(move |()| picking.set(None)),
+                    tree_id: tree_id_parsed(),
+                    route_tree_id: &tree_id,
+                    ends: &ends,
+                    portraits: &portraits,
+                    i18n: &i18n,
+                })}
+                button {
+                    class: "btn btn-outline btn-sm kin-swap",
+                    title: i18n.t("kinship.swap"),
+                    aria_label: i18n.t("kinship.swap"),
+                    disabled: from_parsed().is_none() || to_parsed().is_none(),
+                    onclick: on_swap,
+                    "\u{21C4}"
                 }
-                PrintHeading {
-                    tree_name: tree_name.clone(),
-                    title: i18n.t("kinship.breadcrumb"),
-                }
+                {end_slot(EndSlot {
+                    label: i18n.t("kinship.to"),
+                    id: to_parsed(),
+                    choosing: choosing_to,
+                    on_change: EventHandler::new(move |()| picking.set(Some(End::To))),
+                    on_pick: EventHandler::new(on_pick_to),
+                    on_cancel: EventHandler::new(move |()| picking.set(None)),
+                    tree_id: tree_id_parsed(),
+                    route_tree_id: &tree_id,
+                    ends: &ends,
+                    portraits: &portraits,
+                    i18n: &i18n,
+                })}
             }
 
-            div { class: "pd-page-shell",
-                ToolPageSidebar {
-                    tree_id: tree_id.clone(),
-                    selected_person_id: from_parsed(),
-                }
-
-                div { class: "sub-page-content kin-content",
-                    div { class: "card kin-ends",
-                        {end_slot(EndSlot {
-                            label: i18n.t("kinship.from"),
-                            id: from_parsed(),
-                            choosing: choosing_from,
-                            on_change: EventHandler::new(move |()| picking.set(Some(End::From))),
-                            on_pick: EventHandler::new(on_pick_from),
-                            on_cancel: EventHandler::new(move |()| picking.set(None)),
-                            tree_id: tree_id_parsed(),
-                            route_tree_id: &tree_id,
-                            ends: &ends,
-                            portraits: &portraits,
-                            i18n: &i18n,
-                        })}
-                        button {
-                            class: "btn btn-outline btn-sm kin-swap",
-                            title: i18n.t("kinship.swap"),
-                            aria_label: i18n.t("kinship.swap"),
-                            disabled: from_parsed().is_none() || to_parsed().is_none(),
-                            onclick: on_swap,
-                            "\u{21C4}"
-                        }
-                        {end_slot(EndSlot {
-                            label: i18n.t("kinship.to"),
-                            id: to_parsed(),
-                            choosing: choosing_to,
-                            on_change: EventHandler::new(move |()| picking.set(Some(End::To))),
-                            on_pick: EventHandler::new(on_pick_to),
-                            on_cancel: EventHandler::new(move |()| picking.set(None)),
-                            tree_id: tree_id_parsed(),
-                            route_tree_id: &tree_id,
-                            ends: &ends,
-                            portraits: &portraits,
-                            i18n: &i18n,
-                        })}
-                    }
-
-                    {kinship_status(
-                        kinship_resource.read().as_ref(),
-                        (from_parsed(), to_parsed()),
-                        selected,
-                        &portraits,
-                        &tree_id,
-                        &i18n,
-                    )}
-                }
-            }
+            {kinship_status(
+                kinship_resource.read().as_ref(),
+                (from_parsed(), to_parsed()),
+                selected,
+                &portraits,
+                &tree_id,
+                &i18n,
+            )}
         }
     }
 }

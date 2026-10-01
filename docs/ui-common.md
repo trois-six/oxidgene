@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:32:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -609,6 +609,22 @@ newer on the right.
 Below `768px` the label column narrows and cells tighten; values wrap rather
 than scroll.
 
+### 4.11 Tree page frame
+
+Every page of a tree but the pedigree, which owns its canvas layout, is drawn
+in one frame, `ToolPageFrame`: the contextual topbar — breadcrumb ending in
+the page's title, the page's own controls, and the heading it prints under
+([§7.2](#72-printed-page)) — then the shared left icon sidebar
+([§6.3](#63-shared-left-icon-sidebar)) beside the scrollable content. The tool
+pages use the sidebar acting on their selected person; the person and couple
+pages bring theirs, with their active view and their add-person action.
+
+The tool pages load their tree through one hook, `use_tree_page`, which reads
+it through the tree cache again whenever the cache is invalidated or the
+route names another tree. While the tree loads, its cached copy names it, so
+the breadcrumb never flashes empty. The person the sidebar acts on is the one
+last shown in this tree during the session, else the tree's SOSA root.
+
 ## 5. Accessibility
 
 - All controls have programmatic labels; icon-only actions have localized
@@ -702,6 +718,14 @@ results, dictionary, statistics, tools, and settings pages. Pages must not overr
 The compact state keeps the same 16x16px icons, order, actions, accessible
 names, active state, and tooltips. The sidebar remains visible and fixed-width;
 only its horizontal footprint and vertical spacing change.
+
+Its last group leads to the pages of the tree as a whole — Dictionary,
+Statistics, Tools, then Print and Settings — on every page of a tree. The
+sidebar finds the tree from the page's route, so no page wires these
+buttons. A button is never hidden on its own page: it shows as current
+(highlighted, `aria-current="page"`) and pressing it does nothing. The views
+of a person — profile, couple, pedigree — follow the same rule through the
+sidebar's `active_view`.
 
 ### 6.4 Pedigree events sidebar
 

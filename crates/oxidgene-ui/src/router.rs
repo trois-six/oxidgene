@@ -123,6 +123,56 @@ impl Route {
     }
 }
 
+/// A handler pushing the route `route` makes of the tree `tree_id` and the
+/// handler's input — a person id, a family id, nothing.
+///
+/// Built during render, where the router's navigator is reachable.
+pub fn push_tree_route<T: 'static>(
+    tree_id: &str,
+    route: fn(String, T) -> Route,
+) -> EventHandler<T> {
+    let (nav, tree_id) = (dioxus::router::navigator(), tree_id.to_string());
+    EventHandler::new(move |input| {
+        nav.push(route(tree_id.clone(), input));
+    })
+}
+
+/// As [`push_tree_route`], replacing the current entry of the history: for
+/// a page whose subject went away, such as a person merged into another.
+pub fn replace_tree_route<T: 'static>(
+    tree_id: &str,
+    route: fn(String, T) -> Route,
+) -> EventHandler<T> {
+    let (nav, tree_id) = (dioxus::router::navigator(), tree_id.to_string());
+    EventHandler::new(move |input| {
+        nav.replace(route(tree_id.clone(), input));
+    })
+}
+
+/// A person's profile in a tree.
+pub fn person_route(tree_id: String, person_id: uuid::Uuid) -> Route {
+    Route::PersonDetail {
+        tree_id,
+        person_id: person_id.to_string(),
+    }
+}
+
+/// A tree's pedigree, centred on `person` when one is given.
+pub fn pedigree_route(tree_id: String, person: Option<uuid::Uuid>) -> Route {
+    Route::TreeDetail {
+        tree_id,
+        person: person.map(|person| person.to_string()),
+    }
+}
+
+/// A couple's page in a tree.
+pub fn couple_route(tree_id: String, family_id: uuid::Uuid) -> Route {
+    Route::CoupleDetail {
+        tree_id,
+        family_id: family_id.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Route;

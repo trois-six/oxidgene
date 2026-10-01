@@ -9,12 +9,11 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, UpdateTreeBody};
 use crate::components::audit_log::AuditLogSection;
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
-use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::components::tree_cache::use_tree_cache;
+use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::pages::app_settings::{
     AppearanceSection, LanguageSection, NamesSection, PedigreeDefaultsSection,
@@ -250,8 +249,7 @@ pub fn Settings(tree_id: String) -> Element {
     let lang_signal = use_context::<Signal<Language>>();
     let sort_particles = use_context::<Signal<SortParticles>>();
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
-    let load_trace = use_ui_load_trace(UiPage::Settings);
-    let refresh = use_signal(|| 0u32);
+    use_ui_load_trace(UiPage::Settings);
     let mut active_section = use_signal(|| "tree-roots".to_string());
     let mut export_loading = use_signal(|| false);
     let mut export_error = use_signal(|| None::<String>);
@@ -262,39 +260,9 @@ pub fn Settings(tree_id: String) -> Element {
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
 
-    // Fetch tree info
-    let tree_cache = use_tree_cache();
-    let api_tree = api.clone();
-    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
-        let api = api_tree.clone();
-        let _tick = refresh();
-        let _gen = tree_cache.generation();
-        async move {
-            let tid = tree_id_parsed?;
-            Some(fetch_tree_cached(&api, &tree_cache, tid).await)
-        }
-    });
-
-    // Resolve the name synchronously from the cache while the resource is
-    // pending, so the breadcrumb never flashes a loading label.
-    let tree = {
-        let loaded = tree_resource.read();
-        let loaded = loaded
-            .as_ref()
-            .and_then(Option::as_ref)
-            .and_then(|tree| tree.as_ref().ok());
-        tree_cache.loaded_or_cached(tree_id_parsed, loaded)
-    };
-    let tree_name = tree
-        .as_ref()
-        .map(|tree| tree.name.clone())
-        .unwrap_or_default();
-    // The person last shown in this tree, else its SOSA root.
-    let current_person = use_current_person();
-    let sosa_root = tree.and_then(|tree| tree.sosa_root_person_id);
-    let selected_person_id = tree_id_parsed
-        .and_then(|tid| current_person.get(tid))
-        .or(sosa_root);
+    let page = use_tree_page(&tree_id);
+    let tree_resource = page.resource;
+    let tree_name = page.name();
 
     // Export handler
     let api_export = api.clone();
@@ -338,77 +306,64 @@ pub fn Settings(tree_id: String) -> Element {
         style { {SETTINGS_STYLES} }
         style { {SHARED_SETTINGS_STYLES} }
 
-        div { class: "sub-page",
-            // Breadcrumb
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    tree_id: tree_id.clone(),
-                    tree_name: tree_name.clone(),
-                    span { class: "td-bc-current", {i18n.t("settings.breadcrumb")} }
-                }
-            }
-
-            div { class: "pd-page-shell",
-            ToolPageSidebar {
-                tree_id: tree_id.clone(),
-                selected_person_id,
-                show_settings: false,
-            }
-
-            div { class: "sub-page-content pd-content",
-            div { class: "settings-layout",
-                // Left navigation
-                nav { class: "settings-nav",
-                    for (group, entries) in SETTINGS_NAV {
-                        div { class: "settings-nav-group",
-                            div { class: "settings-nav-group-label", {i18n.t(group)} }
-                            for (section, label) in entries {
-                                button {
-                                    class: if sec == *section { "settings-nav-item active" } else { "settings-nav-item" },
-                                    onclick: move |_| active_section.set(section.to_string()),
-                                    {i18n.t(label)}
-                                }
+        ToolPageFrame {
+            tree_id: tree_id.clone(),
+            tree_name: tree_name.clone(),
+            title: i18n.t("settings.breadcrumb"),
+            printed: false,
+            selected_person_id: page.selected_person_id,
+            content_class: "pd-content",
+        div { class: "settings-layout",
+            // Left navigation
+            nav { class: "settings-nav",
+                for (group, entries) in SETTINGS_NAV {
+                    div { class: "settings-nav-group",
+                        div { class: "settings-nav-group-label", {i18n.t(group)} }
+                        for (section, label) in entries {
+                            button {
+                                class: if sec == *section { "settings-nav-item active" } else { "settings-nav-item" },
+                                onclick: move |_| active_section.set(section.to_string()),
+                                {i18n.t(label)}
                             }
                         }
                     }
                 }
+            }
 
-                // Content area
-                div { class: "settings-content",
-                    match sec.as_str() {
-                        "tree-roots" => rsx! {
-                            TreeRootsSection { tree_id: tree_id.clone(), tree_resource }
-                        },
-                        "privacy" => rsx! {
-                            PrivacySection { tree_id: tree_id.clone(), tree_resource }
-                        },
-                        "entry-options" => rsx! {
-                            EntryOptionsSection { tree_id: tree_id.clone(), tree_resource }
-                        },
-                        "export" => rsx! {
-                            ExportSection {
-                                on_export,
-                                loading: export_loading(),
-                                error: export_error(),
-                                success: export_success(),
-                                format: export_format,
-                                merge_occupations: export_merge_occupations,
-                                merge_names: export_merge_names,
-                            }
-                        },
-                        "appearance" => rsx! { AppearanceSection { theme_state } },
-                        "language" => rsx! { LanguageSection { lang_signal } },
-                        "pedigree" => rsx! { PedigreeDefaultsSection { pedigree_defaults } },
-                        "names" => rsx! { NamesSection { sort_particles } },
-                        "history" if tree_id_parsed.is_some() => rsx! {
-                            AuditLogSection { tree_id: tree_id_parsed.unwrap_or_default() }
-                        },
-                        _ => rsx! { PlaceholderSection { section_name: sec.clone() } },
-                    }
+            // Content area
+            div { class: "settings-content",
+                match sec.as_str() {
+                    "tree-roots" => rsx! {
+                        TreeRootsSection { tree_id: tree_id.clone(), tree_resource }
+                    },
+                    "privacy" => rsx! {
+                        PrivacySection { tree_id: tree_id.clone(), tree_resource }
+                    },
+                    "entry-options" => rsx! {
+                        EntryOptionsSection { tree_id: tree_id.clone(), tree_resource }
+                    },
+                    "export" => rsx! {
+                        ExportSection {
+                            on_export,
+                            loading: export_loading(),
+                            error: export_error(),
+                            success: export_success(),
+                            format: export_format,
+                            merge_occupations: export_merge_occupations,
+                            merge_names: export_merge_names,
+                        }
+                    },
+                    "appearance" => rsx! { AppearanceSection { theme_state } },
+                    "language" => rsx! { LanguageSection { lang_signal } },
+                    "pedigree" => rsx! { PedigreeDefaultsSection { pedigree_defaults } },
+                    "names" => rsx! { NamesSection { sort_particles } },
+                    "history" if tree_id_parsed.is_some() => rsx! {
+                        AuditLogSection { tree_id: tree_id_parsed.unwrap_or_default() }
+                    },
+                    _ => rsx! { PlaceholderSection { section_name: sec.clone() } },
                 }
             }
-            }
-            }
+        }
         }
     }
 }

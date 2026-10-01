@@ -6,14 +6,12 @@ use oxidgene_core::history::{RecordSnapshot, RecordType, RecordVersion};
 use uuid::Uuid;
 
 use crate::api::ApiClient;
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
-use crate::components::print::PrintHeading;
-use crate::components::tree_cache::{fetch_tree_cached, use_track_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
+use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::ui_observability::{
@@ -46,13 +44,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     let mut confirm_restore = use_signal(|| false);
     let mut restore_error = use_signal(|| None::<String>);
 
-    let api_tree = api.clone();
-    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
-        let api = api_tree.clone();
-        let (tid, _) = ids();
-        let _generation = tree_cache.generation();
-        async move { Some(fetch_tree_cached(&api, &tree_cache, tid?).await) }
-    });
+    let page = use_tree_page(&tree_id);
 
     let api_first = api.clone();
     let first_page = use_traced_resource(load_trace.clone(), "versions", move || {
@@ -110,15 +102,6 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
         .flatten()
         .filter(|v| Some(v.version) == before_number);
 
-    let loaded = tree_resource.read();
-    let loaded = loaded
-        .as_ref()
-        .and_then(Option::as_ref)
-        .and_then(|tree| tree.as_ref().ok());
-    let tree_name = tree_cache
-        .loaded_or_cached(ids().0, loaded)
-        .map(|tree| tree.name)
-        .unwrap_or_default();
     let person_name = person_name_in(&versions.read()).unwrap_or_else(|| i18n.t("common.unnamed"));
     let is_deleted = versions.read().first().is_some_and(|v| v.deleted);
 
@@ -183,106 +166,93 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
     rsx! {
         style { {HISTORY_STYLES} }
         style { {PERSON_HISTORY_STYLES} }
-        div { class: "sub-page",
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    tree_id: tree_id.clone(),
-                    tree_name: tree_name.clone(),
-                    if is_deleted {
-                        span { class: "td-bc-link", "{person_name}" }
-                    } else {
-                        Link {
-                            to: Route::PersonDetail { tree_id: tree_id.clone(), person_id: person_id.clone() },
-                            class: "td-bc-link",
-                            "{person_name}"
-                        }
+        ToolPageFrame {
+            tree_id: tree_id.clone(),
+            tree_name: page.name(),
+            title: i18n.t("history.breadcrumb"),
+            print_title: format!("{person_name} / {}", i18n.t("history.breadcrumb")),
+            crumbs: rsx! {
+                if is_deleted {
+                    span { class: "td-bc-link", "{person_name}" }
+                } else {
+                    Link {
+                        to: Route::PersonDetail { tree_id: tree_id.clone(), person_id: person_id.clone() },
+                        class: "td-bc-link",
+                        "{person_name}"
                     }
-                    span { class: "td-bc-sep", "/" }
-                    span { class: "td-bc-current", {i18n.t("history.breadcrumb")} }
                 }
-                PrintHeading {
-                    tree_name: tree_name.clone(),
-                    title: format!("{person_name} / {}", i18n.t("history.breadcrumb")),
+                span { class: "td-bc-sep", "/" }
+            },
+            selected_person_id: if is_deleted { None } else { ids().1 },
+            content_class: "ph-content",
+            if confirm_restore() {
+                ConfirmDialog {
+                    title: i18n.t("history.restore_title"),
+                    message: i18n.t_args(
+                        "history.restore_message",
+                        &[
+                            ("name", &person_name),
+                            ("version", &shown_number.unwrap_or_default().to_string()),
+                        ],
+                    ),
+                    confirm_label: i18n.t("history.restore"),
+                    confirm_class: "btn btn-primary",
+                    error: restore_error(),
+                    on_confirm: on_restore,
+                    on_cancel: move |_| {
+                        confirm_restore.set(false);
+                        restore_error.set(None);
+                    },
                 }
             }
 
-            div { class: "pd-page-shell",
-            ToolPageSidebar {
-                tree_id: tree_id.clone(),
-                selected_person_id: if is_deleted { None } else { ids().1 },
+            div { class: "ph-header",
+                h1 { class: "ph-title", {i18n.t_args("history.title", &[("name", &person_name)])} }
+                if is_deleted {
+                    span { class: "badge ph-deleted-badge", {i18n.t("history.person_deleted")} }
+                }
             }
 
-            div { class: "sub-page-content ph-content",
-                if confirm_restore() {
-                    ConfirmDialog {
-                        title: i18n.t("history.restore_title"),
-                        message: i18n.t_args(
-                            "history.restore_message",
-                            &[
-                                ("name", &person_name),
-                                ("version", &shown_number.unwrap_or_default().to_string()),
-                            ],
-                        ),
-                        confirm_label: i18n.t("history.restore"),
-                        confirm_class: "btn btn-primary",
-                        error: restore_error(),
-                        on_confirm: on_restore,
-                        on_cancel: move |_| {
-                            confirm_restore.set(false);
-                            restore_error.set(None);
-                        },
+            match &*first_page.read() {
+                None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
+                Some(Err(error)) => rsx! {
+                    div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
+                },
+                Some(Ok(_)) if versions.read().is_empty() => rsx! {
+                    div { class: "card empty-state",
+                        p { {i18n.t("history.no_versions")} }
                     }
-                }
-
-                div { class: "ph-header",
-                    h1 { class: "ph-title", {i18n.t_args("history.title", &[("name", &person_name)])} }
-                    if is_deleted {
-                        span { class: "badge ph-deleted-badge", {i18n.t("history.person_deleted")} }
-                    }
-                }
-
-                match &*first_page.read() {
-                    None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
-                    Some(Err(error)) => rsx! {
-                        div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
-                    },
-                    Some(Ok(_)) if versions.read().is_empty() => rsx! {
-                        div { class: "card empty-state",
-                            p { {i18n.t("history.no_versions")} }
+                },
+                Some(Ok(_)) => rsx! {
+                    div { class: "ph-layout",
+                        VersionTimeline {
+                            versions: versions(),
+                            shown: shown_number,
+                            has_more: next_cursor().is_some(),
+                            loading_more: loading_more(),
+                            on_pick: move |number| {
+                                selected.set(Some(number));
+                                compare_with.set(None);
+                            },
+                            on_more: load_more,
                         }
-                    },
-                    Some(Ok(_)) => rsx! {
-                        div { class: "ph-layout",
-                            VersionTimeline {
-                                versions: versions(),
-                                shown: shown_number,
-                                has_more: next_cursor().is_some(),
-                                loading_more: loading_more(),
-                                on_pick: move |number| {
-                                    selected.set(Some(number));
-                                    compare_with.set(None);
+                        // Comparison of the selected version.
+                        if let Some(shown) = shown.clone() {
+                            VersionComparison {
+                                shown,
+                                before,
+                                before_number,
+                                older_versions: older_versions.clone(),
+                                compare_with,
+                                can_restore,
+                                on_restore: move |_| {
+                                    restore_error.set(None);
+                                    confirm_restore.set(true);
                                 },
-                                on_more: load_more,
-                            }
-                            // Comparison of the selected version.
-                            if let Some(shown) = shown.clone() {
-                                VersionComparison {
-                                    shown,
-                                    before,
-                                    before_number,
-                                    older_versions: older_versions.clone(),
-                                    compare_with,
-                                    can_restore,
-                                    on_restore: move |_| {
-                                        restore_error.set(None);
-                                        confirm_restore.set(true);
-                                    },
-                                }
                             }
                         }
-                    },
-                }
-            }
+                    }
+                },
             }
         }
     }

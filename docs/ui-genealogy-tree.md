@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:44:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
 ---
 
 
@@ -474,10 +474,14 @@ displayed. All icons use a consistent style: `stroke: currentColor`,
 | Person + plus | Person silhouette with a small plus | Add a person |
 | **separator** | Thin horizontal line | Visual divider |
 | Book/index | Open book (two overlapping page shapes) | Opens [Dictionary](ui-dictionary.md) for this tree |
-| Chart | Axes with a rising line | Opens [Statistics](ui-statistics.md) for this tree; shown on every tree page, found from the page's route |
-| Wrench | Lucide wrench | Opens [Tools](ui-tools.md) for this tree; shown on every tree page, found from the page's route |
+| Chart | Axes with a rising line | Opens [Statistics](ui-statistics.md) for this tree |
+| Wrench | Lucide wrench | Opens [Tools](ui-tools.md) for this tree |
 | Printer | Lucide printer | Prints the page ([Common UI §7](ui-common.md#7-printing)); shown on every page that prints |
 | Gear | Gear/cog icon (Lucide gear path) | Opens [Settings](ui-settings.md) for this tree |
+
+The Book/index, Chart, Wrench and Gear buttons are shown on every tree page,
+which they find from the page's route, and show as current on their own page
+([Common UI §6.3](ui-common.md#63-shared-left-icon-sidebar)).
 
 This left sidebar (`TreeIconSidebar`) is a component shared with the [Person Profile](ui-person-profile.md) and [Couple Profile](ui-couple-profile.md) pages, so the **Book/index**, **Chart**, **Wrench** and **Gear** buttons are reachable identically whether the user is currently viewing the pedigree canvas or a person's profile — not just from the tree view. Its profile and pedigree buttons act on the person being shown: the selected card, the open profile or couple. On pages about the tree as a whole (Settings, Dictionary, Statistics, Tools, search results) that is the person last shown in this tree during the session, or the SOSA root when none has been, so leaving a profile for the settings and pressing the profile button comes back to the same person.
 

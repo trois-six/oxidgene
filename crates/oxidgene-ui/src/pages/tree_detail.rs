@@ -5,7 +5,6 @@
 //! flows for AddSpouse/AddParents/AddChild), and union editing.
 
 use dioxus::prelude::*;
-use dioxus::router::Navigator;
 use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::Tree;
 use oxidgene_core::{ChildType, SpouseRole};
@@ -28,7 +27,9 @@ use crate::components::tree_cache::{
 use crate::components::union_form::UnionForm;
 use crate::i18n::{I18n, use_i18n};
 use crate::prefs::PedigreeDefaults;
-use crate::router::Route;
+use crate::router::{
+    Route, couple_route, pedigree_route, person_route, push_tree_route, replace_tree_route,
+};
 use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 use crate::utils::resolve_name;
@@ -453,7 +454,6 @@ async fn load_pedigree(
 pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let nav = use_navigator();
     let load_trace = use_ui_load_trace(UiPage::Pedigree);
 
     // ── Global caches ──
@@ -570,10 +570,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 .map(|t| t.name)
         })
         .unwrap_or_default();
-    let routes = TreeRoutes {
-        nav,
-        tree_id: tree_id.clone(),
-    };
 
     // ── Render ──
 
@@ -596,7 +592,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             }
         }
 
-        {overlay_dialogs(&i18n, &writes, &routes)}
+        {overlay_dialogs(&i18n, &writes, &tree_id)}
 
         // Context menu
         if let (Some((pid, x, y)), Some(data)) = (context_menu(), pedigree_data.as_ref()) {
@@ -645,16 +641,8 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         on_add_person: move |_| {
                             creating_person.set(Some(PersonFormCreateContext::Standalone));
                         },
-                        on_profile_view: routes.push(|tree_id, pid: Uuid| Route::PersonDetail {
-                            tree_id,
-                            person_id: pid.to_string(),
-                        }),
-                        on_couple_view: routes.push(|tree_id, family_id: Uuid| Route::CoupleDetail {
-                            tree_id,
-                            family_id: family_id.to_string(),
-                        }),
-                        on_settings: routes.push(|tree_id, ()| Route::Settings { tree_id }),
-                        on_dictionary: routes.push(|tree_id, ()| Route::Dictionary { tree_id }),
+                        on_profile_view: push_tree_route(&tree_id, person_route),
+                        on_couple_view: push_tree_route(&tree_id, couple_route),
                     }
                 },
                 // Show the empty-tree UI once the pedigree has loaded without
@@ -668,7 +656,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
         // ── Linking panel (search-or-create for AddSpouse/AddParents/AddChild) ──
         if let (Some(mode), Some(tid)) = (linking(), tree_id_parsed()) {
-            {linking_panel(&i18n, tid, &mode, &writes, pedigree_data.clone(), tree.as_ref(), &routes)}
+            {linking_panel(&i18n, tid, &mode, &writes, pedigree_data.clone(), tree.as_ref(), &tree_id)}
         }
 
         } // close .tree-detail-page
@@ -677,7 +665,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
 
 /// The dialogs opened over the chart: merging, deleting, and the person and
 /// union forms.
-fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, routes: &TreeRoutes) -> Element {
+fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, tree_id: &str) -> Element {
     let Some(tid) = (writes.tree_id)() else {
         return rsx! {};
     };
@@ -735,9 +723,8 @@ fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, routes: &TreeRoutes) -> Ele
                 on_saved: move |_| tree_cache.invalidate(),
                 // The edited person may be the chart's root, and no longer
                 // exists: centre the chart on the one they were merged into.
-                on_merged: routes.replace(|tree_id, kept: Uuid| Route::TreeDetail {
-                    tree_id,
-                    person: Some(kept.to_string()),
+                on_merged: replace_tree_route(tree_id, |tree_id, kept: Uuid| {
+                    pedigree_route(tree_id, Some(kept))
                 }),
             }
         }
@@ -793,31 +780,6 @@ fn use_pedigree_view(
             (Some(SharedPedigree::new(pd)), Some(pedigree.root_person_id))
         })
     })
-}
-
-/// Handlers opening another page of this tree.
-#[derive(Clone)]
-struct TreeRoutes {
-    nav: Navigator,
-    tree_id: String,
-}
-
-impl TreeRoutes {
-    /// A handler pushing the route `route` makes of this tree and its input.
-    fn push<T: 'static>(&self, route: fn(String, T) -> Route) -> EventHandler<T> {
-        let Self { nav, tree_id } = self.clone();
-        EventHandler::new(move |input| {
-            nav.push(route(tree_id.clone(), input));
-        })
-    }
-
-    /// As [`Self::push`], replacing the current entry of the history.
-    fn replace<T: 'static>(&self, route: fn(String, T) -> Route) -> EventHandler<T> {
-        let Self { nav, tree_id } = self.clone();
-        EventHandler::new(move |input| {
-            nav.replace(route(tree_id.clone(), input));
-        })
-    }
 }
 
 /// Creating a parent from an empty slot of the chart: the child's family,
@@ -901,13 +863,13 @@ fn linking_panel(
     writes: &TreeWrites,
     data: Option<SharedPedigree>,
     tree: Option<&Tree>,
-    routes: &TreeRoutes,
+    tree_id: &str,
 ) -> Element {
     let mut linking = writes.overlays.linking;
     let (title_key, search_key, create_key) = mode.label_keys();
     let body = match *mode {
         LinkingMode::Kinship(from) => {
-            let (nav, tree_id) = (routes.nav, routes.tree_id.clone());
+            let (nav, tree_id) = (dioxus::router::navigator(), tree_id.to_string());
             let pick = EventHandler::new(move |other: Uuid| {
                 linking.set(None);
                 if other != from {

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:41:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -26,8 +26,9 @@ it was worked on.
 It is reached from the **chart icon** of the shared left icon sidebar
 (`TreeIconSidebar`), between the Book/index and Gear buttons, so it opens the
 same way from the pedigree canvas and from a person or couple profile. Like
-the [Dictionary](ui-dictionary.md), it uses the `sub-page` layout with no
-sidebar of its own, and it is read-only.
+the [Dictionary](ui-dictionary.md), it uses the `sub-page` layout with the
+shared left icon sidebar, whose chart button shows as current here, and it
+is read-only.
 
 Everything is computed by the backend on each visit ([API](api.md));
 nothing is stored. Two requests feed the tabs, each asked the first time a

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:41:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
 ---
 
 
@@ -51,9 +51,9 @@ Content: `max-width: 1200px`, centered and scrollable beside the fixed left icon
 
 The sidebar exposes the navigation icons from the person profile in the same order:
 
-- Profile and pedigree tree, targeting the tree's SOSA root when available
-- Dictionary
-- Settings
+- Profile and pedigree tree, targeting the person last shown in this tree,
+  else the tree's SOSA root
+- Dictionary, Statistics, Tools, Print and Settings
 
 The add-person action and the middle separator are hidden on search results.
 Search is not itself a profile or pedigree view, so neither of the first two icons is marked active.

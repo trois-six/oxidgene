@@ -13,23 +13,21 @@ use crate::api::{
     AncestorFacts, AncestryGeneration, Anomaly, AnomalyRule, ApiClient, DuplicatePair,
     StatPersonRef, StatPlace, UpdatePlaceBody,
 };
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::copy_field::CopyField;
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
-use crate::components::print::PrintHeading;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
-use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::components::tree_cache::use_tree_cache;
+use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::date_words::{self, Form, YearStart, Ymd};
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::pages::statistics::{date_text, event_type_label, percent};
 use crate::prefs::{store, stored};
 use crate::router::Route;
 use crate::ui_observability::{
-    UiCommand, UiPage, trace_ui_action, use_traced_resource, use_ui_load_trace, use_ui_resource,
+    UiCommand, UiPage, trace_ui_action, use_ui_load_trace, use_ui_resource,
 };
 
 const TAB_STORAGE_KEY: &str = "oxidgene-tools-tab";
@@ -79,9 +77,7 @@ impl ToolsTab {
 #[component]
 pub fn Tools(tree_id: String) -> Element {
     let i18n = use_i18n();
-    let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
-    let load_trace = use_ui_load_trace(UiPage::Tools);
+    use_ui_load_trace(UiPage::Tools);
     let tid = tree_id.parse::<Uuid>().ok();
 
     // Unknown until the browser answers, so that no tab mounts, and asks
@@ -101,76 +97,44 @@ pub fn Tools(tree_id: String) -> Element {
         store(TAB_STORAGE_KEY, value.key());
     };
 
-    let tree = use_traced_resource(load_trace, "tree", move || {
-        let api = api.clone();
-        let _gen = tree_cache.generation();
-        async move { fetch_tree_cached(&api, &tree_cache, tid?).await.ok() }
-    });
-    // The person last shown in this tree, else its SOSA root.
-    let current_person = use_current_person();
-    let selected_person_id = tid.and_then(|tid| current_person.get(tid)).or_else(|| {
-        tree.read()
-            .as_ref()
-            .and_then(|tree| tree.as_ref())
-            .and_then(|tree| tree.sosa_root_person_id)
-    });
-    let tree_name = tree
-        .read()
-        .as_ref()
-        .and_then(|t| t.as_ref().map(|t| t.name.clone()))
-        .unwrap_or_default();
+    let page = use_tree_page(&tree_id);
 
     rsx! {
-        div { class: "sub-page tools-page",
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    tree_id: tree_id.clone(),
-                    tree_name: tree_name.clone(),
-                    span { class: "td-bc-current", {i18n.t("tools.breadcrumb")} }
-                }
-                PrintHeading {
-                    tree_name: tree_name.clone(),
-                    title: i18n.t("tools.breadcrumb"),
+        ToolPageFrame {
+            tree_id: tree_id.clone(),
+            tree_name: page.name(),
+            title: i18n.t("tools.breadcrumb"),
+            selected_person_id: page.selected_person_id,
+            page_class: "tools-page",
+            content_class: "tools-content",
+            div { class: "dict-tabs stats-tabs", role: "tablist",
+                for choice in ToolsTab::ALL {
+                    button {
+                        key: "{choice.key()}",
+                        role: "tab",
+                        "aria-selected": tab() == Some(choice),
+                        class: if tab() == Some(choice) { "dict-tab active" } else { "dict-tab" },
+                        onclick: move |_| choose_tab(choice),
+                        {i18n.t(&format!("tools.tab.{}", choice.key()))}
+                    }
                 }
             }
-
-            div { class: "pd-page-shell",
-                ToolPageSidebar {
-                    tree_id: tree_id.clone(),
-                    selected_person_id,
-                }
-
-                div { class: "sub-page-content tools-content",
-                    div { class: "dict-tabs stats-tabs", role: "tablist",
-                        for choice in ToolsTab::ALL {
-                            button {
-                                key: "{choice.key()}",
-                                role: "tab",
-                                "aria-selected": tab() == Some(choice),
-                                class: if tab() == Some(choice) { "dict-tab active" } else { "dict-tab" },
-                                onclick: move |_| choose_tab(choice),
-                                {i18n.t(&format!("tools.tab.{}", choice.key()))}
-                            }
-                        }
-                    }
-                    match (tab(), tid) {
-                        (Some(ToolsTab::Anomalies), Some(tid)) => rsx! {
-                            Anomalies { tree_id: tid, tree_route: tree_id.clone() }
-                        },
-                        (Some(ToolsTab::Places), Some(tid)) => rsx! {
-                            UnlocatedPlaces { tree_id: tid, tree_route: tree_id.clone() }
-                        },
-                        (Some(ToolsTab::Ancestry), Some(tid)) => rsx! {
-                            Ancestry { tree_id: tid, tree_route: tree_id.clone() }
-                        },
-                        (Some(ToolsTab::Duplicates), Some(tid)) => rsx! {
-                            Duplicates { tree_id: tid, tree_route: tree_id.clone() }
-                        },
-                        (Some(ToolsTab::Converter), _) => rsx! { DateConverter {} },
-                        (Some(ToolsTab::Words), _) => rsx! { DateWords {} },
-                        _ => rsx! {},
-                    }
-                }
+            match (tab(), tid) {
+                (Some(ToolsTab::Anomalies), Some(tid)) => rsx! {
+                    Anomalies { tree_id: tid, tree_route: tree_id.clone() }
+                },
+                (Some(ToolsTab::Places), Some(tid)) => rsx! {
+                    UnlocatedPlaces { tree_id: tid, tree_route: tree_id.clone() }
+                },
+                (Some(ToolsTab::Ancestry), Some(tid)) => rsx! {
+                    Ancestry { tree_id: tid, tree_route: tree_id.clone() }
+                },
+                (Some(ToolsTab::Duplicates), Some(tid)) => rsx! {
+                    Duplicates { tree_id: tid, tree_route: tree_id.clone() }
+                },
+                (Some(ToolsTab::Converter), _) => rsx! { DateConverter {} },
+                (Some(ToolsTab::Words), _) => rsx! { DateWords {} },
+                _ => rsx! {},
             }
         }
     }

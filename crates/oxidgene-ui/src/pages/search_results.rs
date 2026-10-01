@@ -14,15 +14,13 @@ use uuid::Uuid;
 use crate::api::{
     ApiClient, ApiError, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField,
 };
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
-use crate::components::print::{PrintHeading, PrintPageNote, search_print_title};
+use crate::components::print::{PrintPageNote, search_print_title};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
 use crate::components::topbar_search::TopbarSearch;
-use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
@@ -434,29 +432,7 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let load_trace = use_ui_load_trace(UiPage::SearchResults);
 
     let tree_id = Uuid::parse_str(&props.tree_id).ok();
-    let tree_cache = use_tree_cache();
-    let api_tree = api.clone();
-    let tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
-        let api = api_tree.clone();
-        let _generation = tree_cache.generation();
-        async move {
-            let tree_id = tree_id?;
-            Some(fetch_tree_cached(&api, &tree_cache, tree_id).await)
-        }
-    });
-    let tree = match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => Some(tree.clone()),
-        _ => tree_id.and_then(|tree_id| tree_cache.tree(tree_id)),
-    };
-    let tree_name = tree
-        .as_ref()
-        .map(|tree| tree.name.clone())
-        .unwrap_or_default();
-    // The person last shown in this tree, else its SOSA root.
-    let current_person = use_current_person();
-    let selected_person_id = tree_id
-        .and_then(|tid| current_person.get(tid))
-        .or(tree.and_then(|tree| tree.sosa_root_person_id));
+    let tree_page = use_tree_page(&props.tree_id);
 
     // ── Search state ──
     let filters = use_search_filters(&props.last, &props.first);
@@ -568,14 +544,12 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
     // ── Render ──
     rsx! {
-        div { class: "sub-page search-results-page",
-            // ── Topbar (shared td-topbar / td-bc classes per spec §3) ──
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    tree_id: props.tree_id.clone(),
-                    tree_name: tree_name.clone(),
-                    span { class: "td-bc-current", {i18n.t("search.title")} }
-                }
+        ToolPageFrame {
+            tree_id: props.tree_id.clone(),
+            tree_name: tree_page.name(),
+            title: i18n.t("search.title"),
+            print_title: search_print_title(&i18n, &(filters.committed_last)(), &(filters.committed_first)()),
+            topbar: rsx! {
                 TopbarSearch {
                     tree_id: props.tree_id.clone(),
                     from_person: props.origin == "person",
@@ -583,63 +557,50 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
                     first: filters.first,
                     on_submit: move |query| commit_search.call(query),
                 }
-                PrintHeading {
-                    tree_name: tree_name.clone(),
-                    title: search_print_title(&i18n, &(filters.committed_last)(), &(filters.committed_first)()),
+            },
+            selected_person_id: tree_page.selected_person_id,
+            page_class: "search-results-page",
+
+        // ── Filter panel ──
+        div { class: "sr-filters-toggle",
+            button {
+                class: "btn btn-outline btn-sm",
+                onclick: move |_| show_filters.toggle(),
+                span { class: if show_filters() { "sr-chevron open" } else { "sr-chevron" }, "\u{25BC}" }
+                " {i18n.t(\"search.filters\")}"
+            }
+        }
+        if show_filters() {
+            // A tree id that does not parse names no tree, and the
+            // nil id's suggestions are empty.
+            {filter_panel(&i18n, tree_id.unwrap_or_default(), filters, sections_open)}
+        }
+
+        div { class: "sr-active-filters",
+            for (label, clear) in filters.active_chips(&i18n) {
+                button {
+                    class: "sr-filter-chip",
+                    title: "{i18n.t(\"search.clear_filters\")}",
+                    onclick: move |_| clear(filters),
+                    "{label}"
+                    span { " \u{00D7}" }
                 }
             }
+        }
 
-            div { class: "pd-page-shell",
-                ToolPageSidebar {
-                    tree_id: props.tree_id.clone(),
-                    selected_person_id,
-                }
+        {toolbar(&i18n, total_filtered, filters)}
 
-                // ── Scrollable content ──
-                div { class: "sub-page-content",
+        // ── Results ──
+        match body {
+            ResultsBody::Message(key) => rsx! {
+                div { class: "empty-state", p { {i18n.t(key)} } }
+            },
+            ResultsBody::Cards => results.cards(tree_id.unwrap_or_default(), &card_pedigrees.read(), pedigrees_loaded),
+            ResultsBody::List => results.list(portraits.as_ref()),
+        }
 
-                // ── Filter panel ──
-                div { class: "sr-filters-toggle",
-                    button {
-                        class: "btn btn-outline btn-sm",
-                        onclick: move |_| show_filters.toggle(),
-                        span { class: if show_filters() { "sr-chevron open" } else { "sr-chevron" }, "\u{25BC}" }
-                        " {i18n.t(\"search.filters\")}"
-                    }
-                }
-                if show_filters() {
-                    // A tree id that does not parse names no tree, and the
-                    // nil id's suggestions are empty.
-                    {filter_panel(&i18n, tree_id.unwrap_or_default(), filters, sections_open)}
-                }
-
-                div { class: "sr-active-filters",
-                    for (label, clear) in filters.active_chips(&i18n) {
-                        button {
-                            class: "sr-filter-chip",
-                            title: "{i18n.t(\"search.clear_filters\")}",
-                            onclick: move |_| clear(filters),
-                            "{label}"
-                            span { " \u{00D7}" }
-                        }
-                    }
-                }
-
-                {toolbar(&i18n, total_filtered, filters)}
-
-                // ── Results ──
-                match body {
-                    ResultsBody::Message(key) => rsx! {
-                        div { class: "empty-state", p { {i18n.t(key)} } }
-                    },
-                    ResultsBody::Cards => results.cards(tree_id.unwrap_or_default(), &card_pedigrees.read(), pedigrees_loaded),
-                    ResultsBody::List => results.list(portraits.as_ref()),
-                }
-
-                {pagination(page, total_pages, filters.page)}
-                PrintPageNote { page, pages: total_pages }
-                }
-            }
+        {pagination(page, total_pages, filters.page)}
+        PrintPageNote { page, pages: total_pages }
         }
     }
 }

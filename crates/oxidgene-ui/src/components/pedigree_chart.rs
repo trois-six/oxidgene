@@ -3615,10 +3615,6 @@ pub struct PedigreeChartProps {
     /// Opens the couple view on a family.
     #[props(default)]
     pub on_couple_view: EventHandler<Uuid>,
-    #[props(default)]
-    pub on_settings: EventHandler<()>,
-    #[props(default)]
-    pub on_dictionary: EventHandler<()>,
     /// Which theme to draw with, when the caller wants to decide rather than
     /// follow the viewer's preference — a settings preview showing each
     /// option as itself, for instance. `None` means the default theme.
@@ -4866,8 +4862,6 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                 },
                 on_pedigree_view: move |_| {},
                 on_add_person: props.on_add_person,
-                on_settings: props.on_settings,
-                on_dictionary: props.on_dictionary,
                 controls::PedigreeTools { view, saver, viewport_rect, max_zoom, fit_target }
             }
 

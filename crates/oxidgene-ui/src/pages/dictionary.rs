@@ -14,12 +14,10 @@ use crate::api::{
     ApiClient, ApiError, DictionaryEntry, PersonUsageEntry, PlaceDictionaryEntry,
     SourceDictionaryEntry, SourceGroupEntry,
 };
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::pedigree_chart::format_lifespan;
-use crate::components::print::{PrintHeading, PrintPageNote};
+use crate::components::print::PrintPageNote;
 use crate::components::suggest_input::ValueInput;
-use crate::components::tree_cache::{fetch_tree_cached, use_current_person, use_tree_cache};
-use crate::components::tree_icon_sidebar::ToolPageSidebar;
+use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary_media::DictionaryMedia;
 use crate::prefs::{SortParticles, use_sort_particles};
@@ -162,7 +160,6 @@ async fn load_usage(api: &ApiClient, tid: Uuid, key: &UsageKey) -> Vec<PersonUsa
 pub fn Dictionary(tree_id: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
-    let tree_cache = use_tree_cache();
     let load_trace = use_ui_load_trace(UiPage::Dictionary);
 
     let mut tree_id_parsed = use_signal(|| tree_id.parse::<Uuid>().ok());
@@ -207,16 +204,7 @@ pub fn Dictionary(tree_id: String) -> Element {
     });
 
     // ── Data fetching (one aggregation call per tab) ──
-    let api_tree = api.clone();
-    let mut tree_resource = use_traced_resource(load_trace.clone(), "tree", move || {
-        let api = api_tree.clone();
-        let tid = tree_id_parsed();
-        let _gen = tree_cache.generation();
-        async move {
-            let tid = tid?;
-            Some(fetch_tree_cached(&api, &tree_cache, tid).await)
-        }
-    });
+    let page = use_tree_page(&tree_id);
 
     let api_fn = api.clone();
     let sort_particles = use_sort_particles();
@@ -273,7 +261,6 @@ pub fn Dictionary(tree_id: String) -> Element {
     });
 
     if tree_changed {
-        tree_resource.restart();
         family_names_resource.restart();
         occupations_resource.restart();
         source_history.set(Vec::new());
@@ -310,136 +297,97 @@ pub fn Dictionary(tree_id: String) -> Element {
     let filed_occupations = use_filed_values(occupations_resource, sort_particles);
     let filed_places = use_filed_places(places_resource);
 
-    // Resolve the name synchronously from the cache while the resource is
-    // pending, so the breadcrumb never flashes a loading label.
-    let tree = {
-        let loaded = tree_resource.read();
-        let loaded = loaded
-            .as_ref()
-            .and_then(Option::as_ref)
-            .and_then(|tree| tree.as_ref().ok());
-        tree_cache.loaded_or_cached(tree_id_parsed(), loaded)
-    };
-    let tree_name = tree
-        .as_ref()
-        .map(|tree| tree.name.clone())
-        .unwrap_or_default();
-    // The person last shown in this tree, else its SOSA root.
-    let current_person = use_current_person();
-    let sosa_root = tree.and_then(|tree| tree.sosa_root_person_id);
-    let selected_person_id = tree_id_parsed()
-        .and_then(|tid| current_person.get(tid))
-        .or(sosa_root);
-
     // ── Render ──
     rsx! {
-        div { class: "sub-page",
-            div { class: "td-topbar",
-                TreeBreadcrumb {
-                    tree_id: tree_id.clone(),
-                    tree_name: tree_name.clone(),
-                    span { class: "td-bc-current", {i18n.t("dictionary.breadcrumb")} }
-                }
-                PrintHeading {
-                    tree_name: tree_name.clone(),
-                    title: i18n.t("dictionary.breadcrumb"),
-                }
-            }
-
-            div { class: "pd-page-shell",
-            ToolPageSidebar {
-                tree_id: tree_id.clone(),
-                selected_person_id,
-                show_dictionary: false,
-            }
-
-            div { class: "sub-page-content",
-                div { class: "dict-tabs",
-                    for (tab, label) in DictTab::ALL {
-                        button {
-                            key: "{label}",
-                            class: if active_tab() == tab { "dict-tab active" } else { "dict-tab" },
-                            onclick: move |_| active_tab.set(tab),
-                            {i18n.t(label)}
-                        }
+        ToolPageFrame {
+            tree_id: tree_id.clone(),
+            tree_name: page.name(),
+            title: i18n.t("dictionary.breadcrumb"),
+            selected_person_id: page.selected_person_id,
+            div { class: "dict-tabs",
+                for (tab, label) in DictTab::ALL {
+                    button {
+                        key: "{label}",
+                        class: if active_tab() == tab { "dict-tab active" } else { "dict-tab" },
+                        onclick: move |_| active_tab.set(tab),
+                        {i18n.t(label)}
                     }
                 }
+            }
 
-                match active_tab() {
-                    DictTab::FamilyNames => render_value_tab(
-                        i18n,
-                        &tree_id,
-                        family_names_resource,
-                        quick_filter,
-                        letter_filter,
-                        page_size,
-                        current_page,
-                        "dictionary.no_entries_family_names",
-                        true,
-                        expanded,
-                        usage_resource,
-                        sort_particles,
-                        Some(family_name_edit),
-                        filed_family_names,
-                    ),
-                    DictTab::Occupations => render_value_tab(
-                        i18n,
-                        &tree_id,
-                        occupations_resource,
-                        quick_filter,
-                        letter_filter,
-                        page_size,
-                        current_page,
-                        "dictionary.no_entries_occupations",
-                        false,
-                        expanded,
-                        usage_resource,
-                        sort_particles,
-                        None,
-                        filed_occupations,
-                    ),
-                    DictTab::Sources => render_sources_tab(
-                        i18n,
-                        &tree_id,
-                        source_history,
-                        sources_view_resource,
-                        quick_filter,
-                        expanded,
-                        usage_resource,
-                    ),
-                    DictTab::Places => render_places_tab(
-                        i18n,
-                        &tree_id,
-                        places_resource,
-                        quick_filter,
-                        letter_filter,
-                        page_size,
-                        current_page,
-                        expanded,
-                        usage_resource,
-                        filed_places,
-                    ),
-                    // Its own module: server-paginated, with filters of its own.
-                    DictTab::Media => match tree_id_parsed() {
-                        Some(tree_id) => rsx! { DictionaryMedia { tree_id } },
-                        None => rsx! {},
+            match active_tab() {
+                DictTab::FamilyNames => render_value_tab(
+                    i18n,
+                    &tree_id,
+                    family_names_resource,
+                    quick_filter,
+                    letter_filter,
+                    page_size,
+                    current_page,
+                    "dictionary.no_entries_family_names",
+                    true,
+                    expanded,
+                    usage_resource,
+                    sort_particles,
+                    Some(family_name_edit),
+                    filed_family_names,
+                ),
+                DictTab::Occupations => render_value_tab(
+                    i18n,
+                    &tree_id,
+                    occupations_resource,
+                    quick_filter,
+                    letter_filter,
+                    page_size,
+                    current_page,
+                    "dictionary.no_entries_occupations",
+                    false,
+                    expanded,
+                    usage_resource,
+                    sort_particles,
+                    None,
+                    filed_occupations,
+                ),
+                DictTab::Sources => render_sources_tab(
+                    i18n,
+                    &tree_id,
+                    source_history,
+                    sources_view_resource,
+                    quick_filter,
+                    expanded,
+                    usage_resource,
+                ),
+                DictTab::Places => render_places_tab(
+                    i18n,
+                    &tree_id,
+                    places_resource,
+                    quick_filter,
+                    letter_filter,
+                    page_size,
+                    current_page,
+                    expanded,
+                    usage_resource,
+                    filed_places,
+                ),
+                // Its own module: server-paginated, with filters of its own.
+                DictTab::Media => match tree_id_parsed() {
+                    Some(tree_id) => rsx! { DictionaryMedia { tree_id } },
+                    None => rsx! {},
+                },
+            }
+
+            if let (Some(edit), Some(tid)) = (family_name_edit(), tree_id_parsed()) {
+                FamilyNameEditor {
+                    key: "{edit.value}",
+                    tree_id: tid,
+                    edit,
+                    known: filed_family_names,
+                    on_close: move |()| family_name_edit.set(None),
+                    on_saved: move |()| {
+                        family_name_edit.set(None);
+                        family_names_resource.restart();
                     },
                 }
-
-                if let (Some(edit), Some(tid)) = (family_name_edit(), tree_id_parsed()) {
-                    FamilyNameEditor {
-                        key: "{edit.value}",
-                        tree_id: tid,
-                        edit,
-                        known: filed_family_names,
-                        on_close: move |()| family_name_edit.set(None),
-                        on_saved: move |()| {
-                            family_name_edit.set(None);
-                            family_names_resource.restart();
-                        },
-                    }
-                }
-            }
             }
         }
     }

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::components::print::PrintAction;
 use crate::i18n::use_i18n;
-use crate::router::Route;
+use crate::router::{Route, pedigree_route, person_route, push_tree_route};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TreeSidebarView {
@@ -27,19 +27,15 @@ pub fn TreeIconSidebar(
     #[props(default)] on_couple_view: EventHandler<Uuid>,
     on_pedigree_view: EventHandler<Option<Uuid>>,
     on_add_person: EventHandler<()>,
-    on_dictionary: EventHandler<()>,
-    on_settings: EventHandler<()>,
     #[props(default = true)] show_middle_separator: bool,
     #[props(default = true)] show_add_person: bool,
-    #[props(default = true)] show_dictionary: bool,
-    #[props(default = true)] show_settings: bool,
     #[props(default)] children: Element,
 ) -> Element {
     let i18n = use_i18n();
-    // The statistics button needs no callback: every tree page's route names
-    // its tree, and the button leads to that tree's statistics.
+    // The buttons to the tree's own pages need no callback: every tree
+    // page's route names its tree, and each button leads to that page of it.
     let route = use_route::<Route>();
-    let statistics_tree = route.tree_id().map(str::to_string);
+    let tree_id = route.tree_id().map(str::to_string);
 
     let profile_class = button_class(active_view == TreeSidebarView::Profile);
     let couple_class = button_class(active_view == TreeSidebarView::Couple);
@@ -132,50 +128,13 @@ pub fn TreeIconSidebar(
                 }
             }
 
-            if show_dictionary || show_settings || statistics_tree.is_some() {
+            if let Some(tree_id) = tree_id {
                 div { class: "isb-hr" }
-            }
-
-            if show_dictionary {
-                button {
-                    class: "isb-btn",
-                    title: "{i18n.t(\"dictionary.breadcrumb\")}",
-                    onclick: move |_| on_dictionary.call(()),
-                    svg {
-                        width: "16",
-                        height: "16",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        path { d: "M12 7v14" }
-                        path { d: "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" }
-                    }
-                }
-            }
-
-            if let Some(tree_id) = statistics_tree.clone() {
-                TreePageButtons { tree_id, route: route.clone() }
-            }
-
-            PrintAction {}
-
-            if show_settings {
-                button {
-                    class: "isb-btn",
-                    title: "{i18n.t(\"settings.breadcrumb\")}",
-                    onclick: move |_| on_settings.call(()),
-                    svg {
-                        width: "16",
-                        height: "16",
-                        fill: "none",
-                        "viewBox": "0 0 24 24",
-                        stroke: "currentColor",
-                        "strokeWidth": "2",
-                        circle { cx: "12", cy: "12", r: "3" }
-                        path { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" }
-                    }
-                }
+                TreePageButton { page: TreePage::Dictionary, tree_id: tree_id.clone(), route: route.clone() }
+                TreePageButton { page: TreePage::Statistics, tree_id: tree_id.clone(), route: route.clone() }
+                TreePageButton { page: TreePage::Tools, tree_id: tree_id.clone(), route: route.clone() }
+                PrintAction {}
+                TreePageButton { page: TreePage::Settings, tree_id, route }
             }
         }
     }
@@ -183,47 +142,23 @@ pub fn TreeIconSidebar(
 
 /// The sidebar of a tree's tool pages — statistics, tools, search, kinship,
 /// history, dictionary, settings: no view of its own and no person to add,
-/// its buttons leading to the selected person's profile and pedigree and to
-/// the tree's dictionary and settings.
+/// its buttons leading to the selected person's profile and pedigree.
 #[component]
-pub fn ToolPageSidebar(
-    tree_id: String,
-    selected_person_id: Option<Uuid>,
-    #[props(default = true)] show_dictionary: bool,
-    #[props(default = true)] show_settings: bool,
-) -> Element {
-    let nav = use_navigator();
-    let (profile_tree, pedigree_tree, dictionary_tree) =
-        (tree_id.clone(), tree_id.clone(), tree_id.clone());
+pub fn ToolPageSidebar(tree_id: String, selected_person_id: Option<Uuid>) -> Element {
+    let open_profile = push_tree_route(&tree_id, person_route);
     rsx! {
         TreeIconSidebar {
             active_view: TreeSidebarView::None,
             selected_person_id,
             show_middle_separator: false,
             show_add_person: false,
-            show_dictionary,
-            show_settings,
             on_profile_view: move |pid: Option<Uuid>| {
                 if let Some(pid) = pid {
-                    nav.push(Route::PersonDetail {
-                        tree_id: profile_tree.clone(),
-                        person_id: pid.to_string(),
-                    });
+                    open_profile.call(pid);
                 }
             },
-            on_pedigree_view: move |pid: Option<Uuid>| {
-                nav.push(Route::TreeDetail {
-                    tree_id: pedigree_tree.clone(),
-                    person: pid.map(|pid| pid.to_string()),
-                });
-            },
+            on_pedigree_view: push_tree_route(&tree_id, pedigree_route),
             on_add_person: move |_| {},
-            on_dictionary: move |_| {
-                nav.push(Route::Dictionary { tree_id: dictionary_tree.clone() });
-            },
-            on_settings: move |_| {
-                nav.push(Route::Settings { tree_id: tree_id.clone() });
-            },
         }
     }
 }
@@ -239,13 +174,8 @@ pub fn ProfilePageSidebar(
     couple_family_id: Option<Uuid>,
     on_add_person: EventHandler<()>,
 ) -> Element {
-    let nav = use_navigator();
-    let (profile_tree, couple_tree, pedigree_tree, dictionary_tree) = (
-        tree_id.clone(),
-        tree_id.clone(),
-        tree_id.clone(),
-        tree_id.clone(),
-    );
+    let open_profile = push_tree_route(&tree_id, person_route);
+    let open_couple = push_tree_route(&tree_id, crate::router::couple_route);
     rsx! {
         TreeIconSidebar {
             active_view,
@@ -253,33 +183,16 @@ pub fn ProfilePageSidebar(
             couple_family_id,
             on_profile_view: move |pid: Option<Uuid>| {
                 if let (false, Some(pid)) = (active_view == TreeSidebarView::Profile, pid) {
-                    nav.push(Route::PersonDetail {
-                        tree_id: profile_tree.clone(),
-                        person_id: pid.to_string(),
-                    });
+                    open_profile.call(pid);
                 }
             },
             on_couple_view: move |family_id: Uuid| {
                 if active_view != TreeSidebarView::Couple {
-                    nav.push(Route::CoupleDetail {
-                        tree_id: couple_tree.clone(),
-                        family_id: family_id.to_string(),
-                    });
+                    open_couple.call(family_id);
                 }
             },
-            on_pedigree_view: move |pid: Option<Uuid>| {
-                nav.push(Route::TreeDetail {
-                    tree_id: pedigree_tree.clone(),
-                    person: pid.map(|pid| pid.to_string()),
-                });
-            },
+            on_pedigree_view: push_tree_route(&tree_id, pedigree_route),
             on_add_person,
-            on_dictionary: move |_| {
-                nav.push(Route::Dictionary { tree_id: dictionary_tree.clone() });
-            },
-            on_settings: move |_| {
-                nav.push(Route::Settings { tree_id: tree_id.clone() });
-            },
         }
     }
 }
@@ -293,20 +206,61 @@ fn button_class(active: bool) -> &'static str {
     }
 }
 
-/// The buttons to a tree's statistics and tools, found from the route of
-/// any of its pages.
-#[component]
-fn TreePageButtons(tree_id: String, route: Route) -> Element {
-    let i18n = use_i18n();
-    let nav = use_navigator();
-    let statistics_tree = tree_id.clone();
-    rsx! {
-        button {
-            class: button_class(matches!(route, Route::Statistics { .. })),
-            title: "{i18n.t(\"stats.breadcrumb\")}",
-            onclick: move |_| {
-                nav.push(Route::Statistics { tree_id: statistics_tree.clone() });
-            },
+/// A page of the tree as a whole, which every page of the tree leads to
+/// from the sidebar.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TreePage {
+    Dictionary,
+    Statistics,
+    Tools,
+    Settings,
+}
+
+impl TreePage {
+    fn route(self, tree_id: String) -> Route {
+        match self {
+            TreePage::Dictionary => Route::Dictionary { tree_id },
+            TreePage::Statistics => Route::Statistics { tree_id },
+            TreePage::Tools => Route::Tools { tree_id },
+            TreePage::Settings => Route::Settings { tree_id },
+        }
+    }
+
+    /// Whether `route` is this page, whose button then shows as current.
+    fn is_shown(self, route: &Route) -> bool {
+        matches!(
+            (self, route),
+            (TreePage::Dictionary, Route::Dictionary { .. })
+                | (TreePage::Statistics, Route::Statistics { .. })
+                | (TreePage::Tools, Route::Tools { .. })
+                | (TreePage::Settings, Route::Settings { .. })
+        )
+    }
+
+    fn title_key(self) -> &'static str {
+        match self {
+            TreePage::Dictionary => "dictionary.breadcrumb",
+            TreePage::Statistics => "stats.breadcrumb",
+            TreePage::Tools => "tools.breadcrumb",
+            TreePage::Settings => "settings.breadcrumb",
+        }
+    }
+
+    fn icon(self) -> Element {
+        let paths: &[&str] = match self {
+            TreePage::Dictionary => &[
+                "M12 7v14",
+                "M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z",
+            ],
+            TreePage::Statistics => &["M3 3v18h18", "M7 15l4-4 3 3 5-6"],
+            TreePage::Tools => &[
+                "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z",
+            ],
+            TreePage::Settings => &[
+                "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+            ],
+        };
+        rsx! {
             svg {
                 width: "16",
                 height: "16",
@@ -314,25 +268,36 @@ fn TreePageButtons(tree_id: String, route: Route) -> Element {
                 "viewBox": "0 0 24 24",
                 stroke: "currentColor",
                 "strokeWidth": "2",
-                path { d: "M3 3v18h18" }
-                path { d: "M7 15l4-4 3 3 5-6" }
+                if self == TreePage::Settings {
+                    circle { cx: "12", cy: "12", r: "3" }
+                }
+                for d in paths {
+                    path { d: *d }
+                }
             }
         }
+    }
+}
+
+/// The button to one of the tree's own pages, highlighted on that page,
+/// where pressing it does nothing.
+#[component]
+fn TreePageButton(page: TreePage, tree_id: String, route: Route) -> Element {
+    let i18n = use_i18n();
+    let nav = use_navigator();
+    let shown = page.is_shown(&route);
+    rsx! {
         button {
-            class: button_class(matches!(route, Route::Tools { .. })),
-            title: "{i18n.t(\"tools.breadcrumb\")}",
+            class: button_class(shown),
+            title: i18n.t(page.title_key()),
+            "aria-label": i18n.t(page.title_key()),
+            "aria-current": if shown { "page" } else { "false" },
             onclick: move |_| {
-                nav.push(Route::Tools { tree_id: tree_id.clone() });
+                if !shown {
+                    nav.push(page.route(tree_id.clone()));
+                }
             },
-            svg {
-                width: "16",
-                height: "16",
-                fill: "none",
-                "viewBox": "0 0 24 24",
-                stroke: "currentColor",
-                "strokeWidth": "2",
-                path { d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" }
-            }
+            {page.icon()}
         }
     }
 }

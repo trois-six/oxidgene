@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:41:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -22,7 +22,8 @@ It is reached from the **wrench icon** of the shared left icon sidebar
 (`TreeIconSidebar`), right after the Statistics chart icon and before the
 Gear, so it opens the same way from the pedigree canvas, a profile, and every
 other tree page. Like [Statistics](ui-statistics.md), it uses the `sub-page`
-layout with no sidebar of its own.
+layout with the shared left icon sidebar, whose wrench button shows as
+current here.
 
 ## 2. Layout
 

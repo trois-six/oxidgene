@@ -31,7 +31,7 @@ use crate::components::pedigree_chart::{AncestorSet, Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
-use crate::router::Route;
+use crate::router::{Route, push_tree_route};
 use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, use_traced_resource};
 use crate::utils::{event_type_label_key, note_html_for_display, opt_str, resolve_name};
@@ -1174,10 +1174,12 @@ pub(crate) fn header_section(
     profile: &Profile,
     photo: Option<CroppedSource>,
     is_self: bool,
-    on_self_badge: EventHandler<()>,
     actions: Element,
 ) -> Element {
     let i18n = ctx.i18n;
+    let open_settings = push_tree_route(&ctx.tree_id.to_string(), |tree_id, ()| Route::Settings {
+        tree_id,
+    });
     let Some(person) = profile.person.as_ref() else {
         return rsx! {};
     };
@@ -1218,7 +1220,7 @@ pub(crate) fn header_section(
                         button {
                             class: "badge pd-self-badge",
                             title: i18n.t("person.self_badge_settings"),
-                            onclick: move |_| on_self_badge.call(()),
+                            onclick: move |_| open_settings.call(()),
                             {i18n.t("person.self_badge")}
                         }
                     }

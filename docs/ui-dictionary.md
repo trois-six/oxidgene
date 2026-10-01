@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T05:10:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
 ---
 
 
@@ -25,7 +25,7 @@ offering a merge or rename operation.
 
 It is reached via the **Book/index icon** in the shared left icon sidebar (`TreeIconSidebar`), which makes it accessible identically from the [Genealogy Tree](ui-genealogy-tree.md) (pedigree canvas) and from the [Person Profile](ui-person-profile.md) page — the same component renders that icon in both places.
 
-This page uses the standard `sub-page` layout pattern (see [General](general.md) section 8). There is **no left sidebar (ISB)** on this page itself — same convention as [Settings](ui-settings.md) and [Search Results](ui-search-results.md).
+This page uses the standard `sub-page` layout pattern (see [General](general.md) section 8) with the shared left icon sidebar, whose Book/index button shows as current here ([Common UI §6.3](ui-common.md#63-shared-left-icon-sidebar)).
 
 ---
 
@@ -414,8 +414,7 @@ translated; see [Cross-cutting Rules §3](cross-cutting.md).
 ## 14. Navigation & Access Point
 
 - New route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`
-- Entry point: a new **Book/index** button in the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), grouped with the Gear/Settings button after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). Because this component is reused by both the pedigree canvas and the person-profile page, the icon requires no separate wiring to be available from both.
-- Not shown on the Settings page itself (same `show_settings`-style opt-out already used there for the other ISB buttons).
+- Entry point: the **Book/index** button of the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), first of the group after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). The sidebar finds the tree from the route, so the button needs no wiring on any page; on the Dictionary itself it shows as current.
 
 ---
 

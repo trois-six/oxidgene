@@ -11,7 +11,6 @@ use oxidgene_core::types::{FamilySpouse, Note};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, PersonDetailBundle};
-use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::media_gallery::MediaOwner;
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
@@ -21,13 +20,13 @@ use crate::components::person_profile::{
     header_section, media_event_links, notes_section, refresh_button, timeline_section, union_line,
     use_ancestor_pedigree, use_mini_pedigree, use_sosa_ancestors, use_tree_resource,
 };
-use crate::components::print::PrintHeading;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
+use crate::components::tree_page::ToolPageFrame;
 use crate::components::union_form::UnionForm;
 use crate::i18n::{I18n, use_i18n};
-use crate::router::Route;
+use crate::router::{Route, person_route, push_tree_route};
 use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 
@@ -198,30 +197,23 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     };
 
     rsx! {
-        div { class: "sub-page",
-        div { class: "td-topbar",
-            TreeBreadcrumb {
-                tree_id: tree_id.clone(),
-                tree_name: tree_name_str.clone(),
-                span { class: "td-bc-current", "{title}" }
-            }
-            TopbarSearch { tree_id: tree_id.clone(), from_person: true }
-            PrintHeading {
-                tree_name: tree_name_str.clone(),
-                title: title.clone(),
-            }
-        }
-
-        div { class: "pd-page-shell",
-        ProfilePageSidebar {
+        ToolPageFrame {
             tree_id: tree_id.clone(),
-            active_view: TreeSidebarView::Couple,
-            selected_person_id,
-            couple_family_id: family_id_parsed(),
-            on_add_person: move |_| show_create_person.set(true),
-        }
-
-        div { class: "sub-page-content pd-content cp-content",
+            tree_name: tree_name_str.clone(),
+            title: title.clone(),
+            topbar: rsx! {
+                TopbarSearch { tree_id: tree_id.clone(), from_person: true }
+            },
+            sidebar: rsx! {
+                ProfilePageSidebar {
+                    tree_id: tree_id.clone(),
+                    active_view: TreeSidebarView::Couple,
+                    selected_person_id,
+                    couple_family_id: family_id_parsed(),
+                    on_add_person: move |_| show_create_person.set(true),
+                }
+            },
+            content_class: "pd-content cp-content",
 
         // The existing couple edit modal: both spouses, the union's events,
         // its children (detachable), its media — and deleting the couple.
@@ -271,9 +263,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                 },
             },
         }
-        } // close sub-page-content
-        } // close pd-page-shell
-        } // close sub-page
+        }
     }
 }
 
@@ -526,7 +516,6 @@ impl CoupleView<'_> {
                     .as_ref()
                     .and_then(|photos| photos.get(&profile.person_id).cloned()),
                 self.self_person_id == Some(profile.person_id),
-                self.route_handler(|tree_id, ()| Route::Settings { tree_id }),
                 self.open_profile(profile.person_id),
             ),
             (Some(_), None) => rsx! {
@@ -540,16 +529,8 @@ impl CoupleView<'_> {
         }
     }
 
-    /// A handler opening the route `route` makes of this tree and its input.
-    fn route_handler<T: 'static>(&self, route: fn(String, T) -> Route) -> EventHandler<T> {
-        let (nav, tree_id) = (self.nav, self.tree_id.to_string());
-        EventHandler::new(move |input| {
-            nav.push(route(tree_id.clone(), input));
-        })
-    }
-
     fn open_profile(&self, person_id: Uuid) -> Element {
-        let open = self.route_handler(person_route);
+        let open = push_tree_route(self.tree_id, person_route);
         open_profile_button(&self.ctx.i18n, move || open.call(person_id))
     }
 
@@ -664,7 +645,7 @@ impl CoupleView<'_> {
     }
 
     fn ancestor_row(&self) -> Element {
-        let on_navigate = self.route_handler(person_route);
+        let on_navigate = push_tree_route(self.tree_id, person_route);
         rsx! {
             for column in self.columns.iter() {
                 div { class: "cp-cell",
@@ -678,13 +659,6 @@ impl CoupleView<'_> {
 }
 
 /// A person's profile in a tree.
-fn person_route(tree_id: String, person_id: Uuid) -> Route {
-    Route::PersonDetail {
-        tree_id,
-        person_id: person_id.to_string(),
-    }
-}
-
 /// Whose notes a notes resource loads.
 enum NotesOf {
     Person(Memo<Option<Uuid>>),
