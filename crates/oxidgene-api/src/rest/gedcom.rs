@@ -1,66 +1,21 @@
-//! REST handlers for GEDCOM import and export.
+//! REST handler for GEDCOM and GEDZIP export.
+//!
+//! Imports have no handler here: a genealogy file is imported only as a job
+//! (see [`super::file_import`]).
 
 use axum::Json;
-use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use tracing::Instrument as _;
 use uuid::Uuid;
 
-use super::dto::{ExportGedcomQuery, ExportGedcomResponse, ImportGedcomRequest};
+use super::dto::{ExportGedcomQuery, ExportGedcomResponse};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::gedcom::{self, ImportSummary};
+use crate::service::gedcom;
 use crate::service::history;
-
-/// POST /api/v1/trees/:tree_id/gedcom/import
-///
-/// Import a GEDCOM string into the given tree, persisting all extracted entities.
-pub async fn import_gedcom_handler(
-    State(state): State<AppState>,
-    Path(tree_id): Path<Uuid>,
-    Json(body): Json<ImportGedcomRequest>,
-) -> Result<(StatusCode, Json<ImportSummary>), ApiError> {
-    let summary = gedcom::import_and_persist(&state.db, tree_id, &body.gedcom).await?;
-    gedcom::finish_import(
-        &state.db,
-        &state.profiles,
-        tree_id,
-        "gedcom",
-        None,
-        &summary,
-    )
-    .await?;
-    Ok((StatusCode::CREATED, Json(summary)))
-}
-
-/// POST /api/v1/trees/:tree_id/gedzip/import
-///
-/// Import a GEDZIP archive (`.gdz`) into the given tree: the genealogy from
-/// the `gedcom.ged` it wraps, plus every media file it carries.
-///
-/// The body is the **raw archive**, not JSON — a ZIP is bytes, and base64 in a
-/// JSON envelope would inflate a photo album by a third for nothing.
-pub async fn import_gedzip_handler(
-    State(state): State<AppState>,
-    Path(tree_id): Path<Uuid>,
-    body: Bytes,
-) -> Result<(StatusCode, Json<ImportSummary>), ApiError> {
-    let summary =
-        gedcom::import_gedzip_and_persist(&state.db, &*state.media, tree_id, &body).await?;
-    gedcom::finish_import(
-        &state.db,
-        &state.profiles,
-        tree_id,
-        "gedzip",
-        None,
-        &summary,
-    )
-    .await?;
-    Ok((StatusCode::CREATED, Json(summary)))
-}
 
 /// GET /api/v1/trees/:tree_id/gedcom/export
 ///

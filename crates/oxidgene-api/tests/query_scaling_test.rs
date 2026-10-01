@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
 use axum::http::Method;
-use common::{family_blocks_tree, ok, setup_app};
+use common::{app_on, family_blocks_tree, ok, setup_db};
 use serde_json::{Value, json};
 use tracing::Subscriber;
 use tracing::span::{Attributes, Id};
@@ -147,9 +147,10 @@ async fn no_request_issues_statements_per_record() {
         .with(StatementCounter(Arc::clone(&counter)))
         .set_default();
 
-    let app = setup_app().await;
-    let small = family_blocks_tree(&app, 4).await;
-    let large = family_blocks_tree(&app, 16).await;
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let small = family_blocks_tree(&app, &db, 4).await;
+    let large = family_blocks_tree(&app, &db, 16).await;
 
     let mut grows = Vec::new();
     for case in cases() {

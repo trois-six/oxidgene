@@ -12,6 +12,11 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use http_body_util::BodyExt;
+use std::sync::Arc;
+
+use oxidgene_api::media::FsStore;
+use oxidgene_api::profile::ProfileService;
+use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
 use oxidgene_db::sea_orm::DatabaseConnection;
@@ -27,15 +32,88 @@ pub async fn setup_db() -> DatabaseConnection {
     db
 }
 
-/// The API router over `db`.
+/// Where [`app_on`] keeps media and staged job inputs.
 ///
-/// Media lands in a throwaway directory: these tests never upload, but
-/// `AppState` needs a root and it must not be the developer's.
+/// A throwaway directory: `AppState` needs a root and it must not be the
+/// developer's.
+fn test_media_root() -> std::path::PathBuf {
+    std::env::temp_dir().join("oxidgene-test-media")
+}
+
+/// The API router over `db`.
 pub fn app_on(db: DatabaseConnection) -> Router {
-    build_router(AppState::new(
-        db,
-        std::env::temp_dir().join("oxidgene-test-media"),
-    ))
+    build_router(AppState::new(db, test_media_root()))
+}
+
+/// A background job worker over `db` and the media root of [`app_on`].
+///
+/// No worker runs on its own in these tests: one runs a job only when a
+/// test asks it to, so a queued job stays queued until then.
+pub fn worker_on(db: &DatabaseConnection) -> BackgroundJobWorker {
+    BackgroundJobWorker::new(
+        db.clone(),
+        Arc::new(ProfileService::new(db.clone())),
+        Arc::new(FsStore::new(test_media_root())),
+        "test-worker",
+    )
+}
+
+/// Import `bytes` into `tree_id` the way a client does: upload them as an
+/// import job (`query` is the job's query string, `format=…` and an
+/// optional `filename=…`), have `worker` run it, and return the job's final
+/// status, `completed` with its summary in `result` or `failed` with its
+/// `error`.
+pub async fn import_job(
+    app: &Router,
+    worker: &BackgroundJobWorker,
+    tree_id: &str,
+    query: &str,
+    bytes: impl Into<Vec<u8>>,
+) -> Value {
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/v1/trees/{tree_id}/import-jobs?{query}"))
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .body(Body::from(bytes.into()))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let started: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    assert_eq!(
+        status,
+        StatusCode::ACCEPTED,
+        "import job not started: {started}"
+    );
+    let job_id = started["job_id"].as_str().expect("job id").to_owned();
+    assert!(worker.run_once().await.expect("runs the import job"));
+    ok(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
+        None,
+    )
+    .await
+}
+
+/// [`import_job`] of GEDCOM text into `tree_id` of the [`app_on`] router
+/// over `db`, which must complete; the import's summary.
+pub async fn import_gedcom(
+    app: &Router,
+    db: &DatabaseConnection,
+    tree_id: &str,
+    gedcom: &str,
+) -> Value {
+    let status = import_job(
+        app,
+        &worker_on(db),
+        tree_id,
+        "format=gedcom",
+        gedcom.as_bytes().to_vec(),
+    )
+    .await;
+    assert_eq!(status["phase"], "completed", "import failed: {status}");
+    status["result"].clone()
 }
 
 /// The API router over a fresh database.
@@ -218,9 +296,13 @@ pub fn family_blocks_gedcom(blocks: usize) -> String {
     out + "0 TRLR\n"
 }
 
-/// A tree of [`family_blocks_gedcom`]`(blocks)`, with block 0's root as its SOSA root;
-/// the tree's id and that root's.
-pub async fn family_blocks_tree(app: &Router, blocks: usize) -> (String, String) {
+/// A tree of [`family_blocks_gedcom`]`(blocks)`, with block 0's root as its SOSA root,
+/// in the [`app_on`] router over `db`; the tree's id and that root's.
+pub async fn family_blocks_tree(
+    app: &Router,
+    db: &DatabaseConnection,
+    blocks: usize,
+) -> (String, String) {
     let tree = ok(
         app,
         Method::POST,
@@ -229,13 +311,7 @@ pub async fn family_blocks_tree(app: &Router, blocks: usize) -> (String, String)
     )
     .await;
     let tree_id = tree["id"].as_str().unwrap().to_owned();
-    ok(
-        app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-        Some(serde_json::json!({ "gedcom": family_blocks_gedcom(blocks) })),
-    )
-    .await;
+    import_gedcom(app, db, &tree_id, &family_blocks_gedcom(blocks)).await;
     let profiles = ok(
         app,
         Method::GET,

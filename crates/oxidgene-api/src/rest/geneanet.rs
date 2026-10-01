@@ -36,10 +36,9 @@ const DEFAULT_ORIGIN_FILE: &str = "import.gw";
 ///
 /// Parse a `.gw` file and report what it holds, writing nothing.
 ///
-/// The body is the **raw file content**, for the same reason
-/// [`super::geneweb::import_geneweb_handler`] takes one: `.gw` is ISO-8859-1
-/// unless it opts into UTF-8, so decoding it upstream would mangle the accented
-/// names the join key is built from.
+/// The body is the **raw file content**, as for a GeneWeb import job: `.gw` is
+/// ISO-8859-1 unless it opts into UTF-8, so decoding it upstream would mangle
+/// the accented names the join key is built from.
 ///
 /// Not scoped to a tree: this runs before the user has chosen one, and it is
 /// what tells them whether they picked the right export.

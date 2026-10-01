@@ -1200,7 +1200,8 @@ async fn test_person_search_reads_typed_filters_beside_paging() {
 /// searched, though a second tree holds the same people.
 #[tokio::test]
 async fn test_person_search_filters_on_events() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
     let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n2 FORM LINEAGE-LINKED\n1 CHAR UTF-8\n\
         0 @I1@ INDI\n1 NAME Alpha /Sample/\n1 SEX M\n1 BIRT\n2 DATE 1850\n\
         2 PLAC Springfield\n1 OCCU Baker\n1 FAMS @F1@\n\
@@ -1211,14 +1212,7 @@ async fn test_person_search_filters_on_events() {
     let mut trees = Vec::new();
     for _ in 0..2 {
         let tree_id = create_tree_via_api(&app).await;
-        let (status, body) = send(
-            &app,
-            Method::POST,
-            &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-            Some(serde_json::json!({ "gedcom": gedcom })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CREATED, "import failed: {body}");
+        common::import_gedcom(&app, &db, &tree_id, gedcom).await;
         trees.push(tree_id);
     }
 
@@ -2795,7 +2789,8 @@ fn gedcom_over_insert_batch_size() -> String {
 
 #[tokio::test]
 async fn test_gedcom_import() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
 
     // Create tree
     let (_, tree_body) = send(
@@ -2808,14 +2803,7 @@ async fn test_gedcom_import() {
     let tree_id = tree_body["id"].as_str().unwrap();
 
     // Import GEDCOM
-    let (status, body) = send(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-        Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
+    let body = common::import_gedcom(&app, &db, tree_id, minimal_gedcom()).await;
     assert_eq!(body["persons_count"], 2);
     assert_eq!(body["families_count"], 1);
     assert!(body["events_count"].as_i64().unwrap() >= 2); // BIRT + MARR
@@ -2836,18 +2824,12 @@ async fn test_gedcom_import() {
 
 #[tokio::test]
 async fn test_gedcom_import_spans_multiple_insert_batches() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
     let tree_id = create_tree_via_api(&app).await;
 
-    let (status, body) = send(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-        Some(serde_json::json!({ "gedcom": gedcom_over_insert_batch_size() })),
-    )
-    .await;
+    let body = common::import_gedcom(&app, &db, &tree_id, &gedcom_over_insert_batch_size()).await;
 
-    assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["persons_count"], 501);
     assert_eq!(body["events_count"], 501);
 }
@@ -3476,14 +3458,31 @@ async fn test_gedcom_import_invalid_tree() {
     let app = setup_app().await;
     let fake_id = "00000000-0000-0000-0000-000000000000";
 
-    let (status, _) = send(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{fake_id}/gedcom/import"),
-        Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
+    let (status, _) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{fake_id}/import-jobs?format=gedcom"),
+        minimal_gedcom().as_bytes().to_vec(),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// Imports are jobs: the synchronous format endpoints are gone, and their
+/// paths are unknown routes rather than a second way in.
+#[tokio::test]
+async fn files_are_imported_only_through_jobs() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    for path in ["gedcom/import", "gedzip/import", "geneweb/import"] {
+        let (status, body) = send_bytes(
+            app.clone(),
+            &format!("/api/v1/trees/{tree_id}/{path}"),
+            minimal_gedcom().as_bytes().to_vec(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {body}");
+        assert_eq!(body["error"], "not_found", "{path}");
+    }
 }
 
 #[tokio::test]
@@ -3548,7 +3547,8 @@ async fn the_gedcom_export_names_the_trees_own_person_as_submitter() {
 
 #[tokio::test]
 async fn test_gedcom_roundtrip() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
 
     // Create tree
     let (_, tree_body) = send(
@@ -3561,14 +3561,7 @@ async fn test_gedcom_roundtrip() {
     let tree_id = tree_body["id"].as_str().unwrap();
 
     // Import
-    let (status, import_body) = send(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-        Some(serde_json::json!({ "gedcom": minimal_gedcom() })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
+    let import_body = common::import_gedcom(&app, &db, tree_id, minimal_gedcom()).await;
 
     // Export
     let (status, export_body) = send(
@@ -3620,7 +3613,7 @@ fn minimal_geneweb() -> &'static str {
     )
 }
 
-/// Helper: POST a raw binary body (the GeneWeb endpoint takes bytes, not JSON).
+/// Helper: POST a raw binary body (an import job takes bytes, not JSON).
 async fn send_bytes(app: axum::Router, uri: &str, body: Vec<u8>) -> (StatusCode, Value) {
     let request = Request::builder()
         .method(Method::POST)
@@ -3642,16 +3635,20 @@ async fn send_bytes(app: axum::Router, uri: &str, body: Vec<u8>) -> (StatusCode,
 
 #[tokio::test]
 async fn test_geneweb_import() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
     let tree_id = create_tree_via_api(&app).await;
 
-    let (status, body) = send_bytes(
-        app.clone(),
-        &format!("/api/v1/trees/{tree_id}/geneweb/import?filename=family.gw"),
+    let job = common::import_job(
+        &app,
+        &common::worker_on(&db),
+        &tree_id,
+        "format=geneweb&filename=family.gw",
         minimal_geneweb().as_bytes().to_vec(),
     )
     .await;
-    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(job["phase"], "completed", "{job}");
+    let body = &job["result"];
     assert_eq!(body["persons_count"], 3);
     assert_eq!(body["families_count"], 1);
 
@@ -3667,12 +3664,13 @@ async fn test_geneweb_import() {
     assert_eq!(persons["edges"].as_array().unwrap().len(), 3);
 }
 
-/// A `.gw` file is ISO-8859-1 unless it opts into UTF-8, so the endpoint takes
-/// raw bytes; this is the regression test that nothing decodes them as UTF-8
-/// along the way.
+/// A `.gw` file is ISO-8859-1 unless it opts into UTF-8, so the import job
+/// takes raw bytes; this is the regression test that nothing decodes them as
+/// UTF-8 along the way.
 #[tokio::test]
 async fn test_geneweb_import_latin1_bytes() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
     let tree_id = create_tree_via_api(&app).await;
 
     // "Émile" with É as the single Latin-1 byte 0xC9 — invalid UTF-8.
@@ -3680,14 +3678,16 @@ async fn test_geneweb_import_latin1_bytes() {
     gw.extend_from_slice(b"fam Doe \xC9mile.0 + Smith Jeanne.0\n");
     assert!(String::from_utf8(gw.clone()).is_err());
 
-    let (status, body) = send_bytes(
-        app.clone(),
-        &format!("/api/v1/trees/{tree_id}/geneweb/import?filename=latin1.gw"),
+    let job = common::import_job(
+        &app,
+        &common::worker_on(&db),
+        &tree_id,
+        "format=geneweb&filename=latin1.gw",
         gw,
     )
     .await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["persons_count"], 2);
+    assert_eq!(job["phase"], "completed", "{job}");
+    assert_eq!(job["result"]["persons_count"], 2);
 
     // Search folds accents, so `emile` finds the person either way — what is
     // being asserted is the stored spelling: a lossy UTF-8 decode would have
@@ -3710,7 +3710,7 @@ async fn test_geneweb_import_invalid_tree() {
 
     let (status, _) = send_bytes(
         app.clone(),
-        &format!("/api/v1/trees/{fake_id}/geneweb/import"),
+        &format!("/api/v1/trees/{fake_id}/import-jobs?format=geneweb"),
         minimal_geneweb().as_bytes().to_vec(),
     )
     .await;
@@ -3719,16 +3719,20 @@ async fn test_geneweb_import_invalid_tree() {
 
 #[tokio::test]
 async fn test_geneweb_import_unparseable_file() {
-    let app = setup_app().await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
     let tree_id = create_tree_via_api(&app).await;
 
-    let (status, _) = send_bytes(
-        app.clone(),
-        &format!("/api/v1/trees/{tree_id}/geneweb/import"),
+    let job = common::import_job(
+        &app,
+        &common::worker_on(&db),
+        &tree_id,
+        "format=geneweb",
         b"this is not a gw file at all\n".to_vec(),
     )
     .await;
-    assert_ne!(status, StatusCode::CREATED);
+    assert_eq!(job["phase"], "failed", "{job}");
+    assert_eq!(job["error"], "invalid_job_input", "{job}");
 }
 
 // ───────────────────── Profile & pedigree routes ─────────────────────
@@ -4439,8 +4443,9 @@ async fn e2e_fixture_is_the_generated_family_blocks_tree() {
         "e2e/fixtures/family-blocks.ged is stale: rewrite it with OXIDGENE_BLESS_E2E_FIXTURE=1"
     );
 
-    let app = setup_app().await;
-    let (tree_id, _anchor) = common::family_blocks_tree(&app, 3).await;
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
+    let (tree_id, _anchor) = common::family_blocks_tree(&app, &db, 3).await;
     let (_, profiles) = send(
         &app,
         Method::GET,

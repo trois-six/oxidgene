@@ -28,9 +28,12 @@ use std::time::{Duration, Instant};
 use axum::Router;
 use axum::http::Method;
 use chrono::{Datelike, NaiveDate};
-use common::{family_blocks_gedcom, family_blocks_tree, ok, setup_app};
+use common::{
+    app_on, family_blocks_gedcom, family_blocks_tree, import_job, ok, setup_db, worker_on,
+};
 use oxidgene_api::service::{ancestry, anomalies, duplicates, statistics};
 use oxidgene_core::projection::PersonProfile;
+use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -55,8 +58,8 @@ struct Tree {
     profiles: Vec<PersonProfile>,
 }
 
-async fn tree(app: &Router, blocks: usize) -> Tree {
-    let (id, anchor) = family_blocks_tree(app, blocks).await;
+async fn tree(app: &Router, db: &DatabaseConnection, blocks: usize) -> Tree {
+    let (id, anchor) = family_blocks_tree(app, db, blocks).await;
     let json = ok(
         app,
         Method::GET,
@@ -72,11 +75,12 @@ async fn tree(app: &Router, blocks: usize) -> Tree {
 }
 
 /// The smaller and the larger tree, over one router.
-async fn trees() -> (Router, Tree, Tree) {
-    let app = setup_app().await;
-    let small = tree(&app, SMALL).await;
-    let large = tree(&app, SMALL * FACTOR).await;
-    (app, small, large)
+async fn trees() -> (Router, DatabaseConnection, Tree, Tree) {
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let small = tree(&app, &db, SMALL).await;
+    let large = tree(&app, &db, SMALL * FACTOR).await;
+    (app, db, small, large)
 }
 
 /// Years a tree of [`SMALL`] blocks spans, four blocks a year.
@@ -131,8 +135,8 @@ fn replicated(base: &Tree, copies: usize) -> Tree {
 
 /// The smaller and the larger tree of the in-memory computations.
 async fn replicated_trees() -> (Tree, Tree) {
-    let app = setup_app().await;
-    let base = tree(&app, SMALL).await;
+    let db = setup_db().await;
+    let base = tree(&app_on(db.clone()), &db, SMALL).await;
     (
         replicated(&base, SMALL_COPIES),
         replicated(&base, SMALL_COPIES * FACTOR),
@@ -284,7 +288,7 @@ async fn timed_request(
 
 /// Times each request on both trees; `{tree}` is substituted.
 async fn scaling_requests(requests: &[(Method, &str)]) {
-    let (app, small, large) = trees().await;
+    let (app, _db, small, large) = trees().await;
     let reference = reference_growth(&small, &large);
     for (method, uri) in requests {
         let on = |tree: &Tree| uri.replace("{tree}", &tree.id);
@@ -300,11 +304,12 @@ async fn scaling_requests(requests: &[(Method, &str)]) {
 #[tokio::test]
 #[ignore = "timing: run by `just complexity` in release mode"]
 async fn scaling_import() {
-    let (app, small, large) = trees().await;
+    let (app, db, small, large) = trees().await;
     let reference = reference_growth(&small, &large);
+    let worker = worker_on(&db);
     let mut times = Vec::new();
     for blocks in [SMALL, SMALL * FACTOR] {
-        let gedcom = json!({ "gedcom": family_blocks_gedcom(blocks) });
+        let gedcom = family_blocks_gedcom(blocks);
         let mut runs = Vec::new();
         for _ in 0..RUNS {
             let tree = ok(
@@ -314,13 +319,11 @@ async fn scaling_import() {
                 Some(json!({ "name": "Scaling" })),
             )
             .await;
-            let uri = format!(
-                "/api/v1/trees/{}/gedcom/import",
-                tree["id"].as_str().unwrap()
-            );
+            let tree_id = tree["id"].as_str().unwrap();
             let start = Instant::now();
-            ok(&app, Method::POST, &uri, Some(gedcom.clone())).await;
+            let status = import_job(&app, &worker, tree_id, "format=gedcom", gedcom.clone()).await;
             runs.push(start.elapsed());
+            assert_eq!(status["phase"], "completed", "{status}");
         }
         runs.sort();
         times.push(runs[RUNS / 2]);

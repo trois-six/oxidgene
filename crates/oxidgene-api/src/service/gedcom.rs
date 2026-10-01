@@ -1,9 +1,9 @@
 //! Shared GEDCOM import/export service logic.
 //!
-//! Extracted so both REST and GraphQL handlers can reuse the same
-//! persist-all-entities and load-all-entities workflows. The persist half —
-//! [`persist_import_result`] — is format-agnostic and also backs the GeneWeb
-//! importer in [`crate::service::geneweb`].
+//! Extracted so the import jobs, tree duplication and the exports share the
+//! same persist-all-entities and load-all-entities workflows. The persist
+//! half — [`persist_import_result_in`] — is format-agnostic: it takes the
+//! output of the GEDCOM, GEDZIP and GeneWeb readers alike.
 
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
@@ -169,108 +169,6 @@ pub async fn import_and_persist(
     let result = tracing::info_span!("import.parse", import.format = "gedcom")
         .in_scope(|| import_gedcom(gedcom_str, tree_id))
         .map_err(OxidGeneError::Gedcom)?;
-
-    persist_import_result(db, result).await
-}
-
-/// Read a GEDCOM temporary file, in whatever character set it declares, and
-/// persist its entities.
-#[tracing::instrument(name = "import.gedcom", skip_all)]
-pub async fn import_file_and_persist(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    path: &Path,
-    progress: &FileImportProgress,
-) -> Result<ImportSummary, OxidGeneError> {
-    progress.enter(FileImportPhase::Parsing);
-    let gedcom = tokio::fs::read(path).await?;
-    let _tree = TreeRepo::get(db, tree_id).await?;
-    let result = tracing::info_span!("import.parse", import.format = "gedcom")
-        .in_scope(|| oxidgene_gedcom::import::import_gedcom_bytes(&gedcom, tree_id))
-        .map_err(OxidGeneError::Gedcom)?;
-    progress.enter(FileImportPhase::Database);
-    persist_import_result(db, result).await
-}
-
-/// Read a GEDZIP archive (`.gdz`) and persist everything it holds — the
-/// genealogy *and* the media files it carries.
-///
-/// The genealogy half is [`import_and_persist`] by another name. What the
-/// format adds is that the files travel with it, so every medium whose `FILE`
-/// names an entry in the archive is ingested into the media store first and
-/// its row written as a held medium — thumbnail, dimensions and all — rather
-/// than as the unheld stub a plain `.ged` produces.
-///
-/// A file the store refuses (an unsupported type, or one over the upload
-/// ceiling) costs that medium its bytes and nothing else: the record is still
-/// written, the reason is reported in
-/// [`ImportSummary::warnings`], and the rest of the archive still lands. The
-/// alternative — failing a ten-thousand-person import over one stray file —
-/// would be worse.
-#[tracing::instrument(name = "import.gedzip", skip_all)]
-pub async fn import_gedzip_and_persist(
-    db: &DatabaseConnection,
-    store: &dyn crate::media::MediaStore,
-    tree_id: Uuid,
-    archive: &[u8],
-) -> Result<ImportSummary, OxidGeneError> {
-    let _tree = TreeRepo::get(db, tree_id).await?;
-
-    let (mut reader, plan) = tracing::info_span!("import.parse", import.format = "gedzip")
-        .in_scope(|| {
-            oxidgene_gedcom::import::prepare_gedzip(std::io::Cursor::new(archive), tree_id)
-        })
-        .map_err(OxidGeneError::Gedcom)?;
-    let oxidgene_gedcom::import::GedzipImportPlan { mut result, files } = plan;
-
-    // The name to store each file under is the one its own record carries —
-    // the archive path is `media/<uuid>.jpg` in an OxidGene export and
-    // whatever the producer chose in anyone else's, neither of which is a name
-    // worth showing.
-    let names: std::collections::HashMap<Uuid, String> = result
-        .media
-        .iter()
-        .map(|m| (m.id, m.file_name.clone()))
-        .collect();
-
-    let media_by_id: std::collections::HashMap<Uuid, usize> = result
-        .media
-        .iter()
-        .enumerate()
-        .map(|(index, media)| (media.id, index))
-        .collect();
-
-    let media_span = tracing::info_span!("import.media", import.format = "gedzip");
-    async {
-        for (media_id, entry_name) in files {
-            let display_name = names.get(&media_id).map_or("upload", String::as_str);
-            let outcome = match reader.read_media_file(&entry_name) {
-                Ok(bytes) => crate::media::ingest(store, tree_id, display_name, bytes).await,
-                Err(error) => {
-                    result.warnings.push(format!(
-                        "GEDZIP: '{entry_name}' could not be read out of the archive: {error}"
-                    ));
-                    continue;
-                }
-            };
-
-            match outcome {
-                Ok(ingested) => {
-                    if let Some(media) = media_by_id
-                        .get(&media_id)
-                        .and_then(|index| result.media.get_mut(*index))
-                    {
-                        apply_ingested_media(media, ingested);
-                    }
-                }
-                Err(error) => result
-                    .warnings
-                    .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),
-            }
-        }
-    }
-    .instrument(media_span)
-    .await;
 
     persist_import_result(db, result).await
 }
@@ -763,23 +661,6 @@ async fn insert_attached_records(
         batch_insert::<note::Entity, _>(db, models, on_inserted).await?;
     }
 
-    Ok(())
-}
-
-/// What follows a synchronous import once its rows are persisted: every
-/// projection of the tree rebuilt eagerly, and the import recorded in the
-/// audit log under `format` and the imported file's name.
-pub async fn finish_import(
-    db: &DatabaseConnection,
-    profiles: &crate::profile::ProfileService,
-    tree_id: Uuid,
-    format: &str,
-    file_name: Option<String>,
-    summary: &ImportSummary,
-) -> Result<(), OxidGeneError> {
-    profiles.rebuild_tree_full(db, tree_id).await?;
-    crate::service::history::record_import(db, tree_id, format, file_name, summary.persons_count)
-        .await?;
     Ok(())
 }
 

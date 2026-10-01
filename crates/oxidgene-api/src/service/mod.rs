@@ -13,7 +13,6 @@ pub mod family_names;
 pub mod gallery;
 pub mod gedcom;
 pub mod geneanet;
-pub mod geneweb;
 pub mod history;
 pub mod image_bytes;
 pub mod kinship;

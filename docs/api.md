@@ -867,21 +867,29 @@ imports the format, it does not produce it.
 | `POST` | `/trees/{tree_id}/export-jobs?merge_occupations=bool&merge_names=bool` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}` | Poll `{ phase, done, total, download_url?, warnings, error? }`. `download_url` appears only while the completed artifact is stored. A job ended more than a day ago is gone (`404`) |
 | `GET` | `/trees/{tree_id}/export-jobs/{job_id}/download` | Stream the completed GEDZIP artifact as `application/zip` with `Content-Disposition: attachment`; returns an error while the job is incomplete. A download streamed to its end deletes the artifact, and an artifact never downloaded is deleted an hour after completion; either way a later download answers `404` |
-| `POST` | `/trees/{tree_id}/gedcom/import` | Import a GEDCOM file — JSON body `{ "gedcom": "…" }`, 1 GiB body limit (the JSON escaping costs a further ~1.4× over the file itself) |
-| `POST` | `/trees/{tree_id}/gedzip/import` | Import a GEDZIP archive (`.gdz`): the `gedcom.ged` it wraps **and** the media files it carries. Body is the **raw archive** (`application/zip`), not JSON — base64 in an envelope would inflate a photo album by a third. Every medium whose `FILE` names an entry in the archive is stored, thumbnailed and written as a held medium; one naming an entry the archive lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE` names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`. The archive and `gedcom.ged` entry each have a 1 GiB limit, and each decompressed medium has the ordinary 128 MiB per-file limit. Media are read sequentially and there is no additional cumulative album limit |
-| `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 1 GiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
 A tree holds at most one queued or running import or export job at a time.
 Starting another while one is active answers `409 conflict` (GraphQL
 `CONFLICT`); the client waits for the running job instead.
 
-The synchronous format endpoints remain supported independent operations. The UI
-uses durable jobs for every file import and every GEDZIP export, regardless of
-size. It polls the job after the single initiating action and automatically
-starts the download when an export artifact is ready. Raw streaming, browser
-upload progress and artifact downloads are HTTP transport concerns and
-therefore use REST.
+A genealogy file is imported only through an import job: no request parses a
+file or writes its records while the client waits. The UI uses durable jobs for
+every file import and every GEDZIP export, regardless of size. It polls the job
+after the single initiating action and automatically starts the download when
+an export artifact is ready. Raw streaming, browser upload progress and
+artifact downloads are HTTP transport concerns and therefore use REST.
+
+A GEDZIP import stores every medium whose `FILE` names an entry in the archive,
+thumbnails it and writes it as a held medium; one naming an entry the archive
+lacks stays an unheld record and says so in `warnings`, as does a file no `OBJE`
+names. Matching folds separators and case, so a producer's `.\Media\Photo.JPG`
+still finds `media/photo.jpg`. The `gedcom.ged` entry has a 1 GiB limit and
+each decompressed medium the ordinary 128 MiB per-file limit; media are read
+sequentially. A GeneWeb `.gw` is uploaded as raw bytes because it is
+ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and
+the switch can happen mid-file, so only the reader can decode it; `filename`
+(default `import.gw`) is recorded on every family and quoted in warnings.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 
@@ -956,7 +964,8 @@ is decoded directly to a temporary file, but the GraphQL JSON/string itself is
 still buffered. The desktop therefore uses streamed REST for session loading.
 The GraphQL HTTP body cap is disabled only in the local-file-enabled desktop
 backend; the standalone server retains its default cap and rejects session
-operations. Other tree-scoped imports retain their **1 GiB** allowance.
+operations. The import body shares the wizard's 32 MiB limit: it carries the
+same `.gw` and collection as the preview, plus the fetched-media map.
 
 Used by: [Import](ui-import.md) (From Geneanet tab)
 

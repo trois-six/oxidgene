@@ -4,44 +4,16 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 
-/// Body limit for the Geneanet wizard's calls and the imports beside them.
+/// Body limit for the Geneanet wizard's calls, its import included.
 ///
 /// These bodies carry the base64 `.gw` and the collected person↔photo mapping:
 /// a 10 000-person tree is around 8 MiB encoded, plus a couple more for the
 /// mapping. 32 MiB is several times that and does not grow with how many
 /// photographs somebody owns — the media themselves are passed as paths, so
-/// this number depends on tree size alone.
+/// this number depends on tree size alone. A genealogy file is never sent in
+/// one body: it is streamed to an import job, which enforces its own limit.
 const GENEANET_BODY_LIMIT: usize = 32 * 1024 * 1024;
 
-/// Body limit for importing a genealogy file — `.ged` or `.gw` (1 GiB).
-///
-/// This one tracks the size of a file somebody hands us rather than the size
-/// of their tree, and the two part company badly at the top end: Geneanet
-/// accepts a **zipped** GEDCOM of 350 MB, so an unzipped file a user drops on
-/// us is not unusual for being larger still. 1 GiB is comfortably past that
-/// and past anything a tree's text alone plausibly reaches. The JSON-wrapped
-/// GEDCOM import pays a further ~1.4× for the string escaping, which is the
-/// one path here still bounded by tree size rather than by this.
-const IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
-
-/// Body limit for a GEDZIP import (1 GiB).
-///
-/// Unlike every other body here, this one is mostly photographs: a `.gdz` is a
-/// tree's genealogy plus its entire media library in one file. Real ones run
-/// to hundreds of MiB — an export of a tree with a decade of scans behind it
-/// lands around 650. The direct compatibility endpoint still takes one body;
-/// the UI sends large files through `import-jobs`, which streams them to disk.
-///
-/// It overrides [`IMPORT_BODY_LIMIT`] on its own route rather than inheriting
-/// it, so the two have to be kept in step by hand; the assertion below is
-/// there because raising the text limit alone leaves the archive — the larger
-/// file of the two, by definition — refused at a ceiling nobody remembered.
-/// Anything past this requires a resumable/chunked-upload protocol.
-const GEDZIP_BODY_LIMIT: usize = 1024 * 1024 * 1024;
-
-/// A `.gdz` is a `.ged` with the album added, so its ceiling cannot be the
-/// lower of the two.
-const _: () = assert!(GEDZIP_BODY_LIMIT >= IMPORT_BODY_LIMIT);
 use tower_http::compression::CompressionLayer;
 
 #[cfg(feature = "graphql")]
@@ -55,7 +27,6 @@ use crate::rest::file_export;
 use crate::rest::file_import;
 use crate::rest::gedcom;
 use crate::rest::geneanet;
-use crate::rest::geneweb;
 use crate::rest::history;
 use crate::rest::media;
 use crate::rest::media_link;
@@ -468,38 +439,18 @@ pub fn build_router(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::max(file_import::FILE_IMPORT_BODY_LIMIT)),
         )
         .route("/{tree_id}/import-jobs/{job_id}", get(file_import::status))
-        .route(
-            "/{tree_id}/gedcom/import",
-            post(gedcom::import_gedcom_handler),
-        )
+        // GEDZIP is the archive form of the same export, so it rides on
+        // `gedcom/export?format=gedzip` rather than a route of its own.
         .route(
             "/{tree_id}/gedcom/export",
             get(gedcom::export_gedcom_handler),
         )
-        // GEDZIP is `.gdz` in and `.gdz` out — the archive form of the same
-        // export, so it rides on `gedcom/export?format=gedzip` rather than a
-        // route of its own. Only the import needs one, because it takes raw
-        // bytes where the GEDCOM import takes JSON.
+        // The wizard's import body is its preview body plus the fetched-media
+        // map, so it shares the wizard's allowance.
         .route(
-            "/{tree_id}/gedzip/import",
-            post(gedcom::import_gedzip_handler)
-                // The archive carries a tree's whole photo album, so this is
-                // the one import whose size tracks how much media somebody has
-                // rather than how many people. Set well above the group limit
-                // below, which this inner layer overrides.
-                .layer(DefaultBodyLimit::max(GEDZIP_BODY_LIMIT)),
-        )
-        // GeneWeb is import-only — `.gw` is a format OxidGene reads, not writes.
-        .route(
-            "/{tree_id}/geneweb/import",
-            post(geneweb::import_geneweb_handler),
-        )
-        .route("/{tree_id}/geneanet/import", post(geneanet::import_handler))
-        // Sized for the file, not for the tree: a `.ged` or `.gw` big enough
-        // to be interesting is nothing like small, and the wizard's bodies —
-        // which bundle the base64 `.gw` with the collected mapping, several
-        // times a bare import — fit inside the same allowance with room over.
-        .layer(DefaultBodyLimit::max(IMPORT_BODY_LIMIT));
+            "/{tree_id}/geneanet/import",
+            post(geneanet::import_handler).layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT)),
+        );
 
     // The wizard's first steps run before a tree has been chosen — indeed
     // before the user has decided whether to create one — so they cannot sit

@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:20:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:51:02Z }
 ---
 
 # Development Environment and Workflows
@@ -308,7 +308,8 @@ one already listening on those ports:
    answering client-side routes with `index.html`, plus the web image's
    `docker/runtime-config.js`.
 
-Each test that needs data seeds its own tree through the REST API from
+Each test that needs data seeds its own tree through the REST API, as an
+import job the backend's embedded worker runs, from
 `e2e/fixtures/family-blocks.ged`: thirty fictitious persons in three
 unrelated families, block 0's root as the SOSA root. The file is the
 functional tests' `family_blocks_gedcom(3)`; `rest_test.rs` fails when the

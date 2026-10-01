@@ -1,4 +1,4 @@
-import { apiUrl, expect, test } from "./fixtures";
+import { expect, importGedcom, test } from "./fixtures";
 
 /// Thirty more persons, each with a family name of their own, so that the
 /// family names fill more than one page of 25.
@@ -12,10 +12,7 @@ function singletons(count: number): string {
 }
 
 test("switches the dictionary tabs and pages through the family names", async ({ page, request, tree }) => {
-    const imported = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/gedcom/import`, {
-        data: { gedcom: singletons(30) },
-    });
-    expect(imported.ok()).toBeTruthy();
+    await importGedcom(request, tree.treeId, singletons(30));
 
     await page.goto(`/trees/${tree.treeId}/dictionary`);
     const entries = page.locator(".dict-total-count");

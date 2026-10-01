@@ -13,7 +13,6 @@ pub mod file_export;
 pub mod file_import;
 pub mod gedcom;
 pub mod geneanet;
-pub mod geneweb;
 pub mod history;
 pub mod media;
 pub mod media_link;

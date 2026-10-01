@@ -36,16 +36,36 @@ export interface SeededTree {
     name: string;
 }
 
+/// Import `gedcom` into tree `treeId` the way the application does: upload it
+/// as an import job, then wait for the backend's worker to complete it.
+export async function importGedcom(request: APIRequestContext, treeId: string, gedcom: string): Promise<void> {
+    const started = await request.post(`${apiUrl}/api/v1/trees/${treeId}/import-jobs?format=gedcom`, {
+        headers: { "content-type": "application/octet-stream" },
+        data: Buffer.from(gedcom, "utf8"),
+    });
+    expect(started.status(), await started.text()).toBe(202);
+    const jobId = (await started.json()).job_id as string;
+    await expect
+        .poll(
+            async () => {
+                const status = await request.get(`${apiUrl}/api/v1/trees/${treeId}/import-jobs/${jobId}`);
+                expect(status.ok()).toBeTruthy();
+                const phase = (await status.json()).phase as string;
+                expect(phase, "the fixture import failed").not.toBe("failed");
+                return phase;
+            },
+            { message: "the fixture import completes", timeout: 30_000, intervals: [100, 250, 500] },
+        )
+        .toBe("completed");
+}
+
 /// Create a tree named `name` from the fixture GEDCOM and make block 0's
 /// root its SOSA root, the way `family_blocks_tree` does in the Rust tests.
 export async function seedTree(request: APIRequestContext, name: string): Promise<SeededTree> {
     const created = await request.post(`${apiUrl}/api/v1/trees`, { data: { name } });
     expect(created.ok()).toBeTruthy();
     const treeId = (await created.json()).id as string;
-    const imported = await request.post(`${apiUrl}/api/v1/trees/${treeId}/gedcom/import`, {
-        data: { gedcom: fixtureGedcom },
-    });
-    expect(imported.ok()).toBeTruthy();
+    await importGedcom(request, treeId, fixtureGedcom);
     const profiles = (await (await request.get(`${apiUrl}/api/v1/trees/${treeId}/profiles`)).json()) as Array<{
         person_id: string;
         primary_name?: { given_names?: string };

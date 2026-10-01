@@ -364,13 +364,7 @@ pub struct NoteListQuery {
 
 // ── Import / export DTOs ─────────────────────────────────────────────
 
-/// Request body for importing a GEDCOM string.
-#[derive(Debug, Deserialize)]
-pub struct ImportGedcomRequest {
-    pub gedcom: String,
-}
-
-/// Query parameters for a GeneWeb `.gw` import.
+/// Query parameters naming a GeneWeb `.gw` file.
 #[derive(Debug, Deserialize)]
 pub struct ImportGenewebQuery {
     /// Name of the uploaded file. GeneWeb records it on every family and it is

@@ -2920,23 +2920,15 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     assert_eq!(status, StatusCode::CREATED, "{imported}");
     let new_tree = imported["id"].as_str().unwrap().to_string();
 
-    let response = h
-        .app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method(Method::POST)
-                .uri(format!("/api/v1/trees/{new_tree}/gedzip/import"))
-                .header(header::CONTENT_TYPE, "application/zip")
-                .body(Body::from(archive))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let status = response.status();
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let summary: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-    assert_eq!(status, StatusCode::CREATED, "{summary}");
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        h.db.clone(),
+        std::sync::Arc::new(oxidgene_api::profile::ProfileService::new(h.db.clone())),
+        std::sync::Arc::new(oxidgene_api::media::FsStore::new(&h.root.0)),
+        "media-test-worker",
+    );
+    let job = common::import_job(&h.app, &worker, &new_tree, "format=gedzip", archive).await;
+    assert_eq!(job["phase"], "completed", "{job}");
+    let summary = &job["result"];
     assert_eq!(summary["warnings"], json!([]), "{summary}");
 
     let (_, media) = send(

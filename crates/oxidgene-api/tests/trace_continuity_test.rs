@@ -66,9 +66,9 @@ struct Harness {
     app: axum::Router,
     exporter: InMemorySpanExporter,
     roots: Arc<Mutex<Vec<String>>>,
-    /// For the background worker, which only follows the request's trace
-    /// when the build carries trace context into the job table.
-    #[cfg(feature = "telemetry-context")]
+    /// For the background worker, which runs the fixture's import and, when
+    /// the build carries trace context into the job table, follows the
+    /// request's trace.
     state: AppState,
     media_root: std::path::PathBuf,
 }
@@ -111,12 +111,21 @@ impl Harness {
             app,
             exporter,
             roots,
-            #[cfg(feature = "telemetry-context")]
             state,
             media_root,
         };
         harness.await_startup_sweep().await;
         harness
+    }
+
+    /// A background job worker over this harness's state.
+    fn worker(&self) -> oxidgene_api::service::background_job::BackgroundJobWorker {
+        oxidgene_api::service::background_job::BackgroundJobWorker::new(
+            self.state.db.clone(),
+            Arc::clone(&self.state.profiles),
+            Arc::clone(&self.state.media),
+            "trace-test-worker",
+        )
     }
 
     /// Wait for the purge worker's startup sweep to end, then forget it.
@@ -366,13 +375,23 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
         )
         .await;
     let tree_id = tree["id"].as_str().expect("tree id").to_string();
-    harness
-        .json(
+    let (status, _) = harness
+        .send(
             Method::POST,
-            &format!("/api/v1/trees/{tree_id}/gedcom/import"),
-            Some(json!({ "gedcom": GEDCOM })),
+            &format!("/api/v1/trees/{tree_id}/import-jobs?format=gedcom"),
+            "application/octet-stream",
+            GEDCOM.as_bytes().to_vec(),
+            Some(&SETUP.header()),
         )
         .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "fixture import");
+    assert!(
+        harness
+            .worker()
+            .run_once()
+            .await
+            .expect("run fixture import")
+    );
     let persons = harness
         .json(
             Method::GET,
@@ -554,13 +573,7 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
             )
             .await;
         assert_eq!(status, StatusCode::ACCEPTED, "import job");
-        let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
-            harness.state.db.clone(),
-            Arc::clone(&harness.state.profiles),
-            Arc::clone(&harness.state.media),
-            "trace-test-worker",
-        );
-        assert!(worker.run_once().await.expect("run import job"));
+        assert!(harness.worker().run_once().await.expect("run import job"));
         // Claiming the job happens before the job's context is known: those
         // polling queries are the worker's own, parentless, and dropped by the
         // production sampler. Everything after the claim is the request's.

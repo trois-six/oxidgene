@@ -78,11 +78,13 @@ never materializes the complete file in memory. The browser uses its native
 WebView origin does not turn the loopback request into a cross-origin browser
 upload.
 
-The three are told apart by extension and sent to three endpoints, because
-each arrives differently: a `.ged` is decoded in the character set its
-header declares (UTF-8, ANSEL, ANSI and the rest — see
-[API Contract §4](api.md)), a `.gw` is ISO-8859-1 unless it declares
-otherwise so only its reader can decode it, and a `.gdz` is a ZIP. Anything with an unrecognised extension is read as GEDCOM — the reader
+The three are told apart by extension and sent to the one import-job endpoint
+with the matching `format`, as raw bytes, because each must be read
+differently: a `.ged` is decoded in the character set its header declares
+(UTF-8, ANSEL, ANSI and the rest — see [API Contract §4](api.md)), a `.gw` is
+ISO-8859-1 unless it declares otherwise so only its reader can decode it, and
+a `.gdz` is a ZIP. There is no other way in: the backend imports a file only as
+a job. Anything with an unrecognised extension is read as GEDCOM — the reader
 says so soon enough if it is not, and a renamed `.ged` is common. See
 [API Contract §Import](api.md).
 

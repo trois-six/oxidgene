@@ -357,13 +357,7 @@ async fn an_edit_stores_only_the_records_it_changed() {
 async fn an_import_stores_nothing_and_edits_store_only_prior_states() {
     let (db, app) = setup().await;
     let tree = create_tree(&app).await;
-    ok(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree}/gedcom/import"),
-        Some(json!({ "gedcom": family_blocks_gedcom(20) })),
-    )
-    .await;
+    common::import_gedcom(&app, &db, &tree, &family_blocks_gedcom(20)).await;
     let imports = audit(&app, &tree, "&category=import").await;
     assert_eq!(imports.len(), 1);
     assert_eq!(imports[0]["details"]["format"], "gedcom");
@@ -482,13 +476,7 @@ async fn an_import_stores_nothing_and_edits_store_only_prior_states() {
 async fn a_family_edit_stores_the_prior_states_of_the_persons_it_links() {
     let (db, app) = setup().await;
     let tree = create_tree(&app).await;
-    ok(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree}/gedcom/import"),
-        Some(json!({ "gedcom": family_blocks_gedcom(1) })),
-    )
-    .await;
+    common::import_gedcom(&app, &db, &tree, &family_blocks_gedcom(1)).await;
     let profiles = ok(
         &app,
         Method::GET,
@@ -1009,13 +997,7 @@ async fn analyzed_rows(db: &DatabaseConnection, table: &str) -> Option<i64> {
 async fn statistics_include_what_an_import_writes() {
     let (db, app) = setup().await;
     let tree = create_tree(&app).await;
-    ok(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree}/gedcom/import"),
-        Some(json!({ "gedcom": family_blocks_gedcom(2) })),
-    )
-    .await;
+    common::import_gedcom(&app, &db, &tree, &family_blocks_gedcom(2)).await;
     for table in ["person", "person_denorm"] {
         let rows = scalar(&db, &format!("SELECT COUNT(*) AS n FROM {table}")).await;
         assert_eq!(rows, 20, "{table}");
@@ -1145,18 +1127,12 @@ async fn recently_modified(app: &axum::Router, tree: &str, query: &str) -> Vec<V
 /// REST and GraphQL alike.
 #[tokio::test]
 async fn recently_modified_persons_follow_the_audit_log() {
-    let (_, app) = setup().await;
+    let (db, app) = setup().await;
     let tree = create_tree(&app).await;
     // An import is about the tree; nobody worked on its persons.
     let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
                   0 @I1@ INDI\n1 NAME Iota /Fixture/\n1 SEX F\n0 TRLR\n";
-    ok(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree}/gedcom/import"),
-        Some(json!({ "gedcom": gedcom })),
-    )
-    .await;
+    common::import_gedcom(&app, &db, &tree, gedcom).await;
     assert!(recently_modified(&app, &tree, "").await.is_empty());
 
     let first = create_person(&app, &tree, "Nu", "Fixture").await;
@@ -1264,13 +1240,7 @@ async fn growth_counts_the_persons_over_time() {
                   0 @I1@ INDI\n1 NAME Iota /Fixture/\n1 SEX F\n\
                   0 @I2@ INDI\n1 NAME Kappa /Fixture/\n1 SEX M\n\
                   0 @I3@ INDI\n1 NAME Lambda /Fixture/\n1 SEX M\n0 TRLR\n";
-    ok(
-        &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree}/gedcom/import"),
-        Some(json!({ "gedcom": gedcom })),
-    )
-    .await;
+    common::import_gedcom(&app, &db, &tree, gedcom).await;
     // Three by hand: one merged into another, one deleted then restored.
     let kept = create_person(&app, &tree, "Nu", "Fixture").await;
     let duplicate = create_person(&app, &tree, "Nu", "Fixture").await;
