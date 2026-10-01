@@ -247,15 +247,6 @@ impl std::ops::Deref for SharedLineage {
     }
 }
 
-/// What a slim box answers to, as a card does.
-#[derive(Clone, Copy)]
-struct BoxActions {
-    selected_person_id: Signal<Uuid>,
-    on_person_navigate: EventHandler<Uuid>,
-    on_person_click: EventHandler<(Uuid, f64, f64)>,
-    on_empty_slot: EventHandler<(Uuid, bool)>,
-}
-
 /// The text of a slim box: the name, and the lifespan when it has two lines.
 struct SlimText {
     name: String,
@@ -293,7 +284,7 @@ fn render_slim_box(
     box_w: f64,
     title: String,
     theme: &PedigreeTheme,
-    actions: BoxActions,
+    actions: ChartActions,
 ) -> Element {
     let h = if size == BoxSize::Double {
         DOUBLE_H
@@ -306,12 +297,6 @@ fn render_slim_box(
     let Some(pid) = node.id else {
         return render_slim_slot(entry, &key, (x, y, box_w, h), actions);
     };
-    let BoxActions {
-        mut selected_person_id,
-        on_person_navigate,
-        on_person_click,
-        ..
-    } = actions;
     let text = slim_text(node, size, (box_w - 26.0) as f32);
     let name_y = if text.dates.is_some() {
         y + 18.0
@@ -325,14 +310,8 @@ fn render_slim_box(
             key: "{key}",
             class: "ped-card",
             style: "cursor:pointer",
-            onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
-            oncontextmenu: move |evt: Event<MouseData>| {
-                evt.prevent_default();
-                evt.stop_propagation();
-                selected_person_id.set(pid);
-                let coords = evt.client_coordinates();
-                on_person_click.call((pid, coords.x, coords.y));
-            },
+            onclick: move |_| actions.navigate(pid),
+            oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             rect {
                 class: "ped-card-rect",
                 x: "{x:.2}", y: "{y:.2}", width: "{box_w:.2}", height: "{h}",
@@ -370,7 +349,7 @@ fn render_slim_slot(
     entry: &AncestorEntry,
     key: &str,
     (x, y, w, h): (f64, f64, f64, f64),
-    actions: BoxActions,
+    actions: ChartActions,
 ) -> Element {
     let is_father = entry.node.is_father;
     let child = entry.node.child_of;
@@ -398,7 +377,7 @@ fn render_spouse_box(
     centre: (f64, f64),
     box_w: f64,
     theme: &PedigreeTheme,
-    actions: BoxActions,
+    actions: ChartActions,
     i18n: &I18n,
 ) -> Element {
     let (x, y) = (centre.0 - box_w / 2.0, centre.1 - SINGLE_H / 2.0);
@@ -411,29 +390,22 @@ fn render_spouse_box(
         ),
         None => ("?".to_string(), i18n.t("couple.unknown_spouse")),
     };
-    let BoxActions {
-        mut selected_person_id,
-        on_person_navigate,
-        on_person_click,
-        ..
-    } = actions;
     rsx! {
         g {
             key: "lu-{entry.sosa}",
             class: if spouse.is_some() { "lineage-spouse" } else { "lineage-spouse lineage-spouse-unknown" },
             onclick: move |_| {
                 if let Some(pid) = spouse {
-                    selected_person_id.set(pid);
-                    on_person_navigate.call(pid);
+                    actions.navigate(pid);
                 }
             },
             oncontextmenu: move |evt: Event<MouseData>| {
-                evt.prevent_default();
-                evt.stop_propagation();
-                if let Some(pid) = spouse {
-                    selected_person_id.set(pid);
-                    let coords = evt.client_coordinates();
-                    on_person_click.call((pid, coords.x, coords.y));
+                match spouse {
+                    Some(pid) => actions.pick(pid, &evt),
+                    None => {
+                        evt.prevent_default();
+                        evt.stop_propagation();
+                    }
                 }
             },
             rect {
@@ -481,26 +453,22 @@ fn render_family_button(
 pub(super) fn LineageCanvas(
     layout: SharedLineage,
     root_person_id: Uuid,
-    selected_person_id: Signal<Uuid>,
-    on_person_navigate: EventHandler<Uuid>,
-    on_person_click: EventHandler<(Uuid, f64, f64)>,
-    on_empty_slot: EventHandler<(Uuid, bool)>,
+    actions: ChartActions,
     on_family_menu: EventHandler<(f64, f64)>,
     theme: &'static PedigreeTheme,
-    transform: Signal<ViewportTransform>,
-    viewport: Signal<ViewportRect>,
-    animating: Signal<bool>,
+    viewport: ViewportSignals,
 ) -> Element {
     let i18n = use_i18n();
     // Only the boxes and links near the viewport are drawn, as in every
     // view; they are placed from the layout's origin.
-    let region = use_culled_region(transform, viewport, animating)
-        .translated(-layout.origin_x, -layout.origin_y);
-    let actions = BoxActions {
-        selected_person_id,
-        on_person_navigate,
-        on_person_click,
-        on_empty_slot,
+    let region = use_culled_region(viewport).translated(-layout.origin_x, -layout.origin_y);
+    let card = CardContext {
+        root_person_id,
+        actions,
+        empty_slots_open: true,
+        mini_tooltip: None,
+        theme,
+        i18n,
     };
     let ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
     rsx! {
@@ -537,20 +505,7 @@ pub(super) fn LineageCanvas(
                                     actions,
                                     &i18n,
                                 ),
-                                (_, BoxSize::Card) => render_pedigree_card(
-                                    &entry.node,
-                                    i,
-                                    "ln",
-                                    root_person_id,
-                                    selected_person_id,
-                                    on_person_navigate,
-                                    on_person_click,
-                                    on_empty_slot,
-                                    true,
-                                    i18n,
-                                    theme,
-                                    None,
-                                ),
+                                (_, BoxSize::Card) => render_pedigree_card(&entry.node, "ln", i, &card),
                                 (_, size) => render_slim_box(
                                     entry,
                                     size,

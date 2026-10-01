@@ -888,13 +888,8 @@ enum SosaBadge {
 struct TreeNode {
     id: Option<Uuid>,
     depth: i32,
-    sex: Sex,
-    label_surname: String,
-    label_given: String,
-    birth_year: Option<QualifiedYear>,
-    death_year: Option<QualifiedYear>,
-    sosa_badge: SosaBadge,
-    is_self: bool,
+    /// What the card says; blank for an empty slot.
+    card: PersonNode,
     /// Indices into the TreeNode arena of children (for RT traversal).
     children: Vec<usize>,
     /// Spouse node indices (siblings in RT terms).
@@ -914,42 +909,29 @@ struct TreeNode {
 }
 
 impl TreeNode {
-    #[allow(clippy::too_many_arguments)]
-    fn new_real(
-        id: Uuid,
-        depth: i32,
-        sex: Sex,
-        given: String,
-        surname: String,
-        birth_year: Option<QualifiedYear>,
-        death_year: Option<QualifiedYear>,
-        sosa_badge: SosaBadge,
-        is_self: bool,
-        after: i32,
-        before_sibling: bool,
-        after_sibling: bool,
-    ) -> Self {
+    /// The card of person `id` on row `depth`, ordered by `after` (0 = male
+    /// first, 1 = female first). It has no relatives until the caller links
+    /// them.
+    fn new_real(id: Uuid, depth: i32, card: PersonNode, after: i32) -> Self {
         Self {
             id: Some(id),
-            depth,
-            sex,
-            label_surname: surname,
-            label_given: given,
-            birth_year,
-            death_year,
-            sosa_badge,
-            is_self,
-            children: vec![],
-            siblings: vec![],
-            parent2: None,
+            card,
             after,
-            is_sibling: false,
-            before_sibling,
-            after_sibling,
-            x: 0.0,
-            y: 0.0,
-            child_of: None,
-            is_father: false,
+            ..Self::new_empty(depth, None, false)
+        }
+    }
+
+    /// The layout's root: `root_id` on row 0, flagged with whether siblings
+    /// are drawn before and after them.
+    fn root(root_id: Uuid, cards: &CardSource) -> Self {
+        let siblings = get_siblings(root_id, cards.data);
+        let index = siblings.iter().position(|&s| s == root_id).unwrap_or(0);
+        let card = cards.card(root_id);
+        let after = card.after();
+        Self {
+            before_sibling: index > 0,
+            after_sibling: index < siblings.len().saturating_sub(1),
+            ..Self::new_real(root_id, 0, card, after)
         }
     }
 
@@ -957,13 +939,7 @@ impl TreeNode {
         Self {
             id: None,
             depth,
-            sex: Sex::Unknown,
-            label_surname: String::new(),
-            label_given: String::new(),
-            birth_year: None,
-            death_year: None,
-            sosa_badge: SosaBadge::None,
-            is_self: false,
+            card: PersonNode::blank(),
             children: vec![],
             siblings: vec![],
             parent2: None,
@@ -997,7 +973,8 @@ struct WrapNode {
     i: usize,
 }
 
-/// Connectivity for a single person extracted from pedigree data.
+/// What one person's card says, read off the pedigree data.
+#[derive(Clone, Debug)]
 struct PersonNode {
     sex: Sex,
     given: String,
@@ -1009,6 +986,45 @@ struct PersonNode {
 }
 
 impl PersonNode {
+    /// The card of nobody: an empty slot's.
+    fn blank() -> Self {
+        Self {
+            sex: Sex::Unknown,
+            given: String::new(),
+            surname: String::new(),
+            birth_year: None,
+            death_year: None,
+            sosa_badge: SosaBadge::None,
+            is_self: false,
+        }
+    }
+
+    /// Where this person sorts among a couple: a woman after a man.
+    fn after(&self) -> i32 {
+        i32::from(self.sex == Sex::Female)
+    }
+
+    /// The card of the empty-slot or person node at `node`.
+    fn to_layout(&self, node: &TreeNode, is_compact: bool) -> LayoutNode {
+        LayoutNode {
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            sex: self.sex,
+            label_surname: self.surname.clone(),
+            label_given: self.given.clone(),
+            birth_year: self.birth_year,
+            death_year: self.death_year,
+            sosa_badge: self.sosa_badge.clone(),
+            is_self: self.is_self,
+            is_compact,
+            child_of: node.child_of,
+            is_father: node.is_father,
+            is_sibling: node.is_sibling,
+            has_more_relations: false,
+        }
+    }
+
     fn from_data(
         id: Uuid,
         data: &PedigreeData,
@@ -1068,40 +1084,25 @@ impl PersonNode {
     }
 }
 
+/// Where the cards of a layout read their people from: the pedigree, and
+/// the SOSA root and its ancestors that decide the badges.
+struct CardSource<'a> {
+    data: &'a PedigreeData,
+    sosa_root_id: Option<Uuid>,
+    sosa_ancestors: &'a HashSet<Uuid>,
+}
+
+impl CardSource<'_> {
+    fn card(&self, id: Uuid) -> PersonNode {
+        PersonNode::from_data(id, self.data, self.sosa_root_id, self.sosa_ancestors)
+    }
+}
+
 /// Build the ascending (ancestor) tree into the arena.
 /// Returns index of root node in the arena.
-fn build_ascending_tree(
-    root_id: Uuid,
-    data: &PedigreeData,
-    max_ascendants: usize,
-    sosa_root_id: Option<Uuid>,
-    sosa_ancestors: &HashSet<Uuid>,
-) -> Vec<TreeNode> {
-    let mut arena: Vec<TreeNode> = Vec::new();
-
-    // Check if root has siblings (children of same parent family).
-    let (before_sibling, after_sibling) = {
-        let siblings = get_siblings(root_id, data);
-        let idx = siblings.iter().position(|&s| s == root_id).unwrap_or(0);
-        (idx > 0, idx < siblings.len().saturating_sub(1))
-    };
-
-    let root_pn = PersonNode::from_data(root_id, data, sosa_root_id, sosa_ancestors);
-    let root_after = if root_pn.sex == Sex::Female { 1 } else { 0 };
-    arena.push(TreeNode::new_real(
-        root_id,
-        0,
-        root_pn.sex,
-        root_pn.given,
-        root_pn.surname,
-        root_pn.birth_year,
-        root_pn.death_year,
-        root_pn.sosa_badge,
-        root_pn.is_self,
-        root_after,
-        before_sibling,
-        after_sibling,
-    ));
+fn build_ascending_tree(root_id: Uuid, cards: &CardSource, max_ascendants: usize) -> Vec<TreeNode> {
+    let data = cards.data;
+    let mut arena: Vec<TreeNode> = vec![TreeNode::root(root_id, cards)];
 
     // Iterative BFS to build ancestor tree.
     // Stack items: (arena_index, current_depth).
@@ -1120,22 +1121,8 @@ fn build_ascending_tree(
         let mut child_indices = Vec::new();
 
         if let Some(fid) = father_id {
-            let pn = PersonNode::from_data(fid, data, sosa_root_id, sosa_ancestors);
             let idx = arena.len();
-            arena.push(TreeNode::new_real(
-                fid,
-                child_depth,
-                pn.sex,
-                pn.given,
-                pn.surname,
-                pn.birth_year,
-                pn.death_year,
-                pn.sosa_badge,
-                pn.is_self,
-                0,
-                false,
-                false,
-            ));
+            arena.push(TreeNode::new_real(fid, child_depth, cards.card(fid), 0));
             child_indices.push(idx);
             work.push((idx, child_depth));
         } else {
@@ -1146,22 +1133,8 @@ fn build_ascending_tree(
         }
 
         if let Some(mid) = mother_id {
-            let pn = PersonNode::from_data(mid, data, sosa_root_id, sosa_ancestors);
             let idx = arena.len();
-            arena.push(TreeNode::new_real(
-                mid,
-                child_depth,
-                pn.sex,
-                pn.given,
-                pn.surname,
-                pn.birth_year,
-                pn.death_year,
-                pn.sosa_badge,
-                pn.is_self,
-                1,
-                false,
-                false,
-            ));
+            arena.push(TreeNode::new_real(mid, child_depth, cards.card(mid), 1));
             child_indices.push(idx);
             work.push((idx, child_depth));
         } else {
@@ -1200,35 +1173,11 @@ fn get_siblings(pid: Uuid, data: &PedigreeData) -> Vec<Uuid> {
 /// Build the descending (descendant) tree into the arena.
 fn build_descending_tree(
     root_id: Uuid,
-    data: &PedigreeData,
+    cards: &CardSource,
     max_descendants: usize,
-    sosa_root_id: Option<Uuid>,
-    sosa_ancestors: &HashSet<Uuid>,
 ) -> Vec<TreeNode> {
-    let mut arena: Vec<TreeNode> = Vec::new();
-
-    let (before_sibling, after_sibling) = {
-        let siblings = get_siblings(root_id, data);
-        let idx = siblings.iter().position(|&s| s == root_id).unwrap_or(0);
-        (idx > 0, idx < siblings.len().saturating_sub(1))
-    };
-
-    let root_pn = PersonNode::from_data(root_id, data, sosa_root_id, sosa_ancestors);
-    let root_after = if root_pn.sex == Sex::Female { 1 } else { 0 };
-    arena.push(TreeNode::new_real(
-        root_id,
-        0,
-        root_pn.sex,
-        root_pn.given,
-        root_pn.surname,
-        root_pn.birth_year,
-        root_pn.death_year,
-        root_pn.sosa_badge,
-        root_pn.is_self,
-        root_after,
-        before_sibling,
-        after_sibling,
-    ));
+    let data = cards.data;
+    let mut arena: Vec<TreeNode> = vec![TreeNode::root(root_id, cards)];
 
     // Iterative DFS to build descendant tree.
     let mut visited: HashSet<Uuid> = HashSet::new();
@@ -1266,23 +1215,10 @@ fn build_descending_tree(
             let spouse_arena_idx = match spouse_id {
                 Some(sid) if visited.contains(&sid) => continue,
                 Some(sid) => {
-                    let spn = PersonNode::from_data(sid, data, sosa_root_id, sosa_ancestors);
-                    let spouse_after = if spn.sex == Sex::Female { 1 } else { 0 };
+                    let card = cards.card(sid);
+                    let after = card.after();
                     let spouse_arena_idx = arena.len();
-                    let mut spouse_node = TreeNode::new_real(
-                        sid,
-                        depth,
-                        spn.sex,
-                        spn.given,
-                        spn.surname,
-                        spn.birth_year,
-                        spn.death_year,
-                        spn.sosa_badge,
-                        spn.is_self,
-                        spouse_after,
-                        false,
-                        false,
-                    );
+                    let mut spouse_node = TreeNode::new_real(sid, depth, card, after);
                     spouse_node.is_sibling = true;
                     arena.push(spouse_node);
                     arena[node_idx].siblings.push(spouse_arena_idx);
@@ -1307,23 +1243,10 @@ fn build_descending_tree(
                     if visited.contains(&child_id) {
                         continue;
                     }
-                    let cpn = PersonNode::from_data(child_id, data, sosa_root_id, sosa_ancestors);
-                    let child_after = if cpn.sex == Sex::Female { 1 } else { 0 };
+                    let card = cards.card(child_id);
+                    let after = card.after();
                     let child_arena_idx = arena.len();
-                    let mut child_node = TreeNode::new_real(
-                        child_id,
-                        depth + 1,
-                        cpn.sex,
-                        cpn.given,
-                        cpn.surname,
-                        cpn.birth_year,
-                        cpn.death_year,
-                        cpn.sosa_badge,
-                        cpn.is_self,
-                        child_after,
-                        false,
-                        false,
-                    );
+                    let mut child_node = TreeNode::new_real(child_id, depth + 1, card, after);
                     child_node.parent2 = spouse_arena_idx;
                     arena.push(child_node);
                     arena[node_idx].children.push(child_arena_idx);
@@ -1440,7 +1363,6 @@ fn tree_separation(depth: i32, last_level: i32, compact_sep: f64) -> f64 {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn apportion(
     wrap: &mut [WrapNode],
     arena: &[TreeNode],
@@ -2719,9 +2641,7 @@ impl Bounds {
 /// younger to the right, linked to the mother (or the father when there is
 /// no mother).
 struct SiblingRow<'a> {
-    data: &'a PedigreeData,
-    sosa_root_id: Option<Uuid>,
-    sosa_ancestors: &'a HashSet<Uuid>,
+    cards: &'a CardSource<'a>,
     theme: &'a PedigreeTheme,
     last_level: i32,
 }
@@ -2735,7 +2655,7 @@ impl SiblingRow<'_> {
         desc_arena: &[TreeNode],
         links: &mut Vec<String>,
     ) -> Vec<LayoutNode> {
-        let all_siblings = get_siblings(root_id, self.data);
+        let all_siblings = get_siblings(root_id, self.cards.data);
         if all_siblings.len() <= 1 {
             return Vec::new();
         }
@@ -2763,9 +2683,7 @@ impl SiblingRow<'_> {
         });
         let mut nodes = Vec::new();
         for (sib_id, sib_x, parent, index, count, simple) in elder.chain(younger) {
-            let pn =
-                PersonNode::from_data(sib_id, self.data, self.sosa_root_id, self.sosa_ancestors);
-            nodes.push(pn.card_at(sib_id, sib_x, row_y));
+            nodes.push(self.cards.card(sib_id).card_at(sib_id, sib_x, row_y));
             let Some((px, py, depth)) = parent else {
                 continue;
             };
@@ -2798,25 +2716,19 @@ fn compute_layout(
     let metrics = &theme.metrics;
     let last_asc_level = -(options.ancestor_levels as i32);
 
-    // ── Ascending tree ──
-    let mut asc_arena = build_ascending_tree(
-        root_id,
+    let cards = CardSource {
         data,
-        options.ancestor_levels,
         sosa_root_id,
         sosa_ancestors,
-    );
+    };
+
+    // ── Ascending tree ──
+    let mut asc_arena = build_ascending_tree(root_id, &cards, options.ancestor_levels);
     layout_tree(&mut asc_arena, last_asc_level, metrics);
     let mut asc_links = collect_links(&asc_arena, last_asc_level, theme);
 
     // ── Descending tree ──
-    let mut desc_arena = build_descending_tree(
-        root_id,
-        data,
-        options.descendant_levels,
-        sosa_root_id,
-        sosa_ancestors,
-    );
+    let mut desc_arena = build_descending_tree(root_id, &cards, options.descendant_levels);
     layout_tree(&mut desc_arena, 0, metrics);
     let desc_links = collect_links(&desc_arena, 0, theme);
 
@@ -2836,9 +2748,7 @@ fn compute_layout(
     // ── Root biological siblings (placed outside RT layout, same row as root).
     let extra_asc_nodes = if options.include_root_siblings {
         let row = SiblingRow {
-            data,
-            sosa_root_id,
-            sosa_ancestors,
+            cards: &cards,
             theme,
             last_level: last_asc_level,
         };
@@ -2895,22 +2805,8 @@ fn compute_layout(
     let root_cy = asc_root_y + main_ty + metrics.card_h / 2.0;
 
     // ── Build LayoutNode lists ──
-    let make_node = |ni: usize, arena: &Vec<TreeNode>, is_compact: bool| LayoutNode {
-        id: arena[ni].id,
-        x: arena[ni].x,
-        y: arena[ni].y,
-        sex: arena[ni].sex,
-        label_surname: arena[ni].label_surname.clone(),
-        label_given: arena[ni].label_given.clone(),
-        birth_year: arena[ni].birth_year,
-        death_year: arena[ni].death_year,
-        sosa_badge: arena[ni].sosa_badge.clone(),
-        is_self: arena[ni].is_self,
-        is_compact,
-        child_of: arena[ni].child_of,
-        is_father: arena[ni].is_father,
-        is_sibling: arena[ni].is_sibling,
-        has_more_relations: false,
+    let make_node = |ni: usize, arena: &[TreeNode], is_compact: bool| {
+        arena[ni].card.to_layout(&arena[ni], is_compact)
     };
 
     let mut asc_nodes: Vec<LayoutNode> = asc_all
@@ -3511,8 +3407,12 @@ fn connector_paths<'a>(
 pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let i18n = use_i18n();
     let selected_person_id = use_signal(|| props.root_person_id);
-    let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
-    let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
+    let actions = ChartActions {
+        selected_person_id,
+        on_person_navigate: props.on_person_navigate,
+        on_person_click: EventHandler::new(|_: (Uuid, f64, f64)| {}),
+        on_empty_slot: EventHandler::new(|_: (Uuid, bool)| {}),
+    };
     let preferred_scale = props.scale;
     use_chart_portraits(props.portraits.as_ref());
     let preferred = crate::prefs::use_pedigree_theme();
@@ -3571,6 +3471,14 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         "mini-pedigree-pending "
     };
     let viewport_class = format!("mini-pedigree {pending}{}", theme.viewport_class);
+    let card = CardContext {
+        root_person_id: props.root_person_id,
+        actions,
+        empty_slots_open: false,
+        mini_tooltip: Some(hovered_person),
+        theme,
+        i18n,
+    };
 
     rsx! {
         div {
@@ -3597,20 +3505,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                             g {
                                 {connector_paths(layout.asc_links.iter().enumerate(), "a", double_ruled)}
                                 for (ni, node) in layout.asc_nodes.iter().enumerate() {
-                                    {render_pedigree_card(
-                                        node,
-                                        ni,
-                                        "an",
-                                        props.root_person_id,
-                                        selected_person_id,
-                                        props.on_person_navigate,
-                                        noop_click,
-                                        noop_empty_slot,
-                                        false,
-                                        i18n,
-                                        theme,
-                                        Some(hovered_person),
-                                    )}
+                                    {render_pedigree_card(node, "an", ni, &card)}
                                 }
                             }
                             if props.descendant_levels > 0 {
@@ -3618,20 +3513,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     transform: "translate({layout.desc_tx},{layout.desc_ty})",
                                     {connector_paths(layout.desc_links.iter().enumerate(), "d", double_ruled)}
                                     for (ni, node) in layout.desc_nodes.iter().enumerate() {
-                                        {render_pedigree_card(
-                                            node,
-                                            ni,
-                                            "dn",
-                                            props.root_person_id,
-                                            selected_person_id,
-                                            props.on_person_navigate,
-                                            noop_click,
-                                            noop_empty_slot,
-                                            false,
-                                            i18n,
-                                            theme,
-                                            Some(hovered_person),
-                                        )}
+                                        {render_pedigree_card(node, "dn", ni, &card)}
                                     }
                                 }
                             }
@@ -3959,64 +3841,81 @@ fn card_geometry(node: &LayoutNode, theme: &PedigreeTheme, i18n: &I18n) -> CardG
     }
 }
 
-/// Render one card (person or empty slot) of the pedigree as an SVG `<g>`.
-///
-/// Used for both ascending and descending trees — pass the matching key
-/// prefix (`"an"` / `"dn"`) and `allow_empty_click=true` on both sides, so
-/// missing parents (ascending) and missing spouses (descending) can be
-/// added inline.
-#[allow(clippy::too_many_arguments)]
-fn render_pedigree_card(
-    node: &LayoutNode,
-    ni: usize,
-    key_prefix: &str,
-    root_person_id: Uuid,
+/// What the people of a chart answer to, whichever view draws them: a click
+/// makes a person the focus, a right click opens the action picker on them,
+/// and a click on an empty slot adds the person missing there.
+#[derive(Clone, Copy, PartialEq)]
+struct ChartActions {
     selected_person_id: Signal<Uuid>,
     on_person_navigate: EventHandler<Uuid>,
     on_person_click: EventHandler<(Uuid, f64, f64)>,
     on_empty_slot: EventHandler<(Uuid, bool)>,
-    allow_empty_click: bool,
-    i18n: I18n,
-    theme: &PedigreeTheme,
+}
+
+impl ChartActions {
+    /// Selects `pid` and makes them the focus.
+    fn navigate(mut self, pid: Uuid) {
+        self.selected_person_id.set(pid);
+        self.on_person_navigate.call(pid);
+    }
+
+    /// Selects `pid` and opens the action picker where `evt` happened.
+    fn pick(mut self, pid: Uuid, evt: &Event<MouseData>) {
+        evt.prevent_default();
+        evt.stop_propagation();
+        self.selected_person_id.set(pid);
+        let coords = evt.client_coordinates();
+        self.on_person_click.call((pid, coords.x, coords.y));
+    }
+}
+
+/// The viewport a canvas is drawn in: its pan and zoom, its size on screen,
+/// and whether a move is being animated — what decides which part of the
+/// chart is drawn (see [`use_culled_region`]).
+#[derive(Clone, Copy, PartialEq)]
+struct ViewportSignals {
+    transform: Signal<ViewportTransform>,
+    rect: Signal<ViewportRect>,
+    animating: Signal<bool>,
+}
+
+/// Everything a card needs besides its node, the same for every card of a
+/// chart.
+#[derive(Clone, Copy)]
+struct CardContext<'a> {
+    root_person_id: Uuid,
+    actions: ChartActions,
+    /// Whether an empty slot offers to add the person missing there: on the
+    /// interactive chart, for a missing parent or spouse; not on a mini
+    /// pedigree.
+    empty_slots_open: bool,
+    /// The tooltip a mini pedigree shows for the hovered card.
     mini_tooltip: Option<Signal<Option<MiniPedigreeTooltipValue>>>,
+    theme: &'a PedigreeTheme,
+    i18n: I18n,
+}
+
+/// Render one card (person or empty slot) of the pedigree as an SVG `<g>`,
+/// keyed `{key_prefix}-{ni}`.
+fn render_pedigree_card(
+    node: &LayoutNode,
+    key_prefix: &str,
+    ni: usize,
+    card: &CardContext,
 ) -> Element {
-    let geo = card_geometry(node, theme, &i18n);
+    let geo = card_geometry(node, card.theme, &card.i18n);
     let key = format!("{key_prefix}-{ni}");
 
     match node.id {
-        Some(pid) => render_person_card(
-            node,
-            pid,
-            &key,
-            &geo,
-            theme,
-            &i18n,
-            PersonCardActions {
-                root_person_id,
-                selected_person_id,
-                on_person_navigate,
-                on_person_click,
-                mini_tooltip,
-            },
-        ),
+        Some(pid) => render_person_card(node, pid, &key, &geo, card),
         None => render_empty_slot(
             node,
             &key,
             &geo,
-            theme,
-            allow_empty_click.then_some(on_empty_slot),
+            card.theme,
+            card.empty_slots_open.then_some(card.actions.on_empty_slot),
         ),
     }
-}
-
-/// What a person card answers to, and the state it reports into.
-#[derive(Clone, Copy)]
-struct PersonCardActions {
-    root_person_id: Uuid,
-    selected_person_id: Signal<Uuid>,
-    on_person_navigate: EventHandler<Uuid>,
-    on_person_click: EventHandler<(Uuid, f64, f64)>,
-    mini_tooltip: Option<Signal<Option<MiniPedigreeTooltipValue>>>,
 }
 
 /// The card of the person `pid`: outline, portrait, SOSA mark, name and
@@ -4027,17 +3926,16 @@ fn render_person_card(
     pid: Uuid,
     key: &str,
     geo: &CardGeometry,
-    theme: &PedigreeTheme,
-    i18n: &I18n,
-    actions: PersonCardActions,
+    card: &CardContext,
 ) -> Element {
-    let PersonCardActions {
+    let CardContext {
         root_person_id,
-        mut selected_person_id,
-        on_person_navigate,
-        on_person_click,
+        actions,
         mini_tooltip,
-    } = actions;
+        theme,
+        ..
+    } = *card;
+    let i18n = &card.i18n;
     let (nx, ny) = (node.x, node.y);
     let is_focus = pid == root_person_id;
     let bg = card_bg(is_focus, node.is_sibling);
@@ -4104,14 +4002,8 @@ fn render_person_card(
                     hovered.set(None);
                 }
             },
-            onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
-            oncontextmenu: move |evt: Event<MouseData>| {
-                evt.prevent_default();
-                evt.stop_propagation();
-                selected_person_id.set(pid);
-                let coords = evt.client_coordinates();
-                on_person_click.call((pid, coords.x, coords.y));
-            },
+            onclick: move |_| actions.navigate(pid),
+            oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             {card_outline(node, geo, theme, bg)}
             if let Some(gl) = gender_line {
                 path { d: "{gl}", style: "stroke:{stroke};stroke-width:{gender_line_width};fill:none" }
@@ -4130,7 +4022,7 @@ fn render_person_card(
                     onclick: move |evt: Event<MouseData>| {
                         evt.stop_propagation();
                         let coords = evt.client_coordinates();
-                        on_person_click.call((pid, coords.x, coords.y));
+                        actions.on_person_click.call((pid, coords.x, coords.y));
                     },
                     circle { r: "{fab_r}", style: "fill:var(--pn-root-bg);stroke:var(--white);stroke-width:2" }
                     text { x: "0", y: "6", style: "fill:var(--white);font-size:16px;text-anchor:middle;font-family:serif", "\u{270E}" }
@@ -4142,8 +4034,7 @@ fn render_person_card(
                     style: "cursor:pointer",
                     onclick: move |evt: Event<MouseData>| {
                         evt.stop_propagation();
-                        selected_person_id.set(pid);
-                        on_person_navigate.call(pid);
+                        actions.navigate(pid);
                     },
                     text { x: "0", y: "0", style: "fill:var(--blue);font-size:13px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                 }
@@ -4467,11 +4358,12 @@ fn cull(previous: Option<Culling>, visible: Area, animating: bool) -> Culling {
 /// The memo re-runs on every pan and zoom but changes — and so redraws the
 /// view that reads it — only when the view nears the edge of what is drawn;
 /// see [`cull`].
-fn use_culled_region(
-    transform: Signal<ViewportTransform>,
-    viewport: Signal<ViewportRect>,
-    animating: Signal<bool>,
-) -> Area {
+fn use_culled_region(viewport: ViewportSignals) -> Area {
+    let ViewportSignals {
+        transform,
+        rect,
+        animating,
+    } = viewport;
     let culling = use_hook(|| Rc::new(Cell::new(None::<Culling>)));
     let everything = try_use_context::<crate::components::print::PrintEverything>();
     let region = use_memo(move || {
@@ -4486,7 +4378,7 @@ fn use_culled_region(
         }
         let next = cull(
             culling.get(),
-            visible_area(transform(), viewport()),
+            visible_area(transform(), rect()),
             animating(),
         );
         culling.set(Some(next));
@@ -4597,10 +4489,7 @@ fn PedigreeCard(
     side: CardSide,
     index: usize,
     root_person_id: Uuid,
-    selected_person_id: Signal<Uuid>,
-    on_person_navigate: EventHandler<Uuid>,
-    on_person_click: EventHandler<(Uuid, f64, f64)>,
-    on_empty_slot: EventHandler<(Uuid, bool)>,
+    actions: ChartActions,
     theme: &'static PedigreeTheme,
 ) -> Element {
     let i18n = use_i18n();
@@ -4608,20 +4497,15 @@ fn PedigreeCard(
         CardSide::Ascending => (&layout.asc_nodes, "an"),
         CardSide::Descending => (&layout.desc_nodes, "dn"),
     };
-    render_pedigree_card(
-        &nodes[index],
-        index,
-        prefix,
+    let card = CardContext {
         root_person_id,
-        selected_person_id,
-        on_person_navigate,
-        on_person_click,
-        on_empty_slot,
-        true,
-        i18n,
+        actions,
+        empty_slots_open: true,
+        mini_tooltip: None,
         theme,
-        None,
-    )
+        i18n,
+    };
+    render_pedigree_card(&nodes[index], prefix, index, &card)
 }
 
 /// The cards and connectors of a laid-out pedigree.
@@ -4634,15 +4518,10 @@ fn PedigreeCard(
 fn PedigreeCanvas(
     layout: SharedLayout,
     root_person_id: Uuid,
-    selected_person_id: Signal<Uuid>,
-    on_person_navigate: EventHandler<Uuid>,
-    on_person_click: EventHandler<(Uuid, f64, f64)>,
-    on_empty_slot: EventHandler<(Uuid, bool)>,
+    actions: ChartActions,
     on_add_spouse_slot: EventHandler<Uuid>,
     theme: &'static PedigreeTheme,
-    transform: Signal<ViewportTransform>,
-    viewport: Signal<ViewportRect>,
-    animating: Signal<bool>,
+    viewport: ViewportSignals,
 ) -> Element {
     // A ruled line is drawn as a band with a lighter core, the way an
     // engraver lays one down; a Bézier one stays a single hairline.
@@ -4652,8 +4531,12 @@ fn PedigreeCanvas(
     // `on_empty_slot` doesn't apply here, only the person needing a spouse.
     let desc_empty_slot_adapter =
         use_callback(move |(pid, _): (Uuid, bool)| on_add_spouse_slot.call(pid));
+    let desc_actions = ChartActions {
+        on_empty_slot: desc_empty_slot_adapter,
+        ..actions
+    };
 
-    let region = use_culled_region(transform, viewport, animating);
+    let region = use_culled_region(viewport);
     let extents_cache =
         use_hook(|| Rc::new(RefCell::new(None::<(SharedLayout, Rc<SceneExtents>)>)));
     let extents = {
@@ -4695,10 +4578,7 @@ fn PedigreeCanvas(
                             side: CardSide::Ascending,
                             index: ni,
                             root_person_id,
-                            selected_person_id,
-                            on_person_navigate,
-                            on_person_click,
-                            on_empty_slot: on_empty_slot,
+                            actions,
                             theme,
                         }
                     }
@@ -4719,10 +4599,7 @@ fn PedigreeCanvas(
                             side: CardSide::Descending,
                             index: ni,
                             root_person_id,
-                            selected_person_id,
-                            on_person_navigate,
-                            on_person_click,
-                            on_empty_slot: desc_empty_slot_adapter,
+                            actions: desc_actions,
                             theme,
                         }
                     }
@@ -4940,6 +4817,18 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let max_zoom = scene.max_zoom();
     let fit_target = scene.fit_target();
 
+    let actions = ChartActions {
+        selected_person_id,
+        on_person_navigate: props.on_person_navigate,
+        on_person_click: props.on_person_click,
+        on_empty_slot: props.on_empty_slot,
+    };
+    let viewport = ViewportSignals {
+        transform: viewport_transform,
+        rect: viewport_rect,
+        animating,
+    };
+
     // ── Fit graph in viewport when needed ──
     if needs_fit() && panel_ready() {
         needs_fit.set(false);
@@ -4988,43 +4877,23 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
                                 PedigreeCanvas {
                                     layout,
                                     root_person_id: props.root_person_id,
-                                    selected_person_id,
-                                    on_person_navigate: props.on_person_navigate,
-                                    on_person_click: props.on_person_click,
-                                    on_empty_slot: props.on_empty_slot,
+                                    actions,
                                     on_add_spouse_slot: props.on_add_spouse_slot,
                                     theme,
-                                    transform: viewport_transform,
-                                    viewport: viewport_rect,
-                                    animating,
+                                    viewport,
                                 }
                             },
                             ChartScene::Circular(layout) => rsx! {
-                                circular::CircularCanvas {
-                                    layout,
-                                    selected_person_id,
-                                    on_person_navigate: props.on_person_navigate,
-                                    on_person_click: props.on_person_click,
-                                    on_empty_slot: props.on_empty_slot,
-                                    theme,
-                                    transform: viewport_transform,
-                                    viewport: viewport_rect,
-                                    animating,
-                                }
+                                circular::CircularCanvas { layout, actions, theme, viewport }
                             },
                             ChartScene::Lineage(layout) => rsx! {
                                 lineage::LineageCanvas {
                                     layout,
                                     root_person_id: props.root_person_id,
-                                    selected_person_id,
-                                    on_person_navigate: props.on_person_navigate,
-                                    on_person_click: props.on_person_click,
-                                    on_empty_slot: props.on_empty_slot,
+                                    actions,
                                     on_family_menu: move |at| family_menu.set(Some(at)),
                                     theme,
-                                    transform: viewport_transform,
-                                    viewport: viewport_rect,
-                                    animating,
+                                    viewport,
                                 }
                             },
                         }
@@ -5659,20 +5528,14 @@ mod layout_overlap_tests {
     const CARD_W: f64 = METRICS.card_w;
 
     fn person(depth: i32, sex: Sex, parent2: Option<usize>) -> TreeNode {
-        let mut n = TreeNode::new_real(
-            Uuid::now_v7(),
-            depth,
+        let card = PersonNode {
             sex,
-            "Given".to_string(),
-            "Surname".to_string(),
-            None,
-            None,
-            SosaBadge::None,
-            false,
-            if sex == Sex::Female { 1 } else { 0 },
-            false,
-            false,
-        );
+            given: "Given".to_string(),
+            surname: "Surname".to_string(),
+            ..PersonNode::blank()
+        };
+        let after = card.after();
+        let mut n = TreeNode::new_real(Uuid::now_v7(), depth, card, after);
         n.parent2 = parent2;
         n
     }
@@ -5750,7 +5613,7 @@ mod layout_overlap_tests {
         for (i, n) in arena.iter().enumerate() {
             eprintln!(
                 "idx={i} depth={} x={} after={} sex={:?}",
-                n.depth, n.x, n.after, n.sex
+                n.depth, n.x, n.after, n.card.sex
             );
         }
 

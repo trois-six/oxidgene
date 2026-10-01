@@ -713,15 +713,6 @@ fn render_label(label: &SegmentLabel, theme: &PedigreeTheme, fill: &str, muted: 
     }
 }
 
-/// What a segment answers to, as a card does.
-#[derive(Clone, Copy)]
-struct SegmentActions {
-    selected_person_id: Signal<Uuid>,
-    on_person_navigate: EventHandler<Uuid>,
-    on_person_click: EventHandler<(Uuid, f64, f64)>,
-    on_empty_slot: EventHandler<(Uuid, bool)>,
-}
-
 /// One ancestor's segment: clicking it re-roots the chart on them, a right
 /// click opens the action picker.
 fn render_person_segment(
@@ -730,27 +721,15 @@ fn render_person_segment(
     pid: Uuid,
     title: String,
     theme: &PedigreeTheme,
-    actions: SegmentActions,
+    actions: ChartActions,
 ) -> Element {
-    let SegmentActions {
-        mut selected_person_id,
-        on_person_navigate,
-        on_person_click,
-        ..
-    } = actions;
     let band = mark_colour(&entry.node);
     rsx! {
         g {
             key: "fs-{entry.sosa}",
             class: sex_class(entry.node.sex),
-            onclick: move |_| { selected_person_id.set(pid); on_person_navigate.call(pid); },
-            oncontextmenu: move |evt: Event<MouseData>| {
-                evt.prevent_default();
-                evt.stop_propagation();
-                selected_person_id.set(pid);
-                let coords = evt.client_coordinates();
-                on_person_click.call((pid, coords.x, coords.y));
-            },
+            onclick: move |_| actions.navigate(pid),
+            oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             path { class: "fan-seg-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
             if let Some(colour) = band {
                 path { class: "fan-seg-band", d: "{segment.band}", style: "stroke:{colour}" }
@@ -769,14 +748,8 @@ fn render_union_segment(
     entry: &AncestorEntry,
     title: String,
     theme: &PedigreeTheme,
-    actions: SegmentActions,
+    actions: ChartActions,
 ) -> Element {
-    let SegmentActions {
-        mut selected_person_id,
-        on_person_navigate,
-        on_person_click,
-        ..
-    } = actions;
     let spouse = entry.node.id;
     rsx! {
         g {
@@ -784,17 +757,16 @@ fn render_union_segment(
             class: "fan-union",
             onclick: move |_| {
                 if let Some(pid) = spouse {
-                    selected_person_id.set(pid);
-                    on_person_navigate.call(pid);
+                    actions.navigate(pid);
                 }
             },
             oncontextmenu: move |evt: Event<MouseData>| {
-                evt.prevent_default();
-                evt.stop_propagation();
-                if let Some(pid) = spouse {
-                    selected_person_id.set(pid);
-                    let coords = evt.client_coordinates();
-                    on_person_click.call((pid, coords.x, coords.y));
+                match spouse {
+                    Some(pid) => actions.pick(pid, &evt),
+                    None => {
+                        evt.prevent_default();
+                        evt.stop_propagation();
+                    }
                 }
             },
             path { class: "fan-union-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
@@ -817,7 +789,7 @@ fn render_empty_segment(
     segment: &Segment,
     entry: &AncestorEntry,
     title: String,
-    actions: SegmentActions,
+    actions: ChartActions,
 ) -> Element {
     let on_empty_slot = actions.on_empty_slot;
     let is_father = entry.node.is_father;
@@ -849,7 +821,7 @@ fn render_root(
     layout: &CircularLayout,
     theme: &PedigreeTheme,
     title: String,
-    actions: SegmentActions,
+    actions: ChartActions,
 ) -> Element {
     let Some(entry) = layout.entries.first().filter(|entry| entry.sosa == 1) else {
         return rsx! {};
@@ -857,18 +829,7 @@ fn render_root(
     let Some(pid) = entry.node.id else {
         return rsx! {};
     };
-    let SegmentActions {
-        mut selected_person_id,
-        on_person_click,
-        ..
-    } = actions;
-    let pick = move |evt: Event<MouseData>| {
-        evt.prevent_default();
-        evt.stop_propagation();
-        selected_person_id.set(pid);
-        let coords = evt.client_coordinates();
-        on_person_click.call((pid, coords.x, coords.y));
-    };
+    let pick = move |evt: Event<MouseData>| actions.pick(pid, &evt);
     let band = mark_colour(&entry.node);
     rsx! {
         g {
@@ -894,25 +855,13 @@ fn render_root(
 #[component]
 pub(super) fn CircularCanvas(
     layout: SharedCircular,
-    selected_person_id: Signal<Uuid>,
-    on_person_navigate: EventHandler<Uuid>,
-    on_person_click: EventHandler<(Uuid, f64, f64)>,
-    on_empty_slot: EventHandler<(Uuid, bool)>,
+    actions: ChartActions,
     theme: &'static PedigreeTheme,
-    transform: Signal<ViewportTransform>,
-    viewport: Signal<ViewportRect>,
-    animating: Signal<bool>,
+    viewport: ViewportSignals,
 ) -> Element {
     // Segments are placed around the centre, the region on the canvas.
-    let region = use_culled_region(transform, viewport, animating)
-        .translated(-layout.origin_x, -layout.origin_y);
+    let region = use_culled_region(viewport).translated(-layout.origin_x, -layout.origin_y);
     let i18n = use_i18n();
-    let actions = SegmentActions {
-        selected_person_id,
-        on_person_navigate,
-        on_person_click,
-        on_empty_slot,
-    };
     let add_parent = svg_title(&i18n.t("linking.add_parent"));
     let root_title = layout
         .entries
