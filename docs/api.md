@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:37:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:50:49Z }
 ---
 
 
@@ -321,9 +321,9 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/places` | List places (cursor-paginated, searchable) |
-| `POST` | `/trees/{tree_id}/places` | Create a place |
+| `POST` | `/trees/{tree_id}/places` | Create a place; a blank `name` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/places/{place_id}` | Get a place |
-| `PUT` | `/trees/{tree_id}/places/{place_id}` | Update a place |
+| `PUT` | `/trees/{tree_id}/places/{place_id}` | Update a place; a blank `name` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}/places/{place_id}` | Delete a place |
 
 ### Sources
@@ -331,16 +331,16 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/sources` | List sources (cursor-paginated) |
-| `POST` | `/trees/{tree_id}/sources` | Create a source |
+| `POST` | `/trees/{tree_id}/sources` | Create a source; a blank `title` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
-| `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source |
+| `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note or media link still points at it — `204` deleted, `200` kept |
 
 ### Citations
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/citations` | List citations in a cursor connection, filterable by `person_id`, `event_id`, `family_id`, and `source_id` |
+| `GET` | `/trees/{tree_id}/citations` | List citations in a cursor connection, filterable by `person_id`, `event_id`, `family_id`, and `source_id`; a filter naming a record of another tree is `not_found` |
 | `POST` | `/trees/{tree_id}/citations` | Create a citation |
 | `PUT` | `/trees/{tree_id}/citations/{citation_id}` | Update a citation — including `source_id`, which repoints it at another source in place |
 | `DELETE` | `/trees/{tree_id}/citations/{citation_id}` | Delete a citation |
@@ -1244,6 +1244,7 @@ type Query {
     first: Int
     after: String
   ): NoteConnection!
+  note(treeId: ID!, id: ID!): Note
 
   # Media
   mediaList(treeId: ID!, first: Int, after: String): MediaConnection!

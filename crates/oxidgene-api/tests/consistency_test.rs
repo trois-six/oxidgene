@@ -864,3 +864,155 @@ async fn a_witness_is_only_removed_through_its_own_event() {
     )
     .await;
 }
+
+// ── Places, sources, citations, notes ───────────────────────────────────
+
+#[tokio::test]
+async fn a_place_needs_a_name_and_a_source_a_title_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Blank").await;
+    let place_id = new_place(&app, &tree_id, "Southmere").await;
+    let source_id = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        Some(json!({ "title": "Parish register" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    for (method, uri, body) in [
+        (
+            Method::POST,
+            format!("/api/v1/trees/{tree_id}/places"),
+            json!({ "name": " " }),
+        ),
+        (
+            Method::PUT,
+            format!("/api/v1/trees/{tree_id}/places/{place_id}"),
+            json!({ "name": "" }),
+        ),
+        (
+            Method::POST,
+            format!("/api/v1/trees/{tree_id}/sources"),
+            json!({ "title": " " }),
+        ),
+        (
+            Method::PUT,
+            format!("/api/v1/trees/{tree_id}/sources/{source_id}"),
+            json!({ "title": "" }),
+        ),
+    ] {
+        let (status, response) = send(&app, method, &uri, Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {response}");
+    }
+
+    let vars = json!({ "t": tree_id, "p": place_id, "s": source_id });
+    for mutation in [
+        r#"mutation($t: ID!) { createPlace(treeId: $t, input: { name: " " }) { id } }"#,
+        r#"mutation($t: ID!, $p: ID!) { updatePlace(treeId: $t, id: $p, input: { name: "" }) { id } }"#,
+        r#"mutation($t: ID!) { createSource(treeId: $t, input: { title: " " }) { id } }"#,
+        r#"mutation($t: ID!, $s: ID!) { updateSource(treeId: $t, id: $s, input: { title: "" }) { id } }"#,
+    ] {
+        let response = gql(&app, mutation, vars.clone()).await;
+        assert_eq!(
+            gql_error_code(&response),
+            "VALIDATION_ERROR",
+            "{mutation}: {response}"
+        );
+    }
+
+    let place = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/places/{place_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(place["name"], "Southmere");
+}
+
+#[tokio::test]
+async fn a_citation_filter_naming_another_tree_is_not_found_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Home").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let foreign_source = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{other_tree}/sources"),
+        Some(json!({ "title": "Census" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/citations?source_id={foreign_source}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = gql(
+        &app,
+        "query($t: ID!, $s: ID!) { citations(treeId: $t, sourceId: $s) { totalCount } }",
+        json!({ "t": tree_id, "s": foreign_source }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+}
+
+#[tokio::test]
+async fn a_single_note_is_readable_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Notes").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let note_id = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(json!({ "text": "Moved to the coast." })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let note = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/notes/{note_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(note["text"], "Moved to the coast.");
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!, $n: ID!) { note(treeId: $t, id: $n) { id text } }",
+        json!({ "t": tree_id, "n": note_id }),
+    )
+    .await;
+    assert_eq!(data["note"]["text"], "Moved to the coast.");
+
+    // Through another tree, it is not there.
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{other_tree}/notes/{note_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!, $n: ID!) { note(treeId: $t, id: $n) { id } }",
+        json!({ "t": other_tree, "n": note_id }),
+    )
+    .await;
+    assert!(data["note"].is_null(), "{data}");
+}

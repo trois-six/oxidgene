@@ -12,7 +12,7 @@ use crate::service::scope::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
     AuditFilter, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, CitationFilter,
-    CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo, MediaLinkRepo,
+    DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo, MediaLinkRepo,
     MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
     PersonSearchFilters, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
 };
@@ -31,7 +31,7 @@ use super::types::{
     GqlGeneanetArchiveIndex, GqlGeneanetImportResult, GqlGeneanetIndexedArchive,
     GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
     GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlKinship, GqlMedia,
-    GqlMediaConnection, GqlMediaDownload, GqlMediaFacets, GqlMediaLink, GqlMediaWithLink,
+    GqlMediaConnection, GqlMediaDownload, GqlMediaFacets, GqlMediaLink, GqlMediaWithLink, GqlNote,
     GqlNoteConnection, GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree,
     GqlPedigreeEntry, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
     GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
@@ -578,9 +578,21 @@ impl QueryRoot {
             first: first.unwrap_or(25),
             after,
         };
-        Ok(CitationRepo::list(db, tree_id, &filter, &params)
-            .await?
-            .into())
+        Ok(
+            crate::service::citation::list_citations(db, tree_id, &filter, &params)
+                .await?
+                .into(),
+        )
+    }
+
+    /// Get a single note by ID.
+    async fn note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlNote>> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        match crate::service::note::get_note(db_from_ctx(ctx), tree_id, uuid(&id)?).await {
+            Ok(note) => Ok(Some(note.into())),
+            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// List notes in a tree with optional entity filters and pagination.

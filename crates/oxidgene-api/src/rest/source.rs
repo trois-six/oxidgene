@@ -3,151 +3,73 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use oxidgene_core::types::{Connection, Source};
 use oxidgene_db::repo::{PaginationParams, SourceRepo};
 use uuid::Uuid;
 
-use super::dto::{CreateSourceRequest, DeleteSourceQuery, PaginationQuery, UpdateSourceRequest};
+use super::dto::{DeleteSourceQuery, PaginationQuery};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::history::Change;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
-use oxidgene_core::history::AuditEntity;
+use crate::service::scope::{TreeResource, require_tree_resource};
+use crate::service::source::{self, NewSource, SourcePatch};
 
 /// GET /api/v1/trees/:tree_id/sources
 pub async fn list_sources(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Connection<Source>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let connection = SourceRepo::list(&state.db, tree_id, &params)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(connection).unwrap()))
+    Ok(Json(SourceRepo::list(&state.db, tree_id, &params).await?))
 }
 
 /// POST /api/v1/trees/:tree_id/sources
 pub async fn create_source(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<CreateSourceRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    if body.title.trim().is_empty() {
-        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
-            "title must not be empty".to_string(),
-        )));
-    }
-    let id = Uuid::now_v7();
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let source = SourceRepo::create(
-        &txn,
-        id,
-        tree_id,
-        body.title,
-        body.author,
-        body.publisher,
-        body.abbreviation,
-        body.repository_name,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    Change::create(tree_id, AuditEntity::Source, id)
-        .source(id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(source).unwrap()),
-    ))
+    Json(body): Json<NewSource>,
+) -> Result<(StatusCode, Json<Source>), ApiError> {
+    let source = source::create_source(&state.db, tree_id, body).await?;
+    Ok((StatusCode::CREATED, Json(source)))
 }
 
 /// GET /api/v1/trees/:tree_id/sources/:source_id
 pub async fn get_source(
     State(state): State<AppState>,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id)
-        .await
-        .map_err(ApiError)?;
-    let source = SourceRepo::get(&state.db, source_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(source).unwrap()))
+) -> Result<Json<Source>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id).await?;
+    Ok(Json(SourceRepo::get(&state.db, source_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/sources/:source_id
 pub async fn update_source(
     State(state): State<AppState>,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<UpdateSourceRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Source, source_id)
-        .await
-        .map_err(ApiError)?;
-    let source = SourceRepo::update(
-        &txn,
-        source_id,
-        body.title,
-        body.author,
-        body.publisher,
-        body.abbreviation,
-        body.repository_name,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    Change::update(tree_id, AuditEntity::Source, source_id)
-        .source(source_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(source).unwrap()))
+    Json(body): Json<SourcePatch>,
+) -> Result<Json<Source>, ApiError> {
+    Ok(Json(
+        source::update_source(&state.db, tree_id, source_id, body).await?,
+    ))
 }
 
 /// DELETE /api/v1/trees/:tree_id/sources/:source_id
+///
+/// `only_if_unused` turns the delete into a cleanup: a source still cited
+/// anywhere is kept, which the 200/204 split reports back.
 pub async fn delete_source(
     State(state): State<AppState>,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteSourceQuery>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Source, source_id)
-        .await
-        .map_err(ApiError)?;
-    // `only_if_unused` turns the delete into a cleanup: a source still cited
-    // anywhere is kept, which the 200/204 split reports back.
-    if query.only_if_unused {
-        let deleted = SourceRepo::delete_if_unused(&txn, source_id)
-            .await
-            .map_err(ApiError::from)?;
-        if deleted {
-            Change::delete(tree_id, AuditEntity::Source, source_id)
-                .source(source_id)
-                .record(&txn)
-                .await
-                .map_err(ApiError)?;
-        }
-        commit_tx(txn).await.map_err(ApiError)?;
-        return Ok(if deleted {
-            StatusCode::NO_CONTENT
-        } else {
-            StatusCode::OK
-        });
-    }
-    SourceRepo::delete(&txn, source_id)
-        .await
-        .map_err(ApiError::from)?;
-    Change::delete(tree_id, AuditEntity::Source, source_id)
-        .source(source_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(StatusCode::NO_CONTENT)
+    let deleted =
+        source::delete_source(&state.db, tree_id, source_id, query.only_if_unused).await?;
+    Ok(if deleted {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::OK
+    })
 }

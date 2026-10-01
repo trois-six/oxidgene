@@ -1,7 +1,7 @@
 //! Request/response DTOs for REST endpoints.
 
 use oxidgene_core::types::{Place, Source};
-use oxidgene_core::{Calendar, Confidence, DateQualifier, EventType};
+use oxidgene_core::{Calendar, DateQualifier, EventType};
 use serde::{Deserialize, Serialize};
 
 use crate::service::patch::double_option;
@@ -193,76 +193,6 @@ pub struct PlaceListQuery {
     pub first: Option<u64>,
     pub after: Option<String>,
     pub search: Option<String>,
-}
-
-/// Request body for creating a place.
-#[derive(Debug, Deserialize)]
-pub struct CreatePlaceRequest {
-    pub name: String,
-    pub latitude: Option<f64>,
-    pub longitude: Option<f64>,
-}
-
-/// Request body for updating a place.
-#[derive(Debug, Deserialize)]
-pub struct UpdatePlaceRequest {
-    pub name: Option<String>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub latitude: Option<Option<f64>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub longitude: Option<Option<f64>>,
-}
-
-// ── Source DTOs ──────────────────────────────────────────────────────
-
-/// Request body for creating a source.
-#[derive(Debug, Deserialize)]
-pub struct CreateSourceRequest {
-    pub title: String,
-    pub author: Option<String>,
-    pub publisher: Option<String>,
-    pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
-}
-
-/// Request body for updating a source.
-#[derive(Debug, Deserialize)]
-pub struct UpdateSourceRequest {
-    pub title: Option<String>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub author: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub publisher: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub abbreviation: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub repository_name: Option<Option<String>>,
-}
-
-// ── Citation DTOs ───────────────────────────────────────────────────
-
-/// Request body for creating a citation.
-#[derive(Debug, Deserialize)]
-pub struct CreateCitationRequest {
-    pub source_id: uuid::Uuid,
-    pub person_id: Option<uuid::Uuid>,
-    pub event_id: Option<uuid::Uuid>,
-    pub family_id: Option<uuid::Uuid>,
-    pub page: Option<String>,
-    pub confidence: Confidence,
-    pub text: Option<String>,
-}
-
-/// Request body for updating a citation.
-#[derive(Debug, Deserialize)]
-pub struct UpdateCitationRequest {
-    /// Repoints the citation at another source.
-    pub source_id: Option<uuid::Uuid>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub page: Option<Option<String>>,
-    pub confidence: Option<Confidence>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub text: Option<Option<String>>,
 }
 
 /// Query parameters for deleting a source.
@@ -540,25 +470,6 @@ pub struct NoteListQuery {
     pub media_id: Option<uuid::Uuid>,
     pub first: Option<u64>,
     pub after: Option<String>,
-}
-
-/// Request body for creating a note.
-#[derive(Debug, Deserialize)]
-pub struct CreateNoteRequest {
-    pub text: String,
-    pub person_id: Option<uuid::Uuid>,
-    pub event_id: Option<uuid::Uuid>,
-    pub family_id: Option<uuid::Uuid>,
-    pub source_id: Option<uuid::Uuid>,
-    /// The media this note is about — distinct from the media's own
-    /// description, which is the caption shown under its tile.
-    pub media_id: Option<uuid::Uuid>,
-}
-
-/// Request body for updating a note.
-#[derive(Debug, Deserialize)]
-pub struct UpdateNoteRequest {
-    pub text: Option<String>,
 }
 
 // ── Import / export DTOs ─────────────────────────────────────────────

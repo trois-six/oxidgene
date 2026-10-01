@@ -9,6 +9,7 @@ use oxidgene_core::history::AuditAction;
 use oxidgene_core::types::Note;
 use oxidgene_db::repo::NoteRepo;
 use oxidgene_db::sea_orm::DatabaseConnection;
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
@@ -16,13 +17,32 @@ use crate::service::history;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// A note to create: its text and what it is about.
+#[derive(Debug, Deserialize)]
 pub struct NewNote {
     pub text: String,
     pub person_id: Option<Uuid>,
     pub event_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
     pub source_id: Option<Uuid>,
+    /// The media this note is about — distinct from the media's own
+    /// description, which is the caption shown under its tile.
     pub media_id: Option<Uuid>,
+}
+
+/// What a note update changes: `None` keeps the text.
+#[derive(Debug, Default, Deserialize)]
+pub struct NotePatch {
+    pub text: Option<String>,
+}
+
+/// Note `id` of `tree_id`.
+pub async fn get_note(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    id: Uuid,
+) -> Result<Note, OxidGeneError> {
+    require_tree_resource(db, tree_id, TreeResource::Note, id).await?;
+    NoteRepo::get(db, id).await
 }
 
 /// Create a note in `tree_id`. A note with no text is refused.
@@ -73,18 +93,18 @@ pub async fn create_note(
     Ok(note)
 }
 
-/// Update note `id` of `tree_id`; `None` keeps its text.
+/// Update note `id` of `tree_id`.
 pub async fn update_note(
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
     id: Uuid,
-    text: Option<String>,
+    patch: NotePatch,
 ) -> Result<Note, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let previous = NoteRepo::get(&txn, id).await?;
-    let note = NoteRepo::update(&txn, id, text).await?;
+    let note = NoteRepo::update(&txn, id, patch.text).await?;
     if let Some(person_id) = previous.person_id {
         profiles
             .invalidate_for_mutation(&txn, tree_id, &[person_id])

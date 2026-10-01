@@ -446,6 +446,26 @@ pub struct UpdatePlaceInput {
     pub longitude: MaybeUndefined<f64>,
 }
 
+impl From<CreatePlaceInput> for crate::service::place::NewPlace {
+    fn from(input: CreatePlaceInput) -> Self {
+        Self {
+            name: input.name,
+            latitude: input.latitude,
+            longitude: input.longitude,
+        }
+    }
+}
+
+impl From<UpdatePlaceInput> for crate::service::place::PlacePatch {
+    fn from(input: UpdatePlaceInput) -> Self {
+        Self {
+            name: input.name,
+            latitude: patch(input.latitude),
+            longitude: patch(input.longitude),
+        }
+    }
+}
+
 // ── Source Inputs ────────────────────────────────────────────────────
 
 /// Input for creating a source.
@@ -466,6 +486,30 @@ pub struct UpdateSourceInput {
     pub publisher: MaybeUndefined<String>,
     pub abbreviation: MaybeUndefined<String>,
     pub repository_name: MaybeUndefined<String>,
+}
+
+impl From<CreateSourceInput> for crate::service::source::NewSource {
+    fn from(input: CreateSourceInput) -> Self {
+        Self {
+            title: input.title,
+            author: input.author,
+            publisher: input.publisher,
+            abbreviation: input.abbreviation,
+            repository_name: input.repository_name,
+        }
+    }
+}
+
+impl From<UpdateSourceInput> for crate::service::source::SourcePatch {
+    fn from(input: UpdateSourceInput) -> Self {
+        Self {
+            title: input.title,
+            author: patch(input.author),
+            publisher: patch(input.publisher),
+            abbreviation: patch(input.abbreviation),
+            repository_name: patch(input.repository_name),
+        }
+    }
 }
 
 // ── Citation Inputs ──────────────────────────────────────────────────

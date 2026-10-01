@@ -5,18 +5,21 @@
 //! change, in one transaction.
 
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::Citation;
+use oxidgene_core::types::{Citation, Connection};
 use oxidgene_core::{Confidence, OxidGeneError};
-use oxidgene_db::repo::CitationRepo;
+use oxidgene_db::repo::{CitationFilter, CitationRepo, PaginationParams};
 use oxidgene_db::sea_orm::DatabaseConnection;
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
 use crate::service::history::Change;
+use crate::service::patch::double_option;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 /// A citation to create: the source it cites, what it is attached to, and
 /// what it says.
+#[derive(Debug, Deserialize)]
 pub struct NewCitation {
     pub source_id: Uuid,
     pub person_id: Option<Uuid>,
@@ -29,11 +32,36 @@ pub struct NewCitation {
 
 /// The fields a citation update changes: `None` keeps a field, and
 /// `Some(None)` clears an optional one.
+#[derive(Debug, Default, Deserialize)]
 pub struct CitationPatch {
+    /// Repoints the citation at another source.
     pub source_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "double_option")]
     pub page: Option<Option<String>>,
     pub confidence: Option<Confidence>,
+    #[serde(default, deserialize_with = "double_option")]
     pub text: Option<Option<String>>,
+}
+
+/// The citations of `tree_id`, narrowed by `filter`, a page at a time. A
+/// filter naming a record of another tree is not found.
+pub async fn list_citations(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    filter: &CitationFilter,
+    params: &PaginationParams,
+) -> Result<Connection<Citation>, OxidGeneError> {
+    for (resource, id) in [
+        (TreeResource::Source, filter.source_id),
+        (TreeResource::Person, filter.person_id),
+        (TreeResource::Event, filter.event_id),
+        (TreeResource::Family, filter.family_id),
+    ] {
+        if let Some(id) = id {
+            require_tree_resource(db, tree_id, resource, id).await?;
+        }
+    }
+    CitationRepo::list(db, tree_id, filter, params).await
 }
 
 /// Create a citation in `tree_id`.

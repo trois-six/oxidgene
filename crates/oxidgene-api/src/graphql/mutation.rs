@@ -1,11 +1,12 @@
 //! GraphQL mutation root with all write operations.
 
-use crate::profile::invalidation;
 use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
-use crate::service::note::{self, NewNote};
+use crate::service::note::{self, NewNote, NotePatch};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
-use crate::service::{duplicates, event, family, family_names, person, person_name, tree};
+use crate::service::{
+    duplicates, event, family, family_names, person, person_name, place, source, tree,
+};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::history::{AuditAction, AuditEntity};
@@ -13,8 +14,7 @@ use uuid::Uuid;
 
 use oxidgene_db::repo::{
     BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, MediaLinkRepo, MediaRepo, MediaTagRepo,
-    NewBackgroundJob, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput, VignettePatch,
-    VignetteRepo,
+    NewBackgroundJob, TreeRepo, UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -504,28 +504,20 @@ impl MutationRoot {
 
     // ── Place Mutations ──────────────────────────────────────────────
 
-    /// Create a new place.
+    /// Create a new place. A blank name is refused.
     async fn create_place(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         input: CreatePlaceInput,
     ) -> Result<GqlPlace> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        let place =
-            PlaceRepo::create(&txn, id, tid, input.name, input.latitude, input.longitude).await?;
-        Change::create(tid, AuditEntity::Place, id)
-            .place(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
-        Ok(place.into())
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(place::create_place(db_from_ctx(ctx), tree_id, input.into())
+            .await?
+            .into())
     }
 
-    /// Update a place.
+    /// Update a place. A blank name is refused.
     async fn update_place(
         &self,
         ctx: &Context<'_>,
@@ -533,88 +525,49 @@ impl MutationRoot {
         id: ID,
         input: UpdatePlaceInput,
     ) -> Result<GqlPlace> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Place, id).await?;
-        let affected = invalidation::affected_persons_for_place(&txn, id).await?;
-        let place = PlaceRepo::update(
-            &txn,
-            id,
-            input.name,
-            patch(input.latitude),
-            patch(input.longitude),
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let place = place::update_place(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+            input.into(),
         )
         .await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::update(tid, AuditEntity::Place, id)
-            .place(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(place.into())
     }
 
     /// Delete a place (hard delete).
     async fn delete_place(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Place, id).await?;
-        let affected = invalidation::affected_persons_for_place(&txn, id).await?;
-        PlaceRepo::delete(&txn, id).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        // The deleted place's events lost their place: their owners changed too.
-        Change::delete(tid, AuditEntity::Place, id)
-            .place(id)
-            .persons(affected)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        place::delete_place(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 
     // ── Source Mutations ─────────────────────────────────────────────
 
-    /// Create a new source.
+    /// Create a new source. A blank title is refused.
     async fn create_source(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         input: CreateSourceInput,
     ) -> Result<GqlSource> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        let source = SourceRepo::create(
-            &txn,
-            id,
-            tid,
-            input.title,
-            input.author,
-            input.publisher,
-            input.abbreviation,
-            input.repository_name,
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(
+            source::create_source(db_from_ctx(ctx), tree_id, input.into())
+                .await?
+                .into(),
         )
-        .await?;
-        Change::create(tid, AuditEntity::Source, id)
-            .source(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
-        Ok(source.into())
     }
 
-    /// Update a source.
+    /// Update a source. A blank title is refused.
     async fn update_source(
         &self,
         ctx: &Context<'_>,
@@ -622,26 +575,9 @@ impl MutationRoot {
         id: ID,
         input: UpdateSourceInput,
     ) -> Result<GqlSource> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Source, id).await?;
-        let source = SourceRepo::update(
-            &txn,
-            id,
-            input.title,
-            patch(input.author),
-            patch(input.publisher),
-            patch(input.abbreviation),
-            patch(input.repository_name),
-        )
-        .await?;
-        Change::update(tid, AuditEntity::Source, id)
-            .source(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let source =
+            source::update_source(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
         Ok(source.into())
     }
 
@@ -655,25 +591,8 @@ impl MutationRoot {
         id: ID,
         #[graphql(default = false)] only_if_unused: bool,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Source, id).await?;
-        let deleted = if only_if_unused {
-            SourceRepo::delete_if_unused(&txn, id).await?
-        } else {
-            SourceRepo::delete(&txn, id).await?;
-            true
-        };
-        if deleted {
-            Change::delete(tid, AuditEntity::Source, id)
-                .source(id)
-                .record(&txn)
-                .await?;
-        }
-        commit_tx(txn).await?;
-        Ok(deleted)
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(source::delete_source(db_from_ctx(ctx), tree_id, uuid(&id)?, only_if_unused).await?)
     }
 
     // ── Citation Mutations ───────────────────────────────────────────
@@ -1287,7 +1206,7 @@ impl MutationRoot {
             profiles_from_ctx(ctx),
             tid,
             id,
-            input.text,
+            NotePatch { text: input.text },
         )
         .await?;
         Ok(note.into())

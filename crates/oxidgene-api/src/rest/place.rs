@@ -3,104 +3,57 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use oxidgene_core::types::{Connection, Place};
 use oxidgene_db::repo::{PaginationParams, PlaceRepo};
 use uuid::Uuid;
 
-use crate::profile::invalidation;
-use crate::service::history::Change;
-use oxidgene_core::history::AuditEntity;
-
-use super::dto::{CreatePlaceRequest, PlaceListQuery, UpdatePlaceRequest};
+use super::dto::PlaceListQuery;
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::place::{self, NewPlace, PlacePatch};
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/places
 pub async fn list_places(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PlaceListQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Connection<Place>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let connection = PlaceRepo::list(&state.db, tree_id, query.search.as_deref(), &params)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(connection).unwrap()))
+    let places = PlaceRepo::list(&state.db, tree_id, query.search.as_deref(), &params).await?;
+    Ok(Json(places))
 }
 
 /// POST /api/v1/trees/:tree_id/places
 pub async fn create_place(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<CreatePlaceRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    if body.name.trim().is_empty() {
-        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
-            "name must not be empty".to_string(),
-        )));
-    }
-    let id = Uuid::now_v7();
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let place = PlaceRepo::create(&txn, id, tree_id, body.name, body.latitude, body.longitude)
-        .await
-        .map_err(ApiError::from)?;
-    Change::create(tree_id, AuditEntity::Place, id)
-        .place(id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(place).unwrap()),
-    ))
+    Json(body): Json<NewPlace>,
+) -> Result<(StatusCode, Json<Place>), ApiError> {
+    let place = place::create_place(&state.db, tree_id, body).await?;
+    Ok((StatusCode::CREATED, Json(place)))
 }
 
 /// GET /api/v1/trees/:tree_id/places/:place_id
 pub async fn get_place(
     State(state): State<AppState>,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Place, place_id)
-        .await
-        .map_err(ApiError)?;
-    let place = PlaceRepo::get(&state.db, place_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(place).unwrap()))
+) -> Result<Json<Place>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Place, place_id).await?;
+    Ok(Json(PlaceRepo::get(&state.db, place_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/places/:place_id
 pub async fn update_place(
     State(state): State<AppState>,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<UpdatePlaceRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Place, place_id)
-        .await
-        .map_err(ApiError)?;
-    let affected = invalidation::affected_persons_for_place(&txn, place_id)
-        .await
-        .map_err(ApiError)?;
-    let place = PlaceRepo::update(&txn, place_id, body.name, body.latitude, body.longitude)
-        .await
-        .map_err(ApiError::from)?;
-    state
-        .profiles
-        .invalidate_for_mutation(&txn, tree_id, &affected)
-        .await
-        .map_err(ApiError)?;
-    Change::update(tree_id, AuditEntity::Place, place_id)
-        .place(place_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(place).unwrap()))
+    Json(body): Json<PlacePatch>,
+) -> Result<Json<Place>, ApiError> {
+    let place = place::update_place(&state.db, &state.profiles, tree_id, place_id, body).await?;
+    Ok(Json(place))
 }
 
 /// DELETE /api/v1/trees/:tree_id/places/:place_id
@@ -108,28 +61,6 @@ pub async fn delete_place(
     State(state): State<AppState>,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Place, place_id)
-        .await
-        .map_err(ApiError)?;
-    let affected = invalidation::affected_persons_for_place(&txn, place_id)
-        .await
-        .map_err(ApiError)?;
-    PlaceRepo::delete(&txn, place_id)
-        .await
-        .map_err(ApiError::from)?;
-    state
-        .profiles
-        .invalidate_for_mutation(&txn, tree_id, &affected)
-        .await
-        .map_err(ApiError)?;
-    // The deleted place's events lost their place: their owners changed too.
-    Change::delete(tree_id, AuditEntity::Place, place_id)
-        .place(place_id)
-        .persons(affected)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    place::delete_place(&state.db, &state.profiles, tree_id, place_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
