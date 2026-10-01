@@ -30,7 +30,9 @@ use ged_io::types::place::{MapCoordinates, Place as GedPlace};
 use ged_io::types::source::Source as GedSource;
 use ged_io::types::source::citation::Citation as GedCitation;
 use ged_io::types::source::citation::CitationSource;
+use ged_io::types::source::citation::data::SourceCitationData;
 use ged_io::types::source::quay::CertaintyAssessment;
+use ged_io::types::source::text::Text as GedText;
 use ged_io::types::submitter::Submitter;
 use uuid::Uuid;
 
@@ -1510,7 +1512,17 @@ fn to_ged_citation(
     Some(GedCitation {
         source: CitationSource::Xref(xref),
         page: cite.page.clone(),
-        data: None,
+        // The transcript of what the source says, GEDCOM's `DATA.TEXT`.
+        data: cite
+            .text
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+            .map(|text| SourceCitationData {
+                date: None,
+                text: Some(GedText {
+                    value: Some(text.to_string()),
+                }),
+            }),
         note: None,
         certainty_assessment: Some(convert_confidence(cite.confidence)),
         submitter_registered_rfn: None,

@@ -722,6 +722,42 @@ fn the_export_names_its_submitter() {
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
 }
 
+/// A citation's transcript, `DATA.TEXT`, written over several lines.
+const CITATION_TEXT_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @S1@ SOUR
+1 TITL Sample register
+0 @I1@ INDI
+1 NAME Branch /Alpha/
+1 BIRT
+2 DATE 1801
+2 SOUR @S1@
+3 PAGE folio 3
+3 DATA
+4 TEXT Born on the third,
+5 CONT son of the miller
+0 TRLR
+";
+
+/// The text a citation quotes from its source is exported, and comes back.
+#[test]
+fn a_citation_text_survives_a_round_trip() {
+    let imported = import_gedcom(CITATION_TEXT_GEDCOM, Uuid::now_v7()).expect("imports");
+    let quoted = "Born on the third,\nson of the miller";
+    assert_eq!(imported.citations[0].text.as_deref(), Some(quoted));
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("3 DATA\n4 TEXT Born on the third,\n5 CONT son of the miller\n"),
+        "{exported}"
+    );
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    assert_eq!(back.citations[0].text.as_deref(), Some(quoted));
+    assert_eq!(back.citations[0].page.as_deref(), Some("folio 3"));
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
