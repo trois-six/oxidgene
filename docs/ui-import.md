@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T14:23:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:58:33Z }
 ---
 
 
@@ -79,9 +79,10 @@ WebView origin does not turn the loopback request into a cross-origin browser
 upload.
 
 The three are told apart by extension and sent to three endpoints, because
-each arrives differently: a `.ged` is a UTF-8 string, a `.gw` is ISO-8859-1
-unless it declares otherwise so only its reader can decode it, and a `.gdz` is
-a ZIP. Anything with an unrecognised extension is read as GEDCOM — the reader
+each arrives differently: a `.ged` is decoded in the character set its
+header declares (UTF-8, ANSEL, ANSI and the rest — see
+[API Contract §4](api.md)), a `.gw` is ISO-8859-1 unless it declares
+otherwise so only its reader can decode it, and a `.gdz` is a ZIP. Anything with an unrecognised extension is read as GEDCOM — the reader
 says so soon enough if it is not, and a renamed `.ged` is common. See
 [API Contract §Import](api.md).
 
@@ -134,7 +135,6 @@ sources, places, media. Warnings collapse behind a disclosure with a count.
 
 | Condition | Message |
 |---|---|
-| A `.ged` that is not UTF-8 | *"This GEDCOM file is not valid UTF-8. Re-export it as UTF-8 from your genealogy software, or import the GeneWeb (.gw) version instead."* |
 | The file cannot be read | The reader's own message |
 | The import fails | The API's message, and the modal stays open with the file still chosen |
 

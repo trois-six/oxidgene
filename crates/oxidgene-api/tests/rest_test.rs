@@ -2909,6 +2909,61 @@ async fn test_async_file_import_job() {
     assert_eq!(persons["edges"].as_array().unwrap().len(), 2);
 }
 
+/// A `.ged` written in Windows-1252, as `CHAR ANSI` software does, imports
+/// through the job queue with its accents instead of failing as invalid
+/// UTF-8.
+#[tokio::test]
+async fn a_queued_gedcom_import_decodes_its_declared_character_set() {
+    let db = setup_db().await;
+    let state = AppState::new(
+        db,
+        std::env::temp_dir().join("oxidgene-test-ansi-import-media"),
+    );
+    let worker = BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "rest-test-ansi-worker",
+    );
+    let app = build_router(state);
+    let tree_id = create_tree_via_api(&app).await;
+
+    let gedcom = b"0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR ANSI\n\
+                   0 @I1@ INDI\n1 NAME Ren\xe9e /Alpha/\n0 TRLR\n";
+    let (status, started) = send_bytes(
+        app.clone(),
+        &format!("/api/v1/trees/{tree_id}/import-jobs?format=gedcom"),
+        gedcom.to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job_id = started["job_id"].as_str().expect("job id");
+    assert!(worker.run_once().await.expect("run import job"));
+    loop {
+        let (_, progress) = send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
+            None,
+        )
+        .await;
+        assert_ne!(progress["phase"], "failed", "job failed: {progress}");
+        if progress["phase"] == "completed" {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    let (_, persons) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/search?q=Alpha"),
+        None,
+    )
+    .await;
+    assert!(persons.to_string().contains("Renée"), "{persons}");
+}
+
 #[tokio::test]
 async fn test_async_geneanet_import_stages_and_cleans_inputs() {
     use std::io::Write as _;

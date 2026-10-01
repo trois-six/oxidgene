@@ -173,7 +173,8 @@ pub async fn import_and_persist(
     persist_import_result(db, result).await
 }
 
-/// Read a UTF-8 GEDCOM temporary file and persist its entities.
+/// Read a GEDCOM temporary file, in whatever character set it declares, and
+/// persist its entities.
 #[tracing::instrument(name = "import.gedcom", skip_all)]
 pub async fn import_file_and_persist(
     db: &DatabaseConnection,
@@ -182,10 +183,10 @@ pub async fn import_file_and_persist(
     progress: &FileImportProgress,
 ) -> Result<ImportSummary, OxidGeneError> {
     progress.enter(FileImportPhase::Parsing);
-    let gedcom = tokio::fs::read_to_string(path).await?;
+    let gedcom = tokio::fs::read(path).await?;
     let _tree = TreeRepo::get(db, tree_id).await?;
     let result = tracing::info_span!("import.parse", import.format = "gedcom")
-        .in_scope(|| import_gedcom(&gedcom, tree_id))
+        .in_scope(|| oxidgene_gedcom::import::import_gedcom_bytes(&gedcom, tree_id))
         .map_err(OxidGeneError::Gedcom)?;
     progress.enter(FileImportPhase::Database);
     persist_import_result(db, result).await

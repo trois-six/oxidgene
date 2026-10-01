@@ -348,9 +348,9 @@ impl BackgroundJobWorker {
         match job.format.as_str() {
             "gedcom" => {
                 progress.enter(gedcom::FileImportPhase::Parsing);
-                let source = tokio::fs::read_to_string(source).await?;
+                let source = tokio::fs::read(source).await?;
                 tracing::info_span!("import.parse", import.format = "gedcom")
-                    .in_scope(|| oxidgene_gedcom::import::import_gedcom(&source, job.tree_id))
+                    .in_scope(|| oxidgene_gedcom::import::import_gedcom_bytes(&source, job.tree_id))
                     .map_err(OxidGeneError::Gedcom)
             }
             "gedzip" => {

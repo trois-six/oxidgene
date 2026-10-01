@@ -52,6 +52,33 @@ pub fn import_gedcom(gedcom_str: &str, tree_id: Uuid) -> Result<ImportResult, St
     Ok(result)
 }
 
+/// Import a GEDCOM file as stored, whatever character set it was written in.
+///
+/// A `.ged` declares its character set in `HEAD.CHAR`, and software of the
+/// GEDCOM 5 era writes ANSEL or ANSI (Latin-1) as often as UTF-8. Read as
+/// UTF-8, those files were refused outright. `ged_io` detects the encoding —
+/// a byte-order mark, then `CHAR` — and decodes the bytes to text.
+///
+/// Except for `CHAR ANSI`, which `ged_io` 0.16 takes for 7-bit ASCII and
+/// decodes as UTF-8, failing on the first accent. The software writing it
+/// means the Windows code page, so a file that is not UTF-8 after all is read
+/// as Windows-1252, the superset of Latin-1 `ged_io` decodes.
+///
+/// # Errors
+///
+/// Returns `Err` if the bytes cannot be decoded or the GEDCOM cannot be
+/// parsed.
+pub fn import_gedcom_bytes(bytes: &[u8], tree_id: Uuid) -> Result<ImportResult, String> {
+    use ged_io::GedcomEncoding;
+    let encoding = match ged_io::detect_encoding(bytes) {
+        GedcomEncoding::Ascii if std::str::from_utf8(bytes).is_err() => GedcomEncoding::Iso8859_1,
+        detected => detected,
+    };
+    let (text, _) = ged_io::encoding::decode_with_encoding(bytes, encoding)
+        .map_err(|e| format!("GEDCOM encoding error: {e}"))?;
+    import_gedcom(&text, tree_id)
+}
+
 /// Record each person's first picture as their portrait.
 ///
 /// GEDCOM has no primary-photo flag, and states the choice only by order: the

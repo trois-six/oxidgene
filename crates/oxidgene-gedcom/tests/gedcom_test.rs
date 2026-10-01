@@ -630,6 +630,46 @@ fn long_values_survive_a_round_trip_word_for_word() {
     assert_eq!(back.sources[0].title, long("title"));
 }
 
+/// A one-person GEDCOM declaring `charset`, with the given name `given`
+/// encoded in it.
+fn one_person_in(charset: &str, given: &[u8]) -> Vec<u8> {
+    let mut bytes = format!("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR {charset}\n0 @I1@ INDI\n1 NAME ")
+        .into_bytes();
+    bytes.extend_from_slice(given);
+    bytes.extend_from_slice(b" /Alpha/\n0 TRLR\n");
+    bytes
+}
+
+/// A `.ged` in ANSEL or ANSI, as GEDCOM 5 software writes them, imports with
+/// its accents rather than being refused as invalid UTF-8.
+#[test]
+fn a_gedcom_in_a_legacy_character_set_is_decoded() {
+    for (charset, given) in [
+        ("ANSI", &b"Ren\xe9e"[..]),
+        ("ANSEL", &b"Ren\xe2ee"[..]),
+        ("UTF-8", "Renée".as_bytes()),
+    ] {
+        let bytes = one_person_in(charset, given);
+        let result = oxidgene_gedcom::import::import_gedcom_bytes(&bytes, Uuid::now_v7())
+            .unwrap_or_else(|e| panic!("{charset}: {e}"));
+        let given = result.person_names[0]
+            .given_names
+            .as_deref()
+            .unwrap_or_default();
+        assert_eq!(
+            unicode_compose(given),
+            "Renée",
+            "{charset} decoded as {given:?}"
+        );
+    }
+}
+
+/// `e` followed by a combining acute accent, as ANSEL spells it, folded
+/// onto the precomposed `é` the other encodings give.
+fn unicode_compose(text: &str) -> String {
+    text.replace("e\u{301}", "é")
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
