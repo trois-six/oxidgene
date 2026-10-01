@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:38:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:42:35Z }
 ---
 
 
@@ -1889,4 +1889,10 @@ the next block for a `fam`, and reported as one warning naming its line.
   file, so it is left out before parsing and reported as one warning naming
   its line (never its value)
 - Agency (`AGNC`)
-- Custom/vendor tags (`_CUSTOM`)
+- Religion of a single event (`RELI` under an event; `RELI` as an individual
+  attribute is imported, see above)
+- Custom/vendor tags (`_CUSTOM`), OxidGene's own `_OXIDGENE_*` media
+  extensions excepted
+
+Skipping them emits no warning: the import warnings name only what the import
+repaired or could not resolve.

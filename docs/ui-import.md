@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:58:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:42:35Z }
 ---
 
 
@@ -142,7 +142,11 @@ sources, places, media. Warnings collapse behind a disclosure with a count.
 
 ## 5. Data mapping & fidelity
 
-The import uses `ged_io` 0.12 to parse GEDCOM files. See [API Contract](api.md) §3 for the full round-trip fidelity table.
+The import uses `ged_io` 0.16 to parse GEDCOM files, after a repair pass for
+the few constructs it would reject or misread (an unreadable `AGE`, a note
+pointer, several notes on one structure, a `CONC` opening with a space). See
+[API Contract §4](api.md) for the full round-trip fidelity table, which is
+authoritative where this summary is shorter.
 
 Media title, format, physical medium, and description use the standard `TITL`,
 `FORM`, `FORM.TYPE`, and `NOTE` structures. OxidGene additionally writes one
@@ -161,7 +165,9 @@ can ignore that extension while retaining all standard fields.
 | All standard event tags (BIRT, DEAT, BAPM, MARR, etc.) | → Event with matching EventType |
 | SOUR (sources) | → Source (title, author, publisher, abbreviation) |
 | Citation references with QUAY | → Citation with Confidence mapping |
-| NOTE (notes) | → Note linked to the parent record |
+| NOTE (notes), inline or pointing at a note record | → Note linked to the parent record, one per `NOTE` |
+| ASSO / RELA (associations) | → EventWitness on the witnessed event |
+| RELI as an individual attribute | → Event of type Religion |
 | OBJE (multimedia) | → Media (file path, MIME type, title, description, physical medium, and OxidGene extended metadata) |
 | PLAC with MAP coordinates | → Place (name + latitude + longitude) |
 | Event CAUS (cause) | → Event.cause field |
@@ -169,17 +175,19 @@ can ignore that extension while retaining all standard fields.
 
 ### What is skipped (not imported)
 
-These GEDCOM tags are parsed by ged_io but not mapped to the OxidGene data model. They are listed in the import warnings.
+These GEDCOM tags are parsed by `ged_io` but not mapped to the OxidGene data
+model. They are skipped silently: the import warnings name only what the
+import had to repair or could not resolve (an unreadable `AGE`, a dangling
+note pointer, a missing spouse or source, a GEDZIP file it does not hold).
 
 | GEDCOM tag | Description | Reason |
 |---|---|---|
 | REPO | Repository records | Not in current data model |
-| SUBM | Submitter records | Not relevant (single-user MVP) |
-| AGE | Age at event | Not stored; can be calculated from dates |
-| RELI | Religion of event | Not in current data model |
+| SUBM | Submitter records | Not imported; the export writes its own |
+| AGE | Age at event | Not stored; can be calculated from dates. One that is not a GEDCOM age is a warning |
+| RELI inside an event | Religion of one event | Not in current data model; `RELI` as an attribute is imported |
 | AGNC | Agency responsible | Not in current data model |
-| ASSO | Associations between individuals | Not in current data model |
-| `_CUSTOM` tags | Vendor-specific extensions | Silently ignored |
+| `_CUSTOM` tags | Vendor-specific extensions | Ignored, OxidGene's own `_OXIDGENE_*` media extensions excepted |
 
 ### GEDCOM version handling
 
