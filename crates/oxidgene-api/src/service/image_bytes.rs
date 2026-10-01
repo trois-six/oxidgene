@@ -35,6 +35,7 @@ const BLOB_READ_CONCURRENCY: usize = 8;
 /// bytes are somebody else's and which the client fetches for itself; a media
 /// we no longer hold; a crop that fails to cut. The client draws nothing there,
 /// exactly as it would have had the source never arrived.
+#[tracing::instrument(name = "images.load", skip_all, fields(image.count = sources.len()))]
 pub async fn load_image_data_urls(
     db: &DatabaseConnection,
     store: &Arc<dyn MediaStore>,
@@ -107,14 +108,14 @@ async fn load_crop(
     let key = media.storage_key.filter(|_| drawable)?;
     let bytes = store.get(&key).await.ok()?;
     let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
-    let cropped = tokio::task::spawn_blocking(move || crate::media::thumbnail::crop(&bytes, rect))
+    let cropped = crate::media::thumbnail::crop_off_thread(bytes, rect)
         .await
-        .ok()?
         .ok()?;
     Some(data_url("image/jpeg", &cropped))
 }
 
 fn data_url(mime_type: &str, bytes: &[u8]) -> String {
+    let _span = tracing::info_span!("image.encode_base64", image.bytes = bytes.len()).entered();
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     format!("data:{mime_type};base64,{encoded}")
 }

@@ -144,11 +144,16 @@ pub fn generate(bytes: &[u8]) -> Result<Thumbnail, OxidGeneError> {
 }
 
 /// Decode and crop one image region, returning standalone JPEG bytes.
+///
+/// Decoding and encoding are each spanned (`media.decode`, `media.encode`):
+/// they are the CPU cost of a crop, and which one dominates depends on the
+/// source format and size.
 pub fn crop(
     bytes: &[u8],
     (x, y, width, height): (i32, i32, i32, i32),
 ) -> Result<Vec<u8>, OxidGeneError> {
-    let (image, _) = decode(bytes, MAX_DECODED_BYTES)?;
+    let (image, _) = tracing::info_span!("media.decode", media.input_bytes = bytes.len())
+        .in_scope(|| decode(bytes, MAX_DECODED_BYTES))?;
     let cropped = DynamicImage::crop_imm(
         &image,
         x.max(0) as u32,
@@ -157,12 +162,25 @@ pub fn crop(
         height.max(1) as u32,
     );
 
+    let encode = tracing::info_span!("media.encode", media.output_bytes = tracing::field::Empty);
+    let _entered = encode.enter();
     let mut out = Cursor::new(Vec::new());
     cropped
         .into_rgb8()
         .write_to(&mut out, ImageFormat::Jpeg)
         .map_err(|e| OxidGeneError::Internal(format!("could not encode: {e}")))?;
-    Ok(out.into_inner())
+    let out = out.into_inner();
+    encode.record("media.output_bytes", out.len());
+    Ok(out)
+}
+
+/// [`crop`] on the blocking pool, under a `media.crop` span of the caller's.
+pub async fn crop_off_thread(
+    bytes: Vec<u8>,
+    rect: (i32, i32, i32, i32),
+) -> Result<Vec<u8>, OxidGeneError> {
+    let span = tracing::info_span!("media.crop", media.input_bytes = bytes.len());
+    crate::service::blocking::run(span, move || crop(&bytes, rect)).await?
 }
 
 pub(crate) fn decode(
@@ -311,6 +329,62 @@ mod tests {
             assert!(
                 format.reading_enabled(),
                 "{mime} is advertised but {format:?} decoding is not compiled in"
+            );
+        }
+    }
+
+    /// A span's name and its parent's name.
+    type Opened = (String, Option<String>);
+
+    /// Each span opened.
+    #[derive(Clone, Default)]
+    struct Spans(std::sync::Arc<std::sync::Mutex<Vec<Opened>>>);
+
+    impl<S> tracing_subscriber::Layer<S> for Spans
+    where
+        S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+    {
+        fn on_new_span(
+            &self,
+            attributes: &tracing::span::Attributes<'_>,
+            _id: &tracing::span::Id,
+            context: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            let parent = attributes
+                .parent()
+                .and_then(|parent| context.span(parent))
+                .or_else(|| context.lookup_current())
+                .map(|span| span.name().to_string());
+            self.0
+                .lock()
+                .expect("capture lock")
+                .push((attributes.metadata().name().to_string(), parent));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_off_thread_crop_spans_its_decode_and_encode_under_the_callers_span() {
+        use tracing_subscriber::layer::SubscriberExt as _;
+
+        let spans = Spans::default();
+        let _guard =
+            tracing::subscriber::set_default(tracing_subscriber::registry().with(spans.clone()));
+
+        let cropped = crop_off_thread(jpeg(64, 48), (8, 8, 16, 16))
+            .await
+            .expect("crop");
+
+        assert!(!cropped.is_empty());
+        let spans = spans.0.lock().expect("capture lock").clone();
+        for (name, parent) in [
+            ("media.decode", "media.crop"),
+            ("media.encode", "media.crop"),
+        ] {
+            assert!(
+                spans
+                    .iter()
+                    .any(|(span, of)| span == name && of.as_deref() == Some(parent)),
+                "{name} under {parent}: {spans:?}"
             );
         }
     }

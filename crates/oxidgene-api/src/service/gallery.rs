@@ -44,6 +44,11 @@ pub struct GalleryVignette {
     pub crop: Option<ImageCrop>,
 }
 
+#[tracing::instrument(
+    name = "gallery.load",
+    skip_all,
+    fields(media.count = media_ids.len(), vignette.count = vignette_ids.len())
+)]
 pub async fn load_gallery_bundle(
     db: &DatabaseConnection,
     tree_id: Uuid,

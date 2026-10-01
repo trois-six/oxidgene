@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:38:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:39:29Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -381,6 +381,19 @@ the rejected value.
   them. Place suggestions run under `reference.places.search`. These spans
   record aggregate counts (persons, places, links, the suggestion limit)
   only, never a query, name, or identifier.
+- The person page's reads are spanned as `person_detail.load` and
+  `gallery.load` (media and vignette counts). Inline pictures for the web
+  build load under `images.load` (image count), each base64 encoding under
+  `image.encode_base64` (byte length). A vignette crop runs on the blocking
+  pool under `media.crop`, split into `media.decode` and `media.encode`, with
+  input and output byte lengths.
+- SeaORM spans include the time spent waiting for a pooled connection without
+  separating it, and a transaction waits before its `begin` span opens. The
+  pool reports each acquisition's wait as a `sqlx::pool::acquire` event at
+  `trace` level, which native export records in the
+  `db.client.connection.wait_time` histogram (seconds) and nowhere else. The
+  desktop's SQLite pool holds one connection, so this is where concurrent
+  requests queue.
 - Every user-initiated import, Geneanet import, and export owns a root span of
   its own: `ui.import`, `ui.geneanet_import`, and `ui.export`. So does every
   other write a single button starts that would otherwise reach the collector

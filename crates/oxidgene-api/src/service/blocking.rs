@@ -8,15 +8,20 @@ use tracing::Span;
 /// `spawn_blocking` does not carry the caller's span over to the thread it
 /// runs on, so a span opened there would start a trace of its own. The caller
 /// therefore creates `span` — under its own, with aggregate counts as fields —
-/// and it is entered on the blocking thread around `work`.
+/// and it is entered on the blocking thread around `work`. The caller's
+/// subscriber goes along too, so spans `work` opens itself reach the same
+/// subscriber even where it is scoped rather than global.
 pub(crate) async fn run<T, F>(span: Span, work: F) -> Result<T, OxidGeneError>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    tokio::task::spawn_blocking(move || span.in_scope(work))
-        .await
-        .map_err(|error| OxidGeneError::Internal(error.to_string()))
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    tokio::task::spawn_blocking(move || {
+        tracing::dispatcher::with_default(&dispatch, || span.in_scope(work))
+    })
+    .await
+    .map_err(|error| OxidGeneError::Internal(error.to_string()))
 }
 
 #[cfg(test)]

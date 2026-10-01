@@ -5110,6 +5110,7 @@ dependencies = [
  "ammonia",
  "async-trait",
  "chrono",
+ "log",
  "opentelemetry",
  "opentelemetry_sdk",
  "oxidgene-core",

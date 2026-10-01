@@ -39,6 +39,8 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+# The level type SQLx takes for its pool acquisition timing events.
+log = "0.4"
 ammonia = { workspace = true }
 async-trait = "0.1"
 

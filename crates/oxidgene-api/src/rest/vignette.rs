@@ -125,9 +125,9 @@ pub async fn vignette_image(
 
     let bytes = state.media.get(key).await?;
     let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
-    let cropped = tokio::task::spawn_blocking(move || crate::media::thumbnail::crop(&bytes, rect))
+    let cropped = crate::media::thumbnail::crop_off_thread(bytes, rect)
         .await
-        .map_err(|e| ApiError(OxidGeneError::Internal(format!("crop panicked: {e}"))))??;
+        .map_err(ApiError)?;
 
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, super::media::header_value("image/jpeg"));

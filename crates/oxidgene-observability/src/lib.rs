@@ -322,6 +322,7 @@ where
                 metadata.is_event() && export_log_target(metadata.target())
             }))),
         )
+        .with(connection_wait_layer(connection_wait_histogram()))
         .try_init()?;
 
     tracing::info!(transport = "grpc", "OpenTelemetry export enabled");
@@ -332,6 +333,76 @@ where
         meter_provider: Some(meter_provider),
         runtime,
     })
+}
+
+/// The target of the connection-pool timing events SQLx emits once a
+/// connection is acquired, when the pool is configured to (see
+/// `oxidgene_db::repo::connect`).
+const POOL_ACQUIRE_TARGET: &str = "sqlx::pool::acquire";
+
+/// The field of those events holding the time spent acquiring, in seconds.
+const ACQUIRED_AFTER_FIELD: &str = "acquired_after_secs";
+
+/// Records how long each database call waited for a pooled connection.
+///
+/// SeaORM's spans include the wait — the pool is acquired inside them — but
+/// cannot tell it apart from the statement, and a transaction acquires its
+/// connection before its `sea_orm.begin` span opens. The SQLite pool holds a
+/// single connection, so waiting for it is the main source of latency under
+/// concurrent requests. SQLx measures every acquisition itself; this layer
+/// turns those measurements into the `db.client.connection.wait_time`
+/// histogram and nothing else (no log line, no span).
+struct ConnectionWait<R> {
+    record: R,
+}
+
+impl<S, R> Layer<S> for ConnectionWait<R>
+where
+    S: tracing::Subscriber,
+    R: Fn(f64) + Send + Sync + 'static,
+{
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _context: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut waited = AcquiredAfter(None);
+        event.record(&mut waited);
+        if let Some(seconds) = waited.0 {
+            (self.record)(seconds);
+        }
+    }
+}
+
+struct AcquiredAfter(Option<f64>);
+
+impl field::Visit for AcquiredAfter {
+    fn record_f64(&mut self, field: &field::Field, value: f64) {
+        if field.name() == ACQUIRED_AFTER_FIELD {
+            self.0 = Some(value);
+        }
+    }
+
+    fn record_debug(&mut self, _field: &field::Field, _value: &dyn std::fmt::Debug) {}
+}
+
+/// [`ConnectionWait`], fed only the pool's timing events.
+fn connection_wait_layer<S>(record: impl Fn(f64) + Send + Sync + 'static) -> impl Layer<S>
+where
+    S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    ConnectionWait { record }.with_filter(filter_fn(|metadata| {
+        metadata.is_event() && metadata.target() == POOL_ACQUIRE_TARGET
+    }))
+}
+
+fn connection_wait_histogram() -> impl Fn(f64) + Send + Sync + 'static {
+    let histogram = global::meter("oxidgene")
+        .f64_histogram("db.client.connection.wait_time")
+        .with_unit("s")
+        .with_description("Time spent waiting for a pooled database connection")
+        .build();
+    move |seconds| histogram.record(seconds, &[])
 }
 
 /// Every span follows its parent's decision; a span without a parent is kept
@@ -712,6 +783,47 @@ mod tests {
             decision(Some(&parent), "sea_orm.query_all"),
             SamplingDecision::RecordAndSample
         );
+    }
+
+    #[test]
+    fn connection_waits_are_read_from_the_pool_timing_events() {
+        let waits = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&waits);
+        let subscriber =
+            tracing_subscriber::registry().with(connection_wait_layer(move |seconds| {
+                recorded.lock().expect("waits lock").push(seconds)
+            }));
+
+        tracing::subscriber::with_default(subscriber, || {
+            pool_acquired();
+            pool_acquired_slowly();
+            unrelated_event();
+        });
+
+        assert_eq!(*waits.lock().expect("waits lock"), vec![0.25, 3.0]);
+    }
+
+    /// What SQLx emits for an acquisition at the configured timing level.
+    fn pool_acquired() {
+        tracing::trace!(
+            target: "sqlx::pool::acquire",
+            acquired_after_secs = 0.25,
+            "acquired connection"
+        );
+    }
+
+    /// What SQLx emits for an acquisition over its slow threshold.
+    fn pool_acquired_slowly() {
+        tracing::warn!(
+            target: "sqlx::pool::acquire",
+            acquired_after_secs = 3.0,
+            slow_acquire_threshold_secs = 2.0,
+            "acquired connection, but time to acquire exceeded slow threshold"
+        );
+    }
+
+    fn unrelated_event() {
+        tracing::info!(acquired_after_secs = 9.0, "not the pool");
     }
 
     #[tokio::test]

@@ -41,6 +41,14 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
     });
+    // SQLx times every pool acquisition; at `trace` it reports the time as a
+    // `sqlx::pool::acquire` event, which OpenTelemetry export turns into the
+    // connection wait-time metric. SeaORM's spans include that wait without
+    // separating it, and a transaction waits before its `begin` span opens.
+    // No console filter short of `trace` shows these events.
+    opts.map_sqlx_sqlite_pool_opts(|pool| pool.acquire_time_level(log::LevelFilter::Trace));
+    #[cfg(feature = "postgres")]
+    opts.map_sqlx_postgres_pool_opts(|pool| pool.acquire_time_level(log::LevelFilter::Trace));
     let db = Database::connect(opts).await?;
     info!("Connected to database");
     Ok(db)
@@ -210,4 +218,56 @@ pub async fn rollback_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
     Migrator::down(db, None).await?;
     info!("Migrations rolled back successfully");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use tracing::field::{Field, Visit};
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::{Context, SubscriberExt as _};
+
+    use super::*;
+
+    /// The `acquired_after_secs` of every pool timing event.
+    #[derive(Clone, Default)]
+    struct AcquireTimes(Arc<Mutex<Vec<f64>>>);
+
+    impl Visit for AcquireTimes {
+        fn record_f64(&mut self, field: &Field, value: f64) {
+            if field.name() == "acquired_after_secs" {
+                self.0.lock().expect("capture lock").push(value);
+            }
+        }
+
+        fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {}
+    }
+
+    impl<S: tracing::Subscriber> Layer<S> for AcquireTimes {
+        fn on_event(&self, event: &tracing::Event<'_>, _context: Context<'_, S>) {
+            if event.metadata().target() == "sqlx::pool::acquire" {
+                event.record(&mut self.clone());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn every_pool_acquisition_reports_its_wait() {
+        let times = AcquireTimes::default();
+        let _guard =
+            tracing::subscriber::set_default(tracing_subscriber::registry().with(times.clone()));
+
+        let db = connect("sqlite::memory:")
+            .await
+            .expect("in-memory database");
+        db.execute_raw(Statement::from_string(DatabaseBackend::Sqlite, "SELECT 1"))
+            .await
+            .expect("query runs");
+
+        assert!(
+            !times.0.lock().expect("capture lock").is_empty(),
+            "no acquisition timing event"
+        );
+    }
 }

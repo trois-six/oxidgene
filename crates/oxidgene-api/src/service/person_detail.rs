@@ -57,6 +57,7 @@ pub struct EventMediaTile {
     pub media: Media,
 }
 
+#[tracing::instrument(name = "person_detail.load", skip_all)]
 pub async fn load_person_detail_bundle(
     db: &DatabaseConnection,
     tree_id: Uuid,
