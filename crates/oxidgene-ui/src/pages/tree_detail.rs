@@ -561,14 +561,9 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         selected_root,
     };
     let view = crate::prefs::use_pedigree_view();
-    let tree_name_str = tree
-        .as_ref()
-        .map(|t| t.name.clone())
-        .or_else(|| {
-            tree_id_parsed()
-                .and_then(|tid| tree_cache.tree(tid))
-                .map(|t| t.name)
-        })
+    let tree_name_str = tree_cache
+        .loaded_or_cached(tree_id_parsed(), tree.as_ref())
+        .map(|t| t.name)
         .unwrap_or_default();
 
     // ── Render ──
