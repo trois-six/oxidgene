@@ -9,7 +9,7 @@ mod common;
 use axum::http::{Method, StatusCode};
 use oxidgene_api::service::history::record_baselines;
 use oxidgene_db::repo::{PersonNamePieces, PersonNameRepo, PersonRepo, TreeRepo};
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -487,6 +487,54 @@ async fn imports_version_everything_they_bring() {
     assert_eq!(imports[0]["details"]["format"], "gedcom");
     assert_eq!(imports[0]["details"]["count"], 2);
     assert_eq!(imports[0]["version_count"], 2);
+}
+
+/// The row count the planner statistics record for `table`, if any.
+async fn analyzed_rows(db: &DatabaseConnection, table: &str) -> Option<i64> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT stat FROM sqlite_stat1 WHERE tbl = ? AND idx IS NOT NULL",
+            [table.into()],
+        ))
+        .await
+        .unwrap()?;
+    let stat: String = row.try_get("", "stat").unwrap();
+    stat.split_whitespace().next()?.parse().ok()
+}
+
+#[tokio::test]
+async fn statistics_include_the_history_an_import_writes() {
+    let (db, app) = setup().await;
+    let tree = create_tree(&app).await;
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n\
+                  0 @I1@ INDI\n1 NAME Mu /Fixture/\n1 SEX F\n\
+                  0 @I2@ INDI\n1 NAME Nu /Fixture/\n1 SEX M\n\
+                  0 @I3@ INDI\n1 NAME Xi /Fixture/\n1 SEX U\n0 TRLR\n";
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/gedcom/import"),
+        Some(json!({ "gedcom": gedcom })),
+    )
+    .await;
+
+    // Gathered before the import's versions were written, they would
+    // describe the history without them and plan its reads as scans.
+    for table in ["record_version", "audit_entry"] {
+        let rows = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                format!("SELECT COUNT(*) AS n FROM {table}"),
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap();
+        assert!(rows > 1, "{table} holds the import's history");
+        assert_eq!(analyzed_rows(&db, table).await, Some(rows), "{table}");
+    }
 }
 
 #[tokio::test]

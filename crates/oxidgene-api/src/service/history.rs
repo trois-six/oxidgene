@@ -481,6 +481,13 @@ pub const DUPLICATE_FORMAT: &str = "duplicate";
 /// Imports write in several transactions of their own, so this one follows
 /// them rather than joining them. `file_name` is the imported file's, or the
 /// other tree's name for a duplication.
+///
+/// It is the last bulk write of every import and duplication — a version of
+/// every record the tree now holds — so the planner statistics are refreshed
+/// here, after it, rather than after the projections: refreshed earlier, they
+/// would describe `record_version` and `audit_entry` without these rows, and
+/// the history reads (the home page's recently modified persons among them)
+/// would plan full scans on tables recorded as nearly empty.
 pub async fn record_import(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -500,6 +507,7 @@ pub async fn record_import(
         .record(&txn)
         .await?;
     txn.commit().await.map_err(db_err)?;
+    oxidgene_db::repo::refresh_statistics(db).await;
     Ok(entry)
 }
 
@@ -561,11 +569,14 @@ pub async fn record_baselines(db: &DatabaseConnection) -> Result<usize, OxidGene
 /// [`record_baselines`], logging instead of failing: a tree without a
 /// baseline still records every change made from now on.
 pub async fn record_baselines_at_startup(db: &DatabaseConnection) {
-    if record_baselines(db).await.is_err() {
-        warn!(
+    match record_baselines(db).await {
+        // A baseline versions a whole tree, like an import.
+        Ok(recorded) if recorded > 0 => oxidgene_db::repo::refresh_statistics(db).await,
+        Ok(_) => {}
+        Err(_) => warn!(
             error = "history_baseline",
             "Failed to record the history baseline"
-        );
+        ),
     }
 }
 

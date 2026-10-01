@@ -86,8 +86,9 @@ impl ProfileService {
 
         let search_entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
         PersonSearchRepo::replace_tree(conn, tree_id, &search_entries).await?;
-        // Every import and duplicate ends here, having just written a tree's
-        // worth of rows the planner has no statistics for.
+        // Having just written a tree's worth of rows the planner has no
+        // statistics for. Imports and duplications refresh them once more
+        // after their history, their last bulk write (`history::record_import`).
         oxidgene_db::repo::refresh_statistics(conn).await;
 
         info!(count = persons.len(), "Completed full projection rebuild");
@@ -111,7 +112,9 @@ impl ProfileService {
         PersonDenormRepo::replace_tree(&txn, tree_id, &persons).await?;
         PersonSearchRepo::replace_tree(&txn, tree_id, &search_entries).await?;
         txn.commit().await.map_err(db_err)?;
-        oxidgene_db::repo::refresh_statistics(conn).await;
+        // No statistics refresh here: its only caller, the import job, writes
+        // the import's history next, and `history::record_import` refreshes
+        // them once that last bulk write is in.
 
         info!(
             count = persons.len(),

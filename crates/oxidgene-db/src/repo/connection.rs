@@ -51,6 +51,7 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
     Migrator::up(db, None).await?;
     info!("Migrations applied successfully");
     reclaim_free_pages(db).await;
+    optimize_statistics(db).await;
     Ok(())
 }
 
@@ -66,8 +67,13 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
 /// A full `ANALYZE`: a sampled one caps the rows it counts per key, which is
 /// exactly the estimate that has to be right, and on a 170 000-event database
 /// the full pass takes about a tenth of a second — nothing beside the import
-/// that calls it. PostgreSQL keeps its own statistics through autovacuum.
-/// Best effort: a failure leaves the previous statistics in place.
+/// that calls it. Callers run it after their last bulk write: statistics
+/// gathered before it describe the tables without its rows.
+///
+/// PostgreSQL keeps its own statistics: autovacuum re-analyzes a table once a
+/// tenth of its rows have changed, which every import exceeds, within its
+/// one-minute nap. Best effort: a failure leaves the previous statistics in
+/// place.
 pub async fn refresh_statistics(db: &impl ConnectionTrait) {
     if db.get_database_backend() != DatabaseBackend::Sqlite {
         return;
@@ -76,6 +82,32 @@ pub async fn refresh_statistics(db: &impl ConnectionTrait) {
         warn!(
             error = "sqlite_analyze",
             "could not refresh query planner statistics"
+        );
+    }
+}
+
+/// Let SQLite re-analyze, at startup, the tables whose statistics have
+/// drifted.
+///
+/// Imports refresh the statistics themselves ([`refresh_statistics`]), but
+/// ordinary writes accumulate too — every edit adds an audit entry and a
+/// record version — and a table whose recorded row count is far from its real
+/// one gets planned as if it were still that size. `PRAGMA optimize` with
+/// `0x10000` checks every table, not only the ones this connection queried,
+/// and analyzes only those whose size changed markedly since their last
+/// `ANALYZE`, so a start with current statistics costs nothing. Best effort.
+async fn optimize_statistics(db: &DatabaseConnection) {
+    if db.get_database_backend() != DatabaseBackend::Sqlite {
+        return;
+    }
+    if db
+        .execute_unprepared("PRAGMA optimize = 0x10002")
+        .await
+        .is_err()
+    {
+        warn!(
+            error = "sqlite_optimize",
+            "could not refresh drifted query planner statistics"
         );
     }
 }
