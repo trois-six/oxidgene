@@ -2292,13 +2292,15 @@ pub(crate) fn create_event_body(
     }
 }
 
-/// `description: None` leaves the stored value alone; `Some(value)` writes it
-/// (with `Some(None)` clearing it), matching the DTO's own contract.
+/// `description` and `cause`: `None` leaves the stored value alone;
+/// `Some(value)` writes it (with `Some(None)` clearing it), matching the DTO's
+/// own contract.
 pub(crate) fn update_event_body(
     event_type: Option<EventType>,
     parts: &DateParts,
     place_id: Option<Uuid>,
     description: Option<Option<String>>,
+    cause: Option<Option<String>>,
 ) -> UpdateEventBody {
     UpdateEventBody {
         event_type,
@@ -2306,7 +2308,7 @@ pub(crate) fn update_event_body(
         date_qualifier: Some(parts.stored_qualifier()),
         date_value2: Some(parts.date_value2()),
         calendar: Some(parts.calendar),
-        cause: None,
+        cause,
         place_id: Some(place_id),
         description,
     }
@@ -2357,7 +2359,7 @@ async fn save_vital_event(
             api.update_event(
                 tree_id,
                 eid,
-                &update_event_body(Some(event_type), parts, place_id, None),
+                &update_event_body(Some(event_type), parts, place_id, None, None),
             )
             .await?;
             Some(eid)
@@ -2861,6 +2863,7 @@ pub fn EventEditor(
     let is_occupation = event.event_type == EventType::Occupation;
 
     let mut description = use_signal(|| event.description.clone().unwrap_or_default());
+    let mut cause = use_signal(|| event.cause.clone().unwrap_or_default());
     let parts = use_signal(|| {
         DateParts::from_fields(
             event.calendar,
@@ -2898,6 +2901,7 @@ pub fn EventEditor(
         let notes_val = notes();
         let source = source_title();
         let desc = description().trim().to_string();
+        let cause = cause().trim().to_string();
         let date = parts();
         let place = place_id();
         spawn(async move {
@@ -2916,7 +2920,13 @@ pub fn EventEditor(
                     return;
                 }
             };
-            let body = update_event_body(None, &date, place_id, Some(opt_str(&desc)));
+            let body = update_event_body(
+                None,
+                &date,
+                place_id,
+                Some(opt_str(&desc)),
+                Some(opt_str(&cause)),
+            );
             if let Err(e) = api.update_event(tree_id, event_id, &body).await {
                 error.set(Some(format!("{e}")));
                 saving.set(false);
@@ -2975,7 +2985,17 @@ pub fn EventEditor(
                     label { {i18n.t("person_form.date")} }
                     DateInput { parts, i18n, on_change: move |()| {} }
                 }
-                {render_place_input(&i18n, place_id, &place_options, || {})}
+                div { class: "form-row",
+                    {render_place_input(&i18n, place_id, &place_options, || {})}
+                    div { class: "form-group",
+                        label { {i18n.t("person_form.cause")} }
+                        input {
+                            r#type: "text",
+                            value: "{cause}",
+                            oninput: move |e: Event<FormData>| cause.set(e.value()),
+                        }
+                    }
+                }
                 {render_notes_source_fields(&i18n, tree_id, notes, source_title, || {})}
                 div { class: "pf-ns-actions",
                     button {
@@ -3324,6 +3344,32 @@ fn render_information_form(
 #[cfg(test)]
 mod information_form_tests {
     use super::*;
+
+    /// Saving an event from its editor writes the cause it shows — set,
+    /// changed or cleared — while the shortcuts that do not show one leave
+    /// the stored cause alone.
+    #[test]
+    fn an_event_update_carries_the_cause_only_when_the_form_edits_it() {
+        let parts = DateParts::default();
+        let body = |cause| {
+            serde_json::to_value(update_event_body(None, &parts, None, None, cause))
+                .expect("serializes")
+        };
+        assert_eq!(body(Some(Some("Fever".into())))["cause"], "Fever");
+        assert!(body(Some(None))["cause"].is_null());
+        assert!(
+            body(Some(None))
+                .as_object()
+                .expect("object")
+                .contains_key("cause")
+        );
+        assert!(
+            !body(None)
+                .as_object()
+                .expect("object")
+                .contains_key("cause")
+        );
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]

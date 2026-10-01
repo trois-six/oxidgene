@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:34:08Z }
 ---
 
 
@@ -425,7 +425,7 @@ Each added event appears as a collapsible block with:
 - **Description** — free text input, the event's own `description` field
 - **Notes** — multi-line textarea, persisted as a `Note` carrying `event_id`
 - **Source** — free-text input (see §4 — Source), persisted as a `Citation` carrying `event_id`
-- **Cause** — single-line text input, free text. Relevant for death, burial, and other events where a cause is meaningful. Maps to GEDCOM `CAUS` tag.
+- **Cause** — single-line text input, free text. Relevant for death, burial, and other events where a cause is meaningful. Maps to GEDCOM `CAUS` tag. Editable when the event is created and, beside its place, in the saved event's expanded panel; clearing it removes the stored cause.
 - **Calendar** (supplementary, collapsed by default) — same calendar selector
 - **Witnesses** (supplementary, collapsed by default) — same dynamic list
 
