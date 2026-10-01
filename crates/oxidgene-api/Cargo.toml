@@ -77,3 +77,8 @@ tower = { workspace = true }
 uuid = { workspace = true }
 http-body-util = "0.1"
 tracing-subscriber = { workspace = true }
+# The trace-continuity test runs the native span pipeline over the SDK's
+# in-memory exporter.
+oxidgene-observability = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }

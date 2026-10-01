@@ -367,12 +367,14 @@ pub async fn download_archive(
     let (document, pages) = archive_pages(&state.db, tree_id, media_id).await?;
     let runtime = tokio::runtime::Handle::current();
     let (_alive, mut cancelled) = tokio::sync::oneshot::channel::<()>();
-    let (file, permit) = tokio::task::spawn_blocking(move || -> Result<_, OxidGeneError> {
-        let file = write_page_archive(&pages, &*state.media, &runtime, &mut cancelled)?;
-        Ok((file, permit))
-    })
-    .await
-    .map_err(|_| ApiError(OxidGeneError::Internal("archive worker failed".into())))??;
+    let archive_span = tracing::info_span!("media.archive", page.count = pages.len());
+    let (file, permit) =
+        crate::service::blocking::spawn_in(archive_span, move || -> Result<_, OxidGeneError> {
+            let file = write_page_archive(&pages, &*state.media, &runtime, &mut cancelled)?;
+            Ok((file, permit))
+        })
+        .await
+        .map_err(|_| ApiError(OxidGeneError::Internal("archive worker failed".into())))??;
 
     let name = format!("{}.zip", archive_stem(&document.file_name));
     let file = tokio::fs::File::from_std(file);

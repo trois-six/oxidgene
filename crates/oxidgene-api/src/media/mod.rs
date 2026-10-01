@@ -159,6 +159,34 @@ impl IngestedMedia {
     }
 }
 
+/// What [`ingest`] derives from a stored file: its page count, its pixel
+/// size, and its thumbnail when one can be drawn.
+type Derived = (u32, Option<(u32, u32)>, Option<thumbnail::Thumbnail>);
+
+/// The `media.derive` span of one upload, recording its size.
+fn derive_span(input_bytes: usize) -> tracing::Span {
+    tracing::info_span!("media.derive", media.input_bytes = input_bytes)
+}
+
+/// [`Derived`] for `bytes` of type `mime_type`. CPU-bound.
+fn derive(mime_type: &'static str, bytes: &[u8]) -> Derived {
+    let page_count = pages::count(mime_type, bytes);
+    let dimensions = thumbnail::dimensions(bytes);
+    let thumb = thumbnail::can_thumbnail(mime_type)
+        .then(|| thumbnail::generate(bytes))
+        .and_then(|generated| {
+            generated
+                .inspect_err(|_| {
+                    tracing::warn!(
+                        error = "thumbnail_generation",
+                        "thumbnail generation failed"
+                    );
+                })
+                .ok()
+        });
+    (page_count, dimensions, thumb)
+}
+
 /// Validate an uploaded file, store it, and derive its thumbnail and page count.
 ///
 /// Runs the CPU-bound derivations on a blocking thread. A failure to
@@ -195,28 +223,9 @@ pub async fn ingest(
     let stored = store.put(tree_id, extension_for(mime_type), &bytes).await?;
 
     // Decoding a large scan is seconds of CPU; keep it off the async runtime.
-    let derived = tokio::task::spawn_blocking(move || {
-        let page_count = pages::count(mime_type, &bytes);
-        let dimensions = thumbnail::dimensions(&bytes);
-        let thumb = if thumbnail::can_thumbnail(mime_type) {
-            match thumbnail::generate(&bytes) {
-                Ok(thumb) => Some(thumb),
-                Err(_) => {
-                    tracing::warn!(
-                        error = "thumbnail_generation",
-                        "thumbnail generation failed"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        (page_count, dimensions, thumb)
-    })
-    .await
-    .map_err(|e| OxidGeneError::Internal(format!("media processing panicked: {e}")))?;
-    let (page_count, dimensions, thumb) = derived;
+    let span = derive_span(bytes.len());
+    let (page_count, dimensions, thumb) =
+        crate::service::blocking::run(span, move || derive(mime_type, &bytes)).await?;
 
     let thumbnail_key = match thumb {
         Some(thumb) => match store.put(tree_id, thumb.extension, &thumb.bytes).await {

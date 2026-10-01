@@ -165,14 +165,11 @@ impl UiLoadTrace {
         {
             let (root, cycle) = self.begin_resource();
             let completion = ResourceCompletion::new(self.clone(), root.clone(), cycle);
-            let span = tracing::info_span!(
-                parent: &root,
-                "ui.resource.load",
-                otel.name = name,
-                ui.resource.name = name,
-                otel.status_code = tracing::field::Empty,
-            );
-            let output = future.instrument(span).await;
+            // The future is polled inside the resource span, so a request it
+            // sends opens its client span as a child of the page's root; the
+            // `instrument` wrapper re-enters it on every poll, which keeps that
+            // true on the browser's single-threaded executor too.
+            let output = future.instrument(resource_span(&root, name)).await;
             completion.finish();
             output
         }
@@ -436,6 +433,18 @@ pub async fn trace_ui_action_step<T>(step: UiActionStep, future: impl Future<Out
         let _ = step;
         future.await
     }
+}
+
+/// One resource of a page load, a child of the page's root span.
+#[cfg(feature = "telemetry-client")]
+fn resource_span(root: &tracing::Span, name: &'static str) -> tracing::Span {
+    tracing::info_span!(
+        parent: root,
+        "ui.resource.load",
+        otel.name = name,
+        ui.resource.name = name,
+        otel.status_code = tracing::field::Empty,
+    )
 }
 
 #[cfg(feature = "telemetry-client")]
@@ -737,5 +746,92 @@ mod tests {
                 "{root} should be a root span"
             );
         }
+    }
+
+    /// A page load's request leaves with the page's trace: its client span is
+    /// a child of the resource span, itself a child of the page root, and the
+    /// `traceparent` it sends names that client span in that trace — where the
+    /// server picks the trace up.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_resource_request_carries_the_page_trace_to_the_backend() {
+        use opentelemetry::trace::{SpanKind, TraceContextExt as _, TracerProvider as _};
+        use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
+        let exporter = InMemorySpanExporter::default();
+        let provider = SdkTracerProvider::builder()
+            .with_simple_exporter(exporter.clone())
+            .build();
+        let subscriber = tracing_subscriber::registry().with(
+            tracing_opentelemetry::OpenTelemetryLayer::new(provider.tracer("ui-test")),
+        );
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        // A one-shot backend that records the request head it receives.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let backend = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut head = Vec::new();
+            let mut buffer = [0; 4096];
+            while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.expect("read");
+                if read == 0 {
+                    break;
+                }
+                head.extend_from_slice(&buffer[..read]);
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                      Content-Length: 2\r\nConnection: close\r\n\r\n{}",
+                )
+                .await
+                .expect("write");
+            String::from_utf8_lossy(&head).to_lowercase()
+        });
+
+        let trace = UiLoadTrace::new(UiPage::Pedigree);
+        let (root, _cycle) = trace.begin_resource();
+        let client = crate::api::ApiClient::new(&format!("http://{address}"));
+        let _ = client
+            .get_tree(uuid::Uuid::nil())
+            .instrument(resource_span(&root, "tree"))
+            .await;
+        let head = backend.await.expect("backend");
+        let page_trace = root.context().span().span_context().trace_id();
+        drop(root);
+        drop(trace);
+
+        let spans = exporter.get_finished_spans().expect("spans");
+        let find = |predicate: &dyn Fn(&opentelemetry_sdk::trace::SpanData) -> bool| {
+            spans
+                .iter()
+                .find(|span| predicate(span))
+                .unwrap_or_else(|| panic!("missing span among {spans:?}"))
+        };
+        let page = find(&|span| span.name == "ui.pedigree.load");
+        let resource = find(&|span| span.name == "tree");
+        let request = find(&|span| span.span_kind == SpanKind::Client);
+        for span in [page, resource, request] {
+            assert_eq!(span.span_context.trace_id(), page_trace, "{}", span.name);
+        }
+        assert_eq!(resource.parent_span_id, page.span_context.span_id());
+        assert_eq!(request.parent_span_id, resource.span_context.span_id());
+        assert!(
+            head.contains(&format!(
+                "traceparent: 00-{}-{}-01",
+                page_trace,
+                request.span_context.span_id()
+            )),
+            "the request did not carry its client span: {head}"
+        );
     }
 }

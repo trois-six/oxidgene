@@ -660,7 +660,10 @@ impl BackgroundJobWorker {
         artifact_path: &Path,
     ) -> Result<(), OxidGeneError> {
         let archive_path = artifact_path.to_path_buf();
-        let archive_task = tokio::task::spawn_blocking(move || {
+        // The packaging span is opened here so the blocking thread runs
+        // inside it rather than in a trace of its own.
+        let package_span = tracing::info_span!("export.package", export.format = "gedzip");
+        let archive_task = crate::service::blocking::spawn_in(package_span.clone(), move || {
             let mut writer =
                 GedzipFileWriter::create(&archive_path, &gedcom).map_err(OxidGeneError::Gedcom)?;
             for (entry_path, mime_type, local_path) in staged_media {
@@ -676,10 +679,7 @@ impl BackgroundJobWorker {
                 .await
                 .map_err(|error| OxidGeneError::Internal(error.to_string()))?
         })
-        .instrument(tracing::info_span!(
-            "export.package",
-            export.format = "gedzip"
-        ))
+        .instrument(package_span)
         .await
     }
 
@@ -880,17 +880,23 @@ pub(crate) fn release_when_read(
     use futures_util::StreamExt as _;
 
     let on_end = futures_util::stream::once(async move {
-        tokio::spawn(async move {
-            if release_export_artifact(&db, &*media, job_id, &key)
-                .await
-                .is_err()
-            {
-                tracing::warn!(
-                    error = "export_artifact_release",
-                    "could not delete a downloaded export; it expires later"
-                );
+        // Spawned, but still part of the download's trace: the span is
+        // opened here, under the response body's span.
+        let span = tracing::info_span!("export.release");
+        tokio::spawn(
+            async move {
+                if release_export_artifact(&db, &*media, job_id, &key)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!(
+                        error = "export_artifact_release",
+                        "could not delete a downloaded export; it expires later"
+                    );
+                }
             }
-        });
+            .instrument(span),
+        );
         None
     })
     .filter_map(std::future::ready);

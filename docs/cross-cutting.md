@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:39:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T14:02:46Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -435,9 +435,29 @@ the rejected value.
   call made outside any operation — the job worker polling for work every
   second, a startup query — would otherwise be a trace by itself. Work that
   runs outside a request owns a root span instead: `startup.migrate`,
-  `reference.preheat`, `history.baselines`, `purge.tree`, `mcp.tool` (with the
-  tool name, one of a fixed set), and `background_job.process` for each
-  claimed job.
+  `reference.preheat`, `history.baselines`, `purge.sweep` (the startup purge
+  of trees a previous run left), `session_media.sweep` (the desktop's sweep
+  of temporary files earlier runs left), and `mcp.tool` (with the tool name,
+  one of a fixed set).
+- One page load is one trace, end to end: `ui.<page>.load` →
+  `ui.resource.load` → `http.client.request`, whose W3C `traceparent` the
+  server extracts → `http.server.request` → service spans → compute spans on
+  the blocking pool → `sea_orm.*`. A resource future is polled inside its
+  resource span (re-entered on every poll, including on the browser's
+  single-threaded executor), so the client span is that span's child. On the
+  server, work that leaves the request's task stays in its trace: every
+  blocking hand-off enters a span created by the caller before the hand-off
+  (`service::blocking`), and work queued for later carries the W3C context
+  with it — a background job in its `trace_parent`/`trace_state` columns,
+  restored by `background_job.process`, and a tree purge to its `purge.tree`
+  span. Deleting a downloaded export's artifact runs on its own task under an
+  `export.release` child of the download. Only genuinely detached loops start traces of their own, under the
+  named roots above. `oxidgene-api/tests/trace_continuity_test.rs` sends a
+  `traceparent` to a pedigree, a person detail bundle, statistics,
+  anomalies, a media upload, a vignette crop, a GraphQL query and an import
+  job, and asserts that every exported span belongs to the incoming trace
+  with an unbroken parent chain and that no span opened a trace of its own;
+  a UI test asserts the client span's parent and the header it sends.
 - Background job spans record only bounded technical dimensions such as job
   kind and import/export format. Job IDs, tree IDs, filenames, source keys,
   user content, and media metadata are excluded.

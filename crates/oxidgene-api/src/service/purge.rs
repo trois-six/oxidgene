@@ -20,7 +20,7 @@ use std::time::Instant;
 use oxidgene_db::repo::{BackgroundJobRepo, PersonSearchRepo, TreeRepo};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{Instrument as _, error, info, warn};
 use uuid::Uuid;
 
 use crate::media::MediaStore;
@@ -32,7 +32,18 @@ use crate::profile::ProfileService;
 /// concurrent deletes can never purge the same tree at once.
 #[derive(Debug, Clone)]
 pub struct PurgeQueue {
-    tx: mpsc::UnboundedSender<Uuid>,
+    tx: mpsc::UnboundedSender<PurgeRequest>,
+}
+
+/// A tree to purge, with the W3C trace context of the request that deleted
+/// it: the purge outlives that request, and its `purge.tree` span continues
+/// the request's trace rather than starting one of its own.
+#[derive(Debug)]
+struct PurgeRequest {
+    tree_id: Uuid,
+    /// `traceparent` and `tracestate`, when the build exports traces.
+    #[cfg(feature = "telemetry-context")]
+    trace: (Option<String>, Option<String>),
 }
 
 impl PurgeQueue {
@@ -42,7 +53,12 @@ impl PurgeQueue {
     /// soft-deleted and therefore invisible, and the next startup sweep will
     /// purge it.
     pub fn enqueue(&self, tree_id: Uuid) {
-        if self.tx.send(tree_id).is_err() {
+        let request = PurgeRequest {
+            tree_id,
+            #[cfg(feature = "telemetry-context")]
+            trace: oxidgene_observability::current_trace_context(),
+        };
+        if self.tx.send(request).is_err() {
             warn!("purge worker stopped; tree stays soft-deleted until next start");
         }
     }
@@ -58,29 +74,71 @@ pub fn spawn_worker(
     profiles: Arc<ProfileService>,
     media: Arc<dyn MediaStore>,
 ) -> PurgeQueue {
-    let (tx, mut rx) = mpsc::unbounded_channel::<Uuid>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<PurgeRequest>();
 
+    // A detached worker: the startup sweep is a root of its own, and each
+    // queued purge continues the trace of the request that deleted the tree.
     tokio::spawn(async move {
-        match TreeRepo::list_purgeable(&db).await {
-            Ok(ids) if !ids.is_empty() => {
-                info!(count = ids.len(), "resuming purge of soft-deleted trees");
-                for id in ids {
-                    purge_tree(&db, &profiles, &*media, id).await;
-                }
-            }
-            Ok(_) => {}
-            Err(_) => error!(
-                error = "purgeable_tree_listing",
-                "could not list soft-deleted trees; skipping startup sweep"
-            ),
-        }
+        resume_purges(&db, &profiles, &*media)
+            .instrument(tracing::info_span!(parent: None, "purge.sweep"))
+            .await;
 
-        while let Some(tree_id) = rx.recv().await {
-            purge_tree(&db, &profiles, &*media, tree_id).await;
+        while let Some(request) = rx.recv().await {
+            purge_tree(&db, &profiles, &*media, request.tree_id)
+                .instrument(request.span())
+                .await;
         }
     });
 
     PurgeQueue { tx }
+}
+
+impl PurgeRequest {
+    /// The `purge.tree` span: a child of the deleting request's span, or a
+    /// root when that request carried no trace.
+    fn span(&self) -> tracing::Span {
+        let span = tracing::info_span!(parent: None, "purge.tree");
+        #[cfg(feature = "telemetry-context")]
+        oxidgene_observability::set_parent_from_trace_context(
+            &span,
+            self.trace.0.as_deref(),
+            self.trace.1.as_deref(),
+        );
+        span
+    }
+}
+
+/// Purge the trees a previous run left soft-deleted, each under a
+/// `purge.tree` child of the sweep's span.
+async fn resume_purges(db: &DatabaseConnection, profiles: &ProfileService, media: &dyn MediaStore) {
+    let Ok(ids) = TreeRepo::list_purgeable(db).await else {
+        log_unlisted_purges();
+        return;
+    };
+    log_resumed_purges(ids.len());
+    for id in ids {
+        purge_tree(db, profiles, media, id)
+            .instrument(swept_tree_span())
+            .await;
+    }
+}
+
+fn log_unlisted_purges() {
+    error!(
+        error = "purgeable_tree_listing",
+        "could not list soft-deleted trees; skipping startup sweep"
+    );
+}
+
+fn log_resumed_purges(count: usize) {
+    if count != 0 {
+        info!(count, "resuming purge of soft-deleted trees");
+    }
+}
+
+/// A `purge.tree` span under the current one: the startup sweep's.
+fn swept_tree_span() -> tracing::Span {
+    tracing::info_span!("purge.tree")
 }
 
 /// Remove every row belonging to a soft-deleted tree.
@@ -94,9 +152,8 @@ pub fn spawn_worker(
 /// Errors are logged, not propagated — there is no caller left to handle them,
 /// and the tree stays flagged so the next sweep retries.
 ///
-/// The purge runs outside any request, so its span is the root of the
+/// Runs under the `purge.tree` span its caller opens, the parent of the
 /// cascade's database calls.
-#[tracing::instrument(name = "purge.tree", skip_all)]
 async fn purge_tree(
     db: &DatabaseConnection,
     profiles: &ProfileService,

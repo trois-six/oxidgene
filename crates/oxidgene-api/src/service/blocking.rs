@@ -1,6 +1,12 @@
-//! CPU-bound work moved off the async workers without leaving its trace.
+//! Work moved off the async workers without leaving its trace.
+//!
+//! Every blocking hand-off in this crate goes through here: a bare
+//! `spawn_blocking` runs on a thread that knows nothing of the caller's span,
+//! so whatever the work traces — its own spans, its database calls — would
+//! start traces of their own instead of continuing the request's.
 
 use oxidgene_core::OxidGeneError;
+use tokio::task::JoinHandle;
 use tracing::Span;
 
 /// Run `work` on the blocking pool inside `span`.
@@ -16,12 +22,31 @@ where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
+    spawn_in(span, work)
+        .await
+        .map_err(|error| OxidGeneError::Internal(error.to_string()))
+}
+
+/// `spawn_blocking` inside the span current at the call: for a hand-off that
+/// is not worth a span of its own but must stay in the caller's trace.
+pub(crate) fn spawn<T, F>(work: F) -> JoinHandle<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    spawn_in(Span::current(), work)
+}
+
+/// `spawn_blocking` inside `span`, with the caller's subscriber.
+pub(crate) fn spawn_in<T, F>(span: Span, work: F) -> JoinHandle<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
     let dispatch = tracing::dispatcher::get_default(Clone::clone);
     tokio::task::spawn_blocking(move || {
         tracing::dispatcher::with_default(&dispatch, || span.in_scope(work))
     })
-    .await
-    .map_err(|error| OxidGeneError::Internal(error.to_string()))
 }
 
 #[cfg(test)]

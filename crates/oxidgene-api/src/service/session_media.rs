@@ -120,8 +120,12 @@ pub(crate) fn start_janitor() {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return;
     };
+    // Detached from whatever request first staged media: the sweep is a root
+    // of its own, and the hourly expiry touches neither the database nor any
+    // traced work.
     runtime.spawn(async {
-        let _ = tokio::task::spawn_blocking(|| {
+        let sweep = tracing::info_span!(parent: None, "session_media.sweep");
+        let _ = crate::service::blocking::spawn_in(sweep, || {
             sweep_leftovers(&std::env::temp_dir(), SystemTime::now());
         })
         .await;

@@ -41,3 +41,9 @@ tempfile = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
+
+# The page-trace test runs a real client span pipeline against a one-shot
+# backend.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["net", "io-util"] }

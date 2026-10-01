@@ -313,10 +313,7 @@ where
 
     tracing_subscriber::registry()
         .with(console)
-        .with(
-            OpenTelemetryLayer::new(tracer)
-                .with_filter(filter_fn(export_span).and(LevelFilter::INFO)),
-        )
+        .with(span_export_layer(tracer))
         .with(
             log_layer.with_filter(runtime_filter(log_filter)?.and(filter_fn(|metadata| {
                 metadata.is_event() && export_log_target(metadata.target())
@@ -405,10 +402,23 @@ fn connection_wait_histogram() -> impl Fn(f64) + Send + Sync + 'static {
     move |seconds| histogram.record(seconds, &[])
 }
 
-/// Every span follows its parent's decision; a span without a parent is kept
-/// unless it is a database call.
-fn sampler() -> Sampler {
+/// The sampler native runtimes install: every span follows its parent's
+/// decision, and a span without a parent is kept unless it is a database call.
+///
+/// Public, with [`span_export_layer`], so tests can assemble the same span
+/// pipeline over an in-memory exporter.
+#[must_use]
+pub fn sampler() -> Sampler {
     Sampler::ParentBased(Box::new(NoOrphanDatabaseCalls))
+}
+
+/// The span-export layer native runtimes install over `tracer`: OxidGene's
+/// and SeaORM's spans at `INFO` and above, nothing from runtime internals.
+pub fn span_export_layer<S>(tracer: opentelemetry_sdk::trace::Tracer) -> impl Layer<S>
+where
+    S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    OpenTelemetryLayer::new(tracer).with_filter(filter_fn(export_span).and(LevelFilter::INFO))
 }
 
 /// Drops the traces a database call would start on its own.

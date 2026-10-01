@@ -1145,7 +1145,7 @@ impl MutationRoot {
             .acquire()
             .await
             .map_err(|_| async_graphql::Error::new("session loading is unavailable"))?;
-        let session = tokio::task::spawn_blocking(move || {
+        let session = crate::service::blocking::spawn(move || {
             let _permit = permit;
             let mut reader = base64::read::DecoderReader::new(
                 archive_base64.as_bytes(),

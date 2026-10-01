@@ -206,7 +206,7 @@ pub async fn decode_session_handler(
     }
     upload.rewind().await.map_err(OxidGeneError::Io)?;
     let upload = upload.into_std().await;
-    let restored = tokio::task::spawn_blocking(move || {
+    let restored = crate::service::blocking::spawn(move || {
         let _permit = permit;
         crate::service::session_media::decode(upload)
     })
