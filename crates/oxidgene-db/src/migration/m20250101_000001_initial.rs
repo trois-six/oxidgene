@@ -31,11 +31,13 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let conn = manager.get_connection();
-        conn.execute_raw(Statement::from_string(
-            manager.get_database_backend(),
-            "DROP TABLE IF EXISTS person_search_fts".to_owned(),
-        ))
-        .await?;
+        for table in ["person_search_fts", "person_search_key"] {
+            conn.execute_raw(Statement::from_string(
+                manager.get_database_backend(),
+                format!("DROP TABLE IF EXISTS {table}"),
+            ))
+            .await?;
+        }
 
         // Drop in reverse dependency order: versions before their audit
         // entries, and everything holding a foreign key onto `person` or
@@ -1316,6 +1318,27 @@ async fn create_jobs_and_search(manager: &SchemaManager<'_>) -> Result<(), DbErr
                     )
                     "#
                 .to_owned(),
+            ))
+            .await?;
+            // `person_id` and `tree_id` are UNINDEXED above: FTS5 indexes only
+            // the words it matches, so an equality on either reads the whole
+            // table. This side table maps each person to its row's rowid, with
+            // an index on the tree; `PersonSearchRepo` writes both in step.
+            conn.execute_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "CREATE TABLE IF NOT EXISTS person_search_key ( \
+                     fts_rowid INTEGER PRIMARY KEY, \
+                     person_id TEXT NOT NULL UNIQUE, \
+                     tree_id TEXT NOT NULL \
+                 )"
+                .to_owned(),
+            ))
+            .await?;
+            conn.execute_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "CREATE INDEX IF NOT EXISTS idx_person_search_key_tree_id \
+                     ON person_search_key (tree_id)"
+                    .to_owned(),
             ))
             .await?;
         }

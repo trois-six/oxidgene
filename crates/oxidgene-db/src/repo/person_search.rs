@@ -13,6 +13,14 @@
 //! relatives' names) are pre-normalized (lowercase + accent-folded) by the
 //! caller via [`oxidgene_core::search::fold_words`]; queries are
 //! normalized here, so both backends match identically.
+//!
+//! On SQLite, `person_id` and `tree_id` are UNINDEXED columns of the FTS5
+//! table, which indexes only the words it matches: an equality on either
+//! reads every row of every tree. The side table `person_search_key` gives
+//! each person's row its FTS5 rowid (`fts_rowid`), with an index on the tree,
+//! and every write here keeps the two in step: finding, counting or deleting
+//! a person's or a tree's rows goes through it. PostgreSQL's table has a
+//! primary key on `person_id` and an index on `tree_id`, and needs none.
 
 use crate::repo::db_err;
 use oxidgene_core::enums::{EventType, Sex};
@@ -233,29 +241,33 @@ impl PersonSearchRepo {
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
         let backend = db.get_database_backend();
-        let sql = match backend {
-            DbBackend::Sqlite => "DELETE FROM person_search_fts WHERE tree_id = ?",
-            _ => "DELETE FROM person_search_fts WHERE tree_id = $1",
+        let statements: &[&str] = match backend {
+            DbBackend::Sqlite => &[
+                "DELETE FROM person_search_fts WHERE rowid IN \
+                 (SELECT fts_rowid FROM person_search_key WHERE tree_id = ?)",
+                "DELETE FROM person_search_key WHERE tree_id = ?",
+            ],
+            _ => &["DELETE FROM person_search_fts WHERE tree_id = $1"],
         };
-        db.execute_raw(Statement::from_sql_and_values(
-            backend,
-            sql,
-            [Value::from(tree_id.to_string())],
-        ))
-        .await
-        .map_err(db_err)?;
+        for sql in statements {
+            db.execute_raw(Statement::from_sql_and_values(
+                backend,
+                *sql,
+                [Value::from(tree_id.to_string())],
+            ))
+            .await
+            .map_err(db_err)?;
+        }
         Ok(())
     }
 
-    /// Whether a tree has any search row (a cold index has none).
-    ///
-    /// `tree_id` is not an FTS5 index column, so a count reads every row; this
-    /// stops at the first match, and every tree read asks it.
+    /// Whether a tree has any search row (a cold index has none). Every tree
+    /// read asks it, so it is one index probe on either backend.
     pub async fn has_tree(db: &impl ConnectionTrait, tree_id: Uuid) -> Result<bool, OxidGeneError> {
         let backend = db.get_database_backend();
         let sql = match backend {
             DbBackend::Sqlite => {
-                "SELECT 1 AS present FROM person_search_fts WHERE tree_id = ? LIMIT 1"
+                "SELECT 1 AS present FROM person_search_key WHERE tree_id = ? LIMIT 1"
             }
             _ => "SELECT 1 AS present FROM person_search_fts WHERE tree_id = $1 LIMIT 1",
         };
@@ -276,7 +288,7 @@ impl PersonSearchRepo {
     ) -> Result<u64, OxidGeneError> {
         let backend = db.get_database_backend();
         let sql = match backend {
-            DbBackend::Sqlite => "SELECT COUNT(*) AS cnt FROM person_search_fts WHERE tree_id = ?",
+            DbBackend::Sqlite => "SELECT COUNT(*) AS cnt FROM person_search_key WHERE tree_id = ?",
             _ => "SELECT COUNT(*) AS cnt FROM person_search_fts WHERE tree_id = $1",
         };
         let row = db
@@ -373,8 +385,11 @@ impl PersonSearchRepo {
         let backend = db.get_database_backend();
         let mut values = Vec::new();
         let subject = format!(
-            "SELECT surname, given_names FROM person_search_fts WHERE person_id = {}",
-            push_value(&mut values, backend, person_id.to_string().into())
+            "SELECT surname, given_names FROM person_search_fts WHERE {}",
+            row_of_person(
+                backend,
+                &push_value(&mut values, backend, person_id.to_string().into())
+            )
         );
         let Some(row) = db
             .query_one_raw(Statement::from_sql_and_values(backend, subject, values))
@@ -516,17 +531,28 @@ impl PersonSearchRepo {
                 _ => format!("${}", i + 1),
             })
             .collect();
-        let sql = format!(
-            "DELETE FROM person_search_fts WHERE person_id IN ({})",
-            placeholders.join(", ")
-        );
+        let in_list = placeholders.join(", ");
+        let statements = match backend {
+            DbBackend::Sqlite => vec![
+                format!(
+                    "DELETE FROM person_search_fts WHERE rowid IN \
+                     (SELECT fts_rowid FROM person_search_key WHERE person_id IN ({in_list}))"
+                ),
+                format!("DELETE FROM person_search_key WHERE person_id IN ({in_list})"),
+            ],
+            _ => vec![format!(
+                "DELETE FROM person_search_fts WHERE person_id IN ({in_list})"
+            )],
+        };
         let values: Vec<Value> = person_ids
             .iter()
             .map(|id| Value::from(id.to_string()))
             .collect();
-        db.execute_raw(Statement::from_sql_and_values(backend, sql, values))
-            .await
-            .map_err(db_err)?;
+        for sql in statements {
+            db.execute_raw(Statement::from_sql_and_values(backend, sql, values.clone()))
+                .await
+                .map_err(db_err)?;
+        }
         Ok(())
     }
 
@@ -534,57 +560,12 @@ impl PersonSearchRepo {
         db: &impl ConnectionTrait,
         entries: &[PersonSearchEntry],
     ) -> Result<(), OxidGeneError> {
-        if entries.is_empty() {
-            return Ok(());
-        }
         let backend = db.get_database_backend();
-
         for chunk in entries.chunks(INSERT_CHUNK) {
-            let mut values: Vec<Value> = Vec::with_capacity(chunk.len() * COLUMN_COUNT);
-            let mut rows = Vec::with_capacity(chunk.len());
-            for entry in chunk {
-                let base = values.len();
-                let placeholders = (0..COLUMN_COUNT)
-                    .map(|i| match backend {
-                        DbBackend::Sqlite => "?".to_owned(),
-                        _ => format!("${}", base + i + 1),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                rows.push(format!("({placeholders})"));
-                values.extend([
-                    Value::from(entry.person_id.to_string()),
-                    Value::from(entry.tree_id.to_string()),
-                    Value::from(entry.surname.clone()),
-                    Value::from(entry.given_names.clone()),
-                    Value::from(entry.maiden_name.clone()),
-                    Value::from(entry.birth_year.clone()),
-                    Value::from(entry.death_year.clone()),
-                    Value::from(entry.sex.clone()),
-                    Value::from(entry.display_name.clone()),
-                    Value::from(entry.surname_display.clone()),
-                    Value::from(entry.given_names_display.clone()),
-                    Value::from(entry.birth_place.clone()),
-                    Value::from(entry.date_sort.clone()),
-                    Value::from(entry.birth_qualifier.clone()),
-                    Value::from(entry.death_qualifier.clone()),
-                    Value::from(entry.spouse_names.clone()),
-                    Value::from(entry.spouse_surnames.clone()),
-                    Value::from(entry.spouse_given_names.clone()),
-                    Value::from(entry.father_name.clone()),
-                    Value::from(entry.father_surname.clone()),
-                    Value::from(entry.father_given_names.clone()),
-                    Value::from(entry.mother_name.clone()),
-                    Value::from(entry.mother_surname.clone()),
-                    Value::from(entry.mother_given_names.clone()),
-                    Value::from(entry.children_count.to_string()),
-                ]);
+            if backend == DbBackend::Sqlite {
+                db.execute_raw(key_insert(chunk)).await.map_err(db_err)?;
             }
-            let sql = format!(
-                "INSERT INTO person_search_fts ({COLUMNS}) VALUES {}",
-                rows.join(", ")
-            );
-            db.execute_raw(Statement::from_sql_and_values(backend, sql, values))
+            db.execute_raw(row_insert(backend, chunk))
                 .await
                 .map_err(db_err)?;
         }
@@ -689,6 +670,104 @@ impl PersonSearchRepo {
 }
 
 /// The values of `names`, columns of `row`, in that order.
+/// The condition that picks `person_id`'s search row, `param` its bound
+/// placeholder: through its key on SQLite, by primary key elsewhere.
+fn row_of_person(backend: DbBackend, param: &str) -> String {
+    match backend {
+        DbBackend::Sqlite => {
+            format!("rowid = (SELECT fts_rowid FROM person_search_key WHERE person_id = {param})")
+        }
+        _ => format!("person_id = {param}"),
+    }
+}
+
+/// `INSERT` of the SQLite keys of `chunk`, each of which SQLite numbers with
+/// the rowid its search row then takes.
+fn key_insert(chunk: &[PersonSearchEntry]) -> Statement {
+    let rows = vec!["(?, ?)"; chunk.len()].join(", ");
+    let values: Vec<Value> = chunk
+        .iter()
+        .flat_map(|entry| {
+            [
+                Value::from(entry.person_id.to_string()),
+                Value::from(entry.tree_id.to_string()),
+            ]
+        })
+        .collect();
+    Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        format!("INSERT INTO person_search_key (person_id, tree_id) VALUES {rows}"),
+        values,
+    )
+}
+
+/// `INSERT` of the search rows of `chunk`. On SQLite each row takes the
+/// rowid of its key, inserted just before.
+fn row_insert(backend: DbBackend, chunk: &[PersonSearchEntry]) -> Statement {
+    let sqlite = backend == DbBackend::Sqlite;
+    let mut values: Vec<Value> = Vec::with_capacity(chunk.len() * (COLUMN_COUNT + 1));
+    let mut rows = Vec::with_capacity(chunk.len());
+    for entry in chunk {
+        let mut cells = Vec::with_capacity(COLUMN_COUNT + 1);
+        if sqlite {
+            values.push(Value::from(entry.person_id.to_string()));
+            cells.push("(SELECT fts_rowid FROM person_search_key WHERE person_id = ?)".to_owned());
+        }
+        for value in row_values(entry) {
+            values.push(value);
+            cells.push(match backend {
+                DbBackend::Sqlite => "?".to_owned(),
+                _ => format!("${}", values.len()),
+            });
+        }
+        rows.push(format!("({})", cells.join(", ")));
+    }
+    let columns = if sqlite {
+        format!("rowid, {COLUMNS}")
+    } else {
+        COLUMNS.to_owned()
+    };
+    Statement::from_sql_and_values(
+        backend,
+        format!(
+            "INSERT INTO person_search_fts ({columns}) VALUES {}",
+            rows.join(", ")
+        ),
+        values,
+    )
+}
+
+/// The values of `entry`'s search row, in [`COLUMNS`] order.
+fn row_values(entry: &PersonSearchEntry) -> [Value; COLUMN_COUNT] {
+    [
+        Value::from(entry.person_id.to_string()),
+        Value::from(entry.tree_id.to_string()),
+        Value::from(entry.surname.clone()),
+        Value::from(entry.given_names.clone()),
+        Value::from(entry.maiden_name.clone()),
+        Value::from(entry.birth_year.clone()),
+        Value::from(entry.death_year.clone()),
+        Value::from(entry.sex.clone()),
+        Value::from(entry.display_name.clone()),
+        Value::from(entry.surname_display.clone()),
+        Value::from(entry.given_names_display.clone()),
+        Value::from(entry.birth_place.clone()),
+        Value::from(entry.date_sort.clone()),
+        Value::from(entry.birth_qualifier.clone()),
+        Value::from(entry.death_qualifier.clone()),
+        Value::from(entry.spouse_names.clone()),
+        Value::from(entry.spouse_surnames.clone()),
+        Value::from(entry.spouse_given_names.clone()),
+        Value::from(entry.father_name.clone()),
+        Value::from(entry.father_surname.clone()),
+        Value::from(entry.father_given_names.clone()),
+        Value::from(entry.mother_name.clone()),
+        Value::from(entry.mother_surname.clone()),
+        Value::from(entry.mother_given_names.clone()),
+        Value::from(entry.children_count.to_string()),
+    ]
+}
+
 fn columns<T: sea_orm::TryGetable, const N: usize>(
     row: &sea_orm::QueryResult,
     names: [&str; N],

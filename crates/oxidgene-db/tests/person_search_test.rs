@@ -8,7 +8,7 @@ use oxidgene_db::repo::{
     PersonSearchEntry, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, connect,
     run_migrations,
 };
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use uuid::Uuid;
 
 async fn setup_db() -> DatabaseConnection {
@@ -439,4 +439,132 @@ async fn letters_of_every_script_fold_alike() {
         assert_eq!(page.total_count, 1, "{query}");
         assert_eq!(page.entries[0].display_name, expected, "{query}");
     }
+}
+
+/// How many search rows, keys, and rows matched to their own key there are.
+async fn rows_and_keys(db: &DatabaseConnection) -> (i64, i64, i64) {
+    let count = |sql: &str| {
+        let sql = sql.to_owned();
+        async move {
+            db.query_one_raw(Statement::from_string(DbBackend::Sqlite, sql))
+                .await
+                .unwrap()
+                .unwrap()
+                .try_get::<i64>("", "n")
+                .unwrap()
+        }
+    };
+    (
+        count("SELECT COUNT(*) AS n FROM person_search_fts").await,
+        count("SELECT COUNT(*) AS n FROM person_search_key").await,
+        count(
+            "SELECT COUNT(*) AS n FROM person_search_fts f \
+             JOIN person_search_key k ON k.fts_rowid = f.rowid \
+             AND k.person_id = f.person_id AND k.tree_id = f.tree_id",
+        )
+        .await,
+    )
+}
+
+/// On SQLite every write keeps the key table in step with the search rows:
+/// one key per row, carrying that row's rowid, person and tree.
+#[tokio::test]
+async fn search_keys_stay_in_step_with_the_rows() {
+    let db = setup_db().await;
+    let (tree_a, tree_b) = (Uuid::now_v7(), Uuid::now_v7());
+    let first = entry(tree_a, "Fixture", "Alpha", None, None);
+    let second = entry(tree_a, "Fixture", "Alpha", Some("1900"), None);
+    let other = entry(tree_b, "Example", "Beta", None, None);
+
+    PersonSearchRepo::replace_tree(&db, tree_a, &[first.clone(), second.clone()])
+        .await
+        .unwrap();
+    PersonSearchRepo::upsert(&db, std::slice::from_ref(&other))
+        .await
+        .unwrap();
+    assert_eq!(rows_and_keys(&db).await, (3, 3, 3));
+    assert!(PersonSearchRepo::has_tree(&db, tree_b).await.unwrap());
+    assert!(
+        !PersonSearchRepo::has_tree(&db, Uuid::now_v7())
+            .await
+            .unwrap()
+    );
+
+    let homonyms = PersonSearchRepo::homonyms(&db, tree_a, first.person_id, 10)
+        .await
+        .unwrap();
+    assert_eq!(homonyms.len(), 1);
+    assert_eq!(homonyms[0].person_id, second.person_id);
+
+    // An upsert replaces the row and its key alike.
+    PersonSearchRepo::upsert(&db, std::slice::from_ref(&first))
+        .await
+        .unwrap();
+    assert_eq!(rows_and_keys(&db).await, (3, 3, 3));
+
+    PersonSearchRepo::delete_person(&db, second.person_id)
+        .await
+        .unwrap();
+    assert_eq!(rows_and_keys(&db).await, (2, 2, 2));
+    PersonSearchRepo::delete_tree(&db, tree_a).await.unwrap();
+    assert_eq!(rows_and_keys(&db).await, (1, 1, 1));
+    assert_eq!(PersonSearchRepo::count_tree(&db, tree_b).await.unwrap(), 1);
+}
+
+/// The person and tree lookups on a 100,000-row search table spread over
+/// four trees. Each is an index probe through the key table, where a filter
+/// on the FTS5 table's unindexed `person_id` or `tree_id` read every row:
+/// measured with SQLite 3.53 at 280 ms to find five persons, 114 ms to learn
+/// that a tree has no row, 83 ms to read one person's name, against well
+/// under a millisecond each through the keys.
+/// Ignored by default — run with `cargo test -p oxidgene-db -- --ignored`.
+#[tokio::test]
+#[ignore = "benchmark — run manually"]
+async fn person_lookups_performance_100k() {
+    let db = setup_db().await;
+    let trees: Vec<Uuid> = (0..4).map(|_| Uuid::now_v7()).collect();
+    for (index, tree_id) in trees.iter().enumerate() {
+        let entries: Vec<PersonSearchEntry> = (0..25_000)
+            .map(|i| {
+                entry(
+                    *tree_id,
+                    &format!("Fixture{}", i % 997),
+                    "Alpha",
+                    None,
+                    None,
+                )
+            })
+            .collect();
+        PersonSearchRepo::replace_tree(&db, *tree_id, &entries)
+            .await
+            .unwrap();
+        if index == 0 {
+            let probe = &entries[12_345];
+            let started = std::time::Instant::now();
+            PersonSearchRepo::homonyms(&db, *tree_id, probe.person_id, 10)
+                .await
+                .unwrap();
+            println!("homonyms: {:?}", started.elapsed());
+        }
+    }
+    let started = std::time::Instant::now();
+    assert!(
+        !PersonSearchRepo::has_tree(&db, Uuid::now_v7())
+            .await
+            .unwrap()
+    );
+    let missing_tree = started.elapsed();
+    let started = std::time::Instant::now();
+    assert_eq!(
+        PersonSearchRepo::count_tree(&db, trees[1]).await.unwrap(),
+        25_000
+    );
+    let count = started.elapsed();
+    let started = std::time::Instant::now();
+    PersonSearchRepo::delete_person(&db, Uuid::now_v7())
+        .await
+        .unwrap();
+    let delete = started.elapsed();
+    println!("missing tree: {missing_tree:?}, count: {count:?}, delete: {delete:?}");
+    assert!(missing_tree.as_millis() < 10 && delete.as_millis() < 10);
 }

@@ -89,7 +89,7 @@ async fn assert_migration_lifecycle(db: &DatabaseConnection) {
 /// None of the schema's tables exists; `state` names the failure.
 async fn assert_no_table(db: &DatabaseConnection, state: &str) {
     let manager = SchemaManager::new(db);
-    for table in TABLES {
+    for table in TABLES.iter().chain(&["person_search_key"]) {
         assert!(!manager.has_table(*table).await.unwrap(), "{table} {state}");
     }
 }
@@ -301,6 +301,14 @@ async fn assert_person_search(db: &DatabaseConnection) {
     .await
     .unwrap();
     let predicate = if backend == DatabaseBackend::Sqlite {
+        // Its person and tree lookups go through the key table.
+        assert!(manager.has_table("person_search_key").await.unwrap());
+        assert!(
+            manager
+                .has_index("person_search_key", "idx_person_search_key_tree_id")
+                .await
+                .unwrap()
+        );
         "person_search_fts MATCH 'surname:fixture'"
     } else {
         assert!(

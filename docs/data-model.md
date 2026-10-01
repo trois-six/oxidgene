@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:52:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:53:04Z }
 ---
 
 
@@ -756,6 +756,14 @@ name by splitting `display_name`.
 SQLite uses FTS5 for token matching. PostgreSQL uses the same logical columns
 behind ordinary indexes. Empty queries provide browse mode. Search ordering,
 filters, and API pagination are documented in [API](api.md).
+
+FTS5 indexes only the words it matches, so on SQLite an equality on the row's
+`person_id` or `tree_id` would read every row of every tree. A side table,
+`person_search_key` (`fts_rowid` primary key, unique `person_id`, indexed
+`tree_id`), maps each person to its FTS5 row; `PersonSearchRepo` writes both
+in step, and finding, counting or deleting a person's or a tree's rows goes
+through it. PostgreSQL's table has a primary key on `person_id` and an index
+on `tree_id` and needs no side table.
 
 A row also carries the person's close relatives, so a result can name who
 someone married or descends from without a second request: the spouse display

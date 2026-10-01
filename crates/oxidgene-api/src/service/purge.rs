@@ -9,9 +9,10 @@
 //! again by the startup sweep. Purging is idempotent, so re-running one that
 //! partially completed is harmless.
 //!
-//! Ordering matters in one place only: `person_search_fts` is an FTS5 virtual
-//! table on SQLite with no foreign keys, so the cascade cannot reach it and it
-//! has to be cleared explicitly.
+//! Ordering matters in one place only: `person_search_fts` (an FTS5 virtual
+//! table on SQLite) and its SQLite key table `person_search_key` have no
+//! foreign keys, so the cascade cannot reach them and they have to be cleared
+//! explicitly.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -113,7 +114,7 @@ async fn purge_steps(
 ) -> Result<(), (&'static str, &'static str)> {
     let started = Instant::now();
 
-    // Projections first: `person_search_fts` has no FK to cascade through.
+    // Projections first: the search table has no FK to cascade through.
     profiles.invalidate_tree(db, tree_id).await.map_err(|_| {
         (
             "projection_invalidation",
