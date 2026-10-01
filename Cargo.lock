@@ -5196,6 +5196,7 @@ dependencies = [
  "opentelemetry_sdk",
  "serde_json",
  "tokio",
+ "tower",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -5224,8 +5225,10 @@ dependencies = [
  "oxidgene-observability",
  "serde",
  "tokio",
+ "tower",
  "tower-http 0.7.1",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

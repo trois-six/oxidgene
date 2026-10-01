@@ -10,16 +10,11 @@
 
 use std::net::SocketAddr;
 
-use axum::http::{HeaderValue, Method};
-use oxidgene_api::access::same_origin_writes;
-use oxidgene_api::startup::{
-    ReferenceWarmup, open_database, or_exit, spawn_background_worker, with_health_check,
-};
-use oxidgene_api::{AppState, build_router, request_context};
-use oxidgene_observability::{init, make_http_span, on_http_response};
+use axum::http::HeaderValue;
+use oxidgene_api::startup::{ReferenceWarmup, open_database, or_exit, spawn_background_worker};
+use oxidgene_api::{AppState, build_router};
+use oxidgene_observability::init;
 use tokio::net::TcpListener;
-use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 use oxidgene_server::config::{MediaBackend, ServerConfig};
@@ -88,29 +83,7 @@ async fn main() {
         "cors_origin",
         "Invalid CORS origin",
     );
-    let cors = CorsLayer::new()
-        .allow_origin(cors_origin.clone())
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers(tower_http::cors::Any);
-
-    // The request context sits outside the origin check, so a refused write
-    // still carries its route, and its panic boundary covers everything below.
-    let app = with_health_check(request_context::wrap(same_origin_writes(
-        api_router,
-        cors_origin.clone(),
-    )))
-    .layer(cors)
-    .layer(
-        TraceLayer::new_for_http()
-            .make_span_with(make_http_span)
-            .on_response(on_http_response),
-    );
+    let app = oxidgene_server::http::app(api_router, cors_origin);
 
     // ── Bind and serve ───────────────────────────────────────────────
     let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);

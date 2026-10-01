@@ -331,13 +331,15 @@ fn main() {
                 request_context::wrap(require_local_token(build_router(state), server_token));
             reference_warmup.finish().await;
 
-            let app = with_health_check(api_router);
             #[cfg(feature = "telemetry")]
-            let app = app.layer(
+            let api_router = api_router.layer(
                 TraceLayer::new_for_http()
                     .make_span_with(make_http_span)
                     .on_response(on_http_response),
             );
+            // `/healthz` stays outside the trace layer: a probe is not an
+            // operation worth a span or a metric point.
+            let app = with_health_check(api_router);
 
             // Bind to random port on loopback
             let addr = SocketAddr::from(([127, 0, 0, 1], 0));

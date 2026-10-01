@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::extract::MatchedPath;
-use axum::http::{HeaderMap, Request, Response};
+use axum::http::{HeaderMap, Method, Request, Response};
 use opentelemetry::KeyValue;
 use opentelemetry::global;
 use opentelemetry::metrics::Histogram;
@@ -418,12 +418,8 @@ impl Extractor for HeaderExtractor<'_> {
 
 /// Create a server span without recording raw URIs or query strings.
 pub fn make_http_span<B>(request: &Request<B>) -> Span {
-    let method = request.method().as_str();
-    let route = request
-        .extensions()
-        .get::<MatchedPath>()
-        .map(MatchedPath::as_str)
-        .unwrap_or("unmatched");
+    let method = http_method(Some(request.method()));
+    let route = http_route(request.extensions().get::<MatchedPath>());
     let span = tracing::info_span!(
         "http.server.request",
         otel.name = %format_args!("{method} {route}"),
@@ -440,6 +436,56 @@ pub fn make_http_span<B>(request: &Request<B>) -> Span {
     span
 }
 
+/// The method as a bounded label: a standard method, or `_OTHER` for an
+/// extension method a client invented (the OpenTelemetry convention).
+fn http_method(method: Option<&Method>) -> &'static str {
+    static KNOWN: [Method; 9] = [
+        Method::GET,
+        Method::HEAD,
+        Method::POST,
+        Method::PUT,
+        Method::DELETE,
+        Method::CONNECT,
+        Method::OPTIONS,
+        Method::TRACE,
+        Method::PATCH,
+    ];
+    method
+        .and_then(|method| KNOWN.iter().find(|known| *known == method))
+        .map_or("_OTHER", Method::as_str)
+}
+
+/// The route template, or `unmatched` for a path no route answers: the raw
+/// path may carry identifiers and is never a label.
+fn http_route(route: Option<&MatchedPath>) -> &str {
+    route.map_or("unmatched", MatchedPath::as_str)
+}
+
+/// The labels of the request-duration metric: method, route template, and
+/// status, all bounded.
+///
+/// The response carries the method and route because the request is gone by
+/// the time it is answered; the router's request-context middleware copies
+/// them onto it (`oxidgene_api::request_context`). A response that never
+/// reached a route — a refused or unmatched request — has neither.
+fn http_duration_labels<B>(response: &Response<B>) -> [KeyValue; 3] {
+    let extensions = response.extensions();
+    [
+        KeyValue::new(
+            "http.request.method",
+            http_method(extensions.get::<Method>()),
+        ),
+        KeyValue::new(
+            "http.route",
+            http_route(extensions.get::<MatchedPath>()).to_owned(),
+        ),
+        KeyValue::new(
+            "http.response.status_code",
+            i64::from(response.status().as_u16()),
+        ),
+    ]
+}
+
 /// Complete an HTTP span and record an aggregate request-duration metric.
 pub fn on_http_response<B>(response: &Response<B>, latency: Duration, span: &Span) {
     let status = response.status();
@@ -452,16 +498,11 @@ pub fn on_http_response<B>(response: &Response<B>, latency: Duration, span: &Spa
     let duration = DURATION.get_or_init(|| {
         global::meter("oxidgene")
             .f64_histogram("http.server.request.duration")
+            .with_unit("s")
             .with_description("Duration of inbound HTTP requests in seconds")
             .build()
     });
-    duration.record(
-        latency.as_secs_f64(),
-        &[KeyValue::new(
-            "http.response.status_code",
-            i64::from(status.as_u16()),
-        )],
-    );
+    duration.record(latency.as_secs_f64(), &http_duration_labels(response));
 }
 
 #[cfg(test)]
@@ -713,6 +754,61 @@ mod tests {
                 trace_parent[3..35]
             );
         });
+    }
+
+    #[tokio::test]
+    async fn request_duration_labels_are_bounded() {
+        use axum::Router;
+        use axum::body::Body;
+        use axum::middleware::{self, Next};
+        use axum::routing::get;
+        use tower::ServiceExt as _;
+
+        // What the API router's request-context middleware does.
+        async fn copy_route(request: Request<Body>, next: Next) -> axum::response::Response {
+            let method = request.method().clone();
+            let route = request.extensions().get::<MatchedPath>().cloned();
+            let mut response = next.run(request).await;
+            response.extensions_mut().insert(method);
+            if let Some(route) = route {
+                response.extensions_mut().insert(route);
+            }
+            response
+        }
+        let app = Router::new()
+            .route("/trees/{tree_id}", get(|| async { "ok" }))
+            .layer(middleware::from_fn(copy_route));
+        let request = |method: &str, uri: &str| {
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .body(Body::empty())
+                .expect("valid request")
+        };
+
+        let routed = app
+            .clone()
+            .oneshot(request("GET", "/trees/private-value"))
+            .await
+            .expect("infallible router");
+        let labels = http_duration_labels(&routed);
+        assert_eq!(labels[0].value.as_str(), "GET");
+        assert_eq!(labels[1].value.as_str(), "/trees/{tree_id}");
+        assert_eq!(labels[2].value, opentelemetry::Value::I64(200));
+
+        let invented = app
+            .oneshot(request("FROBNICATE", "/trees/private-value"))
+            .await
+            .expect("infallible router");
+        assert_eq!(http_duration_labels(&invented)[0].value.as_str(), "_OTHER");
+
+        let unrouted = Response::builder()
+            .status(404)
+            .body(())
+            .expect("valid response");
+        let labels = http_duration_labels(&unrouted);
+        assert_eq!(labels[0].value.as_str(), "_OTHER");
+        assert_eq!(labels[1].value.as_str(), "unmatched");
     }
 
     #[test]

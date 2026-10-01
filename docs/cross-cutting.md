@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:30:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:36:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -306,7 +306,13 @@ the rejected value.
   export independently. `RUST_LOG` is not part of the configuration contract.
 - HTTP spans use the Axum route template, method, status, and duration. They do
   not record raw URIs, query strings, request or response bodies, headers,
-  resource IDs, or unmatched paths.
+  resource IDs, or unmatched paths. The `http.server.request.duration`
+  histogram carries the same bounded labels: `http.request.method` (`_OTHER`
+  for a non-standard method), `http.route` (`unmatched` when no route
+  answered), and `http.response.status_code`.
+- `/healthz` is served outside the trace layer on the server and the desktop:
+  probes call it every few seconds and produce neither spans nor metric
+  points.
 - The final Axum router owns one server span for every matched REST and GraphQL
   request; route modules do not duplicate that span in each handler. GraphQL
   adds an execution span and one child span per non-introspection resolver,
