@@ -533,6 +533,8 @@ user cannot lose entered data.
   against the application's own origin. Links stay, minus any relative
   target, since nothing is fetched until somebody follows one. The rule is
   enforced when a note is written ([Data Model §Note](data-model.md#note)).
+  The web fonts ship with the application rather than coming from a font
+  service.
 
 ### 7.1 Backend exposure before authentication
 

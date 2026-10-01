@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:54:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:59:46Z }
 ---
 
 # Development Environment and Workflows
@@ -320,8 +320,8 @@ functional tests' `family_blocks_gedcom(3)`; `rest_test.rs` fails when the
 two drift apart and rewrites the file when run with
 `OXIDGENE_BLESS_E2E_FIXTURE=1`. Every test also fails on a console error, an
 uncaught exception, or a translation key left untranslated on the page, and
-the browser is cut off from the network (the stylesheets' web fonts are the
-only outside requests). Tests select elements by role and accessible name,
+the browser is cut off from the network (the debug bundle's
+development-toast font is the only outside request). Tests select elements by role and accessible name,
 falling back to a title or a class where the markup offers no name.
 
 A test that documents a known defect is marked `test.fail()` with a comment

@@ -101,8 +101,8 @@ export const test = base.extend<Fixtures>({
     },
     pageGuards: [
         async ({ page }, use) => {
-            // Hermetic: the stylesheets' web fonts are the only outside
-            // requests, and no test may depend on the network.
+            // Hermetic: the debug bundle's development-toast font is the
+            // only outside request, and no test may depend on the network.
             await page.route(/^https?:\/\/(?!127\.0\.0\.1[:/])/, (route) => route.abort());
             // The debug bundle's hot-reload client dials `dx serve`; a
             // static server cannot answer, and the client would then cover

@@ -14,6 +14,7 @@ COPY crates/ crates/
 COPY apps/ apps/
 COPY assets/themes/ assets/themes/
 COPY assets/portraits/ assets/portraits/
+COPY assets/fonts/ assets/fonts/
 COPY assets/brand/logo_64.b64 assets/brand/logo_64.b64
 COPY scripts/dx.sh scripts/dx.sh
 

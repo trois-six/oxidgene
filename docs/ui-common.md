@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:36:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:59:46Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -231,6 +231,11 @@ its own, and no rule reads a token no theme or stylesheet defines.
 | `--sb` | `46px` | Tree icon sidebar |
 | `--evw` | `275px`, then a ratio once resized | Tree events panel width |
 | `--radius` | `8px` | Cards, buttons, inputs, modals |
+
+Cinzel and Lato ship with the application: their Latin and Latin Extended
+subsets live in `assets/fonts/` with their SIL Open Font License texts and are
+embedded as `@font-face` rules over `data:` URLs (`FONT_FACES` in
+`components/layout.rs`), so neither build requests a font from a third party.
 
 Reference type scale: page title `1.3rem`, section heading `1.05rem`, card
 title `0.95rem`, body `0.85rem`, metadata `0.78rem`, small text `0.72rem`, and

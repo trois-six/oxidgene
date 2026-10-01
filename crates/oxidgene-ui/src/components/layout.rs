@@ -5,6 +5,7 @@
 //! header/nav and renders the active route via [`Outlet`].
 
 use dioxus::prelude::*;
+use std::sync::LazyLock;
 
 use crate::components::tree_cache;
 use crate::i18n;
@@ -85,6 +86,7 @@ pub fn AppShell() -> Element {
     rsx! {
         style { {palette()} }
         style { {print_palette} }
+        style { {FONT_FACES.as_str()} }
         style { {LAYOUT_STYLES} }
         Router::<Route> {}
     }
@@ -119,10 +121,118 @@ pub fn Layout() -> Element {
     }
 }
 
+/// The `@font-face` rules of the application's two typefaces, Cinzel and Lato.
+///
+/// The fonts are bundled rather than fetched from a font service, so neither
+/// the web build nor the desktop makes a request to a third party when it
+/// opens. Each file is inlined as a `data:` URL: the stylesheet needs no
+/// address of its own on either build, and the browser downloads a subset
+/// only when a page uses a character in its range. Both typefaces are under
+/// the SIL Open Font License 1.1, whose text ships beside them in
+/// `assets/fonts/` at the repository root; the files are the Latin and Latin Extended subsets Google
+/// Fonts serves, which cover every interface language.
+pub static FONT_FACES: LazyLock<String> = LazyLock::new(|| {
+    use base64::Engine as _;
+
+    /// Code points of the Latin subset.
+    const LATIN: &str = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, \
+        U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, \
+        U+2215, U+FEFF, U+FFFD";
+    /// Code points of the Latin Extended subset.
+    const LATIN_EXT: &str = "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, \
+        U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, \
+        U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF";
+    /// (family, weight, unicode range, WOFF2 file). Cinzel is a variable
+    /// font: one file per subset spans every weight the stylesheet uses.
+    const FACES: [(&str, &str, &str, &[u8]); 8] = [
+        (
+            "Cinzel",
+            "400 700",
+            LATIN,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/cinzel-latin.woff2"
+            )),
+        ),
+        (
+            "Cinzel",
+            "400 700",
+            LATIN_EXT,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/cinzel-latin-ext.woff2"
+            )),
+        ),
+        (
+            "Lato",
+            "300",
+            LATIN,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/lato-300-latin.woff2"
+            )),
+        ),
+        (
+            "Lato",
+            "300",
+            LATIN_EXT,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/lato-300-latin-ext.woff2"
+            )),
+        ),
+        (
+            "Lato",
+            "400",
+            LATIN,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/lato-400-latin.woff2"
+            )),
+        ),
+        (
+            "Lato",
+            "400",
+            LATIN_EXT,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/lato-400-latin-ext.woff2"
+            )),
+        ),
+        (
+            "Lato",
+            "700",
+            LATIN,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/lato-700-latin.woff2"
+            )),
+        ),
+        (
+            "Lato",
+            "700",
+            LATIN_EXT,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/fonts/lato-700-latin-ext.woff2"
+            )),
+        ),
+    ];
+    FACES
+        .iter()
+        .map(|(family, weight, range, woff2)| {
+            format!(
+                "@font-face{{font-family:'{family}';font-style:normal;font-weight:{weight};\
+                 font-display:swap;src:url(data:font/woff2;base64,{}) format('woff2');\
+                 unicode-range:{range};}}\n",
+                base64::engine::general_purpose::STANDARD.encode(woff2),
+            )
+        })
+        .collect()
+});
+
 /// CSS for the layout shell.
 pub const LAYOUT_STYLES: &str = r#"
-    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap');
-
     /* Every colour lives in the theme, which `Layout` emits as its own
        `:root` block ahead of this stylesheet — see `crate::theme`. What
        follows is what a theme may *not* change: dimensions, typography, and
@@ -7429,3 +7539,19 @@ pub const LAYOUT_STYLES: &str = r#"
         }
     }
 "#;
+
+#[cfg(test)]
+mod font_tests {
+    use super::*;
+
+    #[test]
+    fn the_fonts_are_bundled_and_nothing_is_fetched_from_a_third_party() {
+        assert!(!LAYOUT_STYLES.contains("@import"));
+        assert!(!LAYOUT_STYLES.contains("url(http"));
+        assert_eq!(FONT_FACES.matches("@font-face").count(), 8);
+        assert!(!FONT_FACES.contains("http"));
+        for family in ["'Cinzel'", "'Lato'"] {
+            assert!(FONT_FACES.contains(family), "{family}");
+        }
+    }
+}
