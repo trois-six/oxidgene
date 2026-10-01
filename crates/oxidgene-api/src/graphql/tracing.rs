@@ -1,32 +1,85 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_graphql::extensions::{
-    Extension, ExtensionContext, ExtensionFactory, NextExecute, NextResolve, ResolveInfo,
+    Extension, ExtensionContext, ExtensionFactory, NextExecute, NextParseQuery, NextResolve,
+    ResolveInfo,
 };
-use async_graphql::{Response, ServerResult, Value};
+use async_graphql::parser::types::{ExecutableDocument, OperationType};
+use async_graphql::{Response, ServerResult, Value, Variables};
 use tracing::Instrument as _;
 
 pub struct Tracing;
 
 impl ExtensionFactory for Tracing {
     fn create(&self) -> Arc<dyn Extension> {
-        Arc::new(TracingExtension)
+        Arc::new(TracingExtension::default())
     }
 }
 
-struct TracingExtension;
+/// Spans one GraphQL request: its execution, and each root field below it.
+///
+/// Created once per request, so it can carry what parsing learned about the
+/// document over to the execution span.
+#[derive(Default)]
+struct TracingExtension {
+    /// Each operation of the parsed document: its name, if any, and type.
+    operations: Mutex<Vec<(Option<String>, OperationType)>>,
+}
+
+impl TracingExtension {
+    /// The type of the operation `operation_name` selects: the named one, or
+    /// the document's only operation when no name is given.
+    fn operation_type(&self, operation_name: Option<&str>) -> Option<&'static str> {
+        let operations = self.operations.lock().ok()?;
+        let ty = match operation_name {
+            Some(name) => operations
+                .iter()
+                .find(|(candidate, _)| candidate.as_deref() == Some(name))
+                .map(|(_, ty)| *ty),
+            None if operations.len() == 1 => operations.first().map(|(_, ty)| *ty),
+            None => None,
+        }?;
+        Some(match ty {
+            OperationType::Query => "query",
+            OperationType::Mutation => "mutation",
+            OperationType::Subscription => "subscription",
+        })
+    }
+}
 
 #[async_trait::async_trait]
 impl Extension for TracingExtension {
+    async fn parse_query(
+        &self,
+        ctx: &ExtensionContext<'_>,
+        query: &str,
+        variables: &Variables,
+        next: NextParseQuery<'_>,
+    ) -> ServerResult<ExecutableDocument> {
+        let document = next.run(ctx, query, variables).await?;
+        if let Ok(mut operations) = self.operations.lock() {
+            *operations = document
+                .operations
+                .iter()
+                .map(|(name, operation)| (name.map(ToString::to_string), operation.node.ty))
+                .collect();
+        }
+        Ok(document)
+    }
+
     async fn execute(
         &self,
         ctx: &ExtensionContext<'_>,
         operation_name: Option<&str>,
         next: NextExecute<'_>,
     ) -> Response {
-        next.run(ctx, operation_name)
-            .instrument(tracing::info_span!("graphql.execute"))
-            .await
+        // The operation name is chosen by the client and therefore unbounded;
+        // only its type, one of three, is recorded.
+        let span = tracing::info_span!(
+            "graphql.execute",
+            graphql.operation.type = self.operation_type(operation_name),
+        );
+        next.run(ctx, operation_name).instrument(span).await
     }
 
     async fn resolve(
@@ -35,7 +88,10 @@ impl Extension for TracingExtension {
         info: ResolveInfo<'_>,
         next: NextResolve<'_>,
     ) -> ServerResult<Option<Value>> {
-        if info.is_for_introspection {
+        // Root fields only: a span per nested field is one per row and
+        // column of every list, which buries the operation's real boundaries
+        // (its root fields and their database calls) under volume.
+        if info.is_for_introspection || info.path_node.parent.is_some() {
             return next.run(ctx, info).await;
         }
         let span = tracing::info_span!(
@@ -56,19 +112,50 @@ impl Extension for TracingExtension {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema};
+    use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
     use tracing::Subscriber;
+    use tracing::field::{Field, Visit};
     use tracing_subscriber::Layer;
     use tracing_subscriber::layer::{Context, SubscriberExt as _};
     use tracing_subscriber::registry::LookupSpan;
 
     use super::Tracing;
 
-    type CapturedSpan = (String, Option<String>);
-    type CapturedSpanList = Arc<Mutex<Vec<CapturedSpan>>>;
+    /// A span's name, its parent's name, and its string-valued fields.
+    #[derive(Debug, Clone)]
+    struct CapturedSpan {
+        name: String,
+        parent: Option<String>,
+        fields: Vec<(String, String)>,
+    }
 
     #[derive(Clone, Default)]
-    struct CapturedSpans(CapturedSpanList);
+    struct CapturedSpans(Arc<Mutex<Vec<CapturedSpan>>>);
+
+    impl CapturedSpans {
+        fn named(&self, name: &str) -> Vec<CapturedSpan> {
+            self.0
+                .lock()
+                .expect("capture lock")
+                .iter()
+                .filter(|span| span.name == name)
+                .cloned()
+                .collect()
+        }
+    }
+
+    struct Fields(Vec<(String, String)>);
+
+    impl Visit for Fields {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.push((field.name().to_string(), value.to_string()));
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.0
+                .push((field.name().to_string(), format!("{value:?}")));
+        }
+    }
 
     impl<S> Layer<S> for CapturedSpans
     where
@@ -77,7 +164,7 @@ mod tests {
         fn on_new_span(
             &self,
             attributes: &tracing::span::Attributes<'_>,
-            id: &tracing::span::Id,
+            _id: &tracing::span::Id,
             context: Context<'_, S>,
         ) {
             let parent = attributes
@@ -85,12 +172,20 @@ mod tests {
                 .and_then(|parent| context.span(parent))
                 .or_else(|| context.lookup_current())
                 .map(|span| span.metadata().name().to_string());
-            self.0
-                .lock()
-                .expect("capture lock")
-                .push((attributes.metadata().name().to_string(), parent));
-            let _ = id;
+            let mut fields = Fields(Vec::new());
+            attributes.record(&mut fields);
+            self.0.lock().expect("capture lock").push(CapturedSpan {
+                name: attributes.metadata().name().to_string(),
+                parent,
+                fields: fields.0,
+            });
         }
+    }
+
+    #[derive(SimpleObject)]
+    struct Row {
+        a: i32,
+        b: i32,
     }
 
     struct Query;
@@ -100,28 +195,67 @@ mod tests {
         async fn value(&self) -> i32 {
             42
         }
+
+        async fn rows(&self) -> Vec<Row> {
+            (0..3).map(|n| Row { a: n, b: n }).collect()
+        }
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn resolver_span_is_a_child_of_graphql_execution() {
+    async fn capture(query: &str) -> CapturedSpans {
         let captured = CapturedSpans::default();
         let subscriber = tracing_subscriber::registry().with(captured.clone());
         let _guard = tracing::subscriber::set_default(subscriber);
         let schema = Schema::build(Query, EmptyMutation, EmptySubscription)
             .extension(Tracing)
             .finish();
+        let response = schema.execute(query).await;
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        captured
+    }
 
-        let response = schema.execute("{ value }").await;
+    #[tokio::test(flavor = "current_thread")]
+    async fn resolver_span_is_a_child_of_graphql_execution() {
+        let captured = capture("{ value }").await;
 
-        assert!(response.errors.is_empty());
         assert!(
             captured
-                .0
-                .lock()
-                .expect("capture lock")
+                .named("graphql.resolve")
                 .iter()
-                .any(|(name, parent)| name == "graphql.resolve"
-                    && parent.as_deref() == Some("graphql.execute"))
+                .any(|span| span.parent.as_deref() == Some("graphql.execute"))
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn only_root_fields_are_spanned() {
+        let captured = capture("{ value rows { a b } }").await;
+
+        let fields = captured
+            .named("graphql.resolve")
+            .into_iter()
+            .filter_map(|span| {
+                span.fields
+                    .into_iter()
+                    .find(|(name, _)| name == "graphql.field.name")
+                    .map(|(_, value)| value)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(fields.len(), 2, "one span per root field: {fields:?}");
+        assert!(fields.contains(&"value".to_string()));
+        assert!(fields.contains(&"rows".to_string()));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn execution_span_records_the_operation_type() {
+        let captured = capture("query Named { value }").await;
+
+        let execute = captured.named("graphql.execute");
+        assert_eq!(execute.len(), 1);
+        assert!(
+            execute[0]
+                .fields
+                .contains(&("graphql.operation.type".to_string(), "query".to_string())),
+            "{:?}",
+            execute[0].fields
         );
     }
 }

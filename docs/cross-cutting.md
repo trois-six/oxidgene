@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:36:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:37:08Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -315,8 +315,12 @@ the rejected value.
   points.
 - The final Axum router owns one server span for every matched REST and GraphQL
   request; route modules do not duplicate that span in each handler. GraphQL
-  adds an execution span and one child span per non-introspection resolver,
-  recording only parent type and field name. Long-running import, export,
+  adds a `graphql.execute` span recording `graphql.operation.type` (`query`,
+  `mutation`, or `subscription`; never the client-chosen operation name), and
+  one `graphql.resolve` child per non-introspection root field, recording only
+  parent type and field name. Nested fields are not spanned: a span per field
+  of every row of a list buries the operation's boundaries — its root fields
+  and their database calls — under volume. Long-running import, export,
   projection, and media workflows add `skip_all` service spans. SeaORM spans
   remain the database leaves below those boundaries. Trivial glue functions
   are not individually spanned because that would add volume without a useful
