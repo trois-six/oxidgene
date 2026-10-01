@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::api::{
     ApiClient, ApiError, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField,
 };
+use crate::components::pager::Pager;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
 use crate::components::print::{PrintPageNote, search_print_title};
@@ -1005,36 +1006,12 @@ fn toolbar(i18n: &I18n, total: usize, filters: SearchFilters) -> Element {
     }
 }
 
-/// The page buttons, when the results span more than one page.
 fn pagination(page: usize, total_pages: usize, mut current_page: Signal<usize>) -> Element {
-    if total_pages < 2 {
-        return rsx! {};
-    }
     rsx! {
-        div { class: "sr-pagination",
-            button {
-                class: "sr-page-btn",
-                disabled: page <= 1,
-                onclick: move |_| current_page.set(page.saturating_sub(1).max(1)),
-                "\u{25C0}"
-            }
-            for p in pagination_range(page, total_pages) {
-                if p == 0 {
-                    span { class: "sr-page-info", "\u{2026}" }
-                } else {
-                    button {
-                        class: if p == page { "sr-page-btn active" } else { "sr-page-btn" },
-                        onclick: move |_| current_page.set(p),
-                        "{p}"
-                    }
-                }
-            }
-            button {
-                class: "sr-page-btn",
-                disabled: page >= total_pages,
-                onclick: move |_| current_page.set((page + 1).min(total_pages)),
-                "\u{25B6}"
-            }
+        Pager {
+            current: page.saturating_sub(1),
+            total: total_pages,
+            on_select: move |index: usize| current_page.set(index + 1),
         }
     }
 }
@@ -1194,27 +1171,3 @@ fn SearchPedigreeCard(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-/// Build a pagination range with ellipsis (0 = ellipsis placeholder).
-fn pagination_range(current: usize, total: usize) -> Vec<usize> {
-    if total <= 7 {
-        return (1..=total).collect();
-    }
-    let mut pages = Vec::new();
-    pages.push(1);
-    if current > 3 {
-        pages.push(0); // ellipsis
-    }
-    let start = current.saturating_sub(1).max(2);
-    let end = (current + 1).min(total - 1);
-    for p in start..=end {
-        pages.push(p);
-    }
-    if current < total - 2 {
-        pages.push(0); // ellipsis
-    }
-    if *pages.last().unwrap_or(&0) != total {
-        pages.push(total);
-    }
-    pages
-}

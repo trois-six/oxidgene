@@ -54,6 +54,7 @@ use crate::api::{
     ImportResult, IndexedArchive, MediaFidelity,
 };
 use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
+use crate::components::modal::Modal;
 use crate::geneanet::{Collect, GeneanetBridge, GeneanetEvent, WindowStrings, use_geneanet_bridge};
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::{
@@ -185,63 +186,55 @@ pub fn ImportModal(
     });
 
     rsx! {
-        div {
-            class: "modal-backdrop import-modal-backdrop",
-            // Dismiss on press, not click: a click fires on the common
-            // ancestor of mousedown/mouseup, so selecting text inside and
-            // releasing outside would close the modal. Never while busy —
-            // see `busy`.
-            onmousedown: move |_| {
-                if !busy() {
-                    on_close.call(());
-                }
-            },
-            div {
-                class: "import-modal",
-                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+        // Never closed while busy — see `busy`.
+        Modal {
+            class: "import-modal",
+            backdrop_class: "import-modal-backdrop",
+            label: i18n.t_args("import.title", &[("tree", &tree_name)]),
+            busy: busy(),
+            on_close,
 
-                div { class: "import-modal-header",
-                    h2 {
-                        {i18n.t_args("import.title", &[("tree", &tree_name)])}
-                    }
-                    button {
-                        class: "person-form-close",
-                        disabled: busy(),
-                        onclick: move |_| {
-                            if !busy() {
-                                on_close.call(());
-                            }
-                        },
-                        "✕"
-                    }
+            div { class: "import-modal-header",
+                h2 {
+                    {i18n.t_args("import.title", &[("tree", &tree_name)])}
                 }
-
-                div { class: "import-tabs", role: "tablist",
-                    button {
-                        class: if tab() == Tab::File { "import-tab is-active" } else { "import-tab" },
-                        role: "tab",
-                        "aria-selected": tab() == Tab::File,
-                        onclick: move |_| tab.set(Tab::File),
-                        {i18n.t("import.tab_file")}
-                    }
-                    button {
-                        class: if tab() == Tab::Geneanet { "import-tab is-active" } else { "import-tab" },
-                        role: "tab",
-                        "aria-selected": tab() == Tab::Geneanet,
-                        onclick: move |_| tab.set(Tab::Geneanet),
-                        {i18n.t("import.tab_geneanet")}
-                    }
+                button {
+                    class: "person-form-close",
+                    disabled: busy(),
+                    onclick: move |_| {
+                        if !busy() {
+                            on_close.call(());
+                        }
+                    },
+                    "✕"
                 }
+            }
 
-                div { class: "import-modal-body",
-                    match tab() {
-                        Tab::File => rsx! {
-                            FileTab { tree_id, busy, on_imported }
-                        },
-                        Tab::Geneanet => rsx! {
-                            GeneanetTab { tree_id, busy, on_imported }
-                        },
-                    }
+            div { class: "import-tabs", role: "tablist",
+                button {
+                    class: if tab() == Tab::File { "import-tab is-active" } else { "import-tab" },
+                    role: "tab",
+                    "aria-selected": tab() == Tab::File,
+                    onclick: move |_| tab.set(Tab::File),
+                    {i18n.t("import.tab_file")}
+                }
+                button {
+                    class: if tab() == Tab::Geneanet { "import-tab is-active" } else { "import-tab" },
+                    role: "tab",
+                    "aria-selected": tab() == Tab::Geneanet,
+                    onclick: move |_| tab.set(Tab::Geneanet),
+                    {i18n.t("import.tab_geneanet")}
+                }
+            }
+
+            div { class: "import-modal-body",
+                match tab() {
+                    Tab::File => rsx! {
+                        FileTab { tree_id, busy, on_imported }
+                    },
+                    Tab::Geneanet => rsx! {
+                        GeneanetTab { tree_id, busy, on_imported }
+                    },
                 }
             }
         }

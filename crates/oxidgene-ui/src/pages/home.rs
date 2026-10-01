@@ -9,6 +9,7 @@ use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::ContextMenuSurface;
 use crate::components::import_modal::ImportModal;
+use crate::components::modal::Modal;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::use_i18n;
@@ -525,57 +526,52 @@ fn CreateTreeModal(on_close: EventHandler<()>, on_created: EventHandler<()>) -> 
         });
     };
     rsx! {
-        div {
-            class: "modal-backdrop",
-            // Dismiss on press (not click): a click fires on the common ancestor of
-            // mousedown/mouseup, so selecting text then releasing outside would close.
-            onmousedown: move |_| on_close.call(()),
-            div {
-                class: "home-create-modal",
-                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+        Modal {
+            class: "home-create-modal",
+            label: i18n.t("home.new_tree"),
+            on_close,
 
-                div { class: "home-create-modal-header",
-                    h2 { {i18n.t("home.new_tree")} }
-                    button {
-                        class: "person-form-close",
-                        onclick: move |_| on_close.call(()),
-                        "✕"
+            div { class: "home-create-modal-header",
+                h2 { {i18n.t("home.new_tree")} }
+                button {
+                    class: "person-form-close",
+                    onclick: move |_| on_close.call(()),
+                    "✕"
+                }
+            }
+
+            div { class: "home-create-modal-body",
+                if let Some(err) = form_error() {
+                    div { class: "error-msg", "{err}" }
+                }
+                div { class: "form-group",
+                    label { {i18n.t("tree.form.name_label")} }
+                    input {
+                        r#type: "text",
+                        placeholder: i18n.t("tree.form.name_placeholder"),
+                        value: "{new_name}",
+                        oninput: move |e: Event<FormData>| new_name.set(e.value()),
                     }
                 }
-
-                div { class: "home-create-modal-body",
-                    if let Some(err) = form_error() {
-                        div { class: "error-msg", "{err}" }
+                div { class: "form-group",
+                    label { {i18n.t("tree.form.description_label")} }
+                    textarea {
+                        rows: 3,
+                        placeholder: i18n.t("tree.form.description_placeholder"),
+                        value: "{new_desc}",
+                        oninput: move |e: Event<FormData>| new_desc.set(e.value()),
                     }
-                    div { class: "form-group",
-                        label { {i18n.t("tree.form.name_label")} }
-                        input {
-                            r#type: "text",
-                            placeholder: i18n.t("tree.form.name_placeholder"),
-                            value: "{new_name}",
-                            oninput: move |e: Event<FormData>| new_name.set(e.value()),
-                        }
+                }
+                div { class: "modal-actions",
+                    button {
+                        class: "btn btn-outline",
+                        onclick: move |_| on_close.call(()),
+                        {i18n.t("common.cancel")}
                     }
-                    div { class: "form-group",
-                        label { {i18n.t("tree.form.description_label")} }
-                        textarea {
-                            rows: 3,
-                            placeholder: i18n.t("tree.form.description_placeholder"),
-                            value: "{new_desc}",
-                            oninput: move |e: Event<FormData>| new_desc.set(e.value()),
-                        }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| on_close.call(()),
-                            {i18n.t("common.cancel")}
-                        }
-                        button {
-                            class: "btn btn-primary",
-                            onclick: on_create,
-                            {i18n.t("common.create")}
-                        }
+                    button {
+                        class: "btn btn-primary",
+                        onclick: on_create,
+                        {i18n.t("common.create")}
                     }
                 }
             }
@@ -622,46 +618,43 @@ fn RenameTreeModal(
         });
     };
     rsx! {
-        div {
-            class: "modal-backdrop",
-            onmousedown: move |_| on_close.call(()),
-            div {
-                class: "home-create-modal",
-                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+        Modal {
+            class: "home-create-modal",
+            label: i18n.t("home.rename_tree"),
+            on_close,
 
-                div { class: "home-create-modal-header",
-                    h2 { {i18n.t("home.rename_tree")} }
-                    button {
-                        class: "person-form-close",
-                        onclick: move |_| on_close.call(()),
-                        "\u{2715}"
+            div { class: "home-create-modal-header",
+                h2 { {i18n.t("home.rename_tree")} }
+                button {
+                    class: "person-form-close",
+                    onclick: move |_| on_close.call(()),
+                    "\u{2715}"
+                }
+            }
+
+            div { class: "home-create-modal-body",
+                if let Some(err) = rename_error() {
+                    div { class: "error-msg", "{err}" }
+                }
+                div { class: "form-group",
+                    label { {i18n.t("tree.form.name_label")} }
+                    input {
+                        r#type: "text",
+                        placeholder: i18n.t("tree.form.name_placeholder"),
+                        value: "{rename_name}",
+                        oninput: move |e: Event<FormData>| rename_name.set(e.value()),
                     }
                 }
-
-                div { class: "home-create-modal-body",
-                    if let Some(err) = rename_error() {
-                        div { class: "error-msg", "{err}" }
+                div { class: "modal-actions",
+                    button {
+                        class: "btn btn-outline",
+                        onclick: move |_| on_close.call(()),
+                        {i18n.t("common.cancel")}
                     }
-                    div { class: "form-group",
-                        label { {i18n.t("tree.form.name_label")} }
-                        input {
-                            r#type: "text",
-                            placeholder: i18n.t("tree.form.name_placeholder"),
-                            value: "{rename_name}",
-                            oninput: move |e: Event<FormData>| rename_name.set(e.value()),
-                        }
-                    }
-                    div { class: "modal-actions",
-                        button {
-                            class: "btn btn-outline",
-                            onclick: move |_| on_close.call(()),
-                            {i18n.t("common.cancel")}
-                        }
-                        button {
-                            class: "btn btn-primary",
-                            onclick: on_save,
-                            {i18n.t("common.save")}
-                        }
+                    button {
+                        class: "btn btn-primary",
+                        onclick: on_save,
+                        {i18n.t("common.save")}
                     }
                 }
             }

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
 ---
 
 
@@ -50,7 +50,7 @@ This page uses the standard `sub-page` layout pattern (see [General](general.md)
 |   Bernard                                             47 persons  →  |
 |   ...                                                                 |
 +----------------------------------------------------------------------+
-|                    <  1  2  3 ... 6  >                                |  <- dict-pagination
+|                    <  1  2  3 ... 6  >                                |  <- pager
 +----------------------------------------------------------------------+
 ```
 
@@ -370,8 +370,8 @@ Message text is tab-specific (see i18n keys, section 14).
 - Content max-width: 1200px, responsive padding, same as [Search Results](ui-search-results.md) section 11
 - Below **640px**: the four category tabs remain visible on one compact line
 - Below **640px**: the alphabet index wraps onto as many rows as needed so every letter remains directly visible; letter headers stay sticky
-- Below **640px**: pagination keeps only the Previous and Next controls; numbered
-  page controls are hidden
+- Below **640px**: the pager ([Common UI §4.12](ui-common.md#412-pager)) keeps
+  only its Previous and Next controls; numbered page controls are hidden
 
 ---
 
@@ -602,8 +602,9 @@ removes a document nothing references.
 
 ### 18.6 Pagination
 
-Cursor pagination cannot jump to page 5, so the controls are Previous, "Page
-N of M" and Next; Previous walks back through the cursors already seen.
+Cursor pagination cannot jump to page 5, so the shared pager
+([Common UI §4.12](ui-common.md#412-pager)) shows Previous, "Page N of M" and
+Next; Previous walks back through the cursors already seen.
 
 ### 18.7 States
 

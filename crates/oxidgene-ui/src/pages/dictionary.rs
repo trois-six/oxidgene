@@ -14,6 +14,8 @@ use crate::api::{
     ApiClient, ApiError, DictionaryEntry, PersonUsageEntry, PlaceDictionaryEntry,
     SourceDictionaryEntry, SourceGroupEntry,
 };
+use crate::components::modal::Modal;
+use crate::components::pager::Pager;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::print::PrintPageNote;
 use crate::components::suggest_input::ValueInput;
@@ -558,112 +560,106 @@ fn FamilyNameEditor(
     };
 
     rsx! {
-        div {
-            class: "modal-backdrop",
-            // Dismiss on press, not click: a click fires on the common ancestor
-            // of mousedown/mouseup, so selecting text then releasing outside
-            // would close the dialog.
-            onmousedown: move |_| on_close.call(()),
-            div {
-                class: "dict-particle-modal",
-                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
+        Modal {
+            class: "dict-particle-modal",
+            label: i18n.t("dictionary.family_name.title"),
+            on_close,
 
-                div { class: "dict-particle-header",
-                    h2 { {i18n.t("dictionary.family_name.title")} }
-                    button {
-                        class: "person-form-close",
-                        onclick: move |_| on_close.call(()),
-                        "✕"
+            div { class: "dict-particle-header",
+                h2 { {i18n.t("dictionary.family_name.title")} }
+                button {
+                    class: "person-form-close",
+                    onclick: move |_| on_close.call(()),
+                    "✕"
+                }
+            }
+
+            div { class: "dict-particle-body",
+                p { class: "dict-particle-intro",
+                    {i18n.t_args("dictionary.family_name.intro", &[("name", &edit.value)])}
+                }
+
+                div { class: "form-group",
+                    label { {i18n.t("dictionary.family_name.name_label")} }
+                    ValueInput {
+                        value: name,
+                        tree_id,
+                        field: SuggestionField::FamilyNames,
+                        uppercase: true,
+                        on_change: move |()| {
+                            typed_particle.set(None);
+                            error.set(None);
+                        },
                     }
                 }
 
-                div { class: "dict-particle-body",
-                    p { class: "dict-particle-intro",
-                        {i18n.t_args("dictionary.family_name.intro", &[("name", &edit.value)])}
+                if renaming {
+                    p { class: "dict-particle-scope",
+                        {i18n.t_plural("dictionary.family_name.rename_scope", edit.primary_count as usize)}
                     }
-
-                    div { class: "form-group",
-                        label { {i18n.t("dictionary.family_name.name_label")} }
-                        ValueInput {
-                            value: name,
-                            tree_id,
-                            field: SuggestionField::FamilyNames,
-                            uppercase: true,
-                            on_change: move |()| {
-                                typed_particle.set(None);
-                                error.set(None);
-                            },
+                    if others > 0 {
+                        p { class: "dict-particle-hint",
+                            {i18n.t_plural("dictionary.family_name.others_keep", others)}
                         }
                     }
+                    if let Some(target) = &target {
+                        p { class: "field-hint field-hint-warn",
+                            {i18n.t_args(
+                                &i18n.plural_key("dictionary.family_name.merge", target.count as usize),
+                                &[("name", &target.value), ("count", &target.count.to_string())],
+                            )}
+                        }
+                    }
+                } else {
+                    p { class: "dict-particle-scope",
+                        {i18n.t_plural("dictionary.particle.scope", edit.count as usize)}
+                    }
+                }
 
-                    if renaming {
-                        p { class: "dict-particle-scope",
-                            {i18n.t_plural("dictionary.family_name.rename_scope", edit.primary_count as usize)}
+                div { class: "form-group",
+                    label { {i18n.t("dictionary.particle.label")} }
+                    input {
+                        r#type: "text",
+                        value: "{particle}",
+                        disabled: target.is_some(),
+                        placeholder: "{i18n.t(\"dictionary.particle.placeholder\")}",
+                        oninput: move |e: Event<FormData>| {
+                            typed_particle.set(Some(e.value()));
+                            error.set(None);
+                        },
+                    }
+                    if target.is_some() {
+                        p { class: "dict-particle-hint",
+                            {i18n.t_args("dictionary.family_name.merge_particle", &[("name", &new_value)])}
                         }
-                        if others > 0 {
-                            p { class: "dict-particle-hint",
-                                {i18n.t_plural("dictionary.family_name.others_keep", others)}
-                            }
-                        }
-                        if let Some(target) = &target {
-                            p { class: "field-hint field-hint-warn",
-                                {i18n.t_args(
-                                    &i18n.plural_key("dictionary.family_name.merge", target.count as usize),
-                                    &[("name", &target.value), ("count", &target.count.to_string())],
-                                )}
-                            }
-                        }
+                    } else if !renaming {
+                        p { class: "dict-particle-hint", {i18n.t("dictionary.particle.hint")} }
+                    }
+                }
+
+                {cut_preview(i18n, preview.as_ref(), &new_value)}
+
+                if let Some(err) = error() {
+                    div { class: "error-msg", "{err}" }
+                }
+            }
+
+            div { class: "modal-actions",
+                button {
+                    class: "td-btn",
+                    onclick: move |_| on_close.call(()),
+                    {i18n.t("common.cancel")}
+                }
+                button {
+                    class: "td-btn td-btn-primary",
+                    disabled: !can_apply,
+                    onclick: apply,
+                    if saving() {
+                        {i18n.t("common.saving")}
+                    } else if renaming {
+                        {i18n.t("dictionary.family_name.rename")}
                     } else {
-                        p { class: "dict-particle-scope",
-                            {i18n.t_plural("dictionary.particle.scope", edit.count as usize)}
-                        }
-                    }
-
-                    div { class: "form-group",
-                        label { {i18n.t("dictionary.particle.label")} }
-                        input {
-                            r#type: "text",
-                            value: "{particle}",
-                            disabled: target.is_some(),
-                            placeholder: "{i18n.t(\"dictionary.particle.placeholder\")}",
-                            oninput: move |e: Event<FormData>| {
-                                typed_particle.set(Some(e.value()));
-                                error.set(None);
-                            },
-                        }
-                        if target.is_some() {
-                            p { class: "dict-particle-hint",
-                                {i18n.t_args("dictionary.family_name.merge_particle", &[("name", &new_value)])}
-                            }
-                        } else if !renaming {
-                            p { class: "dict-particle-hint", {i18n.t("dictionary.particle.hint")} }
-                        }
-                    }
-
-                    {cut_preview(i18n, preview.as_ref(), &new_value)}
-
-                    if let Some(err) = error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-                }
-
-                div { class: "modal-actions",
-                    button {
-                        class: "td-btn",
-                        onclick: move |_| on_close.call(()),
-                        {i18n.t("common.cancel")}
-                    }
-                    button {
-                        class: "td-btn td-btn-primary",
-                        disabled: !can_apply,
-                        onclick: apply,
-                        if saving() {
-                            {i18n.t("common.saving")}
-                        } else if renaming {
-                            {i18n.t("dictionary.family_name.rename")}
-                        } else {
-                            {i18n.t("dictionary.particle.apply")}
-                        }
+                        {i18n.t("dictionary.particle.apply")}
                     }
                 }
             }
@@ -852,30 +848,6 @@ fn total_pages(total: usize, per_page: Option<usize>) -> usize {
     }
 }
 
-/// Build a pagination range with ellipsis (0 = ellipsis placeholder).
-fn pagination_range(current: usize, total: usize) -> Vec<usize> {
-    if total <= 7 {
-        return (1..=total).collect();
-    }
-    let mut pages = Vec::new();
-    pages.push(1);
-    if current > 3 {
-        pages.push(0);
-    }
-    let start = current.saturating_sub(1).max(2);
-    let end = (current + 1).min(total - 1);
-    for p in start..=end {
-        pages.push(p);
-    }
-    if current < total - 2 {
-        pages.push(0);
-    }
-    if *pages.last().unwrap_or(&0) != total {
-        pages.push(total);
-    }
-    pages
-}
-
 // ── Shared toolbar (alphabet index + quick filter + page size + count) ──
 
 #[allow(clippy::too_many_arguments)]
@@ -959,34 +931,11 @@ fn render_toolbar(
 }
 
 fn render_pagination(mut current_page: Signal<usize>, page: usize, pages: usize) -> Element {
-    if pages <= 1 {
-        return rsx! {};
-    }
     rsx! {
-        div { class: "sr-pagination",
-            button {
-                class: "sr-page-btn",
-                disabled: page <= 1,
-                onclick: move |_| current_page.set(page.saturating_sub(1).max(1)),
-                "\u{25C0}"
-            }
-            for p in pagination_range(page, pages) {
-                if p == 0 {
-                    span { class: "sr-page-info dict-page-number", "\u{2026}" }
-                } else {
-                    button {
-                        class: if p == page { "sr-page-btn active dict-page-number" } else { "sr-page-btn dict-page-number" },
-                        onclick: move |_| current_page.set(p),
-                        "{p}"
-                    }
-                }
-            }
-            button {
-                class: "sr-page-btn",
-                disabled: page >= pages,
-                onclick: move |_| current_page.set((page + 1).min(pages)),
-                "\u{25B6}"
-            }
+        Pager {
+            current: page.saturating_sub(1),
+            total: pages,
+            on_select: move |index: usize| current_page.set(index + 1),
         }
         PrintPageNote { page, pages }
     }

@@ -17,6 +17,8 @@ pub mod layout;
 pub mod media_gallery;
 pub mod media_input;
 pub mod merge_dialog;
+pub mod modal;
+pub mod pager;
 pub mod pedigree_chart;
 pub mod pedigree_theme;
 pub mod pedigree_view;

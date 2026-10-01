@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, MediaListFilters, MediaListItem, MediaTagFacet};
 use crate::components::media_gallery::{MediaLibraryGrid, MediaLibraryTile};
+use crate::components::pager::Pager;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
 
@@ -271,32 +272,19 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
             }
         }
 
-        if pages > 1 {
-            div { class: "sr-pagination",
-                button {
-                    class: "sr-page-btn",
-                    disabled: page <= 1,
-                    aria_label: i18n.t("dictionary.media.previous_page"),
-                    onclick: move |_| {
-                        cursors.write().pop();
-                    },
-                    "\u{25C0}"
+        // A cursor reads the library a page at a time: its pages can be
+        // stepped through, not jumped to.
+        Pager {
+            current: page - 1,
+            total: pages,
+            numbered: false,
+            on_select: move |index: usize| {
+                if index + 1 < page {
+                    cursors.write().pop();
+                } else if let Some(cursor) = next_cursor.clone() {
+                    cursors.write().push(cursor);
                 }
-                span { class: "sr-page-info",
-                    {i18n.t_args("dictionary.media.page", &[("page", &page.to_string()), ("pages", &pages.to_string())])}
-                }
-                button {
-                    class: "sr-page-btn",
-                    disabled: next_cursor.is_none(),
-                    aria_label: i18n.t("dictionary.media.next_page"),
-                    onclick: move |_| {
-                        if let Some(cursor) = next_cursor.clone() {
-                            cursors.write().push(cursor);
-                        }
-                    },
-                    "\u{25B6}"
-                }
-            }
+            },
         }
     }
 }

@@ -5,6 +5,7 @@
 
 use dioxus::prelude::*;
 
+use crate::components::modal::Modal;
 use crate::i18n::use_i18n;
 
 /// Props for the [`ConfirmDialog`] component.
@@ -63,36 +64,30 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
     let busy = props.busy;
 
     rsx! {
-        div {
-            class: "modal-backdrop",
-            // Dismiss on press (not click): a click fires on the common ancestor of
-            // mousedown/mouseup, so selecting text then releasing outside would close.
-            onmousedown: move |_| if !busy { props.on_cancel.call(()) },
-            div {
-                class: "modal-card",
-                // Prevent presses inside the card from closing the dialog.
-                onmousedown: move |e: Event<MouseData>| e.stop_propagation(),
-                h3 { "{props.title}" }
-                p { style: "margin: 12px 0;", "{props.message}" }
-                if let Some(err) = &props.error {
-                    div { class: "error-msg", "{err}" }
+        Modal {
+            label: props.title.clone(),
+            busy,
+            on_close: props.on_cancel,
+            h3 { "{props.title}" }
+            p { style: "margin: 12px 0;", "{props.message}" }
+            if let Some(err) = &props.error {
+                div { class: "error-msg", "{err}" }
+            }
+            div { class: "modal-actions",
+                button {
+                    class: "btn btn-outline",
+                    disabled: busy,
+                    onclick: move |_| props.on_cancel.call(()),
+                    {i18n.t("common.cancel")}
                 }
-                div { class: "modal-actions",
-                    button {
-                        class: "btn btn-outline",
-                        disabled: busy,
-                        onclick: move |_| props.on_cancel.call(()),
-                        {i18n.t("common.cancel")}
+                button {
+                    class: "{props.confirm_class}",
+                    disabled: busy,
+                    onclick: move |_| props.on_confirm.call(()),
+                    if busy {
+                        span { class: "btn-spinner" }
                     }
-                    button {
-                        class: "{props.confirm_class}",
-                        disabled: busy,
-                        onclick: move |_| props.on_confirm.call(()),
-                        if busy {
-                            span { class: "btn-spinner" }
-                        }
-                        "{confirm_label}"
-                    }
+                    "{confirm_label}"
                 }
             }
         }

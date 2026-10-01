@@ -13,6 +13,7 @@ use oxidgene_core::projection::SearchEntry;
 use uuid::Uuid;
 
 use crate::api::ApiClient;
+use crate::components::modal::Modal;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::i18n::use_i18n;
 use crate::ui_observability::{UiCommand, trace_ui_action, use_ui_resource};
@@ -181,11 +182,7 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
         div { class: "homonym-picker",
             div {
                 class: "homonym-select",
-                onkeydown: move |e: Event<KeyboardData>| {
-                    if e.key() == Key::Escape {
-                        open.set(false);
-                    }
-                },
+                onkeydown: move |e: Event<KeyboardData>| close_list_on_escape(&e, open),
                 button {
                     class: "search-person-result homonym-select-trigger",
                     "aria-haspopup": "listbox",
@@ -300,21 +297,28 @@ pub fn HomonymDialog(
     rsx! {
         // No dismissal on the backdrop: leaving without an answer is what
         // "decide later" is for, and a stray press must not stand for it.
-        div { class: "modal-backdrop",
-            div {
-                class: "modal-card homonym-card",
-                role: "dialog",
-                "aria-modal": "true",
-                h3 { {i18n.t("homonym.title")} }
-                p { "{message}" }
-                HomonymPicker {
-                    tree_id,
-                    person_id,
-                    homonyms,
-                    on_later,
-                    on_decided,
-                }
+        Modal {
+            class: "modal-card homonym-card",
+            label: i18n.t("homonym.title"),
+            close_on_backdrop: false,
+            on_close: on_later,
+            h3 { {i18n.t("homonym.title")} }
+            p { "{message}" }
+            HomonymPicker {
+                tree_id,
+                person_id,
+                homonyms,
+                on_later,
+                on_decided,
             }
         }
+    }
+}
+
+/// Escape closes the open list first, and only then the dialog around it.
+fn close_list_on_escape(e: &KeyboardEvent, mut open: Signal<bool>) {
+    if e.key() == Key::Escape && open() {
+        e.stop_propagation();
+        open.set(false);
     }
 }

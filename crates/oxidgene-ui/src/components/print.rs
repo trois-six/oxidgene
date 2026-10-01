@@ -24,6 +24,7 @@ use chrono::NaiveDate;
 use dioxus::prelude::*;
 
 use crate::components::date_input::format_day;
+use crate::components::modal::Modal;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiActionStep, UiCommand, trace_ui_action, trace_ui_action_step};
@@ -759,42 +760,39 @@ fn PrintChoice(
         ],
     );
     rsx! {
-        div { class: "modal-backdrop",
-            div {
-                class: "modal-card print-choice",
-                role: "dialog",
-                "aria-modal": "true",
-                onclick: move |e| e.stop_propagation(),
-                h3 { {i18n.t("print.choose_title")} }
-                div { class: "print-choice-options",
-                    button {
-                        class: "print-choice-option",
-                        onclick: move |_| on_screen.call(()),
-                        span { class: "print-choice-name", {i18n.t("print.what_shows")} }
-                        span { class: "print-choice-detail", {i18n.t("print.one_sheet")} }
-                    }
-                    button {
-                        class: "print-choice-option",
-                        disabled: too_many,
-                        onclick: {
-                            let plan = plan.clone();
-                            move |_| on_tiles.call(plan.clone())
-                        },
-                        span { class: "print-choice-name", {i18n.t("print.whole_tree")} }
-                        span { class: "print-choice-detail", "{count}" }
-                    }
+        Modal {
+            class: "modal-card print-choice",
+            label: i18n.t("print.choose_title"),
+            on_close: on_cancel,
+            h3 { {i18n.t("print.choose_title")} }
+            div { class: "print-choice-options",
+                button {
+                    class: "print-choice-option",
+                    onclick: move |_| on_screen.call(()),
+                    span { class: "print-choice-name", {i18n.t("print.what_shows")} }
+                    span { class: "print-choice-detail", {i18n.t("print.one_sheet")} }
                 }
-                if too_many {
-                    p { class: "stats-note",
-                        {i18n.t_args("print.too_many", &[("max", &MAX_SHEETS.to_string())])}
-                    }
-                } else {
-                    p { class: "stats-note", {i18n.t("print.tiles_hint")} }
+                button {
+                    class: "print-choice-option",
+                    disabled: too_many,
+                    onclick: {
+                        let plan = plan.clone();
+                        move |_| on_tiles.call(plan.clone())
+                    },
+                    span { class: "print-choice-name", {i18n.t("print.whole_tree")} }
+                    span { class: "print-choice-detail", "{count}" }
                 }
-                div { class: "modal-actions",
-                    button { class: "btn btn-outline", onclick: move |_| on_cancel.call(()),
-                        {i18n.t("common.cancel")}
-                    }
+            }
+            if too_many {
+                p { class: "stats-note",
+                    {i18n.t_args("print.too_many", &[("max", &MAX_SHEETS.to_string())])}
+                }
+            } else {
+                p { class: "stats-note", {i18n.t("print.tiles_hint")} }
+            }
+            div { class: "modal-actions",
+                button { class: "btn btn-outline", onclick: move |_| on_cancel.call(()),
+                    {i18n.t("common.cancel")}
                 }
             }
         }

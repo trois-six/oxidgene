@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T18:43:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
 ---
 
 
@@ -566,7 +566,7 @@ modal closes as before. Otherwise a dialog opens above it:
 - **Decide later** closes without an answer; the dialog comes back on the
   next save.
 - The backdrop does not dismiss the dialog: leaving without an answer is what
-  **Decide later** is for.
+  **Decide later** is for, which Escape also stands for.
 - After a merge from an edit opened on the person page, that page moves to the
   kept person; from the tree view, the chart is re-centred on them. A merge
   from a create modal leaves the view where it was.

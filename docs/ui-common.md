@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -263,8 +263,8 @@ Callers do not embed user-visible literals.
 
 A focused modal for destructive or irreversible actions. It contains a title,
 explanation, cancel action, and explicit confirm action. Danger mode uses
-`var(--danger)`. `Escape` and backdrop press cancel unless an operation is
-already running. Focus is trapped and restored to the triggering control.
+`var(--danger)`. It is drawn in the shared `Modal` ([§4.13](#413-modal)):
+`Escape` and backdrop press cancel unless an operation is already running.
 
 ### 4.2 PersonPicker
 
@@ -514,9 +514,9 @@ to the event rather than rendering controls of their own.
 The shared viewer uses the app's sans-serif body typography throughout its
 compact facts column, with readable secondary labels rather than monospace
 metadata. Relation pagination uses one horizontal previous/range/next row
-below a bounded five-item list, not tiny vertical scroll arrows. These controls
-reuse the document pager styling and have localized accessible names, visible
-focus, and live range announcements. Short lists do not reserve five empty rows.
+below a bounded five-item list, not tiny vertical scroll arrows: the shared
+`Pager` ([§4.12](#412-pager)) without numbers, its range announced as a live
+status. Short lists do not reserve five empty rows.
 
 One download control serves every media kind and document ZIPs. Media and GEDZIP
 exports share a transfer implementation behind the typed client. On desktop,
@@ -624,6 +624,43 @@ it through the tree cache again whenever the cache is invalidated or the
 route names another tree. While the tree loads, its cached copy names it, so
 the breadcrumb never flashes empty. The person the sidebar acts on is the one
 last shown in this tree during the session, else the tree's SOSA root.
+
+### 4.12 Pager
+
+One `Pager` moves through every paged list and document: search results, the
+dictionary tabs, the media library, a document's pages in the media viewer and
+the viewer's list of relations. It draws previous and next buttons and,
+between them, the page numbers: both ends and two pages either side of the
+current one, a gap standing for two pages or more (a single skipped page is
+shown instead). The document viewer adds buttons to the first and last pages.
+A list read through a cursor, which cannot jump to a page, shows *Page n of m*
+— or its own range — as a live status between its two step buttons instead.
+
+Every button has a localized accessible name and tooltip (*Previous page*,
+*Page 4*…); the current page is marked `aria-current="page"`; a single page
+draws no pager. The numbers scroll sideways rather than wrap; below `640px` a
+list's pager keeps only its step buttons, while the document viewer keeps its
+numbers, registers being cited by page. Pagers do not print.
+
+### 4.13 Modal
+
+Every dialog — confirmations, the person and couple forms, the import, the
+merge wizard, the homonym choice, the print choice, the family-name editor and
+the homepage's tree forms — is drawn in one `Modal`: a blurred backdrop and a
+card that is a `dialog` with `aria-modal="true"`, named by its title.
+
+- **Escape** and a **press on the backdrop** close it, through the same
+  handler as its Cancel or close button, so a form with unsaved changes asks
+  before discarding them. The backdrop reacts to the press, not the click: a
+  selection started in the card and released outside does not close it.
+- A dialog whose operation is running (`busy`) ignores both, and says so with
+  `aria-busy`: an import or a merge cannot be abandoned half-way.
+- A dialog whose question must be answered, or whose steps a stray press
+  would throw away, ignores the backdrop and keeps Escape: the homonym choice
+  (Escape is *Decide later*) and the merge wizard.
+- The card takes the focus when it opens unless one of its fields already has
+  it, so Escape works straight away; Escape inside an open list or picker
+  closes that list first.
 
 ## 5. Accessibility
 

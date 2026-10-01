@@ -20,6 +20,7 @@ use crate::api::{
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::homonym_picker::{HomonymDecision, HomonymDialog};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
+use crate::components::modal::Modal;
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::suggest_input::ValueInput;
 use crate::i18n::use_i18n;
@@ -1089,7 +1090,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
     };
 
-    let try_close = move |_| {
+    let mut try_close = move |()| {
         if has_changes() {
             show_discard_confirm.set(true);
         } else {
@@ -1914,7 +1915,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     button {
                         class: "btn btn-outline",
                         r#type: "button",
-                        onclick: try_close,
+                        onclick: move |_| try_close(()),
                         {i18n.t("common.cancel")}
                     }
                 }
@@ -1964,41 +1965,29 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     }
 
     rsx! {
-        div { class: "modal-backdrop",
-            // Dismiss on press (not click): a click fires on the common ancestor of
-            // mousedown/mouseup, so selecting text then releasing outside would close.
-            onmousedown: try_close,
-
-            div {
-                class: "person-form-modal",
-                onmousedown: move |evt: Event<MouseData>| evt.stop_propagation(),
-                onkeydown: move |e: Event<KeyboardData>| {
-                    match e.key() {
-                        Key::Escape => {
-                            if has_changes() { show_discard_confirm.set(true); }
-                            else { props.on_close.call(()); }
-                        }
-                        Key::Enter => {
-                            document::eval(&focus_next_field_js("person-form-modal"));
-                        }
-                        _ => {}
-                    }
-                },
-
-                // ── Fixed header ──
-                div { class: "person-form-header",
-                    div {
-                        h2 { "{display_name}" }
-                        span { class: "pf-subtitle",
-                            if is_create { {i18n.t("person_form.subtitle_create")} } else { {i18n.t("person_form.subtitle_edit")} }
-                        }
-                    }
-                    button { class: "person-form-close", onclick: try_close, "\u{00D7}" }
+        Modal {
+            class: "person-form-modal",
+            label: display_name.clone(),
+            on_close: try_close,
+            on_key: move |e: KeyboardEvent| {
+                if e.key() == Key::Enter {
+                    document::eval(&focus_next_field_js("person-form-modal"));
                 }
+            },
 
-                {body}
-                {footer}
+            // ── Fixed header ──
+            div { class: "person-form-header",
+                div {
+                    h2 { "{display_name}" }
+                    span { class: "pf-subtitle",
+                        if is_create { {i18n.t("person_form.subtitle_create")} } else { {i18n.t("person_form.subtitle_edit")} }
+                    }
+                }
+                button { class: "person-form-close", onclick: move |_| try_close(()), "\u{00D7}" }
             }
+
+            {body}
+            {footer}
         }
 
         if show_discard_confirm() {

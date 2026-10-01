@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
 description: "Three-step wizard to find the other record of a person, compare the two, choose the record kept and the events and media taken from the other, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-29T20:19:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
 ---
 
 
@@ -40,7 +40,8 @@ A modal card up to 760px wide, scrolling within 90% of the viewport height.
 Under the title, a line reads the step: "Step 2 of 3 · Compare and choose".
 The footer holds, in order: **Two different people** (Step 2 from Tools
 only), **Back** (Step 3, and Step 2 when Step 1 was shown), **Cancel**, and
-the step's own action. Clicking the backdrop does nothing; Cancel closes.
+the step's own action. Clicking the backdrop does nothing; Cancel or Escape
+closes, except while the merge is being written.
 
 ---
 

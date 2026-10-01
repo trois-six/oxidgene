@@ -39,6 +39,7 @@ use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::document_form::DocumentForm;
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
+use crate::components::pager::Pager;
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::{I18n, use_i18n};
@@ -2849,7 +2850,7 @@ fn MediaRelations(
     let relation_count = relations.len();
     let range = relation_page_range(relation_page(), relation_count);
     let current_relation_page = range.start / 5;
-    let has_next = range.end < relation_count;
+    let relation_pages = relation_count.div_ceil(5);
     let range_label = i18n.t_args(
         "media.relations_range",
         &[
@@ -2984,40 +2985,15 @@ fn MediaRelations(
                         }
                     }
                 }
-                if relation_count > 5 {
-                    nav { class: "media-relation-pager", aria_label: i18n.t("media.relations"),
-                        button {
-                            class: "media-pager-btn",
-                            r#type: "button",
-                            disabled: current_relation_page == 0,
-                            title: i18n.t("media.previous_relations"),
-                            aria_label: i18n.t("media.previous_relations"),
-                            onclick: move |_| relation_page.set(current_relation_page.saturating_sub(1)),
-                            svg {
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                "strokeLinecap": "round", "strokeLinejoin": "round",
-                                "aria-hidden": "true",
-                                path { d: "m15 18-6-6 6-6" }
-                            }
-                        }
-                        span { class: "media-relation-count", role: "status", "{range_label}" }
-                        button {
-                            class: "media-pager-btn",
-                            r#type: "button",
-                            disabled: !has_next,
-                            title: i18n.t("media.next_relations"),
-                            aria_label: i18n.t("media.next_relations"),
-                            onclick: move |_| relation_page.set(current_relation_page + 1),
-                            svg {
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                "strokeLinecap": "round", "strokeLinejoin": "round",
-                                "aria-hidden": "true",
-                                path { d: "m9 18 6-6-6-6" }
-                            }
-                        }
-                    }
+                Pager {
+                    current: current_relation_page,
+                    total: relation_pages,
+                    numbered: false,
+                    status: range_label,
+                    previous_label: i18n.t("media.previous_relations"),
+                    next_label: i18n.t("media.next_relations"),
+                    class: "media-relation-pager",
+                    on_select: move |index| relation_page.set(index),
                 }
             }
             if let Some(message) = error() {
@@ -4052,7 +4028,7 @@ fn MediaViewer(
                     if total_pages > 1 {
                         span { class: "media-pager-count",
                             {i18n.t_args(
-                                "media.page_of",
+                                "pager.page_of",
                                 &[
                                     ("page", &(current + 1).to_string()),
                                     ("total", &total_pages.to_string()),
@@ -4523,83 +4499,17 @@ fn MediaViewer(
                 // buttons for the ends, and a numbered strip because "the
                 // entry is on page 27" is how a register is actually
                 // referenced — counting there with a Next button is absurd.
-                if total_pages > 1 {
-                    div { class: "media-pager",
-                        button {
-                            class: "media-pager-btn",
-                            r#type: "button",
-                            disabled: editing() || current == 0,
-                            title: i18n.t("media.first_page"),
-                            onclick: move |_| {
-                                page.set(0);
-                                zoom.set(None);
-                            },
-                            "\u{23EE}"
-                        }
-                        button {
-                            class: "media-pager-btn",
-                            r#type: "button",
-                            disabled: editing() || current == 0,
-                            title: i18n.t("media.previous_page"),
-                            onclick: move |_| {
-                                page.set(current.saturating_sub(1));
-                                zoom.set(None);
-                            },
-                            "\u{25C0}"
-                        }
-                        div { class: "media-pager-numbers",
-                            for (slot_index , slot) in page_window(current, total_pages)
-                                .into_iter()
-                                .enumerate()
-                            {
-                                match slot {
-                                    PagerSlot::Page(index) => rsx! {
-                                        button {
-                                            key: "p{index}",
-                                            class: if index == current {
-                                                "media-pager-num is-current"
-                                            } else {
-                                                "media-pager-num"
-                                            },
-                                            r#type: "button",
-                                            disabled: editing(),
-                                            onclick: move |_| {
-                                                page.set(index);
-                                                zoom.set(None);
-                                            },
-                                            "{index + 1}"
-                                        }
-                                    },
-                                    PagerSlot::Gap => rsx! {
-                                        span { key: "g{slot_index}", class: "media-pager-gap", "\u{2026}" }
-                                    },
-                                }
-                            }
-                        }
-                        button {
-                            class: "media-pager-btn",
-                            r#type: "button",
-                            disabled: editing() || current + 1 >= total_pages,
-                            title: i18n.t("media.next_page"),
-                            onclick: move |_| {
-                                page.set((current + 1).min(total_pages - 1));
-                                zoom.set(None);
-                            },
-                            "\u{25B6}"
-                        }
-                        button {
-                            class: "media-pager-btn",
-                            r#type: "button",
-                            disabled: editing() || current + 1 >= total_pages,
-                            title: i18n.t("media.last_page"),
-                            onclick: move |_| {
-                                page.set(total_pages - 1);
-                                zoom.set(None);
-                            },
-                            "\u{23ED}"
-                        }
-                    }
-                    }
+                Pager {
+                    current,
+                    total: total_pages,
+                    ends: true,
+                    disabled: editing(),
+                    class: "media-pager",
+                    on_select: move |index| {
+                        page.set(index);
+                        zoom.set(None);
+                    },
+                }
                 }
                 }
 
@@ -4962,55 +4872,6 @@ fn IdentificationCropperHost(
     }
 }
 
-/// One slot in the pager strip: a page to jump to, or a gap where pages were
-/// left out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PagerSlot {
-    Page(usize),
-    Gap,
-}
-
-/// Which page numbers to show, for a document of `total` pages sitting on
-/// `current` (both zero-based).
-///
-/// A parish register runs to hundreds of pages, and drawing a button for each
-/// produces a strip longer than the image above it. This keeps the ends —
-/// "back to the start" and "how long is this" are both things a reader asks —
-/// plus a window around where they are, and elides the rest.
-///
-/// A gap is only worth drawing if it hides more than one page: replacing a
-/// single number with an ellipsis costs the same width and takes away a
-/// destination, so a lone skipped page is shown instead.
-pub(crate) fn page_window(current: usize, total: usize) -> Vec<PagerSlot> {
-    /// Pages either side of the current one.
-    const RADIUS: usize = 2;
-
-    if total == 0 {
-        return Vec::new();
-    }
-    let last = total - 1;
-    let current = current.min(last);
-    let window_start = current.saturating_sub(RADIUS);
-    let window_end = (current + RADIUS).min(last);
-
-    let mut slots = Vec::new();
-    let mut previous: Option<usize> = None;
-    for page in (0..total)
-        .filter(|page| *page == 0 || *page == last || (window_start..=window_end).contains(page))
-    {
-        match previous {
-            // Two pages apart means exactly one was skipped; show it rather
-            // than spend the same space on an ellipsis.
-            Some(prev) if page == prev + 2 => slots.push(PagerSlot::Page(prev + 1)),
-            Some(prev) if page > prev + 1 => slots.push(PagerSlot::Gap),
-            _ => {}
-        }
-        slots.push(PagerSlot::Page(page));
-        previous = Some(page);
-    }
-    slots
-}
-
 /// Zoom bounds and step, as percentages of the fitted size.
 ///
 /// The ceiling is high on purpose: the reason to zoom a parish register is to
@@ -5279,64 +5140,6 @@ mod tests {
         assert_eq!(document_mosaic_class(3), "media-document-mosaic is-3");
         assert_eq!(document_mosaic_class(4), "media-document-mosaic is-4");
         assert_eq!(document_mosaic_class(38), "media-document-mosaic is-4");
-    }
-
-    #[test]
-    fn a_short_document_shows_every_page() {
-        // Nothing to elide, so eliding would only take away destinations.
-        assert_eq!(
-            page_window(0, 4),
-            vec![
-                PagerSlot::Page(0),
-                PagerSlot::Page(1),
-                PagerSlot::Page(2),
-                PagerSlot::Page(3)
-            ]
-        );
-    }
-
-    #[test]
-    fn a_register_of_hundreds_of_pages_stays_one_row() {
-        let slots = page_window(50, 300);
-        assert!(
-            slots.len() <= 9,
-            "the strip must not grow with the document: {slots:?}"
-        );
-        // Both ends stay reachable, and where the reader is stays visible.
-        assert_eq!(slots.first(), Some(&PagerSlot::Page(0)));
-        assert_eq!(slots.last(), Some(&PagerSlot::Page(299)));
-        assert!(slots.contains(&PagerSlot::Page(50)));
-        assert!(slots.contains(&PagerSlot::Gap));
-    }
-
-    #[test]
-    fn the_ends_have_no_gap_beside_them_when_the_reader_is_there() {
-        let slots = page_window(0, 300);
-        // At the start the window already reaches page 0, so a gap belongs
-        // only on the far side.
-        assert_eq!(slots[0], PagerSlot::Page(0));
-        assert_eq!(slots[1], PagerSlot::Page(1));
-        assert_eq!(slots.iter().filter(|s| **s == PagerSlot::Gap).count(), 1);
-
-        let slots = page_window(299, 300);
-        assert_eq!(slots.iter().filter(|s| **s == PagerSlot::Gap).count(), 1);
-    }
-
-    #[test]
-    fn a_single_skipped_page_is_shown_rather_than_elided() {
-        // An ellipsis hiding one page costs the same width as the page and
-        // takes away somewhere to go.
-        let slots = page_window(4, 8);
-        assert!(!slots.contains(&PagerSlot::Gap), "{slots:?}");
-        assert!(slots.contains(&PagerSlot::Page(1)));
-    }
-
-    #[test]
-    fn a_page_beyond_the_end_is_clamped_rather_than_panicking() {
-        // Detaching a page while the viewer is open leaves the signal past the
-        // end for one render.
-        assert_eq!(page_window(99, 3).last(), Some(&PagerSlot::Page(2)));
-        assert!(page_window(0, 0).is_empty());
     }
 
     #[test]

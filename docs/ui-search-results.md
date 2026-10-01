@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
 ---
 
 
@@ -199,10 +199,10 @@ projections; loading cells show a placeholder message.
 
 Results are paginated with 25 results per page in list view (matching the API default) and 20 per page in card view — each card embeds a mini-pedigree, so a larger page would overload the layout and fire as many pedigree fetches. Switching view mode resets to page 1.
 
-Pagination controls at the bottom of the results:
+Pagination controls at the bottom of the results are the shared pager
+([Common UI §4.12](ui-common.md#412-pager)):
 - Previous / Next arrow buttons
-- Page number buttons (first, last, current +/- 2)
-- Current page indicator: "Page 2 of 5"
+- Page number buttons (first, last, current +/- 2), the current page marked
 
 The server computes the exact total and applies sorting before `limit` and
 `offset`; the UI never truncates to a fixed client-side result set.

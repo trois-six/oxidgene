@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::api::{AddChildBody, ApiClient, ApiError};
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
+use crate::components::modal::Modal;
 use crate::components::person_form::{
     DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
     create_event_body, focus_next_field_js, render_add_toggle, render_choice_group,
@@ -223,131 +224,122 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
     // ── Render ──
 
     rsx! {
-        div { class: "modal-backdrop",
-            // Dismiss on press (not click): a click fires on the common ancestor of
-            // mousedown/mouseup, so selecting text then releasing outside would close.
-            onmousedown: move |_| props.on_close.call(()),
+        Modal {
+            class: "union-form-modal",
+            label: couple_title.clone(),
+            on_close: props.on_close,
+            on_key: move |e: KeyboardEvent| {
+                if e.key() == Key::Enter {
+                    document::eval(&focus_next_field_js("union-form-modal"));
+                }
+            },
 
-            div {
-                class: "union-form-modal",
-                onmousedown: move |evt: Event<MouseData>| evt.stop_propagation(),
-                onkeydown: move |e: Event<KeyboardData>| {
-                    match e.key() {
-                        Key::Escape => props.on_close.call(()),
-                        Key::Enter => {
-                            document::eval(&focus_next_field_js("union-form-modal"));
-                        }
-                        _ => {}
+            // Header
+            div { class: "union-form-header",
+                div {
+                    h2 { "{couple_title}" }
+                    span { class: "pf-subtitle", {i18n.t("union_form.subtitle_edit")} }
+                }
+                div { class: "uf-header-actions",
+                    button {
+                        class: "person-form-close",
+                        onclick: move |_| props.on_close.call(()),
+                        "x"
                     }
-                },
+                }
+            }
 
-                // Header
-                div { class: "union-form-header",
-                    div {
-                        h2 { "{couple_title}" }
-                        span { class: "pf-subtitle", {i18n.t("union_form.subtitle_edit")} }
-                    }
-                    div { class: "uf-header-actions",
-                        button {
-                            class: "person-form-close",
-                            onclick: move |_| props.on_close.call(()),
-                            "x"
-                        }
+            if let Some(err) = save_error() {
+                div { class: "error-msg", style: "margin: 0 16px;", "{err}" }
+            }
+
+            div { class: "union-form-body",
+                // ── Person 1 / Person 2 blocks ──
+                // Each mounts a whole PersonForm with its own fetches, so
+                // both stay closed by default — opening them eagerly would
+                // load the couple twice over.
+                {spouse_section(&scope, spouses.first(), "union_form.person1", show_person1, &names)}
+                {spouse_section(&scope, spouses.get(1), "union_form.person2", show_person2, &names)}
+
+                // ── Union block ──
+                FormSection {
+                    title: i18n.t("union_form.events"),
+                    open: open_union,
+                    action: render_add_toggle(
+                        i18n.t("union_form.add_event"),
+                        i18n.t("common.cancel"),
+                        show_add_union_event,
+                    ),
+                    {events_section.render()}
+                }
+
+                // ── Children block ──
+                FormSection {
+                    title: i18n.t("union_form.children"),
+                    open: open_children,
+                    action: render_add_toggle(
+                        i18n.t("union_form.add_child"),
+                        i18n.t("common.cancel"),
+                        show_add_child,
+                    ),
+                    {children_section.render(&children_resource.read())}
+                }
+
+                // ── Privacy ──
+                FormSection { title: i18n.t("union_form.privacy"), open: open_privacy,
+                    {privacy_choice(&scope, privacy_val)}
+                    p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
+                }
+
+                // ── Media ──
+                // In the body and above the delete button, exactly where
+                // a person's documents are: a couple's papers are the same
+                // kind of thing as a person's, and reaching them through a
+                // separate button in the header made them look like a
+                // different feature.
+                FormSection { title: i18n.t("media.section"), open: open_media,
+                    MediaGallery {
+                        tree_id: tid,
+                        owner: MediaOwner::Family(fid),
+                        events: union_event_choices,
+                        // Media writes land immediately and are not part of
+                        // this form's save, so the card behind the modal
+                        // must refresh even if the user then cancels.
+                        // Every host treats `on_saved` as "refresh".
+                        on_changed: move |()| props.on_saved.call(()),
                     }
                 }
 
-                if let Some(err) = save_error() {
-                    div { class: "error-msg", style: "margin: 0 16px;", "{err}" }
+                // ── Delete couple ──
+                // No section header and no rule above it, as in person_form:
+                // the button already says what it does.
+                DeleteSection {
+                    button_label: i18n.t("union_form.delete_couple"),
+                    title: i18n.t("union_form.delete_confirm_title"),
+                    message: i18n.t("union_form.delete_confirm_message"),
+                    confirm_label: i18n.t("union_form.delete_confirm_button"),
+                    busy_label: i18n.t("union_form.deleting"),
+                    deleting: deleting(),
+                    error: delete_error(),
+                    on_confirm: scope.delete_couple(deleting, delete_error, props.on_close),
                 }
+            }
 
-                div { class: "union-form-body",
-                    // ── Person 1 / Person 2 blocks ──
-                    // Each mounts a whole PersonForm with its own fetches, so
-                    // both stay closed by default — opening them eagerly would
-                    // load the couple twice over.
-                    {spouse_section(&scope, spouses.first(), "union_form.person1", show_person1, &names)}
-                    {spouse_section(&scope, spouses.get(1), "union_form.person2", show_person2, &names)}
-
-                    // ── Union block ──
-                    FormSection {
-                        title: i18n.t("union_form.events"),
-                        open: open_union,
-                        action: render_add_toggle(
-                            i18n.t("union_form.add_event"),
-                            i18n.t("common.cancel"),
-                            show_add_union_event,
-                        ),
-                        {events_section.render()}
+            // ── Fixed footer ──
+            div { class: "uf-footer",
+                div { class: "uf-footer-right",
+                    button {
+                        class: "btn btn-outline",
+                        r#type: "button",
+                        onclick: move |_| props.on_close.call(()),
+                        {i18n.t("common.cancel")}
                     }
-
-                    // ── Children block ──
-                    FormSection {
-                        title: i18n.t("union_form.children"),
-                        open: open_children,
-                        action: render_add_toggle(
-                            i18n.t("union_form.add_child"),
-                            i18n.t("common.cancel"),
-                            show_add_child,
-                        ),
-                        {children_section.render(&children_resource.read())}
-                    }
-
-                    // ── Privacy ──
-                    FormSection { title: i18n.t("union_form.privacy"), open: open_privacy,
-                        {privacy_choice(&scope, privacy_val)}
-                        p { class: "pf-ns-hint", {i18n.t("privacy.not_enforced_yet")} }
-                    }
-
-                    // ── Media ──
-                    // In the body and above the delete button, exactly where
-                    // a person's documents are: a couple's papers are the same
-                    // kind of thing as a person's, and reaching them through a
-                    // separate button in the header made them look like a
-                    // different feature.
-                    FormSection { title: i18n.t("media.section"), open: open_media,
-                        MediaGallery {
-                            tree_id: tid,
-                            owner: MediaOwner::Family(fid),
-                            events: union_event_choices,
-                            // Media writes land immediately and are not part of
-                            // this form's save, so the card behind the modal
-                            // must refresh even if the user then cancels.
-                            // Every host treats `on_saved` as "refresh".
-                            on_changed: move |()| props.on_saved.call(()),
-                        }
-                    }
-
-                    // ── Delete couple ──
-                    // No section header and no rule above it, as in person_form:
-                    // the button already says what it does.
-                    DeleteSection {
-                        button_label: i18n.t("union_form.delete_couple"),
-                        title: i18n.t("union_form.delete_confirm_title"),
-                        message: i18n.t("union_form.delete_confirm_message"),
-                        confirm_label: i18n.t("union_form.delete_confirm_button"),
-                        busy_label: i18n.t("union_form.deleting"),
-                        deleting: deleting(),
-                        error: delete_error(),
-                        on_confirm: scope.delete_couple(deleting, delete_error, props.on_close),
-                    }
-                }
-
-                // ── Fixed footer ──
-                div { class: "uf-footer",
-                    div { class: "uf-footer-right",
-                        button {
-                            class: "btn btn-outline",
-                            r#type: "button",
-                            onclick: move |_| props.on_close.call(()),
-                            {i18n.t("common.cancel")}
-                        }
-                        button {
-                            class: "btn btn-primary",
-                            r#type: "button",
-                            disabled: saving(),
-                            onclick: scope.apply_detachments(pending_detach, saving, props.on_close),
-                            if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
-                        }
+                    button {
+                        class: "btn btn-primary",
+                        r#type: "button",
+                        disabled: saving(),
+                        onclick: scope.apply_detachments(pending_detach, saving, props.on_close),
+                        if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
                     }
                 }
             }

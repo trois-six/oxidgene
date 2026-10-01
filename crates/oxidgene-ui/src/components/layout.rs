@@ -1030,6 +1030,10 @@ pub const LAYOUT_STYLES: &str = r#"
         backdrop-filter: blur(4px);
     }
 
+    /* The dialog takes the focus when it opens so Escape reaches it; the
+       card itself is not a control and draws no ring. */
+    .modal-backdrop > [role="dialog"]:focus { outline: none; }
+
     .modal-card {
         background: var(--bg-panel);
         border: 1px solid var(--border);
@@ -3451,8 +3455,9 @@ pub const LAYOUT_STYLES: &str = r#"
         background: var(--bg-card-hover);
     }
 
-    /* Pagination */
-    .sr-pagination {
+    /* ── Pager ─────────────────────────────────────────────────────
+       One control for every paged list and document (components/pager.rs). */
+    .pager {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -3461,37 +3466,77 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 12px 0;
     }
 
-    .sr-page-btn {
+    .pager-btn,
+    .pager-num {
+        flex: 0 0 auto;
+        min-width: 32px;
+        min-height: 32px;
+        padding: 5px 8px;
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: 4px;
         color: var(--text-primary);
-        cursor: pointer;
-        padding: 6px 10px;
         font-size: 0.82rem;
-        min-width: 32px;
+        line-height: 1;
         text-align: center;
+        cursor: pointer;
     }
 
-    .sr-page-btn.active {
+    .pager-btn:hover:not(:disabled),
+    .pager-num:hover:not(:disabled):not(.is-current) {
+        background: var(--bg-card-hover);
+    }
+
+    .pager-btn:disabled,
+    .pager-num:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .pager-num.is-current {
         background: var(--orange);
         color: var(--on-accent);
         border-color: var(--orange);
     }
 
-    .sr-page-btn:hover:not(.active):not(:disabled) {
-        background: var(--bg-card-hover);
+    /* Scrolls rather than wraps: a forty-page register must not push the
+       image out of the panel to make room for its own page numbers. */
+    .pager-numbers {
+        display: flex;
+        gap: 4px;
+        overflow-x: auto;
+        max-width: min(520px, 60vw);
+        padding: 2px;
     }
 
-    .sr-page-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-
-    .sr-page-info {
-        font-size: 0.8rem;
+    .pager-gap {
+        flex: 0 0 auto;
+        padding: 4px 2px;
         color: var(--text-muted);
-        margin-left: 12px;
+        font-size: 0.8rem;
+        user-select: none;
+    }
+
+    .pager-status {
+        padding: 0 8px;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* Under the media viewer's image, and under its list of relations. */
+    .pager.media-pager {
+        gap: 6px;
+        margin: 0;
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+    }
+
+    .pager.media-relation-pager {
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
     }
 
     /* Full-page search results: override typeahead dropdown constraints */
@@ -4872,19 +4917,6 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .media-relations.is-paged .media-relation-list { height: 192px; }
 
-    .media-relation-pager {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .media-relation-count {
-        color: var(--text-secondary);
-        font-size: 0.72rem;
-        font-variant-numeric: tabular-nums;
-    }
-
     .media-viewer :is(button, a):focus-visible {
         outline: 2px solid var(--orange);
         outline-offset: 2px;
@@ -5312,74 +5344,6 @@ pub const LAYOUT_STYLES: &str = r#"
        two read as one control rather than as a button and an unrelated row. */
     .media-drop.is-open { border-color: var(--orange); }
 
-    /* ── Page navigation ──────────────────────────────────────────── */
-
-    .media-pager {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 8px 12px;
-        border-top: 1px solid var(--border);
-    }
-
-    .media-pager-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 32px;
-        min-height: 32px;
-        flex: 0 0 auto;
-        background: none;
-        border: 1px solid var(--border);
-        border-radius: 3px;
-        color: var(--text-primary);
-        font-size: 0.8rem;
-        line-height: 1;
-        padding: 5px 8px;
-        cursor: pointer;
-    }
-
-    .media-pager-btn:hover:not(:disabled) { border-color: var(--orange); color: var(--orange); }
-    .media-pager-btn:disabled { opacity: 0.35; cursor: default; }
-
-    /* Scrolls rather than wraps: a forty-page register must not push the
-       image out of the panel to make room for its own page numbers. */
-    .media-pager-numbers {
-        display: flex;
-        gap: 3px;
-        overflow-x: auto;
-        max-width: min(520px, 60vw);
-        padding: 2px;
-    }
-
-    .media-pager-num {
-        flex: 0 0 auto;
-        min-width: 26px;
-        background: none;
-        border: 1px solid transparent;
-        border-radius: 3px;
-        color: var(--text-muted);
-        font-size: 0.74rem;
-        padding: 4px 6px;
-        cursor: pointer;
-    }
-
-    .media-pager-gap {
-        flex: 0 0 auto;
-        color: var(--text-muted);
-        font-size: 0.74rem;
-        padding: 4px 2px;
-        user-select: none;
-    }
-
-    .media-pager-num:hover { color: var(--text-primary); border-color: var(--border); }
-    .media-pager-num.is-current {
-        color: var(--orange);
-        border-color: var(--orange);
-        background: color-mix(in srgb, var(--orange) 12%, transparent);
-    }
-
     .media-pager-count { font-size: 0.74rem; color: var(--text-muted); }
 
     /* ── Event evidence on the profile timeline ───────────────────── */
@@ -5580,7 +5544,9 @@ pub const LAYOUT_STYLES: &str = r#"
             flex: 0 0 auto;
             margin-left: 0;
         }
-        .dict-page-number { display: none; }
+        /* A list's pager keeps its step buttons; the document viewer keeps
+           its numbers, which scroll, since registers are cited by page. */
+        .pager:not(.media-pager) .pager-numbers { display: none; }
         .media-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
         .cropper-backdrop { padding: 0; }
         .cropper-panel { max-height: 100vh; border-radius: 0; }
@@ -7357,10 +7323,10 @@ pub const LAYOUT_STYLES: &str = r#"
         .btn, .td-btn, .td-search-btn, .isb-btn, .pd-header-buttons, .cp-actions,
         .cp-bar, .pf-row-btn, .pf-add-btn, .pf-confirm-btn, .dict-row-action,
         .dict-letter-strip, .dict-filter-row, .dict-page-size,
-        .media-act, .media-pager-btn, .media-upload-icon-btn, .media-drop-btn,
+        .media-act, .media-upload-icon-btn, .media-drop-btn,
         .media-tag-remove, .media-identification-delete,
         .sr-filters-toggle, .sr-filters, .sr-sort, .sr-view-modes,
-        .sr-filter-actions, .sr-clear-filters, .sr-pagination, .stats-option,
+        .sr-filter-actions, .sr-clear-filters, .pager, .stats-option,
         .stats-interval,
         .tools-controls, .tools-place-actions, .tools-pair-actions, .ph-toolbar,
         input, select, textarea, .no-print {

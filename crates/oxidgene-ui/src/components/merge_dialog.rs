@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource, MediaWithLink, MergeChoices, PersonDetailBundle};
 use crate::components::date_input::format_event_date;
+use crate::components::modal::Modal;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
@@ -547,30 +548,31 @@ pub fn MergeDialog(
     });
 
     rsx! {
-        div { class: "modal-backdrop",
-            div {
-                class: "modal-card merge-card",
-                role: "dialog",
-                "aria-modal": "true",
-                onclick: move |e| e.stop_propagation(),
-                h3 { {i18n.t("merge.title")} }
-                p { class: "merge-step",
-                    {
-                        i18n.t_args(
-                            "merge.step",
-                            &[
-                                ("n", &current.number().to_string()),
-                                ("label", &i18n.t(current.label_key())),
-                            ],
-                        )
-                    }
+        // Spread over three steps: a stray press on the backdrop must not
+        // throw them away.
+        Modal {
+            class: "modal-card merge-card",
+            label: i18n.t("merge.title"),
+            busy: busy(),
+            close_on_backdrop: false,
+            on_close,
+            h3 { {i18n.t("merge.title")} }
+            p { class: "merge-step",
+                {
+                    i18n.t_args(
+                        "merge.step",
+                        &[
+                            ("n", &current.number().to_string()),
+                            ("label", &i18n.t(current.label_key())),
+                        ],
+                    )
                 }
-                {body}
-                if let Some(message) = error() {
-                    div { class: "error-msg", "{message}" }
-                }
-                {actions}
             }
+            {body}
+            if let Some(message) = error() {
+                div { class: "error-msg", "{message}" }
+            }
+            {actions}
         }
     }
 }
