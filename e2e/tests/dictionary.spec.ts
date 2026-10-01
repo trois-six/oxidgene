@@ -19,13 +19,13 @@ test("switches the dictionary tabs and pages through the family names", async ({
 
     await page.goto(`/trees/${tree.treeId}/dictionary`);
     const entries = page.locator(".dict-total-count");
-    const pages = page.locator(".sr-pagination");
+    const pages = page.locator("nav.pager");
 
     // Family names: the fixture's seven and the thirty singletons.
     await expect(entries).toHaveText("37 entries");
     await expect(page.getByText("Ashdown", { exact: true })).toBeVisible();
-    await expect(pages.getByRole("button", { name: "2", exact: true })).toBeVisible();
-    await pages.getByRole("button", { name: "2", exact: true }).click();
+    await expect(pages.getByRole("button", { name: "Page 2", exact: true })).toBeVisible();
+    await pages.getByRole("button", { name: "Page 2", exact: true }).click();
     await expect(page.getByText("Pagewell30", { exact: true })).toBeVisible();
     await expect(page.getByText("Ashdown", { exact: true })).toHaveCount(0);
 
