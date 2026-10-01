@@ -1307,8 +1307,8 @@ async fn media_and_media_link_lifecycle() {
     let conn = MediaRepo::list(&db, tree_id, &params).await.unwrap();
     assert_eq!(conn.total_count, 1);
 
-    // Soft-delete media
-    MediaRepo::delete(&db, media_id).await.unwrap();
+    // Soft-deleted media
+    soft_delete_media(&db, media_id).await;
     let err = MediaRepo::get(&db, media_id).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 }
@@ -1615,7 +1615,7 @@ async fn event_media_batch_excludes_other_events_and_deleted_media() {
         .await
         .unwrap();
     }
-    MediaRepo::delete(&db, media_ids[1]).await.unwrap();
+    soft_delete_media(&db, media_ids[1]).await;
 
     let rows = MediaLinkRepo::list_with_media_for_events(&db, &event_ids[..2])
         .await
@@ -1624,6 +1624,24 @@ async fn event_media_batch_excludes_other_events_and_deleted_media() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0.event_id, Some(event_ids[0]));
     assert_eq!(rows[0].1.id, media_ids[0]);
+}
+
+/// Flag medium `id` deleted. Nothing in the application soft-deletes a medium
+/// any more — it is purged — but the `deleted_at` filters still apply to rows
+/// flagged by earlier versions.
+async fn soft_delete_media(db: &DatabaseConnection, id: Uuid) {
+    use oxidgene_db::entities::media;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let flagged = media::Entity::update_many()
+        .col_expr(
+            media::Column::DeletedAt,
+            Expr::value(Some(chrono::Utc::now())),
+        )
+        .filter(media::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .unwrap();
+    assert_eq!(flagged.rows_affected, 1);
 }
 
 // ───────────────────────── Note tests ─────────────────────────
@@ -2013,9 +2031,6 @@ async fn delete_nonexistent_returns_not_found() {
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 
     let err = CitationRepo::delete(&db, fake).await.unwrap_err();
-    assert!(matches!(err, OxidGeneError::NotFound { .. }));
-
-    let err = MediaRepo::delete(&db, fake).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 
     let err = MediaLinkRepo::delete(&db, fake).await.unwrap_err();

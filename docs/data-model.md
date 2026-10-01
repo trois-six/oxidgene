@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:20:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:48:27Z }
 ---
 
 
@@ -292,7 +292,7 @@ text is valid.
 | `place_id` | UUID v7? | FK → Place — where the media was created/taken |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
+| `deleted_at` | DateTime? | Soft delete. Deleting a medium purges it instead — its rows, and the stored files no other medium of the tree uses — so nothing sets it, but every read still excludes a flagged row |
 
 Displayed in: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 

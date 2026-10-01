@@ -5,8 +5,8 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Media, last_path_segment};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, IntoActiveModel,
+    QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -533,24 +533,6 @@ impl MediaRepo {
         Ok(media)
     }
 
-    /// Soft-delete a media record.
-    pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = Entity::find_by_id(id)
-            .filter(Column::DeletedAt.is_null())
-            .one(db)
-            .await
-            .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Media",
-                id,
-            })?;
-
-        let mut active: ActiveModel = existing.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active.update(db).await.map_err(db_err)?;
-        Ok(())
-    }
-
     /// Delete a media record, every page it owns and every associated row.
     ///
     /// The returned keys are no longer used by another active media row; the
@@ -591,7 +573,8 @@ impl MediaRepo {
                     .cloned()
             })
             .collect();
-        let retained_keys = keys_of_other_media(db, &media_ids).await?;
+        let retained_keys =
+            keys_of_other_media(db, root.tree_id, &media_ids, &candidate_keys).await?;
         delete_media_rows(db, &page_ids, id).await?;
         if let Some(document_id) = root.parent_media_id {
             let remaining: Vec<Uuid> = Self::list_pages(db, document_id)
@@ -806,25 +789,43 @@ async fn page_document(
     Ok(id)
 }
 
-/// The storage and thumbnail keys of the active media other than `excluded`:
-/// content-addressed files can be shared, and a key stays while another
-/// record points at it.
+/// Which of `candidates` an active medium of `tree_id` other than `excluded`
+/// still uses as its storage or thumbnail key: content-addressed files can be
+/// shared, and a key stays while another record points at it.
+///
+/// Keys are content-addressed within a tree (they begin with its id), so only
+/// that tree's media can share one, and only the candidates are asked about:
+/// the answer reads two columns of the rows that share a key, not every
+/// medium of every tree.
 async fn keys_of_other_media(
     db: &impl ConnectionTrait,
+    tree_id: Uuid,
     excluded: &[Uuid],
+    candidates: &HashSet<String>,
 ) -> Result<HashSet<String>, OxidGeneError> {
-    Ok(Entity::find()
+    if candidates.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let rows: Vec<(Option<String>, Option<String>)> = Entity::find()
+        .select_only()
+        .columns([Column::StorageKey, Column::ThumbnailKey])
+        .filter(Column::TreeId.eq(tree_id))
         .filter(Column::DeletedAt.is_null())
         .filter(Column::Id.is_not_in(excluded.iter().copied()))
+        .filter(
+            Condition::any()
+                .add(Column::StorageKey.is_in(candidates.iter().cloned()))
+                .add(Column::ThumbnailKey.is_in(candidates.iter().cloned())),
+        )
+        .into_tuple()
         .all(db)
         .await
-        .map_err(db_err)?
+        .map_err(db_err)?;
+    Ok(rows
         .into_iter()
-        .flat_map(|media| {
-            [media.storage_key, media.thumbnail_key]
-                .into_iter()
-                .flatten()
-        })
+        .flat_map(|(storage_key, thumbnail_key)| [storage_key, thumbnail_key])
+        .flatten()
+        .filter(|key| candidates.contains(key))
         .collect())
 }
 

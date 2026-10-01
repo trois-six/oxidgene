@@ -23,6 +23,24 @@ async fn setup() -> (DatabaseConnection, Uuid, Uuid) {
     (db, tree, document)
 }
 
+/// Flag medium `id` deleted. Nothing in the application soft-deletes a medium
+/// any more — it is purged — but the `deleted_at` filters still apply to rows
+/// flagged by earlier versions.
+async fn soft_delete_media(db: &DatabaseConnection, id: Uuid) {
+    use oxidgene_db::entities::media;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let flagged = media::Entity::update_many()
+        .col_expr(
+            media::Column::DeletedAt,
+            Expr::value(Some(chrono::Utc::now())),
+        )
+        .filter(media::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .unwrap();
+    assert_eq!(flagged.rows_affected, 1);
+}
+
 /// A page we hold *and* have rasterised — the only stored shape a portrait can
 /// actually be drawn from.
 fn rasterised() -> UploadedMedia {
@@ -115,7 +133,7 @@ async fn pages_require_a_live_same_tree_document_and_update_its_count() {
                 .is_err()
         );
     }
-    MediaRepo::delete(&db, document).await.unwrap();
+    soft_delete_media(&db, document).await;
     assert!(page(&db, tree, Some(document)).await.is_err());
     assert!(
         MediaRepo::create_uploaded(&db, Uuid::now_v7(), tree, Some(document), upload(100))
@@ -299,7 +317,7 @@ async fn vignette_writes_validate_pages_bounds_and_attribution() {
         );
     }
     assert_eq!(VignetteRepo::get(&db, crop.id).await.unwrap(), crop);
-    MediaRepo::delete(&db, page.id).await.unwrap();
+    soft_delete_media(&db, page.id).await;
     assert!(
         VignetteRepo::update(&db, crop.id, VignettePatch::default())
             .await
@@ -505,4 +523,26 @@ async fn a_portrait_nobody_chose_is_still_the_first_photograph_linked() {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].media_id, Some(page.id));
+}
+
+#[tokio::test]
+async fn a_purge_keeps_the_files_another_medium_still_uses() {
+    let (db, tree, document) = setup().await;
+    let shared = UploadedMedia {
+        thumbnail_key: Some("test/first-thumb.jpg".into()),
+        ..upload(100)
+    };
+    let first = MediaRepo::create_uploaded(&db, Uuid::now_v7(), tree, Some(document), shared)
+        .await
+        .unwrap();
+    // The same content uploaded twice: one stored file, two records.
+    let second = MediaRepo::create_uploaded(&db, Uuid::now_v7(), tree, Some(document), upload(100))
+        .await
+        .unwrap();
+
+    let purge = MediaRepo::purge(&db, first.id).await.unwrap();
+    assert_eq!(purge.storage_keys, vec!["test/first-thumb.jpg".to_string()]);
+
+    let purge = MediaRepo::purge(&db, second.id).await.unwrap();
+    assert_eq!(purge.storage_keys, vec!["test/scan.png".to_string()]);
 }

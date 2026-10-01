@@ -92,6 +92,24 @@ async fn send_write(
 
 /// An app over a fresh in-memory database holding one fictional tree. The
 /// returned directory holds the media and must outlive the app.
+/// Flag medium `id` deleted. Nothing in the application soft-deletes a medium
+/// any more — it is purged — but the `deleted_at` filters still apply to rows
+/// flagged by earlier versions.
+async fn soft_delete_media(db: &DatabaseConnection, id: Uuid) {
+    use oxidgene_db::entities::media;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+    let flagged = media::Entity::update_many()
+        .col_expr(
+            media::Column::DeletedAt,
+            Expr::value(Some(chrono::Utc::now())),
+        )
+        .filter(media::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .unwrap();
+    assert_eq!(flagged.rows_affected, 1);
+}
+
 async fn app_with_tree() -> (DatabaseConnection, Router, Uuid, tempfile::TempDir) {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
@@ -288,7 +306,7 @@ async fn vignette_validation(graphql: bool) {
     check_attribution(&app, graphql, tree, (page, crop), &rect, (&people, &events)).await;
     check_cleared(&db, page, crop).await;
     check_deleted_targets(&app, &db, graphql, tree, crop, (people[0], events[0])).await;
-    MediaRepo::delete(&db, document).await.unwrap();
+    soft_delete_media(&db, document).await;
     assert!(
         !write_vignette(&app, graphql, tree, page, true, rect)
             .await
