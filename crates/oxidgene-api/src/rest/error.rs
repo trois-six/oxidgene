@@ -7,7 +7,8 @@ use serde::Serialize;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::error_contract::classify;
+use crate::error_contract::{classify, error_kind};
+use crate::request_context::RequestContext;
 
 /// JSON error body returned to clients.
 #[derive(Debug, Serialize)]
@@ -37,7 +38,15 @@ impl ErrorBody {
         let contract = classify(error);
         let request_id = contract.unexpected.then(Uuid::now_v7);
         if let Some(request_id) = request_id {
-            error!(%request_id, error = contract.code, "request failed");
+            let request = RequestContext::current();
+            error!(
+                %request_id,
+                error = contract.code,
+                error.kind = error_kind(error),
+                http.request.method = request.as_ref().map(|request| request.method.as_str()),
+                http.route = request.as_ref().and_then(RequestContext::route),
+                "request failed"
+            );
         }
         Self {
             error: contract.code.to_string(),

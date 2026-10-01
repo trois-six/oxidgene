@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod media;
 pub mod profile;
 pub mod reference;
+pub mod request_context;
 pub mod rest;
 pub mod router;
 pub mod service;

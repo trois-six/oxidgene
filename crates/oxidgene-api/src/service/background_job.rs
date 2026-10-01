@@ -18,6 +18,7 @@ use tracing::Instrument as _;
 use uuid::Uuid;
 
 use super::{gedcom, geneanet, history};
+use crate::error_contract::error_kind;
 use crate::media::MediaStore;
 use crate::media::store::{job_blob_key, job_input_blob_key};
 use crate::profile::ProfileService;
@@ -207,7 +208,15 @@ impl BackgroundJobWorker {
                     OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
                     _ => "job_failed",
                 };
-                tracing::error!(error.category = code, "background job failed");
+                // Console logs carry no span context, so the job's bounded
+                // dimensions ride on the event itself.
+                tracing::error!(
+                    error.category = code,
+                    error.kind = error_kind(&error),
+                    job.kind = %job.kind,
+                    job.format = %job.format,
+                    "background job failed"
+                );
                 if BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await? {
                     remove_live_job(job.id);
                     self.cleanup_import_inputs(&job).await;
@@ -231,9 +240,10 @@ impl BackgroundJobWorker {
             match self.run_once().await {
                 Ok(true) => {}
                 Ok(false) => tokio::time::sleep(self.poll_interval).await,
-                Err(_) => {
+                Err(error) => {
                     tracing::error!(
                         error.category = "worker_iteration_failed",
+                        error.kind = error_kind(&error),
                         "background job worker iteration failed"
                     );
                     tokio::time::sleep(self.poll_interval).await;

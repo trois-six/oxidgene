@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:23:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:30:29Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -257,7 +257,17 @@ the rejected value.
 ### 5.4 Operational behavior
 
 - Panic and unexpected error boundaries attach a correlation ID and preserve
-  the source chain internally without returning it to clients.
+  the source chain internally without returning it to clients. The server and
+  desktop routers catch a panicking handler and answer `500 internal_error`
+  with a fresh `request_id`, logged as `request panicked`; the panic payload
+  is free text and is neither logged nor returned.
+- An unexpected-error event (`request failed`, `GraphQL request failed`,
+  `request panicked`, `background job failed`) records its correlation ID, its
+  public code, and `error.kind`: a category from a fixed list — the database
+  failure class (`busy`, `connection_acquire`, `unique_violation`, …), the I/O
+  error kind, or `panic`/`cancelled` for a blocking task — never the error
+  message, which may carry SQL values, paths, or genealogy. Request events add
+  the route template and method; job events add the job kind and format.
 - Retried operations log the attempt and final outcome without duplicating a
   full error at every layer.
 - Metrics use aggregate dimensions with bounded cardinality; personal data and

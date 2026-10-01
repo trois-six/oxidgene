@@ -15,7 +15,7 @@ use oxidgene_api::access::same_origin_writes;
 use oxidgene_api::startup::{
     ReferenceWarmup, open_database, or_exit, spawn_background_worker, with_health_check,
 };
-use oxidgene_api::{AppState, build_router};
+use oxidgene_api::{AppState, build_router, request_context};
 use oxidgene_observability::{init, make_http_span, on_http_response};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
@@ -99,13 +99,18 @@ async fn main() {
         ])
         .allow_headers(tower_http::cors::Any);
 
-    let app = with_health_check(same_origin_writes(api_router, cors_origin.clone()))
-        .layer(cors)
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(make_http_span)
-                .on_response(on_http_response),
-        );
+    // The request context sits outside the origin check, so a refused write
+    // still carries its route, and its panic boundary covers everything below.
+    let app = with_health_check(request_context::wrap(same_origin_writes(
+        api_router,
+        cors_origin.clone(),
+    )))
+    .layer(cors)
+    .layer(
+        TraceLayer::new_for_http()
+            .make_span_with(make_http_span)
+            .on_response(on_http_response),
+    );
 
     // ── Bind and serve ───────────────────────────────────────────────
     let addr = SocketAddr::new(cfg.host.parse().expect("invalid host address"), cfg.port);

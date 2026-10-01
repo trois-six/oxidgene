@@ -46,7 +46,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 # Web framework
 axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["cors", "trace", "compression-gzip"] }
+tower-http = { version = "0.7", features = ["catch-panic", "cors", "trace", "compression-gzip"] }
 
 # Compression of the data embedded into the binaries (reference sheets, the
 # place dictionary, the OpenAPI document). Brotli at its best quality beats

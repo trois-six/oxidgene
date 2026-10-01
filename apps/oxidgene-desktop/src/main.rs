@@ -55,7 +55,7 @@ use oxidgene_api::access::{LocalToken, require_local_token};
 use oxidgene_api::startup::{
     ReferenceWarmup, open_database, spawn_background_worker, with_health_check,
 };
-use oxidgene_api::{AppState, build_router};
+use oxidgene_api::{AppState, build_router, request_context};
 #[cfg(feature = "telemetry")]
 use oxidgene_observability::{
     LogFormat, TelemetryGuard, init, init_to_stderr, make_http_span, on_http_response,
@@ -325,7 +325,10 @@ fn main() {
                 AppState::new(db, oxidgene_api::media::default_root()).with_local_file_access();
             // This process is the only worker of its SQLite database.
             spawn_background_worker(&state, true, "desktop").await;
-            let api_router = require_local_token(build_router(state), server_token);
+            // Outside the token check, so a refused request still carries its
+            // route, and a panic anywhere below answers the standard envelope.
+            let api_router =
+                request_context::wrap(require_local_token(build_router(state), server_token));
             reference_warmup.finish().await;
 
             let app = with_health_check(api_router);
