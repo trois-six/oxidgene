@@ -231,7 +231,12 @@ pub async fn compute_sosa_number(
     let Some(root) = TreeRepo::get(db, tree_id).await?.sosa_root_person_id else {
         return Ok(None);
     };
-    AncestryRepo::sosa_number(db, root, person_id).await
+    // A root that is no longer a live person of the tree is no root.
+    match PersonRepo::get_in_tree(db, tree_id, root).await {
+        Ok(_) => AncestryRepo::sosa_number(db, root, person_id).await,
+        Err(OxidGeneError::NotFound { .. }) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]

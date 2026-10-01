@@ -1,16 +1,19 @@
 //! GraphQL query root with all read operations.
 
+use std::collections::HashMap;
+
 use async_graphql::{Context, ID, Object, Result};
 use base64::Engine as _;
 use oxidgene_geneanet::archive::LocalOriginals;
 use uuid::Uuid;
 
+use crate::service::person::Lineage;
 use crate::service::scope::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
-    AncestryRepo, AuditFilter, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus,
-    CitationFilter, CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo,
-    MediaLinkRepo, MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
+    AuditFilter, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, CitationFilter,
+    CitationRepo, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo, MediaLinkRepo,
+    MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
     PersonSearchFilters, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
 };
 
@@ -50,6 +53,39 @@ async fn tree_resource_exists(
         Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(false),
         Err(error) => Err(error.into()),
     }
+}
+
+/// The ancestors or descendants of a person, with every person read in one
+/// query rather than one per row.
+async fn lineage(
+    ctx: &Context<'_>,
+    tree_id: &ID,
+    person_id: &ID,
+    direction: Lineage,
+    max_depth: Option<i32>,
+) -> Result<Vec<GqlPersonWithDepth>> {
+    let db = db_from_ctx(ctx);
+    let tree_id = live_tree(ctx, tree_id).await?;
+    let links =
+        crate::service::person::lineage(db, tree_id, uuid(person_id)?, direction, max_depth)
+            .await?;
+    let ids: Vec<Uuid> = links.iter().map(|link| link.person_id).collect();
+    let mut persons: HashMap<Uuid, oxidgene_core::types::Person> = PersonRepo::get_many(db, &ids)
+        .await?
+        .into_iter()
+        .map(|person| (person.id, person))
+        .collect();
+    Ok(links
+        .into_iter()
+        .filter_map(|link| {
+            persons
+                .remove(&link.person_id)
+                .map(|person| GqlPersonWithDepth {
+                    person: person.into(),
+                    depth: link.depth,
+                })
+        })
+        .collect())
 }
 
 /// The root query type.
@@ -270,10 +306,9 @@ impl QueryRoot {
         tree_id: ID,
         number: u64,
     ) -> Result<Option<GqlPerson>> {
-        let db = db_from_ctx(ctx);
+        let tree_id = live_tree(ctx, &tree_id).await?;
         let person =
-            crate::rest::person::resolve_sosa_number(db, live_tree(ctx, &tree_id).await?, number)
-                .await?;
+            crate::service::person::person_by_sosa(db_from_ctx(ctx), tree_id, number).await?;
         Ok(person.map(Into::into))
     }
 
@@ -344,7 +379,8 @@ impl QueryRoot {
         .into())
     }
 
-    /// Get ancestors of a person.
+    /// Get ancestors of a person, each at its shortest distance, down to
+    /// `maxDepth` generations (at most, and by default, 64).
     async fn ancestors(
         &self,
         ctx: &Context<'_>,
@@ -352,23 +388,11 @@ impl QueryRoot {
         person_id: ID,
         max_depth: Option<i32>,
     ) -> Result<Vec<GqlPersonWithDepth>> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let pid = uuid(&person_id)?;
-        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
-        let rows = AncestryRepo::ancestors(db, pid, max_depth).await?;
-        let mut result = Vec::new();
-        for row in rows {
-            let person = PersonRepo::get(db, row.person_id).await?;
-            result.push(GqlPersonWithDepth {
-                person: person.into(),
-                depth: row.depth,
-            });
-        }
-        Ok(result)
+        lineage(ctx, &tree_id, &person_id, Lineage::Ancestors, max_depth).await
     }
 
-    /// Get descendants of a person.
+    /// Get descendants of a person, each at its shortest distance, down to
+    /// `maxDepth` generations (at most, and by default, 64).
     async fn descendants(
         &self,
         ctx: &Context<'_>,
@@ -376,20 +400,7 @@ impl QueryRoot {
         person_id: ID,
         max_depth: Option<i32>,
     ) -> Result<Vec<GqlPersonWithDepth>> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let pid = uuid(&person_id)?;
-        require_tree_resource(db, tid, TreeResource::Person, pid).await?;
-        let rows = AncestryRepo::descendants(db, pid, max_depth).await?;
-        let mut result = Vec::new();
-        for row in rows {
-            let person = PersonRepo::get(db, row.person_id).await?;
-            result.push(GqlPersonWithDepth {
-                person: person.into(),
-                depth: row.depth,
-            });
-        }
-        Ok(result)
+        lineage(ctx, &tree_id, &person_id, Lineage::Descendants, max_depth).await
     }
 
     // ── Families ─────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
 use crate::service::note::{self, NewNote};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
-use crate::service::{duplicates, event_date, family_names, tree};
+use crate::service::{duplicates, event_date, family_names, person, person_name, tree};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::history::{AuditAction, AuditEntity};
@@ -14,8 +14,8 @@ use uuid::Uuid;
 use oxidgene_db::repo::{
     BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, EventRepo, EventWitnessRepo,
     FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, MediaTagRepo,
-    NewBackgroundJob, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo,
-    PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
+    NewBackgroundJob, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput, VignettePatch,
+    VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -146,19 +146,14 @@ impl MutationRoot {
         tree_id: ID,
         input: CreatePersonInput,
     ) -> Result<GqlPerson> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        let person = PersonRepo::create(&txn, id, tid, input.sex.into()).await?;
-        // New person is not linked to any family yet — just build its projection.
-        profiles.rebuild_person(&txn, tid, id).await?;
-        Change::create(tid, AuditEntity::Person, id)
-            .person(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let person = person::create_person(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            input.into(),
+        )
+        .await?;
         Ok(person.into())
     }
 
@@ -170,49 +165,28 @@ impl MutationRoot {
         id: ID,
         input: UpdatePersonInput,
     ) -> Result<GqlPerson> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        PersonRepo::get_in_tree(&txn, tid, id).await?;
-        let person = PersonRepo::update(
-            &txn,
-            id,
-            input.sex.map(|s| s.into()),
-            input.privacy.map(|p| p.into()),
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let person = person::update_person(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+            input.into(),
         )
         .await?;
-        // Rebuild the affected set (person + spouses + children + parents).
-        let affected = invalidation::affected_persons(&txn, id).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::update(tid, AuditEntity::Person, id)
-            .person(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(person.into())
     }
 
     /// Delete a person (soft delete).
     async fn delete_person(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        PersonRepo::get_in_tree(&txn, tid, id).await?;
-        PersonRepo::delete(&txn, id).await?;
-        // Drops the person's projection + search row and refreshes the
-        // relatives that referenced them.
-        profiles.invalidate_for_person_delete(&txn, tid, id).await?;
-        Change::delete(tid, AuditEntity::Person, id)
-            .person(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        person::delete_person(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -269,44 +243,19 @@ impl MutationRoot {
         person_id: ID,
         input: PersonNameInput,
     ) -> Result<GqlPersonName> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let pid = uuid(&person_id)?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
-        let name = PersonNameRepo::create(
-            &txn,
-            id,
-            pid,
-            input.name_type.into(),
-            PersonNamePieces {
-                given_names: input.given_names,
-                surname: input.surname,
-                surname_prefix: input.surname_prefix,
-                prefix: input.prefix,
-                suffix: input.suffix,
-                nickname: input.nickname,
-            },
-            input.is_primary,
-            input.sort_order.unwrap_or(0),
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let name = person_name::create_person_name(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&person_id)?,
+            input.into(),
         )
         .await?;
-        // Name changes affect display_name references across relatives.
-        let affected = invalidation::affected_persons(&txn, pid).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::create(tid, AuditEntity::PersonName, id)
-            .person(pid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(name.into())
     }
 
-    /// Update a person name.
+    /// Update a name of a person; a name of somebody else is not found.
     async fn update_person_name(
         &self,
         ctx: &Context<'_>,
@@ -315,43 +264,21 @@ impl MutationRoot {
         id: ID,
         input: UpdatePersonNameInput,
     ) -> Result<GqlPersonName> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let pid = uuid(&person_id)?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
-        require_tree_resource(&txn, tid, TreeResource::PersonName, id).await?;
-        let name = PersonNameRepo::update(
-            &txn,
-            id,
-            input.name_type.map(|nt| nt.into()),
-            PersonNamePiecesPatch {
-                given_names: patch(input.given_names),
-                surname: patch(input.surname),
-                surname_prefix: patch(input.surname_prefix),
-                prefix: patch(input.prefix),
-                suffix: patch(input.suffix),
-                nickname: patch(input.nickname),
-            },
-            input.is_primary,
-            input.sort_order,
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let name = person_name::update_person_name(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&person_id)?,
+            uuid(&id)?,
+            input.into(),
         )
         .await?;
-        let affected = invalidation::affected_persons(&txn, name.person_id).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::update(tid, AuditEntity::PersonName, id)
-            .person(pid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(name.into())
     }
 
-    /// Delete a person name (hard delete).
+    /// Delete a name of a person (hard delete); a name of somebody else is
+    /// not found.
     async fn delete_person_name(
         &self,
         ctx: &Context<'_>,
@@ -359,24 +286,15 @@ impl MutationRoot {
         person_id: ID,
         id: ID,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let pid = uuid(&person_id)?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
-        require_tree_resource(&txn, tid, TreeResource::PersonName, id).await?;
-        PersonNameRepo::delete(&txn, id).await?;
-        let affected = invalidation::affected_persons(&txn, pid).await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::delete(tid, AuditEntity::PersonName, id)
-            .person(pid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        person_name::delete_person_name(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&person_id)?,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -1245,10 +1163,6 @@ impl MutationRoot {
         Ok(deleted)
     }
 
-    /// Make a media link the person's profile image, or clear the flag.
-    ///
-    /// Setting one clears the person's others in the same statement, so the
-    /// tree never shows two stars. Rebuilds the person's projection, since the
     /// Choose what represents a person: a whole media, a region of one, or
     /// nothing.
     ///
@@ -1262,7 +1176,7 @@ impl MutationRoot {
         media_id: Option<ID>,
         vignette_id: Option<ID>,
     ) -> Result<GqlPerson> {
-        let request = crate::rest::dto::SetPortraitRequest {
+        let choice = crate::service::portrait::PortraitChoice {
             media_id: opt_uuid(media_id)?,
             vignette_id: opt_uuid(vignette_id)?,
         };
@@ -1271,7 +1185,7 @@ impl MutationRoot {
             profiles_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             uuid(&person_id)?,
-            request,
+            choice,
         )
         .await?;
         Ok(person.into())

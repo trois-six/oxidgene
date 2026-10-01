@@ -13,7 +13,6 @@ use uuid::Uuid;
 #[derive(Clone, Copy)]
 pub(crate) enum TreeResource {
     Person,
-    PersonName,
     Family,
     FamilySpouse,
     FamilyChild,
@@ -32,10 +31,6 @@ impl TreeResource {
     fn query(self) -> (&'static str, &'static str) {
         match self {
             Self::Person => ("person r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::PersonName => (
-                "person_name r JOIN person p ON p.id = r.person_id",
-                "p.tree_id = {tree} AND p.deleted_at IS NULL",
-            ),
             Self::Family => ("family r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
             Self::FamilySpouse => (
                 "family_spouse r JOIN family f ON f.id = r.family_id",
@@ -72,7 +67,6 @@ impl TreeResource {
     fn entity(self) -> &'static str {
         match self {
             Self::Person => "Person",
-            Self::PersonName => "PersonName",
             Self::Family => "Family",
             Self::FamilySpouse => "FamilySpouse",
             Self::FamilyChild => "FamilyChild",

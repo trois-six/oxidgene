@@ -36,7 +36,7 @@ mod source;
 mod tree;
 mod vignette;
 
-pub use ancestry::{AncestryRepo, FamilyLink};
+pub use ancestry::{AncestryRepo, FamilyLink, MAX_GENERATIONS};
 pub use background_job::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
 };

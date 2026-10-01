@@ -41,7 +41,6 @@ use crate::rest::dto::{
     SourceDictionaryEntry,
 };
 use crate::rest::error::ErrorBody;
-use crate::rest::person::resolve_sosa_number;
 use crate::service::relation_labels::load_relation_labels;
 use crate::service::scope::{TreeResource, require_tree_resource};
 
@@ -323,7 +322,7 @@ impl OxidGeneMcp {
         let p = params.0;
         respond("get_person_by_sosa", async {
             self.tree(p.tree_id).await?;
-            let person = resolve_sosa_number(&self.db, p.tree_id, p.number)
+            let person = crate::service::person::person_by_sosa(&self.db, p.tree_id, p.number)
                 .await?
                 .ok_or(OxidGeneError::NotFound {
                     entity: "Person (by SOSA number)",

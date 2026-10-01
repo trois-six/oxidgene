@@ -160,7 +160,7 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/persons` | List persons (cursor-paginated, filterable) |
+| `GET` | `/trees/{tree_id}/persons?search=` | List persons (cursor-paginated); `search` keeps those with a given name, surname or nickname containing it (GraphQL `persons(search:)`) |
 | `POST` | `/trees/{tree_id}/persons` | Create a person |
 | `GET` | `/trees/{tree_id}/persons/search` | Server-side person search with structured filters, sorting, and offset pagination (see below) |
 | `GET` | `/trees/{tree_id}/persons/recently-modified?limit=` | The persons modified most recently, newest first, as `SearchEntry` rows (see below) |
@@ -172,8 +172,8 @@ Used by: [Homepage](ui-home.md) (tree list, create, duplicate, delete)
 | `GET` | `/trees/{tree_id}/persons/{person_id}/homonyms` | List the other persons bearing the same name, as `SearchEntry` rows (see below) |
 | `POST` | `/trees/{tree_id}/persons/{person_id}/distinct` | Record that the person differs from `{person_ids}`; `204` |
 | `POST` | `/trees/{tree_id}/persons/{person_id}/merge` | Merge `{duplicate_id, choices?}` into the path's person, which is kept; returns the kept `Person` |
-| `GET` | `/trees/{tree_id}/persons/{person_id}/ancestors` | Get ancestors (depth param) |
-| `GET` | `/trees/{tree_id}/persons/{person_id}/descendants` | Get descendants (depth param) |
+| `GET` | `/trees/{tree_id}/persons/{person_id}/ancestors?max_depth=` | Get ancestors as `{ person_id, depth }`, each at its shortest distance; `max_depth` is 1–64 generations, 64 by default, `validation_error` otherwise |
+| `GET` | `/trees/{tree_id}/persons/{person_id}/descendants?max_depth=` | Get descendants, likewise |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/kinship/{other_person_id}` | Every way found to go from the person to the other: blood relationships, or the shortest paths through unions (see below) |
 | `POST` | `/trees/{tree_id}/relation-labels` | Load names and spouse links for bounded `person_ids` and `family_ids` sets |
 
@@ -275,8 +275,8 @@ Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Moda
 |---|---|---|
 | `GET` | `/trees/{tree_id}/persons/{person_id}/names` | List names |
 | `POST` | `/trees/{tree_id}/persons/{person_id}/names` | Add a name |
-| `PUT` | `/trees/{tree_id}/persons/{person_id}/names/{name_id}` | Update a name |
-| `DELETE` | `/trees/{tree_id}/persons/{person_id}/names/{name_id}` | Delete a name |
+| `PUT` | `/trees/{tree_id}/persons/{person_id}/names/{name_id}` | Update a name; a name of another person is `not_found` |
+| `DELETE` | `/trees/{tree_id}/persons/{person_id}/names/{name_id}` | Delete a name; a name of another person is `not_found` |
 
 ### Families
 

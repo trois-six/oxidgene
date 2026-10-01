@@ -9,18 +9,44 @@
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{ImageCrop, ImageSource, Person, is_remote_url};
+use oxidgene_core::types::{ImageCrop, ImageSource, Person, Portrait, is_remote_url};
 use oxidgene_db::repo::{PersonRepo, PortraitRow};
 use sea_orm::DatabaseConnection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
-use crate::rest::dto::SetPortraitRequest;
 use crate::service::history::Change;
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
 
 const MAX_PORTRAITS_PER_REQUEST: usize = 1_024;
+
+/// What is to represent a person: a whole media, a region of one — a face in
+/// a group photograph — or, both absent, nothing.
+///
+/// At most one of the two may be given.
+#[derive(Debug, Default, Deserialize)]
+pub struct PortraitChoice {
+    #[serde(default)]
+    pub media_id: Option<Uuid>,
+    /// A region of a larger image.
+    #[serde(default)]
+    pub vignette_id: Option<Uuid>,
+}
+
+impl PortraitChoice {
+    /// The choice as one value, refusing the state the model cannot hold.
+    fn portrait(&self) -> Result<Portrait, OxidGeneError> {
+        match (self.media_id, self.vignette_id) {
+            (Some(_), Some(_)) => Err(OxidGeneError::Validation(
+                "a portrait is a media or a vignette, never both".to_string(),
+            )),
+            (Some(id), None) => Ok(Portrait::Media(id)),
+            (None, Some(id)) => Ok(Portrait::Vignette(id)),
+            (None, None) => Ok(Portrait::None),
+        }
+    }
+}
 
 /// Choose what represents person `person_id` of `tree_id`: a whole media, a
 /// region of one, or nothing. Every record named must belong to the tree.
@@ -29,14 +55,14 @@ pub async fn set_person_portrait(
     profiles: &ProfileService,
     tree_id: Uuid,
     person_id: Uuid,
-    request: SetPortraitRequest,
+    choice: PortraitChoice,
 ) -> Result<Person, OxidGeneError> {
-    let portrait = request.portrait().map_err(OxidGeneError::Validation)?;
+    let portrait = choice.portrait()?;
     let txn = begin_tx(db).await?;
     for (resource, id) in [
         (TreeResource::Person, Some(person_id)),
-        (TreeResource::Media, request.media_id),
-        (TreeResource::Vignette, request.vignette_id),
+        (TreeResource::Media, choice.media_id),
+        (TreeResource::Vignette, choice.vignette_id),
     ] {
         if let Some(id) = id {
             require_tree_resource(&txn, tree_id, resource, id).await?;

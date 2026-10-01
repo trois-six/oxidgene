@@ -1,187 +1,79 @@
 //! REST handlers for Person CRUD operations.
 
-use crate::profile::invalidation;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use crate::service::duplicates;
-use crate::service::history::{self, Change};
+use crate::service::history;
 use crate::service::kinship;
+use crate::service::person::{self, Lineage, NewPerson, PersonPatch};
+use crate::service::portrait::{self, PortraitChoice, PortraitImage};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_core::enums::{ChildType, SpouseRole};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::history::AuditEntity;
-use oxidgene_db::repo::{
-    AncestryRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, PaginationParams, PersonRepo,
-    PersonSearchFilters, TreeRepo,
-};
-use sea_orm::DatabaseConnection;
+use oxidgene_core::projection::{SearchEntry, SearchResult};
+use oxidgene_core::types::{AncestryLink, Connection, Kinship, Person};
+use oxidgene_db::repo::{PaginationParams, PersonRepo, PersonSearchFilters, PortraitRow};
 use uuid::Uuid;
 
 use super::dto::{
-    AncestryQuery, CreatePersonRequest, MarkPersonsDistinctRequest, MergePersonRequest,
-    PaginationQuery, PersonDetailResponse, PersonSearchQuery, PortraitImagesRequest,
-    RecentlyModifiedQuery, UpdatePersonRequest,
+    AncestryQuery, MarkPersonsDistinctRequest, MergePersonRequest, PersonDetailResponse,
+    PersonListQuery, PersonSearchQuery, PortraitImagesRequest, RecentlyModifiedQuery,
 };
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::scope::{begin_tx, commit_tx};
 
-/// Walks down from the tree's SOSA root to find the person at SOSA number
-/// `number` (root = 1, father = 2n, mother = 2n+1). Returns `Ok(None)` if
-/// the tree has no SOSA root configured, `number` is 0, or the chain breaks
-/// before reaching `number` (a missing parent along the path).
-pub(crate) async fn resolve_sosa_number(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    number: u64,
-) -> Result<Option<oxidgene_core::types::Person>, OxidGeneError> {
-    if number == 0 {
-        return Ok(None);
-    }
-    let tree = TreeRepo::get(db, tree_id).await?;
-    let Some(root) = tree.sosa_root_person_id else {
-        return Ok(None);
-    };
-    if number == 1 {
-        return PersonRepo::get(db, root).await.map(Some);
-    }
-
-    // Bits of `number` after the leading 1, MSB-first: each one selects the
-    // father (0) or mother (1) edge for the next step down from `root`.
-    //
-    // One step is two small reads — the families the current person is a
-    // child of, and that family's spouses — so a lookup costs a few dozen
-    // indexed queries at most instead of loading the tree's whole family
-    // structure (half a second on a 40 000-person tree).
-    let msb = 63 - number.leading_zeros();
-    let mut current = root;
-    for i in (0..msb).rev() {
-        let bit = (number >> i) & 1;
-        let memberships = FamilyChildRepo::list_by_person(db, current).await?;
-        let candidates: Vec<Uuid> = memberships.iter().map(|c| c.family_id).collect();
-        let live = FamilyRepo::live_ids(db, &candidates).await?;
-        // The birth family when the person has several (an adoptive one
-        // beside it); otherwise whichever family they belong to.
-        let Some(family_id) = memberships
-            .iter()
-            .filter(|c| live.contains(&c.family_id))
-            .min_by_key(|c| c.child_type != ChildType::Biological)
-            .map(|c| c.family_id)
-        else {
-            return Ok(None);
-        };
-        let (mut father, mut mother) = (None, None);
-        for spouse in FamilySpouseRepo::list_by_families(db, &[family_id]).await? {
-            match spouse.role {
-                SpouseRole::Husband => father = Some(spouse.person_id),
-                SpouseRole::Wife => mother = Some(spouse.person_id),
-                SpouseRole::Partner => {}
-            }
-        }
-        current = match (bit, father, mother) {
-            (0, Some(f), _) => f,
-            (1, _, Some(m)) => m,
-            _ => return Ok(None),
-        };
-    }
-    PersonRepo::get(db, current).await.map(Some)
-}
-
 /// GET /api/v1/trees/:tree_id/persons
+///
+/// `search` keeps the persons with a name — given names, surname or
+/// nickname — containing it.
 pub async fn list_persons(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Query(query): Query<PaginationQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+    Query(query): Query<PersonListQuery>,
+) -> Result<Json<Connection<Person>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let connection = PersonRepo::list(&state.db, tree_id, &params)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(connection).unwrap()))
+    let persons =
+        PersonRepo::list_filtered(&state.db, tree_id, query.search.as_deref(), &params).await?;
+    Ok(Json(persons))
 }
 
 /// POST /api/v1/trees/:tree_id/persons
 pub async fn create_person(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<CreatePersonRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let id = Uuid::now_v7();
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let person = PersonRepo::create(&txn, id, tree_id, body.sex)
-        .await
-        .map_err(ApiError::from)?;
-    // Build the projection for the new person (not linked to any family yet).
-    state
-        .profiles
-        .rebuild_person(&txn, tree_id, id)
-        .await
-        .map_err(ApiError)?;
-    Change::create(tree_id, AuditEntity::Person, id)
-        .person(id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(person).unwrap()),
-    ))
+    Json(body): Json<NewPerson>,
+) -> Result<(StatusCode, Json<Person>), ApiError> {
+    let person = person::create_person(&state.db, &state.profiles, tree_id, body).await?;
+    Ok((StatusCode::CREATED, Json(person)))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/:person_id
 pub async fn get_person(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let person = PersonRepo::get_in_tree(&state.db, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
+) -> Result<Json<PersonDetailResponse>, ApiError> {
+    let person = PersonRepo::get_in_tree(&state.db, tree_id, person_id).await?;
     let sosa_number =
-        crate::service::person_detail::compute_sosa_number(&state.db, tree_id, person_id)
-            .await
-            .map_err(ApiError::from)?;
-    Ok(Json(
-        serde_json::to_value(PersonDetailResponse {
-            person,
-            sosa_number,
-        })
-        .unwrap(),
-    ))
+        crate::service::person_detail::compute_sosa_number(&state.db, tree_id, person_id).await?;
+    Ok(Json(PersonDetailResponse {
+        person,
+        sosa_number,
+    }))
 }
 
 /// PUT /api/v1/trees/:tree_id/persons/:person_id
 pub async fn update_person(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<UpdatePersonRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    PersonRepo::get_in_tree(&txn, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
-    let person = PersonRepo::update(&txn, person_id, body.sex, body.privacy)
-        .await
-        .map_err(ApiError::from)?;
-    let affected = invalidation::affected_persons(&txn, person_id)
-        .await
-        .map_err(ApiError)?;
-    state
-        .profiles
-        .invalidate_for_mutation(&txn, tree_id, &affected)
-        .await
-        .map_err(ApiError)?;
-    Change::update(tree_id, AuditEntity::Person, person_id)
-        .person(person_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(person).unwrap()))
+    Json(body): Json<PersonPatch>,
+) -> Result<Json<Person>, ApiError> {
+    let person =
+        person::update_person(&state.db, &state.profiles, tree_id, person_id, body).await?;
+    Ok(Json(person))
 }
 
 /// DELETE /api/v1/trees/:tree_id/persons/:person_id
@@ -189,26 +81,7 @@ pub async fn delete_person(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    PersonRepo::get_in_tree(&txn, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
-    PersonRepo::delete(&txn, person_id)
-        .await
-        .map_err(ApiError::from)?;
-    // Drops the person's projection + search row and refreshes the relatives
-    // that referenced them.
-    state
-        .profiles
-        .invalidate_for_person_delete(&txn, tree_id, person_id)
-        .await
-        .map_err(ApiError)?;
-    Change::delete(tree_id, AuditEntity::Person, person_id)
-        .person(person_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    person::delete_person(&state.db, &state.profiles, tree_id, person_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -220,16 +93,9 @@ pub async fn delete_person(
 pub async fn list_homonyms(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    PersonRepo::get_in_tree(&state.db, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
-    let homonyms = state
-        .profiles
-        .homonyms(tree_id, person_id)
-        .await
-        .map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(homonyms).unwrap()))
+) -> Result<Json<Vec<SearchEntry>>, ApiError> {
+    PersonRepo::get_in_tree(&state.db, tree_id, person_id).await?;
+    Ok(Json(state.profiles.homonyms(tree_id, person_id).await?))
 }
 
 /// POST /api/v1/trees/:tree_id/persons/:person_id/distinct
@@ -241,11 +107,9 @@ pub async fn mark_persons_distinct(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MarkPersonsDistinctRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    duplicates::mark_distinct(&txn, tree_id, person_id, &body.person_ids)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    let txn = begin_tx(&state.db).await?;
+    duplicates::mark_distinct(&txn, tree_id, person_id, &body.person_ids).await?;
+    commit_tx(txn).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -257,8 +121,8 @@ pub async fn merge_persons(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MergePersonRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
+) -> Result<Json<Person>, ApiError> {
+    let txn = begin_tx(&state.db).await?;
     let person = duplicates::merge_persons(
         &txn,
         &state.profiles,
@@ -267,10 +131,9 @@ pub async fn merge_persons(
         body.duplicate_id,
         &body.choices.into(),
     )
-    .await
-    .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(person).unwrap()))
+    .await?;
+    commit_tx(txn).await?;
+    Ok(Json(person))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/:person_id/ancestors
@@ -278,14 +141,16 @@ pub async fn get_ancestors(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    PersonRepo::get_in_tree(&state.db, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
-    let ancestors = AncestryRepo::ancestors(&state.db, person_id, query.max_depth)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(ancestors).unwrap()))
+) -> Result<Json<Vec<AncestryLink>>, ApiError> {
+    let ancestors = person::lineage(
+        &state.db,
+        tree_id,
+        person_id,
+        Lineage::Ancestors,
+        query.max_depth,
+    )
+    .await?;
+    Ok(Json(ancestors))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/:person_id/descendants
@@ -293,14 +158,16 @@ pub async fn get_descendants(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<AncestryQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    PersonRepo::get_in_tree(&state.db, tree_id, person_id)
-        .await
-        .map_err(ApiError::from)?;
-    let descendants = AncestryRepo::descendants(&state.db, person_id, query.max_depth)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(descendants).unwrap()))
+) -> Result<Json<Vec<AncestryLink>>, ApiError> {
+    let descendants = person::lineage(
+        &state.db,
+        tree_id,
+        person_id,
+        Lineage::Descendants,
+        query.max_depth,
+    )
+    .await?;
+    Ok(Json(descendants))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/:person_id/kinship/:other_person_id
@@ -311,7 +178,7 @@ pub async fn get_descendants(
 pub async fn get_kinship(
     State(state): State<AppState>,
     Path((tree_id, person_id, other_person_id)): Path<(Uuid, Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Kinship>, ApiError> {
     let kinship = kinship::find_kinship(
         &state.db,
         &state.profiles,
@@ -319,16 +186,14 @@ pub async fn get_kinship(
         person_id,
         other_person_id,
     )
-    .await
-    .map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(kinship).unwrap()))
+    .await?;
+    Ok(Json(kinship))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/search?q=...&limit=...&offset=...
 ///
-/// Server-side free-text person search (Sprint E.6): accent-folded
-/// multi-word matching against the `person_search_fts` table (SQLite FTS5
-/// virtual table / plain PostgreSQL table). Returns a `SearchResult` with
+/// Server-side free-text person search: accent-folded multi-word matching
+/// against the `person_search_fts` table. Returns a `SearchResult` with
 /// display-ready entries and a total count. An empty or missing `q` lists
 /// all persons sorted by name (browse mode).
 pub async fn search_persons(
@@ -336,7 +201,7 @@ pub async fn search_persons(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<PersonSearchQuery>,
     Query(filters): Query<PersonSearchFilters>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<SearchResult>, ApiError> {
     let results = state
         .profiles
         .search_filtered(
@@ -347,9 +212,8 @@ pub async fn search_persons(
             query.limit.unwrap_or(SEARCH_DEFAULT_LIMIT),
             query.offset.unwrap_or(0),
         )
-        .await
-        .map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(results).unwrap()))
+        .await?;
+    Ok(Json(results))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/recently-modified
@@ -359,16 +223,15 @@ pub async fn list_recently_modified(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<RecentlyModifiedQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Vec<SearchEntry>>, ApiError> {
     let persons = history::recently_modified_persons(
         &state.db,
         &state.profiles,
         tree_id,
         query.limit.unwrap_or(history::RECENT_PERSONS_DEFAULT_LIMIT),
     )
-    .await
-    .map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(persons).unwrap()))
+    .await?;
+    Ok(Json(persons))
 }
 
 /// GET /api/v1/trees/:tree_id/persons/sosa/:number
@@ -379,64 +242,43 @@ pub async fn list_recently_modified(
 pub async fn get_person_by_sosa(
     State(state): State<AppState>,
     Path((tree_id, number)): Path<(Uuid, u64)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let person = resolve_sosa_number(&state.db, tree_id, number)
-        .await
-        .map_err(ApiError::from)?
+) -> Result<Json<PersonDetailResponse>, ApiError> {
+    let person = person::person_by_sosa(&state.db, tree_id, number)
+        .await?
         .ok_or(ApiError(OxidGeneError::NotFound {
             entity: "Person (by SOSA number)",
             id: tree_id,
         }))?;
-    Ok(Json(
-        serde_json::to_value(PersonDetailResponse {
-            person,
-            sosa_number: Some(number),
-        })
-        .unwrap(),
-    ))
+    Ok(Json(PersonDetailResponse {
+        person,
+        sosa_number: Some(number),
+    }))
 }
 
 /// PUT /api/v1/trees/:tree_id/persons/:person_id/portrait
 ///
 /// Choose what represents a person: a whole media, a region of one — a face in
 /// a group photograph — or nothing.
-///
-/// One write on the person. "At most one portrait" is a property of that row
-/// rather than an invariant spanning the media links, so nothing has to be
-/// cleared first and no failure between two statements can leave two.
 pub async fn set_person_portrait(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<super::dto::SetPortraitRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let person = crate::service::portrait::set_person_portrait(
-        &state.db,
-        &state.profiles,
-        tree_id,
-        person_id,
-        body,
-    )
-    .await
-    .map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(person).unwrap()))
+    Json(body): Json<PortraitChoice>,
+) -> Result<Json<Person>, ApiError> {
+    let person =
+        portrait::set_person_portrait(&state.db, &state.profiles, tree_id, person_id, body).await?;
+    Ok(Json(person))
 }
 
 /// GET /api/v1/trees/:tree_id/portraits
 ///
-/// Every person's portrait in one request, as (person, media, vignette).
-///
-/// A pedigree draws a hundred cards and a profile page draws one avatar, both
-/// from the same answer. Before the portrait moved onto the person this was
-/// read out of the tree-wide media-link list — every link in the tree shipped
-/// so that a few of them could be recognised as portraits.
+/// Every person's portrait in one request, as (person, media, vignette): a
+/// pedigree draws a hundred cards and a profile page one avatar, both from
+/// the same answer.
 pub async fn list_portraits(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let rows = PersonRepo::list_portraits(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(rows).unwrap()))
+) -> Result<Json<Vec<PortraitRow>>, ApiError> {
+    Ok(Json(PersonRepo::list_portraits(&state.db, tree_id).await?))
 }
 
 /// POST /api/v1/trees/:tree_id/portrait-images
@@ -448,10 +290,7 @@ pub async fn load_portrait_images(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Json(body): Json<PortraitImagesRequest>,
-) -> Result<Json<Vec<crate::service::portrait::PortraitImage>>, ApiError> {
-    let images =
-        crate::service::portrait::load_portrait_images(&state.db, tree_id, &body.person_ids)
-            .await
-            .map_err(ApiError::from)?;
+) -> Result<Json<Vec<PortraitImage>>, ApiError> {
+    let images = portrait::load_portrait_images(&state.db, tree_id, &body.person_ids).await?;
     Ok(Json(images))
 }

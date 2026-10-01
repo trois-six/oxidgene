@@ -194,6 +194,23 @@ pub struct UpdatePersonInput {
     pub privacy: Option<GqlPrivacy>,
 }
 
+impl From<CreatePersonInput> for crate::service::person::NewPerson {
+    fn from(input: CreatePersonInput) -> Self {
+        Self {
+            sex: input.sex.into(),
+        }
+    }
+}
+
+impl From<UpdatePersonInput> for crate::service::person::PersonPatch {
+    fn from(input: UpdatePersonInput) -> Self {
+        Self {
+            sex: input.sex.map(Into::into),
+            privacy: input.privacy.map(Into::into),
+        }
+    }
+}
+
 // ── PersonName Inputs ────────────────────────────────────────────────
 
 /// Input for adding or updating a person name.
@@ -228,6 +245,38 @@ pub struct UpdatePersonNameInput {
     pub nickname: MaybeUndefined<String>,
     pub is_primary: Option<bool>,
     pub sort_order: Option<i32>,
+}
+
+impl From<PersonNameInput> for crate::service::person_name::NewPersonName {
+    fn from(input: PersonNameInput) -> Self {
+        Self {
+            name_type: input.name_type.into(),
+            given_names: input.given_names,
+            surname: input.surname,
+            surname_prefix: input.surname_prefix,
+            prefix: input.prefix,
+            suffix: input.suffix,
+            nickname: input.nickname,
+            is_primary: input.is_primary,
+            sort_order: input.sort_order.unwrap_or(0),
+        }
+    }
+}
+
+impl From<UpdatePersonNameInput> for crate::service::person_name::PersonNamePatch {
+    fn from(input: UpdatePersonNameInput) -> Self {
+        Self {
+            name_type: input.name_type.map(Into::into),
+            given_names: patch(input.given_names),
+            surname: patch(input.surname),
+            surname_prefix: patch(input.surname_prefix),
+            prefix: patch(input.prefix),
+            suffix: patch(input.suffix),
+            nickname: patch(input.nickname),
+            is_primary: input.is_primary,
+            sort_order: input.sort_order,
+        }
+    }
 }
 
 // ── Family Inputs ────────────────────────────────────────────────────

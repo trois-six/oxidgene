@@ -1,9 +1,7 @@
 //! Request/response DTOs for REST endpoints.
 
 use oxidgene_core::types::{Place, Source};
-use oxidgene_core::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
-};
+use oxidgene_core::{Calendar, ChildType, Confidence, DateQualifier, EventType, SpouseRole};
 use serde::{Deserialize, Serialize};
 
 use crate::service::patch::double_option;
@@ -113,17 +111,14 @@ pub struct PersonDetailResponse {
     pub sosa_number: Option<u64>,
 }
 
-/// Request body for creating a person.
+/// Query parameters for listing persons: pagination, and a name filter.
 #[derive(Debug, Deserialize)]
-pub struct CreatePersonRequest {
-    pub sex: Sex,
-}
-
-/// Request body for updating a person.
-#[derive(Debug, Deserialize)]
-pub struct UpdatePersonRequest {
-    pub sex: Option<Sex>,
-    pub privacy: Option<Privacy>,
+pub struct PersonListQuery {
+    pub first: Option<u64>,
+    pub after: Option<String>,
+    /// Keep the persons with a name — given names, surname or nickname —
+    /// containing this.
+    pub search: Option<String>,
 }
 
 /// Request body for recording that a person differs from their homonyms.
@@ -167,51 +162,6 @@ impl From<MergeChoicesBody> for crate::service::duplicates::MergeChoices {
             sex_from_duplicate: body.sex_from_duplicate,
         }
     }
-}
-
-// ── PersonName DTOs ──────────────────────────────────────────────────
-
-/// Request body for creating a person name.
-#[derive(Debug, Deserialize)]
-pub struct CreatePersonNameRequest {
-    pub name_type: NameType,
-    pub given_names: Option<String>,
-    /// The surname root, particle excluded.
-    ///
-    /// The server stores this verbatim — it does not try to detect a particle
-    /// hiding in it. Callers that hold a full surname should split it with
-    /// `oxidgene_core::types::split_surname_particle` first, as the UI does.
-    pub surname: Option<String>,
-    /// The surname particle, GEDCOM `SPFX` ("de la", "van der").
-    #[serde(default)]
-    pub surname_prefix: Option<String>,
-    pub prefix: Option<String>,
-    pub suffix: Option<String>,
-    pub nickname: Option<String>,
-    pub is_primary: bool,
-    #[serde(default)]
-    pub sort_order: i32,
-}
-
-/// Request body for updating a person name.
-#[derive(Debug, Deserialize)]
-pub struct UpdatePersonNameRequest {
-    pub name_type: Option<NameType>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub given_names: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub surname: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub surname_prefix: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub prefix: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub suffix: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub nickname: Option<Option<String>>,
-    pub is_primary: Option<bool>,
-    #[serde(default)]
-    pub sort_order: Option<i32>,
 }
 
 // ── Family DTOs ──────────────────────────────────────────────────────
@@ -639,33 +589,6 @@ pub struct MediaLinkListQuery {
     pub entity_id: Option<uuid::Uuid>,
     /// Look the other way round: the links of one media.
     pub media_id: Option<uuid::Uuid>,
-}
-
-/// Request body for choosing what represents a person.
-///
-/// At most one of the two may be given. Both absent clears the portrait, which
-/// is how "use the silhouette again" is said.
-#[derive(Debug, Deserialize)]
-pub struct SetPortraitRequest {
-    #[serde(default)]
-    pub media_id: Option<uuid::Uuid>,
-    /// A region of a larger image — a face in a group photograph.
-    #[serde(default)]
-    pub vignette_id: Option<uuid::Uuid>,
-}
-
-impl SetPortraitRequest {
-    /// Read the body as one value, refusing the state the model cannot hold.
-    pub fn portrait(&self) -> Result<oxidgene_core::types::Portrait, String> {
-        match (self.media_id, self.vignette_id) {
-            (Some(_), Some(_)) => {
-                Err("a portrait is a media or a vignette, never both".to_string())
-            }
-            (Some(id), None) => Ok(oxidgene_core::types::Portrait::Media(id)),
-            (None, Some(id)) => Ok(oxidgene_core::types::Portrait::Vignette(id)),
-            (None, None) => Ok(oxidgene_core::types::Portrait::None),
-        }
-    }
 }
 
 /// A media together with the link that attached it — one gallery tile.

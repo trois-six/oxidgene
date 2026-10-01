@@ -361,3 +361,219 @@ async fn the_tree_list_reports_a_running_import_on_both_surfaces() {
     .await;
     assert_eq!(data["tree"]["importJobId"], job_id);
 }
+
+// ── Persons ─────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn the_person_list_filters_by_name_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Names").await;
+    for (given, surname) in [("Alice", "Ashdown"), ("Bernard", "Birchley")] {
+        let person_id = common::new_person(&app, &tree_id).await;
+        common::ok(
+            &app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+            Some(json!({
+                "name_type": "birth",
+                "given_names": given,
+                "surname": surname,
+                "is_primary": true
+            })),
+        )
+        .await;
+    }
+
+    let list = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons?search=Birch"),
+        None,
+    )
+    .await;
+    assert_eq!(list["total_count"], 1, "{list}");
+    let data = common::gql_ok(
+        &app,
+        r#"query($t: ID!) { persons(treeId: $t, search: "Birch") { totalCount } }"#,
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert_eq!(data["persons"]["totalCount"], 1, "{data}");
+
+    let all = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(all["total_count"], 2);
+}
+
+#[tokio::test]
+async fn ancestry_depth_is_bounded_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Depth").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+
+    for depth in ["-1", "0", "65"] {
+        let (status, body) = send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/ancestors?max_depth={depth}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{depth}: {body}");
+        let response = gql(
+            &app,
+            "query($t: ID!, $p: ID!, $d: Int!) { descendants(treeId: $t, personId: $p, maxDepth: $d) { depth } }",
+            json!({ "t": tree_id, "p": person_id, "d": depth.parse::<i32>().unwrap() }),
+        )
+        .await;
+        assert_eq!(
+            gql_error_code(&response),
+            "VALIDATION_ERROR",
+            "{depth}: {response}"
+        );
+    }
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/descendants?max_depth=64"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_sosa_root_of_another_tree_is_no_root() {
+    let db = common::setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree_id = common::new_tree(&app, "Home").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let member = common::new_person(&app, &tree_id).await;
+    let stranger = common::new_person(&app, &other_tree).await;
+
+    // Stored before the settings were checked: the API refuses it now.
+    oxidgene_db::repo::TreeRepo::update(
+        &db,
+        tree_id.parse().unwrap(),
+        oxidgene_db::repo::TreeChanges {
+            sosa_root_person_id: Some(Some(stranger.parse().unwrap())),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/sosa/1"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!) { personBySosa(treeId: $t, number: 1) { id } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert!(data["personBySosa"].is_null(), "{data}");
+    let person = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/persons/{member}"),
+        None,
+    )
+    .await;
+    assert!(person["sosa_number"].is_null(), "{person}");
+}
+
+// ── Person names ────────────────────────────────────────────────────────
+
+/// A person of `tree_id` with one primary name; the person's id and the
+/// name's.
+async fn named_person(app: &axum::Router, tree_id: &str, given: &str) -> (String, String) {
+    let person_id = common::new_person(app, tree_id).await;
+    let name = common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+        Some(json!({
+            "name_type": "birth",
+            "given_names": given,
+            "surname": "Coldwell",
+            "is_primary": true
+        })),
+    )
+    .await;
+    (person_id, name["id"].as_str().unwrap().to_owned())
+}
+
+#[tokio::test]
+async fn a_name_is_only_reachable_through_its_own_person() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Names").await;
+    let (alice, alice_name) = named_person(&app, &tree_id, "Alice").await;
+    let (bernard, _) = named_person(&app, &tree_id, "Bernard").await;
+
+    // Bernard's path, Alice's name.
+    let uri = format!("/api/v1/trees/{tree_id}/persons/{bernard}/names/{alice_name}");
+    let (status, _) = send(&app, Method::PUT, &uri, Some(json!({ "given_names": "X" }))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = send(&app, Method::DELETE, &uri, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let vars = json!({ "t": tree_id, "p": bernard, "n": alice_name });
+    let response = gql(
+        &app,
+        r#"mutation($t: ID!, $p: ID!, $n: ID!) {
+            updatePersonName(treeId: $t, personId: $p, id: $n, input: { givenNames: "X" }) { id }
+        }"#,
+        vars.clone(),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+    let response = gql(
+        &app,
+        "mutation($t: ID!, $p: ID!, $n: ID!) { deletePersonName(treeId: $t, personId: $p, id: $n) }",
+        vars,
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+
+    // Untouched.
+    let profile = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{alice}"),
+        None,
+    )
+    .await;
+    assert_eq!(profile["primary_name"]["given_names"], "Alice", "{profile}");
+
+    // Through its own person, GraphQL rewrites the owner's projection as REST
+    // does.
+    common::gql_ok(
+        &app,
+        r#"mutation($t: ID!, $p: ID!, $n: ID!) {
+            updatePersonName(treeId: $t, personId: $p, id: $n, input: { givenNames: "Alicia" }) { id }
+        }"#,
+        json!({ "t": tree_id, "p": alice, "n": alice_name }),
+    )
+    .await;
+    let profile = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{alice}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        profile["primary_name"]["given_names"], "Alicia",
+        "{profile}"
+    );
+}

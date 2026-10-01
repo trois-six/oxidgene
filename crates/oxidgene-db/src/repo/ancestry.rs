@@ -19,7 +19,7 @@ use uuid::Uuid;
 /// The CTE walks `depth` upwards without ever revisiting a (person, depth)
 /// pair, so a cycle in the family links — which the schema does not prevent,
 /// and which corrupt imports do produce — would otherwise recurse forever.
-const MAX_GENERATIONS: i32 = 64;
+pub const MAX_GENERATIONS: i32 = 64;
 
 /// Maximum SOSA depth representable by the signed 64-bit integers shared by
 /// SQLite and PostgreSQL. The largest number at depth 62 is `i64::MAX`.
