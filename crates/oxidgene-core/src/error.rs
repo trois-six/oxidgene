@@ -14,6 +14,11 @@ pub enum OxidGeneError {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    /// The request conflicts with the current state: another operation holds
+    /// what it needs, or it would break an invariant.
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     /// Database error.
     #[error("Database error: {0}")]
     Database(String),

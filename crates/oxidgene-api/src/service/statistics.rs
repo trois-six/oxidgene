@@ -694,11 +694,7 @@ pub(crate) fn locate_used(
 /// The language a statistics request names places in: English when it
 /// names none, an error for a language the interface does not offer.
 pub fn language(code: Option<&str>) -> Result<ReferenceLang, oxidgene_core::OxidGeneError> {
-    code.map_or(Ok(ReferenceLang::En), |code| {
-        ReferenceLang::from_code(code).ok_or_else(|| {
-            oxidgene_core::OxidGeneError::Validation(format!("unsupported language: {code}"))
-        })
-    })
+    code.map_or(Ok(ReferenceLang::En), crate::reference::language)
 }
 
 /// Loads what a tree's statistics are computed from, and computes them off

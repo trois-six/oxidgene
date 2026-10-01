@@ -10,9 +10,7 @@ use sea_orm::ConnectionTrait;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::reference::{
-    ReferenceKind, ReferenceLang, UNSUPPORTED_LANGUAGE, has_sheet, starts_a_word, suggest_terms,
-};
+use crate::reference::{ReferenceKind, ReferenceLang, has_sheet, starts_a_word, suggest_terms};
 use oxidgene_core::search::fold_words;
 
 pub const DEFAULT_VALUE_SUGGESTIONS: usize = 10;
@@ -114,8 +112,7 @@ fn validated(
     limit: Option<usize>,
     scope: &NameScope,
 ) -> Result<(ReferenceLang, usize), OxidGeneError> {
-    let lang = ReferenceLang::from_code(language)
-        .ok_or_else(|| OxidGeneError::Validation(UNSUPPORTED_LANGUAGE.to_string()))?;
+    let lang = crate::reference::language(language)?;
     let limit = limit.unwrap_or(DEFAULT_VALUE_SUGGESTIONS);
     if !(1..=MAX_VALUE_SUGGESTIONS).contains(&limit) {
         return Err(OxidGeneError::Validation(format!(

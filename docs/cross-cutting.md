@@ -155,14 +155,21 @@ values, never stack traces, SQL, filesystem paths, secrets, or genealogy.
 | 500 | `io_error` | Storage or transport I/O failed unexpectedly. |
 | 500 | `internal_error` | Unclassified server failure. |
 
+Every client error carries this envelope, including a request the framework
+refuses before a handler runs (a malformed identifier or body, an unsupported
+content type, an unknown route). A body that is valid JSON but does not match
+the operation's shape is a `400 validation_error` like any other invalid
+input.
+
 The [API Contract](api.md) identifies which codes each operation can return and
 documents deviations that still exist in the implementation.
 
 ### 4.3 GraphQL mapping
 
 GraphQL uses the standard `errors` array. Each error carries the equivalent
-uppercase code and optional request ID in `extensions`. Mutation payloads do
-not invent a second error model.
+uppercase code (`VALIDATION_ERROR`, `GEDCOM_ERROR`, `NOT_FOUND`, `CONFLICT`,
+`DATABASE_ERROR`, `IO_ERROR`, `INTERNAL_ERROR`) and optional request ID in
+`extensions`. Mutation payloads do not invent a second error model.
 
 ```json
 {

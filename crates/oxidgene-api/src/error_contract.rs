@@ -18,6 +18,11 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "The request is invalid",
             unexpected: false,
         },
+        OxidGeneError::Conflict(_) => ErrorContract {
+            code: "conflict",
+            message: "The request conflicts with the current state",
+            unexpected: false,
+        },
         OxidGeneError::Database(_) => ErrorContract {
             code: "database_error",
             message: "The request could not be completed",

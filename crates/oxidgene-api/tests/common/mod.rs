@@ -77,6 +77,58 @@ pub async fn ok(app: &Router, method: Method, uri: &str, body: Option<Value>) ->
     json
 }
 
+/// Run a GraphQL operation; the whole response, data and errors alike.
+pub async fn gql(app: &Router, query: &str, variables: Value) -> Value {
+    let body = serde_json::json!({ "query": query, "variables": variables });
+    let (status, json) = send(app, Method::POST, "/graphql", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "GraphQL transport failed: {json}");
+    json
+}
+
+/// The `data` of a GraphQL response that must have succeeded.
+pub async fn gql_ok(app: &Router, query: &str, variables: Value) -> Value {
+    let json = gql(app, query, variables).await;
+    assert!(json.get("errors").is_none(), "GraphQL errors: {json}");
+    json["data"].clone()
+}
+
+/// The `extensions.code` of the first error of a GraphQL response, which must
+/// have failed.
+pub fn gql_error_code(response: &Value) -> String {
+    response["errors"][0]["extensions"]["code"]
+        .as_str()
+        .unwrap_or_else(|| panic!("expected a GraphQL error: {response}"))
+        .to_string()
+}
+
+/// A new tree named `name`; its id.
+pub async fn new_tree(app: &Router, name: &str) -> String {
+    ok(
+        app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(serde_json::json!({ "name": name })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// A new person of unknown sex in `tree_id`; its id.
+pub async fn new_person(app: &Router, tree_id: &str) -> String {
+    ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/persons"),
+        Some(serde_json::json!({ "sex": "unknown" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
 // ── Generated trees ─────────────────────────────────────────────────────
 
 const SURNAMES: [&str; 7] = [

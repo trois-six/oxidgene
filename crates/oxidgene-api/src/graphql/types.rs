@@ -12,6 +12,8 @@ use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::scope::uuid;
+
 use oxidgene_db::repo::{
     CitationRepo, EventFilter, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilySpouseRepo,
     MediaLinkRepo, MediaRepo, NoteRepo, PaginationParams, PersonNameRepo, PersonRepo, PlaceRepo,
@@ -783,7 +785,7 @@ impl GqlTree {
     /// Count of persons in this tree.
     async fn person_count(&self, ctx: &Context<'_>) -> Result<i64> {
         let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(self.id.as_str())?;
+        let tree_id = uuid(&self.id)?;
         let params = PaginationParams {
             first: 0,
             after: None,
@@ -795,7 +797,7 @@ impl GqlTree {
     /// Count of families in this tree.
     async fn family_count(&self, ctx: &Context<'_>) -> Result<i64> {
         let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(self.id.as_str())?;
+        let tree_id = uuid(&self.id)?;
         let params = PaginationParams {
             first: 0,
             after: None,
@@ -879,7 +881,7 @@ impl GqlPerson {
     /// All names for this person.
     async fn names(&self, ctx: &Context<'_>) -> Result<Vec<GqlPersonName>> {
         let db = db_from_ctx(ctx);
-        let id = Uuid::parse_str(self.id.as_str())?;
+        let id = uuid(&self.id)?;
         let names = PersonNameRepo::list_by_person(db, id).await?;
         Ok(names.into_iter().map(GqlPersonName::from).collect())
     }
@@ -887,7 +889,7 @@ impl GqlPerson {
     /// Primary name of this person.
     async fn primary_name(&self, ctx: &Context<'_>) -> Result<Option<GqlPersonName>> {
         let db = db_from_ctx(ctx);
-        let id = Uuid::parse_str(self.id.as_str())?;
+        let id = uuid(&self.id)?;
         let names = PersonNameRepo::list_by_person(db, id).await?;
         Ok(names
             .into_iter()
@@ -898,8 +900,8 @@ impl GqlPerson {
     /// Events associated with this person.
     async fn events(&self, ctx: &Context<'_>) -> Result<Vec<GqlEvent>> {
         let db = db_from_ctx(ctx);
-        let person_id = Uuid::parse_str(self.id.as_str())?;
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
+        let person_id = uuid(&self.id)?;
+        let tree_id = uuid(&self.tree_id)?;
         let filter = EventFilter {
             event_type: None,
             person_id: Some(person_id),
@@ -920,9 +922,9 @@ impl GqlPerson {
     /// Families this person belongs to (as spouse).
     async fn families(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamily>> {
         let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
+        let tree_id = uuid(&self.tree_id)?;
         // Get all families for this tree and filter where person is a spouse
-        let person_id = Uuid::parse_str(self.id.as_str())?;
+        let person_id = uuid(&self.id)?;
         let params = PaginationParams {
             first: 100,
             after: None,
@@ -941,8 +943,8 @@ impl GqlPerson {
     /// Citations referencing this person.
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
         let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
-        let person_id = Uuid::parse_str(self.id.as_str())?;
+        let tree_id = uuid(&self.tree_id)?;
+        let person_id = uuid(&self.id)?;
         // Use note repo pattern — list all sources and filter citations by person_id
         // For now, iterate sources. This is acceptable for MVP.
         let source_params = PaginationParams {
@@ -965,8 +967,8 @@ impl GqlPerson {
     /// Media linked to this person.
     async fn media(&self, ctx: &Context<'_>) -> Result<Vec<GqlMedia>> {
         let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
-        let person_id = Uuid::parse_str(self.id.as_str())?;
+        let tree_id = uuid(&self.tree_id)?;
+        let person_id = uuid(&self.id)?;
         let media_params = PaginationParams {
             first: 100,
             after: None,
@@ -985,8 +987,8 @@ impl GqlPerson {
     /// Notes attached to this person.
     async fn notes(&self, ctx: &Context<'_>) -> Result<Vec<GqlNote>> {
         let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
-        let person_id = Uuid::parse_str(self.id.as_str())?;
+        let tree_id = uuid(&self.tree_id)?;
+        let person_id = uuid(&self.id)?;
         let notes =
             NoteRepo::list_by_entity(db, tree_id, Some(person_id), None, None, None, None).await?;
         Ok(notes.into_iter().map(GqlNote::from).collect())
@@ -1111,7 +1113,7 @@ impl GqlFamily {
     /// Spouses in this family.
     async fn spouses(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamilySpouseDetail>> {
         let db = db_from_ctx(ctx);
-        let family_id = Uuid::parse_str(self.id.as_str())?;
+        let family_id = uuid(&self.id)?;
         let spouses = FamilySpouseRepo::list_by_family(db, family_id).await?;
         let mut result = Vec::new();
         for s in spouses {
@@ -1129,7 +1131,7 @@ impl GqlFamily {
     /// Children in this family.
     async fn children(&self, ctx: &Context<'_>) -> Result<Vec<GqlFamilyChildDetail>> {
         let db = db_from_ctx(ctx);
-        let family_id = Uuid::parse_str(self.id.as_str())?;
+        let family_id = uuid(&self.id)?;
         let children = FamilyChildRepo::list_by_family(db, family_id).await?;
         let mut result = Vec::new();
         for c in children {
@@ -1147,8 +1149,8 @@ impl GqlFamily {
     /// Events associated with this family.
     async fn events(&self, ctx: &Context<'_>) -> Result<Vec<GqlEvent>> {
         let db = db_from_ctx(ctx);
-        let family_id = Uuid::parse_str(self.id.as_str())?;
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
+        let family_id = uuid(&self.id)?;
+        let tree_id = uuid(&self.tree_id)?;
         let filter = EventFilter {
             event_type: None,
             person_id: None,
@@ -1266,7 +1268,7 @@ impl GqlEvent {
             return Ok(None);
         };
         let db = db_from_ctx(ctx);
-        let id = Uuid::parse_str(pid.as_str())?;
+        let id = uuid(pid)?;
         match PlaceRepo::get(db, id).await {
             Ok(p) => Ok(Some(GqlPlace::from(p))),
             Err(_) => Ok(None),
@@ -1279,7 +1281,7 @@ impl GqlEvent {
             return Ok(None);
         };
         let db = db_from_ctx(ctx);
-        let id = Uuid::parse_str(pid.as_str())?;
+        let id = uuid(pid)?;
         match PersonRepo::get(db, id).await {
             Ok(p) => Ok(Some(GqlPerson::from(p))),
             Err(_) => Ok(None),
@@ -1292,7 +1294,7 @@ impl GqlEvent {
             return Ok(None);
         };
         let db = db_from_ctx(ctx);
-        let id = Uuid::parse_str(fid.as_str())?;
+        let id = uuid(fid)?;
         match oxidgene_db::repo::FamilyRepo::get(db, id).await {
             Ok(f) => Ok(Some(GqlFamily::from(f))),
             Err(_) => Ok(None),
@@ -1302,8 +1304,8 @@ impl GqlEvent {
     /// Citations for this event.
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
         let db = db_from_ctx(ctx);
-        let event_id = Uuid::parse_str(self.id.as_str())?;
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
+        let event_id = uuid(&self.id)?;
+        let tree_id = uuid(&self.tree_id)?;
         let source_params = PaginationParams {
             first: 100,
             after: None,
@@ -1324,8 +1326,8 @@ impl GqlEvent {
     /// Media linked to this event.
     async fn media(&self, ctx: &Context<'_>) -> Result<Vec<GqlMedia>> {
         let db = db_from_ctx(ctx);
-        let event_id = Uuid::parse_str(self.id.as_str())?;
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
+        let event_id = uuid(&self.id)?;
+        let tree_id = uuid(&self.tree_id)?;
         let media_params = PaginationParams {
             first: 100,
             after: None,
@@ -1344,8 +1346,8 @@ impl GqlEvent {
     /// Notes for this event.
     async fn notes(&self, ctx: &Context<'_>) -> Result<Vec<GqlNote>> {
         let db = db_from_ctx(ctx);
-        let tree_id = Uuid::parse_str(self.tree_id.as_str())?;
-        let event_id = Uuid::parse_str(self.id.as_str())?;
+        let tree_id = uuid(&self.tree_id)?;
+        let event_id = uuid(&self.id)?;
         let notes =
             NoteRepo::list_by_entity(db, tree_id, None, Some(event_id), None, None, None).await?;
         Ok(notes.into_iter().map(GqlNote::from).collect())
@@ -1354,7 +1356,7 @@ impl GqlEvent {
     /// Witnesses (godparents, etc.) linked to this event.
     async fn witnesses(&self, ctx: &Context<'_>) -> Result<Vec<GqlEventWitness>> {
         let db = db_from_ctx(ctx);
-        let event_id = Uuid::parse_str(self.id.as_str())?;
+        let event_id = uuid(&self.id)?;
         let witnesses = EventWitnessRepo::list_by_event(db, event_id).await?;
         Ok(witnesses.into_iter().map(GqlEventWitness::from).collect())
     }
@@ -1401,7 +1403,7 @@ impl GqlEventWitness {
     /// Resolved person for this witness.
     async fn person(&self, ctx: &Context<'_>) -> Result<Option<GqlPerson>> {
         let db = db_from_ctx(ctx);
-        let id = Uuid::parse_str(self.person_id.as_str())?;
+        let id = uuid(&self.person_id)?;
         match PersonRepo::get(db, id).await {
             Ok(p) => Ok(Some(GqlPerson::from(p))),
             Err(_) => Ok(None),
@@ -1541,7 +1543,7 @@ impl GqlSource {
     /// Citations from this source.
     async fn citations(&self, ctx: &Context<'_>) -> Result<Vec<GqlCitation>> {
         let db = db_from_ctx(ctx);
-        let id = Uuid::parse_str(self.id.as_str())?;
+        let id = uuid(&self.id)?;
         let cits = CitationRepo::list_by_source(db, id).await?;
         Ok(cits.into_iter().map(GqlCitation::from).collect())
     }

@@ -3,7 +3,7 @@
 //! record it names belongs to the tree.
 
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_db::repo::db_err;
+use oxidgene_db::repo::{TreeRepo, db_err};
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, Statement,
     TransactionTrait,
@@ -87,6 +87,18 @@ impl TreeResource {
             Self::Vignette => "Vignette",
         }
     }
+}
+
+/// Fail with `NotFound` unless tree `tree_id` exists and is not deleted.
+///
+/// A deleted tree keeps its rows until the background purge removes them, so
+/// every tree-scoped operation checks this first: REST in its tree guard,
+/// GraphQL in each resolver.
+pub async fn require_live_tree(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    TreeRepo::get(db, tree_id).await.map(|_| ())
 }
 
 pub(crate) async fn require_tree_resource(

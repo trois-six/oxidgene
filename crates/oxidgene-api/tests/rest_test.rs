@@ -1754,12 +1754,10 @@ async fn test_ancestors_descendants_empty() {
 async fn test_invalid_uuid_path_returns_400() {
     let app = setup_app().await;
 
-    let (status, _) = send(&app, Method::GET, "/api/v1/trees/not-a-uuid", None).await;
-    // Axum returns 400 for path deserialization failures
-    assert!(
-        status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND,
-        "Expected 400 or 404, got {status}"
-    );
+    let (status, body) = send(&app, Method::GET, "/api/v1/trees/not-a-uuid", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error", "{body}");
+    assert_eq!(body["message"], "The request is invalid");
 }
 
 #[tokio::test]
@@ -1773,13 +1771,45 @@ async fn test_invalid_json_body_returns_error() {
         .body(Body::from("{\"invalid json"))
         .unwrap();
 
-    let response = app.oneshot(request).await.unwrap();
-    let status = response.status();
-    // Axum returns 400 for JSON syntax errors, 422 for deserialization failures
-    assert!(
-        status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY,
-        "Expected 400 or 422, got {status}"
-    );
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).expect("an error envelope");
+    assert_eq!(body["error"], "validation_error", "{body}");
+
+    // Well-formed JSON missing a required field: Axum's `422`, reported as
+    // the contract's `400`.
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(serde_json::json!({ "description": "no name" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "validation_error", "{body}");
+}
+
+#[tokio::test]
+async fn rejections_outside_the_handlers_use_the_error_envelope() {
+    let app = setup_app().await;
+
+    // No JSON content type at all.
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/api/v1/trees")
+        .body(Body::from("{}"))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).expect("an error envelope");
+    assert_eq!(body["error"], "unsupported_media_type", "{body}");
+
+    // A route that does not exist.
+    let (status, body) = send(&app, Method::GET, "/api/v1/no-such-route", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "not_found", "{body}");
 }
 
 // ───────────────────────── Event tests ─────────────────────────

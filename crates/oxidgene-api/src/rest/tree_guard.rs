@@ -25,7 +25,7 @@ use axum::extract::{Request, State};
 use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use oxidgene_db::repo::{BackgroundJobKind, TreeRepo};
+use oxidgene_db::repo::BackgroundJobKind;
 use uuid::Uuid;
 
 use crate::service::background_job::live_job_progress;
@@ -54,8 +54,8 @@ pub async fn require_live_tree(
         // `get` already filters on `deleted_at`, so a soft-deleted tree is a
         // NotFound here just as it is in the tree list. Reusing `ApiError`
         // keeps the body identical to the one the handlers produce.
-        match TreeRepo::get(&state.db, tree_id).await {
-            Ok(_) => {}
+        match crate::service::scope::require_live_tree(&state.db, tree_id).await {
+            Ok(()) => {}
             Err(e @ oxidgene_core::OxidGeneError::NotFound { .. }) => {
                 return ApiError(e).into_response();
             }

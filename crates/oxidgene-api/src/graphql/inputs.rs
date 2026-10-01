@@ -12,6 +12,7 @@
 use async_graphql::{Error, ID, InputObject, MaybeUndefined, Result};
 use std::collections::HashMap;
 
+use super::scope::{uuid, uuids};
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
     GqlGeneanetMediaFidelity, GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex,
@@ -62,14 +63,9 @@ pub struct MergeChoicesInput {
 
 impl MergeChoicesInput {
     pub fn into_choices(self) -> Result<crate::service::duplicates::MergeChoices> {
-        let ids = |ids: Vec<ID>| -> Result<Vec<uuid::Uuid>> {
-            ids.iter()
-                .map(|id| uuid::Uuid::parse_str(id.as_str()).map_err(Into::into))
-                .collect()
-        };
         Ok(crate::service::duplicates::MergeChoices {
-            left_out_events: ids(self.left_out_events)?,
-            left_out_media_links: ids(self.left_out_media_links)?,
+            left_out_events: uuids(&self.left_out_events)?,
+            left_out_media_links: uuids(&self.left_out_media_links)?,
             surname_from_duplicate: self.surname_from_duplicate,
             given_names_from_duplicate: self.given_names_from_duplicate,
             sex_from_duplicate: self.sex_from_duplicate,
@@ -529,17 +525,10 @@ impl TryFrom<ImageSourceInput> for oxidgene_core::types::ImageSource {
                 url: input.url.ok_or_else(|| missing("url"))?,
             },
             GqlImageSourceKind::Thumbnail => Self::Thumbnail {
-                media_id: uuid::Uuid::parse_str(
-                    input.media_id.ok_or_else(|| missing("mediaId"))?.as_str(),
-                )?,
+                media_id: uuid(input.media_id.ok_or_else(|| missing("mediaId"))?)?,
             },
             GqlImageSourceKind::Crop => Self::Crop {
-                vignette_id: uuid::Uuid::parse_str(
-                    input
-                        .vignette_id
-                        .ok_or_else(|| missing("vignetteId"))?
-                        .as_str(),
-                )?,
+                vignette_id: uuid(input.vignette_id.ok_or_else(|| missing("vignetteId"))?)?,
             },
         })
     }

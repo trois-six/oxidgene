@@ -119,7 +119,15 @@ impl BackgroundJobRepo {
         }
         .insert(db)
         .await
-        .map_err(db_err)
+        .map_err(|error| match error.sql_err() {
+            // `idx_background_job_active_tree` lets a tree hold one queued or
+            // running job at a time: a second one is the caller's conflict,
+            // not a database failure.
+            Some(sea_orm::SqlErr::UniqueConstraintViolation(_)) => OxidGeneError::Conflict(
+                "the tree already has an import or export in progress".into(),
+            ),
+            _ => db_err(error),
+        })
     }
 
     pub async fn get_in_tree(

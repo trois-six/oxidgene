@@ -583,6 +583,11 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/api/v1/geneweb", geneweb_routes)
         .nest("/api/v1/reference", reference_routes)
         .route("/api/v1/openapi.json", get(openapi::spec))
+        .fallback(crate::rest::error::unknown_route)
+        // Inside the compression layer, so it reads the response as written.
+        .layer(axum::middleware::map_response(
+            crate::rest::error::envelope_rejections,
+        ))
         .layer(CompressionLayer::new())
         .with_state(state);
 

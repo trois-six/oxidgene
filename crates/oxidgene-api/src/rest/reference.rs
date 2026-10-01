@@ -1,51 +1,64 @@
 //! REST handlers for read-only reference content (occupation sheets,
 //! given-name meanings, the place dictionary). Not tied to a tree — a lookup
 //! by raw value, independent of `AppState`.
+//!
+//! Failures use the error envelope like every other endpoint: an unknown
+//! language or an oversized batch is a `validation_error`, a term without a
+//! sheet a `not_found`.
 
 use axum::Json;
 use axum::extract::{Path, Query};
-use axum::http::StatusCode;
+use oxidgene_core::OxidGeneError;
 use serde::Deserialize;
+use uuid::Uuid;
 
 use super::dto::{PlaceSuggestionQuery, ReferenceTermQuery};
-use crate::reference::{self, ReferenceLang};
+use super::error::ApiError;
+use crate::reference;
 
 #[derive(Debug, Deserialize)]
 pub struct ReferenceTermsRequest {
     terms: Vec<String>,
 }
 
+/// A term that has no sheet. Reference terms are not records, so there is no
+/// identifier to report.
+fn no_sheet(entity: &'static str) -> ApiError {
+    ApiError(OxidGeneError::NotFound {
+        entity,
+        id: Uuid::nil(),
+    })
+}
+
 /// GET /api/v1/reference/:lang/occupations?term=...
 pub async fn occupation(
     Path(lang): Path<String>,
     Query(query): Query<ReferenceTermQuery>,
-) -> Result<Json<reference::OccupationEntry>, StatusCode> {
-    let lang = ReferenceLang::from_code(&lang).ok_or(StatusCode::BAD_REQUEST)?;
+) -> Result<Json<reference::OccupationEntry>, ApiError> {
+    let lang = reference::language(&lang)?;
     reference::lookup_occupation(lang, &query.term)
         .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+        .ok_or_else(|| no_sheet("Occupation sheet"))
 }
 
 /// GET /api/v1/reference/:lang/given-names?term=...
 pub async fn given_name(
     Path(lang): Path<String>,
     Query(query): Query<ReferenceTermQuery>,
-) -> Result<Json<reference::GivenNameEntry>, StatusCode> {
-    let lang = ReferenceLang::from_code(&lang).ok_or(StatusCode::BAD_REQUEST)?;
+) -> Result<Json<reference::GivenNameEntry>, ApiError> {
+    let lang = reference::language(&lang)?;
     reference::lookup_given_name(lang, &query.term)
         .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+        .ok_or_else(|| no_sheet("Given name sheet"))
 }
 
 /// POST /api/v1/reference/:lang/given-names/bundle
 pub async fn given_names(
     Path(lang): Path<String>,
     Json(request): Json<ReferenceTermsRequest>,
-) -> Result<Json<Vec<reference::GivenNameMatch>>, StatusCode> {
-    let lang = ReferenceLang::from_code(&lang).ok_or(StatusCode::BAD_REQUEST)?;
-    if request.terms.len() > reference::MAX_REFERENCE_TERMS {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+) -> Result<Json<Vec<reference::GivenNameMatch>>, ApiError> {
+    let lang = reference::language(&lang)?;
+    reference::check_terms(&request.terms)?;
     Ok(Json(reference::lookup_given_names(lang, &request.terms)))
 }
 
@@ -53,11 +66,9 @@ pub async fn given_names(
 pub async fn occupations(
     Path(lang): Path<String>,
     Json(request): Json<ReferenceTermsRequest>,
-) -> Result<Json<Vec<reference::OccupationMatch>>, StatusCode> {
-    let lang = ReferenceLang::from_code(&lang).ok_or(StatusCode::BAD_REQUEST)?;
-    if request.terms.len() > reference::MAX_REFERENCE_TERMS {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+) -> Result<Json<Vec<reference::OccupationMatch>>, ApiError> {
+    let lang = reference::language(&lang)?;
+    reference::check_terms(&request.terms)?;
     Ok(Json(reference::lookup_occupations(lang, &request.terms)))
 }
 
@@ -65,18 +76,15 @@ pub async fn occupations(
 pub async fn places(
     Path(lang): Path<String>,
     Query(query): Query<PlaceSuggestionQuery>,
-) -> Result<Json<Vec<reference::PlaceSuggestion>>, StatusCode> {
-    let lang = ReferenceLang::from_code(&lang).ok_or(StatusCode::BAD_REQUEST)?;
-    let limit = query.limit.unwrap_or(reference::DEFAULT_PLACE_SUGGESTIONS);
-    if !(1..=reference::MAX_PLACE_SUGGESTIONS).contains(&limit) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+) -> Result<Json<Vec<reference::PlaceSuggestion>>, ApiError> {
+    let lang = reference::language(&lang)?;
+    let limit = reference::place_limit(query.limit)?;
     // The first search decompresses and indexes the dictionary, and every
     // search scans it: kept off the async workers.
     tokio::task::spawn_blocking(move || reference::search_places(lang, &query.q, limit))
         .await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| ApiError(OxidGeneError::Internal("place search failed".into())))
 }
 
 /// GET /api/v1/reference/basemap

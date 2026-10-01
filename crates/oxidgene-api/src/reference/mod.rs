@@ -13,6 +13,7 @@ mod places;
 
 use std::collections::HashSet;
 
+use oxidgene_core::OxidGeneError;
 use serde::Serialize;
 
 pub use basemap::{BasemapCity, BasemapCountry, LocalName, basemap};
@@ -26,6 +27,35 @@ pub use places::{
 };
 
 pub const MAX_REFERENCE_TERMS: usize = 128;
+
+/// The reference language `code` names, or a validation error — the check
+/// every reference lookup starts with, whichever surface asked.
+pub fn language(code: &str) -> Result<ReferenceLang, OxidGeneError> {
+    ReferenceLang::from_code(code)
+        .ok_or_else(|| OxidGeneError::Validation(UNSUPPORTED_LANGUAGE.to_string()))
+}
+
+/// Refuses a batch lookup of more than [`MAX_REFERENCE_TERMS`] terms.
+pub fn check_terms(terms: &[String]) -> Result<(), OxidGeneError> {
+    if terms.len() > MAX_REFERENCE_TERMS {
+        return Err(OxidGeneError::Validation(format!(
+            "at most {MAX_REFERENCE_TERMS} terms are allowed"
+        )));
+    }
+    Ok(())
+}
+
+/// The number of place suggestions to return: `limit`, or the default, as
+/// long as it lies between 1 and [`MAX_PLACE_SUGGESTIONS`].
+pub fn place_limit(limit: Option<usize>) -> Result<usize, OxidGeneError> {
+    let limit = limit.unwrap_or(DEFAULT_PLACE_SUGGESTIONS);
+    if !(1..=MAX_PLACE_SUGGESTIONS).contains(&limit) {
+        return Err(OxidGeneError::Validation(format!(
+            "limit must be between 1 and {MAX_PLACE_SUGGESTIONS}"
+        )));
+    }
+    Ok(limit)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GivenNameMatch {

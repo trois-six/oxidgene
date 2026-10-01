@@ -1,6 +1,6 @@
 //! Error handling: maps `OxidGeneError` to Axum HTTP responses.
 
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
 use serde::Serialize;
@@ -54,10 +54,68 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// Give the documented error envelope to a client error no handler wrote.
+///
+/// Axum's extractors reject a request before the handler runs — an invalid
+/// UUID in the path, a malformed or mistyped JSON body, a missing content
+/// type, a body over the route's limit. Those answers are plain text, which a client parsing
+/// [`ErrorBody`] cannot read. Applied once to the whole REST router, this
+/// rewrites them into the envelope with the code their status stands for;
+/// anything already JSON is left alone. A data error (`422`) is a validation
+/// error like any other and is reported as `400`, the one status the
+/// contract gives it.
+pub async fn envelope_rejections(response: Response) -> Response {
+    let status = response.status();
+    let is_json = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json"));
+    if is_json || !status.is_client_error() {
+        return response;
+    }
+    let (status, code, message) = match status {
+        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => (
+            StatusCode::BAD_REQUEST,
+            "validation_error",
+            "The request is invalid",
+        ),
+        StatusCode::NOT_FOUND => (status, "not_found", "The requested resource was not found"),
+        StatusCode::PAYLOAD_TOO_LARGE => (
+            status,
+            "payload_too_large",
+            "The request exceeds the size limit",
+        ),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => (
+            status,
+            "unsupported_media_type",
+            "The request format is unsupported",
+        ),
+        _ => return response,
+    };
+    let body = ErrorBody {
+        error: code.to_string(),
+        message: message.to_string(),
+        request_id: None,
+    };
+    (status, axum::Json(body)).into_response()
+}
+
+/// The answer to a path no route matches: `404 not_found`, in the envelope.
+pub async fn unknown_route() -> Response {
+    let body = ErrorBody {
+        error: "not_found".to_string(),
+        message: "The requested resource was not found".to_string(),
+        request_id: None,
+    };
+    (StatusCode::NOT_FOUND, axum::Json(body)).into_response()
+}
+
 fn status(error: &OxidGeneError) -> StatusCode {
     match error {
         OxidGeneError::NotFound { .. } => StatusCode::NOT_FOUND,
         OxidGeneError::Validation(_) | OxidGeneError::Gedcom(_) => StatusCode::BAD_REQUEST,
+        OxidGeneError::Conflict(_) => StatusCode::CONFLICT,
         OxidGeneError::Database(_) | OxidGeneError::Io(_) | OxidGeneError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }

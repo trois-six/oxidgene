@@ -69,6 +69,13 @@ desktop session handoffs rather than genealogy import or export artifacts.
 - Enums use stable English technical values and are localized only by clients.
 - Tree-scoped IDs from another tree return `not_found` rather than disclosing
   the existence of another tree's resource.
+- A tree-scoped operation naming a tree that does not exist or has been
+  deleted returns `not_found` on both surfaces, reads and writes alike: a
+  deleted tree's rows remain until the background purge removes them, and
+  nothing reads or writes them meanwhile. REST checks this once per request
+  for the whole `/trees/{tree_id}/…` nest; GraphQL at the start of every
+  resolver taking a `treeId`.
+- A malformed identifier is a `validation_error`.
 - Soft-deleted records are excluded by default.
 - User and imported content is returned verbatim and never translated.
 
@@ -96,7 +103,12 @@ carry no tree data.
 Error envelopes, stable codes, safe messages, request IDs, logging, and
 anonymization follow [Cross-cutting Rules §4–5](cross-cutting.md). Neither
 surface returns stack traces, SQL, filesystem paths, credentials, or genealogy
-in error details.
+in error details. A REST request refused before any handler runs — an
+identifier in the path that is not a UUID, a body that is not valid JSON or
+lacks a required field, a missing JSON content type, a body over the route's
+limit, a route that does not exist — receives the same envelope:
+`400 validation_error`, `415 unsupported_media_type`, `413 payload_too_large`
+or `404 not_found`.
 
 Mutations refresh affected projections in the same database transaction as the
 normalized write. A successful response guarantees read-after-write
@@ -833,6 +845,10 @@ imports the format, it does not produce it.
 | `POST` | `/trees/{tree_id}/geneweb/import?filename=name.gw` | Import a GeneWeb `.gw` file. Body is the **raw file bytes** (`application/octet-stream`), not JSON: `.gw` is ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and the switch can happen mid-file, so only the reader can decode it. `filename` (default `import.gw`) is recorded on every family and quoted in warnings. 1 GiB body limit |
 | `GET` | `/trees/{tree_id}/gedcom/export?format=gedcom\|gedzip&merge_occupations=bool&merge_names=bool` | Export tree as GEDCOM text (default) or GEDZIP archive (`application/zip`, includes media files). `merge_occupations` (default `false`) collapses each person's multiple `OCCU` tags back into one, comma-separated. `merge_names` (default `false`) collapses each person's non-primary names into the primary name's `SURN` tag, comma-separated. Both are for importers (e.g. Geneanet) that only support a single profession field / read the first `NAME` structure |
 
+A tree holds at most one queued or running import or export job at a time.
+Starting another while one is active answers `409 conflict` (GraphQL
+`CONFLICT`); the client waits for the running job instead.
+
 The synchronous format endpoints remain supported independent operations. The UI
 uses durable jobs for every file import and every GEDZIP export, regardless of
 size. It polls the job after the single initiating action and automatically
@@ -1019,6 +1035,11 @@ warmed at server and desktop startup so no request pays for it.
 | `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
 | `POST` | `/reference/{lang}/given-names/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
 | `GET` | `/reference/{lang}/places?q=...&limit=...` | Place suggestions from the place dictionary, best first; `limit` defaults to 10, 1–50 accepted, 400 otherwise |
+
+Errors use the shared envelope: an unsupported `lang`, a batch over the
+limit or a `limit` out of range is `400 validation_error`, a term without a
+sheet `404 not_found`. GraphQL reports the first two as `VALIDATION_ERROR`
+and answers a term without a sheet with `null`.
 
 These routes sit at `/api/v1/reference/...`, not under a tree. Used by:
 [Person Profile](ui-person-profile.md) and the place fields

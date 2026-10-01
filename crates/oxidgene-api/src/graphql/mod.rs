@@ -5,6 +5,7 @@ pub mod history;
 pub mod inputs;
 pub mod mutation;
 pub mod query;
+mod scope;
 mod tracing;
 pub mod types;
 
