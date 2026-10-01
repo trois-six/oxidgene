@@ -283,6 +283,31 @@ fn sanitize_file_name(raw: &str) -> String {
     }
 }
 
+/// Vignette `rect` cut out of held medium `media`, whose bytes are stored
+/// under `storage_key`, as JPEG.
+///
+/// A source too large to decode whole for a crop is cut out of its stored
+/// thumbnail instead, the rectangle scaled to it: a small vignette rather
+/// than a gigabyte decoded on every request (see [`thumbnail::crop`]).
+pub async fn cut_vignette(
+    store: &dyn MediaStore,
+    media: &oxidgene_core::types::Media,
+    storage_key: &str,
+    rect: (i32, i32, i32, i32),
+) -> Result<Vec<u8>, OxidGeneError> {
+    let bytes = store.get(storage_key).await?;
+    if let Ok(cropped) = thumbnail::crop_off_thread(bytes, rect).await? {
+        return Ok(cropped);
+    }
+    let (Some(thumbnail_key), Some(width)) = (media.thumbnail_key.as_deref(), media.width) else {
+        return Err(OxidGeneError::Validation(
+            "image too large to crop".to_string(),
+        ));
+    };
+    let thumbnail = store.get(thumbnail_key).await?;
+    thumbnail::crop_scaled_off_thread(thumbnail, rect, u32::try_from(width).unwrap_or(1)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

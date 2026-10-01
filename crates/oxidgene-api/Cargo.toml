@@ -55,6 +55,9 @@ async-trait = "0.1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 dirs = { workspace = true }
 image = { workspace = true }
+# A vignette of a JPEG too large to decode whole is cut from a reduced-scale
+# decode, which `image` does not offer (see `media::thumbnail::crop`).
+jpeg-decoder = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 object_store = { workspace = true, optional = true }

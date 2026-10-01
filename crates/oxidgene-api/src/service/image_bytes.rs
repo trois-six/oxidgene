@@ -105,10 +105,9 @@ async fn load_crop(
     let media = MediaRepo::get(db, vignette.media_id).await.ok()?;
     let drawable =
         media.tree_id == tree_id && crate::media::thumbnail::can_thumbnail(&media.mime_type);
-    let key = media.storage_key.filter(|_| drawable)?;
-    let bytes = store.get(&key).await.ok()?;
+    let key = media.storage_key.as_deref().filter(|_| drawable)?;
     let rect = (vignette.x, vignette.y, vignette.width, vignette.height);
-    let cropped = crate::media::thumbnail::crop_off_thread(bytes, rect)
+    let cropped = crate::media::cut_vignette(&**store, &media, key, rect)
         .await
         .ok()?;
     Some(data_url("image/jpeg", &cropped))

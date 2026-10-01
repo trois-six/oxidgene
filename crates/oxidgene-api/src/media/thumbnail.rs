@@ -28,6 +28,17 @@ pub const THUMBNAIL_MAX_EDGE: u32 = 400;
 /// to something under a gigabyte, a crafted bomb to many times one.
 const MAX_DECODED_BYTES: u64 = 1024 * 1024 * 1024;
 
+/// Ceiling on the pixels one vignette request decodes, in bytes (128 MiB).
+///
+/// A thumbnail is made once, when the file arrives, so it may afford
+/// [`MAX_DECODED_BYTES`]. A vignette is cut on every request that misses the
+/// client's cache, so a gigabyte per request would let a handful of requests
+/// exhaust the server's memory. 128 MiB is a 6000 × 7000 colour scan at full
+/// resolution; a larger JPEG is decoded at a half, a quarter or an eighth of
+/// its size — its decoder can skip the detail it would only throw away — and
+/// anything else that large is cut from its stored thumbnail.
+const MAX_CROP_DECODED_BYTES: u64 = 128 * 1024 * 1024;
+
 /// A generated thumbnail, ready to store.
 #[derive(Debug, Clone)]
 pub struct Thumbnail {
@@ -143,24 +154,144 @@ pub fn generate(bytes: &[u8]) -> Result<Thumbnail, OxidGeneError> {
     })
 }
 
+/// A source too large to decode whole for a crop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TooLargeToCrop;
+
 /// Decode and crop one image region, returning standalone JPEG bytes.
+///
+/// The rectangle is in the image's own pixels, as it is displayed (EXIF
+/// orientation applied). At most [`MAX_CROP_DECODED_BYTES`] are decoded: a
+/// larger JPEG is decoded at a reduced scale and the rectangle scaled with
+/// it, so the vignette is smaller but sharp. A larger image of any other
+/// kind answers `Ok(Err(TooLargeToCrop))`, for the caller to cut the
+/// rectangle out of the stored thumbnail instead ([`crop_scaled`]).
 ///
 /// Decoding and encoding are each spanned (`media.decode`, `media.encode`):
 /// they are the CPU cost of a crop, and which one dominates depends on the
 /// source format and size.
 pub fn crop(
     bytes: &[u8],
-    (x, y, width, height): (i32, i32, i32, i32),
+    rect: (i32, i32, i32, i32),
+) -> Result<Result<Vec<u8>, TooLargeToCrop>, OxidGeneError> {
+    crop_within(bytes, rect, MAX_CROP_DECODED_BYTES)
+}
+
+/// [`crop`], decoding at most `max_decoded` bytes.
+fn crop_within(
+    bytes: &[u8],
+    rect: (i32, i32, i32, i32),
+    max_decoded: u64,
+) -> Result<Result<Vec<u8>, TooLargeToCrop>, OxidGeneError> {
+    let decoded = tracing::info_span!("media.decode", media.input_bytes = bytes.len())
+        .in_scope(|| decode_for_crop(bytes, max_decoded))?;
+    Ok(match decoded {
+        Some((image, scale)) => encode_crop(&image, scaled_rect(rect, scale)).map(Ok)?,
+        None => Err(TooLargeToCrop),
+    })
+}
+
+/// Crop `rect`, given in the pixels of a `full_width`-wide original, out of
+/// `bytes`, a smaller rendition of it such as its thumbnail.
+pub fn crop_scaled(
+    bytes: &[u8],
+    rect: (i32, i32, i32, i32),
+    full_width: u32,
 ) -> Result<Vec<u8>, OxidGeneError> {
     let (image, _) = tracing::info_span!("media.decode", media.input_bytes = bytes.len())
-        .in_scope(|| decode(bytes, MAX_DECODED_BYTES))?;
-    let cropped = DynamicImage::crop_imm(
-        &image,
-        x.max(0) as u32,
-        y.max(0) as u32,
-        width.max(1) as u32,
-        height.max(1) as u32,
-    );
+        .in_scope(|| decode(bytes, MAX_CROP_DECODED_BYTES))?;
+    let scale = f64::from(image.width()) / f64::from(full_width.max(1));
+    encode_crop(&image, scaled_rect(rect, scale))
+}
+
+/// `rect` scaled by `scale`, at least one pixel wide and high.
+fn scaled_rect((x, y, width, height): (i32, i32, i32, i32), scale: f64) -> (u32, u32, u32, u32) {
+    let at = |value: i32| (f64::from(value.max(0)) * scale).floor() as u32;
+    let size = |value: i32| ((f64::from(value.max(1)) * scale).round() as u32).max(1);
+    (at(x), at(y), size(width), size(height))
+}
+
+/// The image to crop and the scale it was decoded at, or `None` when it is
+/// too large and no reduced decode applies.
+fn decode_for_crop(
+    bytes: &[u8],
+    max_decoded: u64,
+) -> Result<Option<(DynamicImage, f64)>, OxidGeneError> {
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| OxidGeneError::Validation(format!("unreadable image: {e}")))?;
+    let format = reader.format();
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|e| OxidGeneError::Validation(format!("unsupported image: {e}")))?;
+    let total = decoder.total_bytes();
+    if total <= max_decoded {
+        return decode(bytes, max_decoded).map(|(image, _)| Some((image, 1.0)));
+    }
+    if format != Some(ImageFormat::Jpeg) {
+        return Ok(None);
+    }
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    Ok(
+        decode_jpeg_reduced(bytes, total, max_decoded)?.map(|(mut image, scale)| {
+            image.apply_orientation(orientation);
+            (image, scale)
+        }),
+    )
+}
+
+/// A JPEG of `total` decoded bytes, decoded at the largest of ½, ¼ and ⅛ of
+/// its size that fits `max_decoded`, and that scale; `None` when none fits or
+/// its pixel format has no plain RGB or grey rendering.
+fn decode_jpeg_reduced(
+    bytes: &[u8],
+    total: u64,
+    max_decoded: u64,
+) -> Result<Option<(DynamicImage, f64)>, OxidGeneError> {
+    let Some(divisor) = [2u64, 4, 8]
+        .into_iter()
+        .find(|divisor| total / (divisor * divisor) <= max_decoded)
+    else {
+        return Ok(None);
+    };
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    // Progressive files hold every coefficient whatever the output scale:
+    // bound that too, and fall back to the thumbnail past it.
+    decoder.set_max_decoding_buffer_size(usize::try_from(max_decoded).unwrap_or(usize::MAX));
+    decoder
+        .read_info()
+        .map_err(|e| OxidGeneError::Validation(format!("unreadable image: {e}")))?;
+    let Some(info) = decoder.info() else {
+        return Ok(None);
+    };
+    let wanted = |side: u16| (u64::from(side) / divisor).max(1) as u16;
+    let Ok((width, height)) = decoder.scale(wanted(info.width), wanted(info.height)) else {
+        return Ok(None);
+    };
+    let Ok(pixels) = decoder.decode() else {
+        return Ok(None);
+    };
+    let (width32, height32) = (u32::from(width), u32::from(height));
+    let image = match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            image::RgbImage::from_raw(width32, height32, pixels).map(DynamicImage::ImageRgb8)
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            image::GrayImage::from_raw(width32, height32, pixels).map(DynamicImage::ImageLuma8)
+        }
+        _ => None,
+    };
+    Ok(image.map(|image| (image, f64::from(width) / f64::from(info.width))))
+}
+
+/// `image` cut to `(x, y, width, height)`, as JPEG.
+fn encode_crop(
+    image: &DynamicImage,
+    (x, y, width, height): (u32, u32, u32, u32),
+) -> Result<Vec<u8>, OxidGeneError> {
+    let cropped = DynamicImage::crop_imm(image, x, y, width, height);
 
     let encode = tracing::info_span!("media.encode", media.output_bytes = tracing::field::Empty);
     let _entered = encode.enter();
@@ -178,9 +309,19 @@ pub fn crop(
 pub async fn crop_off_thread(
     bytes: Vec<u8>,
     rect: (i32, i32, i32, i32),
-) -> Result<Vec<u8>, OxidGeneError> {
+) -> Result<Result<Vec<u8>, TooLargeToCrop>, OxidGeneError> {
     let span = tracing::info_span!("media.crop", media.input_bytes = bytes.len());
     crate::service::blocking::run(span, move || crop(&bytes, rect)).await?
+}
+
+/// [`crop_scaled`] on the blocking pool, under a `media.crop` span.
+pub async fn crop_scaled_off_thread(
+    bytes: Vec<u8>,
+    rect: (i32, i32, i32, i32),
+    full_width: u32,
+) -> Result<Vec<u8>, OxidGeneError> {
+    let span = tracing::info_span!("media.crop", media.input_bytes = bytes.len());
+    crate::service::blocking::run(span, move || crop_scaled(&bytes, rect, full_width)).await?
 }
 
 pub(crate) fn decode(
@@ -362,6 +503,38 @@ mod tests {
         }
     }
 
+    fn size_of(jpeg_bytes: &[u8]) -> (u32, u32) {
+        dimensions(jpeg_bytes).expect("a readable JPEG")
+    }
+
+    #[test]
+    fn a_crop_of_a_small_image_is_cut_at_full_resolution() {
+        let cropped = crop(&jpeg(64, 48), (8, 8, 16, 12)).unwrap().unwrap();
+        assert_eq!(size_of(&cropped), (16, 12));
+    }
+
+    #[test]
+    fn a_jpeg_over_the_ceiling_is_cropped_from_a_reduced_decode() {
+        // 64 x 48 x 3 = 9216 bytes decoded; 4000 admits the half scale only.
+        let cropped = crop_within(&jpeg(64, 48), (8, 8, 16, 12), 4_000)
+            .unwrap()
+            .unwrap();
+        assert_eq!(size_of(&cropped), (8, 6));
+    }
+
+    #[test]
+    fn any_other_image_over_the_ceiling_is_left_to_its_thumbnail() {
+        let png = png_with_alpha(64, 48);
+        assert_eq!(
+            crop_within(&png, (8, 8, 16, 12), 4_000).unwrap(),
+            Err(TooLargeToCrop)
+        );
+        // The thumbnail of a 64-pixel-wide original, at half its size.
+        let thumbnail = generate(&jpeg(32, 24)).unwrap().bytes;
+        let cropped = crop_scaled(&thumbnail, (8, 8, 16, 12), 64).unwrap();
+        assert_eq!(size_of(&cropped), (8, 6));
+    }
+
     #[tokio::test]
     async fn an_off_thread_crop_spans_its_decode_and_encode_under_the_callers_span() {
         use tracing_subscriber::layer::SubscriberExt as _;
@@ -372,7 +545,8 @@ mod tests {
 
         let cropped = crop_off_thread(jpeg(64, 48), (8, 8, 16, 16))
             .await
-            .expect("crop");
+            .expect("crop")
+            .expect("small enough to crop whole");
 
         assert!(!cropped.is_empty());
         let spans = spans.0.lock().expect("capture lock").clone();

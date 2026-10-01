@@ -5067,6 +5067,7 @@ dependencies = [
  "futures-util",
  "http-body-util",
  "image",
+ "jpeg-decoder",
  "object_store",
  "opentelemetry",
  "opentelemetry_sdk",
