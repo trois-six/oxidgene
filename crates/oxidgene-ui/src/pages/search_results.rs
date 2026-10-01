@@ -987,7 +987,7 @@ fn toolbar(i18n: &I18n, total: usize, filters: SearchFilters) -> Element {
     rsx! {
         div { class: "sr-toolbar",
             span { class: "sr-count",
-                {format!("{} {}", total, i18n.t("search.results"))}
+                {i18n.t_plural("search.results_count", total)}
             }
             div { class: "sr-sort",
                 select {

@@ -493,6 +493,27 @@ mod parity_tests {
         assert_eq!(Language::En.plural_suffix(0), "_other");
     }
 
+    /// The search results counted "1 results": the count is a plural.
+    #[test]
+    fn a_single_search_result_is_counted_in_the_singular() {
+        assert_eq!(
+            I18n(Language::En).t_plural("search.results_count", 1),
+            "1 result"
+        );
+        assert_eq!(
+            I18n(Language::En).t_plural("search.results_count", 5),
+            "5 results"
+        );
+        assert_eq!(
+            I18n(Language::Pl).t_plural("search.results_count", 3),
+            "3 wyniki"
+        );
+        assert_eq!(
+            I18n(Language::Pl).t_plural("search.results_count", 5),
+            "5 wyników"
+        );
+    }
+
     fn placeholders(text: &str) -> std::collections::BTreeSet<String> {
         let mut found = std::collections::BTreeSet::new();
         let mut rest = text;

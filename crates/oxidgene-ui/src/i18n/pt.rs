@@ -573,6 +573,8 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("search.no_match", "Nenhuma pessoa correspondente."),
         // ── Search results page ───────────────────────────────────────
         ("search.title", "Pesquisa"),
+        ("search.results_count_one", "{count} resultado"),
+        ("search.results_count_other", "{count} resultados"),
         ("search.see_all_results", "Ver os {count} resultados"),
         ("search.sosa_badge", "SOSA {number}"),
         ("search.relation_spouse", "casado(a) com {names}"),
@@ -607,7 +609,6 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("search.father", "Pai"),
         ("search.mother", "Mãe"),
         ("search.clear_filters", "Limpar filtros"),
-        ("search.results", "resultados"),
         ("search.sort_name_az", "Nome A → Z"),
         ("search.sort_name_za", "Nome Z → A"),
         ("search.sort_birth_asc", "Data de nascimento ↑"),
