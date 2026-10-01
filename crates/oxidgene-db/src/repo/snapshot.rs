@@ -38,6 +38,7 @@ use crate::entities::{
     citation, event, event_witness, family, family_child, family_spouse, note, person, person_name,
     place, source, tree,
 };
+use crate::html::sanitize_note_html;
 use crate::repo::db_err;
 
 /// A record's state as its rows hold it now, ready to compare and store.
@@ -1265,7 +1266,10 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             let row = note::ActiveModel {
                 id: Set(snapshot.id),
                 tree_id: Set(self.tree_id),
-                text: Set(snapshot.text.clone()),
+                // A version may predate a sanitizer rule, and the history
+                // table is not a trusted source either: a restore is a note
+                // write like any other and goes through the same filter.
+                text: Set(sanitize_note_html(&snapshot.text)),
                 person_id: Set(person_id),
                 event_id: Set(event_id),
                 family_id: Set(family_id),

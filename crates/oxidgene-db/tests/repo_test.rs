@@ -3292,3 +3292,46 @@ async fn batch_reads_take_more_ids_than_one_statement_binds() {
         ids.len()
     );
 }
+
+#[tokio::test]
+async fn restoring_a_version_sanitizes_its_notes() {
+    use oxidgene_core::history::{NoteSnapshot, SourceSnapshot};
+    use oxidgene_db::repo::SnapshotRepo;
+
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let source_id = Uuid::now_v7();
+    SourceRepo::create(
+        &db,
+        source_id,
+        tree_id,
+        "Parish register".into(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    // A stored version is not trusted input: it may predate a sanitizer
+    // rule, or have reached the history table by other means.
+    let note_id = Uuid::now_v7();
+    let snapshot = SourceSnapshot {
+        title: "Parish register".into(),
+        author: None,
+        publisher: None,
+        abbreviation: None,
+        repository_name: None,
+        notes: vec![NoteSnapshot {
+            id: note_id,
+            text: r#"<p onclick="steal()">kept</p><script>alert(1)</script>"#.into(),
+        }],
+    };
+
+    SnapshotRepo::restore_source(&db, tree_id, source_id, &snapshot)
+        .await
+        .unwrap();
+
+    let restored = NoteRepo::get(&db, note_id).await.unwrap();
+    assert_eq!(restored.text, "<p>kept</p>");
+}
