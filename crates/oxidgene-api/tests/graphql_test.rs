@@ -3169,6 +3169,64 @@ async fn test_graphql_export_gedcom() {
     assert!(result["warnings"].as_array().unwrap().is_empty());
 }
 
+/// The export's `SUBM` record carries the tree's "Who am I?" person, and
+/// `Not Provided` once the tree names nobody.
+#[tokio::test]
+async fn graphql_gedcom_export_names_the_trees_own_person_as_submitter() {
+    let app = setup_app().await;
+    let tree_id = tree_id_for(&app).await;
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: FEMALE }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let person_id = data(&response)["createPerson"]["id"]
+        .as_str()
+        .expect("person id")
+        .to_string();
+    let response = graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ addPersonName(treeId: "{tree_id}", personId: "{person_id}", input: {{ nameType: BIRTH, givenNames: "Ada", surname: "Alpha", isPrimary: true }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    assert!(data(&response)["addPersonName"]["id"].is_string());
+
+    for (self_person_id, expected) in [
+        (
+            format!(r#""{person_id}""#),
+            "0 @SUBM1@ SUBM\n1 NAME Ada Alpha\n",
+        ),
+        ("null".to_string(), "0 @SUBM1@ SUBM\n1 NAME Not Provided\n"),
+    ] {
+        let response = graphql(
+            app.clone(),
+            &format!(
+                r#"mutation {{ updateTree(id: "{tree_id}", input: {{ selfPersonId: {self_person_id} }}) {{ id }} }}"#
+            ),
+            None,
+        )
+        .await;
+        assert!(data(&response)["updateTree"]["id"].is_string());
+        let response = graphql(
+            app.clone(),
+            &format!(r#"{{ exportGedcom(treeId: "{tree_id}") {{ gedcom }} }}"#),
+            None,
+        )
+        .await;
+        let gedcom = data(&response)["exportGedcom"]["gedcom"]
+            .as_str()
+            .expect("gedcom");
+        assert!(gedcom.contains("\n1 SUBM @SUBM1@\n"), "{gedcom}");
+        assert!(gedcom.contains(expected), "{gedcom}");
+    }
+}
+
 #[tokio::test]
 async fn test_graphql_export_gedzip() {
     let db = setup_db().await;

@@ -3513,6 +3513,39 @@ async fn test_gedcom_export_empty_tree() {
     assert!(body["warnings"].as_array().unwrap().is_empty());
 }
 
+/// The export's `SUBM` record carries the tree's "Who am I?" person, and
+/// `Not Provided` once the tree names nobody.
+#[tokio::test]
+async fn the_gedcom_export_names_the_trees_own_person_as_submitter() {
+    let app = setup_app().await;
+    let tree_id = create_tree_via_api(&app).await;
+    let person_id = create_named_person_via_api(&app, &tree_id, "female", "Ada", "Alpha").await;
+    for (self_person_id, expected) in [
+        (Some(person_id), "0 @SUBM1@ SUBM\n1 NAME Ada Alpha\n"),
+        (None, "0 @SUBM1@ SUBM\n1 NAME Not Provided\n"),
+    ] {
+        let (status, _) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/trees/{tree_id}"),
+            Some(serde_json::json!({ "self_person_id": self_person_id })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, body) = send(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree_id}/gedcom/export"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let gedcom = body["gedcom"].as_str().expect("gedcom");
+        assert!(gedcom.contains("\n1 SUBM @SUBM1@\n"), "{gedcom}");
+        assert!(gedcom.contains(expected), "{gedcom}");
+    }
+}
+
 #[tokio::test]
 async fn test_gedcom_roundtrip() {
     let app = setup_app().await;

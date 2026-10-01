@@ -31,6 +31,7 @@ use ged_io::types::source::Source as GedSource;
 use ged_io::types::source::citation::Citation as GedCitation;
 use ged_io::types::source::citation::CitationSource;
 use ged_io::types::source::quay::CertaintyAssessment;
+use ged_io::types::submitter::Submitter;
 use uuid::Uuid;
 
 use oxidgene_core::enums::SourceMediaType;
@@ -63,6 +64,9 @@ use crate::{
 /// `SURN` sub-tag, so this is an opt-in, lossy compatibility option; leave
 /// it `false` to keep the lossless one-`NAME`-per-`PersonName` export.
 ///
+/// `self_person_id` is the tree's "Who am I?" person: the `SUBM` record GEDCOM
+/// 5.5.1 requires is named after them, or `Not Provided` without one.
+///
 /// # Errors
 ///
 /// Returns `Err` if the GEDCOM writer encounters an I/O error.
@@ -85,6 +89,7 @@ pub fn export_gedcom(
     merge_occupations: bool,
     merge_names: bool,
     media_paths: &HashMap<Uuid, String>,
+    self_person_id: Option<Uuid>,
 ) -> Result<ExportResult, String> {
     let mut warnings: Vec<String> = Vec::new();
     let build_span = tracing::info_span!(
@@ -137,6 +142,7 @@ pub fn export_gedcom(
         header: Some(gedcom_header()),
         ..Default::default()
     };
+    data.submitters = vec![index.submitter(self_person_id)];
     data.sources = sources.iter().map(|src| index.source(src)).collect();
     data.multimedia = media
         .iter()
@@ -280,9 +286,14 @@ fn pages_of(media: &[Media]) -> HashMap<Uuid, Vec<&Media>> {
     pages_of
 }
 
-/// The GEDCOM header naming OxidGene as the producer.
+/// The xref of the one `SUBM` record an export writes.
+const SUBMITTER_XREF: &str = "@SUBM1@";
+
+/// The GEDCOM header naming OxidGene as the producer, and the submitter
+/// GEDCOM 5.5.1 requires it to point at.
 fn gedcom_header() -> Header {
     Header {
+        submitter_tag: Some(SUBMITTER_XREF.to_string()),
         gedcom: Some(HeadMeta {
             version: Some("5.5.1".to_string()),
             form: Some("LINEAGE-LINKED".to_string()),
@@ -374,6 +385,25 @@ struct ExportIndex<'a> {
 }
 
 impl ExportIndex<'_> {
+    /// The `SUBM` record: who the file is from.
+    ///
+    /// The display name of the tree's "Who am I?" person, and `Not Provided`
+    /// — Gramps' wording for the same gap — when the tree names nobody, or
+    /// somebody nameless.
+    fn submitter(&self, self_person_id: Option<Uuid>) -> Submitter {
+        let name = self_person_id
+            .and_then(|id| self.names_by_person.get(&id))
+            .and_then(|names| PersonName::primary(names.iter().copied()))
+            .map(PersonName::display_name)
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "Not Provided".to_string());
+        Submitter {
+            xref: Some(SUBMITTER_XREF.to_string()),
+            name: Some(name),
+            ..Default::default()
+        }
+    }
+
     /// A `SOUR` record.
     fn source(&self, src: &Source) -> GedSource {
         GedSource {
@@ -1691,6 +1721,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
 
@@ -1761,6 +1792,7 @@ mod tests {
             false,
             false,
             &paths,
+            None,
         )
         .expect("exports");
         // The FILE line points into the archive, not at the Windows path the
@@ -1837,6 +1869,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert!(
@@ -1976,6 +2009,7 @@ mod tests {
             false,
             false,
             &media_paths,
+            None,
         )
         .expect("exports");
         assert!(export.gedcom.contains("1 _OXIDGENE_MEDIA {"));
@@ -2034,6 +2068,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert!(export.gedcom.contains("MANUSCRIPT"), "{}", export.gedcom);
@@ -2063,6 +2098,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert!(export.gedcom.contains("FICHE"), "{}", export.gedcom);
@@ -2104,6 +2140,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert!(export.gedcom.contains("1 OBJE @M1@"), "{}", export.gedcom);
@@ -2177,6 +2214,7 @@ mod tests {
             false,
             false,
             &paths,
+            None,
         )
         .expect("exports");
         assert!(
@@ -2265,6 +2303,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert!(export.gedcom.contains("2 OBJE @M1@"), "{}", export.gedcom);
@@ -2336,6 +2375,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert!(export.gedcom.contains("1 OCCU"), "{}", export.gedcom);
@@ -2408,6 +2448,7 @@ mod tests {
             true,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
 
@@ -2484,6 +2525,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
 
@@ -2561,6 +2603,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
 
@@ -2645,6 +2688,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
 
@@ -2703,6 +2747,7 @@ mod tests {
             false,
             false,
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert_eq!(
@@ -2741,6 +2786,7 @@ mod tests {
             false,
             // No archive: nothing to point into.
             &HashMap::new(),
+            None,
         )
         .expect("exports");
         assert!(export.gedcom.contains("C:\\Photos\\original.jpg"));

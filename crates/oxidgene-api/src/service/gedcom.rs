@@ -813,8 +813,8 @@ pub async fn load_and_export(
     merge_names: bool,
     for_archive: bool,
 ) -> Result<ExportData, OxidGeneError> {
-    // Verify tree exists
-    let _tree = TreeRepo::get(db, tree_id).await?;
+    // Verify tree exists; its "Who am I?" person names the submitter.
+    let tree = TreeRepo::get(db, tree_id).await?;
     let records = TreeRecords::load(db, tree_id).await?;
 
     // A GEDZIP carries the bytes, so its `FILE` lines name entries inside the
@@ -855,6 +855,7 @@ pub async fn load_and_export(
                 merge_occupations,
                 merge_names,
                 &media_paths,
+                tree.self_person_id,
             )
         })
         .map_err(OxidGeneError::Gedcom)?;

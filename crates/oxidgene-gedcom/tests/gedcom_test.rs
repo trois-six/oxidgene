@@ -240,6 +240,7 @@ fn reexport(imported: &oxidgene_gedcom::ImportResult) -> String {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .expect("exports")
     .gedcom
@@ -670,6 +671,57 @@ fn unicode_compose(text: &str) -> String {
     text.replace("e\u{301}", "é")
 }
 
+/// GEDCOM 5.5.1 requires `HEAD.SUBM` and the record it points at: named after
+/// the tree's "Who am I?" person, else `Not Provided`.
+#[test]
+fn the_export_names_its_submitter() {
+    let imported = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7()).expect("imports");
+    let export = |self_person_id: Option<Uuid>| {
+        export_gedcom(
+            &imported.persons,
+            &imported.person_names,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            false,
+            false,
+            &HashMap::new(),
+            self_person_id,
+        )
+        .expect("exports")
+        .gedcom
+    };
+    let header_and_submitter = |gedcom: &str| {
+        let head = gedcom.split("\n0 ").next().unwrap_or_default().to_string();
+        let record = gedcom
+            .split("\n0 ")
+            .find(|record| record.starts_with("@SUBM1@ SUBM"))
+            .map(str::to_string);
+        (head, record)
+    };
+
+    let named = export(Some(imported.persons[1].id));
+    let (head, record) = header_and_submitter(&named);
+    assert!(head.contains("\n1 SUBM @SUBM1@"), "{named}");
+    assert_eq!(record.as_deref(), Some("@SUBM1@ SUBM\n1 NAME Jane Smith"));
+
+    let (_, record) = header_and_submitter(&export(None));
+    assert_eq!(record.as_deref(), Some("@SUBM1@ SUBM\n1 NAME Not Provided"));
+
+    let back = import_gedcom(&named, Uuid::now_v7()).expect("re-imports");
+    assert_eq!(back.persons.len(), 3);
+    assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
@@ -850,6 +902,7 @@ fn test_export_produces_valid_gedcom() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -887,6 +940,7 @@ fn test_export_family() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -926,6 +980,7 @@ fn test_export_source() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -954,6 +1009,7 @@ fn test_export_empty() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1026,6 +1082,7 @@ fn test_export_long_utf8_note_does_not_panic() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1059,6 +1116,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1104,6 +1162,7 @@ fn test_roundtrip_preserves_individuals() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1157,6 +1216,7 @@ fn test_roundtrip_preserves_names() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1217,6 +1277,7 @@ fn test_roundtrip_preserves_surname_particle() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1538,6 +1599,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1671,6 +1733,7 @@ fn test_export_default_keeps_one_occu_tag_per_profession() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1702,6 +1765,7 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
         true,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
@@ -1792,13 +1856,14 @@ fn test_export_default_keeps_one_name_tag_per_person_name() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
     let name_lines = exported
         .gedcom
         .lines()
-        .filter(|l| l.trim_start().starts_with("1 NAME"))
+        .filter(|l| l.trim_start().starts_with("1 NAME") && *l != "1 NAME Not Provided")
         .count();
     assert_eq!(
         name_lines, 3,
@@ -1832,13 +1897,14 @@ fn test_export_merge_names_option_collapses_aliases_into_primary_surn() {
         false,
         true,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 
     let name_lines = exported
         .gedcom
         .lines()
-        .filter(|l| l.trim_start().starts_with("1 NAME"))
+        .filter(|l| l.trim_start().starts_with("1 NAME") && *l != "1 NAME Not Provided")
         .count();
     assert_eq!(
         name_lines, 1,
@@ -1976,6 +2042,7 @@ fn test_export_result_serialization() {
         false,
         false,
         &HashMap::new(),
+        None,
     )
     .unwrap();
 

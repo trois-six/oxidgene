@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:58:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:13:00Z }
 ---
 
 
@@ -1853,6 +1853,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster |
 | Nicknames (`NICK`) | Full | Full | On the name that carries it. A non-primary `aka` name that only restates the primary name (or names nobody) to carry a `NICK` imports as a `Byname` holding the nickname alone, as the person form records one; a byname exports as such an `aka` name |
 | Restriction (`RESN`) | Person and family privacy | Not written | `confidential` or `privacy` on an `INDI` or `FAM`, in any case and among several comma-separated values, makes the record `Private`; `locked`, another value or no `RESN` leaves it `Default`. `ged_io` writes no record-level `RESN`, so privacy is not exported |
+| Submitter (`SUBM`) | Not imported | One record, pointed at by `HEAD.SUBM` | GEDCOM 5.5.1 requires a submitter. The record's `NAME` is the display name of the tree's "Who am I?" person (`self_person_id`), or `Not Provided` when the tree names nobody |
 | Header charset | Declared `CHAR` decoded | `CHAR UTF-8` | A `.ged` is read in the character set it declares — a byte-order mark first, then `HEAD.CHAR`: UTF-8, UTF-16, ANSEL, ISO-8859-1 or -15, and `ANSI` as Windows-1252 — so files from GEDCOM 5 software keep their accents. Export declares UTF-8 explicitly |
 | GEDCOM version | 5.5.1 + 7.0 | 5.5.1 only | ged_io auto-detects on import |
 
