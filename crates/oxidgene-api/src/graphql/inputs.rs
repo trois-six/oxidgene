@@ -777,6 +777,15 @@ pub struct SetFamilyNameParticleInput {
     pub particle: String,
 }
 
+impl From<SetFamilyNameParticleInput> for crate::service::family_names::ParticleChange {
+    fn from(input: SetFamilyNameParticleInput) -> Self {
+        Self {
+            value: input.value,
+            particle: input.particle,
+        }
+    }
+}
+
 /// Input for the dictionary's family-name rename.
 ///
 /// Every person whose primary name carries surname `value` (as listed, matched
@@ -788,6 +797,16 @@ pub struct RenameFamilyNameInput {
     pub value: String,
     pub new_value: String,
     pub particle: Option<String>,
+}
+
+impl From<RenameFamilyNameInput> for crate::service::family_names::FamilyNameChange {
+    fn from(input: RenameFamilyNameInput) -> Self {
+        Self {
+            value: input.value,
+            new_value: input.new_value,
+            particle: input.particle,
+        }
+    }
 }
 
 /// Where a held picture lives, as an input. Mirrors `ImageSource`: `kind`

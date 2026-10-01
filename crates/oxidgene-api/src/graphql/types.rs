@@ -2163,6 +2163,47 @@ pub struct GqlExportJobStatus {
     pub error: Option<String>,
 }
 
+impl From<crate::service::gedcom::ImportSummary> for GqlImportResult {
+    fn from(summary: crate::service::gedcom::ImportSummary) -> Self {
+        Self {
+            persons_count: summary.persons_count as i32,
+            families_count: summary.families_count as i32,
+            events_count: summary.events_count as i32,
+            sources_count: summary.sources_count as i32,
+            media_count: summary.media_count as i32,
+            places_count: summary.places_count as i32,
+            notes_count: summary.notes_count as i32,
+            warnings: summary.warnings,
+        }
+    }
+}
+
+impl From<crate::service::background_job::ExportJobStatus> for GqlExportJobStatus {
+    fn from(status: crate::service::background_job::ExportJobStatus) -> Self {
+        Self {
+            phase: status.phase,
+            done: status.done,
+            total: status.total,
+            download_url: status.download_url,
+            warnings: status.warnings,
+            error: status.error,
+        }
+    }
+}
+
+impl From<crate::service::background_job::ImportJobStatus> for GqlImportJobStatus {
+    fn from(status: crate::service::background_job::ImportJobStatus) -> Self {
+        Self {
+            phase: status.phase,
+            done: status.done,
+            total: status.total,
+            result: status.result.map(Into::into),
+            geneanet_result: status.geneanet_result.map(Into::into),
+            error: status.error,
+        }
+    }
+}
+
 /// Pollable state of a durable genealogy file import.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlImportJobStatus {
@@ -2293,6 +2334,31 @@ pub struct GqlGeneanetImportResult {
     pub vignettes_count: i64,
     pub skipped: Vec<String>,
     pub warnings: Vec<String>,
+}
+
+impl From<crate::service::geneanet::GeneanetImportSummary> for GqlGeneanetImportResult {
+    fn from(summary: crate::service::geneanet::GeneanetImportSummary) -> Self {
+        Self {
+            persons_count: summary.persons_count as i64,
+            families_count: summary.families_count as i64,
+            events_count: summary.events_count as i64,
+            sources_count: summary.sources_count as i64,
+            places_count: summary.places_count as i64,
+            notes_count: summary.notes_count as i64,
+            media_count: summary.media_count as i64,
+            links_count: summary.links_count as i64,
+            portraits_count: summary.portraits_count as i64,
+            isolated_count: summary.isolated_count as i64,
+            isolated_people: summary
+                .isolated_people
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            vignettes_count: summary.vignettes_count as i64,
+            skipped: summary.skipped,
+            warnings: summary.warnings,
+        }
+    }
 }
 
 /// A person the Geneanet import created for an identification outside the

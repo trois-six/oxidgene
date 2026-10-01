@@ -6,10 +6,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use uuid::Uuid;
 
-use super::dto::{ImportGenewebQuery, ImportResponse};
+use super::dto::ImportGenewebQuery;
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::{geneweb, history};
+use crate::service::gedcom::{self, ImportSummary};
+use crate::service::geneweb;
 
 /// Default `origin_file` when the client sends no `?filename=`.
 const DEFAULT_ORIGIN_FILE: &str = "import.gw";
@@ -32,40 +33,19 @@ pub async fn import_geneweb_handler(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<ImportGenewebQuery>,
     body: Bytes,
-) -> Result<(StatusCode, Json<ImportResponse>), ApiError> {
+) -> Result<(StatusCode, Json<ImportSummary>), ApiError> {
     let origin_file = query.filename.as_deref().unwrap_or(DEFAULT_ORIGIN_FILE);
 
-    let summary = geneweb::import_and_persist(&state.db, tree_id, &body, origin_file)
-        .await
-        .map_err(ApiError::from)?;
+    let summary = geneweb::import_and_persist(&state.db, tree_id, &body, origin_file).await?;
 
-    // Eagerly rebuild every projection of this tree after an import — same
-    // rationale as the GEDCOM path (see `rest::gedcom::import_gedcom_handler`).
-    state
-        .profiles
-        .rebuild_tree_full(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
-    history::record_import(
+    gedcom::finish_import(
         &state.db,
+        &state.profiles,
         tree_id,
         "geneweb",
         Some(origin_file.to_string()),
-        summary.persons_count,
+        &summary,
     )
-    .await
-    .map_err(ApiError)?;
-
-    let response = ImportResponse {
-        persons_count: summary.persons_count,
-        families_count: summary.families_count,
-        events_count: summary.events_count,
-        sources_count: summary.sources_count,
-        media_count: summary.media_count,
-        places_count: summary.places_count,
-        notes_count: summary.notes_count,
-        warnings: summary.warnings,
-    };
-
-    Ok((StatusCode::CREATED, Json(response)))
+    .await?;
+    Ok((StatusCode::CREATED, Json(summary)))
 }

@@ -11,9 +11,8 @@ use crate::service::person::Lineage;
 use crate::service::scope::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
-    AuditFilter, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, CitationFilter,
-    DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo, MediaLinkRepo,
-    MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
+    AuditFilter, CitationFilter, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo,
+    MediaLinkRepo, MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
     PersonSearchFilters, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
 };
 
@@ -28,18 +27,18 @@ use super::scope::{live_tree, opt_uuid, uuid, uuids};
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
     GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection, GqlGalleryBundle,
-    GqlGeneanetArchiveIndex, GqlGeneanetImportResult, GqlGeneanetIndexedArchive,
-    GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference,
-    GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlImportResult, GqlKinship, GqlMedia,
-    GqlMediaConnection, GqlMediaDownload, GqlMediaFacets, GqlMediaLink, GqlMediaWithLink, GqlNote,
-    GqlNoteConnection, GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree,
-    GqlPedigreeEntry, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
-    GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
-    GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
-    GqlSearchEntry, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
-    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree,
-    GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
-    media_from_ctx, profiles_from_ctx, require_local_file_access,
+    GqlGeneanetArchiveIndex, GqlGeneanetIndexedArchive, GqlGeneanetInspection,
+    GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference, GqlGivenNameReferenceMatch,
+    GqlImportJobStatus, GqlKinship, GqlMedia, GqlMediaConnection, GqlMediaDownload, GqlMediaFacets,
+    GqlMediaLink, GqlMediaWithLink, GqlNote, GqlNoteConnection, GqlOccupationReference,
+    GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
+    GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
+    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion,
+    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchEntry, GqlSearchResult, GqlSource,
+    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
+    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree, GqlTreeConnection, GqlTreeMediaLink,
+    GqlValueSuggestion, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
+    require_local_file_access,
 };
 
 async fn tree_resource_exists(
@@ -1307,12 +1306,13 @@ impl QueryRoot {
 
     // ── GEDCOM ────────────────────────────────────────────────────────
 
-    /// Export all entities in a tree as a GEDCOM 5.5.1 string. Pass
-    /// `merge_occupations: true` to collapse each person's multiple `OCCU`
-    /// tags back into one, comma-separated (for importers, e.g. Geneanet,
-    /// that only support a single profession field). Pass
-    /// `merge_names: true` to collapse each person's non-primary names into
-    /// the primary name's `SURN` tag, comma-separated.
+    /// Export all entities in a tree as a GEDCOM 5.5.1 string, recording
+    /// the export in the tree's audit log. Pass `merge_occupations: true` to
+    /// collapse each person's multiple `OCCU` tags back into one,
+    /// comma-separated (for importers, e.g. Geneanet, that only support a
+    /// single profession field). Pass `merge_names: true` to collapse each
+    /// person's non-primary names into the primary name's `SURN` tag,
+    /// comma-separated.
     async fn export_gedcom(
         &self,
         ctx: &Context<'_>,
@@ -1320,16 +1320,12 @@ impl QueryRoot {
         merge_occupations: Option<bool>,
         merge_names: Option<bool>,
     ) -> Result<GqlExportGedcomResult> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let data = crate::service::gedcom::load_and_export(
-            db,
-            tid,
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let data = crate::service::gedcom::export_gedcom(
+            db_from_ctx(ctx),
+            tree_id,
             merge_occupations.unwrap_or(false),
             merge_names.unwrap_or(false),
-            // GraphQL hands back the GEDCOM text; there is no archive to
-            // reference, so the media keep their producers' paths.
-            false,
         )
         .await?;
         Ok(GqlExportGedcomResult {
@@ -1345,51 +1341,16 @@ impl QueryRoot {
         tree_id: ID,
         job_id: ID,
     ) -> Result<GqlExportJobStatus> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let job_id = uuid(&job_id)?;
-        if let Some(progress) = crate::service::background_job::live_job_progress(
+        // Not `live_tree`: a running job answers from memory, without the
+        // database; the service checks the tree when it has to read.
+        let tree_id = uuid(&tree_id)?;
+        let status = crate::service::background_job::export_job_status(
+            db_from_ctx(ctx),
             tree_id,
-            job_id,
-            BackgroundJobKind::Export,
-        ) {
-            return Ok(GqlExportJobStatus {
-                phase: progress.phase,
-                done: progress.done,
-                total: progress.total,
-                download_url: None,
-                warnings: Vec::new(),
-                error: None,
-            });
-        }
-
-        let db = db_from_ctx(ctx);
-        let job = BackgroundJobRepo::get_in_tree(db, tree_id, job_id).await?;
-        if job.kind != BackgroundJobKind::Export.as_str() {
-            return Err(oxidgene_core::OxidGeneError::NotFound {
-                entity: "ExportJob",
-                id: job_id,
-            }
-            .into());
-        }
-        let warnings = job
-            .result_json
-            .as_deref()
-            .and_then(|result| serde_json::from_str::<serde_json::Value>(result).ok())
-            .and_then(|result| result.get("warnings").cloned())
-            .and_then(|warnings| serde_json::from_value(warnings).ok())
-            .unwrap_or_default();
-        // A downloaded or expired artifact is gone, and so is its link.
-        let download_url = (job.status == BackgroundJobStatus::Completed.as_str()
-            && job.artifact_key.is_some())
-        .then(|| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
-        Ok(GqlExportJobStatus {
-            phase: job.phase,
-            done: job.done,
-            total: job.total,
-            download_url,
-            warnings,
-            error: job.error_code,
-        })
+            uuid(&job_id)?,
+        )
+        .await?;
+        Ok(status.into())
     }
 
     /// Poll a durable genealogy file import created by `startFileImportJob`.
@@ -1399,91 +1360,16 @@ impl QueryRoot {
         tree_id: ID,
         job_id: ID,
     ) -> Result<GqlImportJobStatus> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let job_id = uuid(&job_id)?;
-        if let Some(progress) = crate::service::background_job::live_job_progress(
+        // Not `live_tree`: a running job answers from memory, without the
+        // database; the service checks the tree when it has to read.
+        let tree_id = uuid(&tree_id)?;
+        let status = crate::service::background_job::import_job_status(
+            db_from_ctx(ctx),
             tree_id,
-            job_id,
-            BackgroundJobKind::Import,
-        ) {
-            return Ok(GqlImportJobStatus {
-                phase: progress.phase,
-                done: progress.done,
-                total: progress.total,
-                result: None,
-                geneanet_result: None,
-                error: None,
-            });
-        }
-
-        let db = db_from_ctx(ctx);
-        let job = BackgroundJobRepo::get_in_tree(db, tree_id, job_id).await?;
-        if job.kind != BackgroundJobKind::Import.as_str() {
-            return Err(oxidgene_core::OxidGeneError::NotFound {
-                entity: "ImportJob",
-                id: job_id,
-            }
-            .into());
-        }
-        let (result, geneanet_result) = if job.format == "geneanet" {
-            let summary = job
-                .result_json
-                .as_deref()
-                .map(serde_json::from_str::<crate::service::geneanet::GeneanetImportSummary>)
-                .transpose()
-                .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-            (
-                None,
-                summary.map(|summary| GqlGeneanetImportResult {
-                    persons_count: summary.persons_count as i64,
-                    families_count: summary.families_count as i64,
-                    events_count: summary.events_count as i64,
-                    sources_count: summary.sources_count as i64,
-                    places_count: summary.places_count as i64,
-                    notes_count: summary.notes_count as i64,
-                    media_count: summary.media_count as i64,
-                    links_count: summary.links_count as i64,
-                    portraits_count: summary.portraits_count as i64,
-                    isolated_count: summary.isolated_count as i64,
-                    isolated_people: summary
-                        .isolated_people
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    vignettes_count: summary.vignettes_count as i64,
-                    skipped: summary.skipped,
-                    warnings: summary.warnings,
-                }),
-            )
-        } else {
-            let summary = job
-                .result_json
-                .as_deref()
-                .map(serde_json::from_str::<crate::service::gedcom::ImportSummary>)
-                .transpose()
-                .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-            (
-                summary.map(|summary| GqlImportResult {
-                    persons_count: summary.persons_count as i32,
-                    families_count: summary.families_count as i32,
-                    events_count: summary.events_count as i32,
-                    sources_count: summary.sources_count as i32,
-                    media_count: summary.media_count as i32,
-                    places_count: summary.places_count as i32,
-                    notes_count: summary.notes_count as i32,
-                    warnings: summary.warnings,
-                }),
-                None,
-            )
-        };
-        Ok(GqlImportJobStatus {
-            phase: job.phase,
-            done: job.done,
-            total: job.total,
-            result,
-            geneanet_result,
-            error: job.error_code,
-        })
+            uuid(&job_id)?,
+        )
+        .await?;
+        Ok(status.into())
     }
 
     // ── Geneanet import wizard ───────────────────────────────────────

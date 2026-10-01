@@ -7,10 +7,12 @@ use std::time::Duration;
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::repo::{
-    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, TreeRepo, db_err,
+    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
+    TreeRepo, db_err,
 };
 use oxidgene_gedcom::export::GedzipFileWriter;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, TransactionTrait};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::Instrument as _;
 use uuid::Uuid;
@@ -1176,4 +1178,201 @@ pub async fn stage_geneanet_import(
 #[derive(Serialize)]
 struct ExportJobResult {
     warnings: Vec<String>,
+}
+
+// ── Job status, as both surfaces report it ─────────────────────────────
+
+/// Where an export job stands.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportJobStatus {
+    pub phase: String,
+    pub done: i64,
+    pub total: i64,
+    /// Where to download the archive, once it is complete.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// A stable error code, once the job has failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Where an import job stands, with its receipt once it has completed.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportJobStatus {
+    pub phase: String,
+    pub done: i64,
+    pub total: i64,
+    /// The receipt of a completed file import.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<gedcom::ImportSummary>,
+    /// The receipt of a completed Geneanet import.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geneanet_result: Option<geneanet::GeneanetImportSummary>,
+    /// A stable error code, once the job has failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Queue a GEDZIP export of tree `tree_id`; the job's id.
+///
+/// A tree runs one job at a time: while another is queued or running, this
+/// is a [`OxidGeneError::Conflict`].
+pub async fn start_export_job(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    merge_occupations: bool,
+    merge_names: bool,
+) -> Result<Uuid, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    let job_id = Uuid::now_v7();
+    BackgroundJobRepo::create(
+        db,
+        NewBackgroundJob {
+            id: job_id,
+            tree_id,
+            kind: BackgroundJobKind::Export,
+            format: "gedzip".into(),
+            source_key: None,
+            payload_json: None,
+            original_filename: None,
+            merge_occupations,
+            merge_names,
+        },
+    )
+    .await?;
+    Ok(job_id)
+}
+
+/// Where export job `job_id` of tree `tree_id` stands.
+pub async fn export_job_status(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ExportJobStatus, OxidGeneError> {
+    if let Some(progress) = live_job_progress(tree_id, job_id, BackgroundJobKind::Export) {
+        return Ok(ExportJobStatus {
+            phase: progress.phase,
+            done: count(progress.done),
+            total: count(progress.total),
+            download_url: None,
+            warnings: Vec::new(),
+            error: None,
+        });
+    }
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
+    let warnings = receipt::<ExportReceipt>(job.result_json.as_deref())?
+        .map_or_else(Vec::new, |receipt| receipt.warnings);
+    // A downloaded or expired artifact is gone, and so is its link.
+    let download_url = (job.status == BackgroundJobStatus::Completed.as_str()
+        && job.artifact_key.is_some())
+    .then(|| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
+    Ok(ExportJobStatus {
+        phase: job.phase,
+        done: count(job.done),
+        total: count(job.total),
+        download_url,
+        warnings,
+        error: job.error_code,
+    })
+}
+
+/// Where import job `job_id` of tree `tree_id` stands.
+pub async fn import_job_status(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ImportJobStatus, OxidGeneError> {
+    if let Some(progress) = live_job_progress(tree_id, job_id, BackgroundJobKind::Import) {
+        return Ok(ImportJobStatus {
+            phase: progress.phase,
+            done: count(progress.done),
+            total: count(progress.total),
+            result: None,
+            geneanet_result: None,
+            error: None,
+        });
+    }
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Import).await?;
+    let serialized = job.result_json.as_deref();
+    let (result, geneanet_result) = if job.format == "geneanet" {
+        (None, receipt(serialized)?)
+    } else {
+        (receipt(serialized)?, None)
+    };
+    Ok(ImportJobStatus {
+        phase: job.phase,
+        done: count(job.done),
+        total: count(job.total),
+        result,
+        geneanet_result,
+        error: job.error_code,
+    })
+}
+
+/// The export artifact of completed job `job_id` of tree `tree_id`: its
+/// storage key. An artifact released by its first complete download, or
+/// expired, is not found.
+pub async fn export_artifact(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<String, OxidGeneError> {
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
+    if job.status != BackgroundJobStatus::Completed.as_str() {
+        return Err(OxidGeneError::Validation(
+            "export artifact is not ready".into(),
+        ));
+    }
+    job.artifact_key.ok_or(OxidGeneError::NotFound {
+        entity: "ExportArtifact",
+        id: job_id,
+    })
+}
+
+/// Job `job_id` of tree `tree_id`, which must be of `kind` and belong to a
+/// live tree.
+///
+/// The status reads answer a job this process is running from memory before
+/// coming here, so that a poll never waits on the database — on SQLite the
+/// running job may hold its only connection. The tree is checked here, once
+/// the answer has to come from the database anyway.
+async fn job_of_kind(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+    kind: BackgroundJobKind,
+) -> Result<BackgroundJob, OxidGeneError> {
+    crate::service::scope::require_live_tree(db, tree_id).await?;
+    let job = BackgroundJobRepo::get_in_tree(db, tree_id, job_id).await?;
+    if job.kind != kind.as_str() {
+        return Err(OxidGeneError::NotFound {
+            entity: match kind {
+                BackgroundJobKind::Export => "ExportJob",
+                BackgroundJobKind::Import => "ImportJob",
+            },
+            id: job_id,
+        });
+    }
+    Ok(job)
+}
+
+/// What a completed export job records about itself.
+#[derive(Deserialize)]
+struct ExportReceipt {
+    warnings: Vec<String>,
+}
+
+/// A job's stored receipt, read back.
+fn receipt<T: DeserializeOwned>(serialized: Option<&str>) -> Result<Option<T>, OxidGeneError> {
+    serialized
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| OxidGeneError::Internal(error.to_string()))
+}
+
+/// A progress count as reported: never negative.
+fn count(value: i64) -> i64 {
+    value.max(0)
 }

@@ -1354,3 +1354,108 @@ async fn linking_a_picture_over_graphql_rewrites_the_card_as_rest_does() {
     assert_eq!(card["media_count"], 0, "{card}");
     assert!(card["primary_media"].is_null(), "{card}");
 }
+
+// ── Import and export ───────────────────────────────────────────────────
+
+/// The export entries of `tree_id`'s audit log.
+async fn exports(app: &axum::Router, tree_id: &str) -> Vec<serde_json::Value> {
+    common::ok(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/audit?category=export"),
+        None,
+    )
+    .await["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|edge| edge["node"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_gedcom_export_is_audited_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Exported").await;
+
+    common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/gedcom/export"),
+        None,
+    )
+    .await;
+    assert_eq!(exports(&app, &tree_id).await.len(), 1);
+
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!) { exportGedcom(treeId: $t) { gedcom } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert!(
+        data["exportGedcom"]["gedcom"]
+            .as_str()
+            .unwrap()
+            .starts_with("0 HEAD")
+    );
+    let entries = exports(&app, &tree_id).await;
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["details"]["format"] == "gedcom")
+    );
+}
+
+#[tokio::test]
+async fn job_status_reads_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Jobs").await;
+    let import = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/import-jobs?format=gedcom"),
+        Some(json!("0 HEAD\n0 TRLR\n")),
+    )
+    .await["job_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let rest = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/import-jobs/{import}"),
+        None,
+    )
+    .await;
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!, $j: ID!) { importJobStatus(treeId: $t, jobId: $j) { phase done total error } }",
+        json!({ "t": tree_id, "j": import }),
+    )
+    .await;
+    let gql_status = &data["importJobStatus"];
+    assert_eq!(rest["phase"], gql_status["phase"]);
+    assert_eq!(rest["done"], gql_status["done"]);
+    assert_eq!(rest["total"], gql_status["total"]);
+    assert!(rest.get("result").is_none(), "{rest}");
+
+    // An import job is not an export job, on either surface.
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/export-jobs/{import}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = gql(
+        &app,
+        "query($t: ID!, $j: ID!) { exportJobStatus(treeId: $t, jobId: $j) { phase } }",
+        json!({ "t": tree_id, "j": import }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+}

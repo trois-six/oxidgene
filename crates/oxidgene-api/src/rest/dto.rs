@@ -378,19 +378,6 @@ pub struct ImportGenewebQuery {
     pub filename: Option<String>,
 }
 
-/// Response body for an import, whatever the source format.
-#[derive(Debug, Clone, Serialize)]
-pub struct ImportResponse {
-    pub persons_count: usize,
-    pub families_count: usize,
-    pub events_count: usize,
-    pub sources_count: usize,
-    pub media_count: usize,
-    pub places_count: usize,
-    pub notes_count: usize,
-    pub warnings: Vec<String>,
-}
-
 /// Parser selected for an uploaded genealogy file.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -424,20 +411,6 @@ pub struct FileImportStartedResponse {
     pub job_id: uuid::Uuid,
 }
 
-/// Current server-side state of an asynchronous file import.
-#[derive(Debug, Serialize)]
-pub struct FileImportStatusResponse {
-    pub phase: String,
-    pub done: usize,
-    pub total: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<ImportResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub geneanet_result: Option<GeneanetImportResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
 /// Options for creating an asynchronous GEDZIP export.
 #[derive(Debug, Deserialize)]
 pub struct StartExportJobQuery {
@@ -448,19 +421,6 @@ pub struct StartExportJobQuery {
 #[derive(Debug, Serialize)]
 pub struct ExportJobStartedResponse {
     pub job_id: uuid::Uuid,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ExportJobStatusResponse {
-    pub phase: String,
-    pub done: usize,
-    pub total: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub download_url: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
 }
 
 /// Response body for GEDCOM export.
@@ -566,18 +526,6 @@ impl From<oxidgene_db::repo::DictionaryValueEntry> for DictionaryEntryDto {
     }
 }
 
-/// Body of the dictionary's bulk particle edit.
-///
-/// `value` is the surname as listed by the family-names endpoint, particle
-/// included; `particle` is the new cut to apply to every occurrence of it, an
-/// empty string meaning "this name has no particle". The particle must already
-/// be at the head of `value` — this edit moves a boundary, it never adds a word.
-#[derive(Debug, Deserialize)]
-pub struct SetFamilyNameParticleRequest {
-    pub value: String,
-    pub particle: String,
-}
-
 /// Outcome of a bulk particle edit.
 #[derive(Debug, Serialize)]
 pub struct FamilyNameParticleUpdateDto {
@@ -600,20 +548,6 @@ impl From<oxidgene_db::repo::FamilyNameParticleUpdate> for FamilyNameParticleUpd
             persons_updated: u.persons_updated,
         }
     }
-}
-
-/// Body of the dictionary's family-name rename.
-///
-/// Every person whose primary name carries surname `value` (as listed, matched
-/// exactly) gets `new_value`, stored as sent. `particle` chooses where
-/// `new_value` splits and must be at its head; absent, the split `new_value`
-/// already has in the tree is kept, or detected when it is new.
-#[derive(Debug, Deserialize)]
-pub struct RenameFamilyNameRequest {
-    pub value: String,
-    pub new_value: String,
-    #[serde(default)]
-    pub particle: Option<String>,
 }
 
 /// Outcome of a family-name rename.
@@ -911,31 +845,4 @@ pub struct GeneanetImportRequest {
     /// `originals`. `renditions` ignores `deposit_sizes` and `archive_paths`.
     #[serde(default)]
     pub media_fidelity: crate::service::geneanet::MediaFidelity,
-}
-
-/// What the import actually did.
-#[derive(Debug, Serialize)]
-pub struct GeneanetImportResponse {
-    pub persons_count: usize,
-    pub families_count: usize,
-    pub events_count: usize,
-    pub sources_count: usize,
-    pub places_count: usize,
-    pub notes_count: usize,
-    /// Distinct photos stored.
-    pub media_count: usize,
-    /// Person↔photo rows; higher than `media_count` when a photo shows several
-    /// people, which is what the Geneanet export could not express at all.
-    pub links_count: usize,
-    /// Links marked as a person's profile photo, from the `.gw`'s `#image`.
-    pub portraits_count: usize,
-    /// People created for identifications Geneanet marks "hors de l'arbre".
-    pub isolated_count: usize,
-    /// Those people, in creation order.
-    pub isolated_people: Vec<crate::service::geneanet::IsolatedPerson>,
-    /// Identification boxes kept as regions on the stored pictures.
-    pub vignettes_count: usize,
-    /// Photos that could not be fetched, one line each.
-    pub skipped: Vec<String>,
-    pub warnings: Vec<String>,
 }

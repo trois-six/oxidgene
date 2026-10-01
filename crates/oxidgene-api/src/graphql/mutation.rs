@@ -18,10 +18,6 @@ use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use uuid::Uuid;
 
-use oxidgene_db::repo::{
-    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, NewBackgroundJob, TreeRepo,
-};
-
 use super::history::{GqlAuditEntry, GqlRecordType};
 use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
@@ -1036,25 +1032,14 @@ impl MutationRoot {
         tree_id: ID,
         input: SetFamilyNameParticleInput,
     ) -> Result<GqlFamilyNameParticleUpdate> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let txn = begin_tx(db).await?;
-        let update =
-            DictionaryRepo::set_family_name_particle(&txn, tid, &input.value, &input.particle)
-                .await?;
-        if update.names_updated > 0 {
-            history::family_name_change(tid, &update)
-                .record(&txn)
-                .await?;
-        }
-        commit_tx(txn).await?;
-        // Same reasoning as the REST handler: a surname reaches every
-        // projection embedding a display name, so rebuild the tree eagerly and
-        // outside the transaction rather than bounding an unbounded set.
-        if update.names_updated > 0 {
-            profiles.rebuild_tree_full(db, tid).await?;
-        }
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let update = family_names::set_particle(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            input.into(),
+        )
+        .await?;
         Ok(update.into())
     }
 
@@ -1067,25 +1052,20 @@ impl MutationRoot {
         tree_id: ID,
         input: RenameFamilyNameInput,
     ) -> Result<GqlFamilyNameRename> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let txn = begin_tx(db).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
         let renamed = family_names::rename(
-            &txn,
-            profiles,
-            tid,
-            &input.value,
-            &input.new_value,
-            input.particle.as_deref(),
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            input.into(),
         )
         .await?;
-        commit_tx(txn).await?;
         Ok(renamed.into())
     }
 
     /// Queue a durable GEDZIP export. The artifact is downloaded through the
-    /// URL exposed by `exportJobStatus` once the worker completes it.
+    /// URL exposed by `exportJobStatus` once the worker completes it. A tree
+    /// already running a job answers CONFLICT.
     async fn start_export_job(
         &self,
         ctx: &Context<'_>,
@@ -1093,23 +1073,12 @@ impl MutationRoot {
         merge_occupations: Option<bool>,
         merge_names: Option<bool>,
     ) -> Result<GqlBackgroundJobStarted> {
-        let db = db_from_ctx(ctx);
         let tree_id = live_tree(ctx, &tree_id).await?;
-        TreeRepo::get(db, tree_id).await?;
-        let job_id = Uuid::now_v7();
-        BackgroundJobRepo::create(
-            db,
-            NewBackgroundJob {
-                id: job_id,
-                tree_id,
-                kind: BackgroundJobKind::Export,
-                format: "gedzip".into(),
-                source_key: None,
-                payload_json: None,
-                original_filename: None,
-                merge_occupations: merge_occupations.unwrap_or(false),
-                merge_names: merge_names.unwrap_or(false),
-            },
+        let job_id = crate::service::background_job::start_export_job(
+            db_from_ctx(ctx),
+            tree_id,
+            merge_occupations.unwrap_or(false),
+            merge_names.unwrap_or(false),
         )
         .await?;
         Ok(GqlBackgroundJobStarted {

@@ -12,13 +12,11 @@ use oxidgene_db::repo::{BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, 
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
-use super::dto::{
-    FileImportStartedResponse, FileImportStatusResponse, ImportResponse, StartFileImportQuery,
-};
+use super::dto::{FileImportStartedResponse, StartFileImportQuery};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::media::store::job_blob_key;
-use crate::service::gedcom;
+use crate::service::background_job::{self, ImportJobStatus};
 
 pub const FILE_IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 
@@ -107,51 +105,10 @@ async fn stage_import(
 pub async fn status(
     State(state): State<AppState>,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<FileImportStatusResponse>, ApiError> {
-    if let Some(progress) = crate::service::background_job::live_job_progress(
-        tree_id,
-        job_id,
-        BackgroundJobKind::Import,
-    ) {
-        return Ok(Json(FileImportStatusResponse {
-            phase: progress.phase,
-            done: as_usize(progress.done),
-            total: as_usize(progress.total),
-            result: None,
-            geneanet_result: None,
-            error: None,
-        }));
-    }
-
-    let job = BackgroundJobRepo::get_in_tree(&state.db, tree_id, job_id).await?;
-    if job.kind != BackgroundJobKind::Import.as_str() {
-        return Err(ApiError(OxidGeneError::NotFound {
-            entity: "ImportJob",
-            id: job_id,
-        }));
-    }
-    let serialized_result = job.result_json.as_deref();
-    let (result, geneanet_result) = if job.format == "geneanet" {
-        let summary = serialized_result
-            .map(serde_json::from_str::<crate::service::geneanet::GeneanetImportSummary>)
-            .transpose()
-            .map_err(|error| ApiError(OxidGeneError::Internal(error.to_string())))?;
-        (None, summary.map(super::geneanet::import_response))
-    } else {
-        let summary = serialized_result
-            .map(serde_json::from_str::<gedcom::ImportSummary>)
-            .transpose()
-            .map_err(|error| ApiError(OxidGeneError::Internal(error.to_string())))?;
-        (summary.map(import_response), None)
-    };
-    Ok(Json(FileImportStatusResponse {
-        phase: job.phase,
-        done: as_usize(job.done),
-        total: as_usize(job.total),
-        result,
-        geneanet_result,
-        error: job.error_code,
-    }))
+) -> Result<Json<ImportJobStatus>, ApiError> {
+    Ok(Json(
+        background_job::import_job_status(&state.db, tree_id, job_id).await?,
+    ))
 }
 
 async fn stream_to_file(body: Body, file: std::fs::File) -> Result<(), OxidGeneError> {
@@ -177,23 +134,6 @@ async fn stream_to_file(body: Body, file: std::fs::File) -> Result<(), OxidGeneE
     }
     file.flush().await?;
     Ok(())
-}
-
-fn import_response(summary: gedcom::ImportSummary) -> ImportResponse {
-    ImportResponse {
-        persons_count: summary.persons_count,
-        families_count: summary.families_count,
-        events_count: summary.events_count,
-        sources_count: summary.sources_count,
-        media_count: summary.media_count,
-        places_count: summary.places_count,
-        notes_count: summary.notes_count,
-        warnings: summary.warnings,
-    }
-}
-
-fn as_usize(value: i64) -> usize {
-    usize::try_from(value).unwrap_or_default()
 }
 
 #[cfg(test)]

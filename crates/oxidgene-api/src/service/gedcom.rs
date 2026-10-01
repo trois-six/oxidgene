@@ -765,6 +765,38 @@ async fn insert_attached_records(
     Ok(())
 }
 
+/// What follows a synchronous import once its rows are persisted: every
+/// projection of the tree rebuilt eagerly, and the import recorded in the
+/// audit log under `format` and the imported file's name.
+pub async fn finish_import(
+    db: &DatabaseConnection,
+    profiles: &crate::profile::ProfileService,
+    tree_id: Uuid,
+    format: &str,
+    file_name: Option<String>,
+    summary: &ImportSummary,
+) -> Result<(), OxidGeneError> {
+    profiles.rebuild_tree_full(db, tree_id).await?;
+    crate::service::history::record_import(db, tree_id, format, file_name, summary.persons_count)
+        .await?;
+    Ok(())
+}
+
+/// Tree `tree_id` as GEDCOM text, the export recorded in its audit log.
+///
+/// The media keep their producers' paths: there is no archive to point
+/// into. See [`load_and_export`] for the two merge options.
+pub async fn export_gedcom(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    merge_occupations: bool,
+    merge_names: bool,
+) -> Result<ExportData, OxidGeneError> {
+    let data = load_and_export(db, tree_id, merge_occupations, merge_names, false).await?;
+    crate::service::history::record_export(db, tree_id, "gedcom", None).await?;
+    Ok(data)
+}
+
 /// Load all entities from a tree and export them as a GEDCOM string.
 ///
 /// Verifies the tree exists, loads all entities, then calls the GEDCOM

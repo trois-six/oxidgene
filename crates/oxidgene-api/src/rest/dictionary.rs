@@ -1,7 +1,7 @@
 //! REST handlers for the Dictionary page: distinct-value aggregations
 //! (family names, sources, places, occupations) and usage drill-downs.
 
-use crate::service::{family_names, history};
+use crate::service::family_names::{self, FamilyNameChange, ParticleChange};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use oxidgene_db::repo::{DictionaryRepo, SOURCE_DRILL_THRESHOLD};
@@ -9,13 +9,12 @@ use uuid::Uuid;
 
 use super::dto::{
     DictionaryEntryDto, DictionaryUsageQuery, FamilyNameParticleUpdateDto, FamilyNameRenameDto,
-    PersonUsageEntryDto, PlaceDictionaryEntry, RenameFamilyNameRequest,
-    SetFamilyNameParticleRequest, SourceDictionaryEntry, SourceDrillResponse, SourceGroupDto,
-    SourcePrefixQuery,
+    PersonUsageEntryDto, PlaceDictionaryEntry, SourceDictionaryEntry, SourceDrillResponse,
+    SourceGroupDto, SourcePrefixQuery,
 };
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/dictionary/family-names
 pub async fn family_names(
@@ -172,34 +171,9 @@ pub async fn family_name_usage(
 pub async fn set_family_name_particle(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<SetFamilyNameParticleRequest>,
+    Json(body): Json<ParticleChange>,
 ) -> Result<Json<FamilyNameParticleUpdateDto>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let update =
-        DictionaryRepo::set_family_name_particle(&txn, tree_id, &body.value, &body.particle)
-            .await
-            .map_err(ApiError::from)?;
-    if update.names_updated > 0 {
-        history::family_name_change(tree_id, &update)
-            .record(&txn)
-            .await
-            .map_err(ApiError)?;
-    }
-    commit_tx(txn).await.map_err(ApiError)?;
-
-    // Surnames feed every projection that embeds a display name, so the
-    // affected set of a bulk edit is unbounded in practice. Rebuild the tree
-    // eagerly and outside the transaction, as the GEDCOM import does: it is an
-    // idempotent bulk operation, and holding a write lock over every row of a
-    // large tree to save a rarely-used edit some work is the wrong trade.
-    // Skipped entirely when nothing changed, which is the repeat-call case.
-    if update.names_updated > 0 {
-        state
-            .profiles
-            .rebuild_tree_full(&state.db, tree_id)
-            .await
-            .map_err(ApiError)?;
-    }
+    let update = family_names::set_particle(&state.db, &state.profiles, tree_id, body).await?;
     Ok(Json(update.into()))
 }
 
@@ -210,20 +184,9 @@ pub async fn set_family_name_particle(
 pub async fn rename_family_name(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<RenameFamilyNameRequest>,
+    Json(body): Json<FamilyNameChange>,
 ) -> Result<Json<FamilyNameRenameDto>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let renamed = family_names::rename(
-        &txn,
-        &state.profiles,
-        tree_id,
-        &body.value,
-        &body.new_value,
-        body.particle.as_deref(),
-    )
-    .await
-    .map_err(ApiError::from)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    let renamed = family_names::rename(&state.db, &state.profiles, tree_id, body).await?;
     Ok(Json(renamed.into()))
 }
 

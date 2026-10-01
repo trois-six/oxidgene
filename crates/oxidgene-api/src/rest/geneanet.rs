@@ -21,9 +21,9 @@ use oxidgene_geneanet::session;
 
 use super::dto::{
     DecodeSessionResponse, EncodeSessionRequest, FileImportStartedResponse, GeneanetImportRequest,
-    GeneanetImportResponse, GeneanetPlanResponse, GeneanetPreviewRequest, GeneanetPreviewResponse,
-    ImportGenewebQuery, IndexArchivesRequest, IndexArchivesResponse, IndexedArchive,
-    InspectGenewebResponse, NeededMedia, ReleaseSessionMediaRequest,
+    GeneanetPlanResponse, GeneanetPreviewRequest, GeneanetPreviewResponse, ImportGenewebQuery,
+    IndexArchivesRequest, IndexArchivesResponse, IndexedArchive, InspectGenewebResponse,
+    NeededMedia, ReleaseSessionMediaRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -312,25 +312,6 @@ pub async fn import_handler(
         StatusCode::ACCEPTED,
         Json(FileImportStartedResponse { job_id }),
     ))
-}
-
-pub(crate) fn import_response(summary: geneanet::GeneanetImportSummary) -> GeneanetImportResponse {
-    GeneanetImportResponse {
-        persons_count: summary.persons_count,
-        families_count: summary.families_count,
-        events_count: summary.events_count,
-        sources_count: summary.sources_count,
-        places_count: summary.places_count,
-        notes_count: summary.notes_count,
-        media_count: summary.media_count,
-        links_count: summary.links_count,
-        portraits_count: summary.portraits_count,
-        isolated_count: summary.isolated_count,
-        isolated_people: summary.isolated_people,
-        vignettes_count: summary.vignettes_count,
-        skipped: summary.skipped,
-        warnings: summary.warnings,
-    }
 }
 
 /// Decodes the base64 the JSON bodies carry the `.gw` in.

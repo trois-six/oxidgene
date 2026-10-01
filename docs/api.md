@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:17:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:30:27Z }
 ---
 
 
@@ -681,7 +681,10 @@ GraphQL's `valueSuggestions` takes the same arguments (`surname`,
 Every write to a tree leaves an audit entry, and every write that changes a
 person, a place, a source or the tree's settings also stores that record's new
 state as a numbered version. See [Data Model §5](data-model.md#5-change-history)
-for what is recorded and what a version holds.
+for what is recorded and what a version holds. An export is recorded too
+(`category: export`, the format in `details`), whichever surface produced
+it: `GET /gedcom/export` and GraphQL `exportGedcom` alike, a GEDZIP job when
+its archive is complete.
 
 | Method | Path | Description |
 |---|---|---|
@@ -1284,6 +1287,7 @@ type Query {
   vignette(treeId: ID!, id: ID!): Vignette
 
   # Text GEDCOM compatibility export and durable job status
+  # Records the export in the tree's audit log, as REST does.
   exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedcomResult!
   importJobStatus(treeId: ID!, jobId: ID!): ImportJobStatus!
   exportJobStatus(treeId: ID!, jobId: ID!): ExportJobStatus!
