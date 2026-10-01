@@ -430,6 +430,52 @@ fn an_unreadable_age_is_a_warning_rather_than_a_failed_import() {
     assert_eq!(imported.result.warnings.len(), 2);
 }
 
+/// A 5.5.1 note record pointed at from a person and from one of their events.
+const NOTE_RECORD_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Branch /Alpha/
+1 NOTE @N1@
+1 BIRT
+2 DATE 1801
+2 NOTE @N2@
+0 @N1@ NOTE A shared remark
+1 CONT on two lines
+0 @N2@ NOTE Read in the
+1 CONC  register
+0 TRLR
+";
+
+/// `NOTE @N1@` brings the record's text, not the pointer, onto the person
+/// and the event that cite it.
+#[test]
+fn a_note_pointer_imports_the_text_of_its_record() {
+    let result = import_gedcom(NOTE_RECORD_GEDCOM, Uuid::now_v7()).expect("imports");
+    let person_id = result.persons[0].id;
+    let birth = event_of(&result, oxidgene_core::EventType::Birth);
+    let text_of = |owner: &dyn Fn(&Note) -> bool| {
+        result
+            .notes
+            .iter()
+            .filter(|n| owner(n))
+            .map(|n| n.text.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        text_of(&|n| n.person_id == Some(person_id)),
+        ["A shared remark\non two lines"]
+    );
+    assert_eq!(
+        text_of(&|n| n.event_id == Some(birth.id)),
+        ["Read in the register"]
+    );
+    assert!(result.notes.iter().all(|n| !n.text.contains("@N")));
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
