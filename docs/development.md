@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:13:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T21:48:22Z }
 ---
 
 # Development Environment and Workflows
@@ -64,6 +64,7 @@ the repository root.
 | `just cyclomatic` | Fail on any function above a cyclomatic complexity of 15 (§2.1). |
 | `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, and tests. |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
+| `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
 
@@ -400,6 +401,41 @@ OXIDGENE_GENEANET_PAIRING_OUT=/tmp/pairing-reference.tsv \
   cargo test --release --package oxidgene-geneanet \
     --test phash_real_session -- --ignored --nocapture
 ```
+
+### Real-data import check
+
+`crates/oxidgene-api/tests/real_import_test.rs` imports your own exports the
+way the desktop does — the router with local file access and the in-process
+background worker — over a file-backed SQLite database and a media root on
+disk, then checks the trees they produce. Every test is `#[ignore]`d and skips
+itself when the variables naming its files are unset; `just real-import` runs
+them in release mode, one at a time, and passes extra arguments to nextest
+(`just real-import gedcom` runs the GEDCOM test alone).
+
+| Variable | File |
+|----------|------|
+| `OXIDGENE_REAL_GW` and `OXIDGENE_REAL_SESSION` | A GeneWeb `.gw` export of a Geneanet tree, and a saved session of the same account |
+| `OXIDGENE_REAL_ARCHIVES` | That account's media archives, comma-separated (optional) |
+| `OXIDGENE_REAL_FIDELITY` | `originals` or `renditions`; defaults to `originals` when archives are given |
+| `OXIDGENE_REAL_GED` | GEDCOM files, comma-separated |
+| `OXIDGENE_REAL_GDZ` | A GEDZIP archive |
+
+The Geneanet test walks the wizard's REST calls — inspect, archive index,
+session decode, preview, plan, import — and follows the job as the wizard
+polls it; the GEDCOM and GEDZIP tests upload through the import jobs. Each
+imported tree is then checked: the receipt against the stored rows, no media
+row pointing at nothing or missing its file, every person projected
+(`is_materialized`) and searchable, no record version written by the import,
+and the tree-wide reads (statistics, anomalies, duplicates, dictionaries,
+search, the SOSA root's pedigree when one is set) answering. The Geneanet tree
+and the GEDZIP one are also exported as GEDZIP and re-imported into a second
+tree, and every count that changed on the way fails the run.
+
+The recipe stages everything, `TMPDIR` included, under `target/real-import`,
+on disk rather than in a RAM-backed `/tmp`, and deletes it on exit. The tests
+print aggregates only — timings, the peak resident memory of each phase,
+counts and error codes — never a row, a name or an error message, which can
+quote the file.
 
 The Compose stack includes an OpenTelemetry Collector. It receives OTLP on
 loopback ports `4317` (gRPC) and `4318` (HTTP), exposes its health endpoint on

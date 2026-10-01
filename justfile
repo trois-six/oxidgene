@@ -102,6 +102,21 @@ check: fmt-check clippy cyclomatic test
 scaling:
     cargo nextest run --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
 
+# Import your own exports end to end through the desktop's backend, in release
+# mode, and check the trees they produce (see docs/development.md). Opt-in: the
+# OXIDGENE_REAL_* variables name the files, and a test whose files are unset
+# skips itself. Everything is staged under target/real-import — on disk, not
+# in a RAM-backed /tmp — and deleted afterwards. Arguments go to nextest.
+real-import *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work="$PWD/target/real-import"
+    trap 'rm -rf "$work"' EXIT
+    mkdir -p "$work/tmp"
+    TMPDIR="$work/tmp" OXIDGENE_REAL_WORKDIR="$work" \
+      cargo nextest run --release -p oxidgene-api --test real_import_test \
+        --run-ignored only --no-capture {{ args }}
+
 # Regenerate the place dictionary (France, United Kingdom, Germany, Italy,
 # Spain, Switzerland, Poland, United States, Portugal, Belgium, Luxembourg,
 # Netherlands) from the latest
