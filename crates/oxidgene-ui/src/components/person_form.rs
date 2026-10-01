@@ -1215,7 +1215,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                             let eid = ev.id;
                                             let label = ev.description.clone().unwrap_or_default();
                                             let date = format_event_date(&i18n, ev);
-                                            let place = ev.place_id.map(&place_name).unwrap_or_default();
+                                            let place = ev.place_id.map(place_name).unwrap_or_default();
                                             let notes_open = open_event_notes() == Some(eid);
                                             rsx! {
                                                 div {
@@ -1794,7 +1794,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     // on import) — without it the row shows only its type.
                                     let desc = ev.description.clone().unwrap_or_default();
                                     let date = format_event_date(&i18n, ev);
-                                    let place = ev.place_id.map(&place_name).unwrap_or_default();
+                                    let place = ev.place_id.map(place_name).unwrap_or_default();
                                     let notes_open = open_event_notes() == Some(eid);
                                     rsx! {
                                         div {
