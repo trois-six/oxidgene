@@ -214,13 +214,18 @@ impl ProfileService {
     }
 
     /// Read every projection of a tree, materializing them if needed.
+    ///
+    /// The payloads of a large tree run to tens of megabytes of JSON, so
+    /// they are decoded on a blocking thread, under `profile.decode`.
     pub async fn get_all_persons(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<PersonProfile>, OxidGeneError> {
         self.ensure_materialized(conn, tree_id).await?;
-        PersonDenormRepo::list_tree(conn, tree_id).await
+        let encoded = PersonDenormRepo::list_tree(conn, tree_id).await?;
+        let span = tracing::info_span!("profile.decode", person.count = encoded.len());
+        crate::service::blocking::run(span, move || encoded.decode()).await?
     }
 
     // ── Pedigree ─────────────────────────────────────────────────────────

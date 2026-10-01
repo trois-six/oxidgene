@@ -449,6 +449,7 @@ pub struct PotentialDuplicates {
 
 /// Loads a tree's projections and its distinct-person confirmations, and
 /// finds the pairs of records that may be one person.
+#[tracing::instrument(name = "duplicates.load", skip_all)]
 pub async fn load_potential_duplicates(
     db: &sea_orm::DatabaseConnection,
     profiles: &ProfileService,
@@ -457,9 +458,12 @@ pub async fn load_potential_duplicates(
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
     let persons = profiles.get_all_persons(db, tree_id).await?;
     let distinct = PersonDistinctRepo::pairs_in_tree(db, tree_id).await?;
-    tokio::task::spawn_blocking(move || potential_duplicates(&persons, &distinct))
-        .await
-        .map_err(|e| OxidGeneError::Internal(e.to_string()))
+    let span = tracing::info_span!(
+        "duplicates.compute",
+        person.count = persons.len(),
+        distinct.count = distinct.len(),
+    );
+    crate::service::blocking::run(span, move || potential_duplicates(&persons, &distinct)).await
 }
 
 /// A name folded so that spellings that sound alike meet: lowercase and

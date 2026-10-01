@@ -92,16 +92,20 @@ impl PersonDenormRepo {
     /// a short list. Its one caller checks [`Self::is_materialized`] first and
     /// rebuilds the tree when it answers no, so by the time this runs
     /// there is nothing stale left to filter.
+    ///
+    /// The rows come back still encoded: decoding a large tree's payloads is
+    /// tens of milliseconds of CPU, which the caller runs off its async
+    /// workers ([`EncodedProfiles::decode`]).
     pub async fn list_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-    ) -> Result<Vec<PersonProfile>, OxidGeneError> {
+    ) -> Result<EncodedProfiles, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .all(db)
             .await
             .map_err(db_err)?;
-        models.into_iter().map(decode).collect()
+        Ok(EncodedProfiles(models))
     }
 
     /// Insert or replace the projections for a bounded set of persons.
@@ -244,6 +248,29 @@ fn encode(person: &PersonProfile) -> Result<ActiveModel, OxidGeneError> {
         schema_version: Set(PROJECTION_SCHEMA_VERSION),
         updated_at: Set(person.built_at.into()),
     })
+}
+
+/// A tree's projection rows as stored, not yet deserialized.
+#[derive(Debug)]
+pub struct EncodedProfiles(Vec<Model>);
+
+impl EncodedProfiles {
+    /// How many projections the rows hold.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether there are no rows at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Deserialize every row: CPU-bound, so best run on a blocking thread.
+    pub fn decode(self) -> Result<Vec<PersonProfile>, OxidGeneError> {
+        self.0.into_iter().map(decode).collect()
+    }
 }
 
 /// Deserialize a storage row back into a projection.

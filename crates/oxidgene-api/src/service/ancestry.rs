@@ -103,6 +103,7 @@ pub fn generations(requested: Option<i64>) -> Result<u32, OxidGeneError> {
 
 /// Loads a tree's projections and computes its ancestry completeness from
 /// its SOSA root.
+#[tracing::instrument(name = "ancestry.load", skip_all, fields(ancestry.generations = generations))]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
@@ -118,7 +119,8 @@ pub async fn load(
     };
     let persons = profiles.get_all_persons(db, tree_id).await?;
     let today = chrono::Utc::now().date_naive();
-    Ok(compute(&persons, root, generations, today))
+    let span = tracing::info_span!("ancestry.compute", person.count = persons.len());
+    crate::service::blocking::run(span, move || compute(&persons, root, generations, today)).await
 }
 
 /// Recorded: the event exists with a date or a place. A dateless,

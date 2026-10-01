@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:37:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:38:33Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -370,6 +370,17 @@ the rejected value.
   span targets only; Tokio, HTTP transport, SQLx runtime internals, and SeaORM's
   `TRACE` wrappers are excluded so routed UI load spans and UI action spans
   remain the operational roots.
+- Tree-wide analyses own a service span: `statistics.load`, `anomalies.load`,
+  `anomalies.unlocated_places`, `duplicates.load`, `ancestry.load`, and
+  `kinship.find`. Their CPU-bound work runs on the blocking pool, never on an
+  async worker, under a child span created before the hand-off and entered on
+  the blocking thread, since the pool does not carry the caller's span:
+  `profile.decode` for the projection payloads, `statistics.compute`,
+  `anomalies.compute`, `anomalies.locate`, `duplicates.compute`,
+  `ancestry.compute`, `kinship.walk`, and `reference.places.locate` inside
+  them. Place suggestions run under `reference.places.search`. These spans
+  record aggregate counts (persons, places, links, the suggestion limit)
+  only, never a query, name, or identifier.
 - Every user-initiated import, Geneanet import, and export owns a root span of
   its own: `ui.import`, `ui.geneanet_import`, and `ui.export`. So does every
   other write a single button starts that would otherwise reach the collector

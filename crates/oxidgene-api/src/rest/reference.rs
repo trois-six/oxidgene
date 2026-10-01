@@ -81,7 +81,7 @@ pub async fn places(
     let limit = reference::place_limit(query.limit)?;
     // The first search decompresses and indexes the dictionary, and every
     // search scans it: kept off the async workers.
-    tokio::task::spawn_blocking(move || reference::search_places(lang, &query.q, limit))
+    reference::search_places_off_thread(lang, query.q, limit)
         .await
         .map(Json)
         .map_err(|_| ApiError(OxidGeneError::Internal("place search failed".into())))

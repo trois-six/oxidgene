@@ -959,10 +959,7 @@ impl QueryRoot {
         let limit = crate::reference::place_limit(limit)?;
         // The first search decompresses and indexes the dictionary, and
         // every search scans it: kept off the async workers.
-        let places = tokio::task::spawn_blocking(move || {
-            crate::reference::search_places(language, &query, limit)
-        })
-        .await?;
+        let places = crate::reference::search_places_off_thread(language, query, limit).await?;
         Ok(places.into_iter().map(Into::into).collect())
     }
 

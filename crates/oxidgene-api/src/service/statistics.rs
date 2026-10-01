@@ -701,6 +701,7 @@ pub fn language(code: Option<&str>) -> Result<ReferenceLang, oxidgene_core::Oxid
 /// the async workers: the person projections, the place usages, the source
 /// count, and the place dictionary to locate places and name their country,
 /// region and subdivision in `lang`.
+#[tracing::instrument(name = "statistics.load", skip_all)]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
@@ -713,7 +714,12 @@ pub async fn load(
     let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
     let sources = oxidgene_db::repo::SourceRepo::count_in_tree(db, tree_id).await?;
     let today = chrono::Utc::now().date_naive();
-    tokio::task::spawn_blocking(move || {
+    let span = tracing::info_span!(
+        "statistics.compute",
+        person.count = persons.len(),
+        place.count = places.len(),
+    );
+    crate::service::blocking::run(span, move || {
         compute(
             &persons,
             &places,
@@ -724,7 +730,6 @@ pub async fn load(
         )
     })
     .await
-    .map_err(|e| oxidgene_core::OxidGeneError::Internal(e.to_string()))
 }
 
 /// The figures read from each person's lifespan.

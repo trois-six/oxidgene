@@ -48,6 +48,7 @@ const MAX_GENERATIONS: usize = 64;
 ///
 /// `NotFound` if either person is missing from the tree; `Validation` if both
 /// are the same person.
+#[tracing::instrument(name = "kinship.find", skip_all)]
 pub async fn find_kinship(
     db: &impl ConnectionTrait,
     profiles: &ProfileService,
@@ -64,7 +65,12 @@ pub async fn find_kinship(
     PersonRepo::get_in_tree(db, tree_id, to).await?;
 
     let links = AncestryRepo::family_links(db, tree_id).await?;
-    let (paths, truncated) = FamilyGraph::new(&links).kinship(from, to);
+    // Indexing every family link of the tree and walking it is the costly
+    // part, and pure computation: kept off the async workers.
+    let span = tracing::info_span!("kinship.walk", link.count = links.len());
+    let (paths, truncated) =
+        crate::service::blocking::run(span, move || FamilyGraph::new(&links).kinship(from, to))
+            .await?;
 
     let mut named = vec![from, to];
     let mut seen: HashSet<Uuid> = named.iter().copied().collect();

@@ -89,6 +89,27 @@ pub fn search_places(lang: ReferenceLang, query: &str, limit: usize) -> Vec<Plac
     dictionary().search(lang, query, limit)
 }
 
+/// [`search_places`] on the blocking pool, under a `reference.places.search`
+/// span of the caller's: the first search decompresses and indexes the
+/// dictionary, and every search scans it. The span records the limit and the
+/// number of suggestions, never the query.
+pub async fn search_places_off_thread(
+    lang: ReferenceLang,
+    query: String,
+    limit: usize,
+) -> Result<Vec<PlaceSuggestion>, oxidgene_core::OxidGeneError> {
+    let span = tracing::info_span!(
+        "reference.places.search",
+        place.limit = limit,
+        place.count = tracing::field::Empty,
+    );
+    let recorded = span.clone();
+    let places =
+        crate::service::blocking::run(span, move || search_places(lang, &query, limit)).await?;
+    recorded.record("place.count", places.len());
+    Ok(places)
+}
+
 /// Where the place dictionary puts one of a tree's places: its spot, and
 /// the country, region and subdivision it lies in, named in the requested
 /// language. Any of them may be unknown.
@@ -110,6 +131,12 @@ pub struct PlaceLocation {
 /// memory afterwards, where building the whole index would take three
 /// times as long and keep a few tens of megabytes for the session.
 pub fn locate_places(lang: ReferenceLang, labels: &[(&str, i64)]) -> Vec<PlaceLocation> {
+    let _span = tracing::info_span!(
+        "reference.places.locate",
+        label.count = labels.len(),
+        place.index_loaded = DICTIONARY.get().is_some(),
+    )
+    .entered();
     match DICTIONARY.get() {
         Some(dictionary) => dictionary.locate_all(labels, lang),
         None => Dictionary::for_labels(&decompressed(), labels).locate_all(labels, lang),

@@ -62,7 +62,7 @@ pub use note::{NoteFilter, NoteRepo};
 pub use pagination::PaginationParams;
 pub use person::{PersonRepo, PortraitRow};
 
-pub use person_denorm::PersonDenormRepo;
+pub use person_denorm::{EncodedProfiles, PersonDenormRepo};
 pub use person_distinct::PersonDistinctRepo;
 pub use person_merge::PersonMergeRepo;
 pub use person_name::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};

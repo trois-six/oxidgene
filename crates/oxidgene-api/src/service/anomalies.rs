@@ -173,6 +173,7 @@ impl Anomaly {
 }
 
 /// Loads a tree's projections and witness links and finds its anomalies.
+#[tracing::instrument(name = "anomalies.load", skip_all)]
 pub async fn load(
     db: &sea_orm::DatabaseConnection,
     profiles: &crate::profile::ProfileService,
@@ -182,21 +183,26 @@ pub async fn load(
     let persons = profiles.get_all_persons(db, tree_id).await?;
     let witnesses = oxidgene_db::repo::EventWitnessRepo::list_by_tree(db, tree_id).await?;
     let today = chrono::Utc::now().date_naive();
-    tokio::task::spawn_blocking(move || compute(&persons, &witnesses, today))
-        .await
-        .map_err(|e| OxidGeneError::Internal(e.to_string()))
+    let span = tracing::info_span!(
+        "anomalies.compute",
+        person.count = persons.len(),
+        witness.count = witnesses.len(),
+    );
+    crate::service::blocking::run(span, move || compute(&persons, &witnesses, today)).await
 }
 
 /// Loads a tree's used places and returns those that cannot be located, most
 /// used first: the places the statistics count as not located, by the same
 /// rule ([`crate::service::statistics::locate_used`]).
+#[tracing::instrument(name = "anomalies.unlocated_places", skip_all)]
 pub async fn load_unlocated_places(
     db: &sea_orm::DatabaseConnection,
     tree_id: Uuid,
 ) -> Result<Vec<PlaceUsage>, OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
     let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
-    tokio::task::spawn_blocking(move || {
+    let span = tracing::info_span!("anomalies.locate", place.count = places.len());
+    crate::service::blocking::run(span, move || {
         // The language only names countries and regions, which this list
         // does not show.
         unlocated_places(&places, |labels| {
@@ -204,7 +210,6 @@ pub async fn load_unlocated_places(
         })
     })
     .await
-    .map_err(|e| OxidGeneError::Internal(e.to_string()))
 }
 
 /// The used places `locate` cannot place and that carry no coordinates of
