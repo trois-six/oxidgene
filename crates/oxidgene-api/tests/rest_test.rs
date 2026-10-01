@@ -4168,3 +4168,34 @@ async fn a_merge_takes_the_chosen_name_sex_and_events() {
         "the duplicate's birth replaced the kept one"
     );
 }
+
+/// The Playwright suite seeds its trees from `e2e/fixtures/family-blocks.ged`,
+/// committed so that suite needs no Rust to run: it must stay the generated
+/// `family_blocks_gedcom(3)`, thirty persons whose block 0 root is "Anchor".
+/// After changing the generator, rewrite it with
+/// `OXIDGENE_BLESS_E2E_FIXTURE=1 cargo nextest run -p oxidgene-api --test rest_test e2e_fixture`.
+#[tokio::test]
+async fn e2e_fixture_is_the_generated_family_blocks_tree() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../e2e/fixtures/family-blocks.ged");
+    let generated = common::family_blocks_gedcom(3);
+    if std::env::var_os("OXIDGENE_BLESS_E2E_FIXTURE").is_some() {
+        std::fs::write(&path, &generated).expect("write the e2e fixture");
+    }
+    let committed = std::fs::read_to_string(&path).expect("read the e2e fixture");
+    assert!(
+        committed == generated,
+        "e2e/fixtures/family-blocks.ged is stale: rewrite it with OXIDGENE_BLESS_E2E_FIXTURE=1"
+    );
+
+    let app = setup_app().await;
+    let (tree_id, _anchor) = common::family_blocks_tree(&app, 3).await;
+    let (_, profiles) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles"),
+        None,
+    )
+    .await;
+    assert_eq!(profiles.as_array().map(Vec::len), Some(30));
+}

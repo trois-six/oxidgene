@@ -1,0 +1,83 @@
+name: E2E
+
+# The Playwright suite of `e2e/` (`just e2e`): the web bundle and the server,
+# driven in Chromium on a throwaway SQLite database.
+#
+# CI calls it on the changes that can break the browser application, and it
+# also runs every night and on demand. It is not one of the checks the CI
+# gate requires until it has proven stable (see docs/development.md).
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Must match the ports in e2e/playwright.config.ts and the justfile.
+  E2E_API_PORT: "18080"
+  E2E_WEB_PORT: "18081"
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      # The CI image has neither the WebAssembly target nor the Dioxus CLI.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      # A prebuilt binary through cargo-binstall; the version of mise.toml.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: dioxus-cli@0.7.10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Build the web bundle
+        run: OXIDGENE_API_URL="http://127.0.0.1:${E2E_API_PORT}" scripts/dx.sh build --package oxidgene-web --platform web
+
+      - name: Build the server
+        run: cargo build --locked --package oxidgene-server
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run the end-to-end tests
+        working-directory: e2e
+        run: npx playwright test
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14

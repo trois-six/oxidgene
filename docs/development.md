@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:18:05Z }
 ---
 
 # Development Environment and Workflows
@@ -27,6 +27,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T19:30:00Z }
 - `cargo-watch` for backend hot reload; optional unless using `just dev-web-watch`.
 - `cargo-xwin` for cross-compiling the desktop application to Windows X64.
 - [uv](https://docs.astral.sh/uv/) for the cyclomatic complexity check.
+- [Node.js](https://nodejs.org/) 24 for the browser JavaScript tests and the
+   end-to-end suite, which installs Playwright and its Chromium on first run.
 
 ```bash
 just setup
@@ -50,8 +52,12 @@ the repository root.
 |---------|---------|
 | `just build` | Build all workspace crates in debug mode. |
 | `just build-release` | Build all workspace crates in release mode. |
-| `just test` | Run the workspace test suite with `cargo-nextest`. |
-| `just test-verbose` | Run tests while preserving test output. |
+| `just test` | Run the unit and functional tests (§2.7). |
+| `just test-unit` | Run the unit tests and the documentation examples (§2.7). |
+| `just test-functional` | Run the functional tests (§2.7). |
+| `just test-verbose` | Run the workspace tests while preserving test output. |
+| `just ui-js` | Run the browser JavaScript unit tests on Node.js (§2.7). |
+| `just e2e [args]` | Build the web bundle and server, then run the Playwright end-to-end suite (§2.7). |
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings. |
@@ -105,8 +111,9 @@ Algorithmic complexity is tested at three levels.
   release mode, and fails when one grows more than three times as fast as a
   reference linear pass over the same projections — the reference absorbs
   the cache effects a larger tree has on linear work too. The CI Scaling job
-  runs it on every change; locally it is opt-in, as timing wants an
-  optimised build and a quiet machine.
+  runs it on every code change and reports without gating the merge, as
+  timing on a shared runner is noisy; locally it is opt-in, as timing wants
+  an optimised build and a quiet machine.
 
 ### 2.2 Backend and Database
 
@@ -252,6 +259,64 @@ The sources, the file format and the output location are specified in
 INSEE, data.gouv.fr, geo.api.gouv.fr, the ONS Open Geography Portal, Destatis,
 ISTAT, INE, the BFS register, GUS TERYT, the Census Bureau, the DGT CAOP, CBS
 and the Wikidata query service.
+
+### 2.7 Test Categories
+
+| Category | What | Command | CI job | Gates `CI` |
+|----------|------|---------|--------|------------|
+| Unit | The `#[cfg(test)]` modules of every library and binary, then the documentation examples, which nextest does not run | `just test-unit` | Unit tests | Yes |
+| Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database, repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
+| Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
+| Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Scaling | No |
+| End-to-end | The Playwright suite of `e2e/`, driving the web application in Chromium | `just e2e` | E2E | No |
+
+`just test`, and through it `just check`, runs the unit and functional tests.
+The selection is by Cargo target (`--lib --bins`, `--doc`, `--test '*'`)
+rather than by a nextest filter, so each category builds only its own test
+binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS and
+are run by hand as described where they are introduced.
+
+CI runs each category as its own job on every change outside the
+documentation. The `CI` job, the one status check branch protection
+requires, waits for the gating jobs only: Scaling reports its timings without
+blocking a merge, and E2E stays out of the gate until it has proven stable.
+
+**End-to-end suite.** `e2e/` holds a Node.js project whose only dependency is
+a pinned `@playwright/test`. `just e2e` builds the debug web bundle for the
+API on `http://127.0.0.1:18080` and the server, installs the dependencies and
+Chromium when missing, and runs the suite; extra arguments go to Playwright
+(`just e2e --headed`, `just e2e tests/home.spec.ts`). The ports stay clear of
+`just dev-web`'s 8080 and 8081, so both can run at once; `E2E_API_PORT` and
+`E2E_WEB_PORT` move them. Playwright starts two servers and refuses to reuse
+one already listening on those ports:
+
+- `e2e/scripts/backend.mjs` runs `oxidgene-server` on a SQLite database and a
+   media root inside a fresh temporary directory, removed when it stops, with
+   the web origin as its CORS origin. The suite never sees a developer's data.
+- `e2e/scripts/static-server.mjs` serves `target/dx/oxidgene-web/debug/web/public`,
+   answering client-side routes with `index.html`, plus the web image's
+   `docker/runtime-config.js`.
+
+Each test that needs data seeds its own tree through the REST API from
+`e2e/fixtures/family-blocks.ged`: thirty fictitious persons in three
+unrelated families, block 0's root as the SOSA root. The file is the
+functional tests' `family_blocks_gedcom(3)`; `rest_test.rs` fails when the
+two drift apart and rewrites the file when run with
+`OXIDGENE_BLESS_E2E_FIXTURE=1`. Every test also fails on a console error, an
+uncaught exception, or a translation key left untranslated on the page, and
+the browser is cut off from the network (the stylesheets' web fonts are the
+only outside requests). Tests select elements by role and accessible name,
+falling back to a title or a class where the markup offers no name.
+
+A test that documents a known defect is marked `test.fail()` with a comment
+naming it: it passes while the defect stands and fails once it is fixed,
+which is the signal to remove the mark.
+
+The E2E workflow (`.github/workflows/e2e.yml`) runs on changes to the server,
+the web application, the API, core, database, GEDCOM and UI crates, `e2e/`
+or `Cargo.lock`, every night, and on demand. It installs the WebAssembly
+target and the Dioxus CLI itself, as the CI image carries neither, and
+uploads the Playwright report and traces when a test fails.
 
 ## 3. Local Web Workflow
 
@@ -564,11 +629,14 @@ finish code changes with:
 just check
 ```
 
+For changes to the web application's pages or the API they call, also run
+`just e2e`.
+
 For browser download transport changes, also run the dependency-free Node.js
-tests (Node.js 22 or newer):
+tests:
 
 ```bash
-node --test crates/oxidgene-ui/tests/download.test.mjs
+just ui-js
 ```
 
 These exercise stream delivery, picker cancellation, failed writes and requests,

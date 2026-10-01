@@ -7,6 +7,7 @@
 "github:nextest-rs/nextest" = "cargo-nextest-0.9.143"
 helm = "4.3.0"
 kubectl = "1.37.0"
+node = "24"
 semgrep = "1.177.0"
 trivy = "0.74.0"
 uv = "0.12.20"

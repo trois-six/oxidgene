@@ -21,9 +21,43 @@ build:
 build-release:
     cargo build --release
 
-# Run all tests (requires cargo-nextest: cargo install cargo-nextest --locked)
-test:
-    cargo nextest run --workspace
+# Ports of the e2e suite's backend and web bundle, away from the 8080/8081 of
+# `just dev-web` so both can run at once.
+e2e_api_port := env("E2E_API_PORT", "18080")
+e2e_web_port := env("E2E_WEB_PORT", "18081")
+
+# Performance and browser tests have their own recipes: `just scaling`,
+# `just e2e`, `just ui-js`. All Rust recipes need cargo-nextest (`just setup`).
+# Run the unit and functional tests (what `just check` runs)
+test: test-unit test-functional
+
+# Covers the `#[cfg(test)]` modules of every library and binary, then the
+# documentation examples, which nextest does not run.
+# Run the unit tests
+test-unit:
+    cargo nextest run --workspace --lib --bins
+    cargo test --workspace --doc
+
+# The integration test targets under `crates/*/tests` and `apps/*/tests`:
+# REST, GraphQL, repository, import and MCP scenarios.
+# Run the functional tests
+test-functional:
+    cargo nextest run --workspace --test '*'
+
+# Run the browser JavaScript unit tests (Node.js, no dependencies)
+ui-js:
+    node --test crates/oxidgene-ui/tests/*.test.mjs
+
+# Builds the web bundle for the e2e API port and the server, then runs the
+# Playwright suite in `e2e/` against both on a throwaway database (see
+# docs/development.md). Arguments go to Playwright: `just e2e --headed`,
+# `just e2e tests/home.spec.ts`.
+# Run the browser end-to-end tests
+e2e *args:
+    OXIDGENE_API_URL="http://127.0.0.1:{{ e2e_api_port }}" scripts/dx.sh build --package oxidgene-web --platform web
+    cargo build --locked --package oxidgene-server
+    cd e2e && npm ci --no-audit --no-fund && npx playwright install chromium
+    cd e2e && E2E_API_PORT="{{ e2e_api_port }}" E2E_WEB_PORT="{{ e2e_web_port }}" npx playwright test {{ args }}
 
 # Run tests with output
 test-verbose:

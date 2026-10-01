@@ -1,0 +1,378 @@
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @S0@ SOUR
+1 TITL Parish register 0
+0 @I0_0@ INDI
+1 NAME Anchor /Ashdown/
+1 SEX M
+1 BIRT
+2 DATE 1900
+2 PLAC Northfield, Shire
+2 SOUR @S0@
+1 FAMC @F0_0@
+1 FAMS @F0_3@
+0 @I0_1@ INDI
+1 NAME Bernard /Ashdown/
+1 SEX M
+1 BIRT
+2 DATE 1870
+2 PLAC Southmere, Shire
+2 SOUR @S0@
+1 OCCU Weaver
+1 FAMS @F0_0@
+1 FAMC @F0_1@
+0 @I0_2@ INDI
+1 NAME Clara /Birchley/
+1 SEX F
+1 BIRT
+2 DATE 1870
+2 PLAC Eastbrook, Shire
+2 SOUR @S0@
+1 OCCU Weaver
+1 FAMS @F0_0@
+1 FAMC @F0_2@
+0 @I0_3@ INDI
+1 NAME Dorian /Ashdown/
+1 SEX M
+1 BIRT
+2 DATE 1840
+2 PLAC Westford, Shire
+2 SOUR @S0@
+1 DEAT
+2 DATE 1900
+1 FAMS @F0_1@
+0 @I0_4@ INDI
+1 NAME Alice /Coldwell/
+1 SEX F
+1 BIRT
+2 DATE 1840
+2 PLAC Millbury, Shire
+2 SOUR @S0@
+1 DEAT
+2 DATE 1900
+1 FAMS @F0_1@
+0 @I0_5@ INDI
+1 NAME Bernard /Birchley/
+1 SEX M
+1 BIRT
+2 DATE 1840
+2 PLAC Northfield, Shire
+2 SOUR @S0@
+1 DEAT
+2 DATE 1900
+1 FAMS @F0_2@
+0 @I0_6@ INDI
+1 NAME Clara /Dunmore/
+1 SEX F
+1 BIRT
+2 DATE 1840
+2 PLAC Southmere, Shire
+2 SOUR @S0@
+1 DEAT
+2 DATE 1900
+1 FAMS @F0_2@
+0 @I0_7@ INDI
+1 NAME Delia /Ashdown/
+1 SEX F
+1 BIRT
+2 DATE 1900
+2 PLAC Eastbrook, Shire
+2 SOUR @S0@
+1 FAMC @F0_0@
+0 @I0_8@ INDI
+1 NAME Arthur /Ashdown/
+1 SEX M
+1 BIRT
+2 DATE 1900
+2 PLAC Westford, Shire
+2 SOUR @S0@
+1 FAMC @F0_0@
+0 @I0_9@ INDI
+1 NAME Beatrice /Elmsworth/
+1 SEX F
+1 BIRT
+2 DATE 1900
+2 PLAC Millbury, Shire
+2 SOUR @S0@
+1 FAMS @F0_3@
+0 @F0_0@ FAM
+1 HUSB @I0_1@
+1 WIFE @I0_2@
+1 CHIL @I0_0@
+1 CHIL @I0_7@
+1 CHIL @I0_8@
+1 MARR
+2 DATE 1850
+2 PLAC Northfield, Shire
+0 @F0_1@ FAM
+1 HUSB @I0_3@
+1 WIFE @I0_4@
+1 CHIL @I0_1@
+1 MARR
+2 DATE 1851
+2 PLAC Northfield, Shire
+0 @F0_2@ FAM
+1 HUSB @I0_5@
+1 WIFE @I0_6@
+1 CHIL @I0_2@
+1 MARR
+2 DATE 1852
+2 PLAC Northfield, Shire
+0 @F0_3@ FAM
+1 HUSB @I0_0@
+1 WIFE @I0_9@
+1 MARR
+2 DATE 1853
+2 PLAC Northfield, Shire
+0 @S1@ SOUR
+1 TITL Parish register 1
+0 @I1_0@ INDI
+1 NAME Bernard /Birchley/
+1 SEX M
+1 BIRT
+2 DATE 1900
+2 PLAC Southmere, Shire
+2 SOUR @S1@
+1 FAMC @F1_0@
+1 FAMS @F1_3@
+0 @I1_1@ INDI
+1 NAME Cyril /Birchley/
+1 SEX M
+1 BIRT
+2 DATE 1870
+2 PLAC Eastbrook, Shire
+2 SOUR @S1@
+1 OCCU Weaver
+1 FAMS @F1_0@
+1 FAMC @F1_1@
+0 @I1_2@ INDI
+1 NAME Delia /Coldwell/
+1 SEX F
+1 BIRT
+2 DATE 1870
+2 PLAC Westford, Shire
+2 SOUR @S1@
+1 OCCU Weaver
+1 FAMS @F1_0@
+1 FAMC @F1_2@
+0 @I1_3@ INDI
+1 NAME Arthur /Birchley/
+1 SEX M
+1 BIRT
+2 DATE 1840
+2 PLAC Millbury, Shire
+2 SOUR @S1@
+1 DEAT
+2 DATE 1900
+1 FAMS @F1_1@
+0 @I1_4@ INDI
+1 NAME Beatrice /Dunmore/
+1 SEX F
+1 BIRT
+2 DATE 1840
+2 PLAC Northfield, Shire
+2 SOUR @S1@
+1 DEAT
+2 DATE 1900
+1 FAMS @F1_1@
+0 @I1_5@ INDI
+1 NAME Cyril /Coldwell/
+1 SEX M
+1 BIRT
+2 DATE 1840
+2 PLAC Southmere, Shire
+2 SOUR @S1@
+1 DEAT
+2 DATE 1900
+1 FAMS @F1_2@
+0 @I1_6@ INDI
+1 NAME Delia /Elmsworth/
+1 SEX F
+1 BIRT
+2 DATE 1840
+2 PLAC Eastbrook, Shire
+2 SOUR @S1@
+1 DEAT
+2 DATE 1900
+1 FAMS @F1_2@
+0 @I1_7@ INDI
+1 NAME Alice /Birchley/
+1 SEX F
+1 BIRT
+2 DATE 1900
+2 PLAC Westford, Shire
+2 SOUR @S1@
+1 FAMC @F1_0@
+0 @I1_8@ INDI
+1 NAME Bernard /Birchley/
+1 SEX M
+1 BIRT
+2 DATE 1900
+2 PLAC Millbury, Shire
+2 SOUR @S1@
+1 FAMC @F1_0@
+0 @I1_9@ INDI
+1 NAME Clara /Fernhill/
+1 SEX F
+1 BIRT
+2 DATE 1900
+2 PLAC Northfield, Shire
+2 SOUR @S1@
+1 FAMS @F1_3@
+0 @F1_0@ FAM
+1 HUSB @I1_1@
+1 WIFE @I1_2@
+1 CHIL @I1_0@
+1 CHIL @I1_7@
+1 CHIL @I1_8@
+1 MARR
+2 DATE 1850
+2 PLAC Northfield, Shire
+0 @F1_1@ FAM
+1 HUSB @I1_3@
+1 WIFE @I1_4@
+1 CHIL @I1_1@
+1 MARR
+2 DATE 1851
+2 PLAC Northfield, Shire
+0 @F1_2@ FAM
+1 HUSB @I1_5@
+1 WIFE @I1_6@
+1 CHIL @I1_2@
+1 MARR
+2 DATE 1852
+2 PLAC Northfield, Shire
+0 @F1_3@ FAM
+1 HUSB @I1_0@
+1 WIFE @I1_9@
+1 MARR
+2 DATE 1853
+2 PLAC Northfield, Shire
+0 @S2@ SOUR
+1 TITL Parish register 2
+0 @I2_0@ INDI
+1 NAME Cyril /Coldwell/
+1 SEX M
+1 BIRT
+2 DATE 1900
+2 PLAC Eastbrook, Shire
+2 SOUR @S2@
+1 FAMC @F2_0@
+1 FAMS @F2_3@
+0 @I2_1@ INDI
+1 NAME Dorian /Coldwell/
+1 SEX M
+1 BIRT
+2 DATE 1870
+2 PLAC Westford, Shire
+2 SOUR @S2@
+1 OCCU Weaver
+1 FAMS @F2_0@
+1 FAMC @F2_1@
+0 @I2_2@ INDI
+1 NAME Alice /Dunmore/
+1 SEX F
+1 BIRT
+2 DATE 1870
+2 PLAC Millbury, Shire
+2 SOUR @S2@
+1 OCCU Weaver
+1 FAMS @F2_0@
+1 FAMC @F2_2@
+0 @I2_3@ INDI
+1 NAME Bernard /Coldwell/
+1 SEX M
+1 BIRT
+2 DATE 1840
+2 PLAC Northfield, Shire
+2 SOUR @S2@
+1 DEAT
+2 DATE 1900
+1 FAMS @F2_1@
+0 @I2_4@ INDI
+1 NAME Clara /Elmsworth/
+1 SEX F
+1 BIRT
+2 DATE 1840
+2 PLAC Southmere, Shire
+2 SOUR @S2@
+1 DEAT
+2 DATE 1900
+1 FAMS @F2_1@
+0 @I2_5@ INDI
+1 NAME Dorian /Dunmore/
+1 SEX M
+1 BIRT
+2 DATE 1840
+2 PLAC Eastbrook, Shire
+2 SOUR @S2@
+1 DEAT
+2 DATE 1900
+1 FAMS @F2_2@
+0 @I2_6@ INDI
+1 NAME Alice /Fernhill/
+1 SEX F
+1 BIRT
+2 DATE 1840
+2 PLAC Westford, Shire
+2 SOUR @S2@
+1 DEAT
+2 DATE 1900
+1 FAMS @F2_2@
+0 @I2_7@ INDI
+1 NAME Beatrice /Coldwell/
+1 SEX F
+1 BIRT
+2 DATE 1900
+2 PLAC Millbury, Shire
+2 SOUR @S2@
+1 FAMC @F2_0@
+0 @I2_8@ INDI
+1 NAME Cyril /Coldwell/
+1 SEX M
+1 BIRT
+2 DATE 1900
+2 PLAC Northfield, Shire
+2 SOUR @S2@
+1 FAMC @F2_0@
+0 @I2_9@ INDI
+1 NAME Delia /Greywood/
+1 SEX F
+1 BIRT
+2 DATE 1900
+2 PLAC Southmere, Shire
+2 SOUR @S2@
+1 FAMS @F2_3@
+0 @F2_0@ FAM
+1 HUSB @I2_1@
+1 WIFE @I2_2@
+1 CHIL @I2_0@
+1 CHIL @I2_7@
+1 CHIL @I2_8@
+1 MARR
+2 DATE 1850
+2 PLAC Northfield, Shire
+0 @F2_1@ FAM
+1 HUSB @I2_3@
+1 WIFE @I2_4@
+1 CHIL @I2_1@
+1 MARR
+2 DATE 1851
+2 PLAC Northfield, Shire
+0 @F2_2@ FAM
+1 HUSB @I2_5@
+1 WIFE @I2_6@
+1 CHIL @I2_2@
+1 MARR
+2 DATE 1852
+2 PLAC Northfield, Shire
+0 @F2_3@ FAM
+1 HUSB @I2_0@
+1 WIFE @I2_9@
+1 MARR
+2 DATE 1853
+2 PLAC Northfield, Shire
+0 TRLR

@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:43:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:18:05Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -167,6 +167,11 @@ Remaining tabs:
   images.
 - [ ] Build all release artifacts in CI, publish checksums and provenance, and
   smoke-test the container and desktop deliverables before release.
+- [x] Run unit, functional, browser JavaScript, performance and end-to-end
+  tests as separate CI jobs, the Playwright suite also nightly
+  ([Development §2.7](development.md#27-test-categories)).
+- [ ] Make the E2E job a required check of the CI gate once it has run
+  reliably.
 - [ ] Try desktop printing through each platform's native dialog (WebKitGTK,
   macOS, WebView2): whether it raises `beforeprint`, and whether it honours
   the pedigree's landscape page.

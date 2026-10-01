@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T19:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:18:05Z }
 ---
 
 
@@ -204,8 +204,10 @@ raw scans.
     environment in local replay artifacts. `just dev-web-watch` also restarts
     the backend via `cargo-watch`. PostgreSQL can be started separately with
     `just dev-db-up`.
-- Unit and integration tests across the workspace. End-to-end UI coverage is a
-    remaining quality goal where the roadmap names it.
+- Unit and functional (integration) tests across the workspace, opt-in
+    performance tests, and a Playwright end-to-end suite driving the web
+    application in Chromium; the categories, commands and CI jobs are in
+    [Development §2.7](development.md#27-test-categories).
 - CI/CD pipelines (GitHub Actions).
 
 ### 7.1 Embedded data
