@@ -851,6 +851,37 @@ fn partners_are_exported_as_husband_and_wife() {
     assert!(export.warnings[0].contains("no HUSB or WIFE"));
 }
 
+/// A Julian date with a qualifier and a Julian range are written the GEDCOM
+/// 5.5.1 way — the escape after the qualifier, before each bound — and read
+/// back as they were.
+#[test]
+fn a_qualified_date_in_another_calendar_survives_a_round_trip() {
+    let gedcom = MINIMAL_GEDCOM
+        .replace("2 DATE 15 JAN 1842", "2 DATE ABT @#DJULIAN@ 1700")
+        .replace(
+            "2 DATE 3 MAR 1910",
+            "2 DATE BET @#DJULIAN@ 1760 AND @#DJULIAN@ 1765",
+        );
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("2 DATE ABT @#DJULIAN@ 1700\n"),
+        "{exported}"
+    );
+    assert!(exported.contains("2 DATE BET @#DJULIAN@ 1760 AND @#DJULIAN@ 1765\n"));
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    let birth = event_of(&back, oxidgene_core::EventType::Birth);
+    assert_eq!(birth.calendar, oxidgene_core::Calendar::Julian);
+    assert_eq!(birth.date_qualifier, oxidgene_core::DateQualifier::About);
+    assert_eq!(birth.date_value.as_deref(), Some("1700"));
+    let death = event_of(&back, oxidgene_core::EventType::Death);
+    assert_eq!(death.calendar, oxidgene_core::Calendar::Julian);
+    assert_eq!(
+        (death.date_value.as_deref(), death.date_value2.as_deref()),
+        (Some("1760"), Some("1765"))
+    );
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();

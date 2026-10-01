@@ -7,10 +7,13 @@
 //! importing means splitting it apart and exporting means putting it back
 //! together. Both directions live here so they cannot drift.
 //!
-//! Escape and qualifier parsing is delegated to `ged_io` (its `calendar`
-//! feature), which also normalises non-Gregorian dates when computing the
-//! sortable date. Ranges are handled here: `ged_io` models a single instant, so
-//! `BET … AND …` and `FROM … TO …` never reach it.
+//! Qualifier parsing and the conversion of non-Gregorian dates for the sortable
+//! date are delegated to `ged_io` (its `calendar` feature). Calendar escapes
+//! and ranges are handled here: `ged_io` models a single instant with the
+//! escape as its prefix, while GEDCOM 5.5.1 writes the escape before each date
+//! of a value — after the qualifier, `ABT @#DJULIAN@ 1700`, and before both
+//! bounds of `BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710`. Both forms are read;
+//! the GEDCOM one is written.
 //!
 //! ## Known lossy mappings
 //!
@@ -24,7 +27,6 @@
 //! - [`DateQualifier::FromAge`] has no date of its own and exports bare.
 
 use chrono::NaiveDate;
-use ged_io::types::date::Date as GedDate;
 use ged_io::types::date::calendar::{
     Calendar as GedCalendar, DateQualifier as GedQualifier, ParsedDateTime,
 };
@@ -81,6 +83,46 @@ fn qualifier_tag(q: DateQualifier) -> Option<&'static str> {
         DateQualifier::After => Some("AFT"),
         // Ranges are emitted by `format` itself, which needs both dates.
         DateQualifier::Or | DateQualifier::Between => None,
+    }
+}
+
+/// Splits a leading calendar escape (`@#DJULIAN@`) off `text`: the calendar
+/// it names, when OxidGene keeps that calendar, and the rest. An escape
+/// naming another calendar (`@#DROMAN@`, `@#DUNKNOWN@`) is dropped.
+fn split_escape(text: &str) -> (Option<Calendar>, &str) {
+    let text = text.trim();
+    let Some(name_end) = text.strip_prefix("@#D").and_then(|rest| rest.find('@')) else {
+        return (None, text);
+    };
+    let (escape, rest) = text.split_at(name_end + 4);
+    (
+        GedCalendar::from_gedcom_escape(escape).map(from_ged_calendar),
+        rest.trim_start(),
+    )
+}
+
+/// A date value's qualifier and its one or two dates, each still carrying its
+/// own calendar escape, if any.
+fn split_qualifier(body: &str) -> (DateQualifier, &str, Option<&str>) {
+    if let Some(rest) = body.strip_prefix("BET ") {
+        return match split_range(rest, "AND") {
+            Some((a, b)) => (DateQualifier::Between, a, Some(b)),
+            None => (DateQualifier::Between, rest.trim(), None),
+        };
+    }
+    if let Some(rest) = body.strip_prefix("FROM ") {
+        return match split_range(rest, "TO") {
+            Some((a, b)) => (DateQualifier::Between, a, Some(b)),
+            None => (DateQualifier::Exact, rest.trim(), None),
+        };
+    }
+    if let Some(rest) = body.strip_prefix("TO ") {
+        return (DateQualifier::Before, rest.trim(), None);
+    }
+    let (tag, rest) = body.split_once(' ').unwrap_or((body, ""));
+    match GedQualifier::parse(tag) {
+        Some(q) if !rest.trim().is_empty() => (from_ged_qualifier(q), rest.trim(), None),
+        _ => (DateQualifier::Exact, body, None),
     }
 }
 
@@ -146,50 +188,24 @@ pub fn parse(raw: &str) -> ImportedDate {
         return ImportedDate::default();
     }
 
-    // 1. Calendar escape (`@#DJULIAN@ …`), handled by ged_io.
-    let probe = GedDate {
-        value: Some(raw.to_string()),
-        ..Default::default()
+    // An escape opening the whole value is the form `ged_io` and earlier
+    // exports write (`@#DJULIAN@ ABT 1700`); GEDCOM's own puts one before
+    // each date (`ABT @#DJULIAN@ 1700`). The first escape found is the
+    // calendar; the domain keeps one for both bounds.
+    let (leading, body) = split_escape(raw);
+    let (qualifier, first, second) = split_qualifier(body);
+    let (first_calendar, first) = split_escape(first);
+    let (second_calendar, second) = match second.map(split_escape) {
+        Some((calendar, date)) => (calendar, Some(date)),
+        None => (None, None),
     };
-    let calendar = probe.calendar().map(from_ged_calendar).unwrap_or_default();
-    let body = probe
-        .value_without_calendar()
-        .unwrap_or_else(|| raw.to_string());
-    let body = body.trim();
+    let calendar = leading
+        .or(first_calendar)
+        .or(second_calendar)
+        .unwrap_or_default();
 
-    // 2. Ranges, which ged_io does not model.
-    let (qualifier, value, value2) = if let Some(rest) = body.strip_prefix("BET ") {
-        match split_range(rest, "AND") {
-            Some((a, b)) => (
-                DateQualifier::Between,
-                Some(a.to_string()),
-                Some(b.to_string()),
-            ),
-            None => (DateQualifier::Between, Some(rest.trim().to_string()), None),
-        }
-    } else if let Some(rest) = body.strip_prefix("FROM ") {
-        match split_range(rest, "TO") {
-            Some((a, b)) => (
-                DateQualifier::Between,
-                Some(a.to_string()),
-                Some(b.to_string()),
-            ),
-            None => (DateQualifier::Exact, Some(rest.trim().to_string()), None),
-        }
-    } else if let Some(rest) = body.strip_prefix("TO ") {
-        (DateQualifier::Before, Some(rest.trim().to_string()), None)
-    } else {
-        // 3. Single date with an optional leading qualifier tag.
-        let (tag, rest) = body.split_once(' ').unwrap_or((body, ""));
-        match GedQualifier::parse(tag) {
-            Some(q) if !rest.trim().is_empty() => {
-                (from_ged_qualifier(q), Some(rest.trim().to_string()), None)
-            }
-            _ => (DateQualifier::Exact, Some(body.to_string()), None),
-        }
-    };
-
-    let value = value.filter(|v| !v.is_empty());
+    let value = Some(first.to_string()).filter(|v| !v.is_empty());
+    let value2 = second.map(str::to_string);
     let sort = value.as_deref().and_then(|v| sort_date(v, calendar));
 
     ImportedDate {
@@ -211,24 +227,24 @@ pub fn format(
     value2: Option<&str>,
 ) -> Option<String> {
     let value = value.map(str::trim).filter(|v| !v.is_empty())?;
+    // GEDCOM 5.5.1 puts the escape before each date, after any qualifier.
+    let escaped = |date: &str| match calendar {
+        Calendar::Gregorian => date.to_string(),
+        other => format!("{} {date}", to_ged_calendar(other).gedcom_escape()),
+    };
 
-    let body = match qualifier {
+    Some(match qualifier {
         // `Or` has no GEDCOM form; `BET … AND …` is the closest.
         DateQualifier::Between | DateQualifier::Or => {
             match value2.map(str::trim).filter(|v| !v.is_empty()) {
-                Some(second) => format!("BET {value} AND {second}"),
-                None => value.to_string(),
+                Some(second) => format!("BET {} AND {}", escaped(value), escaped(second)),
+                None => escaped(value),
             }
         }
         other => match qualifier_tag(other) {
-            Some(tag) => format!("{tag} {value}"),
-            None => value.to_string(),
+            Some(tag) => format!("{tag} {}", escaped(value)),
+            None => escaped(value),
         },
-    };
-
-    Some(match calendar {
-        Calendar::Gregorian => body,
-        other => format!("{} {body}", to_ged_calendar(other).gedcom_escape()),
     })
 }
 
@@ -358,6 +374,45 @@ mod tests {
         assert_eq!(s.as_deref(), Some("@#DJULIAN@ 15 MAR 1582"));
     }
 
+    /// GEDCOM 5.5.1 writes the escape after the qualifier and before each
+    /// bound; a leading escape over a qualified value is not a valid date.
+    #[test]
+    fn the_calendar_escape_follows_the_qualifier_and_precedes_each_bound() {
+        assert_eq!(
+            format(Calendar::Julian, DateQualifier::About, Some("1700"), None).as_deref(),
+            Some("ABT @#DJULIAN@ 1700")
+        );
+        assert_eq!(
+            format(
+                Calendar::Julian,
+                DateQualifier::Between,
+                Some("1700"),
+                Some("1710")
+            )
+            .as_deref(),
+            Some("BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710")
+        );
+    }
+
+    /// The form `ged_io` and earlier exports wrote still reads the same.
+    #[test]
+    fn a_leading_escape_over_a_qualified_value_is_still_read() {
+        for raw in ["@#DJULIAN@ ABT 1700", "ABT @#DJULIAN@ 1700"] {
+            let d = parse(raw);
+            assert_eq!(d.calendar, Calendar::Julian, "{raw}");
+            assert_eq!(d.qualifier, DateQualifier::About, "{raw}");
+            assert_eq!(d.value.as_deref(), Some("1700"), "{raw}");
+        }
+        let d = parse("@#DJULIAN@ BET 1700 AND 1710");
+        assert_eq!(d.calendar, Calendar::Julian);
+        assert_eq!(
+            (d.value.as_deref(), d.value2.as_deref()),
+            (Some("1700"), Some("1710"))
+        );
+        // A calendar OxidGene does not keep is dropped with its escape.
+        assert_eq!(parse("@#DROMAN@ 1700").value.as_deref(), Some("1700"));
+    }
+
     #[test]
     fn formatting_nothing_yields_none() {
         assert_eq!(
@@ -480,6 +535,9 @@ mod tests {
             "EST 1805",
             "BET 1800 AND 1810",
             "@#DJULIAN@ 15 MAR 1582",
+            "ABT @#DJULIAN@ 1700",
+            "BET @#DJULIAN@ 1700 AND @#DJULIAN@ 1710",
+            "BEF @#DFRENCH R@ 2 BRUM 14",
         ] {
             let d = parse(raw);
             let back = format(
