@@ -30,9 +30,9 @@ test("closes the person form on Escape and on a press outside it", async ({ page
     await page.locator(".context-menu").getByRole("button", { name: "Edit individual" }).click();
     await expect(form).toBeVisible();
     await expect(form.getByRole("heading", { name: "Bernard Ashdown" })).toBeVisible();
-    // Escape reaches the form from any control in it. (Not from a name
-    // field: focusing one arms its suggestion list, whose Escape comes first.)
-    await form.getByRole("button", { name: "Male", exact: true }).focus();
+    // Escape reaches the form from any control in it, a name field included:
+    // its suggestion list takes Escape only while it lists something.
+    await form.locator(".form-group", { hasText: "Given Names *" }).locator("input").focus();
     await page.keyboard.press("Escape");
     await expect(form).toBeHidden();
 

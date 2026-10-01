@@ -57,7 +57,7 @@ pub(crate) fn SuggestInput(
     // into view.
     let mut mounted = use_signal(HashMap::<usize, Rc<MountedData>>::new);
     let count = rows.len();
-    let list_visible = open() && count > 0;
+    let list_visible = list_shown(open(), count);
 
     let mut move_to = move |index: usize| {
         highlight.set(Some(index));
@@ -98,7 +98,9 @@ pub(crate) fn SuggestInput(
                 pick(index);
             }
         }
-        Key::Escape if open() => {
+        // Escape belongs to the list only while it shows: focusing the field
+        // arms it before anything is listed, and that Escape is the form's.
+        Key::Escape if list_shown(open(), count) => {
             e.stop_propagation();
             open.set(false);
             highlight.set(None);
@@ -157,6 +159,11 @@ pub(crate) fn SuggestInput(
             }
         }
     }
+}
+
+/// Whether the list shows: open, and with something to list.
+fn list_shown(open: bool, rows: usize) -> bool {
+    open && rows > 0
 }
 
 /// The inside of one suggestion row, shared with the topbar search panel.
@@ -362,6 +369,15 @@ fn last_word(text: &str) -> (&str, &str) {
 
 #[cfg(test)]
 mod tests {
+    /// Focusing a field arms its list before anything is listed; the first
+    /// Escape pressed then must reach the dialog, not close an empty list.
+    #[test]
+    fn an_armed_list_with_nothing_to_list_is_not_shown() {
+        assert!(!super::list_shown(true, 0));
+        assert!(!super::list_shown(false, 3));
+        assert!(super::list_shown(true, 3));
+    }
+
     use super::*;
 
     fn suggestion(value: &str, count: i64, reference: bool) -> ValueSuggestion {
