@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:16:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T21:48:30Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -812,6 +812,13 @@ its id. The worker reconstructs disposable local inputs from `MediaStore`, runs
 the import, rebuilds projections, stores the receipt in the job, and deletes all
 job inputs on completion or failure. A worker resuming from the persisted
 `projections` checkpoint uses the stored receipt and does not replay the import.
+
+The receipt counts what the import stored. Its persons are the `.gw`'s, with
+those created for identifications outside the tree counted apart as isolated
+people; its places include those a deposit's location created; its media are
+the pictures stored — each photograph once, each page of a document once, the
+document row that holds no file not among them; its links are every media
+link written, to people, couples and events alike.
 
 A photo shared by several people is **stored once** with several `MediaLink`
 rows — precisely what the original export could not express, and what

@@ -485,16 +485,20 @@ pub struct IsolatedPerson {
 /// What an import actually did.
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct GeneanetImportSummary {
+    /// People of the `.gw`; those created for identifications outside it
+    /// are `isolated_count`.
     pub persons_count: usize,
     pub families_count: usize,
     pub events_count: usize,
     pub sources_count: usize,
+    /// Places created, the `.gw`'s and those the media name.
     pub places_count: usize,
     pub notes_count: usize,
-    /// Distinct photos stored.
+    /// Pictures stored: each photograph once, each page of a document once.
+    /// A document's own row holds no file of its own and is not one.
     pub media_count: usize,
-    /// Person↔photo and couple↔photo rows written; higher than `media_count`
-    /// when a photo shows several people.
+    /// Media links written, to people, couples and events; higher than
+    /// `media_count` when a photo shows several people.
     pub links_count: usize,
     /// Links marked as the person's profile photo, from the `.gw`'s `#image`.
     pub portraits_count: usize,
@@ -957,7 +961,7 @@ async fn link_events_and_couples(
     summary: &mut GeneanetImportSummary,
 ) {
     for event_id in &plan.event_ids {
-        if let Err(err) = MediaLinkRepo::create(
+        match MediaLinkRepo::create(
             db,
             Uuid::now_v7(),
             owner,
@@ -969,9 +973,10 @@ async fn link_events_and_couples(
         )
         .await
         {
-            summary.skipped.push(format!(
+            Ok(_) => summary.links_count += 1,
+            Err(err) => summary.skipped.push(format!(
                 "deposit {deposit_id}: could not link event {event_id}: {err}"
-            ));
+            )),
         }
     }
     for (order, family_id) in plan.family_ids.iter().enumerate() {
@@ -1534,7 +1539,6 @@ async fn document(
             return None;
         }
     }
-    summary.media_count += 1;
 
     // Resolve every page first, then ingest them together. Decoding and
     // thumbnailing is what an import spends its minutes on — a 144-page
@@ -2342,6 +2346,7 @@ async fn media_metadata(
                 {
                     Ok(place) => {
                         places.insert(key, place.id);
+                        summary.places_count += 1;
                         Some(place.id)
                     }
                     Err(err) => {
@@ -2947,6 +2952,92 @@ mod tests {
             .expect("lists names");
         assert_eq!(names[0].surname.as_deref(), Some("BRANCH_C"));
         assert_eq!(names[0].given_names.as_deref(), Some("person_c"));
+    }
+
+    /// The receipt once disagreed with what the import stored: a document
+    /// counted itself as a picture beside its pages, and the place a deposit
+    /// names and the link to the event it documents were written uncounted.
+    #[tokio::test]
+    async fn the_receipt_counts_what_the_import_stored() {
+        use oxidgene_db::sea_orm::{ColumnTrait as _, EntityTrait as _, QueryFilter as _};
+
+        let db = oxidgene_db::repo::connect("sqlite::memory:")
+            .await
+            .expect("connects");
+        oxidgene_db::repo::run_migrations(&db)
+            .await
+            .expect("migrates");
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(&db, tree_id, "Sample tree".to_string(), None)
+            .await
+            .expect("creates tree");
+
+        let dir = tempfile::tempdir().expect("scratch directory");
+        let mut fetched = HashMap::new();
+        for page in 1..=2 {
+            let path = dir.path().join(format!("page{page}.png"));
+            std::fs::write(&path, png_bytes(40 + page, 30)).expect("writes a page");
+            fetched.insert(
+                format!("https://example.invalid/deposit/page{page}.png"),
+                path.to_string_lossy().into_owned(),
+            );
+        }
+        let collection = serde_json::json!({
+            "deposits": [{
+                "id": 1, "title": "t", "type": "civil", "private": true,
+                "location": "Example City",
+                "views": [
+                    {"id": 10, "page": 1, "files": {"normal": "https://example.invalid/deposit/page1.png"}},
+                    {"id": 11, "page": 2, "files": {"normal": "https://example.invalid/deposit/page2.png"}},
+                ],
+            }],
+            "references": [],
+            "view_references": {"1:10": [{
+                "lastname": "BRANCH_A", "firstname": "person_a",
+                "reference_extra_geneweb": {"ref": "branch a|person a|"},
+                "event": {"id": 5, "name": "gw_event_birth", "date": "1900-04-03"},
+            }]},
+        })
+        .to_string();
+        let store = crate::media::store::FsStore::new(dir.path().join("store"));
+
+        let summary = import(
+            &db,
+            &store,
+            tree_id,
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 3/4/1900 + BRANCH_B person_b.0\n",
+            "family.gw",
+            &collection,
+            &HashMap::new(),
+            &[],
+            &fetched,
+            MediaFidelity::Renditions,
+            &ImportProgress::default(),
+        )
+        .await
+        .expect("imports");
+        assert!(summary.skipped.is_empty(), "{:?}", summary.skipped);
+
+        let media = oxidgene_db::entities::media::Entity::find()
+            .filter(oxidgene_db::entities::media::Column::TreeId.eq(tree_id))
+            .all(&db)
+            .await
+            .expect("lists media");
+        let pictures = media.iter().filter(|row| row.storage_key.is_some()).count();
+        assert_eq!((media.len(), pictures), (3, 2), "a document and its pages");
+        assert_eq!(summary.media_count, pictures);
+
+        let links = MediaLinkRepo::list_for_tree(&db, tree_id)
+            .await
+            .expect("lists links");
+        assert_eq!(links.len(), 2, "the person and the birth: {links:?}");
+        assert_eq!(summary.links_count, links.len());
+
+        let places = PlaceRepo::list_all(&db, tree_id)
+            .await
+            .expect("lists places");
+        assert_eq!(places.len(), 1, "the deposit's place");
+        assert_eq!(summary.places_count, places.len());
     }
 
     #[test]
