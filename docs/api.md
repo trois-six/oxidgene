@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T22:39:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:23:15Z }
 ---
 
 
@@ -317,6 +317,13 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 | `GET` | `/trees/{tree_id}/events/{event_id}/witnesses` | List event witnesses (GEDCOM `ASSO`) |
 | `POST` | `/trees/{tree_id}/events/{event_id}/witnesses` | Add a witness (person + optional relation text) |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}` | Remove a witness; a witness of another event is `not_found` (GraphQL: the optional `eventId`) |
+
+An event's `age` (GEDCOM `AGE`) is accepted in GEDCOM's syntax, read
+leniently (`1y6m`, `34 Y`, a bare `34`), and returned in canonical form
+(`1y 6m`, `34y`); a value that is not an age, or any age on a family event
+(whose spouses' ages are recorded per spouse), is a `validation_error`. `age`
+and `agency` follow the update convention: omitted keeps, `null` clears — on
+both surfaces. A source's `agency` (`SOUR.DATA.AGNC`) likewise.
 
 Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](ui-person-edit-modal.md) (event blocks)
 
@@ -1565,6 +1572,8 @@ type Event {
   family: Family
   description: String
   cause: String            # GEDCOM CAUS tag (e.g. cause of death)
+  age: String              # GEDCOM AGE, canonical form (34y, < 1y 6m, CHILD)
+  agency: String           # GEDCOM AGNC, the authority responsible for the record
   witnesses: [EventWitness!]!
   citations: [Citation!]!
   media: [Media!]!
@@ -1874,6 +1883,8 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes, as many per person, event or attribute as the file holds — `ged_io` keeps one, so the import joins them before parsing and splits them again, and the export writes each one where `ged_io` writes the first. A note, text, cause, page, or source title, author, publication or abbreviation too long for one GEDCOM line continues on `CONC` lines, never split beside a space (readers trim a `CONC` value); on import, the spaces opening a `CONC` value are kept, so files whose writer split beside a space read back word for word. A `NOTE @N1@` pointer to a 5.5.1 note record, or a 7.0 `SNOTE`, imports the text of the record it points at; a pointer to a record the file does not hold is left out with a warning naming its line |
 | Cause (CAUS) | Full | Full | On any event |
+| Age at event (`AGE`) | Full | Full | On an individual event or attribute (each profession a split `OCCU` becomes keeps it), stored in canonical form (`34y`, `< 1y 6m`, `CHILD`). A value that is not a GEDCOM age — free text such as `2 AGE majeur`, or an empty `AGE` — would make `ged_io` reject the whole file, so it is left out before parsing and reported as one warning naming its line (never its value). Written without the GEDCOM 7.0 `PHRASE` `ged_io` would emit |
+| Agency (`AGNC`) | Full | Full | On an individual event or attribute, and a source's `DATA.AGNC`, which `ged_io` does not write and the export adds itself |
 | Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster |
 | Nicknames (`NICK`) | Full | Full | On the name that carries it. A non-primary `aka` name that only restates the primary name (or names nobody) to carry a `NICK` imports as a `Byname` holding the nickname alone, as the person form records one; a byname exports as such an `aka` name |
 | Restriction (`RESN`) | Person and family privacy | Person and family privacy | `confidential` or `privacy` on an `INDI` or `FAM`, in any case and among several comma-separated values, makes the record `Private`; `locked`, another value or no `RESN` leaves it `Default`. A `Private` person or family is exported with `RESN confidential` (`ged_io` writes no record-level `RESN`, so the export adds it); `Public` has no `RESN` value and comes back as `Default` |
@@ -1907,11 +1918,6 @@ the next block for a `fam`, and reported as one warning naming its line.
 
 - Repository records (`REPO`)
 - Submitter records (`SUBM`)
-- Age at event (`AGE`). A value that is not a GEDCOM age — free text such as
-  `2 AGE majeur`, or an empty `AGE` — would make `ged_io` reject the whole
-  file, so it is left out before parsing and reported as one warning naming
-  its line (never its value)
-- Agency (`AGNC`)
 - Religion of a single event (`RELI` under an event; `RELI` as an individual
   attribute is imported, see above)
 - Custom/vendor tags (`_CUSTOM`), OxidGene's own `_OXIDGENE_*` media

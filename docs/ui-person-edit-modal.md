@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:34:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:23:15Z }
 ---
 
 
@@ -426,6 +426,8 @@ Each added event appears as a collapsible block with:
 - **Notes** — multi-line textarea, persisted as a `Note` carrying `event_id`
 - **Source** — free-text input (see §4 — Source), persisted as a `Citation` carrying `event_id`
 - **Cause** — single-line text input, free text. Relevant for death, burial, and other events where a cause is meaningful. Maps to GEDCOM `CAUS` tag. Editable when the event is created and, beside its place, in the saved event's expanded panel; clearing it removes the stored cause.
+- **Age** — single-line text input beside the cause: the age the record gives (GEDCOM `AGE`), typed as GEDCOM writes it — `34` or `34y`, `1y 6m`, `< 1y`, `> 80y`, `CHILD`, `INFANT`, `STILLBORN` (`y` years, `m` months, `w` weeks, `d` days). Checked as it is saved, with a localized message for a value that is not an age; stored in canonical form, cleared when emptied. A family event has no age of its own: there each spouse's age is entered.
+- **More details** — a quiet disclosure link under the notes and source that reveals the rare fields, so the event block does not grow a field per GEDCOM tag. It holds the **Responsible agency** (GEDCOM `AGNC`) and, in a saved event's panel once a source is entered, the **Source reliability** of its citation: *Not assessed* (the default) or one of the five levels, *Unreliable* to *Certain*. It starts open when the event already has an agency or an assessed citation, so nothing stored is hidden.
 - **Calendar** (supplementary, collapsed by default) — same calendar selector
 - **Witnesses** (supplementary, collapsed by default) — same dynamic list
 

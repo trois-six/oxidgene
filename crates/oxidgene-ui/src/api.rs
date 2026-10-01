@@ -867,6 +867,8 @@ pub struct CreateEventBody {
     pub date_value2: Option<String>,
     pub calendar: Calendar,
     pub cause: Option<String>,
+    pub age: Option<String>,
+    pub agency: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
@@ -887,6 +889,10 @@ pub struct UpdateEventBody {
     pub calendar: Option<Calendar>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agency: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_id: Option<Option<Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -930,6 +936,7 @@ pub struct CreateSourceBody {
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
     pub repository_name: Option<String>,
+    pub agency: Option<String>,
 }
 
 // ── Citation request bodies ─────────────────────────────────────────

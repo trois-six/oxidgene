@@ -23,6 +23,9 @@ pub struct NewSource {
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
     pub repository_name: Option<String>,
+    /// The organisation responsible for the source's data.
+    #[serde(default)]
+    pub agency: Option<String>,
 }
 
 /// The fields a source update changes: `None` keeps a field, and `Some(None)`
@@ -38,6 +41,8 @@ pub struct SourcePatch {
     pub abbreviation: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub repository_name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub agency: Option<Option<String>>,
 }
 
 /// Create a source in `tree_id`. A blank title is refused.
@@ -62,6 +67,7 @@ pub async fn create_source(
         new.publisher,
         new.abbreviation,
         new.repository_name,
+        new.agency,
     )
     .await?;
     pending.record(&txn).await?;
@@ -93,6 +99,7 @@ pub async fn update_source(
         patch.publisher,
         patch.abbreviation,
         patch.repository_name,
+        patch.agency,
     )
     .await?;
     pending.record(&txn).await?;

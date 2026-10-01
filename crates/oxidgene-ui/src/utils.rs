@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::i18n::I18n;
 
-use oxidgene_core::{ChildType, EventType, NameType, Privacy, Sex};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex};
 
 /// A signal following `value`, a prop: written when the props bring a new
 /// one, so resources reading it re-run. The router reuses a page's instance
@@ -222,6 +222,63 @@ pub fn parse_privacy(s: &str) -> Privacy {
 // ── String helpers ──────────────────────────────────────────────────────
 
 /// Convert a form input string to `Option<String>`, returning `None` for empty strings.
+/// How a recorded age reads ("aged 34 years", "aged under 1 year",
+/// "infant"), or `None` for text that is not an age.
+pub fn age_label(i18n: &I18n, age: &str) -> Option<String> {
+    use oxidgene_core::types::age::{AgeAtEvent, AgeModifier};
+    let (modifier, units) = match age.parse::<AgeAtEvent>().ok()? {
+        AgeAtEvent::Child => return Some(i18n.t("person.age.child")),
+        AgeAtEvent::Infant => return Some(i18n.t("person.age.infant")),
+        AgeAtEvent::Stillborn => return Some(i18n.t("person.age.stillborn")),
+        AgeAtEvent::Duration {
+            modifier,
+            years,
+            months,
+            weeks,
+            days,
+        } => (
+            modifier,
+            [
+                ("person.age.years", years),
+                ("person.age.months", months),
+                ("person.age.weeks", weeks),
+                ("person.age.days", days),
+            ],
+        ),
+    };
+    let duration = units
+        .into_iter()
+        .filter_map(|(key, count)| Some(i18n.t_plural(key, usize::from(count?))))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let key = match modifier {
+        AgeModifier::Exact => "person.age.exact",
+        AgeModifier::LessThan => "person.age.under",
+        AgeModifier::GreaterThan => "person.age.over",
+    };
+    Some(i18n.t_args(key, &[("age", &duration)]))
+}
+
+/// Every citation confidence level, least reliable first.
+pub const CONFIDENCE_LEVELS: [Confidence; 5] = [
+    Confidence::VeryLow,
+    Confidence::Low,
+    Confidence::Medium,
+    Confidence::High,
+    Confidence::VeryHigh,
+];
+
+/// The translation key naming a confidence level.
+pub fn confidence_key(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::VeryLow => "confidence.very_low",
+        Confidence::Low => "confidence.low",
+        Confidence::Medium => "confidence.medium",
+        Confidence::High => "confidence.high",
+        Confidence::VeryHigh => "confidence.very_high",
+    }
+}
+
 pub fn opt_str(s: &str) -> Option<String> {
     if s.is_empty() {
         None
@@ -460,6 +517,38 @@ mod preview_tests {
 mod enum_table_tests {
     use super::*;
     use crate::i18n::Language;
+
+    #[test]
+    fn a_recorded_age_reads_in_words() {
+        let en = I18n(Language::En);
+        assert_eq!(age_label(&en, "34y").as_deref(), Some("aged 34 years"));
+        assert_eq!(
+            age_label(&en, "< 1y 6m").as_deref(),
+            Some("aged under 1 year 6 months")
+        );
+        assert_eq!(
+            age_label(&en, "> 80y").as_deref(),
+            Some("aged over 80 years")
+        );
+        assert_eq!(age_label(&en, "INFANT").as_deref(), Some("infant"));
+        assert_eq!(age_label(&en, "majeur"), None);
+        let pl = I18n(Language::Pl);
+        assert_eq!(age_label(&pl, "22y").as_deref(), Some("w wieku 22 lat"));
+        assert_eq!(age_label(&pl, "1y").as_deref(), Some("w wieku 1 roku"));
+    }
+
+    /// Every confidence level names a key every locale translates.
+    #[test]
+    fn every_confidence_level_is_translated_in_every_locale() {
+        for level in CONFIDENCE_LEVELS {
+            for lang in Language::ALL {
+                assert!(
+                    lang.translations().contains_key(confidence_key(level)),
+                    "{lang:?} {level:?}"
+                );
+            }
+        }
+    }
 
     /// Every event type must name a key that every locale translates.
     /// Types used to be rendered through `Display`/`Debug`, so a missing

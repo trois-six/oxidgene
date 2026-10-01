@@ -9,7 +9,9 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{Connection, Event, EventWitness};
 use oxidgene_core::{Calendar, DateQualifier, EventType};
-use oxidgene_db::repo::{EventFilter, EventRepo, EventWitnessRepo, PaginationParams};
+use oxidgene_db::repo::{
+    EventDetails, EventDetailsPatch, EventFilter, EventRepo, EventWitnessRepo, PaginationParams,
+};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -34,6 +36,13 @@ pub struct NewEvent {
     pub calendar: Calendar,
     #[serde(default)]
     pub cause: Option<String>,
+    /// The age the record gives, for an individual event: a GEDCOM age
+    /// (`34y`, `< 1y 6m`, `CHILD`), stored in canonical form.
+    #[serde(default)]
+    pub age: Option<String>,
+    /// The authority responsible for the event's record.
+    #[serde(default)]
+    pub agency: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
@@ -53,6 +62,10 @@ pub struct EventPatch {
     pub calendar: Option<Calendar>,
     #[serde(default, deserialize_with = "double_option")]
     pub cause: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub age: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub agency: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub place_id: Option<Option<Uuid>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -94,6 +107,7 @@ pub async fn create_event(
     tree_id: Uuid,
     new: NewEvent,
 ) -> Result<Event, OxidGeneError> {
+    let age = canonical_age(new.age.as_deref(), new.family_id.is_some())?;
     // Derived here, never taken from the request — see `service::event_date`.
     let date_sort = event_date::derive(new.calendar, new.date_value.as_deref());
     let txn = begin_tx(db).await?;
@@ -127,7 +141,11 @@ pub async fn create_event(
         new.date_qualifier,
         new.date_value2,
         new.calendar,
-        new.cause,
+        EventDetails {
+            cause: new.cause,
+            age,
+            agency: blank_to_none(new.agency),
+        },
     )
     .await?;
     // A person's event or a family's.
@@ -157,6 +175,10 @@ pub async fn update_event(
     // Derived from the patched state, reading whichever half the patch leaves
     // alone off the stored event — see `service::event_date`.
     let stored = EventRepo::get(&txn, id).await?;
+    let age = match patch.age {
+        Some(age) => Some(canonical_age(age.as_deref(), stored.family_id.is_some())?),
+        None => None,
+    };
     let pending = Change::update(tree_id, AuditEntity::Event, id)
         .event(id)
         .prepare(&txn)
@@ -178,7 +200,11 @@ pub async fn update_event(
         patch.date_qualifier,
         patch.date_value2,
         patch.calendar,
-        patch.cause,
+        EventDetailsPatch {
+            cause: patch.cause,
+            age,
+            agency: patch.agency.map(blank_to_none),
+        },
     )
     .await?;
     let affected =
@@ -213,6 +239,25 @@ pub async fn delete_event(
         .await?;
     pending.record(&txn).await?;
     commit_tx(txn).await
+}
+
+/// `age` in the canonical form an event stores, `None` when blank. An age
+/// that is not a GEDCOM age is refused, and so is any age on a family event:
+/// there, each spouse's age is recorded on its own.
+fn canonical_age(age: Option<&str>, family_event: bool) -> Result<Option<String>, OxidGeneError> {
+    let age = oxidgene_core::types::age::normalize(age.unwrap_or_default())
+        .map_err(|e| OxidGeneError::Validation(format!("age: {e}")))?;
+    if age.is_some() && family_event {
+        return Err(OxidGeneError::Validation(
+            "age: a family event records each spouse's age, not its own".to_string(),
+        ));
+    }
+    Ok(age)
+}
+
+/// `text`, unless it is blank.
+fn blank_to_none(text: Option<String>) -> Option<String> {
+    text.filter(|t| !t.trim().is_empty())
 }
 
 /// The witnesses of event `event_id` of `tree_id`.

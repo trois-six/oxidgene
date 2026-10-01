@@ -182,6 +182,8 @@ enum Event {
     DateValue2,
     Calendar,
     Cause,
+    Age,
+    Agency,
     PlaceId,
     PersonId,
     FamilyId,
@@ -211,6 +213,7 @@ enum Source {
     Publisher,
     Abbreviation,
     RepositoryName,
+    Agency,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -691,6 +694,8 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .default("gregorian"),
                 )
                 .col(string_null(Event::Cause))
+                .col(string_null(Event::Age))
+                .col(string_null(Event::Agency))
                 .col(uuid_null(Event::PlaceId))
                 .col(uuid_null(Event::PersonId))
                 .col(uuid_null(Event::FamilyId))
@@ -812,6 +817,7 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Source::Publisher))
                 .col(string_null(Source::Abbreviation))
                 .col(string_null(Source::RepositoryName))
+                .col(string_null(Source::Agency))
                 .col(timestamp_with_time_zone(Source::CreatedAt))
                 .col(timestamp_with_time_zone(Source::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Source::DeletedAt))

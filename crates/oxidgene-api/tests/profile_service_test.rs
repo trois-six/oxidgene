@@ -99,7 +99,7 @@ async fn create_named_person(
             DateQualifier::default(),
             None,
             Calendar::default(),
-            None,
+            Default::default(),
         )
         .await
         .expect("birth event");
@@ -154,7 +154,7 @@ async fn create_family_trio(db: &DatabaseConnection, tree_id: Uuid) -> (Uuid, Uu
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .expect("marriage");
@@ -648,7 +648,7 @@ async fn a_pedigree_node_keeps_how_precise_its_dates_are() {
             qualifier,
             None,
             Calendar::default(),
-            None,
+            Default::default(),
         )
         .await
         .expect("event");
@@ -730,7 +730,7 @@ async fn a_pedigree_node_keeps_whole_dates_not_just_the_year() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .expect("birth");
@@ -748,7 +748,7 @@ async fn a_pedigree_node_keeps_whole_dates_not_just_the_year() {
         DateQualifier::Between,
         Some("20 AUG 1693".to_string()),
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .expect("death");
@@ -815,7 +815,7 @@ async fn a_card_falls_back_to_baptism_and_burial() {
             qualifier,
             None,
             Calendar::default(),
-            None,
+            Default::default(),
         )
         .await
         .expect("event");
@@ -910,7 +910,7 @@ async fn a_dateless_birth_does_not_mask_a_dated_baptism() {
             qualifier,
             None,
             Calendar::default(),
-            None,
+            Default::default(),
         )
         .await
         .expect("event");

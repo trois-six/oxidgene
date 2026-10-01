@@ -17,6 +17,8 @@ pub struct Model {
     pub date_value2: Option<String>,
     pub calendar: Calendar,
     pub cause: Option<String>,
+    pub age: Option<String>,
+    pub agency: Option<String>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,

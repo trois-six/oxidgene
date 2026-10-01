@@ -539,7 +539,7 @@ async fn tree_delete_cascades_to_children() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .expect("create occupation event");
@@ -800,7 +800,7 @@ async fn event_crud_and_filters() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -821,7 +821,7 @@ async fn event_crud_and_filters() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -869,7 +869,7 @@ async fn event_crud_and_filters() {
         None,
         None,
         None,
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -961,6 +961,7 @@ async fn source_and_citation_lifecycle() {
         None,
         Some("PR".into()),
         None,
+        None,
     )
     .await
     .unwrap();
@@ -974,6 +975,7 @@ async fn source_and_citation_lifecycle() {
         Some("Updated Title".into()),
         None,
         Some(Some("Publisher X".into())),
+        None,
         None,
         None,
     )
@@ -1048,6 +1050,7 @@ async fn source_and_citation_lifecycle() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1094,7 +1097,7 @@ async fn source_is_only_collected_once_nothing_points_at_it() {
 
     let new_source = async |title: &str| {
         let id = Uuid::now_v7();
-        SourceRepo::create(&db, id, tree_id, title.into(), None, None, None, None)
+        SourceRepo::create(&db, id, tree_id, title.into(), None, None, None, None, None)
             .await
             .unwrap();
         id
@@ -1222,7 +1225,7 @@ async fn create_event(
         DateQualifier::Exact,
         None,
         Calendar::Gregorian,
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -1654,7 +1657,7 @@ async fn a_media_can_document_only_one_event() {
             DateQualifier::default(),
             None,
             Calendar::default(),
-            None,
+            Default::default(),
         )
         .await
         .expect("create event");
@@ -1712,7 +1715,7 @@ async fn event_media_batch_excludes_other_events_and_deleted_media() {
             DateQualifier::default(),
             None,
             Calendar::default(),
-            None,
+            Default::default(),
         )
         .await
         .unwrap();
@@ -2705,7 +2708,7 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -2723,7 +2726,7 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -2742,7 +2745,7 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -2762,7 +2765,7 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -2782,7 +2785,7 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -2803,7 +2806,7 @@ async fn dictionary_occupations_groups_by_person_and_ignores_other_event_types()
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -2838,6 +2841,7 @@ async fn dictionary_sources_with_usage_counts_citations() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -2848,6 +2852,7 @@ async fn dictionary_sources_with_usage_counts_citations() {
         uncited_id,
         tree_id,
         "Census".into(),
+        None,
         None,
         None,
         None,
@@ -2885,7 +2890,7 @@ async fn dictionary_sources_with_usage_counts_citations() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -2939,6 +2944,7 @@ async fn dictionary_source_group_counts_drives_smart_drill_down() {
             Uuid::now_v7(),
             tree_id,
             title.into(),
+            None,
             None,
             None,
             None,
@@ -3028,6 +3034,7 @@ async fn dictionary_resolve_source_drill_down_skips_forced_single_choice_levels(
             Uuid::now_v7(),
             tree_id,
             title.into(),
+            None,
             None,
             None,
             None,
@@ -3129,7 +3136,7 @@ async fn dictionary_places_with_usage_counts_events() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -3147,7 +3154,7 @@ async fn dictionary_places_with_usage_counts_events() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -3214,7 +3221,7 @@ async fn place_usage_covers_couples_and_media() {
         DateQualifier::default(),
         None,
         Calendar::default(),
-        None,
+        Default::default(),
     )
     .await
     .unwrap();
@@ -3317,6 +3324,7 @@ async fn restoring_a_version_sanitizes_its_notes() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -3329,6 +3337,7 @@ async fn restoring_a_version_sanitizes_its_notes() {
         publisher: None,
         abbreviation: None,
         repository_name: None,
+        agency: None,
         notes: vec![NoteSnapshot {
             id: note_id,
             text: r#"<p onclick="steal()">kept</p><script>alert(1)</script>"#.into(),

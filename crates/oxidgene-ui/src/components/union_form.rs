@@ -16,9 +16,9 @@ use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::modal::Modal;
 use crate::components::person_form::{
-    DeleteSection, EventEditor, EventOwner, FormSection, NotesSource, PersonForm,
-    create_event_body, focus_next_field_js, render_add_toggle, render_choice_group,
-    render_notes_source_fields, save_notes_source, update_event_body,
+    DeleteSection, EventEditor, EventExtras, EventExtrasPatch, EventOwner, FormSection,
+    NotesSource, PersonForm, create_event_body, focus_next_field_js, render_add_toggle,
+    render_choice_group, render_notes_source_fields, save_notes_source, update_event_body,
 };
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
@@ -753,7 +753,7 @@ async fn save_marriage(
                 parts,
                 place_id,
                 Some(opt_str(desc)),
-                None,
+                EventExtrasPatch::default(),
             );
             scope
                 .api
@@ -768,7 +768,7 @@ async fn save_marriage(
                 place_id,
                 EventOwner::Family(scope.fid),
                 opt_str(desc),
-                None,
+                EventExtras::default(),
             );
             scope
                 .api
@@ -866,7 +866,7 @@ async fn create_union_event(
         place_id,
         EventOwner::Family(scope.fid),
         opt_str(desc),
-        None,
+        EventExtras::default(),
     );
     scope
         .api

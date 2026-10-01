@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:44:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:23:15Z }
 ---
 
 
@@ -460,6 +460,11 @@ All citations linked to this person, grouped by source:
 ```
 
 Each citation shows the source title, page reference, confidence level, and extracted text if any.
+
+In the events timeline, an event's recorded age follows its place and
+description in words — "aged 34 years", "aged under 1 year 6 months",
+"infant", "stillborn" (every language with its own plural forms) — and its
+responsible agency is a light meta line under the event's origin.
 
 ---
 

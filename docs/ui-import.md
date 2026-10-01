@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:42:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:23:15Z }
 ---
 
 
@@ -173,6 +173,8 @@ can ignore that extension while retaining all standard fields.
 | OBJE (multimedia) | → Media (file path, MIME type, title, description, physical medium, and OxidGene extended metadata) |
 | PLAC with MAP coordinates | → Place (name + latitude + longitude) |
 | Event CAUS (cause) | → Event.cause field |
+| Event and attribute AGE | → Event.age, in canonical form |
+| Event and attribute AGNC, source DATA.AGNC | → Event.agency, Source.agency |
 | FAMC PEDI (pedigree type) | → FamilyChild.child_type (Biological / Adopted / Foster) |
 
 ### What is skipped (not imported)
@@ -186,9 +188,8 @@ note pointer, a missing spouse or source, a GEDZIP file it does not hold).
 |---|---|---|
 | REPO | Repository records | Not in current data model |
 | SUBM | Submitter records | Not imported; the export writes its own |
-| AGE | Age at event | Not stored; can be calculated from dates. One that is not a GEDCOM age is a warning |
+| AGE that is not a GEDCOM age | Free text, empty value | `ged_io` would reject the file; left out with a warning naming its line |
 | RELI inside an event | Religion of one event | Not in current data model; `RELI` as an attribute is imported |
-| AGNC | Agency responsible | Not in current data model |
 | `_CUSTOM` tags | Vendor-specific extensions | Ignored, OxidGene's own `_OXIDGENE_*` media extensions excepted |
 
 ### GEDCOM version handling

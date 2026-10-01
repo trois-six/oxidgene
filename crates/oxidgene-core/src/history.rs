@@ -371,6 +371,10 @@ pub struct EventSnapshot {
     pub date_value2: Option<String>,
     pub calendar: Calendar,
     pub cause: Option<String>,
+    #[serde(default)]
+    pub age: Option<String>,
+    #[serde(default)]
+    pub agency: Option<String>,
     pub place_id: Option<Uuid>,
     pub description: Option<String>,
     #[serde(default)]
@@ -456,6 +460,8 @@ pub struct SourceSnapshot {
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
     pub repository_name: Option<String>,
+    #[serde(default)]
+    pub agency: Option<String>,
     #[serde(default)]
     pub notes: Vec<NoteSnapshot>,
 }

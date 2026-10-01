@@ -143,7 +143,11 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
         ("person", "privacy, portrait_media_id, portrait_vignette_id"),
         ("person_name", "surname_prefix, sort_order"),
         ("family", "privacy"),
-        ("event", "date_qualifier, date_value2, calendar, cause"),
+        (
+            "event",
+            "date_qualifier, date_value2, calendar, cause, age, agency",
+        ),
+        ("source", "agency"),
         (
             "media",
             "storage_key, sha256, thumbnail_key, width, height, page_count, parent_media_id, page_index, date_qualifier, date_value2, calendar, source_media_type, document_category, place_id, privacy",

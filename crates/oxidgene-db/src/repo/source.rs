@@ -91,6 +91,7 @@ impl SourceRepo {
         publisher: Option<String>,
         abbreviation: Option<String>,
         repository_name: Option<String>,
+        agency: Option<String>,
     ) -> Result<Source, OxidGeneError> {
         let now = Utc::now();
         let model = source::ActiveModel {
@@ -101,6 +102,7 @@ impl SourceRepo {
             publisher: Set(publisher),
             abbreviation: Set(abbreviation),
             repository_name: Set(repository_name),
+            agency: Set(agency),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -119,6 +121,7 @@ impl SourceRepo {
         publisher: Option<Option<String>>,
         abbreviation: Option<Option<String>>,
         repository_name: Option<Option<String>>,
+        agency: Option<Option<String>>,
     ) -> Result<Source, OxidGeneError> {
         let existing = find_live(db, id).await?;
 
@@ -137,6 +140,9 @@ impl SourceRepo {
         }
         if let Some(repository_name) = repository_name {
             active.repository_name = Set(repository_name);
+        }
+        if let Some(agency) = agency {
+            active.agency = Set(agency);
         }
         active.updated_at = Set(Utc::now());
 
@@ -219,6 +225,7 @@ fn into_domain(m: source::Model) -> Source {
         publisher: m.publisher,
         abbreviation: m.abbreviation,
         repository_name: m.repository_name,
+        agency: m.agency,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

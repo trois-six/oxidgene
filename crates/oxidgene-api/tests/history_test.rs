@@ -821,6 +821,70 @@ async fn reverting_a_person_restores_names_events_and_deletion() {
     assert_no_duplicated_state(&db).await;
 }
 
+/// An event's age and agency and a source's agency are part of the versioned
+/// state: a version holds them and a revert brings them back.
+#[tokio::test]
+async fn event_ages_and_agencies_are_versioned() {
+    let (_db, app) = setup().await;
+    let tree = create_tree(&app).await;
+    let person = create_person(&app, &tree, "Eta", "Fixture").await;
+    let event = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/events"),
+        Some(json!({
+            "event_type": "death",
+            "person_id": person,
+            "age": "34y",
+            "agency": "Parish of Northwick",
+        })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let history = versions(&app, &tree, "person", &person).await;
+    let with_age = history[0]["version"].as_i64().unwrap();
+    let snapshot_event = &history[0]["snapshot"]["events"][0];
+    assert_eq!(snapshot_event["age"], "34y");
+    assert_eq!(snapshot_event["agency"], "Parish of Northwick");
+
+    let uri = format!("/api/v1/trees/{tree}/events/{event}");
+    ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "age": null, "agency": null })),
+    )
+    .await;
+    assert!(
+        versions(&app, &tree, "person", &person).await[0]["snapshot"]["events"][0]["age"].is_null()
+    );
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/history/person/{person}/revert"),
+        Some(json!({ "version": with_age })),
+    )
+    .await;
+    let restored = ok(&app, Method::GET, &uri, None).await;
+    assert_eq!(restored["age"], "34y");
+    assert_eq!(restored["agency"], "Parish of Northwick");
+
+    let source = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/sources"),
+        Some(json!({ "title": "Register", "agency": "Sample archives" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let source_history = versions(&app, &tree, "source", &source).await;
+    assert_eq!(source_history[0]["snapshot"]["agency"], "Sample archives");
+}
+
 #[tokio::test]
 async fn reverting_a_spouse_restores_the_union() {
     let (db, app) = setup().await;

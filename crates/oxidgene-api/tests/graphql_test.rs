@@ -572,6 +572,23 @@ async fn test_tree_duplicate_preserves_genealogy() {
         None,
     )
     .await;
+    // A duplicate goes through GEDCOM: what it holds must survive the trip.
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createEvent(treeId: "{source_tree_id}", input: {{ eventType: DEATH, personId: "{person_id}", age: "< 1y 6m", agency: "Parish of Northwick" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
+    graphql(
+        app.clone(),
+        &format!(
+            r#"mutation {{ createSource(treeId: "{source_tree_id}", input: {{ title: "Register", agency: "Sample archives" }}) {{ id }} }}"#
+        ),
+        None,
+    )
+    .await;
 
     let duplicate = data(
         &graphql(
@@ -588,6 +605,26 @@ async fn test_tree_duplicate_preserves_genealogy() {
     assert_eq!(duplicate["personCount"], 1);
 
     let copied_tree_id = duplicate["id"].as_str().unwrap();
+    let copied = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"{{ events(treeId: "{copied_tree_id}", eventType: DEATH) {{ edges {{ node {{ age agency }} }} }} sources(treeId: "{copied_tree_id}") {{ edges {{ node {{ agency }} }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )
+    .clone();
+    assert_eq!(copied["events"]["edges"][0]["node"]["age"], "< 1y 6m");
+    assert_eq!(
+        copied["events"]["edges"][0]["node"]["agency"],
+        "Parish of Northwick"
+    );
+    assert_eq!(
+        copied["sources"]["edges"][0]["node"]["agency"],
+        "Sample archives"
+    );
     let people = data(
         &graphql(
             app,

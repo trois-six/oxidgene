@@ -352,6 +352,11 @@ pub struct CreateEventInput {
     pub date_value2: Option<String>,
     pub calendar: Option<GqlCalendar>,
     pub cause: Option<String>,
+    /// The age the record gives, for an individual event: a GEDCOM age
+    /// (`34y`, `< 1y 6m`, `CHILD`), returned in canonical form.
+    pub age: Option<String>,
+    /// The authority responsible for the event's record.
+    pub agency: Option<String>,
     pub place_id: Option<String>,
     pub person_id: Option<String>,
     pub family_id: Option<String>,
@@ -367,6 +372,8 @@ pub struct UpdateEventInput {
     pub date_value2: MaybeUndefined<String>,
     pub calendar: MaybeUndefined<GqlCalendar>,
     pub cause: MaybeUndefined<String>,
+    pub age: MaybeUndefined<String>,
+    pub agency: MaybeUndefined<String>,
     pub place_id: MaybeUndefined<String>,
     pub description: MaybeUndefined<String>,
 }
@@ -391,6 +398,8 @@ impl TryFrom<CreateEventInput> for crate::service::event::NewEvent {
             date_value2: input.date_value2,
             calendar: input.calendar.map(Into::into).unwrap_or_default(),
             cause: input.cause,
+            age: input.age,
+            agency: input.agency,
             place_id: opt_uuid(input.place_id)?,
             person_id: opt_uuid(input.person_id)?,
             family_id: opt_uuid(input.family_id)?,
@@ -410,6 +419,8 @@ impl TryFrom<UpdateEventInput> for crate::service::event::EventPatch {
             date_value2: patch(input.date_value2),
             calendar: patch_scalar(input.calendar),
             cause: patch(input.cause),
+            age: patch(input.age),
+            agency: patch(input.agency),
             place_id: patch_id(input.place_id)?,
             description: patch(input.description),
         })
@@ -476,6 +487,8 @@ pub struct CreateSourceInput {
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
     pub repository_name: Option<String>,
+    /// The organisation responsible for the source's data.
+    pub agency: Option<String>,
 }
 
 /// Input for updating a source.
@@ -486,6 +499,7 @@ pub struct UpdateSourceInput {
     pub publisher: MaybeUndefined<String>,
     pub abbreviation: MaybeUndefined<String>,
     pub repository_name: MaybeUndefined<String>,
+    pub agency: MaybeUndefined<String>,
 }
 
 impl From<CreateSourceInput> for crate::service::source::NewSource {
@@ -496,6 +510,7 @@ impl From<CreateSourceInput> for crate::service::source::NewSource {
             publisher: input.publisher,
             abbreviation: input.abbreviation,
             repository_name: input.repository_name,
+            agency: input.agency,
         }
     }
 }
@@ -508,6 +523,7 @@ impl From<UpdateSourceInput> for crate::service::source::SourcePatch {
             publisher: patch(input.publisher),
             abbreviation: patch(input.abbreviation),
             repository_name: patch(input.repository_name),
+            agency: patch(input.agency),
         }
     }
 }

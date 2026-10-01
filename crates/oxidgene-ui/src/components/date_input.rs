@@ -1260,6 +1260,8 @@ mod tests {
             date_value2: None,
             calendar: Calendar::FrenchRepublican,
             cause: None,
+            age: None,
+            agency: None,
             place_id: None,
             person_id: None,
             family_id: None,

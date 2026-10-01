@@ -2866,6 +2866,26 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .pf-chevron.is-open { transform: rotate(45deg); }
 
+    /* "More details": a quiet text link revealing a form's rare fields. */
+    .pf-more { margin-top: 4px; }
+
+    .pf-more-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 0;
+        border: none;
+        background: none;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        font-family: var(--font-sans);
+        cursor: pointer;
+    }
+
+    .pf-more-toggle:hover { color: var(--orange); }
+
+    .pf-more-body { margin-top: 10px; }
+
     .pf-section-body { margin-top: 14px; }
 
     /* Sub-blocks within a section (Profession(s), Autres informations,

@@ -1664,6 +1664,11 @@ pub(crate) fn timeline_section(
                             let event_type_label = i18n.t(event_type_label_key(event.event_type));
                             let desc = event.description.clone().unwrap_or_default();
                             let place_display = event.place_id.map(|id| profile.place_name(id));
+                            let age = event
+                                .age
+                                .as_deref()
+                                .and_then(|age| crate::utils::age_label(&i18n, age));
+                            let agency = event.agency.clone();
 
                             let origin_label = match &ee.origin {
                                 EventOrigin::Individual => i18n.t("person.origin_individual"),
@@ -1702,9 +1707,17 @@ pub(crate) fn timeline_section(
                                                 if !desc.is_empty() {
                                                     span { class: "text-muted", " \u{2014} {desc}" }
                                                 }
+                                                if let Some(age) = &age {
+                                                    span { class: "text-muted", " \u{2014} {age}" }
+                                                }
                                             }
                                         }
                                         div { class: "pd-ev-origin", "{origin_display}" }
+                                        if let Some(agency) = &agency {
+                                            div { class: "pd-ev-origin",
+                                                {i18n.t_args("person.agency_line", &[("agency", agency)])}
+                                            }
+                                        }
                                         if let Some(sources) = event_sources {
                                             div { class: "pd-ev-sources",
                                                 {i18n.t("person.sources_section")}

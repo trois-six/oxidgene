@@ -755,6 +755,166 @@ async fn new_place(app: &axum::Router, tree_id: &str, name: &str) -> String {
         .to_owned()
 }
 
+/// An event's age is stored in canonical GEDCOM form, an age that is not
+/// one is refused, a family event takes none, and an update leaves age and
+/// agency alone when omitted and clears them on null — on both surfaces.
+#[tokio::test]
+async fn an_event_age_and_agency_behave_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Ages").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let family_id = new_family(&app, &tree_id).await;
+    let events = format!("/api/v1/trees/{tree_id}/events");
+
+    // REST.
+    let created = common::ok(
+        &app,
+        Method::POST,
+        &events,
+        Some(json!({
+            "event_type": "death", "person_id": person_id,
+            "age": "1y6m", "agency": "Parish of Northwick"
+        })),
+    )
+    .await;
+    assert_eq!(created["age"], "1y 6m");
+    assert_eq!(created["agency"], "Parish of Northwick");
+    let uri = format!("{events}/{}", created["id"].as_str().unwrap());
+    let kept = common::ok(&app, Method::PUT, &uri, Some(json!({ "cause": "Fever" }))).await;
+    assert_eq!(
+        (&kept["age"], &kept["agency"]),
+        (&json!("1y 6m"), &json!("Parish of Northwick"))
+    );
+    let cleared = common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "age": null, "agency": null })),
+    )
+    .await;
+    assert!(
+        cleared["age"].is_null() && cleared["agency"].is_null(),
+        "{cleared}"
+    );
+    for (method, uri, body) in [
+        (
+            Method::POST,
+            events.clone(),
+            json!({ "event_type": "death", "person_id": person_id, "age": "majeur" }),
+        ),
+        (Method::PUT, uri.clone(), json!({ "age": "1000y" })),
+        (
+            Method::POST,
+            events.clone(),
+            json!({ "event_type": "marriage", "family_id": family_id, "age": "30y" }),
+        ),
+    ] {
+        let (status, response) = send(&app, method, &uri, Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {response}");
+        assert_eq!(response["error"], "validation_error", "{response}");
+    }
+
+    // GraphQL.
+    let vars = json!({ "t": tree_id, "p": person_id, "f": family_id });
+    let created = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!, $p: String!) { createEvent(treeId: $t, input: { eventType: DEATH, personId: $p, age: "< 1y", agency: "Parish of Northwick" }) { id age agency } }"#,
+        vars.clone(),
+    )
+    .await;
+    let event = &created["createEvent"];
+    assert_eq!(
+        (&event["age"], &event["agency"]),
+        (&json!("< 1y"), &json!("Parish of Northwick"))
+    );
+    let evars = json!({ "t": tree_id, "e": event["id"] });
+    let kept = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!, $e: ID!) { updateEvent(treeId: $t, id: $e, input: { cause: "Fever" }) { age agency } }"#,
+        evars.clone(),
+    )
+    .await;
+    assert_eq!(kept["updateEvent"]["age"], "< 1y");
+    let cleared = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $e: ID!) { updateEvent(treeId: $t, id: $e, input: { age: null, agency: null }) { age agency } }",
+        evars.clone(),
+    )
+    .await;
+    assert!(cleared["updateEvent"]["age"].is_null() && cleared["updateEvent"]["agency"].is_null());
+    for (mutation, vars) in [
+        (
+            r#"mutation($t: ID!, $p: String!) { createEvent(treeId: $t, input: { eventType: DEATH, personId: $p, age: "majeur" }) { id } }"#,
+            vars.clone(),
+        ),
+        (
+            r#"mutation($t: ID!, $e: ID!) { updateEvent(treeId: $t, id: $e, input: { age: "1000y" }) { id } }"#,
+            evars.clone(),
+        ),
+        (
+            r#"mutation($t: ID!, $f: String!) { createEvent(treeId: $t, input: { eventType: MARRIAGE, familyId: $f, age: "30y" }) { id } }"#,
+            vars.clone(),
+        ),
+    ] {
+        let response = gql(&app, mutation, vars).await;
+        assert_eq!(
+            gql_error_code(&response),
+            "VALIDATION_ERROR",
+            "{mutation}: {response}"
+        );
+    }
+}
+
+/// A source's agency is set, kept and cleared alike on both surfaces.
+#[tokio::test]
+async fn a_source_agency_behaves_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Agencies").await;
+    let sources = format!("/api/v1/trees/{tree_id}/sources");
+    let created = common::ok(
+        &app,
+        Method::POST,
+        &sources,
+        Some(json!({ "title": "Register", "agency": "Sample archives" })),
+    )
+    .await;
+    assert_eq!(created["agency"], "Sample archives");
+    let uri = format!("{sources}/{}", created["id"].as_str().unwrap());
+    let kept = common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "title": "Registers" })),
+    )
+    .await;
+    assert_eq!(kept["agency"], "Sample archives");
+    let cleared = common::ok(&app, Method::PUT, &uri, Some(json!({ "agency": null }))).await;
+    assert!(cleared["agency"].is_null());
+
+    let created = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!) { createSource(treeId: $t, input: { title: "Register", agency: "Sample archives" }) { id agency } }"#,
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert_eq!(created["createSource"]["agency"], "Sample archives");
+    let vars = json!({ "t": tree_id, "s": created["createSource"]["id"] });
+    for (input, expected) in [
+        (r#"{ title: "Registers" }"#, json!("Sample archives")),
+        ("{ agency: null }", serde_json::Value::Null),
+    ] {
+        let updated = common::gql_ok(
+            &app,
+            &format!(
+                "mutation($t: ID!, $s: ID!) {{ updateSource(treeId: $t, id: $s, input: {input}) {{ agency }} }}"
+            ),
+            vars.clone(),
+        )
+        .await;
+        assert_eq!(updated["updateSource"]["agency"], expected, "{input}");
+    }
+}
+
 #[tokio::test]
 async fn an_event_cannot_move_to_a_place_of_another_tree() {
     let app = setup_app().await;
@@ -1634,7 +1794,7 @@ async fn graphql_nested_lists_are_complete_past_a_hundred() {
                 DateQualifier::default(),
                 None,
                 Calendar::default(),
-                None,
+                Default::default(),
             )
             .await
             .unwrap()
@@ -1660,6 +1820,7 @@ async fn graphql_nested_lists_are_complete_past_a_hundred() {
             Uuid::now_v7(),
             tree,
             format!("Register {i}"),
+            None,
             None,
             None,
             None,

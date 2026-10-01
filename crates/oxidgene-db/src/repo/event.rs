@@ -22,6 +22,25 @@ pub struct EventFilter {
     pub family_id: Option<Uuid>,
 }
 
+/// An event's less common details, GEDCOM's event detail structure: the
+/// cause, the age the record gives (already in canonical form) and the
+/// responsible agency.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventDetails {
+    pub cause: Option<String>,
+    pub age: Option<String>,
+    pub agency: Option<String>,
+}
+
+/// The [`EventDetails`] an update changes: `None` keeps a field and
+/// `Some(None)` clears it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventDetailsPatch {
+    pub cause: Option<Option<String>>,
+    pub age: Option<Option<String>>,
+    pub agency: Option<Option<String>>,
+}
+
 /// Repository for event CRUD operations.
 pub struct EventRepo;
 
@@ -119,7 +138,7 @@ impl EventRepo {
         date_qualifier: DateQualifier,
         date_value2: Option<String>,
         calendar: Calendar,
-        cause: Option<String>,
+        details: EventDetails,
     ) -> Result<Event, OxidGeneError> {
         let now = Utc::now();
         let model = event::ActiveModel {
@@ -131,7 +150,9 @@ impl EventRepo {
             date_qualifier: Set(sea_enums::DateQualifier::from(date_qualifier)),
             date_value2: Set(date_value2),
             calendar: Set(sea_enums::Calendar::from(calendar)),
-            cause: Set(cause),
+            cause: Set(details.cause),
+            age: Set(details.age),
+            agency: Set(details.agency),
             place_id: Set(place_id),
             person_id: Set(person_id),
             family_id: Set(family_id),
@@ -157,7 +178,7 @@ impl EventRepo {
         date_qualifier: Option<DateQualifier>,
         date_value2: Option<Option<String>>,
         calendar: Option<Calendar>,
-        cause: Option<Option<String>>,
+        details: EventDetailsPatch,
     ) -> Result<Event, OxidGeneError> {
         let existing = find_live(db, id).await?;
 
@@ -186,8 +207,14 @@ impl EventRepo {
         if let Some(cal) = calendar {
             active.calendar = Set(sea_enums::Calendar::from(cal));
         }
-        if let Some(c) = cause {
-            active.cause = Set(c);
+        if let Some(cause) = details.cause {
+            active.cause = Set(cause);
+        }
+        if let Some(age) = details.age {
+            active.age = Set(age);
+        }
+        if let Some(agency) = details.agency {
+            active.agency = Set(agency);
         }
         active.updated_at = Set(Utc::now());
 
@@ -217,6 +244,8 @@ fn into_domain(m: event::Model) -> Event {
         date_value2: m.date_value2,
         calendar: m.calendar.into(),
         cause: m.cause,
+        age: m.age,
+        agency: m.agency,
         place_id: m.place_id,
         person_id: m.person_id,
         family_id: m.family_id,

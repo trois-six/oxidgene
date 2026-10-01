@@ -3,6 +3,7 @@
 //! These are pure domain models, independent of any database or API framework.
 //! They represent the canonical shapes of genealogical data within the application.
 
+pub mod age;
 mod citation;
 mod event;
 mod family;
@@ -16,6 +17,7 @@ mod source;
 mod surname;
 mod tree;
 
+pub use age::AgeAtEvent;
 pub use citation::Citation;
 pub use event::{Event, EventWitness, QualifiedYear, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};

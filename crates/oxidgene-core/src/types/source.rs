@@ -12,6 +12,10 @@ pub struct Source {
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
     pub repository_name: Option<String>,
+    /// The organisation responsible for the source's data (GEDCOM
+    /// `SOUR.DATA.AGNC`).
+    #[serde(default)]
+    pub agency: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

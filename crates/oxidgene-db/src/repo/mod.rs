@@ -49,7 +49,7 @@ pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, FamilyNameRename,
     PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
 };
-pub use event::{EventFilter, EventRepo};
+pub use event::{EventDetails, EventDetailsPatch, EventFilter, EventRepo};
 pub use event_witness::EventWitnessRepo;
 pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;

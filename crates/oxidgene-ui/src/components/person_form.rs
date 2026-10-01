@@ -31,7 +31,7 @@ use crate::utils::{
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
-use oxidgene_core::{ChildType, EventType, NameType, SpouseRole};
+use oxidgene_core::{ChildType, Confidence, EventType, NameType, SpouseRole};
 
 // ── Props ────────────────────────────────────────────────────────────────
 
@@ -199,6 +199,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
     let mut event_form_place_id = use_signal(String::new);
     let mut event_form_description = use_signal(String::new);
     let mut event_form_cause = use_signal(String::new);
+    let mut event_form_age = use_signal(String::new);
+    let mut event_form_agency = use_signal(String::new);
+    let mut event_form_more = use_signal(|| false);
     let mut event_form_notes = use_signal(String::new);
     let mut event_form_source = use_signal(String::new);
     let mut event_form_error = use_signal(|| None::<String>);
@@ -622,7 +625,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         let parts = event_form_parts();
         let place_str = event_form_place_id();
         let desc = event_form_description().trim().to_string();
-        let cause = event_form_cause().trim().to_string();
+        let extras =
+            EventExtras::from_form(&event_form_cause(), &event_form_age(), &event_form_agency());
         let notes = event_form_notes().trim().to_string();
         let source = event_form_source();
         spawn(async move {
@@ -630,6 +634,13 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 event_form_error.set(Some(i18n.t(key)));
                 return;
             }
+            let extras = match extras {
+                Ok(extras) => extras,
+                Err(key) => {
+                    event_form_error.set(Some(i18n.t(key)));
+                    return;
+                }
+            };
             let place_id = match resolve_place(&api, tid, &place_str, i18n.0.code()).await {
                 Ok(place_id) => place_id,
                 Err(e) => {
@@ -643,7 +654,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 place_id,
                 EventOwner::Person(pid),
                 opt_str(&desc),
-                opt_str(&cause),
+                extras,
             );
             match api.create_event(tid, &body).await {
                 Ok(new_event) => {
@@ -663,6 +674,9 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     event_form_place_id.set(String::new());
                     event_form_description.set(String::new());
                     event_form_cause.set(String::new());
+                    event_form_age.set(String::new());
+                    event_form_agency.set(String::new());
+                    event_form_more.set(false);
                     event_form_notes.set(String::new());
                     event_form_source.set(String::new());
                     event_form_error.set(None);
@@ -708,7 +722,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 place_id,
                 EventOwner::Person(pid),
                 opt_str(&label),
-                None,
+                EventExtras::default(),
             );
             match api.create_event(tid, &body).await {
                 Ok(new_event) => {
@@ -1764,16 +1778,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 }
                                 div { class: "form-row",
                                     {render_place_input(&i18n, event_form_place_id, &place_options, || {})}
-                                    div { class: "form-group",
-                                        label { {i18n.t("person_form.cause")} }
-                                        input {
-                                            r#type: "text",
-                                            value: "{event_form_cause}",
-                                            oninput: move |e: Event<FormData>| event_form_cause.set(e.value()),
-                                        }
-                                    }
+                                    {render_cause_age_fields(&i18n, event_form_cause, Some(event_form_age))}
                                 }
                                 {render_notes_source_fields(&i18n, tid, event_form_notes, event_form_source, || {})}
+                                MoreDetails { open: event_form_more,
+                                    {render_agency_field(&i18n, event_form_agency)}
+                                }
                                 button {
                                     class: "pf-confirm-btn",
                                     r#type: "button",
@@ -2153,6 +2163,80 @@ pub(crate) fn render_add_toggle(
     }
 }
 
+/// The cause of an event and, when `age` is given — an event of a person —
+/// the age the record gives: the two rarer fields kept in the open, beside
+/// the place. A family event records each spouse's age instead.
+pub(crate) fn render_cause_age_fields(
+    i18n: &crate::i18n::I18n,
+    mut cause: Signal<String>,
+    age: Option<Signal<String>>,
+) -> Element {
+    rsx! {
+        div { class: "form-group",
+            label { {i18n.t("person_form.cause")} }
+            input {
+                r#type: "text",
+                value: "{cause}",
+                oninput: move |e: Event<FormData>| cause.set(e.value()),
+            }
+        }
+        if let Some(mut age) = age {
+            div { class: "form-group",
+                label { {i18n.t("person_form.age")} }
+                input {
+                    r#type: "text",
+                    value: "{age}",
+                    placeholder: i18n.t("person_form.age_placeholder"),
+                    oninput: move |e: Event<FormData>| age.set(e.value()),
+                }
+            }
+        }
+    }
+}
+
+/// The responsible agency of an event — one of the rare fields kept behind
+/// [`MoreDetails`].
+pub(crate) fn render_agency_field(i18n: &crate::i18n::I18n, mut agency: Signal<String>) -> Element {
+    rsx! {
+        div { class: "form-group",
+            label { {i18n.t("person_form.agency")} }
+            input {
+                r#type: "text",
+                value: "{agency}",
+                oninput: move |e: Event<FormData>| agency.set(e.value()),
+            }
+        }
+    }
+}
+
+/// The rare fields of a form, behind a "More details" link so that the
+/// fields everybody fills stay few. Callers open it from the start when one
+/// of those fields already holds something, so nothing stored is hidden.
+#[component]
+pub fn MoreDetails(open: Signal<bool>, children: Element) -> Element {
+    let i18n = use_i18n();
+    let mut open = open;
+    rsx! {
+        div { class: "pf-more",
+            button {
+                class: "pf-more-toggle",
+                r#type: "button",
+                "aria-expanded": open().to_string(),
+                onclick: move |_| open.toggle(),
+                span { class: if open() { "pf-chevron is-open" } else { "pf-chevron" } }
+                if open() {
+                    {i18n.t("person_form.fewer_details")}
+                } else {
+                    {i18n.t("person_form.more_details")}
+                }
+            }
+            if open() {
+                div { class: "pf-more-body", {children} }
+            }
+        }
+    }
+}
+
 /// A row of mutually exclusive buttons bound to one string signal (sex,
 /// privacy) — a radio group that reads as a segmented control.
 pub fn render_choice_group(
@@ -2266,13 +2350,56 @@ pub(crate) enum EventOwner {
     Family(Uuid),
 }
 
+/// An event's rarer fields — its cause, the age the record gives and the
+/// responsible agency — as a create writes them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct EventExtras {
+    pub cause: Option<String>,
+    pub age: Option<String>,
+    pub agency: Option<String>,
+}
+
+/// [`EventExtras`] as an update writes them: `None` leaves a field alone and
+/// `Some(None)` clears it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct EventExtrasPatch {
+    pub cause: Option<Option<String>>,
+    pub age: Option<Option<String>>,
+    pub agency: Option<Option<String>>,
+}
+
+impl EventExtras {
+    /// What a form's cause, age and agency fields say, the age in the
+    /// canonical form the server stores — or the translation key of the
+    /// message saying the age is not one.
+    pub(crate) fn from_form(cause: &str, age: &str, agency: &str) -> Result<Self, &'static str> {
+        let age =
+            oxidgene_core::types::age::normalize(age).map_err(|_| "person_form.age_invalid")?;
+        Ok(Self {
+            cause: opt_str(cause.trim()),
+            age,
+            agency: opt_str(agency.trim()),
+        })
+    }
+
+    /// Every field written, a blank one cleared: what saving a form that
+    /// shows all three means.
+    pub(crate) fn into_patch(self) -> EventExtrasPatch {
+        EventExtrasPatch {
+            cause: Some(self.cause),
+            age: Some(self.age),
+            agency: Some(self.agency),
+        }
+    }
+}
+
 pub(crate) fn create_event_body(
     event_type: EventType,
     parts: &DateParts,
     place_id: Option<Uuid>,
     owner: EventOwner,
     description: Option<String>,
-    cause: Option<String>,
+    extras: EventExtras,
 ) -> CreateEventBody {
     let (person_id, family_id) = match owner {
         EventOwner::Person(pid) => (Some(pid), None),
@@ -2284,7 +2411,9 @@ pub(crate) fn create_event_body(
         date_qualifier: parts.stored_qualifier(),
         date_value2: parts.date_value2(),
         calendar: parts.calendar,
-        cause,
+        cause: extras.cause,
+        age: extras.age,
+        agency: extras.agency,
         place_id,
         person_id,
         family_id,
@@ -2292,15 +2421,15 @@ pub(crate) fn create_event_body(
     }
 }
 
-/// `description` and `cause`: `None` leaves the stored value alone;
-/// `Some(value)` writes it (with `Some(None)` clearing it), matching the DTO's
-/// own contract.
+/// `description` and each of the `extras`: `None` leaves the stored value
+/// alone; `Some(value)` writes it (with `Some(None)` clearing it), matching
+/// the DTO's own contract.
 pub(crate) fn update_event_body(
     event_type: Option<EventType>,
     parts: &DateParts,
     place_id: Option<Uuid>,
     description: Option<Option<String>>,
-    cause: Option<Option<String>>,
+    extras: EventExtrasPatch,
 ) -> UpdateEventBody {
     UpdateEventBody {
         event_type,
@@ -2308,7 +2437,9 @@ pub(crate) fn update_event_body(
         date_qualifier: Some(parts.stored_qualifier()),
         date_value2: Some(parts.date_value2()),
         calendar: Some(parts.calendar),
-        cause,
+        cause: extras.cause,
+        age: extras.age,
+        agency: extras.agency,
         place_id: Some(place_id),
         description,
     }
@@ -2359,7 +2490,13 @@ async fn save_vital_event(
             api.update_event(
                 tree_id,
                 eid,
-                &update_event_body(Some(event_type), parts, place_id, None, None),
+                &update_event_body(
+                    Some(event_type),
+                    parts,
+                    place_id,
+                    None,
+                    EventExtrasPatch::default(),
+                ),
             )
             .await?;
             Some(eid)
@@ -2373,7 +2510,7 @@ async fn save_vital_event(
                     place_id,
                     EventOwner::Person(person_id),
                     None,
-                    None,
+                    EventExtras::default(),
                 ),
             )
             .await?
@@ -2562,6 +2699,9 @@ pub(crate) struct NotesSource {
     source_id: Option<Uuid>,
     note_id: Option<Uuid>,
     citation_id: Option<Uuid>,
+    /// How reliable the citation says the source is; `None` when not
+    /// assessed, or when there is no citation.
+    confidence: Option<Confidence>,
 }
 
 /// Resolves a typed source title to a `Source` id, creating the source when
@@ -2598,6 +2738,7 @@ async fn resolve_source(
                 publisher: None,
                 abbreviation: None,
                 repository_name: None,
+                agency: None,
             },
         )
         .await?;
@@ -2638,6 +2779,7 @@ async fn load_notes_source(
         .find(|c| !person_level_only || c.event_id.is_none());
 
     let source_id = citation.as_ref().map(|c| c.source_id);
+    let confidence = citation.as_ref().and_then(|c| c.confidence);
     let source_title = match source_id {
         Some(sid) => api
             .get_source(tree_id, sid)
@@ -2652,6 +2794,7 @@ async fn load_notes_source(
         source_id,
         note_id: note.map(|n| n.id),
         citation_id: citation.map(|c| c.id),
+        confidence,
     }
 }
 
@@ -2720,6 +2863,7 @@ pub(crate) async fn save_notes_source(
         source_id: current.source_id,
         note_id,
         citation_id: current.citation_id,
+        confidence: current.confidence,
     };
 
     // Only touch the sources when the typed title actually changed, so an
@@ -2751,6 +2895,7 @@ pub(crate) async fn save_notes_source(
         (Some(cid), None) => {
             api.delete_citation(tree_id, cid).await?;
             saved.citation_id = None;
+            saved.confidence = None;
         }
         (None, Some(sid)) => {
             saved.citation_id = Some(
@@ -2863,7 +3008,14 @@ pub fn EventEditor(
     let is_occupation = event.event_type == EventType::Occupation;
 
     let mut description = use_signal(|| event.description.clone().unwrap_or_default());
-    let mut cause = use_signal(|| event.cause.clone().unwrap_or_default());
+    let cause = use_signal(|| event.cause.clone().unwrap_or_default());
+    // A family event states each spouse's age, not its own.
+    let age = use_signal(|| event.age.clone().unwrap_or_default());
+    let age = event.family_id.is_none().then_some(age);
+    let agency = use_signal(|| event.agency.clone().unwrap_or_default());
+    // Open from the start when it holds something, so nothing stored hides.
+    let mut more = use_signal(|| event.agency.is_some());
+    let mut reliability = use_signal(|| None::<Confidence>);
     let parts = use_signal(|| {
         DateParts::from_fields(
             event.calendar,
@@ -2891,6 +3043,10 @@ pub fn EventEditor(
     {
         notes.set(ns.notes.clone());
         source_title.set(ns.source_title.clone());
+        reliability.set(ns.confidence);
+        if ns.confidence.is_some() {
+            more.set(true);
+        }
         loaded.set(Some(ns.clone()));
     }
 
@@ -2901,7 +3057,12 @@ pub fn EventEditor(
         let notes_val = notes();
         let source = source_title();
         let desc = description().trim().to_string();
-        let cause = cause().trim().to_string();
+        let extras = EventExtras::from_form(
+            &cause(),
+            &age.map(|age| age()).unwrap_or_default(),
+            &agency(),
+        );
+        let confidence = reliability();
         let date = parts();
         let place = place_id();
         spawn(async move {
@@ -2909,6 +3070,13 @@ pub fn EventEditor(
                 error.set(Some(i18n.t(key)));
                 return;
             }
+            let extras = match extras {
+                Ok(extras) => extras,
+                Err(key) => {
+                    error.set(Some(i18n.t(key)));
+                    return;
+                }
+            };
             saving.set(true);
             error.set(None);
 
@@ -2925,7 +3093,7 @@ pub fn EventEditor(
                 &date,
                 place_id,
                 Some(opt_str(&desc)),
-                Some(opt_str(&cause)),
+                extras.into_patch(),
             );
             if let Err(e) = api.update_event(tree_id, event_id, &body).await {
                 error.set(Some(format!("{e}")));
@@ -2947,10 +3115,13 @@ pub fn EventEditor(
                 // Adopt the state that was just written, so pressing Save
                 // again reconciles against those rows instead of creating a
                 // second set.
-                Ok(stored) => {
-                    loaded.set(Some(stored));
-                    on_saved.call(());
-                }
+                Ok(stored) => match save_reliability(&api, tree_id, stored, confidence).await {
+                    Ok(stored) => {
+                        loaded.set(Some(stored));
+                        on_saved.call(());
+                    }
+                    Err(e) => error.set(Some(format!("{e}"))),
+                },
                 Err(e) => error.set(Some(format!("{e}"))),
             }
             saving.set(false);
@@ -2987,16 +3158,16 @@ pub fn EventEditor(
                 }
                 div { class: "form-row",
                     {render_place_input(&i18n, place_id, &place_options, || {})}
-                    div { class: "form-group",
-                        label { {i18n.t("person_form.cause")} }
-                        input {
-                            r#type: "text",
-                            value: "{cause}",
-                            oninput: move |e: Event<FormData>| cause.set(e.value()),
-                        }
-                    }
+                    {render_cause_age_fields(&i18n, cause, age)}
                 }
                 {render_notes_source_fields(&i18n, tree_id, notes, source_title, || {})}
+                MoreDetails { open: more,
+                    {render_agency_field(&i18n, agency)}
+                    // A reliability qualifies a citation, so it needs a source.
+                    if !source_title().trim().is_empty() {
+                        {render_reliability_field(&i18n, reliability)}
+                    }
+                }
                 div { class: "pf-ns-actions",
                     button {
                         class: "pf-confirm-btn",
@@ -3023,6 +3194,66 @@ pub fn EventEditor(
                     MediaGallery {
                         tree_id,
                         owner: MediaOwner::Event(event_id),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Writes the reliability chosen for the citation `stored` holds, when it
+/// differs from the stored one; the state now stored.
+async fn save_reliability(
+    api: &ApiClient,
+    tree_id: Uuid,
+    mut stored: NotesSource,
+    confidence: Option<Confidence>,
+) -> Result<NotesSource, ApiError> {
+    let Some(citation_id) = stored.citation_id else {
+        return Ok(stored);
+    };
+    if stored.confidence != confidence {
+        api.update_citation(
+            tree_id,
+            citation_id,
+            &UpdateCitationBody {
+                source_id: None,
+                page: None,
+                confidence: Some(confidence),
+                text: None,
+            },
+        )
+        .await?;
+        stored.confidence = confidence;
+    }
+    Ok(stored)
+}
+
+/// How reliable the cited source is, "not assessed" included.
+fn render_reliability_field(
+    i18n: &crate::i18n::I18n,
+    mut reliability: Signal<Option<Confidence>>,
+) -> Element {
+    let selected = reliability().map(|c| c.to_string()).unwrap_or_default();
+    rsx! {
+        div { class: "form-group",
+            label { {i18n.t("person_form.reliability")} }
+            select {
+                value: "{selected}",
+                oninput: move |e: Event<FormData>| {
+                    let value = e.value();
+                    reliability.set(
+                        crate::utils::CONFIDENCE_LEVELS
+                            .into_iter()
+                            .find(|c| c.to_string() == value),
+                    );
+                },
+                option { value: "", selected: selected.is_empty(), {i18n.t("confidence.not_assessed")} }
+                for level in crate::utils::CONFIDENCE_LEVELS {
+                    option {
+                        value: "{level}",
+                        selected: selected == level.to_string(),
+                        {i18n.t(crate::utils::confidence_key(level))}
                     }
                 }
             }
@@ -3352,8 +3583,17 @@ mod information_form_tests {
     fn an_event_update_carries_the_cause_only_when_the_form_edits_it() {
         let parts = DateParts::default();
         let body = |cause| {
-            serde_json::to_value(update_event_body(None, &parts, None, None, cause))
-                .expect("serializes")
+            serde_json::to_value(update_event_body(
+                None,
+                &parts,
+                None,
+                None,
+                EventExtrasPatch {
+                    cause,
+                    ..Default::default()
+                },
+            ))
+            .expect("serializes")
         };
         assert_eq!(body(Some(Some("Fever".into())))["cause"], "Fever");
         assert!(body(Some(None))["cause"].is_null());

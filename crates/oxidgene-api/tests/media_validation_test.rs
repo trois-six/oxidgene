@@ -222,7 +222,7 @@ async fn attribution_targets(db: &DatabaseConnection, tree: Uuid) -> (Vec<Uuid>,
             Default::default(),
             None,
             Default::default(),
-            None,
+            Default::default(),
         )
         .await
         .unwrap();

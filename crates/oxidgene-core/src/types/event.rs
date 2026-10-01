@@ -25,6 +25,16 @@ pub struct Event {
     pub calendar: Calendar,
     /// Cause of death/burial/etc. Maps to GEDCOM `CAUS`.
     pub cause: Option<String>,
+    /// The age the record gives for the person at an individual event, in
+    /// the canonical GEDCOM form [`AgeAtEvent`](crate::types::AgeAtEvent)
+    /// writes (`34y`, `< 1y 6m`, `CHILD`). Maps to GEDCOM `AGE`; a family
+    /// event's spouses' ages are kept per spouse.
+    #[serde(default)]
+    pub age: Option<String>,
+    /// The authority or institution responsible for the event's record
+    /// (a parish, a registry office). Maps to GEDCOM `AGNC`.
+    #[serde(default)]
+    pub agency: Option<String>,
     pub place_id: Option<Uuid>,
     /// Set for individual events.
     pub person_id: Option<Uuid>,
@@ -191,6 +201,8 @@ mod tests {
             date_value2: None,
             calendar: Calendar::default(),
             cause: None,
+            age: None,
+            agency: None,
             place_id: None,
             person_id: None,
             family_id: None,

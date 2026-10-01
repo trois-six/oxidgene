@@ -279,7 +279,7 @@ mod tests {
             DateQualifier::default(),
             None,
             Calendar::default(),
-            None,
+            Default::default(),
         )
         .await
         .unwrap();
@@ -449,6 +449,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -458,6 +459,7 @@ mod tests {
             unrelated_source,
             tree_id,
             "Unrelated Register".into(),
+            None,
             None,
             None,
             None,

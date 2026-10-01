@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T22:39:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:23:15Z }
 ---
 
 
@@ -194,6 +194,8 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `date_value2` | String? | Second date, used by the `Or` and `Between` qualifiers |
 | `calendar` | Calendar | Enum — calendar system the date was recorded in (default `Gregorian`) |
 | `cause` | String? | Cause of event (GEDCOM `CAUS`), e.g. cause of death |
+| `age` | String? | The age the record gives for the person at an individual event (GEDCOM `AGE`), stored in the canonical GEDCOM form `oxidgene_core::types::AgeAtEvent` writes: `34y`, `< 1y 6m`, `> 80y`, `3m 2w 5d`, `CHILD`, `INFANT`, `STILLBORN` (at most 999 years and 255 months, weeks or days). Always NULL on a family event, whose spouses' ages are kept per spouse |
+| `agency` | String? | The authority responsible for the event's record (GEDCOM `AGNC`), e.g. a parish or a registry office |
 | `place_id` | UUID v7? | FK → Place |
 | `person_id` | UUID v7? | FK → Person (individual event) — never set together with `family_id` |
 | `family_id` | UUID v7? | FK → Family (family event) — never set together with `person_id` |
@@ -201,6 +203,13 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
+
+An age is read leniently — `1y6m`, `34 Y`, a bare `34` for years, keywords in
+any case — and stored canonically; anything else is refused. `AgeAtEvent::bounds`
+turns it into the interval of ages in days it allows: an exact age spans its
+smallest unit (`34y` is any day from the 34th birthday to the eve of the 35th),
+`<` and `>` open one side, `CHILD` is under eight years, `INFANT` under one and
+`STILLBORN` zero days.
 
 `Event::year()` / `oxidgene_core::types::year_from_date` provide the shared display-year logic (prefer `date_sort`, fall back to the first 4-digit token of `date_value`) used by pedigree cards, the person narrative, dictionary usage lists, and search results.
 
@@ -247,6 +256,7 @@ text is valid.
 | `publisher` | String? | |
 | `abbreviation` | String? | |
 | `repository_name` | String? | |
+| `agency` | String? | The organisation responsible for the source's data (GEDCOM `SOUR.DATA.AGNC`) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

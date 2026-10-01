@@ -374,6 +374,7 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             publisher: None,
             abbreviation: None,
             repository_name: None,
+            agency: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -463,6 +464,7 @@ fn import_sources(data: &GedcomData, ctx: &ImportContext, result: &mut ImportRes
             publisher: src.publication_facts.clone(),
             abbreviation: src.abbreviation.clone(),
             repository_name: None, // repo_citations not directly mappable to a single name
+            agency: non_blank(src.data.agency.as_deref()),
             created_at: ctx.now,
             updated_at: ctx.now,
             deleted_at: None,
@@ -2158,6 +2160,22 @@ fn convert_quay(
     }
 }
 
+/// The canonical form of an age `ged_io` read; `None` for one OxidGene does
+/// not hold as an age (an empty value, a count beyond 999).
+fn import_age(age: Option<&ged_io::types::age::Age>) -> Option<String> {
+    age?.to_string()
+        .parse::<oxidgene_core::types::AgeAtEvent>()
+        .ok()
+        .map(|age| age.to_string())
+}
+
+/// `text` when it says something.
+fn non_blank(text: Option<&str>) -> Option<String> {
+    text.map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Import sub-record helpers
 // ═══════════════════════════════════════════════════════════════════════
@@ -2221,6 +2239,9 @@ fn import_event_detail(
         date_value2: date.value2,
         calendar: date.calendar,
         cause,
+        // A family event states each spouse's age instead (`HUSB.AGE`).
+        age: import_age(detail.age.as_ref()).filter(|_| family_id.is_none()),
+        agency: non_blank(detail.agency.as_deref()),
         place_id,
         person_id,
         family_id,
@@ -2361,6 +2382,8 @@ fn import_attribute_detail(
     let place_id = import_place(detail.place.as_ref(), get_or_create_place, result);
 
     let cause = detail.cause.clone();
+    let age = import_age(detail.age.as_ref());
+    let agency = non_blank(detail.agency.as_deref());
 
     // Preserve the tag's own value (e.g. "Acccount Manager", "Presales, Trainer"
     // for OCCU) or, failing that, its TYPE sub-tag — but not either of them
@@ -2398,6 +2421,8 @@ fn import_attribute_detail(
             date_value2: date.value2.clone(),
             calendar: date.calendar,
             cause: cause.clone(),
+            age: age.clone(),
+            agency: agency.clone(),
             place_id,
             person_id: Some(person_id),
             family_id: None,

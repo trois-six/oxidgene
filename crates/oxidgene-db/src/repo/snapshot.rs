@@ -174,6 +174,7 @@ impl SnapshotRepo {
                     publisher: row.publisher,
                     abbreviation: row.abbreviation,
                     repository_name: row.repository_name,
+                    agency: row.agency,
                 }),
                 labels: Vec::new(),
             })
@@ -326,6 +327,7 @@ impl SnapshotRepo {
         active.publisher = Set(snapshot.publisher.clone());
         active.abbreviation = Set(snapshot.abbreviation.clone());
         active.repository_name = Set(snapshot.repository_name.clone());
+        active.agency = Set(snapshot.agency.clone());
         active.deleted_at = Set(None);
         active.updated_at = Set(now);
         active.update(db).await.map_err(db_err)?;
@@ -617,6 +619,8 @@ impl PersonRows {
             date_value2: e.date_value2.clone(),
             calendar: e.calendar.into(),
             cause: e.cause.clone(),
+            age: e.age.clone(),
+            agency: e.agency.clone(),
             place_id: e.place_id,
             description: e.description.clone(),
             witnesses: sorted(
@@ -1175,6 +1179,8 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 date_value2: Set(snapshot.date_value2.clone()),
                 calendar: Set(snapshot.calendar.into()),
                 cause: Set(snapshot.cause.clone()),
+                age: Set(snapshot.age.clone()),
+                agency: Set(snapshot.agency.clone()),
                 place_id: Set(place_id),
                 person_id: Set(person_id),
                 family_id: Set(family_id),

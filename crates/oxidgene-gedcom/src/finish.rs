@@ -14,18 +14,45 @@
 //! author, publication and abbreviation — between two non-space characters.
 //!
 //! And it writes what `ged_io` drops from a record it does write: a
-//! person's or a family's `RESN` and a source's `PUBL`, which its writer
-//! leaves out, go in as an [`Addition`] after the line opening the record.
+//! person's or a family's `RESN`, and a source's `PUBL` and `DATA.AGNC`,
+//! which its writer leaves out, go in as an [`Addition`] after the line
+//! opening the record.
 
 use std::collections::HashMap;
 
 use ged_io::types::note::Note as GedNote;
 use uuid::Uuid;
 
-/// A level-1 structure to write right after the line opening a record.
+/// A level-1 structure to write right after the line opening a record, with
+/// its own substructures one level further down.
 pub(crate) struct Addition {
     pub tag: &'static str,
     pub text: String,
+    pub children: Vec<Addition>,
+}
+
+impl Addition {
+    pub fn new(tag: &'static str, text: impl Into<String>) -> Self {
+        Self {
+            tag,
+            text: text.into(),
+            children: Vec::new(),
+        }
+    }
+
+    /// This structure with `child` under it.
+    pub fn with(mut self, child: Addition) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    /// Writes this structure at `level`, then its substructures below it.
+    fn push(&self, out: &mut String, level: u8) {
+        push_text(out, level, self.tag, &self.text);
+        for child in &self.children {
+            child.push(out, level.saturating_add(1));
+        }
+    }
 }
 
 /// Opens the value of a placeholder note; the owner's id follows.
@@ -65,7 +92,7 @@ pub(crate) fn finish<'n>(
                 .into_iter()
                 .flatten()
             {
-                push_text(&mut out, 1, addition.tag, &addition.text);
+                addition.push(&mut out, 1);
             }
             continue;
         }

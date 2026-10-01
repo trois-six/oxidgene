@@ -1171,6 +1171,10 @@ pub struct GqlEvent {
     pub date_value2: Option<String>,
     pub calendar: GqlCalendar,
     pub cause: Option<String>,
+    /// The age the record gives, in canonical GEDCOM form.
+    pub age: Option<String>,
+    /// The authority responsible for the event's record.
+    pub agency: Option<String>,
     pub place_id: Option<ID>,
     pub person_id: Option<ID>,
     pub family_id: Option<ID>,
@@ -1267,6 +1271,8 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             date_value2: e.date_value2,
             calendar: e.calendar.into(),
             cause: e.cause,
+            age: e.age,
+            agency: e.agency,
             place_id: e.place_id.map(|id| ID(id.to_string())),
             person_id: e.person_id.map(|id| ID(id.to_string())),
             family_id: e.family_id.map(|id| ID(id.to_string())),
@@ -1375,6 +1381,8 @@ pub struct GqlSource {
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
     pub repository_name: Option<String>,
+    /// The organisation responsible for the source's data.
+    pub agency: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1400,6 +1408,7 @@ impl From<oxidgene_core::types::Source> for GqlSource {
             publisher: s.publisher,
             abbreviation: s.abbreviation,
             repository_name: s.repository_name,
+            agency: s.agency,
             created_at: s.created_at,
             updated_at: s.updated_at,
         }

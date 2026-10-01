@@ -1024,6 +1024,8 @@ mod tests {
             date_value2: None,
             calendar: Calendar::Gregorian,
             cause: None,
+            age: None,
+            agency: None,
             place_id: place,
             person_id: None,
             family_id: None,

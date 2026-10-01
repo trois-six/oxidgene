@@ -476,6 +476,16 @@ fn event_group(
         before.and_then(|e| e.cause.clone()),
         after.and_then(|e| e.cause.clone()),
     );
+    group.row(
+        i18n.t("history.field.age"),
+        before.and_then(|e| e.age.clone()),
+        after.and_then(|e| e.age.clone()),
+    );
+    group.row(
+        i18n.t("history.field.agency"),
+        before.and_then(|e| e.agency.clone()),
+        after.and_then(|e| e.agency.clone()),
+    );
     let witnesses = |side: &Side, e: &EventSnapshot| {
         join(e.witnesses.iter().map(|w| match w.relation.as_deref() {
             Some(relation) if !relation.trim().is_empty() => {
@@ -623,6 +633,7 @@ fn source_section(
         ("history.field.publisher", |s| s.publisher.clone()),
         ("history.field.abbreviation", |s| s.abbreviation.clone()),
         ("history.field.repository", |s| s.repository_name.clone()),
+        ("history.field.agency", |s| s.agency.clone()),
     ] {
         group.row(i18n.t(key), before.and_then(get), get(after));
     }
@@ -729,13 +740,7 @@ fn role(i18n: &I18n, role: SpouseRole) -> String {
 }
 
 fn confidence(i18n: &I18n, confidence: Confidence) -> String {
-    i18n.t(match confidence {
-        Confidence::VeryLow => "history.confidence.very_low",
-        Confidence::Low => "history.confidence.low",
-        Confidence::Medium => "history.confidence.medium",
-        Confidence::High => "history.confidence.high",
-        Confidence::VeryHigh => "history.confidence.very_high",
-    })
+    i18n.t(crate::utils::confidence_key(confidence))
 }
 
 fn join(items: impl Iterator<Item = String>) -> String {
@@ -1081,6 +1086,8 @@ mod tests {
             date_value2: None,
             calendar: Calendar::Gregorian,
             cause: None,
+            age: None,
+            agency: None,
             place_id: place,
             description: None,
             witnesses: Vec::new(),

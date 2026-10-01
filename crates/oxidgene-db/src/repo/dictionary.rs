@@ -1082,6 +1082,7 @@ fn into_source(m: source::Model) -> Source {
         publisher: m.publisher,
         abbreviation: m.abbreviation,
         repository_name: m.repository_name,
+        agency: m.agency,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

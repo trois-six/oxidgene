@@ -245,6 +245,8 @@ pub struct GqlEventSnapshot {
     pub date_value2: Option<String>,
     pub calendar: GqlCalendar,
     pub cause: Option<String>,
+    pub age: Option<String>,
+    pub agency: Option<String>,
     pub place_id: Option<ID>,
     pub description: Option<String>,
     pub witnesses: Vec<GqlWitnessSnapshot>,
@@ -263,6 +265,8 @@ impl From<EventSnapshot> for GqlEventSnapshot {
             date_value2: e.date_value2,
             calendar: e.calendar.into(),
             cause: e.cause,
+            age: e.age,
+            agency: e.agency,
             place_id: e.place_id.map(id),
             description: e.description,
             witnesses: convert(e.witnesses),
@@ -388,6 +392,7 @@ pub struct GqlSourceSnapshot {
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
     pub repository_name: Option<String>,
+    pub agency: Option<String>,
     pub notes: Vec<GqlNoteSnapshot>,
 }
 
@@ -399,6 +404,7 @@ impl From<SourceSnapshot> for GqlSourceSnapshot {
             publisher: s.publisher,
             abbreviation: s.abbreviation,
             repository_name: s.repository_name,
+            agency: s.agency,
             notes: convert(s.notes),
         }
     }

@@ -742,6 +742,57 @@ const CITATION_TEXT_GEDCOM: &str = "\
 0 TRLR
 ";
 
+/// The ages and agencies of events and attributes, and a source's agency,
+/// are imported in canonical form and written back: `SOUR.DATA.AGNC`, which
+/// `ged_io` does not write, is added by the export itself.
+#[test]
+fn ages_and_agencies_survive_a_round_trip() {
+    let gedcom = CITATION_TEXT_GEDCOM
+        .replace(
+            "1 TITL Sample register\n",
+            "1 TITL Sample register\n1 DATA\n2 AGNC Sample archives\n",
+        )
+        .replace(
+            "0 TRLR",
+            "1 DEAT\n2 AGE > 80y\n2 AGNC Parish of Northwick\n\
+             1 OCCU Miller, Baker\n2 AGE 34y\n2 AGNC Guild of Sampleton\n\
+             1 BURI\n2 AGE STILLBORN\n0 TRLR",
+        );
+    let check = |result: &oxidgene_gedcom::ImportResult| {
+        let age_of = |event_type| {
+            result
+                .events
+                .iter()
+                .filter(|e| e.event_type == event_type)
+                .map(|e| (e.age.as_deref(), e.agency.as_deref()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            age_of(oxidgene_core::EventType::Death),
+            [(Some("> 80y"), Some("Parish of Northwick"))]
+        );
+        assert_eq!(
+            age_of(oxidgene_core::EventType::Occupation),
+            [(Some("34y"), Some("Guild of Sampleton")); 2],
+            "one per split occupation"
+        );
+        assert_eq!(
+            age_of(oxidgene_core::EventType::Burial),
+            [(Some("STILLBORN"), None)]
+        );
+        assert_eq!(result.sources[0].agency.as_deref(), Some("Sample archives"));
+    };
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    check(&imported);
+    let exported = reexport(&imported);
+    assert!(
+        exported.contains("1 DATA\n2 AGNC Sample archives\n"),
+        "{exported}"
+    );
+    assert!(!exported.contains("PHRASE"), "{exported}");
+    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+}
+
 /// The text a citation quotes from its source is exported, and comes back.
 #[test]
 fn a_citation_text_survives_a_round_trip() {

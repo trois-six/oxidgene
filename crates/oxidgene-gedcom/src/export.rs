@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use ged_io::GedcomWriter;
 use ged_io::types::GedcomData;
+use ged_io::types::age::{Age as GedAge, AgeModifier as GedAgeModifier};
 use ged_io::types::date::Date;
 use ged_io::types::event::Event as GedEvent;
 use ged_io::types::event::detail::Detail as GedDetail;
@@ -427,8 +428,9 @@ impl ExportIndex<'_> {
     }
 
     /// What the text `ged_io` writes lacks, by record xref: the `RESN` of a
-    /// private person or family, and each source's publication facts —
-    /// `ged_io` 0.16 writes neither a record's `RESN` nor a `PUBL`.
+    /// private person or family, and each source's publication facts and
+    /// agency — `ged_io` 0.16 writes neither a record's `RESN`, nor a `PUBL`,
+    /// nor a source's `DATA`.
     ///
     /// A private record is `RESN confidential`, GEDCOM's word for data its
     /// owner marked to be kept from reports and exports, and the one the
@@ -455,25 +457,22 @@ impl ExportIndex<'_> {
             additions
                 .entry(xref.clone())
                 .or_default()
-                .push(crate::finish::Addition {
-                    tag: "RESN",
-                    text: "confidential".to_string(),
-                });
+                .push(crate::finish::Addition::new("RESN", "confidential"));
         }
         for src in sources {
-            let (Some(xref), Some(publisher)) = (
-                self.xrefs.source.get(&src.id),
-                src.publisher.as_deref().filter(|p| !p.trim().is_empty()),
-            ) else {
+            let Some(xref) = self.xrefs.source.get(&src.id) else {
                 continue;
             };
-            additions
-                .entry(xref.clone())
-                .or_default()
-                .push(crate::finish::Addition {
-                    tag: "PUBL",
-                    text: publisher.to_string(),
-                });
+            let entry = additions.entry(xref.clone()).or_default();
+            if let Some(publisher) = src.publisher.as_deref().filter(|p| !p.trim().is_empty()) {
+                entry.push(crate::finish::Addition::new("PUBL", publisher));
+            }
+            if let Some(agency) = src.agency.as_deref().filter(|a| !a.trim().is_empty()) {
+                entry.push(
+                    crate::finish::Addition::new("DATA", "")
+                        .with(crate::finish::Addition::new("AGNC", agency)),
+                );
+            }
         }
         additions
     }
@@ -1408,6 +1407,36 @@ fn convert_confidence(c: Option<Confidence>) -> Option<CertaintyAssessment> {
     })
 }
 
+/// The `ged_io` age a stored age is written as. `phrase` stays unset: the
+/// writer would emit GEDCOM 7's `PHRASE` into a 5.5.1 file.
+fn to_ged_age(age: Option<&str>) -> Option<GedAge> {
+    use oxidgene_core::types::age::{AgeAtEvent, AgeModifier};
+    let unit = |count: Option<u16>| count.and_then(|c| u8::try_from(c).ok());
+    Some(match age?.parse::<AgeAtEvent>().ok()? {
+        AgeAtEvent::Child => GedAge::Child,
+        AgeAtEvent::Infant => GedAge::Infant,
+        AgeAtEvent::Stillborn => GedAge::Stillborn,
+        AgeAtEvent::Duration {
+            modifier,
+            years,
+            months,
+            weeks,
+            days,
+        } => GedAge::Numeric {
+            years,
+            months: unit(months),
+            weeks: unit(weeks),
+            days: unit(days),
+            modifier: match modifier {
+                AgeModifier::Exact => GedAgeModifier::Exact,
+                AgeModifier::LessThan => GedAgeModifier::LessThan,
+                AgeModifier::GreaterThan => GedAgeModifier::GreaterThan,
+            },
+            phrase: None,
+        },
+    })
+}
+
 fn to_ged_note(text: &str) -> GedNote {
     GedNote {
         value: Some(text.to_string()),
@@ -1456,8 +1485,9 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
         associations,
         cause: evt.cause.clone(),
         restriction: None,
-        age: None,
-        agency: None,
+        // A family event's ages are its spouses' own.
+        age: to_ged_age(evt.age.as_deref()).filter(|_| evt.family_id.is_none()),
+        agency: evt.agency.clone(),
         religion: None,
     }
 }
@@ -1593,10 +1623,10 @@ fn to_ged_attribute_detail(
         multimedia,
         attribute_type: None,
         restriction: None,
-        age: None,
+        age: to_ged_age(evt.age.as_deref()),
         address: None,
         cause: evt.cause.clone(),
-        agency: None,
+        agency: evt.agency.clone(),
     }
 }
 
@@ -1820,6 +1850,7 @@ mod tests {
             publisher: None,
             abbreviation: None,
             repository_name: None,
+            agency: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,
@@ -2399,6 +2430,8 @@ mod tests {
             date_value2: None,
             calendar: Default::default(),
             cause: None,
+            age: None,
+            agency: None,
             place_id: None,
             person_id: Some(person.id),
             family_id: None,
@@ -2471,6 +2504,8 @@ mod tests {
             date_value2: None,
             calendar: Default::default(),
             cause: None,
+            age: None,
+            agency: None,
             place_id: None,
             person_id: Some(person.id),
             family_id: None,
