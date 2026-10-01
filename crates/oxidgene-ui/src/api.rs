@@ -3072,6 +3072,20 @@ impl ApiClient {
         Ok(labels)
     }
 
+    /// Every name of `person_ids`, filed by person, in bounded batches.
+    pub async fn person_names(
+        &self,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<HashMap<Uuid, Vec<PersonName>>, ApiError> {
+        let labels = self.relation_labels(tree_id, person_ids, &[]).await?;
+        let mut names: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
+        for name in labels.names {
+            names.entry(name.person_id).or_default().push(name);
+        }
+        Ok(names)
+    }
+
     pub async fn create_person_name(
         &self,
         tree_id: Uuid,

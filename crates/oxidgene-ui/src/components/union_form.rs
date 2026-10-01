@@ -141,13 +141,19 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             async move { api.list_all_places(tid).await }
         }
     });
-    // Load names only for the spouses and children shown in this modal.
+    // Names only for the spouses and children shown in this modal, in one
+    // request once both lists are in.
     let names_resource = use_ui_resource("family_names", {
         let api = api.clone();
         move || {
             let api = api.clone();
-            let _tick = refresh();
-            async move { Ok::<_, ApiError>(family_names(&api, tid, fid).await) }
+            let members = family_members(&spouses_resource.read(), &children_resource.read());
+            async move {
+                match members {
+                    Some(ids) => api.person_names(tid, &ids).await,
+                    None => Ok(HashMap::new()),
+                }
+            }
         }
     });
     let marriage = use_marriage_draft(events_resource);
@@ -360,22 +366,17 @@ fn use_seed_privacy(family: Resource<Option<Family>>, mut privacy: Signal<String
     }
 }
 
-/// The names of the family's spouses and children.
-async fn family_names(api: &ApiClient, tid: Uuid, fid: Uuid) -> HashMap<Uuid, Vec<PersonName>> {
-    let mut ids: Vec<Uuid> = Vec::new();
-    if let Ok(spouses) = api.list_family_spouses(tid, fid).await {
-        ids.extend(spouses.iter().map(|s| s.person_id));
-    }
-    if let Ok(children) = api.list_family_children(tid, fid).await {
-        ids.extend(children.iter().map(|c| c.person_id));
-    }
-    let mut name_map = HashMap::new();
-    for id in ids {
-        if let Ok(names) = api.list_person_names(tid, id).await {
-            name_map.insert(id, names);
-        }
-    }
-    name_map
+/// The family's spouses and children, once both lists are loaded.
+fn family_members(
+    spouses: &Option<Result<Vec<FamilySpouse>, ApiError>>,
+    children: &Option<Result<Vec<FamilyChild>, ApiError>>,
+) -> Option<Vec<Uuid>> {
+    let (Some(spouses), Some(children)) = (spouses, children) else {
+        return None;
+    };
+    let spouses = spouses.iter().flatten().map(|spouse| spouse.person_id);
+    let children = children.iter().flatten().map(|child| child.person_id);
+    Some(spouses.chain(children).collect())
 }
 
 /// The modal's title: the spouses' names, or a generic title without them.

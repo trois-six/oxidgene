@@ -26,7 +26,7 @@ use crate::i18n::use_i18n;
 use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     event_type_label_key, name_type_label_key, name_type_value, opt_str, parse_event_type,
-    parse_name_type, parse_privacy, parse_sex,
+    parse_name_type, parse_privacy, parse_sex, resolve_name,
 };
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
@@ -2389,35 +2389,26 @@ async fn save_vital_event(
 
 // ── Witnesses widget ──────────────────────────────────────────────────────
 
-/// Resolves each witness's display name via its primary `PersonName`.
-async fn resolve_witness_names(
+/// An event's witnesses, with the names of the persons they are, loaded
+/// in one request.
+async fn load_witnesses(
     api: &ApiClient,
     tree_id: Uuid,
-    witnesses: Vec<oxidgene_core::types::EventWitness>,
-) -> Vec<(oxidgene_core::types::EventWitness, String)> {
-    let mut out = Vec::with_capacity(witnesses.len());
-    for w in witnesses {
-        let name = match api.list_person_names(tree_id, w.person_id).await {
-            Ok(names) => names
-                .iter()
-                .find(|n| n.is_primary)
-                .or(names.first())
-                .map(|n| {
-                    format!(
-                        "{} {}",
-                        n.given_names.as_deref().unwrap_or(""),
-                        n.full_surname().unwrap_or_default()
-                    )
-                    .trim()
-                    .to_string()
-                })
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "?".to_string()),
-            Err(_) => "?".to_string(),
-        };
-        out.push((w, name));
-    }
-    out
+    event_id: Uuid,
+) -> (
+    Vec<oxidgene_core::types::EventWitness>,
+    std::collections::HashMap<Uuid, Vec<oxidgene_core::types::PersonName>>,
+) {
+    let witnesses = api
+        .list_event_witnesses(tree_id, event_id)
+        .await
+        .unwrap_or_default();
+    let person_ids: Vec<Uuid> = witnesses.iter().map(|w| w.person_id).collect();
+    let names = api
+        .person_names(tree_id, &person_ids)
+        .await
+        .unwrap_or_default();
+    (witnesses, names)
 }
 
 /// Witness list + add/remove editor for an event. Each add/remove is
@@ -2446,13 +2437,9 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
         let _tick = refresh_tick();
         async move {
             let Some(event_id) = event_id else {
-                return Vec::new();
+                return Default::default();
             };
-            let witnesses = api
-                .list_event_witnesses(tree_id, event_id)
-                .await
-                .unwrap_or_default();
-            resolve_witness_names(&api, tree_id, witnesses).await
+            load_witnesses(&api, tree_id, event_id).await
         }
     });
 
@@ -2461,7 +2448,14 @@ fn EventWitnesses(tree_id: Uuid, event_id: Option<Uuid>) -> Element {
             p { class: "text-muted", {i18n.t("person_form.witnesses_save_first")} }
         };
     };
-    let entries = witnesses_resource.read().clone().unwrap_or_default();
+    let (witnesses, names) = witnesses_resource.read().clone().unwrap_or_default();
+    let entries: Vec<_> = witnesses
+        .into_iter()
+        .map(|w| {
+            let name = resolve_name(w.person_id, &names, &i18n);
+            (w, name)
+        })
+        .collect();
 
     rsx! {
         div { class: "pf-witness-list",
