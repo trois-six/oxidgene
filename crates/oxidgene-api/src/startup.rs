@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
-use oxidgene_db::repo::{BackgroundJobRepo, connect, run_migrations};
+use oxidgene_db::repo::{BackgroundJobRepo, Connections, connect, run_migrations};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use tokio::task::JoinHandle;
 use tracing::error;
@@ -62,6 +62,18 @@ pub async fn connect_and_migrate(database_url: &str) -> DatabaseConnection {
         "Failed to run migrations",
     );
     db
+}
+
+/// The database an API server runs on: connected and migrated, then, for a
+/// SQLite file, with its read pool (see [`Connections`]). The worker, which
+/// serves no request, connects with [`connect_and_migrate`] alone.
+pub async fn open_database(database_url: &str) -> Connections {
+    let db = connect_and_migrate(database_url).await;
+    or_exit(
+        Connections::with_read_pool(db, database_url).await,
+        "database_read_pool",
+        "Failed to open the read-only database pool",
+    )
 }
 
 /// Run the background job worker inside this process.

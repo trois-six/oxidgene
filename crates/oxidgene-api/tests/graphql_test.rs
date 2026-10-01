@@ -1,7 +1,8 @@
 //! Integration tests for GraphQL API.
 //!
-//! All tests run against an in-memory SQLite database. Requests are sent
-//! to `POST /graphql` via Axum's tower `ServiceExt::oneshot`.
+//! All tests run against a fresh SQLite database: a file with its read pool
+//! (`setup_app`) or an in-memory one (`setup_db`). Requests are sent to
+//! `POST /graphql` via Axum's tower `ServiceExt::oneshot`.
 
 mod common;
 
@@ -4690,4 +4691,62 @@ async fn graphql_media_tags_fold_accents_like_case() {
     )
     .await;
     assert_eq!(tags(app.clone(), tree_id, media).await, json!([]));
+}
+
+/// On a SQLite file, a query is answered while a write holds the single
+/// writer — an import holds it for its whole transaction, played here by a
+/// transaction the test keeps open — and a mutation waits for its turn, as
+/// on REST.
+#[tokio::test]
+async fn queries_are_answered_while_a_write_holds_the_writer() {
+    use oxidgene_db::sea_orm::{ConnectionTrait as _, TransactionTrait as _};
+
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::new(
+        common::setup_file_db(directory.path()).await,
+        directory.path().join("media"),
+    );
+    let app = build_router(state.clone());
+    let tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Held" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let import = state.db.begin().await.unwrap();
+    import
+        .execute_unprepared("UPDATE tree SET name = name")
+        .await
+        .unwrap();
+
+    let within = std::time::Duration::from_secs(5);
+    let query = format!(
+        r#"{{ tree(id: "{tree_id}") {{ name personCount }} persons(treeId: "{tree_id}") {{ totalCount }} }}"#
+    );
+    let response = tokio::time::timeout(within, graphql(app.clone(), &query, None))
+        .await
+        .expect("a query does not wait for the writer");
+    assert_eq!(data(&response)["tree"]["name"], "Held");
+
+    let mutation = format!(
+        r#"mutation {{ createPerson(treeId: "{tree_id}", input: {{ sex: UNKNOWN }}) {{ id }} }}"#
+    );
+    let write = tokio::spawn({
+        let app = app.clone();
+        async move { graphql(app, &mutation, None).await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!write.is_finished(), "a mutation waits for the writer");
+    import.commit().await.unwrap();
+    let response = tokio::time::timeout(within, write)
+        .await
+        .expect("the mutation proceeds once the writer is free")
+        .unwrap();
+    assert!(data(&response)["createPerson"]["id"].is_string());
 }

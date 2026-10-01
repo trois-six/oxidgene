@@ -40,7 +40,7 @@ use super::types::{
     GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
     GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree, GqlTreeConnection, GqlTreeMediaLink,
     GqlValueSuggestion, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
-    require_local_file_access,
+    reader_from_ctx, require_local_file_access,
 };
 
 /// A read's record, or `None` when the record is not there — the shape of
@@ -78,7 +78,7 @@ async fn lineage(
     direction: Lineage,
     max_depth: Option<i32>,
 ) -> Result<Vec<GqlPersonWithDepth>> {
-    let db = db_from_ctx(ctx);
+    let db = reader_from_ctx(ctx);
     let tree_id = live_tree(ctx, tree_id).await?;
     let links =
         crate::service::person::lineage(db, tree_id, uuid(person_id)?, direction, max_depth)
@@ -115,7 +115,7 @@ impl QueryRoot {
         person_id: ID,
     ) -> Result<GqlPersonDetailBundle> {
         Ok(crate::service::person_detail::load_person_detail_bundle(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             uuid(&person_id)?,
         )
@@ -132,7 +132,7 @@ impl QueryRoot {
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlTreeConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let params = PaginationParams {
             first: first.unwrap_or(25),
             after,
@@ -154,7 +154,7 @@ impl QueryRoot {
         category: Option<GqlAuditCategory>,
         subject_id: Option<ID>,
     ) -> Result<GqlAuditEntryConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let filter = AuditFilter {
             category: category.map(Into::into),
@@ -171,7 +171,7 @@ impl QueryRoot {
 
     /// One audit entry. Mirrors `GET /trees/{treeId}/audit/{entryId}`.
     async fn audit_entry(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<GqlAuditEntry> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let entry_id = uuid(&id)?;
         Ok(HistoryRepo::get_entry(db, tid, entry_id).await?.into())
@@ -187,7 +187,7 @@ impl QueryRoot {
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlVersionChangeConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let entry_id = uuid(&entry_id)?;
         HistoryRepo::get_entry(db, tid, entry_id).await?;
@@ -211,7 +211,7 @@ impl QueryRoot {
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlRecordVersionConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let rid = uuid(&record_id)?;
         let params = PaginationParams {
@@ -235,7 +235,7 @@ impl QueryRoot {
         record_id: ID,
         version: i32,
     ) -> Result<GqlRecordVersion> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let rid = uuid(&record_id)?;
         Ok(
@@ -247,7 +247,7 @@ impl QueryRoot {
 
     /// Get a single tree by ID.
     async fn tree(&self, ctx: &Context<'_>, id: ID) -> Result<Option<GqlTree>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let id = uuid(&id)?;
         found(TreeRepo::get(db, id).await)
     }
@@ -263,7 +263,7 @@ impl QueryRoot {
         after: Option<String>,
         search: Option<String>,
     ) -> Result<GqlPersonConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let params = PaginationParams {
             first: first.unwrap_or(25),
@@ -275,7 +275,7 @@ impl QueryRoot {
 
     /// Get a single person by ID.
     async fn person(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlPerson>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         found(PersonRepo::get_in_tree(db, tid, id).await)
@@ -293,7 +293,7 @@ impl QueryRoot {
         let person_ids = uuids(&person_ids)?;
         let family_ids = uuids(&family_ids)?;
         Ok(crate::service::relation_labels::load_relation_labels(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             tree_id,
             &person_ids,
             &family_ids,
@@ -314,14 +314,14 @@ impl QueryRoot {
     ) -> Result<Option<GqlPerson>> {
         let tree_id = live_tree(ctx, &tree_id).await?;
         let person =
-            crate::service::person::person_by_sosa(db_from_ctx(ctx), tree_id, number).await?;
+            crate::service::person::person_by_sosa(reader_from_ctx(ctx), tree_id, number).await?;
         Ok(person.map(Into::into))
     }
 
     /// Every person's selected portrait, with enough data for a pedigree to
     /// choose its thumbnail, original file or cropped vignette endpoint.
     async fn portraits(&self, ctx: &Context<'_>, tree_id: ID) -> Result<Vec<GqlPortrait>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let portraits = PersonRepo::list_portraits(db, live_tree(ctx, &tree_id).await?).await?;
         Ok(portraits.into_iter().map(Into::into).collect())
     }
@@ -335,7 +335,7 @@ impl QueryRoot {
     ) -> Result<Vec<GqlPortraitImage>> {
         let person_ids = uuids(&person_ids)?;
         let images = crate::service::portrait::load_portrait_images(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             &person_ids,
         )
@@ -357,7 +357,7 @@ impl QueryRoot {
             .map(oxidgene_core::types::ImageSource::try_from)
             .collect::<Result<Vec<_>>>()?;
         Ok(crate::service::image_bytes::load_image_data_urls(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             media_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             &sources,
@@ -376,7 +376,7 @@ impl QueryRoot {
         let media_ids = uuids(&media_ids)?;
         let vignette_ids = uuids(&vignette_ids)?;
         Ok(crate::service::gallery::load_gallery_bundle(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             &media_ids,
             &vignette_ids,
@@ -419,7 +419,7 @@ impl QueryRoot {
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlFamilyConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let params = PaginationParams {
             first: first.unwrap_or(25),
@@ -431,7 +431,7 @@ impl QueryRoot {
 
     /// Get a single family by ID.
     async fn family(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlFamily>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         in_tree(db, tid, TreeResource::Family, id, FamilyRepo::get(db, id)).await
@@ -451,7 +451,7 @@ impl QueryRoot {
         person_id: Option<ID>,
         family_id: Option<ID>,
     ) -> Result<GqlEventConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let filter = EventFilter {
             event_type: event_type.map(|et| et.into()),
@@ -468,7 +468,7 @@ impl QueryRoot {
 
     /// Get a single event by ID.
     async fn event(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlEvent>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         in_tree(db, tid, TreeResource::Event, id, EventRepo::get(db, id)).await
@@ -485,7 +485,7 @@ impl QueryRoot {
         after: Option<String>,
         search: Option<String>,
     ) -> Result<GqlPlaceConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let params = PaginationParams {
             first: first.unwrap_or(25),
@@ -497,7 +497,7 @@ impl QueryRoot {
 
     /// Get a single place by ID.
     async fn place(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlPlace>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         in_tree(db, tid, TreeResource::Place, id, PlaceRepo::get(db, id)).await
@@ -513,7 +513,7 @@ impl QueryRoot {
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlSourceConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let params = PaginationParams {
             first: first.unwrap_or(25),
@@ -525,7 +525,7 @@ impl QueryRoot {
 
     /// Get a single source by ID.
     async fn source(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlSource>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         in_tree(db, tid, TreeResource::Source, id, SourceRepo::get(db, id)).await
@@ -544,7 +544,7 @@ impl QueryRoot {
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlCitationConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tree_id = live_tree(ctx, &tree_id).await?;
         let filter = CitationFilter {
             person_id: opt_uuid(person_id)?,
@@ -566,7 +566,7 @@ impl QueryRoot {
     /// Get a single note by ID.
     async fn note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlNote>> {
         let tree_id = live_tree(ctx, &tree_id).await?;
-        found(crate::service::note::get_note(db_from_ctx(ctx), tree_id, uuid(&id)?).await)
+        found(crate::service::note::get_note(reader_from_ctx(ctx), tree_id, uuid(&id)?).await)
     }
 
     /// List notes in a tree with optional entity filters and pagination.
@@ -583,7 +583,7 @@ impl QueryRoot {
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlNoteConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tree_id = live_tree(ctx, &tree_id).await?;
         let filter = NoteFilter {
             person_id: opt_uuid(person_id)?,
@@ -607,7 +607,7 @@ impl QueryRoot {
         ctx: &Context<'_>,
         tree_id: ID,
     ) -> Result<Vec<GqlDictionaryEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         Ok(
             DictionaryRepo::family_names(db, live_tree(ctx, &tree_id).await?)
                 .await?
@@ -623,7 +623,7 @@ impl QueryRoot {
         ctx: &Context<'_>,
         tree_id: ID,
     ) -> Result<Vec<GqlDictionaryEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         Ok(
             DictionaryRepo::occupations(db, live_tree(ctx, &tree_id).await?)
                 .await?
@@ -640,7 +640,7 @@ impl QueryRoot {
         tree_id: ID,
         prefix: Option<String>,
     ) -> Result<Vec<GqlSourceDictionaryEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let entries = DictionaryRepo::sources_with_usage_by_prefix(
             db,
             live_tree(ctx, &tree_id).await?,
@@ -663,7 +663,7 @@ impl QueryRoot {
         tree_id: ID,
         prefix: Option<String>,
     ) -> Result<GqlSourceDictionaryDrill> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let (prefix, total, groups) = DictionaryRepo::resolve_source_drill_down(
             db,
             live_tree(ctx, &tree_id).await?,
@@ -699,7 +699,7 @@ impl QueryRoot {
     ) -> Result<crate::service::statistics::TreeStatistics> {
         let lang = crate::service::statistics::language(language.as_deref())?;
         Ok(crate::service::statistics::load(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             profiles_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             approximate.unwrap_or(false),
@@ -716,7 +716,7 @@ impl QueryRoot {
         tree_id: ID,
     ) -> Result<crate::service::statistics::growth::TreeGrowth> {
         Ok(crate::service::statistics::growth::load(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
         )
         .await?)
@@ -733,7 +733,7 @@ impl QueryRoot {
     ) -> Result<crate::service::ancestry::AncestryCompleteness> {
         let generations = crate::service::ancestry::generations(generations)?;
         Ok(crate::service::ancestry::load(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             profiles_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
             generations,
@@ -749,7 +749,7 @@ impl QueryRoot {
         tree_id: ID,
     ) -> Result<crate::service::anomalies::TreeAnomalies> {
         Ok(crate::service::anomalies::load(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             profiles_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
         )
@@ -763,7 +763,7 @@ impl QueryRoot {
         tree_id: ID,
     ) -> Result<super::types::GqlPotentialDuplicates> {
         Ok(crate::service::duplicates::load_potential_duplicates(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             profiles_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
         )
@@ -779,7 +779,7 @@ impl QueryRoot {
         tree_id: ID,
     ) -> Result<Vec<crate::service::statistics::PlaceUsage>> {
         Ok(crate::service::anomalies::load_unlocated_places(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             live_tree(ctx, &tree_id).await?,
         )
         .await?)
@@ -791,7 +791,7 @@ impl QueryRoot {
         ctx: &Context<'_>,
         tree_id: ID,
     ) -> Result<Vec<GqlPlaceDictionaryEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let entries =
             DictionaryRepo::places_with_usage(db, live_tree(ctx, &tree_id).await?).await?;
         Ok(entries
@@ -810,7 +810,7 @@ impl QueryRoot {
         tree_id: ID,
         value: String,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let ids = DictionaryRepo::family_name_usage_person_ids(
             db,
             live_tree(ctx, &tree_id).await?,
@@ -831,7 +831,7 @@ impl QueryRoot {
         tree_id: ID,
         value: String,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let ids = DictionaryRepo::occupation_usage_person_ids(
             db,
             live_tree(ctx, &tree_id).await?,
@@ -852,7 +852,7 @@ impl QueryRoot {
         tree_id: ID,
         source_id: ID,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let source_id = uuid(&source_id)?;
         require_tree_resource(
             db,
@@ -876,7 +876,7 @@ impl QueryRoot {
         tree_id: ID,
         place_id: ID,
     ) -> Result<Vec<GqlPersonUsageEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let place_id = uuid(&place_id)?;
         require_tree_resource(
             db,
@@ -980,7 +980,7 @@ impl QueryRoot {
         surname: Option<String>,
         given_names: Option<String>,
     ) -> Result<Vec<GqlValueSuggestion>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         Ok(crate::service::suggestions::suggest(
             db,
             live_tree(ctx, &tree_id).await?,
@@ -1011,7 +1011,7 @@ impl QueryRoot {
         after: Option<String>,
         filter: Option<MediaListFilterInput>,
     ) -> Result<GqlMediaConnection> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let params = PaginationParams {
             first: first.unwrap_or(25),
@@ -1038,7 +1038,7 @@ impl QueryRoot {
     ) -> Result<GqlMediaFacets> {
         let tid = live_tree(ctx, &tree_id).await?;
         Ok(
-            crate::service::media_library::facets(db_from_ctx(ctx), tid, tags)
+            crate::service::media_library::facets(reader_from_ctx(ctx), tid, tags)
                 .await?
                 .into(),
         )
@@ -1046,7 +1046,7 @@ impl QueryRoot {
 
     /// Get a single media by ID.
     async fn media(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<Option<GqlMedia>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         in_tree(db, tid, TreeResource::Media, id, MediaRepo::get(db, id)).await
@@ -1059,7 +1059,7 @@ impl QueryRoot {
         tree_id: ID,
         id: ID,
     ) -> Result<GqlMediaDownload> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tree_id = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         let media = crate::service::media::download_record(db, tree_id, id).await?;
@@ -1081,7 +1081,7 @@ impl QueryRoot {
         let tree_id = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         let (_, pages) =
-            crate::service::media::archive_pages(db_from_ctx(ctx), tree_id, id).await?;
+            crate::service::media::archive_pages(reader_from_ctx(ctx), tree_id, id).await?;
         for page in &pages {
             // A remote page contributes a shortcut, not bytes: there is no
             // stored file to check before promising the archive.
@@ -1107,7 +1107,7 @@ impl QueryRoot {
     ) -> Result<bool> {
         let tree_id = live_tree(ctx, &tree_id).await?;
         Ok(crate::service::media::can_delete_media(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             tree_id,
             uuid(&id)?,
             uuid(&allowed_link_id)?,
@@ -1126,7 +1126,7 @@ impl QueryRoot {
         entity_type: String,
         entity_id: ID,
     ) -> Result<Vec<GqlMediaWithLink>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let target = MediaLinkTarget::parse(&entity_type).ok_or_else(|| {
             async_graphql::Error::new(format!(
@@ -1163,7 +1163,7 @@ impl QueryRoot {
         tree_id: ID,
         media_id: ID,
     ) -> Result<Vec<GqlMediaLink>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let media_id = uuid(&media_id)?;
         require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
@@ -1177,7 +1177,7 @@ impl QueryRoot {
         ctx: &Context<'_>,
         tree_id: ID,
     ) -> Result<Vec<GqlTreeMediaLink>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tree_id = live_tree(ctx, &tree_id).await?;
         TreeRepo::get(db, tree_id).await?;
         let links = MediaLinkRepo::list_for_tree(db, tree_id).await?;
@@ -1191,7 +1191,7 @@ impl QueryRoot {
         tree_id: ID,
         media_id: ID,
     ) -> Result<Vec<GqlMedia>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let media_id = uuid(&media_id)?;
         require_tree_resource(db, tid, TreeResource::Media, media_id).await?;
@@ -1208,7 +1208,7 @@ impl QueryRoot {
         tree_id: ID,
         media_id: ID,
     ) -> Result<Vec<GqlVignette>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let mid = uuid(&media_id)?;
         require_tree_resource(db, tid, TreeResource::Media, mid).await?;
@@ -1227,7 +1227,7 @@ impl QueryRoot {
         person_id: Option<ID>,
         event_id: Option<ID>,
     ) -> Result<Vec<GqlVignette>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let vignettes = match (person_id, event_id) {
             (Some(person_id), None) => {
@@ -1256,7 +1256,7 @@ impl QueryRoot {
         tree_id: ID,
         id: ID,
     ) -> Result<Option<GqlVignette>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let id = uuid(&id)?;
         in_tree(
@@ -1287,6 +1287,7 @@ impl QueryRoot {
     ) -> Result<GqlExportGedcomResult> {
         let tree_id = live_tree(ctx, &tree_id).await?;
         let data = crate::service::gedcom::export_gedcom(
+            // Writes the export's audit entry.
             db_from_ctx(ctx),
             tree_id,
             merge_occupations.unwrap_or(false),
@@ -1310,7 +1311,7 @@ impl QueryRoot {
         // database; the service checks the tree when it has to read.
         let tree_id = uuid(&tree_id)?;
         let status = crate::service::background_job::export_job_status(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             tree_id,
             uuid(&job_id)?,
         )
@@ -1329,7 +1330,7 @@ impl QueryRoot {
         // database; the service checks the tree when it has to read.
         let tree_id = uuid(&tree_id)?;
         let status = crate::service::background_job::import_job_status(
-            db_from_ctx(ctx),
+            reader_from_ctx(ctx),
             tree_id,
             uuid(&job_id)?,
         )
@@ -1438,11 +1439,10 @@ impl QueryRoot {
         tree_id: ID,
         person_id: ID,
     ) -> Result<GqlPersonProfile> {
-        let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let pid = uuid(&person_id)?;
-        let profile = profiles.get_or_build_person(db, tid, pid).await?;
+        let profile = profiles.get_or_build_person(tid, pid).await?;
         Ok(profile.into())
     }
 
@@ -1454,10 +1454,9 @@ impl QueryRoot {
         ctx: &Context<'_>,
         tree_id: ID,
     ) -> Result<Vec<GqlPersonProfile>> {
-        let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
-        let persons = profiles.get_all_persons(db, tid).await?;
+        let persons = profiles.get_all_persons(tid).await?;
         Ok(persons.into_iter().map(Into::into).collect())
     }
 
@@ -1538,7 +1537,7 @@ impl QueryRoot {
         tree_id: ID,
         person_id: ID,
     ) -> Result<Vec<GqlSearchEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let pid = uuid(&person_id)?;
@@ -1556,7 +1555,7 @@ impl QueryRoot {
         #[graphql(default_with = "crate::service::history::RECENT_PERSONS_DEFAULT_LIMIT")]
         limit: usize,
     ) -> Result<Vec<GqlSearchEntry>> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let persons =
@@ -1574,7 +1573,7 @@ impl QueryRoot {
         person_id: ID,
         other_person_id: ID,
     ) -> Result<GqlKinship> {
-        let db = db_from_ctx(ctx);
+        let db = reader_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let kinship = crate::service::kinship::find_kinship(
             db,

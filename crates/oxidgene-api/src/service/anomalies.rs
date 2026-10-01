@@ -180,7 +180,7 @@ pub async fn load(
     tree_id: Uuid,
 ) -> Result<TreeAnomalies, OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
-    let persons = profiles.get_all_persons(db, tree_id).await?;
+    let persons = profiles.get_all_persons(tree_id).await?;
     let witnesses = oxidgene_db::repo::EventWitnessRepo::list_by_tree(db, tree_id).await?;
     let today = chrono::Utc::now().date_naive();
     let span = tracing::info_span!(

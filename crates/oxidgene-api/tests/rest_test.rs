@@ -4668,3 +4668,62 @@ async fn a_purge_shrinks_the_database_file() {
         )
     });
 }
+
+/// On a SQLite file, a read is answered while a write holds the single
+/// writer — an import holds it for its whole transaction, played here by a
+/// transaction the test keeps open — and a write waits for its turn.
+#[tokio::test]
+async fn reads_are_answered_while_a_write_holds_the_writer() {
+    use oxidgene_db::sea_orm::{ConnectionTrait as _, TransactionTrait as _};
+
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::new(
+        common::setup_file_db(directory.path()).await,
+        directory.path().join("media"),
+    );
+    let app = build_router(state.clone());
+    let tree_id = create_tree_via_api(&app).await;
+    common::new_person(&app, &tree_id).await;
+
+    let import = state.db.begin().await.unwrap();
+    import
+        .execute_unprepared("UPDATE tree SET name = name")
+        .await
+        .unwrap();
+
+    let within = std::time::Duration::from_secs(5);
+    for uri in [
+        format!("/api/v1/trees/{tree_id}"),
+        format!("/api/v1/trees/{tree_id}/persons"),
+        format!("/api/v1/trees/{tree_id}/profiles"),
+        format!("/api/v1/trees/{tree_id}/persons/search?q=a"),
+    ] {
+        let (status, _) = tokio::time::timeout(within, send(&app, Method::GET, &uri, None))
+            .await
+            .unwrap_or_else(|_| panic!("{uri} waited for the writer"));
+        assert_eq!(status, StatusCode::OK, "{uri}");
+    }
+
+    let write = tokio::spawn({
+        let app = app.clone();
+        let uri = format!("/api/v1/trees/{tree_id}/persons");
+        async move {
+            send(
+                &app,
+                Method::POST,
+                &uri,
+                Some(serde_json::json!({ "sex": "unknown" })),
+            )
+            .await
+            .0
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!write.is_finished(), "a write waits for the writer");
+    import.commit().await.unwrap();
+    let status = tokio::time::timeout(within, write)
+        .await
+        .expect("the write proceeds once the writer is free")
+        .unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+}

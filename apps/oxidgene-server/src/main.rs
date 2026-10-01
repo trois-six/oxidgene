@@ -11,9 +11,7 @@
 use std::net::SocketAddr;
 
 use axum::http::HeaderValue;
-use oxidgene_api::startup::{
-    ReferenceWarmup, connect_and_migrate, or_exit, spawn_background_worker,
-};
+use oxidgene_api::startup::{ReferenceWarmup, open_database, or_exit, spawn_background_worker};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_observability::init;
 use tokio::net::TcpListener;
@@ -56,7 +54,7 @@ async fn main() {
 
     // ── Database and migrations ──────────────────────────────────────
     let reference_warmup = ReferenceWarmup::start();
-    let db = connect_and_migrate(&cfg.database_url).await;
+    let db = open_database(&cfg.database_url).await;
 
     // ── Build application router ─────────────────────────────────────
     let media = or_exit(

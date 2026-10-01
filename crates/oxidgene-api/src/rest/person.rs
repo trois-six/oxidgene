@@ -37,7 +37,7 @@ pub async fn list_persons(
         after: query.after,
     };
     let persons =
-        PersonRepo::list_filtered(&state.db, tree_id, query.search.as_deref(), &params).await?;
+        PersonRepo::list_filtered(&state.reader, tree_id, query.search.as_deref(), &params).await?;
     Ok(Json(persons))
 }
 
@@ -56,9 +56,10 @@ pub async fn get_person(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<PersonDetailResponse>, ApiError> {
-    let person = PersonRepo::get_in_tree(&state.db, tree_id, person_id).await?;
+    let person = PersonRepo::get_in_tree(&state.reader, tree_id, person_id).await?;
     let sosa_number =
-        crate::service::person_detail::compute_sosa_number(&state.db, tree_id, person_id).await?;
+        crate::service::person_detail::compute_sosa_number(&state.reader, tree_id, person_id)
+            .await?;
     Ok(Json(PersonDetailResponse {
         person,
         sosa_number,
@@ -94,7 +95,7 @@ pub async fn list_homonyms(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<SearchEntry>>, ApiError> {
-    PersonRepo::get_in_tree(&state.db, tree_id, person_id).await?;
+    PersonRepo::get_in_tree(&state.reader, tree_id, person_id).await?;
     Ok(Json(state.profiles.homonyms(tree_id, person_id).await?))
 }
 
@@ -143,7 +144,7 @@ pub async fn get_ancestors(
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<Vec<AncestryLink>>, ApiError> {
     let ancestors = person::lineage(
-        &state.db,
+        &state.reader,
         tree_id,
         person_id,
         Lineage::Ancestors,
@@ -160,7 +161,7 @@ pub async fn get_descendants(
     Query(query): Query<AncestryQuery>,
 ) -> Result<Json<Vec<AncestryLink>>, ApiError> {
     let descendants = person::lineage(
-        &state.db,
+        &state.reader,
         tree_id,
         person_id,
         Lineage::Descendants,
@@ -180,7 +181,7 @@ pub async fn get_kinship(
     Path((tree_id, person_id, other_person_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<Json<Kinship>, ApiError> {
     let kinship = kinship::find_kinship(
-        &state.db,
+        &state.reader,
         &state.profiles,
         tree_id,
         person_id,
@@ -225,7 +226,7 @@ pub async fn list_recently_modified(
     Query(query): Query<RecentlyModifiedQuery>,
 ) -> Result<Json<Vec<SearchEntry>>, ApiError> {
     let persons = history::recently_modified_persons(
-        &state.db,
+        &state.reader,
         &state.profiles,
         tree_id,
         query.limit.unwrap_or(history::RECENT_PERSONS_DEFAULT_LIMIT),
@@ -243,7 +244,7 @@ pub async fn get_person_by_sosa(
     State(state): State<AppState>,
     Path((tree_id, number)): Path<(Uuid, u64)>,
 ) -> Result<Json<PersonDetailResponse>, ApiError> {
-    let person = person::person_by_sosa(&state.db, tree_id, number)
+    let person = person::person_by_sosa(&state.reader, tree_id, number)
         .await?
         .ok_or(ApiError(OxidGeneError::NotFound {
             entity: "Person (by SOSA number)",
@@ -278,7 +279,9 @@ pub async fn list_portraits(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PortraitRow>>, ApiError> {
-    Ok(Json(PersonRepo::list_portraits(&state.db, tree_id).await?))
+    Ok(Json(
+        PersonRepo::list_portraits(&state.reader, tree_id).await?,
+    ))
 }
 
 /// POST /api/v1/trees/:tree_id/portrait-images
@@ -291,6 +294,6 @@ pub async fn load_portrait_images(
     Path(tree_id): Path<Uuid>,
     Json(body): Json<PortraitImagesRequest>,
 ) -> Result<Json<Vec<PortraitImage>>, ApiError> {
-    let images = portrait::load_portrait_images(&state.db, tree_id, &body.person_ids).await?;
+    let images = portrait::load_portrait_images(&state.reader, tree_id, &body.person_ids).await?;
     Ok(Json(images))
 }

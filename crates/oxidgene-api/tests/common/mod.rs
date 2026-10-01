@@ -18,7 +18,7 @@ use oxidgene_api::media::FsStore;
 use oxidgene_api::profile::ProfileService;
 use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::{connect, run_migrations};
+use oxidgene_db::repo::{Connections, connect, run_migrations};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -116,9 +116,34 @@ pub async fn import_gedcom(
     status["result"].clone()
 }
 
+/// A migrated, empty SQLite database in a file of `directory`, with its
+/// read-only pool: what the desktop application runs on.
+pub async fn setup_file_db(directory: &std::path::Path) -> Connections {
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        directory.join("oxidgene.db").display()
+    );
+    let writer = connect(&url).await.expect("connect to SQLite file");
+    run_migrations(&writer).await.expect("migrations");
+    Connections::with_read_pool(writer, &url)
+        .await
+        .expect("read pool")
+}
+
 /// The API router over a fresh database.
+///
+/// A SQLite file with its read pool, as on the desktop, so that every
+/// scenario goes through the split the application runs with: a write
+/// routed to the read-only pool by mistake fails here. The directory lives
+/// as long as the router.
 pub async fn setup_app() -> Router {
-    app_on(setup_db().await)
+    let directory = tempfile::tempdir().expect("database directory");
+    let connections = setup_file_db(directory.path()).await;
+    build_router(AppState::new(
+        connections,
+        std::env::temp_dir().join("oxidgene-test-media"),
+    ))
+    .layer(axum::Extension(std::sync::Arc::new(directory)))
 }
 
 /// Send `body` as JSON and return the status with the JSON answer, or

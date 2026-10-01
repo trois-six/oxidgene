@@ -110,7 +110,7 @@ pub async fn status(
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ImportJobStatus>, ApiError> {
     Ok(Json(
-        background_job::import_job_status(&state.db, tree_id, job_id).await?,
+        background_job::import_job_status(&state.reader, tree_id, job_id).await?,
     ))
 }
 

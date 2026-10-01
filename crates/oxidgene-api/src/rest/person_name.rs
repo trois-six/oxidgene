@@ -17,7 +17,7 @@ pub async fn list_person_names(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<PersonName>>, ApiError> {
-    let names = person_name::list_person_names(&state.db, tree_id, person_id).await?;
+    let names = person_name::list_person_names(&state.reader, tree_id, person_id).await?;
     Ok(Json(names))
 }
 
@@ -28,7 +28,7 @@ pub async fn relation_labels(
     Json(body): Json<RelationLabelsRequest>,
 ) -> Result<Json<RelationLabels>, ApiError> {
     let labels =
-        load_relation_labels(&state.db, tree_id, &body.person_ids, &body.family_ids).await?;
+        load_relation_labels(&state.reader, tree_id, &body.person_ids, &body.family_ids).await?;
     Ok(Json(labels))
 }
 

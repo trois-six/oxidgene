@@ -24,7 +24,9 @@ pub async fn list_families(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    Ok(Json(FamilyRepo::list(&state.db, tree_id, &params).await?))
+    Ok(Json(
+        FamilyRepo::list(&state.reader, tree_id, &params).await?,
+    ))
 }
 
 /// POST /api/v1/trees/:tree_id/families
@@ -41,8 +43,8 @@ pub async fn get_family(
     State(state): State<AppState>,
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Family>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Family, family_id).await?;
-    Ok(Json(FamilyRepo::get(&state.db, family_id).await?))
+    require_tree_resource(&state.reader, tree_id, TreeResource::Family, family_id).await?;
+    Ok(Json(FamilyRepo::get(&state.reader, family_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/families/:family_id

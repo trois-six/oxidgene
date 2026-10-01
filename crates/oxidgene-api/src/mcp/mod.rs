@@ -308,7 +308,7 @@ impl OxidGeneMcp {
         respond("get_person_profile", async {
             self.tree(p.tree_id).await?;
             self.profiles
-                .get_or_build_person(&self.db, p.tree_id, p.person_id)
+                .get_or_build_person(p.tree_id, p.person_id)
                 .await
         })
         .await

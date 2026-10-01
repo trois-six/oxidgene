@@ -30,7 +30,7 @@ pub async fn get_person_detail_bundle(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<crate::service::person_detail::PersonDetailBundle>, ApiError> {
     let bundle =
-        crate::service::person_detail::load_person_detail_bundle(&state.db, tree_id, person_id)
+        crate::service::person_detail::load_person_detail_bundle(&state.reader, tree_id, person_id)
             .await?;
     Ok(Json(bundle))
 }
@@ -45,7 +45,7 @@ pub async fn get_person_profile(
 ) -> Result<Json<PersonProfile>, ApiError> {
     let profile = state
         .profiles
-        .get_or_build_person(&state.db, tree_id, person_id)
+        .get_or_build_person(tree_id, person_id)
         .await?;
 
     Ok(Json(profile))
@@ -59,7 +59,7 @@ pub async fn get_person_profiles(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Vec<PersonProfile>>, ApiError> {
-    let persons = state.profiles.get_all_persons(&state.db, tree_id).await?;
+    let persons = state.profiles.get_all_persons(tree_id).await?;
 
     Ok(Json(persons))
 }

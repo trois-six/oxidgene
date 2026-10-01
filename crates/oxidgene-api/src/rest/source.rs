@@ -23,7 +23,9 @@ pub async fn list_sources(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    Ok(Json(SourceRepo::list(&state.db, tree_id, &params).await?))
+    Ok(Json(
+        SourceRepo::list(&state.reader, tree_id, &params).await?,
+    ))
 }
 
 /// POST /api/v1/trees/:tree_id/sources
@@ -41,8 +43,8 @@ pub async fn get_source(
     State(state): State<AppState>,
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Source>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Source, source_id).await?;
-    Ok(Json(SourceRepo::get(&state.db, source_id).await?))
+    require_tree_resource(&state.reader, tree_id, TreeResource::Source, source_id).await?;
+    Ok(Json(SourceRepo::get(&state.reader, source_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/sources/:source_id

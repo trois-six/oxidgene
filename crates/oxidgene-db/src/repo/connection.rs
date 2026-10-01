@@ -63,6 +63,91 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
     Ok(db)
 }
 
+/// How many read-only connections a file-backed SQLite database gets.
+///
+/// In write-ahead-log mode a reader waits neither for the writer nor for the
+/// other readers. A page fires a handful of requests at once; four serve
+/// them side by side without holding many file handles.
+const READ_POOL_SIZE: u32 = 4;
+
+/// The connections a server works with: one writer, and what read-only
+/// requests use.
+///
+/// A SQLite database has a single writer: SeaORM's SQLite pool holds one
+/// connection, and every write, with the projection refresh in its
+/// transaction, waits its turn for it — a second writing connection would
+/// fail with `SQLITE_BUSY` instead of waiting. A file-backed database adds a
+/// pool of read-only connections ([`connect_read_pool`]), so that a read is
+/// answered while an import holds the writer for its whole transaction.
+/// Elsewhere both are the same pool: an in-memory database cannot be shared
+/// between connections, and PostgreSQL's pool already reads concurrently.
+#[derive(Debug, Clone)]
+pub struct Connections {
+    /// Every write and projection refresh goes through it.
+    pub writer: DatabaseConnection,
+    /// What a request that only reads uses: the read pool, or the writer.
+    pub reader: DatabaseConnection,
+}
+
+impl From<DatabaseConnection> for Connections {
+    /// One pool for both reads and writes.
+    fn from(db: DatabaseConnection) -> Self {
+        Self {
+            reader: db.clone(),
+            writer: db,
+        }
+    }
+}
+
+impl Connections {
+    /// `writer`, with the read pool of `database_url` when it is a
+    /// file-backed SQLite database. Call once the schema is migrated: the
+    /// readers cannot create the file nor change it.
+    pub async fn with_read_pool(
+        writer: DatabaseConnection,
+        database_url: &str,
+    ) -> Result<Self, DbErr> {
+        let reader = connect_read_pool(database_url).await?;
+        Ok(Self {
+            reader: reader.unwrap_or_else(|| writer.clone()),
+            writer,
+        })
+    }
+}
+
+/// Open the read-only pool of a file-backed SQLite database; `None` for an
+/// in-memory database or PostgreSQL (see [`Connections`]).
+///
+/// Its connections open the file read-only, so a write routed to them by
+/// mistake fails instead of competing with the writer. They do not set the
+/// journal mode: write-ahead logging is a property of the file, which the
+/// writer's [`connect`] has already set.
+pub async fn connect_read_pool(database_url: &str) -> Result<Option<DatabaseConnection>, DbErr> {
+    if !is_file_backed_sqlite(database_url) {
+        return Ok(None);
+    }
+    let mut opts = ConnectOptions::new(database_url);
+    opts.sqlx_logging(false);
+    opts.record_stmt_in_spans(true);
+    opts.max_connections(READ_POOL_SIZE);
+    opts.map_sqlx_sqlite_opts(|sqlite| sqlite.read_only(true).create_if_missing(false));
+    opts.map_sqlx_sqlite_pool_opts(|pool| pool.acquire_time_level(log::LevelFilter::Trace));
+    let reader = Database::connect(opts).await?;
+    info!(
+        connections = READ_POOL_SIZE,
+        "Opened read-only database pool"
+    );
+    Ok(Some(reader))
+}
+
+/// Whether `database_url` names a SQLite database in a file, which is not
+/// `sqlite::memory:` nor opened with `mode=memory`.
+fn is_file_backed_sqlite(database_url: &str) -> bool {
+    database_url.starts_with("sqlite:")
+        && !database_url.contains(":memory:")
+        && !database_url.contains("mode=memory")
+}
+
 /// Run all pending migrations on the given database connection.
 ///
 /// Spanned as `startup.migrate`: it runs before any request, and without a
@@ -335,6 +420,7 @@ mod tests {
     use tracing::field::{Field, Visit};
     use tracing_subscriber::Layer;
     use tracing_subscriber::layer::{Context, SubscriberExt as _};
+    use uuid::Uuid;
 
     use super::*;
 
@@ -377,5 +463,99 @@ mod tests {
             !times.0.lock().expect("capture lock").is_empty(),
             "no acquisition timing event"
         );
+    }
+
+    #[test]
+    fn only_a_sqlite_file_gets_a_read_pool() {
+        assert!(is_file_backed_sqlite("sqlite:///data/oxidgene.db?mode=rwc"));
+        assert!(is_file_backed_sqlite("sqlite://oxidgene.db"));
+        assert!(!is_file_backed_sqlite("sqlite::memory:"));
+        assert!(!is_file_backed_sqlite("sqlite://:memory:"));
+        assert!(!is_file_backed_sqlite(
+            "sqlite://shared?mode=memory&cache=shared"
+        ));
+        assert!(!is_file_backed_sqlite("postgres://user@localhost/oxidgene"));
+    }
+
+    /// The read pool sees what the writer committed, reads while the writer
+    /// holds a write transaction, and cannot write.
+    #[tokio::test]
+    async fn the_read_pool_reads_beside_the_writer_and_never_writes() {
+        let directory = std::env::temp_dir().join(format!("oxidgene-read-pool-{}", Uuid::now_v7()));
+        std::fs::create_dir_all(&directory).expect("directory");
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            directory.join("fixture.db").display()
+        );
+        let writer = connect(&url).await.expect("writer");
+        writer
+            .execute_unprepared(
+                "CREATE TABLE fixture (value INTEGER); INSERT INTO fixture VALUES (1)",
+            )
+            .await
+            .expect("schema");
+        let connections = Connections::with_read_pool(writer, &url)
+            .await
+            .expect("read pool");
+        let count = |db: &DatabaseConnection| {
+            let db = db.clone();
+            async move {
+                db.query_one_raw(Statement::from_string(
+                    DatabaseBackend::Sqlite,
+                    "SELECT COUNT(*) AS count FROM fixture",
+                ))
+                .await
+                .expect("read")
+                .expect("row")
+                .try_get::<i64>("", "count")
+                .expect("count")
+            }
+        };
+
+        let txn = connections.writer.begin().await.expect("begin");
+        txn.execute_unprepared("INSERT INTO fixture VALUES (2)")
+            .await
+            .expect("write");
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            count(&connections.reader),
+        )
+        .await
+        .expect("a read does not wait for the writer");
+        assert_eq!(read, 1, "the last committed state");
+        txn.commit().await.expect("commit");
+        assert_eq!(count(&connections.reader).await, 2);
+
+        assert!(
+            connections
+                .reader
+                .execute_unprepared("INSERT INTO fixture VALUES (3)")
+                .await
+                .is_err(),
+            "the read pool is read-only"
+        );
+        drop(connections);
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[tokio::test]
+    async fn an_in_memory_database_shares_one_pool() {
+        let db = connect("sqlite::memory:")
+            .await
+            .expect("in-memory database");
+        let connections = Connections::with_read_pool(db, "sqlite::memory:")
+            .await
+            .expect("no read pool");
+        connections
+            .writer
+            .execute_unprepared("CREATE TABLE fixture (value INTEGER)")
+            .await
+            .expect("schema");
+        // The same database: a separate in-memory connection would not see it.
+        connections
+            .reader
+            .execute_unprepared("SELECT value FROM fixture")
+            .await
+            .expect("the reader is the writer's pool");
     }
 }

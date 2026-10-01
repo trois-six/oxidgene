@@ -56,7 +56,7 @@ use async_graphql::{EmptySubscription, Schema, http::GraphiQLSource};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::extract::State;
 use axum::response::{Html, IntoResponse};
-use sea_orm::DatabaseConnection;
+use oxidgene_db::repo::Connections;
 use std::sync::Arc;
 
 use mutation::MutationRoot;
@@ -72,19 +72,21 @@ const MAX_RECURSIVE_DEPTH: usize = 32;
 /// The full GraphQL schema type.
 pub type OxidGeneSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
-/// Build the async-graphql schema with the given database connection, profile
-/// service, purge queue and media store.
+/// Build the async-graphql schema with the given database connections,
+/// profile service, purge queue and media store.
 pub fn build_schema(
-    db: DatabaseConnection,
+    db: impl Into<Connections>,
     profiles: Arc<ProfileService>,
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
 ) -> OxidGeneSchema {
-    build_schema_with_local_file_access(db, profiles, purge, media, LocalFileAccess(false))
+    build_schema_with_local_file_access(db.into(), profiles, purge, media, LocalFileAccess(false))
 }
 
+/// Queries read through the reader ([`types::reader_from_ctx`]), mutations
+/// write through the writer ([`types::db_from_ctx`]).
 pub(crate) fn build_schema_with_local_file_access(
-    db: DatabaseConnection,
+    db: Connections,
     profiles: Arc<ProfileService>,
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
@@ -96,7 +98,8 @@ pub(crate) fn build_schema_with_local_file_access(
         .limit_recursive_depth(MAX_RECURSIVE_DEPTH)
         .extension(Tracing)
         .extension(SafeErrors)
-        .data(db)
+        .data(db.writer)
+        .data(types::Reader(db.reader))
         .data(profiles)
         .data(purge)
         .data(media)

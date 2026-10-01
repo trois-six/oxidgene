@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:23:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:51:58Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -393,8 +393,9 @@ the rejected value.
   pool reports each acquisition's wait as a `sqlx::pool::acquire` event at
   `trace` level, which native export records in the
   `db.client.connection.wait_time` histogram (seconds) and nowhere else. The
-  desktop's SQLite pool holds one connection, so this is where concurrent
-  requests queue.
+  desktop's SQLite writer is one connection, so this is where concurrent
+  writes queue; reads have a pool of their own
+  ([Architecture §4](architecture.md)).
 - Every user-initiated import, Geneanet import, and export owns a root span of
   its own: `ui.import`, `ui.geneanet_import`, and `ui.export`. So does every
   other write a single button starts that would otherwise reach the collector

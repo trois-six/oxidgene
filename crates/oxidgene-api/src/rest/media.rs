@@ -41,7 +41,7 @@ pub async fn image_data(
     Json(body): Json<crate::rest::dto::ImageDataRequest>,
 ) -> Result<Json<Vec<Option<String>>>, ApiError> {
     let urls = crate::service::image_bytes::load_image_data_urls(
-        &state.db,
+        &state.reader,
         &state.media,
         tree_id,
         &body.sources,
@@ -57,7 +57,7 @@ pub async fn gallery_bundle(
     Json(body): Json<GalleryBundleRequest>,
 ) -> Result<Json<crate::service::gallery::GalleryBundle>, ApiError> {
     let bundle = crate::service::gallery::load_gallery_bundle(
-        &state.db,
+        &state.reader,
         tree_id,
         &body.media_ids,
         &body.vignette_ids,
@@ -81,7 +81,7 @@ pub async fn list_media(
         after: query.after.clone(),
     };
     let filters = query.filters(crate::rest::dto::tag_values(pairs));
-    let connection = media_library::list(&state.db, tree_id, filters, &params).await?;
+    let connection = media_library::list(&state.reader, tree_id, filters, &params).await?;
     Ok(Json(connection))
 }
 
@@ -96,7 +96,7 @@ pub async fn list_media_facets(
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<media_library::MediaFacets>, ApiError> {
     let facets =
-        media_library::facets(&state.db, tree_id, crate::rest::dto::tag_values(pairs)).await?;
+        media_library::facets(&state.reader, tree_id, crate::rest::dto::tag_values(pairs)).await?;
     Ok(Json(facets))
 }
 
@@ -119,8 +119,8 @@ pub async fn get_media(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Media>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
-    Ok(Json(MediaRepo::get(&state.db, media_id).await?))
+    require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+    Ok(Json(MediaRepo::get(&state.reader, media_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/media/:media_id
@@ -173,8 +173,8 @@ pub async fn list_pages(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<Media>>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
-    Ok(Json(MediaRepo::list_pages(&state.db, media_id).await?))
+    require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+    Ok(Json(MediaRepo::list_pages(&state.reader, media_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/media/:media_id/pages
@@ -266,7 +266,7 @@ pub async fn media_deletion_status(
     Query(query): Query<MediaDeletionStatusQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let can_delete =
-        media_service::can_delete_media(&state.db, tree_id, media_id, query.allowed_link_id)
+        media_service::can_delete_media(&state.reader, tree_id, media_id, query.allowed_link_id)
             .await?;
     Ok(Json(serde_json::json!({ "can_delete": can_delete })))
 }
@@ -331,7 +331,7 @@ pub async fn download_media(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let media = download_record(&state.db, tree_id, media_id).await?;
+    let media = download_record(&state.reader, tree_id, media_id).await?;
     let key = stored_key(&media)?;
     serve(
         &state,
@@ -367,7 +367,7 @@ pub async fn download_archive(
         .acquire()
         .await
         .map_err(|_| ApiError(OxidGeneError::Internal("archive worker unavailable".into())))?;
-    let (document, pages) = archive_pages(&state.db, tree_id, media_id).await?;
+    let (document, pages) = archive_pages(&state.reader, tree_id, media_id).await?;
     let runtime = tokio::runtime::Handle::current();
     let (_alive, mut cancelled) = tokio::sync::oneshot::channel::<()>();
     let archive_span = tracing::info_span!("media.archive", page.count = pages.len());
@@ -516,8 +516,8 @@ pub async fn download_thumbnail(
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
-    let media = MediaRepo::get(&state.db, media_id).await?;
+    require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+    let media = MediaRepo::get(&state.reader, media_id).await?;
     let Some(key) = media.thumbnail_key.as_deref() else {
         return Err(ApiError(OxidGeneError::NotFound {
             entity: "Thumbnail",
@@ -706,7 +706,7 @@ pub async fn download_attachment(
     State(state): State<AppState>,
     Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    let media = download_record(&state.db, tree_id, media_id).await?;
+    let media = download_record(&state.reader, tree_id, media_id).await?;
     let key = stored_key(&media)?;
     let stream = state.media.get_stream(key).await?;
     let mut headers = HeaderMap::new();

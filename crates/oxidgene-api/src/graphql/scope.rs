@@ -5,7 +5,7 @@ use async_graphql::{Context, ID, Result};
 use oxidgene_core::OxidGeneError;
 use uuid::Uuid;
 
-use super::types::db_from_ctx;
+use super::types::reader_from_ctx;
 use crate::service::scope::require_live_tree;
 
 /// Parse an identifier. A malformed one is a validation error, as it is on
@@ -34,6 +34,6 @@ pub(crate) fn uuids(ids: &[impl AsRef<str>]) -> Result<Vec<Uuid>> {
 /// into it.
 pub(crate) async fn live_tree(ctx: &Context<'_>, id: &ID) -> Result<Uuid> {
     let tree_id = uuid(id)?;
-    require_live_tree(db_from_ctx(ctx), tree_id).await?;
+    require_live_tree(reader_from_ctx(ctx), tree_id).await?;
     Ok(tree_id)
 }

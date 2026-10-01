@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:54:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:51:58Z }
 ---
 
 
@@ -79,15 +79,31 @@ For full entity definitions, see [Data Model](data-model.md).
 
 API endpoints are documented in [API Contract](api.md).
 
-**Database connections.** A SQLite database opens in write-ahead-log mode with
-one pooled connection, SeaORM's default. Every request, the purge worker and
-the job worker share it: reads run one at a time, and an import holds it for
-its whole write transaction. A job's status is therefore answered from the
-worker's in-memory progress while this process runs the job, on REST and
-GraphQL alike, and the tree guard in front of REST's tree-scoped routes skips
-its lookup for that one request, so the progress poll never waits for the
-import. A larger pool alone is not a fix: concurrent writers would fail with
-`SQLITE_BUSY` instead of waiting. PostgreSQL uses SeaORM's default pool.
+**Database connections.** A SQLite database opens in write-ahead-log mode and
+has a single writer: one pooled connection, SeaORM's default, through which
+every write goes with the projection refresh in its transaction, as do the
+purge worker and the job worker. A larger writing pool would not help:
+concurrent writers fail with `SQLITE_BUSY` instead of waiting. A file-backed
+database adds a pool of four read-only connections (`connect_read_pool`,
+opened once the schema is migrated; `Connections` carries both), and what only
+reads goes there: REST's `GET` handlers and the read-only `POST`s (gallery and
+image bundles, portrait images, relation labels, pedigrees), the tree guard,
+GraphQL queries and the fields of the objects they return, and the projection
+service's pedigrees, searches and projection reads. Under write-ahead logging
+a reader waits neither for the writer nor for another reader, so the
+application stays readable while an import holds the writer for its whole
+transaction; a reader sees the last committed state, and a request reading
+after its own write committed sees it. A projection a read finds missing or
+outdated is built on the writer, which no read holds. Some reads stay on the
+writer because they write too: a GEDCOM export (REST `GET /gedcom/export`,
+GraphQL `exportGedcom`) records an audit entry. The read connections open the
+file read-only, so a write routed to them fails instead of competing. An
+in-memory database, which a second connection could not share, and PostgreSQL,
+whose pool already reads concurrently, use one pool for both. A job's status
+is still answered from the worker's in-memory progress while this process
+runs the job, on REST and GraphQL alike, and the tree guard skips its lookup
+for that one request, so the poll waits for nothing even on a single
+connection.
 
 ---
 

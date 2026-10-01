@@ -1596,8 +1596,9 @@ pub async fn export_artifact(
 /// live tree.
 ///
 /// The status reads answer a job this process is running from memory before
-/// coming here, so that a poll never waits on the database — on SQLite the
-/// running job may hold its only connection. The tree is checked here, once
+/// coming here, so that a poll never waits on the database — the running job
+/// holds the SQLite writer, which on an in-memory database is also the only
+/// reader. The tree is checked here, once
 /// the answer has to come from the database anyway.
 async fn job_of_kind(
     db: &DatabaseConnection,

@@ -1,6 +1,7 @@
 //! Shared application state for Axum handlers.
 
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_db::repo::Connections;
 use sea_orm::DatabaseConnection;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,7 +28,13 @@ impl LocalFileAccess {
 /// Shared state available to all Axum handlers.
 #[derive(Debug, Clone)]
 pub struct AppState {
+    /// The single writer: every write, with its projection refresh, and
+    /// whatever must see a write still in progress.
     pub db: DatabaseConnection,
+    /// What handlers that only read use: the read pool of a file-backed
+    /// SQLite database, so that they are answered while an import holds the
+    /// writer; the writer itself elsewhere (see [`Connections`]).
+    pub reader: DatabaseConnection,
     /// Denormalized person projections, search and pedigree assembly.
     pub profiles: Arc<ProfileService>,
     /// Hands soft-deleted trees to the background purge worker.
@@ -46,29 +53,41 @@ impl AppState {
     ///
     /// Spawns the purge worker, which also sweeps trees left soft-deleted by a
     /// previous run — so this must be called from within a Tokio runtime.
-    pub fn new(db: DatabaseConnection, media_root: impl Into<PathBuf>) -> Self {
+    pub fn new(db: impl Into<Connections>, media_root: impl Into<PathBuf>) -> Self {
         Self::with_media_store(db, Arc::new(FsStore::new(media_root)))
     }
 
     /// Create a new `AppState` using an explicitly selected media backend.
-    pub fn with_media_store(db: DatabaseConnection, media: Arc<dyn MediaStore>) -> Self {
-        let profiles = Arc::new(ProfileService::new(db.clone()));
-        Self::with_parts(db, profiles, media)
+    pub fn with_media_store(db: impl Into<Connections>, media: Arc<dyn MediaStore>) -> Self {
+        let connections = db.into();
+        let profiles = Arc::new(ProfileService::new(connections.clone()));
+        Self::with_parts(connections, profiles, media)
     }
 
     /// Create a new `AppState` with explicit collaborators (for testing).
     pub fn with_parts(
-        db: DatabaseConnection,
+        db: impl Into<Connections>,
         profiles: Arc<ProfileService>,
         media: Arc<dyn MediaStore>,
     ) -> Self {
-        let purge = purge::spawn_worker(db.clone(), Arc::clone(&profiles), Arc::clone(&media));
+        let Connections { writer, reader } = db.into();
+        // The purge deletes: it works on the writer.
+        let purge = purge::spawn_worker(writer.clone(), Arc::clone(&profiles), Arc::clone(&media));
         Self {
-            db,
+            db: writer,
+            reader,
             profiles,
             purge,
             media,
             local_file_access: LocalFileAccess(false),
+        }
+    }
+
+    /// The writer and the reader, for the GraphQL schema.
+    pub fn connections(&self) -> Connections {
+        Connections {
+            writer: self.db.clone(),
+            reader: self.reader.clone(),
         }
     }
 

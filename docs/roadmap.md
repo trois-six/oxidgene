@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:58:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:51:58Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -250,7 +250,7 @@ HapMap genetic map.
 - [ ] Move large imports and processing to cancellable background jobs.
 - [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
-- [ ] Give file-backed SQLite one writer connection and a small read-only
+- [x] Give file-backed SQLite one writer connection and a small read-only
   pool, routing read-only handlers to the pool, so that the application stays
   readable during an import ([Architecture §4](architecture.md)).
 

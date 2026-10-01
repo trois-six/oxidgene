@@ -459,7 +459,7 @@ pub async fn load_potential_duplicates(
     tree_id: Uuid,
 ) -> Result<PotentialDuplicates, OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
-    let persons = profiles.get_all_persons(db, tree_id).await?;
+    let persons = profiles.get_all_persons(tree_id).await?;
     let distinct = PersonDistinctRepo::pairs_in_tree(db, tree_id).await?;
     let span = tracing::info_span!(
         "duplicates.compute",

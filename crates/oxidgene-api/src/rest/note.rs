@@ -30,7 +30,7 @@ pub async fn list_notes(
         after: query.after,
     };
     Ok(Json(
-        NoteRepo::list(&state.db, tree_id, &filter, &params).await?,
+        NoteRepo::list(&state.reader, tree_id, &filter, &params).await?,
     ))
 }
 
@@ -49,7 +49,7 @@ pub async fn get_note(
     State(state): State<AppState>,
     Path((tree_id, note_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Note>, ApiError> {
-    Ok(Json(note::get_note(&state.db, tree_id, note_id).await?))
+    Ok(Json(note::get_note(&state.reader, tree_id, note_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/notes/:note_id

@@ -39,8 +39,8 @@ pub async fn list_media_links(
             MediaLinkTarget::Event => TreeResource::Event,
             MediaLinkTarget::Source => TreeResource::Source,
         };
-        require_tree_resource(&state.db, tree_id, resource, entity_id).await?;
-        let rows = MediaLinkRepo::list_with_media(&state.db, target, entity_id).await?;
+        require_tree_resource(&state.reader, tree_id, resource, entity_id).await?;
+        let rows = MediaLinkRepo::list_with_media(&state.reader, target, entity_id).await?;
         let response: Vec<MediaWithLink> = rows
             .into_iter()
             .map(|(link, media)| MediaWithLink {
@@ -61,12 +61,12 @@ pub async fn list_media_links(
     // what lets a media's own panel say which events it documents, without
     // the caller having to walk every event's gallery to find out.
     if let Some(media_id) = query.media_id {
-        require_tree_resource(&state.db, tree_id, TreeResource::Media, media_id).await?;
-        let links = MediaLinkRepo::list_by_media(&state.db, media_id).await?;
+        require_tree_resource(&state.reader, tree_id, TreeResource::Media, media_id).await?;
+        let links = MediaLinkRepo::list_by_media(&state.reader, media_id).await?;
         return Ok(Json(links).into_response());
     }
 
-    let db_rows = MediaLinkRepo::list_for_tree(&state.db, tree_id).await?;
+    let db_rows = MediaLinkRepo::list_for_tree(&state.reader, tree_id).await?;
     let response: Vec<MediaLinkListRow> = db_rows
         .into_iter()
         .map(|r| MediaLinkListRow {

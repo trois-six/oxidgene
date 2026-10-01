@@ -215,10 +215,7 @@ async fn targeted_person_build_denormalizes_family() {
     let (father, mother, child, family_id) = create_family_trio(&db, tree_id).await;
 
     // Child: family_as_child with both parents' display names.
-    let child_profile = service
-        .get_or_build_person(&db, tree_id, child)
-        .await
-        .unwrap();
+    let child_profile = service.get_or_build_person(tree_id, child).await.unwrap();
     assert_eq!(
         child_profile.primary_name.as_ref().unwrap().display_name,
         "Pierre Dupont"
@@ -231,10 +228,7 @@ async fn targeted_person_build_denormalizes_family() {
     assert!(child_profile.birth.is_some());
 
     // Father: families_as_spouse with spouse name, children and marriage.
-    let father_profile = service
-        .get_or_build_person(&db, tree_id, father)
-        .await
-        .unwrap();
+    let father_profile = service.get_or_build_person(tree_id, father).await.unwrap();
     assert_eq!(father_profile.families_as_spouse.len(), 1);
     let link = &father_profile.families_as_spouse[0];
     assert_eq!(link.spouse_id, Some(mother));
@@ -256,10 +250,7 @@ async fn get_or_build_person_persists_the_projection() {
             .is_none()
     );
 
-    service
-        .get_or_build_person(&db, tree_id, father)
-        .await
-        .unwrap();
+    service.get_or_build_person(tree_id, father).await.unwrap();
 
     let stored = PersonDenormRepo::get(&db, tree_id, father)
         .await
@@ -284,12 +275,12 @@ async fn projections_survive_a_new_service_instance() {
     // without rebuilding anything.
     let restarted = ProfileService::new(db.clone());
     let profile = restarted
-        .get_or_build_person(&db, tree_id, father)
+        .get_or_build_person(tree_id, father)
         .await
         .unwrap();
     assert_eq!(profile.primary_name.unwrap().display_name, "Jean Dupont");
     assert_eq!(
-        restarted.get_all_persons(&db, tree_id).await.unwrap().len(),
+        restarted.get_all_persons(tree_id).await.unwrap().len(),
         3,
         "no rebuild needed after a restart"
     );
@@ -682,7 +673,7 @@ async fn a_pedigree_node_keeps_how_precise_its_dates_are() {
     // The profile's own events carry it too — that is what the events panel
     // reads to write « vers 1849 » in full.
     let profile = service
-        .get_or_build_person(&db, tree_id, person_id)
+        .get_or_build_person(tree_id, person_id)
         .await
         .unwrap();
     assert_eq!(
@@ -999,10 +990,7 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
     );
 
     // The ordinary read path heals it, with no rebuild call of its own.
-    let profile = service
-        .get_or_build_person(&db, tree_id, child)
-        .await
-        .unwrap();
+    let profile = service.get_or_build_person(tree_id, child).await.unwrap();
     assert_eq!(
         profile.primary_name.as_ref().unwrap().display_name,
         "Pierre Dupont",
@@ -1016,7 +1004,7 @@ async fn a_projection_from_an_older_build_is_rebuilt_rather_than_served() {
 
     // One healed person must not pass for a healed tree: a tree-wide read
     // still finds the others stale and rebuilds them all before serving.
-    let everyone = service.get_all_persons(&db, tree_id).await.unwrap();
+    let everyone = service.get_all_persons(tree_id).await.unwrap();
     assert_eq!(everyone.len(), 3);
     assert!(
         everyone.iter().all(|profile| !profile
@@ -1170,7 +1158,7 @@ async fn person_load_and_search_performance() {
     // Person detail page path — now a single indexed row read.
     let t1 = Instant::now();
     let profile = service
-        .get_or_build_person(&db, tree_id, person_id)
+        .get_or_build_person(tree_id, person_id)
         .await
         .unwrap();
     let person_load = t1.elapsed();
@@ -1229,7 +1217,7 @@ async fn bench_large_tree_20k() {
 
     let t1 = Instant::now();
     service
-        .get_or_build_person(&db, tree_id, person_id)
+        .get_or_build_person(tree_id, person_id)
         .await
         .unwrap();
     let person_load = t1.elapsed();

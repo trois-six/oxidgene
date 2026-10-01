@@ -29,7 +29,7 @@ pub async fn list_citations(
         after: query.after,
     };
     Ok(Json(
-        citation::list_citations(&state.db, tree_id, &filter, &params).await?,
+        citation::list_citations(&state.reader, tree_id, &filter, &params).await?,
     ))
 }
 

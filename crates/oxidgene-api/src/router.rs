@@ -498,7 +498,7 @@ pub fn build_router(state: AppState) -> Router {
 
     #[cfg(feature = "graphql")]
     let schema = crate::graphql::build_schema_with_local_file_access(
-        state.db.clone(),
+        state.connections(),
         state.profiles.clone(),
         state.purge.clone(),
         state.media.clone(),

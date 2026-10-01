@@ -27,7 +27,7 @@ pub async fn suggest(
 ) -> Result<Json<Vec<ValueSuggestion>>, ApiError> {
     Ok(Json(
         suggestions::suggest(
-            &state.db,
+            &state.reader,
             tree_id,
             field,
             &query.lang,

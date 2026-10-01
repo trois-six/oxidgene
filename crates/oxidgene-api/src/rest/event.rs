@@ -29,7 +29,7 @@ pub async fn list_events(
         family_id: query.family_id,
     };
     Ok(Json(
-        event::list_events(&state.db, tree_id, &filter, &params).await?,
+        event::list_events(&state.reader, tree_id, &filter, &params).await?,
     ))
 }
 
@@ -48,8 +48,8 @@ pub async fn get_event(
     State(state): State<AppState>,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Event>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id).await?;
-    Ok(Json(EventRepo::get(&state.db, event_id).await?))
+    require_tree_resource(&state.reader, tree_id, TreeResource::Event, event_id).await?;
+    Ok(Json(EventRepo::get(&state.reader, event_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/events/:event_id
@@ -77,7 +77,7 @@ pub async fn list_witnesses(
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<EventWitness>>, ApiError> {
     Ok(Json(
-        event::list_witnesses(&state.db, tree_id, event_id).await?,
+        event::list_witnesses(&state.reader, tree_id, event_id).await?,
     ))
 }
 

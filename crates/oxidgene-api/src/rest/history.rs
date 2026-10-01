@@ -31,7 +31,7 @@ pub async fn list_audit(
         subject_id: query.subject_id,
     };
     Ok(Json(
-        HistoryRepo::list_entries(&state.db, tree_id, filter, &params).await?,
+        HistoryRepo::list_entries(&state.reader, tree_id, filter, &params).await?,
     ))
 }
 
@@ -41,7 +41,7 @@ pub async fn get_audit_entry(
     Path((tree_id, entry_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<AuditEntry>, ApiError> {
     Ok(Json(
-        HistoryRepo::get_entry(&state.db, tree_id, entry_id).await?,
+        HistoryRepo::get_entry(&state.reader, tree_id, entry_id).await?,
     ))
 }
 
@@ -53,13 +53,13 @@ pub async fn list_audit_changes(
     Path((tree_id, entry_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<Connection<VersionChange>>, ApiError> {
-    HistoryRepo::get_entry(&state.db, tree_id, entry_id).await?;
+    HistoryRepo::get_entry(&state.reader, tree_id, entry_id).await?;
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
     };
     Ok(Json(
-        HistoryRepo::list_entry_changes(&state.db, tree_id, entry_id, &params).await?,
+        HistoryRepo::list_entry_changes(&state.reader, tree_id, entry_id, &params).await?,
     ))
 }
 
@@ -76,7 +76,7 @@ pub async fn list_versions(
         after: query.after,
     };
     Ok(Json(
-        HistoryRepo::list_versions(&state.db, tree_id, record_type, record_id, &params).await?,
+        HistoryRepo::list_versions(&state.reader, tree_id, record_type, record_id, &params).await?,
     ))
 }
 
@@ -86,7 +86,7 @@ pub async fn get_version(
     Path((tree_id, record_type, record_id, version)): Path<(Uuid, RecordType, Uuid, i32)>,
 ) -> Result<Json<RecordVersion>, ApiError> {
     Ok(Json(
-        HistoryRepo::get_version(&state.db, tree_id, record_type, record_id, version).await?,
+        HistoryRepo::get_version(&state.reader, tree_id, record_type, record_id, version).await?,
     ))
 }
 

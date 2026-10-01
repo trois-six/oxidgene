@@ -37,7 +37,7 @@ pub async fn status(
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ExportJobStatus>, ApiError> {
     Ok(Json(
-        background_job::export_job_status(&state.db, tree_id, job_id).await?,
+        background_job::export_job_status(&state.reader, tree_id, job_id).await?,
     ))
 }
 
@@ -46,7 +46,7 @@ pub async fn download(
     State(state): State<AppState>,
     Path((tree_id, job_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    let artifact_key = background_job::export_artifact(&state.db, tree_id, job_id).await?;
+    let artifact_key = background_job::export_artifact(&state.reader, tree_id, job_id).await?;
     // Kept for its hour whatever the downloads: a save that went wrong can
     // be downloaded again.
     let stream = state.media.get_stream(&artifact_key).await?;

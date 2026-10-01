@@ -19,10 +19,10 @@ use oxidgene_core::projection::{
     PersonProfile, SearchEntry, SearchResult,
 };
 use oxidgene_db::repo::{
-    AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo, PersonNameRepo,
-    PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo, VignetteRepo,
-    db_err,
+    AncestryRepo, CitationRepo, Connections, EventRepo, FamilyChildRepo, FamilyRepo,
+    FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo,
+    PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
+    VignetteRepo, db_err,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionSession, TransactionTrait};
 use tracing::{debug, info, instrument};
@@ -54,15 +54,26 @@ pub const SEARCH_MAX_LIMIT: usize = 100;
 ///
 /// Stored in the API's `AppState` as an `Arc<ProfileService>`; all methods
 /// take `&self` so it can be shared across request handlers.
+///
+/// Its reads — pedigrees, searches, projections — go to the read pool. A
+/// projection found missing or outdated there is built on the writer, which
+/// those reads therefore never hold: none of them runs inside a write
+/// transaction. Every other rebuild works on the connection or transaction
+/// its caller passes.
 #[derive(Debug)]
 pub struct ProfileService {
-    db: DatabaseConnection,
+    /// Where missing projections are materialized.
+    writer: DatabaseConnection,
+    /// Where projections and search rows are read.
+    reader: DatabaseConnection,
 }
 
 impl ProfileService {
-    /// Create a new profile service.
-    pub fn new(db: DatabaseConnection) -> Self {
-        Self { db }
+    /// Create a new profile service over `connections`: a single connection
+    /// serves as both.
+    pub fn new(connections: impl Into<Connections>) -> Self {
+        let Connections { writer, reader } = connections.into();
+        Self { writer, reader }
     }
 
     // ── Full tree rebuild ────────────────────────────────────────────────
@@ -124,40 +135,36 @@ impl ProfileService {
 
     /// Materialize a tree's projections if they have never been built.
     ///
-    /// Covers missing or outdated projections and independently cleared search rows.
-    async fn ensure_materialized(
-        &self,
-        conn: &impl ConnectionTrait,
-        tree_id: Uuid,
-    ) -> Result<(), OxidGeneError> {
+    /// Covers missing or outdated projections and independently cleared
+    /// search rows. Checked on the read pool, built on the writer.
+    async fn ensure_materialized(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
         // Usable only when no row predates the current schema version.
-        let denorm = PersonDenormRepo::is_materialized(conn, tree_id).await?;
-        let search = PersonSearchRepo::has_tree(conn, tree_id).await?;
+        let denorm = PersonDenormRepo::is_materialized(&self.reader, tree_id).await?;
+        let search = PersonSearchRepo::has_tree(&self.reader, tree_id).await?;
         if denorm && search {
             return Ok(());
         }
 
         debug!(denorm, search, "Tree projections are not materialized");
-        self.rebuild_tree_full(conn, tree_id).await?;
+        self.rebuild_tree_full(&self.writer, tree_id).await?;
         Ok(())
     }
 
     // ── Person projections ───────────────────────────────────────────────
 
-    /// Read a person's projection, building it on demand if absent.
+    /// Read a person's projection, building it on the writer if absent.
     #[instrument(skip_all)]
     pub async fn get_or_build_person(
         &self,
-        conn: &impl ConnectionTrait,
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<PersonProfile, OxidGeneError> {
-        if let Some(stored) = PersonDenormRepo::get(conn, tree_id, person_id).await? {
+        if let Some(stored) = PersonDenormRepo::get(&self.reader, tree_id, person_id).await? {
             return Ok(stored);
         }
 
         debug!("Person projection is not materialized");
-        self.rebuild_person(conn, tree_id, person_id).await
+        self.rebuild_person(&self.writer, tree_id, person_id).await
     }
 
     /// Rebuild one person's projection and its search row.
@@ -218,11 +225,10 @@ impl ProfileService {
     /// they are decoded on a blocking thread, under `profile.decode`.
     pub async fn get_all_persons(
         &self,
-        conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<PersonProfile>, OxidGeneError> {
-        self.ensure_materialized(conn, tree_id).await?;
-        let encoded = PersonDenormRepo::list_tree(conn, tree_id).await?;
+        self.ensure_materialized(tree_id).await?;
+        let encoded = PersonDenormRepo::list_tree(&self.reader, tree_id).await?;
         let span = tracing::info_span!("profile.decode", person.count = encoded.len());
         crate::service::blocking::run(span, move || encoded.decode()).await?
     }
@@ -242,10 +248,9 @@ impl ProfileService {
         ancestor_depth: u32,
         descendant_depth: u32,
     ) -> Result<Pedigree, OxidGeneError> {
-        let conn = &self.db;
-        self.ensure_materialized(conn, tree_id).await?;
+        self.ensure_materialized(tree_id).await?;
         self.build_pedigree(
-            conn,
+            &self.reader,
             tree_id,
             root_person_id,
             ancestor_depth,
@@ -261,7 +266,7 @@ impl ProfileService {
         &self,
         tree_id: Uuid,
     ) -> Result<(), OxidGeneError> {
-        self.ensure_materialized(&self.db, tree_id).await
+        self.ensure_materialized(tree_id).await
     }
 
     /// Assemble a pedigree of a tree whose projections are known to be
@@ -274,7 +279,7 @@ impl ProfileService {
         descendant_depth: u32,
     ) -> Result<Pedigree, OxidGeneError> {
         self.build_pedigree(
-            &self.db,
+            &self.reader,
             tree_id,
             root_person_id,
             ancestor_depth,
@@ -301,8 +306,8 @@ impl ProfileService {
         to_depth: u32,
         other_depth: u32,
     ) -> Result<PedigreeDelta, OxidGeneError> {
-        let conn = &self.db;
-        self.ensure_materialized(conn, tree_id).await?;
+        let conn = &self.reader;
+        self.ensure_materialized(tree_id).await?;
 
         let (before, after) = match direction {
             PedigreeDirection::Ancestors => ((from_depth, other_depth), (to_depth, other_depth)),
@@ -380,8 +385,8 @@ impl ProfileService {
         limit: usize,
         offset: usize,
     ) -> Result<SearchResult, OxidGeneError> {
-        let conn = &self.db;
-        self.ensure_materialized(conn, tree_id).await?;
+        let conn = &self.reader;
+        self.ensure_materialized(tree_id).await?;
         let page = PersonSearchRepo::search_filtered(
             conn,
             tree_id,
@@ -410,8 +415,8 @@ impl ProfileService {
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<Vec<SearchEntry>, OxidGeneError> {
-        let conn = &self.db;
-        self.ensure_materialized(conn, tree_id).await?;
+        let conn = &self.reader;
+        self.ensure_materialized(tree_id).await?;
         let distinct = PersonDistinctRepo::distinct_from(conn, person_id).await?;
         let rows =
             PersonSearchRepo::homonyms(conn, tree_id, person_id, SEARCH_MAX_LIMIT as u64).await?;
@@ -431,8 +436,9 @@ impl ProfileService {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<SearchEntry>, OxidGeneError> {
-        let conn = &self.db;
-        let profiles = self.projections_for(conn, tree_id, person_ids).await?;
+        let profiles = self
+            .projections_for(&self.reader, tree_id, person_ids)
+            .await?;
         let mut by_id: HashMap<Uuid, SearchEntry> = profiles
             .iter()
             .map(|profile| (profile.person_id, builder::build_search_entry(profile)))
@@ -702,8 +708,9 @@ impl ProfileService {
         })
     }
 
-    /// Read the projections for a set of persons, rebuilding any that are
-    /// missing (a person created before the tree was materialized).
+    /// Read the projections for a set of persons from `conn`, the read pool,
+    /// rebuilding any that are missing (a person created before the tree was
+    /// materialized) on the writer.
     #[instrument(name = "pedigree.projections", skip_all, fields(count = person_ids.len()))]
     async fn projections_for(
         &self,
@@ -728,7 +735,10 @@ impl ProfileService {
                 "Pedigree build: {} persons without a projection, building from DB",
                 missing.len()
             );
-            found.extend(self.rebuild_persons(conn, tree_id, &missing).await?);
+            found.extend(
+                self.rebuild_persons(&self.writer, tree_id, &missing)
+                    .await?,
+            );
         }
         Ok(found)
     }

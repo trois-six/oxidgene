@@ -710,7 +710,7 @@ pub async fn load(
     lang: ReferenceLang,
 ) -> Result<TreeStatistics, oxidgene_core::OxidGeneError> {
     oxidgene_db::repo::TreeRepo::get(db, tree_id).await?;
-    let persons = profiles.get_all_persons(db, tree_id).await?;
+    let persons = profiles.get_all_persons(tree_id).await?;
     let places = oxidgene_db::repo::DictionaryRepo::places_with_usage(db, tree_id).await?;
     let sources = oxidgene_db::repo::SourceRepo::count_in_tree(db, tree_id).await?;
     let today = chrono::Utc::now().date_naive();

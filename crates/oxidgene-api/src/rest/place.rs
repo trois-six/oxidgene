@@ -23,7 +23,7 @@ pub async fn list_places(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let places = PlaceRepo::list(&state.db, tree_id, query.search.as_deref(), &params).await?;
+    let places = PlaceRepo::list(&state.reader, tree_id, query.search.as_deref(), &params).await?;
     Ok(Json(places))
 }
 
@@ -42,8 +42,8 @@ pub async fn get_place(
     State(state): State<AppState>,
     Path((tree_id, place_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Place>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Place, place_id).await?;
-    Ok(Json(PlaceRepo::get(&state.db, place_id).await?))
+    require_tree_resource(&state.reader, tree_id, TreeResource::Place, place_id).await?;
+    Ok(Json(PlaceRepo::get(&state.reader, place_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/places/:place_id

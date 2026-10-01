@@ -18,7 +18,7 @@ pub async fn list_spouses(
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<FamilySpouse>>, ApiError> {
     Ok(Json(
-        family::list_spouses(&state.db, tree_id, family_id).await?,
+        family::list_spouses(&state.reader, tree_id, family_id).await?,
     ))
 }
 
@@ -49,7 +49,7 @@ pub async fn list_children(
     Path((tree_id, family_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<FamilyChild>>, ApiError> {
     Ok(Json(
-        family::list_children(&state.db, tree_id, family_id).await?,
+        family::list_children(&state.reader, tree_id, family_id).await?,
     ))
 }
 

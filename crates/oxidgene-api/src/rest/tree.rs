@@ -21,7 +21,7 @@ pub async fn list_trees(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    Ok(Json(tree::list_trees(&state.db, &params).await?))
+    Ok(Json(tree::list_trees(&state.reader, &params).await?))
 }
 
 /// POST /api/v1/trees
@@ -38,7 +38,7 @@ pub async fn get_tree(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<Tree>, ApiError> {
-    Ok(Json(TreeRepo::get(&state.db, tree_id).await?))
+    Ok(Json(TreeRepo::get(&state.reader, tree_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id

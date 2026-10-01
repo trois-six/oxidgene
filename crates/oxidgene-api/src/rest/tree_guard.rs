@@ -14,10 +14,11 @@
 //! place instead of repeated across fifteen handlers.
 //!
 //! One request skips it: polling the status of a job this process is running.
-//! On SQLite such a job may hold the database's only connection for its whole
-//! write transaction, and the status handler answers from the job's
-//! in-memory progress precisely so that the poll does not wait for it — a
-//! lookup here would make it wait anyway. That answer carries only the job's
+//! The job holds the SQLite writer for its whole write transaction, which on
+//! an in-memory database is the only connection, readers included; the
+//! status handler answers from the job's in-memory progress precisely so
+//! that the poll does not wait for it, and a lookup here would make it wait
+//! anyway. Elsewhere the lookup goes to the read pool. That answer carries only the job's
 //! own phase and counters; once the job ends, the poll goes through the
 //! lookup again, and a tree deleted meanwhile answers `404`.
 
@@ -54,7 +55,7 @@ pub async fn require_live_tree(
         // `get` already filters on `deleted_at`, so a soft-deleted tree is a
         // NotFound here just as it is in the tree list. Reusing `ApiError`
         // keeps the body identical to the one the handlers produce.
-        match crate::service::scope::require_live_tree(&state.db, tree_id).await {
+        match crate::service::scope::require_live_tree(&state.reader, tree_id).await {
             Ok(()) => {}
             Err(e @ oxidgene_core::OxidGeneError::NotFound { .. }) => {
                 return ApiError(e).into_response();

@@ -117,7 +117,7 @@ pub async fn load(
             generations: Vec::new(),
         });
     };
-    let persons = profiles.get_all_persons(db, tree_id).await?;
+    let persons = profiles.get_all_persons(tree_id).await?;
     let today = chrono::Utc::now().date_naive();
     let span = tracing::info_span!("ancestry.compute", person.count = persons.len());
     crate::service::blocking::run(span, move || compute(&persons, root, generations, today)).await
