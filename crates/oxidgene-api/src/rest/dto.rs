@@ -6,21 +6,7 @@ use oxidgene_core::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Deserializer for update fields that must tell "absent" from `null`.
-///
-/// serde maps a JSON `null` to `None` for *any* `Option`, so a plain
-/// `Option<Option<T>>` collapses `{"x": null}` and `{}` to the same `None` —
-/// which these DTOs read as "leave unchanged". The effect was that no nullable
-/// field could ever be cleared over REST: the request was accepted and the old
-/// value silently kept. Paired with `#[serde(default)]` this restores the
-/// distinction — absent stays `None`, `null` becomes `Some(None)`.
-fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: serde::Deserializer<'de>,
-{
-    Deserialize::deserialize(de).map(Some)
-}
+use crate::service::patch::double_option;
 
 // ── Pagination query params ──────────────────────────────────────────
 
@@ -79,32 +65,6 @@ pub struct ImageDataRequest {
 }
 
 // ── Tree DTOs ────────────────────────────────────────────────────────
-
-/// Request body for creating a tree.
-#[derive(Debug, Deserialize)]
-pub struct CreateTreeRequest {
-    pub name: String,
-    pub description: Option<String>,
-}
-
-/// Request body for updating a tree.
-#[derive(Debug, Deserialize)]
-pub struct UpdateTreeRequest {
-    pub name: Option<String>,
-    /// `null` clears the description; absent field leaves it unchanged.
-    #[serde(default, deserialize_with = "double_option")]
-    pub description: Option<Option<String>>,
-    /// `null` clears the root person; absent field leaves it unchanged.
-    #[serde(default, deserialize_with = "double_option")]
-    pub sosa_root_person_id: Option<Option<uuid::Uuid>>,
-    /// `null` clears the person identifying the current user; absent leaves it unchanged.
-    #[serde(default, deserialize_with = "double_option")]
-    pub self_person_id: Option<Option<uuid::Uuid>>,
-    /// What `privacy: "default"` resolves to for everything in this tree.
-    pub default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
-    /// Whether entry fields suggest values as the user types.
-    pub entry_suggestions: Option<bool>,
-}
 
 /// Request body for duplicating a tree.
 #[derive(Debug, Deserialize)]

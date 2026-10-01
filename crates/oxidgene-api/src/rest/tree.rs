@@ -3,142 +3,51 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeChanges, TreeRepo};
+use oxidgene_core::types::{Connection, Tree};
+use oxidgene_db::repo::{PaginationParams, TreeRepo};
 use uuid::Uuid;
 
-use super::dto::{CreateTreeRequest, DuplicateTreeRequest, PaginationQuery, UpdateTreeRequest};
+use super::dto::{DuplicateTreeRequest, PaginationQuery};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::gedcom;
-use crate::service::history::{self, Change};
-use crate::service::scope::{begin_tx, commit_tx};
-use oxidgene_core::history::AuditEntity;
+use crate::service::tree::{self, NewTree, TreeListItem, TreePatch};
 
 /// GET /api/v1/trees
 pub async fn list_trees(
     State(state): State<AppState>,
     Query(query): Query<PaginationQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Connection<TreeListItem>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let connection = TreeRepo::list(&state.db, &params)
-        .await
-        .map_err(ApiError::from)?;
-    let mut response = serde_json::to_value(connection)
-        .map_err(|error| ApiError(oxidgene_core::OxidGeneError::Internal(error.to_string())))?;
-    let active = BackgroundJobRepo::active_imports(&state.db)
-        .await?
-        .into_iter()
-        .map(|job| (job.tree_id, job.id))
-        .collect::<std::collections::HashMap<_, _>>();
-    if let Some(edges) = response
-        .get_mut("edges")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        for edge in edges {
-            let Some(node) = edge
-                .get_mut("node")
-                .and_then(serde_json::Value::as_object_mut)
-            else {
-                continue;
-            };
-            let tree_id = node
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .and_then(|value| Uuid::parse_str(value).ok());
-            let job_id = tree_id.and_then(|tree_id| active.get(&tree_id).copied());
-            node.insert(
-                "import_in_progress".to_string(),
-                serde_json::Value::Bool(job_id.is_some()),
-            );
-            node.insert(
-                "import_job_id".to_string(),
-                job_id.map_or(serde_json::Value::Null, |id| {
-                    serde_json::Value::String(id.to_string())
-                }),
-            );
-        }
-    }
-    Ok(Json(response))
+    Ok(Json(tree::list_trees(&state.db, &params).await?))
 }
 
 /// POST /api/v1/trees
 pub async fn create_tree(
     State(state): State<AppState>,
-    Json(body): Json<CreateTreeRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    if body.name.trim().is_empty() {
-        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
-            "name must not be empty".to_string(),
-        )));
-    }
-    let id = Uuid::now_v7();
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let tree = TreeRepo::create(&txn, id, body.name, body.description)
-        .await
-        .map_err(ApiError::from)?;
-    Change::create(id, AuditEntity::Tree, id)
-        .tree_settings()
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(tree).unwrap()),
-    ))
+    Json(body): Json<NewTree>,
+) -> Result<(StatusCode, Json<Tree>), ApiError> {
+    let tree = tree::create_tree(&state.db, body).await?;
+    Ok((StatusCode::CREATED, Json(tree)))
 }
 
 /// GET /api/v1/trees/:tree_id
 pub async fn get_tree(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let tree = TreeRepo::get(&state.db, tree_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(tree).unwrap()))
+) -> Result<Json<Tree>, ApiError> {
+    Ok(Json(TreeRepo::get(&state.db, tree_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id
 pub async fn update_tree(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<UpdateTreeRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    if body
-        .name
-        .as_deref()
-        .is_some_and(|name| name.trim().is_empty())
-    {
-        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
-            "name must not be empty".to_string(),
-        )));
-    }
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    let tree = TreeRepo::update(
-        &txn,
-        tree_id,
-        TreeChanges {
-            name: body.name,
-            description: body.description,
-            sosa_root_person_id: body.sosa_root_person_id,
-            self_person_id: body.self_person_id,
-            default_privacy: body.default_privacy,
-            entry_suggestions: body.entry_suggestions,
-        },
-    )
-    .await
-    .map_err(ApiError::from)?;
-    Change::update(tree_id, AuditEntity::Tree, tree_id)
-        .tree_settings()
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(tree).unwrap()))
+    Json(body): Json<TreePatch>,
+) -> Result<Json<Tree>, ApiError> {
+    Ok(Json(tree::update_tree(&state.db, tree_id, body).await?))
 }
 
 /// POST /api/v1/trees/:tree_id/duplicate
@@ -148,89 +57,19 @@ pub async fn duplicate_tree(
     State(state): State<AppState>,
     Path(source_tree_id): Path<Uuid>,
     Json(body): Json<DuplicateTreeRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    if body.name.trim().is_empty() {
-        return Err(ApiError(oxidgene_core::OxidGeneError::Validation(
-            "name must not be empty".to_string(),
-        )));
-    }
-
-    // Export GEDCOM from source tree (lossless round-trip, so don't merge
-    // OCCU tags or names — those are opt-in compatibility trade-offs for
-    // user-facing export, not for internal duplication).
-    let export = gedcom::load_and_export(&state.db, source_tree_id, false, false, false)
-        .await
-        .map_err(ApiError::from)?;
-    let source_name = TreeRepo::get(&state.db, source_tree_id)
-        .await
-        .map_err(ApiError::from)?
-        .name;
-
-    // Create the new tree
-    let new_id = Uuid::now_v7();
-    let new_tree = TreeRepo::create(&state.db, new_id, body.name, None)
-        .await
-        .map_err(ApiError::from)?;
-
-    // Import GEDCOM into the new tree
-    let summary = gedcom::import_and_persist(&state.db, new_id, &export.gedcom)
-        .await
-        .map_err(ApiError::from)?;
-
-    // Materialize projections for the new tree
-    state
-        .profiles
-        .rebuild_tree_full(&state.db, new_id)
-        .await
-        .map_err(ApiError::from)?;
-
-    history::record_import(
-        &state.db,
-        new_id,
-        history::DUPLICATE_FORMAT,
-        Some(source_name),
-        summary.persons_count,
-    )
-    .await
-    .map_err(ApiError)?;
-    history::record_export(
-        &state.db,
-        source_tree_id,
-        history::DUPLICATE_FORMAT,
-        Some(new_tree.name.clone()),
-    )
-    .await
-    .map_err(ApiError)?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(new_tree).unwrap()),
-    ))
+) -> Result<(StatusCode, Json<Tree>), ApiError> {
+    let tree = tree::duplicate_tree(&state.db, &state.profiles, source_tree_id, body.name).await?;
+    Ok((StatusCode::CREATED, Json(tree)))
 }
 
 /// DELETE /api/v1/trees/:tree_id
 ///
 /// Flags the tree as deleted and returns straight away; the rows it owns are
-/// removed by the background purge worker. Removing them here instead took
-/// seconds on a tree of any size — long enough to look like a hang — because
-/// SQLite walks the `ON DELETE CASCADE` graph one row at a time.
+/// removed by the background purge worker.
 pub async fn delete_tree(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    TreeRepo::soft_delete(&txn, tree_id)
-        .await
-        .map_err(ApiError::from)?;
-    Change::delete(tree_id, AuditEntity::Tree, tree_id)
-        .tree_settings()
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-
-    // Only once the flag is committed, so a purge can never outrun it.
-    state.purge.enqueue(tree_id);
-
+    tree::delete_tree(&state.db, &state.purge, tree_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

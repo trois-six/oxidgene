@@ -12,6 +12,7 @@
 use async_graphql::{Error, ID, InputObject, MaybeUndefined, Result};
 use std::collections::HashMap;
 
+use super::mutation::{patch, patch_id};
 use super::scope::{uuid, uuids};
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
@@ -39,6 +40,30 @@ pub struct UpdateTreeInput {
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,
     pub self_person_id: MaybeUndefined<String>,
+}
+
+impl From<CreateTreeInput> for crate::service::tree::NewTree {
+    fn from(input: CreateTreeInput) -> Self {
+        Self {
+            name: input.name,
+            description: input.description,
+        }
+    }
+}
+
+impl TryFrom<UpdateTreeInput> for crate::service::tree::TreePatch {
+    type Error = Error;
+
+    fn try_from(input: UpdateTreeInput) -> Result<Self> {
+        Ok(Self {
+            name: input.name,
+            description: patch(input.description),
+            sosa_root_person_id: patch_id(input.sosa_root_person_id)?,
+            self_person_id: patch_id(input.self_person_id)?,
+            default_privacy: input.default_privacy.map(Into::into),
+            entry_suggestions: input.entry_suggestions,
+        })
+    }
 }
 
 // ── Person merge input ───────────────────────────────────────────────

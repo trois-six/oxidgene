@@ -5,7 +5,7 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
 use crate::service::note::{self, NewNote};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
-use crate::service::{duplicates, event_date, family_names};
+use crate::service::{duplicates, event_date, family_names, tree};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::history::{AuditAction, AuditEntity};
@@ -15,8 +15,7 @@ use oxidgene_db::repo::{
     BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, EventRepo, EventWitnessRepo,
     FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, MediaTagRepo,
     NewBackgroundJob, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo,
-    PlaceRepo, SourceRepo, TreeChanges, TreeRepo, UploadedMedia, VignetteInput, VignettePatch,
-    VignetteRepo,
+    PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -57,7 +56,7 @@ pub(crate) fn patch<T>(value: MaybeUndefined<T>) -> Option<Option<T>> {
 
 /// [`patch`], for an identifier. A `null` clears without parsing anything;
 /// only a real value can be malformed.
-fn patch_id(value: MaybeUndefined<String>) -> Result<Option<Option<Uuid>>> {
+pub(crate) fn patch_id(value: MaybeUndefined<String>) -> Result<Option<Option<Uuid>>> {
     match value {
         MaybeUndefined::Undefined => Ok(None),
         MaybeUndefined::Null => Ok(Some(None)),
@@ -85,18 +84,11 @@ pub struct MutationRoot;
 impl MutationRoot {
     // ── Tree Mutations ───────────────────────────────────────────────
 
-    /// Create a new tree.
+    /// Create a new tree. A blank name is refused.
     async fn create_tree(&self, ctx: &Context<'_>, input: CreateTreeInput) -> Result<GqlTree> {
-        let db = db_from_ctx(ctx);
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        let tree = TreeRepo::create(&txn, id, input.name, input.description).await?;
-        Change::create(id, AuditEntity::Tree, id)
-            .tree_settings()
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
-        Ok(tree.into())
+        Ok(tree::create_tree(db_from_ctx(ctx), input.into())
+            .await?
+            .into())
     }
 
     /// Duplicate a tree through a lossless GEDCOM round trip.
@@ -110,76 +102,27 @@ impl MutationRoot {
         tree_id: ID,
         name: String,
     ) -> Result<GqlTree> {
-        if name.trim().is_empty() {
-            return Err(async_graphql::Error::new("name must not be empty"));
-        }
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
         let source_tree_id = live_tree(ctx, &tree_id).await?;
-        let export =
-            crate::service::gedcom::load_and_export(db, source_tree_id, false, false, false)
-                .await?;
-        let source_name = TreeRepo::get(db, source_tree_id).await?.name;
-        let new_tree_id = Uuid::now_v7();
-        let tree = TreeRepo::create(db, new_tree_id, name, None).await?;
-        let summary =
-            crate::service::gedcom::import_and_persist(db, new_tree_id, &export.gedcom).await?;
-        profiles.rebuild_tree_full(db, new_tree_id).await?;
-        history::record_import(
-            db,
-            new_tree_id,
-            history::DUPLICATE_FORMAT,
-            Some(source_name),
-            summary.persons_count,
-        )
-        .await?;
-        history::record_export(
-            db,
+        let tree = tree::duplicate_tree(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
             source_tree_id,
-            history::DUPLICATE_FORMAT,
-            Some(tree.name.clone()),
+            name,
         )
         .await?;
         Ok(tree.into())
     }
 
-    /// Update an existing tree.
+    /// Update an existing tree. A blank name is refused, and a SOSA root or
+    /// own record from another tree is not found.
     async fn update_tree(
         &self,
         ctx: &Context<'_>,
         id: ID,
         input: UpdateTreeInput,
     ) -> Result<GqlTree> {
-        if input
-            .name
-            .as_deref()
-            .is_some_and(|name| name.trim().is_empty())
-        {
-            return Err(async_graphql::Error::new("name must not be empty"));
-        }
-        let db = db_from_ctx(ctx);
-        let id = uuid(&id)?;
-        let sosa_root = patch_id(input.sosa_root_person_id)?;
-        let self_person = patch_id(input.self_person_id)?;
-        let txn = begin_tx(db).await?;
-        let tree = TreeRepo::update(
-            &txn,
-            id,
-            TreeChanges {
-                name: input.name,
-                description: patch(input.description),
-                sosa_root_person_id: sosa_root,
-                self_person_id: self_person,
-                default_privacy: input.default_privacy.map(Into::into),
-                entry_suggestions: input.entry_suggestions,
-            },
-        )
-        .await?;
-        Change::update(id, AuditEntity::Tree, id)
-            .tree_settings()
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let id = live_tree(ctx, &id).await?;
+        let tree = tree::update_tree(db_from_ctx(ctx), id, input.try_into()?).await?;
         Ok(tree.into())
     }
 
@@ -189,16 +132,8 @@ impl MutationRoot {
     /// projections are removed by the background purge worker. See
     /// [`crate::service::purge`].
     async fn delete_tree(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
         let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        TreeRepo::soft_delete(&txn, id).await?;
-        Change::delete(id, AuditEntity::Tree, id)
-            .tree_settings()
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
-        purge_from_ctx(ctx).enqueue(id);
+        tree::delete_tree(db_from_ctx(ctx), purge_from_ctx(ctx), id).await?;
         Ok(true)
     }
 

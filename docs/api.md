@@ -147,10 +147,10 @@ Base path: `/api/v1`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees` | List trees (cursor-paginated). REST list nodes add transient `import_in_progress: bool` and `import_job_id: UUID?` fields from the active file-job registry; these are not persisted tree fields and disappear for completed/failed jobs |
-| `POST` | `/trees` | Create a tree |
+| `GET` | `/trees` | List trees (cursor-paginated). List nodes add transient `import_in_progress: bool` and `import_job_id: UUID?` fields from the job queue (GraphQL: `importInProgress` and `importJobId` on every `Tree`); these are not persisted tree fields and disappear once the job completes or fails |
+| `POST` | `/trees` | Create a tree; a blank `name` is a `validation_error` |
 | `GET` | `/trees/{tree_id}` | Get a tree |
-| `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`) |
+| `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`, which must name persons of the tree — another tree's person is `not_found`); a blank `name` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
 | `POST` | `/trees/{tree_id}/duplicate` | Duplicate a tree (deep copy) |
 
@@ -1439,6 +1439,9 @@ type Tree {
   description: String
   personCount: Int!
   familyCount: Int!
+  # An import queued or running into the tree, read from the job queue.
+  importInProgress: Boolean!
+  importJobId: ID
   createdAt: DateTime!
   updatedAt: DateTime!
 }

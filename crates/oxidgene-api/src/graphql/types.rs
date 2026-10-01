@@ -778,10 +778,37 @@ pub struct GqlTree {
     pub entry_suggestions: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The import running into the tree, when the tree list already knows it:
+    /// the list reads every tree's at once rather than one query per tree.
+    #[graphql(skip)]
+    pub import_job: Option<Option<Uuid>>,
+}
+
+impl GqlTree {
+    /// The import queued or running into the tree, if any.
+    async fn active_import(&self, ctx: &Context<'_>) -> Result<Option<Uuid>> {
+        match self.import_job {
+            Some(known) => Ok(known),
+            None => {
+                Ok(crate::service::tree::active_import(db_from_ctx(ctx), uuid(&self.id)?).await?)
+            }
+        }
+    }
 }
 
 #[ComplexObject]
 impl GqlTree {
+    /// Whether an import is queued or running into the tree. Read from the
+    /// job queue, not stored on the tree: it turns false once the job ends.
+    async fn import_in_progress(&self, ctx: &Context<'_>) -> Result<bool> {
+        Ok(self.active_import(ctx).await?.is_some())
+    }
+
+    /// The import job running into the tree, while one is.
+    async fn import_job_id(&self, ctx: &Context<'_>) -> Result<Option<ID>> {
+        Ok(self.active_import(ctx).await?.map(|id| ID(id.to_string())))
+    }
+
     /// Count of persons in this tree.
     async fn person_count(&self, ctx: &Context<'_>) -> Result<i64> {
         let db = db_from_ctx(ctx);
@@ -819,6 +846,16 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             entry_suggestions: t.entry_suggestions,
             created_at: t.created_at,
             updated_at: t.updated_at,
+            import_job: None,
+        }
+    }
+}
+
+impl From<crate::service::tree::TreeListItem> for GqlTree {
+    fn from(item: crate::service::tree::TreeListItem) -> Self {
+        Self {
+            import_job: Some(item.import_job_id),
+            ..item.tree.into()
         }
     }
 }
@@ -838,8 +875,10 @@ pub struct GqlTreeConnection {
     pub total_count: i64,
 }
 
-impl From<oxidgene_core::types::Connection<oxidgene_core::types::Tree>> for GqlTreeConnection {
-    fn from(c: oxidgene_core::types::Connection<oxidgene_core::types::Tree>) -> Self {
+impl From<oxidgene_core::types::Connection<crate::service::tree::TreeListItem>>
+    for GqlTreeConnection
+{
+    fn from(c: oxidgene_core::types::Connection<crate::service::tree::TreeListItem>) -> Self {
         Self {
             edges: c
                 .edges

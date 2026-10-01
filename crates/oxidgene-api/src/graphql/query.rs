@@ -87,8 +87,7 @@ impl QueryRoot {
             first: first.unwrap_or(25),
             after,
         };
-        let conn = TreeRepo::list(db, &params).await?;
-        Ok(conn.into())
+        Ok(crate::service::tree::list_trees(db, &params).await?.into())
     }
 
     // ── History ──────────────────────────────────────────────────────

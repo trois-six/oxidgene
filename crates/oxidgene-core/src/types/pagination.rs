@@ -34,6 +34,23 @@ impl<T> Connection<T> {
             total_count: 0,
         }
     }
+
+    /// The same page, each node turned into another type; cursors and page
+    /// info are kept.
+    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Connection<U> {
+        Connection {
+            edges: self
+                .edges
+                .into_iter()
+                .map(|edge| Edge {
+                    cursor: edge.cursor,
+                    node: f(edge.node),
+                })
+                .collect(),
+            page_info: self.page_info,
+            total_count: self.total_count,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -208,3 +208,156 @@ async fn a_malformed_identifier_is_a_validation_error_on_both_surfaces() {
     .await;
     assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
 }
+
+// ── Trees ───────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn a_tree_needs_a_name_on_both_surfaces() {
+    let app = setup_app().await;
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({ "name": "  " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let response = gql(
+        &app,
+        r#"mutation { createTree(input: { name: "  " }) { id } }"#,
+        json!({}),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+
+    let tree_id = common::new_tree(&app, "Named").await;
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}"),
+        Some(json!({ "name": "" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let response = gql(
+        &app,
+        r#"mutation($t: ID!) { updateTree(id: $t, input: { name: "" }) { id } }"#,
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+    let response = gql(
+        &app,
+        r#"mutation($t: ID!) { duplicateTree(treeId: $t, name: "") { id } }"#,
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{response}");
+}
+
+#[tokio::test]
+async fn tree_settings_only_name_persons_of_the_tree() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Home").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let stranger = common::new_person(&app, &other_tree).await;
+    let member = common::new_person(&app, &tree_id).await;
+
+    for field in ["sosa_root_person_id", "self_person_id"] {
+        let (status, body) = send(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/trees/{tree_id}"),
+            Some(json!({ field: stranger })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{field}: {body}");
+    }
+    for field in ["sosaRootPersonId", "selfPersonId"] {
+        let response = gql(
+            &app,
+            &format!(
+                "mutation($t: ID!, $p: String!) {{ updateTree(id: $t, input: {{ {field}: $p }}) {{ id }} }}"
+            ),
+            json!({ "t": tree_id, "p": stranger }),
+        )
+        .await;
+        assert_eq!(
+            gql_error_code(&response),
+            "NOT_FOUND",
+            "{field}: {response}"
+        );
+    }
+
+    // A person of the tree itself is accepted, and clearing works.
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}"),
+        Some(json!({ "sosa_root_person_id": member })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["sosa_root_person_id"], member);
+    let data = common::gql_ok(
+        &app,
+        "mutation($t: ID!) { updateTree(id: $t, input: { sosaRootPersonId: null }) { sosaRootPersonId } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert!(data["updateTree"]["sosaRootPersonId"].is_null(), "{data}");
+}
+
+#[tokio::test]
+async fn the_tree_list_reports_a_running_import_on_both_surfaces() {
+    let app = setup_app().await;
+    let idle = common::new_tree(&app, "Idle").await;
+    let busy = common::new_tree(&app, "Busy").await;
+    // No worker runs in the tests: the job stays queued.
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{busy}/import-jobs?format=gedcom"),
+        Some(json!("0 HEAD\n0 TRLR\n")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let job_id = body["job_id"].as_str().unwrap().to_owned();
+
+    let list = common::ok(&app, Method::GET, "/api/v1/trees", None).await;
+    let node = |id: &str| {
+        list["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|edge| edge["node"]["id"] == id)
+            .unwrap()["node"]
+            .clone()
+    };
+    assert_eq!(node(&busy)["import_in_progress"], true);
+    assert_eq!(node(&busy)["import_job_id"], job_id);
+    assert_eq!(node(&idle)["import_in_progress"], false);
+    assert!(node(&idle)["import_job_id"].is_null());
+
+    let data = common::gql_ok(
+        &app,
+        "{ trees { edges { node { id importInProgress importJobId } } } }",
+        json!({}),
+    )
+    .await;
+    let edges = data["trees"]["edges"].as_array().unwrap();
+    let gql_node =
+        |id: &str| edges.iter().find(|edge| edge["node"]["id"] == id).unwrap()["node"].clone();
+    assert_eq!(gql_node(&busy)["importInProgress"], true);
+    assert_eq!(gql_node(&busy)["importJobId"], job_id);
+    assert_eq!(gql_node(&idle)["importInProgress"], false);
+
+    // A single tree answers the same.
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!) { tree(id: $t) { importInProgress importJobId } }",
+        json!({ "t": busy }),
+    )
+    .await;
+    assert_eq!(data["tree"]["importJobId"], job_id);
+}
