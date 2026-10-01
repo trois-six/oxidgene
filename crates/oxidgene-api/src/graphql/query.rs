@@ -459,17 +459,11 @@ impl QueryRoot {
             person_id: opt_uuid(person_id.as_ref())?,
             family_id: opt_uuid(family_id.as_ref())?,
         };
-        if let Some(person_id) = filter.person_id {
-            require_tree_resource(db, tid, TreeResource::Person, person_id).await?;
-        }
-        if let Some(family_id) = filter.family_id {
-            require_tree_resource(db, tid, TreeResource::Family, family_id).await?;
-        }
         let params = PaginationParams {
             first: first.unwrap_or(25),
             after,
         };
-        let conn = EventRepo::list(db, tid, &filter, &params).await?;
+        let conn = crate::service::event::list_events(db, tid, &filter, &params).await?;
         Ok(conn.into())
     }
 

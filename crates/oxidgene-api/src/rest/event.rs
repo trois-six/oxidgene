@@ -1,26 +1,24 @@
-//! REST handlers for Event CRUD operations.
+//! REST handlers for Event CRUD operations and event witnesses.
 
-use crate::profile::invalidation;
-use crate::service::history::Change;
-use crate::service::{self, event_date};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use oxidgene_core::history::AuditEntity;
-use oxidgene_db::repo::{EventFilter, EventRepo, EventWitnessRepo, PaginationParams};
+use oxidgene_core::types::{Connection, Event, EventWitness};
+use oxidgene_db::repo::{EventFilter, EventRepo, PaginationParams};
 use uuid::Uuid;
 
-use super::dto::{AddEventWitnessRequest, CreateEventRequest, EventListQuery, UpdateEventRequest};
+use super::dto::EventListQuery;
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::event::{self, EventPatch, NewEvent, NewWitness};
+use crate::service::scope::{TreeResource, require_tree_resource};
 
 /// GET /api/v1/trees/:tree_id/events
 pub async fn list_events(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<EventListQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<Connection<Event>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
@@ -30,93 +28,38 @@ pub async fn list_events(
         person_id: query.person_id,
         family_id: query.family_id,
     };
-    let connection = EventRepo::list(&state.db, tree_id, &filter, &params)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(connection).unwrap()))
+    Ok(Json(
+        event::list_events(&state.db, tree_id, &filter, &params).await?,
+    ))
 }
 
 /// POST /api/v1/trees/:tree_id/events
 pub async fn create_event(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Json(body): Json<CreateEventRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let event = service::event::create_event(&state.db, &state.profiles, tree_id, body)
-        .await
-        .map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(event).unwrap()),
-    ))
+    Json(body): Json<NewEvent>,
+) -> Result<(StatusCode, Json<Event>), ApiError> {
+    let event = event::create_event(&state.db, &state.profiles, tree_id, body).await?;
+    Ok((StatusCode::CREATED, Json(event)))
 }
 
 /// GET /api/v1/trees/:tree_id/events/:event_id
 pub async fn get_event(
     State(state): State<AppState>,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id)
-        .await
-        .map_err(ApiError)?;
-    let event = EventRepo::get(&state.db, event_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(event).unwrap()))
+) -> Result<Json<Event>, ApiError> {
+    require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id).await?;
+    Ok(Json(EventRepo::get(&state.db, event_id).await?))
 }
 
 /// PUT /api/v1/trees/:tree_id/events/:event_id
 pub async fn update_event(
     State(state): State<AppState>,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<UpdateEventRequest>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Event, event_id)
-        .await
-        .map_err(ApiError)?;
-    // Derived from the patched state, reading whichever half the patch leaves
-    // alone off the stored event — see `service::event_date`.
-    let stored = EventRepo::get(&txn, event_id)
-        .await
-        .map_err(ApiError::from)?;
-    let date_sort = Some(event_date::derive_patch(
-        stored.calendar,
-        stored.date_value.as_deref(),
-        body.calendar,
-        body.date_value.as_ref().map(Option::as_deref),
-    ));
-    let event = EventRepo::update(
-        &txn,
-        event_id,
-        body.event_type,
-        body.date_value,
-        date_sort,
-        body.place_id,
-        body.description,
-        body.date_qualifier,
-        body.date_value2,
-        body.calendar,
-        body.cause,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    // Invalidate based on event ownership.
-    let affected = invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
-        .await
-        .map_err(ApiError)?;
-    state
-        .profiles
-        .invalidate_for_mutation(&txn, tree_id, &affected)
-        .await
-        .map_err(ApiError)?;
-    Change::update(tree_id, AuditEntity::Event, event_id)
-        .event(event_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok(Json(serde_json::to_value(event).unwrap()))
+    Json(body): Json<EventPatch>,
+) -> Result<Json<Event>, ApiError> {
+    let event = event::update_event(&state.db, &state.profiles, tree_id, event_id, body).await?;
+    Ok(Json(event))
 }
 
 /// DELETE /api/v1/trees/:tree_id/events/:event_id
@@ -124,30 +67,7 @@ pub async fn delete_event(
     State(state): State<AppState>,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Event, event_id)
-        .await
-        .map_err(ApiError)?;
-    let event = EventRepo::get(&txn, event_id)
-        .await
-        .map_err(ApiError::from)?;
-    EventRepo::delete(&txn, event_id)
-        .await
-        .map_err(ApiError::from)?;
-    let affected = invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
-        .await
-        .map_err(ApiError)?;
-    state
-        .profiles
-        .invalidate_for_mutation(&txn, tree_id, &affected)
-        .await
-        .map_err(ApiError)?;
-    Change::delete(tree_id, AuditEntity::Event, event_id)
-        .event(event_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    event::delete_event(&state.db, &state.profiles, tree_id, event_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -155,50 +75,20 @@ pub async fn delete_event(
 pub async fn list_witnesses(
     State(state): State<AppState>,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_tree_resource(&state.db, tree_id, TreeResource::Event, event_id)
-        .await
-        .map_err(ApiError)?;
-    let witnesses = EventWitnessRepo::list_by_event(&state.db, event_id)
-        .await
-        .map_err(ApiError::from)?;
-    Ok(Json(serde_json::to_value(witnesses).unwrap()))
+) -> Result<Json<Vec<EventWitness>>, ApiError> {
+    Ok(Json(
+        event::list_witnesses(&state.db, tree_id, event_id).await?,
+    ))
 }
 
 /// POST /api/v1/trees/:tree_id/events/:event_id/witnesses
 pub async fn add_witness(
     State(state): State<AppState>,
     Path((tree_id, event_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<AddEventWitnessRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Event, event_id)
-        .await
-        .map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Person, body.person_id)
-        .await
-        .map_err(ApiError)?;
-    let id = Uuid::now_v7();
-    let witness = EventWitnessRepo::create(
-        &txn,
-        id,
-        event_id,
-        body.person_id,
-        body.relation,
-        body.sort_order,
-    )
-    .await
-    .map_err(ApiError::from)?;
-    Change::create(tree_id, AuditEntity::EventWitness, id)
-        .event(event_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::to_value(witness).unwrap()),
-    ))
+    Json(body): Json<NewWitness>,
+) -> Result<(StatusCode, Json<EventWitness>), ApiError> {
+    let witness = event::add_witness(&state.db, tree_id, event_id, body).await?;
+    Ok((StatusCode::CREATED, Json(witness)))
 }
 
 /// DELETE /api/v1/trees/:tree_id/events/:event_id/witnesses/:witness_id
@@ -206,21 +96,6 @@ pub async fn remove_witness(
     State(state): State<AppState>,
     Path((tree_id, event_id, witness_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await.map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::Event, event_id)
-        .await
-        .map_err(ApiError)?;
-    require_tree_resource(&txn, tree_id, TreeResource::EventWitness, witness_id)
-        .await
-        .map_err(ApiError)?;
-    EventWitnessRepo::delete(&txn, witness_id)
-        .await
-        .map_err(ApiError::from)?;
-    Change::delete(tree_id, AuditEntity::EventWitness, witness_id)
-        .event(event_id)
-        .record(&txn)
-        .await
-        .map_err(ApiError)?;
-    commit_tx(txn).await.map_err(ApiError)?;
+    event::remove_witness(&state.db, tree_id, Some(event_id), witness_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

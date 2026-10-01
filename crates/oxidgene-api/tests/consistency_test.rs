@@ -724,3 +724,143 @@ async fn a_malformed_family_update_is_refused() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["privacy"], "private");
 }
+
+// ── Events ──────────────────────────────────────────────────────────────
+
+/// A birth of `person_id` in `tree_id`; its id.
+async fn new_birth(app: &axum::Router, tree_id: &str, person_id: &str) -> String {
+    common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events"),
+        Some(json!({ "event_type": "birth", "date_value": "1850", "person_id": person_id })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// A place named `name` in `tree_id`; its id.
+async fn new_place(app: &axum::Router, tree_id: &str, name: &str) -> String {
+    common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/places"),
+        Some(json!({ "name": name })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[tokio::test]
+async fn an_event_cannot_move_to_a_place_of_another_tree() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Home").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let event_id = new_birth(&app, &tree_id, &person_id).await;
+    let foreign_place = new_place(&app, &other_tree, "Northfield").await;
+
+    let (status, body) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
+        Some(json!({ "place_id": foreign_place })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let response = gql(
+        &app,
+        "mutation($t: ID!, $e: ID!, $p: String!) { updateEvent(treeId: $t, id: $e, input: { placeId: $p }) { id } }",
+        json!({ "t": tree_id, "e": event_id, "p": foreign_place }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+
+    let event = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events/{event_id}"),
+        None,
+    )
+    .await;
+    assert!(event["place_id"].is_null(), "{event}");
+}
+
+#[tokio::test]
+async fn an_event_filter_naming_another_tree_is_not_found_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Home").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let stranger = common::new_person(&app, &other_tree).await;
+
+    let (status, _) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events?person_id={stranger}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = gql(
+        &app,
+        "query($t: ID!, $p: ID!) { events(treeId: $t, personId: $p) { totalCount } }",
+        json!({ "t": tree_id, "p": stranger }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+}
+
+#[tokio::test]
+async fn a_witness_is_only_removed_through_its_own_event() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Witnesses").await;
+    let person_id = common::new_person(&app, &tree_id).await;
+    let witness_person = common::new_person(&app, &tree_id).await;
+    let first = new_birth(&app, &tree_id, &person_id).await;
+    let second = new_birth(&app, &tree_id, &person_id).await;
+    let witness_id = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/events/{second}/witnesses"),
+        Some(json!({ "person_id": witness_person, "relation": "godfather" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/events/{first}/witnesses/{witness_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let response = gql(
+        &app,
+        "mutation($t: ID!, $e: ID!, $w: ID!) { removeEventWitness(treeId: $t, id: $w, eventId: $e) }",
+        json!({ "t": tree_id, "e": first, "w": witness_id }),
+    )
+    .await;
+    assert_eq!(gql_error_code(&response), "NOT_FOUND", "{response}");
+    let witnesses = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/events/{second}/witnesses"),
+        None,
+    )
+    .await;
+    assert_eq!(witnesses.as_array().unwrap().len(), 1);
+
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!, $e: ID!, $w: ID!) { removeEventWitness(treeId: $t, id: $w, eventId: $e) }",
+        json!({ "t": tree_id, "e": second, "w": witness_id }),
+    )
+    .await;
+}

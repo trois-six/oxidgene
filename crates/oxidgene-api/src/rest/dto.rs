@@ -185,54 +185,6 @@ pub struct EventListQuery {
     pub family_id: Option<uuid::Uuid>,
 }
 
-/// Request body for creating an event.
-#[derive(Debug, Deserialize)]
-pub struct CreateEventRequest {
-    pub event_type: EventType,
-    pub date_value: Option<String>,
-    #[serde(default)]
-    pub date_qualifier: DateQualifier,
-    #[serde(default)]
-    pub date_value2: Option<String>,
-    #[serde(default)]
-    pub calendar: Calendar,
-    #[serde(default)]
-    pub cause: Option<String>,
-    pub place_id: Option<uuid::Uuid>,
-    pub person_id: Option<uuid::Uuid>,
-    pub family_id: Option<uuid::Uuid>,
-    pub description: Option<String>,
-}
-
-/// Request body for updating an event.
-#[derive(Debug, Deserialize)]
-pub struct UpdateEventRequest {
-    pub event_type: Option<EventType>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub date_value: Option<Option<String>>,
-    pub date_qualifier: Option<DateQualifier>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub date_value2: Option<Option<String>>,
-    pub calendar: Option<Calendar>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub cause: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub place_id: Option<Option<uuid::Uuid>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub description: Option<Option<String>>,
-}
-
-// ── EventWitness DTOs ────────────────────────────────────────────────
-
-/// Request body for adding a witness to an event.
-#[derive(Debug, Deserialize)]
-pub struct AddEventWitnessRequest {
-    pub person_id: uuid::Uuid,
-    pub relation: Option<String>,
-    #[serde(default)]
-    pub sort_order: i32,
-}
-
 // ── Place DTOs ───────────────────────────────────────────────────────
 
 /// Query parameters for listing places (search + pagination).

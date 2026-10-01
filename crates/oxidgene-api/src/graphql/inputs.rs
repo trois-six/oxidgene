@@ -12,8 +12,8 @@
 use async_graphql::{Error, ID, InputObject, MaybeUndefined, Result};
 use std::collections::HashMap;
 
-use super::mutation::{patch, patch_id};
-use super::scope::{uuid, uuids};
+use super::mutation::{patch, patch_id, patch_scalar};
+use super::scope::{opt_uuid, uuid, uuids};
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlDocumentCategory, GqlEventType,
     GqlGeneanetMediaFidelity, GqlMediaFileKind, GqlNameType, GqlPrivacy, GqlSex,
@@ -378,6 +378,54 @@ pub struct AddEventWitnessInput {
     pub relation: Option<String>,
     #[graphql(default)]
     pub sort_order: i32,
+}
+
+impl TryFrom<CreateEventInput> for crate::service::event::NewEvent {
+    type Error = Error;
+
+    fn try_from(input: CreateEventInput) -> Result<Self> {
+        Ok(Self {
+            event_type: input.event_type.into(),
+            date_value: input.date_value,
+            date_qualifier: input.date_qualifier.map(Into::into).unwrap_or_default(),
+            date_value2: input.date_value2,
+            calendar: input.calendar.map(Into::into).unwrap_or_default(),
+            cause: input.cause,
+            place_id: opt_uuid(input.place_id)?,
+            person_id: opt_uuid(input.person_id)?,
+            family_id: opt_uuid(input.family_id)?,
+            description: input.description,
+        })
+    }
+}
+
+impl TryFrom<UpdateEventInput> for crate::service::event::EventPatch {
+    type Error = Error;
+
+    fn try_from(input: UpdateEventInput) -> Result<Self> {
+        Ok(Self {
+            event_type: input.event_type.map(Into::into),
+            date_value: patch(input.date_value),
+            date_qualifier: patch_scalar(input.date_qualifier),
+            date_value2: patch(input.date_value2),
+            calendar: patch_scalar(input.calendar),
+            cause: patch(input.cause),
+            place_id: patch_id(input.place_id)?,
+            description: patch(input.description),
+        })
+    }
+}
+
+impl TryFrom<AddEventWitnessInput> for crate::service::event::NewWitness {
+    type Error = Error;
+
+    fn try_from(input: AddEventWitnessInput) -> Result<Self> {
+        Ok(Self {
+            person_id: uuid(&input.person_id)?,
+            relation: input.relation,
+            sort_order: input.sort_order,
+        })
+    }
 }
 
 // ── Place Inputs ─────────────────────────────────────────────────────

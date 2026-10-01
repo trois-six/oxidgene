@@ -5,16 +5,16 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self, Change};
 use crate::service::note::{self, NewNote};
 use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
-use crate::service::{duplicates, event_date, family, family_names, person, person_name, tree};
+use crate::service::{duplicates, event, family, family_names, person, person_name, tree};
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
 use oxidgene_core::history::{AuditAction, AuditEntity};
 use uuid::Uuid;
 
 use oxidgene_db::repo::{
-    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, EventRepo, EventWitnessRepo,
-    MediaLinkRepo, MediaRepo, MediaTagRepo, NewBackgroundJob, PlaceRepo, SourceRepo, TreeRepo,
-    UploadedMedia, VignetteInput, VignettePatch, VignetteRepo,
+    BackgroundJobKind, BackgroundJobRepo, DictionaryRepo, MediaLinkRepo, MediaRepo, MediaTagRepo,
+    NewBackgroundJob, PlaceRepo, SourceRepo, TreeRepo, UploadedMedia, VignetteInput, VignettePatch,
+    VignetteRepo,
 };
 
 use super::history::{GqlAuditEntry, GqlRecordType};
@@ -66,7 +66,7 @@ pub(crate) fn patch_id(value: MaybeUndefined<String>) -> Result<Option<Option<Uu
 /// Maps a non-nullable update field (one that can be set or left alone, but
 /// never cleared) from `MaybeUndefined`. `Undefined` and `Null` both leave the
 /// column untouched; only a real value updates it.
-fn patch_scalar<T, U>(value: MaybeUndefined<T>) -> Option<U>
+pub(crate) fn patch_scalar<T, U>(value: MaybeUndefined<T>) -> Option<U>
 where
     U: From<T>,
 {
@@ -425,30 +425,18 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateEventInput,
     ) -> Result<GqlEvent> {
-        let request = crate::rest::dto::CreateEventRequest {
-            event_type: input.event_type.into(),
-            date_value: input.date_value,
-            date_qualifier: input.date_qualifier.map(Into::into).unwrap_or_default(),
-            date_value2: input.date_value2,
-            calendar: input.calendar.map(Into::into).unwrap_or_default(),
-            cause: input.cause,
-            place_id: opt_uuid(input.place_id)?,
-            person_id: opt_uuid(input.person_id)?,
-            family_id: opt_uuid(input.family_id)?,
-            description: input.description,
-        };
-        let tid = live_tree(ctx, &tree_id).await?;
-        let event = crate::service::event::create_event(
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let event = event::create_event(
             db_from_ctx(ctx),
             profiles_from_ctx(ctx),
-            tid,
-            request,
+            tree_id,
+            input.try_into()?,
         )
         .await?;
         Ok(event.into())
     }
 
-    /// Update an event.
+    /// Update an event. A place of another tree is not found.
     async fn update_event(
         &self,
         ctx: &Context<'_>,
@@ -456,77 +444,28 @@ impl MutationRoot {
         id: ID,
         input: UpdateEventInput,
     ) -> Result<GqlEvent> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let place_id = patch_id(input.place_id)?;
-        let date_value = patch(input.date_value);
-        let calendar = patch_scalar(input.calendar);
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Event, id).await?;
-        if let Some(Some(place_id)) = place_id {
-            require_tree_resource(&txn, tid, TreeResource::Place, place_id).await?;
-        }
-        // Derived from the patched state, reading whichever half the patch
-        // leaves alone off the stored event — see `service::event_date`.
-        let stored = EventRepo::get(&txn, id).await?;
-        let date_sort = Some(event_date::derive_patch(
-            stored.calendar,
-            stored.date_value.as_deref(),
-            calendar,
-            date_value.as_ref().map(Option::as_deref),
-        ));
-        let event = EventRepo::update(
-            &txn,
-            id,
-            input.event_type.map(|et| et.into()),
-            date_value,
-            date_sort,
-            place_id,
-            patch(input.description),
-            patch_scalar(input.date_qualifier),
-            patch(input.date_value2),
-            calendar,
-            patch(input.cause),
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let event = event::update_event(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+            input.try_into()?,
         )
         .await?;
-        // Invalidate based on event ownership.
-        let affected =
-            invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
-                .await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::update(tid, AuditEntity::Event, id)
-            .event(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
         Ok(event.into())
     }
 
     /// Delete an event (soft delete).
     async fn delete_event(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Event, id).await?;
-        let event = EventRepo::get(&txn, id).await?;
-        EventRepo::delete(&txn, id).await?;
-        let affected =
-            invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id)
-                .await?;
-        profiles
-            .invalidate_for_mutation(&txn, tid, &affected)
-            .await?;
-        Change::delete(tid, AuditEntity::Event, id)
-            .event(id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        event::delete_event(
+            db_from_ctx(ctx),
+            profiles_from_ctx(ctx),
+            tree_id,
+            uuid(&id)?,
+        )
+        .await?;
         Ok(true)
     }
 
@@ -538,38 +477,28 @@ impl MutationRoot {
         event_id: ID,
         input: AddEventWitnessInput,
     ) -> Result<GqlEventWitness> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let eid = uuid(&event_id)?;
-        let pid = uuid(&input.person_id)?;
-        let id = Uuid::now_v7();
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::Event, eid).await?;
-        require_tree_resource(&txn, tid, TreeResource::Person, pid).await?;
-        let witness =
-            EventWitnessRepo::create(&txn, id, eid, pid, input.relation, input.sort_order).await?;
-        Change::create(tid, AuditEntity::EventWitness, id)
-            .event(eid)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let witness = event::add_witness(
+            db_from_ctx(ctx),
+            tree_id,
+            uuid(&event_id)?,
+            input.try_into()?,
+        )
+        .await?;
         Ok(witness.into())
     }
 
-    /// Remove a witness from an event (hard delete).
-    async fn remove_event_witness(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let txn = begin_tx(db).await?;
-        require_tree_resource(&txn, tid, TreeResource::EventWitness, id).await?;
-        let event_id = EventWitnessRepo::get(&txn, id).await?.event_id;
-        EventWitnessRepo::delete(&txn, id).await?;
-        Change::delete(tid, AuditEntity::EventWitness, id)
-            .event(event_id)
-            .record(&txn)
-            .await?;
-        commit_tx(txn).await?;
+    /// Remove a witness from an event (hard delete). With `eventId`, a
+    /// witness of another event is not found.
+    async fn remove_event_witness(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        event_id: Option<ID>,
+    ) -> Result<bool> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        event::remove_witness(db_from_ctx(ctx), tree_id, opt_uuid(event_id)?, uuid(&id)?).await?;
         Ok(true)
     }
 

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:36:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:37:39Z }
 ---
 
 
@@ -305,14 +305,14 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/events` | List events (cursor-paginated, filterable by type/person/family) |
+| `GET` | `/trees/{tree_id}/events` | List events (cursor-paginated, filterable by type/person/family); a person or family of another tree is `not_found` |
 | `POST` | `/trees/{tree_id}/events` | Create an event |
 | `GET` | `/trees/{tree_id}/events/{event_id}` | Get an event |
-| `PUT` | `/trees/{tree_id}/events/{event_id}` | Update an event |
+| `PUT` | `/trees/{tree_id}/events/{event_id}` | Update an event; a `place_id` of another tree is `not_found` |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}` | Soft-delete an event |
 | `GET` | `/trees/{tree_id}/events/{event_id}/witnesses` | List event witnesses (GEDCOM `ASSO`) |
 | `POST` | `/trees/{tree_id}/events/{event_id}/witnesses` | Add a witness (person + optional relation text) |
-| `DELETE` | `/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}` | Remove a witness |
+| `DELETE` | `/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}` | Remove a witness; a witness of another event is `not_found` (GraphQL: the optional `eventId`) |
 
 Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](ui-person-edit-modal.md) (event blocks)
 
@@ -1352,7 +1352,8 @@ type Mutation {
   updateEvent(treeId: ID!, id: ID!, input: UpdateEventInput!): Event!
   deleteEvent(treeId: ID!, id: ID!): Boolean!
   addEventWitness(treeId: ID!, eventId: ID!, input: AddEventWitnessInput!): EventWitness!
-  removeEventWitness(treeId: ID!, id: ID!): Boolean!
+  # With eventId, a witness of another event is NOT_FOUND.
+  removeEventWitness(treeId: ID!, id: ID!, eventId: ID): Boolean!
 
   # Places
   createPlace(treeId: ID!, input: CreatePlaceInput!): Place!
