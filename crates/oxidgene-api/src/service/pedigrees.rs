@@ -150,7 +150,12 @@ pub async fn load_pedigrees(
                 },
             )),
             Err(error) => {
-                tracing::warn!(%error, %root_person_id, "pedigree could not be assembled");
+                // A person's ID identifies a person, and a domain error's
+                // message may quote one: only the category is logged.
+                tracing::warn!(
+                    error.kind = crate::error_contract::error_kind(&error),
+                    "pedigree could not be assembled"
+                );
                 None
             }
         })

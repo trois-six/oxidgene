@@ -527,7 +527,12 @@ impl BackgroundJobWorker {
         }
         for key in keys {
             if let Err(error) = self.media.delete(key).await {
-                tracing::warn!(job_id = %job.id, %key, %error, "could not delete job input");
+                tracing::warn!(
+                    job_id = %job.id,
+                    %key,
+                    error.kind = error_kind(&error),
+                    "could not delete job input"
+                );
             }
         }
     }
@@ -631,7 +636,7 @@ impl BackgroundJobWorker {
                     }
                     Err(error) => tracing::warn!(
                         job_id = %job_id,
-                        %error,
+                        error.kind = error_kind(&error),
                         "media absent from the store; not packed"
                     ),
                 }

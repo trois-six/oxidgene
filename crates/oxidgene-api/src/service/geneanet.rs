@@ -1475,8 +1475,6 @@ async fn prepare_single_pages(
                     db,
                     tree_id,
                     id,
-                    *deposit_id,
-                    *view_id,
                     deposits
                         .get(deposit_id)
                         .and_then(|deposit| deposit.views.first())
@@ -1586,8 +1584,6 @@ async fn document(
             db,
             tree_id,
             *page_id,
-            deposit.id,
-            *view_id,
             deposit
                 .views
                 .iter()
@@ -2268,8 +2264,6 @@ async fn import_transcript(
     db: &DatabaseConnection,
     tree_id: Uuid,
     media_id: Uuid,
-    deposit_id: i64,
-    view_id: i64,
     transcript: Option<&GeneanetTranscript>,
     summary: &mut GeneanetImportSummary,
 ) {
@@ -2295,11 +2289,11 @@ async fn import_transcript(
     .await
     {
         Ok(_) => summary.notes_count += 1,
+        // Geneanet's deposit, view and transcript identifiers are external
+        // archive references, and the error text may quote the transcript:
+        // only the failure's category is logged.
         Err(error) => tracing::warn!(
-            deposit_id,
-            view_id,
-            transcript_id = transcript.id,
-            %error,
+            error.kind = crate::error_contract::error_kind(&error),
             "could not import Geneanet transcript"
         ),
     }
@@ -2858,8 +2852,6 @@ mod tests {
             &db,
             tree_id,
             media_id,
-            111,
-            222,
             Some(&GeneanetTranscript {
                 id: 333,
                 content: "  Page transcript  ".to_string(),
@@ -2871,8 +2863,6 @@ mod tests {
             &db,
             tree_id,
             media_id,
-            111,
-            223,
             Some(&GeneanetTranscript {
                 id: 334,
                 content: String::new(),
