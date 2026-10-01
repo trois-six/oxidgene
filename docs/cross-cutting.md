@@ -603,7 +603,10 @@ must never be exposed directly to an untrusted network:
   it onto the embedded server. That is the application's own address, not the
   backend's, so nothing about this rule is relaxed: the markup still carries no
   backend URL, and the picture cannot be reached by anyone the shell has not
-  already let in. It is preferred where available, because the engine can then
+  already let in. The handler forwards, with the launch token, only the paths
+  its image host builds — a medium's thumbnail or file, a vignette's image —
+  and answers `404` to anything else, and note bodies keep no image and no
+  relative URL that could point at it (§7). It is preferred where available, because the engine can then
   cache, lazily load and decode pictures the way it does for any other image —
   see [API §Image sources](api.md).
 

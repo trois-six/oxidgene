@@ -131,9 +131,54 @@ pub fn api_path(tree_id: Uuid, asset: MediaAsset) -> String {
     }
 }
 
+/// Whether `path` is one [`api_path`] produces: a medium's thumbnail or
+/// file, or a vignette's image, named by UUIDs.
+///
+/// A shell that proxies these paths onto the backend answers nothing else,
+/// so whatever reaches the proxy — markup that slipped through, a crafted
+/// link — can read no other route with the shell's credentials.
+#[must_use]
+pub fn is_asset_path(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').collect();
+    let is_id = |segment: &str| segment.parse::<Uuid>().is_ok();
+    matches!(
+        segments.as_slice(),
+        ["", "api", "v1", "trees", tree, "media", media, "thumbnail" | "file"]
+            if is_id(tree) && is_id(media)
+    ) || matches!(
+        segments.as_slice(),
+        ["", "api", "v1", "trees", tree, "vignettes", vignette, "image"]
+            if is_id(tree) && is_id(vignette)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_asset_paths_are_asset_paths() {
+        let id = Uuid::now_v7();
+        for asset in [
+            MediaAsset::Thumbnail { media_id: id },
+            MediaAsset::Crop { vignette_id: id },
+            MediaAsset::File { media_id: id },
+        ] {
+            assert!(is_asset_path(&api_path(id, asset)), "{asset:?}");
+        }
+        for other in [
+            "/api/v1/trees".to_string(),
+            format!("/api/v1/trees/{id}"),
+            format!("/api/v1/trees/{id}/media/{id}"),
+            format!("/api/v1/trees/{id}/media/{id}/archive"),
+            format!("/api/v1/trees/{id}/media/{id}/file/extra"),
+            format!("/api/v1/trees/{id}/media/../persons/file"),
+            format!("/api/v1/trees/{id}/vignettes/{id}/image?x=1"),
+            format!("/api/v1/trees/{id}/notes/{id}/thumbnail"),
+        ] {
+            assert!(!is_asset_path(&other), "{other}");
+        }
+    }
 
     #[test]
     fn every_asset_names_the_endpoint_that_serves_it() {

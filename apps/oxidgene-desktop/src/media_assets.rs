@@ -24,7 +24,9 @@ use dioxus::desktop::use_asset_handler;
 use dioxus::desktop::wry::http::Response;
 use dioxus::prelude::*;
 use oxidgene_ui::api::ApiClient;
-use oxidgene_ui::image_host::{ImageHost, MediaAsset, MediaAssetHost, Sex, Uuid, silhouette_slug};
+use oxidgene_ui::image_host::{
+    ImageHost, MediaAsset, MediaAssetHost, Sex, Uuid, is_asset_path, silhouette_slug,
+};
 
 /// The path prefix this shell answers on. Dioxus routes `/<name>/…` here.
 const HANDLER: &str = "oxidgene-media";
@@ -80,6 +82,12 @@ pub fn DesktopApp() -> Element {
                 Some(response) => response,
                 None => not_found(),
             });
+            return;
+        }
+        // Only the paths the host builds are proxied: the request goes out
+        // with the launch token, so no other route may be reached this way.
+        if !is_asset_path(&path) {
+            responder.respond(not_found());
             return;
         }
         spawn(async move {
