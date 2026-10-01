@@ -206,6 +206,7 @@ async fn assert_indexes(db: &DatabaseConnection) {
         ("person_distinct", "idx_person_distinct_other_person_id"),
         ("audit_entry", "idx_audit_entry_tree"),
         ("audit_entry", "idx_audit_entry_tree_category"),
+        ("audit_entry", "idx_audit_entry_tree_subject"),
         ("record_version", "idx_record_version_record"),
         ("record_version", "idx_record_version_audit_entry"),
         ("record_version", "idx_record_version_tree"),
@@ -216,11 +217,17 @@ async fn assert_indexes(db: &DatabaseConnection) {
         );
     }
     // Never created: the composite indexes above, which lead with `tree_id`,
-    // serve every read a `tree_id` index of its own would.
+    // serve every read a `tree_id` index of its own would; the others serve
+    // no read at all.
     for (table, index) in [
         ("person_denorm", "idx_person_denorm_tree_id"),
         ("media", "idx_media_tree_id"),
         ("event", "idx_event_tree_id"),
+        // No read filters given names by equality or range.
+        ("person_name", "idx_person_name_given_names"),
+        // Its only range read is the media library's year filter, which
+        // drives better from the tree's media.
+        ("event", "idx_event_date_sort"),
     ] {
         assert!(
             !manager.has_index(table, index).await.unwrap(),

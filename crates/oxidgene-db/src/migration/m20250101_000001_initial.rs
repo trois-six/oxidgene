@@ -491,15 +491,6 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
-    manager
-        .create_index(
-            Index::create()
-                .name("idx_person_name_given_names")
-                .table(PersonName::Table)
-                .col(PersonName::GivenNames)
-                .to_owned(),
-        )
-        .await?;
     Ok(())
 }
 
@@ -751,15 +742,6 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .name("idx_event_family_id")
                 .table(Event::Table)
                 .col(Event::FamilyId)
-                .to_owned(),
-        )
-        .await?;
-    manager
-        .create_index(
-            Index::create()
-                .name("idx_event_date_sort")
-                .table(Event::Table)
-                .col(Event::DateSort)
                 .to_owned(),
         )
         .await?;
@@ -1680,6 +1662,19 @@ async fn create_history(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .name("idx_audit_entry_tree")
                 .table(AuditEntry::Table)
                 .col(AuditEntry::TreeId)
+                .col(AuditEntry::Id)
+                .to_owned(),
+        )
+        .await?;
+    // A record's own log — the history panel of a person, a place or a
+    // source — filters on the subject and pages newest first.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_audit_entry_tree_subject")
+                .table(AuditEntry::Table)
+                .col(AuditEntry::TreeId)
+                .col(AuditEntry::SubjectId)
                 .col(AuditEntry::Id)
                 .to_owned(),
         )

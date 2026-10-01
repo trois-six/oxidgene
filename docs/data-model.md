@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:48:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:52:13Z }
 ---
 
 
@@ -837,6 +837,13 @@ depend on the database or API implementation crates.
 - A single current profile read should be a primary-key lookup.
 - Pedigree assembly should issue bounded traversal and batched profile reads,
     never one profile query per node.
+- An index exists for a read that uses it. A `tree_id` index of its own is
+    not created where a composite index already leads with `tree_id`, and a
+    column no read filters by equality or range is not indexed: every index
+    is paid for by every import's inserts. The person name's given names
+    (read only by substring) and the event's `date_sort` (whose one range read,
+    the media library's year filter, is answered faster from the tree's media
+    than by scanning every tree's dated events) carry none.
 - Search should use backend-native indexes and avoid offset scans for ordinary
     list APIs.
 - Refresh latency is part of mutation latency and must remain bounded to the
@@ -892,6 +899,10 @@ An event write names the event's owner as its subject and its type in
 `details.event_type`; a write on a note or citation names what the note or
 citation hangs off. Imports and exports run in transactions of their own and
 record their entry once they complete.
+
+The log is read newest first, by tree, optionally narrowed to one category or
+to one subject; an index leads with `tree_id` for each of those three reads
+and ends with `id`, so a page of the log is an index range in its own order.
 
 ### 5.2 Versions: `record_version`
 
