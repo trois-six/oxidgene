@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:43:52Z }
 ---
 
 
@@ -89,7 +89,11 @@ Five tabs, text-labeled (icons alone are ambiguous at five items), styled as a s
 | Occupations | `Event.description` where `event_type = Occupation` | |
 | Media | `Media` documents, pages folded into their document ([§18](#18-media-tab)) | |
 
+The bar is the shared tab bar ([Common UI §4.14](ui-common.md#414-tabs)): a `tablist` whose tabs say which is selected.
+
 Switching tabs resets the alphabet filter, quick filter, and page to their defaults (page 1, letter "All").
+
+Each tab loads its data the first time it is opened, not when the page opens: the page asks only for the family names, and a tab opened later shows "Loading dictionary…" while its aggregation arrives, then keeps it while the page stays open (until the tree changes or a family name is renamed).
 
 At phone width the tabs share the row; when they do not fit, as on the [Statistics](ui-statistics.md) page, the strip scrolls sideways rather than squeezing their labels into each other.
 

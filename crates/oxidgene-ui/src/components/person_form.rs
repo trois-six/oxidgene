@@ -873,20 +873,17 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                         (EventType::Birth, &b_parts, &b_place, &b_notes, &b_source),
                         (EventType::Death, &d_parts, &d_place, &d_notes, &d_source),
                     ] {
-                        if let Err(e) = save_vital_event(
-                            &api,
-                            tid,
-                            new_pid,
+                        let event = VitalEvent {
                             event_type,
-                            None,
+                            existing_id: None,
                             parts,
                             place,
-                            i18n.0.code(),
                             notes,
                             source,
-                            &NotesSource::default(),
-                        )
-                        .await
+                            current: &NotesSource::default(),
+                        };
+                        if let Err(e) =
+                            save_vital_event(&api, tid, new_pid, i18n.0.code(), event).await
                         {
                             save_error.set(Some(format!("{e}")));
                             saving.set(false);
@@ -1028,21 +1025,16 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             death_ns,
                         ),
                     ] {
-                        match save_vital_event(
-                            &api,
-                            tid,
-                            pid,
+                        let event = VitalEvent {
                             event_type,
-                            existing,
+                            existing_id: existing,
                             parts,
                             place,
-                            i18n.0.code(),
                             notes,
                             source,
-                            ns,
-                        )
-                        .await
-                        {
+                            current: ns,
+                        };
+                        match save_vital_event(&api, tid, pid, i18n.0.code(), event).await {
                             Ok(Some(stored)) => target.set(stored),
                             Ok(None) => {}
                             Err(e) => {
@@ -2320,6 +2312,18 @@ pub(crate) fn update_event_body(
     }
 }
 
+/// A birth or death as the form holds it: the stored event, if any, the
+/// date, place, notes and source typed, and the notes and source stored.
+struct VitalEvent<'a> {
+    event_type: EventType,
+    existing_id: Option<Uuid>,
+    parts: &'a DateParts,
+    place: &'a str,
+    notes: &'a str,
+    source: &'a str,
+    current: &'a NotesSource,
+}
+
 /// Writes a person's birth or death — the two events the modal owns outright
 /// — together with the notes and source hanging off it.
 ///
@@ -2331,20 +2335,22 @@ pub(crate) fn update_event_body(
 /// Returns the notes/source state now stored, which the caller must adopt as
 /// its new `current` — saving twice against a stale one would take the
 /// "nothing there yet" branch again and leave a duplicate row behind.
-#[allow(clippy::too_many_arguments)]
 async fn save_vital_event(
     api: &ApiClient,
     tree_id: Uuid,
     person_id: Uuid,
-    event_type: EventType,
-    existing_id: Option<Uuid>,
-    parts: &DateParts,
-    place: &str,
     lang: &str,
-    notes: &str,
-    source: &str,
-    current: &NotesSource,
+    event: VitalEvent<'_>,
 ) -> Result<Option<NotesSource>, ApiError> {
+    let VitalEvent {
+        event_type,
+        existing_id,
+        parts,
+        place,
+        notes,
+        source,
+        current,
+    } = event;
     let place_id = resolve_place(api, tree_id, place, lang).await?;
     let event_id = match existing_id {
         Some(eid) => {

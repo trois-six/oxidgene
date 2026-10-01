@@ -19,6 +19,7 @@ use crate::components::pager::Pager;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::print::PrintPageNote;
 use crate::components::suggest_input::ValueInput;
+use crate::components::tabs::Tabs;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary_media::DictionaryMedia;
@@ -158,6 +159,60 @@ async fn load_usage(api: &ApiClient, tid: Uuid, key: &UsageKey) -> Vec<PersonUsa
     .unwrap_or_default()
 }
 
+/// The value tabs opened so far: each one's data is asked for the first
+/// time it shows, then kept.
+#[derive(Clone, Copy)]
+struct OpenedTabs {
+    family_names: Signal<bool>,
+    sources: Signal<bool>,
+    places: Signal<bool>,
+    occupations: Signal<bool>,
+}
+
+impl OpenedTabs {
+    fn family_names(&self) -> bool {
+        (self.family_names)()
+    }
+    fn sources(&self) -> bool {
+        (self.sources)()
+    }
+    fn places(&self) -> bool {
+        (self.places)()
+    }
+    fn occupations(&self) -> bool {
+        (self.occupations)()
+    }
+
+    /// Marks `tab` opened, once: reopening it changes nothing, so its data
+    /// is not asked again.
+    fn open(&self, tab: DictTab) {
+        let mut opened = match tab {
+            DictTab::FamilyNames => self.family_names,
+            DictTab::Sources => self.sources,
+            DictTab::Places => self.places,
+            DictTab::Occupations => self.occupations,
+            DictTab::Media => return,
+        };
+        if !*opened.peek() {
+            opened.set(true);
+        }
+    }
+}
+
+/// The tabs opened so far, the page opening on the family names.
+fn use_opened_tabs() -> OpenedTabs {
+    OpenedTabs {
+        family_names: use_signal(|| true),
+        sources: use_signal(|| false),
+        places: use_signal(|| false),
+        occupations: use_signal(|| false),
+    }
+}
+
+/// A value tab's data: `None` until the tab is first opened, then the
+/// aggregation's answer.
+type TabResource<T> = Resource<Option<Result<T, ApiError>>>;
+
 #[component]
 pub fn Dictionary(tree_id: String) -> Element {
     let i18n = use_i18n();
@@ -212,15 +267,23 @@ pub fn Dictionary(tree_id: String) -> Element {
     let sort_particles = use_sort_particles();
     let mut family_name_edit = use_signal(|| None::<FamilyNameEdit>);
 
+    // Each tab asks for its data the first time it is opened, not when the
+    // page opens: a tree's dictionary is four aggregations over all of it.
+    let opened = use_opened_tabs();
+
     let mut family_names_resource =
         use_traced_resource(load_trace.clone(), "family_names", move || {
             let api = api_fn.clone();
             let tid = tree_id_parsed();
+            let wanted = opened.family_names();
             async move {
+                if !wanted {
+                    return None;
+                }
                 let Some(tid) = tid else {
-                    return Err(ApiError::invalid_tree_id(&i18n));
+                    return Some(Err(ApiError::invalid_tree_id(&i18n)));
                 };
-                api.dictionary_family_names(tid).await
+                Some(api.dictionary_family_names(tid).await)
             }
         });
 
@@ -229,11 +292,15 @@ pub fn Dictionary(tree_id: String) -> Element {
         use_traced_resource(load_trace.clone(), "occupations", move || {
             let api = api_occ.clone();
             let tid = tree_id_parsed();
+            let wanted = opened.occupations();
             async move {
+                if !wanted {
+                    return None;
+                }
                 let Some(tid) = tid else {
-                    return Err(ApiError::invalid_tree_id(&i18n));
+                    return Some(Err(ApiError::invalid_tree_id(&i18n)));
                 };
-                api.dictionary_occupations(tid).await
+                Some(api.dictionary_occupations(tid).await)
             }
         });
 
@@ -242,11 +309,15 @@ pub fn Dictionary(tree_id: String) -> Element {
         let api = api_src.clone();
         let tid = tree_id_parsed();
         let query_prefix = source_history().last().cloned().unwrap_or_default();
+        let wanted = opened.sources();
         async move {
+            if !wanted {
+                return None;
+            }
             let Some(tid) = tid else {
-                return Err(ApiError::invalid_tree_id(&i18n));
+                return Some(Err(ApiError::invalid_tree_id(&i18n)));
             };
-            load_sources_view(&api, tid, &query_prefix).await
+            Some(load_sources_view(&api, tid, &query_prefix).await)
         }
     });
 
@@ -254,11 +325,15 @@ pub fn Dictionary(tree_id: String) -> Element {
     let mut places_resource = use_traced_resource(load_trace.clone(), "places", move || {
         let api = api_place.clone();
         let tid = tree_id_parsed();
+        let wanted = opened.places();
         async move {
+            if !wanted {
+                return None;
+            }
             let Some(tid) = tid else {
-                return Err(ApiError::invalid_tree_id(&i18n));
+                return Some(Err(ApiError::invalid_tree_id(&i18n)));
             };
-            api.dictionary_places(tid).await
+            Some(api.dictionary_places(tid).await)
         }
     });
 
@@ -299,6 +374,19 @@ pub fn Dictionary(tree_id: String) -> Element {
     let filed_occupations = use_filed_values(occupations_resource, sort_particles);
     let filed_places = use_filed_places(places_resource);
 
+    let ctx = TabContext {
+        i18n,
+        tree_id: &tree_id,
+        filters: ListFilters {
+            quick: quick_filter,
+            letter: letter_filter,
+            page_size,
+            page: current_page,
+        },
+        expanded,
+        usage_people: usage_resource,
+    };
+
     // ── Render ──
     rsx! {
         ToolPageFrame {
@@ -306,71 +394,40 @@ pub fn Dictionary(tree_id: String) -> Element {
             tree_name: page.name(),
             title: i18n.t("dictionary.breadcrumb"),
             selected_person_id: page.selected_person_id,
-            div { class: "dict-tabs",
-                for (tab, label) in DictTab::ALL {
-                    button {
-                        key: "{label}",
-                        class: if active_tab() == tab { "dict-tab active" } else { "dict-tab" },
-                        onclick: move |_| active_tab.set(tab),
-                        {i18n.t(label)}
-                    }
-                }
+            Tabs {
+                tabs: DictTab::ALL.iter().map(|(tab, label)| (*tab, i18n.t(label))).collect::<Vec<_>>(),
+                current: Some(active_tab()),
+                on_select: move |tab| {
+                    opened.open(tab);
+                    active_tab.set(tab);
+                },
             }
 
             match active_tab() {
                 DictTab::FamilyNames => render_value_tab(
-                    i18n,
-                    &tree_id,
-                    family_names_resource,
-                    quick_filter,
-                    letter_filter,
-                    page_size,
-                    current_page,
-                    "dictionary.no_entries_family_names",
-                    true,
-                    expanded,
-                    usage_resource,
-                    sort_particles,
-                    Some(family_name_edit),
-                    filed_family_names,
+                    ctx,
+                    ValueTab {
+                        resource: family_names_resource,
+                        empty_key: "dictionary.no_entries_family_names",
+                        navigable: true,
+                        sort_particles,
+                        family_name_edit: Some(family_name_edit),
+                        filed: filed_family_names,
+                    },
                 ),
                 DictTab::Occupations => render_value_tab(
-                    i18n,
-                    &tree_id,
-                    occupations_resource,
-                    quick_filter,
-                    letter_filter,
-                    page_size,
-                    current_page,
-                    "dictionary.no_entries_occupations",
-                    false,
-                    expanded,
-                    usage_resource,
-                    sort_particles,
-                    None,
-                    filed_occupations,
+                    ctx,
+                    ValueTab {
+                        resource: occupations_resource,
+                        empty_key: "dictionary.no_entries_occupations",
+                        navigable: false,
+                        sort_particles,
+                        family_name_edit: None,
+                        filed: filed_occupations,
+                    },
                 ),
-                DictTab::Sources => render_sources_tab(
-                    i18n,
-                    &tree_id,
-                    source_history,
-                    sources_view_resource,
-                    quick_filter,
-                    expanded,
-                    usage_resource,
-                ),
-                DictTab::Places => render_places_tab(
-                    i18n,
-                    &tree_id,
-                    places_resource,
-                    quick_filter,
-                    letter_filter,
-                    page_size,
-                    current_page,
-                    expanded,
-                    usage_resource,
-                    filed_places,
-                ),
+                DictTab::Sources => render_sources_tab(ctx, source_history, sources_view_resource),
+                DictTab::Places => render_places_tab(ctx, places_resource, filed_places),
                 // Its own module: server-paginated, with filters of its own.
                 DictTab::Media => match tree_id_parsed() {
                     Some(tree_id) => rsx! { DictionaryMedia { tree_id } },
@@ -772,11 +829,11 @@ impl<T> Default for FiledEntries<T> {
 /// `sort_key` when the viewer prefers surnames under their root — for
 /// occupations the two are the same string, so this changes nothing.
 fn use_filed_values(
-    resource: Resource<Result<Vec<DictionaryEntry>, ApiError>>,
+    resource: TabResource<Vec<DictionaryEntry>>,
     sort_particles: SortParticles,
 ) -> Memo<FiledEntries<DictionaryEntry>> {
     use_memo(move || {
-        let Some(Ok(entries)) = &*resource.read() else {
+        let Some(Some(Ok(entries))) = &*resource.read() else {
             return FiledEntries::default();
         };
         let file_by_root = !sort_particles.0;
@@ -790,10 +847,10 @@ fn use_filed_values(
 }
 
 fn use_filed_places(
-    resource: Resource<Result<Vec<PlaceDictionaryEntry>, ApiError>>,
+    resource: TabResource<Vec<PlaceDictionaryEntry>>,
 ) -> Memo<FiledEntries<PlaceDictionaryEntry>> {
     use_memo(move || {
-        let Some(Ok(entries)) = &*resource.read() else {
+        let Some(Some(Ok(entries))) = &*resource.read() else {
             return FiledEntries::default();
         };
         let letters = available_letters(entries.iter().map(|e| e.place.name.as_str()));
@@ -848,21 +905,53 @@ fn total_pages(total: usize, per_page: Option<usize>) -> usize {
     }
 }
 
+/// The filters the alphabetical tabs share: the quick filter, the letter,
+/// the page size and the page shown.
+#[derive(Clone, Copy)]
+struct ListFilters {
+    quick: Signal<String>,
+    letter: Signal<Option<char>>,
+    page_size: Signal<PageSize>,
+    page: Signal<usize>,
+}
+
+/// What every tab renders with: the language, the tree, the shared filters
+/// and the usage list a row expands.
+#[derive(Clone, Copy)]
+struct TabContext<'a> {
+    i18n: I18n,
+    tree_id: &'a str,
+    filters: ListFilters,
+    expanded: Signal<Option<UsageKey>>,
+    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+}
+
+/// A tab of plain values with their counts: family names or occupations.
+struct ValueTab {
+    resource: TabResource<Vec<DictionaryEntry>>,
+    empty_key: &'static str,
+    /// Family names (rather than occupations) key their usage list.
+    navigable: bool,
+    sort_particles: SortParticles,
+    /// `Some` only on the Family Names tab: occupations are not edited here.
+    family_name_edit: Option<Signal<Option<FamilyNameEdit>>>,
+    filed: Memo<FiledEntries<DictionaryEntry>>,
+}
+
 // ── Shared toolbar (alphabet index + quick filter + page size + count) ──
 
-#[allow(clippy::too_many_arguments)]
 fn render_toolbar(
     i18n: I18n,
     letters: &HashSet<char>,
-    letter_filter: Signal<Option<char>>,
-    mut current_page: Signal<usize>,
-    quick_filter: Signal<String>,
-    page_size: Signal<PageSize>,
+    filters: ListFilters,
     total_filtered: usize,
 ) -> Element {
-    let mut quick_filter = quick_filter;
-    let mut page_size = page_size;
-    let mut letter_filter = letter_filter;
+    let ListFilters {
+        quick: mut quick_filter,
+        letter: mut letter_filter,
+        mut page_size,
+        page: mut current_page,
+    } = filters;
     rsx! {
         div { class: "dict-alphabet",
             div { class: "dict-letter-strip",
@@ -941,12 +1030,13 @@ fn render_pagination(mut current_page: Signal<usize>, page: usize, pages: usize)
     }
 }
 
-fn render_clear_filters(
-    i18n: I18n,
-    mut quick_filter: Signal<String>,
-    mut letter_filter: Signal<Option<char>>,
-    mut current_page: Signal<usize>,
-) -> Element {
+fn render_clear_filters(i18n: I18n, filters: ListFilters) -> Element {
+    let ListFilters {
+        quick: mut quick_filter,
+        letter: mut letter_filter,
+        page: mut current_page,
+        ..
+    } = filters;
     rsx! {
         div { class: "empty-state",
             p { {i18n.t("dictionary.no_matches")} }
@@ -1027,32 +1117,35 @@ fn render_usage_accordion(
 
 // ── Family Names / Occupations tab (plain value + count) ────────────────
 
-#[allow(clippy::too_many_arguments)]
-fn render_value_tab(
-    i18n: I18n,
-    tree_id: &str,
-    resource: Resource<Result<Vec<DictionaryEntry>, ApiError>>,
-    quick_filter: Signal<String>,
-    letter_filter: Signal<Option<char>>,
-    page_size: Signal<PageSize>,
-    current_page: Signal<usize>,
-    empty_key: &'static str,
-    // Family names and occupations expand an inline usage list.
-    navigable: bool,
-    mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
-    sort_particles: SortParticles,
-    // `Some` only on the Family Names tab: occupations are not edited here.
-    family_name_edit: Option<Signal<Option<FamilyNameEdit>>>,
-    filed: Memo<FiledEntries<DictionaryEntry>>,
-) -> Element {
+fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
+    let TabContext {
+        i18n,
+        tree_id,
+        filters,
+        mut expanded,
+        usage_people,
+    } = ctx;
+    let ListFilters {
+        quick: quick_filter,
+        letter: letter_filter,
+        page_size,
+        page: current_page,
+    } = filters;
+    let ValueTab {
+        resource,
+        empty_key,
+        navigable,
+        sort_particles,
+        family_name_edit,
+        filed,
+    } = tab;
     let file_by_root = !sort_particles.0;
     let filed = filed.read();
     let all_entries = &filed.entries;
     let letters = &filed.letters;
 
-    let is_loading = resource.read().is_none();
-    let is_error = matches!(&*resource.read(), Some(Err(_)));
+    let is_loading = !matches!(&*resource.read(), Some(Some(_)));
+    let is_error = matches!(&*resource.read(), Some(Some(Err(_))));
 
     let quick = quick_filter();
     let letter = letter_filter();
@@ -1068,7 +1161,7 @@ fn render_value_tab(
     let rows = with_headers(&page_items, |e| filing_label(e, file_by_root));
 
     rsx! {
-        {render_toolbar(i18n, letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
+        {render_toolbar(i18n, letters, filters, total_filtered)}
 
         if is_loading {
             div { class: "empty-state", {i18n.t("dictionary.loading")} }
@@ -1077,7 +1170,7 @@ fn render_value_tab(
         } else if all_entries.is_empty() {
             div { class: "empty-state", {i18n.t(empty_key)} }
         } else if rows.is_empty() {
-            {render_clear_filters(i18n, quick_filter, letter_filter, current_page)}
+            {render_clear_filters(i18n, filters)}
         } else {
             div { class: "dict-list",
                 for (header , entry) in rows.iter() {
@@ -1382,20 +1475,23 @@ fn render_sources_list(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_sources_tab(
-    i18n: I18n,
-    tree_id: &str,
+    ctx: TabContext,
     history: Signal<Vec<String>>,
-    resource: Resource<Result<SourcesView, ApiError>>,
-    quick_filter: Signal<String>,
-    expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+    resource: TabResource<SourcesView>,
 ) -> Element {
-    let is_loading = resource.read().is_none();
-    let is_error = matches!(&*resource.read(), Some(Err(_)));
+    let TabContext {
+        i18n,
+        tree_id,
+        filters,
+        expanded,
+        usage_people,
+    } = ctx;
+    let quick_filter = filters.quick;
+    let is_loading = !matches!(&*resource.read(), Some(Some(_)));
+    let is_error = matches!(&*resource.read(), Some(Some(Err(_))));
     let view: Option<SourcesView> = match &*resource.read() {
-        Some(Ok(v)) => Some(v.clone()),
+        Some(Some(Ok(v))) => Some(v.clone()),
         _ => None,
     };
     // Falls back to the last clicked branch while the resolve request for
@@ -1432,25 +1528,30 @@ fn render_sources_tab(
 
 // ── Places tab ────────────────────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
 fn render_places_tab(
-    i18n: I18n,
-    tree_id: &str,
-    resource: Resource<Result<Vec<PlaceDictionaryEntry>, ApiError>>,
-    quick_filter: Signal<String>,
-    letter_filter: Signal<Option<char>>,
-    page_size: Signal<PageSize>,
-    current_page: Signal<usize>,
-    mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+    ctx: TabContext,
+    resource: TabResource<Vec<PlaceDictionaryEntry>>,
     filed: Memo<FiledEntries<PlaceDictionaryEntry>>,
 ) -> Element {
+    let TabContext {
+        i18n,
+        tree_id,
+        filters,
+        mut expanded,
+        usage_people,
+    } = ctx;
+    let ListFilters {
+        quick: quick_filter,
+        letter: letter_filter,
+        page_size,
+        page: current_page,
+    } = filters;
     let filed = filed.read();
     let all_entries = &filed.entries;
     let letters = &filed.letters;
 
-    let is_loading = resource.read().is_none();
-    let is_error = matches!(&*resource.read(), Some(Err(_)));
+    let is_loading = !matches!(&*resource.read(), Some(Some(_)));
+    let is_error = matches!(&*resource.read(), Some(Some(Err(_))));
 
     let quick = quick_filter();
     let letter = letter_filter();
@@ -1466,7 +1567,7 @@ fn render_places_tab(
     let rows = with_headers(&page_items, |e| e.place.name.as_str());
 
     rsx! {
-        {render_toolbar(i18n, letters, letter_filter, current_page, quick_filter, page_size, total_filtered)}
+        {render_toolbar(i18n, letters, filters, total_filtered)}
 
         if is_loading {
             div { class: "empty-state", {i18n.t("dictionary.loading")} }
@@ -1475,7 +1576,7 @@ fn render_places_tab(
         } else if all_entries.is_empty() {
             div { class: "empty-state", {i18n.t("dictionary.no_entries_places")} }
         } else if rows.is_empty() {
-            {render_clear_filters(i18n, quick_filter, letter_filter, current_page)}
+            {render_clear_filters(i18n, filters)}
         } else {
             div { class: "dict-list",
                 for (header , entry) in rows.iter() {

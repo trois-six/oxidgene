@@ -41,15 +41,15 @@ test("switches the dictionary tabs and pages through the family names", async ({
     await expect(page.getByText("Pagewell30", { exact: true })).toBeVisible();
     await expect(page.getByText("Ashdown", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Sources", exact: true }).click();
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
     await expect(page.getByText("Parish register 0", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Places", exact: true }).click();
+    await page.getByRole("tab", { name: "Places", exact: true }).click();
     await expect(page.getByText("Northfield", { exact: false }).first()).toBeVisible();
 
-    await page.getByRole("button", { name: "Occupations", exact: true }).click();
+    await page.getByRole("tab", { name: "Occupations", exact: true }).click();
     await expect(page.getByText("Weaver", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Media", exact: true }).click();
+    await page.getByRole("tab", { name: "Media", exact: true }).click();
     await expect(page.getByText("Parish register 0", { exact: true })).toHaveCount(0);
 });

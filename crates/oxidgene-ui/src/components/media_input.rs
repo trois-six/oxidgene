@@ -88,10 +88,21 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
     let on_batch_done = props.on_batch_done;
     let on_files = props.on_files;
 
+    let batch = BatchUpload {
+        api,
+        tree_id,
+        document_id,
+        progress,
+        error,
+        on_uploaded,
+        on_batch_done,
+        i18n,
+    };
+
     let pick_files = {
-        let api = api.clone();
+        let batch = batch.clone();
         move |_| {
-            let api = api.clone();
+            let batch = batch.clone();
             spawn(async move {
                 let files = rfd::AsyncFileDialog::new()
                     .add_filter(
@@ -120,23 +131,11 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                     handler.call(payloads);
                     return;
                 }
-                upload_files(
-                    tree_id,
-                    document_id,
-                    payloads,
-                    progress,
-                    error,
-                    api,
-                    on_uploaded,
-                    on_batch_done,
-                    &i18n,
-                )
-                .await;
+                batch.run(payloads).await;
             });
         }
     };
 
-    let drop_api = api.clone();
     let busy = progress().is_some();
 
     rsx! {
@@ -158,7 +157,7 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                 e.prevent_default();
                 dragging.set(false);
                 let dropped = e.files();
-                let api = drop_api.clone();
+                let batch = batch.clone();
                 spawn(async move {
                     let mut payloads = Vec::new();
                     for file in dropped {
@@ -180,18 +179,7 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
                         handler.call(payloads);
                         return;
                     }
-                    upload_files(
-                        tree_id,
-                        document_id,
-                        payloads,
-                        progress,
-                        error,
-                        api,
-                        on_uploaded,
-                        on_batch_done,
-                        &i18n,
-                    )
-                    .await;
+                    batch.run(payloads).await;
                 });
             },
             button {
@@ -228,62 +216,73 @@ pub fn MediaInput(props: MediaInputProps) -> Element {
     }
 }
 
-/// Upload a batch sequentially, reporting each file as it lands.
-///
-/// One failure does not abandon the rest: a folder of scans where the third
-/// file is a `.DS_Store` should still deliver the other eleven. The message
-/// names the file, so "unsupported file type" is actionable.
-#[allow(clippy::too_many_arguments)]
-async fn upload_files(
+/// Where a batch of picked files goes and how it reports: the tree and the
+/// document taking the files as pages, if any, and the signals and
+/// handlers following the upload.
+#[derive(Clone)]
+struct BatchUpload {
+    api: ApiClient,
     tree_id: Uuid,
     document_id: Option<Uuid>,
-    files: Vec<PickedFile>,
-    mut progress: Signal<Option<UploadProgress>>,
-    mut error: Signal<Option<String>>,
-    api: ApiClient,
+    progress: Signal<Option<UploadProgress>>,
+    error: Signal<Option<String>>,
     on_uploaded: Option<EventHandler<Uuid>>,
     on_batch_done: Option<EventHandler<()>>,
-    i18n: &crate::i18n::I18n,
-) {
-    let total = files.len();
-    let mut failures: Vec<String> = Vec::new();
-    error.set(None);
+    i18n: crate::i18n::I18n,
+}
 
-    for (index, (file_name, bytes)) in files.into_iter().enumerate() {
-        progress.set(Some(UploadProgress {
-            done: index,
-            total,
-            current: file_name.clone(),
-        }));
-        match api
-            .upload_media(
-                tree_id,
-                MediaUpload {
-                    file_name: file_name.clone(),
-                    bytes,
-                    title: None,
-                    description: None,
-                    attach_to: None,
-                    as_page_of: document_id,
-                },
-            )
-            .await
-        {
-            Ok(media) => {
-                if let Some(handler) = on_uploaded {
-                    handler.call(media.id);
+impl BatchUpload {
+    /// Upload a batch sequentially, reporting each file as it lands.
+    ///
+    /// One failure does not abandon the rest: a folder of scans where the
+    /// third file is a `.DS_Store` should still deliver the other eleven. The
+    /// message names the file, so "unsupported file type" is actionable.
+    async fn run(self, files: Vec<PickedFile>) {
+        let Self {
+            api,
+            tree_id,
+            document_id,
+            mut progress,
+            mut error,
+            on_uploaded,
+            on_batch_done,
+            i18n,
+        } = self;
+        let total = files.len();
+        let mut failures: Vec<String> = Vec::new();
+        error.set(None);
+
+        for (index, (file_name, bytes)) in files.into_iter().enumerate() {
+            progress.set(Some(UploadProgress {
+                done: index,
+                total,
+                current: file_name.clone(),
+            }));
+            let upload = MediaUpload {
+                file_name: file_name.clone(),
+                bytes,
+                title: None,
+                description: None,
+                attach_to: None,
+                as_page_of: document_id,
+            };
+            match api.upload_media(tree_id, upload).await {
+                Ok(media) => {
+                    if let Some(handler) = on_uploaded {
+                        handler.call(media.id);
+                    }
                 }
+                Err(e) => failures.push(format!("{file_name}: {}", friendly(&e, &i18n))),
             }
-            Err(e) => failures.push(format!("{file_name}: {}", friendly(&e, i18n))),
         }
-    }
 
-    progress.set(None);
-    if !failures.is_empty() {
-        error.set(Some(failures.join("\n")));
-    }
-    if let Some(done) = on_batch_done {
-        done.call(());
+        progress.set(None);
+        if !failures.is_empty() {
+            error.set(Some(failures.join("\n")));
+        }
+        if let Some(done) = on_batch_done {
+            done.call(());
+        }
     }
 }
 
