@@ -309,6 +309,7 @@ fn given_names() -> &'static Reference<GivenNameEntry> {
 /// serve the first tooltip request and blocks it for tens of milliseconds,
 /// with any concurrent lookup queued behind the same `OnceLock`. Call this
 /// from a blocking context at startup so no request ever pays for it.
+#[tracing::instrument(name = "reference.preheat")]
 pub fn preheat() {
     occupations();
     given_names();

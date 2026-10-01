@@ -47,6 +47,10 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
 }
 
 /// Run all pending migrations on the given database connection.
+///
+/// Spanned as `startup.migrate`: it runs before any request, and without a
+/// span of its own each of its statements would be a trace by itself.
+#[tracing::instrument(name = "startup.migrate", skip_all)]
 pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
     Migrator::up(db, None).await?;
     info!("Migrations applied successfully");

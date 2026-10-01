@@ -93,6 +93,10 @@ pub fn spawn_worker(
 ///
 /// Errors are logged, not propagated — there is no caller left to handle them,
 /// and the tree stays flagged so the next sweep retries.
+///
+/// The purge runs outside any request, so its span is the root of the
+/// cascade's database calls.
+#[tracing::instrument(name = "purge.tree", skip_all)]
 async fn purge_tree(
     db: &DatabaseConnection,
     profiles: &ProfileService,

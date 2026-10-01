@@ -568,6 +568,10 @@ pub async fn record_baselines(db: &DatabaseConnection) -> Result<usize, OxidGene
 
 /// [`record_baselines`], logging instead of failing: a tree without a
 /// baseline still records every change made from now on.
+///
+/// Runs at startup, outside any request: its span is the root its database
+/// calls hang from, rather than each call being a trace of its own.
+#[tracing::instrument(name = "history.baselines", skip_all)]
 pub async fn record_baselines_at_startup(db: &DatabaseConnection) {
     match record_baselines(db).await {
         // A baseline versions a whole tree, like an import.

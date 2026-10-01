@@ -246,7 +246,9 @@ is read-only, so such text cannot trigger a write through OxidGene.
 ### 7.4 Logging
 
 A tool call logs its tool name, duration, and outcome code. It never logs
-parameters or results, because they contain names, places, and dates.
+parameters or results, because they contain names, places, and dates. With
+OTLP export enabled, each call is also an `mcp.tool` root span recording the
+tool name only, under which its database calls are traced.
 
 ---
 

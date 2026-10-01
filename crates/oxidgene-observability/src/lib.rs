@@ -21,7 +21,9 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::logs::SdkLoggerProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::SdkTracerProvider;
+use opentelemetry_sdk::trace::{
+    Sampler, SamplingDecision, SamplingResult, SdkTracerProvider, ShouldSample,
+};
 use tracing::{Span, field};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
@@ -284,6 +286,7 @@ where
         .build()?;
     let tracer_provider = SdkTracerProvider::builder()
         .with_resource(resource.clone())
+        .with_sampler(sampler())
         .with_batch_exporter(span_exporter)
         .build();
     let tracer = tracer_provider.tracer(service_name);
@@ -329,6 +332,46 @@ where
         meter_provider: Some(meter_provider),
         runtime,
     })
+}
+
+/// Every span follows its parent's decision; a span without a parent is kept
+/// unless it is a database call.
+fn sampler() -> Sampler {
+    Sampler::ParentBased(Box::new(NoOrphanDatabaseCalls))
+}
+
+/// Drops the traces a database call would start on its own.
+///
+/// SeaORM spans are leaves under an operation's span. Without one — a
+/// background loop polling for work, a startup query — each call would be a
+/// trace by itself: one per second per job worker, for instance, desktop
+/// included. Such calls are recorded under a span of their own where they
+/// matter (`purge.tree`, `history.baselines`, `startup.migrate`), and the
+/// remaining ones are dropped here.
+#[derive(Debug, Clone)]
+struct NoOrphanDatabaseCalls;
+
+impl ShouldSample for NoOrphanDatabaseCalls {
+    fn should_sample(
+        &self,
+        _parent_context: Option<&opentelemetry::Context>,
+        _trace_id: opentelemetry::trace::TraceId,
+        name: &str,
+        _span_kind: &opentelemetry::trace::SpanKind,
+        _attributes: &[KeyValue],
+        _links: &[opentelemetry::trace::Link],
+    ) -> SamplingResult {
+        let decision = if name.starts_with("sea_orm.") {
+            SamplingDecision::Drop
+        } else {
+            SamplingDecision::RecordAndSample
+        };
+        SamplingResult {
+            decision,
+            attributes: Vec::new(),
+            trace_state: opentelemetry::trace::TraceState::default(),
+        }
+    }
 }
 
 fn runtime_filter(log_filter: &str) -> Result<EnvFilter, tracing_subscriber::filter::ParseError> {
@@ -587,6 +630,46 @@ mod tests {
         assert!(
             !output.contains('\u{1b}'),
             "unexpected ANSI escape: {output:?}"
+        );
+    }
+
+    fn decision(parent: Option<&opentelemetry::Context>, name: &str) -> SamplingDecision {
+        sampler()
+            .should_sample(
+                parent,
+                opentelemetry::trace::TraceId::from_bytes([1; 16]),
+                name,
+                &opentelemetry::trace::SpanKind::Internal,
+                &[],
+                &[],
+            )
+            .decision
+    }
+
+    #[test]
+    fn database_calls_start_no_trace_of_their_own() {
+        use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
+
+        assert_eq!(decision(None, "sea_orm.query_all"), SamplingDecision::Drop);
+        assert_eq!(decision(None, "sea_orm.begin"), SamplingDecision::Drop);
+        for root in [
+            "purge.tree",
+            "http.server.request",
+            "background_job.process",
+        ] {
+            assert_eq!(decision(None, root), SamplingDecision::RecordAndSample);
+        }
+
+        let parent = opentelemetry::Context::new().with_remote_span_context(SpanContext::new(
+            TraceId::from_bytes([7; 16]),
+            SpanId::from_bytes([7; 8]),
+            TraceFlags::SAMPLED,
+            true,
+            TraceState::default(),
+        ));
+        assert_eq!(
+            decision(Some(&parent), "sea_orm.query_all"),
+            SamplingDecision::RecordAndSample
         );
     }
 

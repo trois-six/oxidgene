@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:20:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T13:23:39Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -386,6 +386,14 @@ the rejected value.
   record format, depth, aggregate size, count, phase, and outcome dimensions
   only. User filenames, filesystem paths, external account details, genealogy,
   media metadata, SQL, and payloads are never span attributes.
+- Native span export is parent-based: a span follows its parent's sampling
+  decision, and a root span is kept unless it is a SeaORM call. A database
+  call made outside any operation — the job worker polling for work every
+  second, a startup query — would otherwise be a trace by itself. Work that
+  runs outside a request owns a root span instead: `startup.migrate`,
+  `reference.preheat`, `history.baselines`, `purge.tree`, `mcp.tool` (with the
+  tool name, one of a fixed set), and `background_job.process` for each
+  claimed job.
 - Background job spans record only bounded technical dimensions such as job
   kind and import/export format. Job IDs, tree IDs, filenames, source keys,
   user content, and media metadata are excluded.

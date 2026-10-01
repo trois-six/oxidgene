@@ -30,7 +30,7 @@ use schemars::JsonSchema;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::info;
+use tracing::{Instrument as _, info};
 use uuid::Uuid;
 
 use crate::error_contract::classify;
@@ -576,13 +576,21 @@ impl ServerHandler for OxidGeneMcp {
 /// is a tool error carrying the shared REST error envelope.
 ///
 /// Logs the tool name, duration and outcome code only: parameters and results
-/// hold names, places and dates.
+/// hold names, places and dates. The call runs under an `mcp.tool` span named
+/// after the tool, the root of its database calls.
 async fn respond<T: Serialize>(
     tool: &'static str,
     call: impl Future<Output = Result<T, OxidGeneError>>,
 ) -> CallToolResult {
     let started = Instant::now();
-    let outcome = call.await.and_then(to_value);
+    let span = tool_span(tool);
+    let outcome = call.instrument(span.clone()).await.and_then(to_value);
+    if outcome
+        .as_ref()
+        .is_err_and(|error| classify(error).unexpected)
+    {
+        span.record("otel.status_code", "ERROR");
+    }
     let elapsed_ms = started.elapsed().as_millis();
     let code = match &outcome {
         Ok(_) => "ok",
@@ -600,6 +608,16 @@ async fn respond<T: Serialize>(
             CallToolResult::structured_error(body)
         }
     }
+}
+
+/// The `mcp.tool` span of one call, named after its tool.
+fn tool_span(tool: &'static str) -> tracing::Span {
+    tracing::info_span!(
+        "mcp.tool",
+        otel.name = %format_args!("mcp.tool {tool}"),
+        mcp.tool.name = tool,
+        otel.status_code = tracing::field::Empty,
+    )
 }
 
 fn to_value<T: Serialize>(value: T) -> Result<Value, OxidGeneError> {
