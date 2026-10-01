@@ -1065,6 +1065,22 @@ fn is_remote(file_path: &str) -> bool {
     file_path.starts_with("http://") || file_path.starts_with("https://")
 }
 
+/// `value` as one percent-encoded path segment: every byte but the
+/// unreserved ones of RFC 3986 is escaped, `/` and `%` included, so a tag
+/// such as `1914/1918` stays one segment.
+fn path_segment(value: &str) -> String {
+    use std::fmt::Write as _;
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
 #[derive(Debug, Serialize)]
 struct PortraitImagesRequest {
     person_ids: Vec<Uuid>,
@@ -2747,19 +2763,6 @@ impl ApiClient {
         Ok(())
     }
 
-    async fn delete_no_content_with_body<B: Serialize>(
-        &self,
-        path: &str,
-        body: &B,
-    ) -> Result<(), ApiError> {
-        let url = self.url(path);
-        let resp = self
-            .send_write("DELETE", path, self.client.delete(&url).json(body))
-            .await?;
-        Self::require_success(resp).await?;
-        Ok(())
-    }
-
     /// Handle HTTP response: check status, parse JSON.
     async fn handle_response<T: serde::de::DeserializeOwned>(
         method: &str,
@@ -4284,10 +4287,10 @@ impl ApiClient {
         media_id: Uuid,
         tag: String,
     ) -> Result<(), ApiError> {
-        self.delete_no_content_with_body(
-            &format!("/api/v1/trees/{tree_id}/media/{media_id}/tags"),
-            &MediaTagBody { tag },
-        )
+        self.delete_no_content(&format!(
+            "/api/v1/trees/{tree_id}/media/{media_id}/tags/{}",
+            path_segment(&tag)
+        ))
         .await
     }
 
@@ -4986,6 +4989,15 @@ impl Injector for HeaderInjector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_segment_escapes_everything_that_could_end_or_alter_it() {
+        assert_eq!(path_segment("Civil record"), "Civil%20record");
+        assert_eq!(path_segment("1914/1918"), "1914%2F1918");
+        assert_eq!(path_segment("100%"), "100%25");
+        assert_eq!(path_segment("Église"), "%C3%89glise");
+        assert_eq!(path_segment("a-b_c.d~e"), "a-b_c.d~e");
+    }
 
     #[test]
     fn a_logged_request_shows_its_route_but_not_its_query_or_ids() {

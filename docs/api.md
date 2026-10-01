@@ -423,7 +423,7 @@ meaning.
 | `GET` | `/trees/{tree_id}/media/{media_id}/archive` | Every live page of a document, in one ZIP attachment (`application/zip`, `private, no-store`, `nosniff`). Entries are prefixed `001_`, `002_` in current reading order; padding grows beyond 999 pages so lexical order remains correct. A page held only as an `http(s)` URL contributes a `.url` Internet Shortcut (`[InternetShortcut]` + `URL=`, CRLF, control characters stripped) instead of bytes, so the archive has one entry per page and the address survives the round trip. Empty documents and any other page without stored bytes return `404`; pages are never silently skipped |
 | `PUT` | `/trees/{tree_id}/media/{media_id}` | Update media metadata. `width`/`height` are sent together or not at all, and only for a page whose bytes we do not hold — the browser that displayed a remote picture is the only witness to its size, and for our own copy the size is read from the bytes. Recording them re-checks the regions already drawn on that page |
 | `POST` | `/trees/{tree_id}/media/{media_id}/tags` | Add one tag (`{tag}`), idempotently by case-insensitive value |
-| `DELETE` | `/trees/{tree_id}/media/{media_id}/tags` | Remove one tag (`{tag}`) without replacing the other tags |
+| `DELETE` | `/trees/{tree_id}/media/{media_id}/tags/{tag}` | Remove one tag, matched like the add (case- and accent-insensitive), without replacing the other tags. `{tag}` is percent-encoded, `/` included |
 | `GET` | `/trees/{tree_id}/media/{media_id}/deletion-status?allowed_link_id={link_id}` | Whether the gallery link is the sole external reference (`{can_delete: bool}`); used to ask for confirmation only when deletion is certain |
 | `DELETE` | `/trees/{tree_id}/media/{media_id}` | Permanently delete the media, its related rows and unshared stored objects. With `?only_if_unreferenced_elsewhere=true&allowed_link_id={link_id}`, keep it when any reference other than that gallery link remains (`204` deleted, `200` retained) |
 
@@ -1044,10 +1044,10 @@ profiles. See [Data Model §4](data-model.md).
 | `GET` | `/trees/{tree_id}/profiles` | Get every person projection of a tree |
 | `POST` | `/trees/{tree_id}/profiles/rebuild` | Force a full projection rebuild for a tree |
 | `POST` | `/trees/{tree_id}/profiles/rebuild/{person_id}` | Rebuild a single person's projection |
-| `POST` | `/trees/{tree_id}/profiles/drop` | Drop a tree's projections (rebuilt lazily on next read) |
+| `DELETE` | `/trees/{tree_id}/profiles` | Drop a tree's projections (rebuilt lazily on next read) |
 | `GET` | `/trees/{tree_id}/pedigree/{root_person_id}?ancestor_depth=N&descendant_depth=N` | Assemble a windowed pedigree for a root person |
 | `POST` | `/trees/{tree_id}/pedigrees` | Assemble several pedigrees at once for `{root_person_ids, ancestor_depth, descendant_depth}`. Request order is preserved; a root that cannot be assembled is omitted rather than failing the batch. At most 64 roots per request |
-| `PATCH` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
+| `GET` | `/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=ancestors\|descendants&from_depth=N&to_depth=N&other_depth=N` | Expand pedigree depth (returns only new nodes/edges). `other_depth` is the depth already loaded in the opposite direction (default `0`) |
 
 Every pedigree depth — `ancestor_depth`, `descendant_depth`, `from_depth`,
 `to_depth`, `other_depth`, and their GraphQL counterparts — lies between 0 and
@@ -1382,6 +1382,8 @@ type Query {
   personProfiles(treeId: ID!): [GqlPersonProfile!]!
   pedigree(treeId: ID!, rootPersonId: ID!, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
   pedigrees(treeId: ID!, rootPersonIds: [ID!]!, ancestorDepth: Int!, descendantDepth: Int!): [PedigreeEntry!]!
+  # A read, like REST's `GET …/expand`: only what an expansion adds.
+  expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
   searchPersons(
     treeId: ID!
     query: String!
@@ -1520,7 +1522,6 @@ type Mutation {
   revertRecord(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, version: Int!): GqlAuditEntry!
 
   # Read projections (see Data Model section 4) — mirrors the REST routes
-  expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
   rebuildTreeProfiles(treeId: ID!): GqlProfileRebuildResult!
   rebuildPersonProfile(treeId: ID!, personId: ID!): GqlProfileRebuildResult!
   dropTreeProfiles(treeId: ID!): Boolean!

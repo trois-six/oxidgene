@@ -9,7 +9,6 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self};
 use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
-use crate::service::pedigrees::Expansion;
 use crate::service::scope::{begin_tx, commit_tx};
 use crate::service::{
     duplicates, event, family, family_names, media, media_link, person, person_name, place,
@@ -36,9 +35,9 @@ use super::types::{
     GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
     GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
     GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
-    GqlNote, GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
-    GqlProfileRebuildResult, GqlRepository, GqlSource, GqlSourceRepository, GqlTree, GqlVignette,
-    db_from_ctx, media_from_ctx, profiles_from_ctx, purge_from_ctx, require_local_file_access,
+    GqlNote, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult, GqlRepository, GqlSource,
+    GqlSourceRepository, GqlTree, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
+    purge_from_ctx, require_local_file_access,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -1397,43 +1396,5 @@ impl MutationRoot {
         profiles.invalidate_tree(&txn, tid).await?;
         commit_tx(txn).await?;
         Ok(true)
-    }
-
-    /// Expand a pedigree in one direction, returning only the new nodes and
-    /// edges (delta). The client merges the delta into its current view.
-    ///
-    /// `otherDepth` is the depth already loaded in the opposite direction —
-    /// pass it so the returned `*DepthLoaded` values match what you hold.
-    #[allow(clippy::too_many_arguments)]
-    async fn expand_pedigree(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        root_person_id: ID,
-        direction: GqlPedigreeDirection,
-        from_depth: i32,
-        to_depth: i32,
-        #[graphql(default = 0)] other_depth: i32,
-    ) -> Result<GqlPedigreeDelta> {
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let rid = uuid(&root_person_id)?;
-
-        // Boxed: the expansion assembles two pedigrees, and inlining that
-        // future into the mutation root's pushed the compiler's Send check
-        // past its recursion limit (rust-lang/rust#159228).
-        let delta = Box::pin(crate::service::pedigrees::expand_pedigree(
-            profiles,
-            tid,
-            rid,
-            Expansion {
-                direction: direction.into(),
-                from_depth: from_depth.into(),
-                to_depth: to_depth.into(),
-                other_depth: other_depth.into(),
-            },
-        ))
-        .await?;
-        Ok(delta.into())
     }
 }

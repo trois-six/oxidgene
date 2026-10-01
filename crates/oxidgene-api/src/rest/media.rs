@@ -145,13 +145,15 @@ pub async fn add_tag(
     ))
 }
 
-/// DELETE /api/v1/trees/:tree_id/media/:media_id/tags
+/// DELETE /api/v1/trees/:tree_id/media/:media_id/tags/:tag
+///
+/// The tag rides in the path, percent-encoded, rather than in a body: a
+/// `DELETE` body has no defined meaning and proxies may drop it.
 pub async fn remove_tag(
     State(state): State<AppState>,
-    Path((tree_id, media_id)): Path<(Uuid, Uuid)>,
-    Json(body): Json<MediaTagRequest>,
+    Path((tree_id, media_id, tag)): Path<(Uuid, Uuid, String)>,
 ) -> Result<StatusCode, ApiError> {
-    media_service::remove_tag(&state.db, tree_id, media_id, &body.tag).await?;
+    media_service::remove_tag(&state.db, tree_id, media_id, &tag).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

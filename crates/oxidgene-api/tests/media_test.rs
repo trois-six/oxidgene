@@ -2157,23 +2157,17 @@ async fn media_tags_are_added_and_removed_independently() {
             json!(["archives", "Civil record", "Église"])
         );
     }
-    let (status, _) = send(
-        &h.app,
-        Method::DELETE,
-        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
-        Some(json!({ "tag": "eglise" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-
-    let (status, _) = send(
-        &h.app,
-        Method::DELETE,
-        &format!("/api/v1/trees/{}/media/{media_id}/tags", h.tree_id),
-        Some(json!({ "tag": "ARCHIVES" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    // The tag to remove rides in the path, percent-encoded.
+    for tag in ["eglise", "ARCHIVES"] {
+        let (status, _) = send(
+            &h.app,
+            Method::DELETE,
+            &format!("/api/v1/trees/{}/media/{media_id}/tags/{tag}", h.tree_id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
 
     let (status, updated) = send(
         &h.app,
@@ -2184,6 +2178,26 @@ async fn media_tags_are_added_and_removed_independently() {
     .await;
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["tags"], json!(["Civil record"]));
+
+    let (status, _) = send(
+        &h.app,
+        Method::DELETE,
+        &format!(
+            "/api/v1/trees/{}/media/{media_id}/tags/civil%20RECORD",
+            h.tree_id
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, updated) = send(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{}/media/{media_id}", h.tree_id),
+        None,
+    )
+    .await;
+    assert_eq!(updated["tags"], json!([]));
 }
 
 #[tokio::test]

@@ -3603,6 +3603,22 @@ async fn test_projection_graphql_surface() {
         "oversized batch should be rejected: {resp}"
     );
 
+    // Expansion is a read, like REST's `GET …/expand`.
+    let resp = graphql(
+        app.clone(),
+        &format!(
+            r#"query {{ expandPedigree(treeId: "{tree_id}", rootPersonId: "{person_id}",
+                direction: ANCESTORS, fromDepth: 2, toDepth: 4, otherDepth: 1) {{
+                ancestorDepthLoaded descendantDepthLoaded newNodes {{ personId }} }} }}"#
+        ),
+        None,
+    )
+    .await;
+    let delta = &data(&resp)["expandPedigree"];
+    assert_eq!(delta["ancestorDepthLoaded"], 4);
+    assert_eq!(delta["descendantDepthLoaded"], 1);
+    assert_eq!(delta["newNodes"], json!([]));
+
     // rebuildTreeProfiles / rebuildPersonProfile / dropTreeProfiles.
     let resp = graphql(
         app.clone(),

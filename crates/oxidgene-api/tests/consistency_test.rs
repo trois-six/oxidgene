@@ -2267,7 +2267,7 @@ async fn pedigree_depths_are_bounded_alike_on_both_surfaces() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send(
         &app,
-        Method::PATCH,
+        Method::GET,
         &format!(
             "/api/v1/trees/{tree_id}/pedigree/{root}/expand?direction=ancestors&from_depth=2&to_depth=11"
         ),
@@ -2281,8 +2281,8 @@ async fn pedigree_depths_are_bounded_alike_on_both_surfaces() {
         "query($t: ID!, $r: ID!) { pedigree(treeId: $t, rootPersonId: $r, ancestorDepth: -1, descendantDepth: 0) { ancestorDepthLoaded } }",
         "query($t: ID!, $r: ID!) { pedigree(treeId: $t, rootPersonId: $r, ancestorDepth: 11, descendantDepth: 0) { ancestorDepthLoaded } }",
         "query($t: ID!, $r: ID!) { pedigrees(treeId: $t, rootPersonIds: [$r], ancestorDepth: 2, descendantDepth: -3) { rootPersonId } }",
-        "mutation($t: ID!, $r: ID!) { expandPedigree(treeId: $t, rootPersonId: $r, direction: ANCESTORS, fromDepth: 2, toDepth: 11) { ancestorDepthLoaded } }",
-        "mutation($t: ID!, $r: ID!) { expandPedigree(treeId: $t, rootPersonId: $r, direction: ANCESTORS, fromDepth: -2, toDepth: 3) { ancestorDepthLoaded } }",
+        "query($t: ID!, $r: ID!) { expandPedigree(treeId: $t, rootPersonId: $r, direction: ANCESTORS, fromDepth: 2, toDepth: 11) { ancestorDepthLoaded } }",
+        "query($t: ID!, $r: ID!) { expandPedigree(treeId: $t, rootPersonId: $r, direction: ANCESTORS, fromDepth: -2, toDepth: 3) { ancestorDepthLoaded } }",
     ] {
         let response = gql(&app, operation, vars.clone()).await;
         assert_eq!(

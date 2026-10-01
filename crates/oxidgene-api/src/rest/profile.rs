@@ -99,7 +99,7 @@ pub async fn rebuild_person_profile(
     }))
 }
 
-/// `POST /api/v1/trees/{tree_id}/profiles/drop`
+/// `DELETE /api/v1/trees/{tree_id}/profiles`
 ///
 /// Drops every projection and search row of a tree. They are rebuilt lazily on
 /// the next read. Useful for debugging or after a bulk operation.
@@ -157,7 +157,7 @@ pub async fn load_pedigrees(
     Ok(Json(entries))
 }
 
-/// `PATCH /api/v1/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=…&from_depth=…&to_depth=…&other_depth=…`
+/// `GET /api/v1/trees/{tree_id}/pedigree/{root_person_id}/expand?direction=…&from_depth=…&to_depth=…&other_depth=…`
 ///
 /// Returns only the nodes and edges a pedigree gains when expanded in one
 /// direction, so the client can merge a delta rather than re-render.

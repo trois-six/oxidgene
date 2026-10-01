@@ -35,10 +35,11 @@ use super::types::{
     GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference, GqlGivenNameReferenceMatch,
     GqlImportJobStatus, GqlKinship, GqlMedia, GqlMediaConnection, GqlMediaDownload, GqlMediaFacets,
     GqlMediaLink, GqlMediaWithLink, GqlNote, GqlNoteConnection, GqlOccupationReference,
-    GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
-    GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
-    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion,
-    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlRepository, GqlRepositoryConnection,
+    GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeDelta, GqlPedigreeDirection,
+    GqlPedigreeEntry, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
+    GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
+    GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
+    GqlRepository, GqlRepositoryConnection,
     GqlSearchEntry, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
     GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree,
     GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
@@ -1680,5 +1681,47 @@ impl QueryRoot {
         .into_iter()
         .map(Into::into)
         .collect())
+    }
+
+    /// Expand a pedigree in one direction, returning only the new nodes and
+    /// edges (delta). The client merges the delta into its current view. A
+    /// read, like REST's `GET …/expand`.
+    ///
+    /// `otherDepth` is the depth already loaded in the opposite direction —
+    /// pass it so the returned `*DepthLoaded` values match what you hold.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per GraphQL field argument"
+    )]
+    async fn expand_pedigree(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        root_person_id: ID,
+        direction: GqlPedigreeDirection,
+        from_depth: i32,
+        to_depth: i32,
+        #[graphql(default = 0)] other_depth: i32,
+    ) -> Result<GqlPedigreeDelta> {
+        let profiles = profiles_from_ctx(ctx);
+        let tid = live_tree(ctx, &tree_id).await?;
+        let rid = uuid(&root_person_id)?;
+
+        // Boxed: the expansion assembles two pedigrees, and inlining that
+        // future into the root's pushed the compiler's Send check past its
+        // recursion limit (rust-lang/rust#159228).
+        let delta = Box::pin(crate::service::pedigrees::expand_pedigree(
+            profiles,
+            tid,
+            rid,
+            crate::service::pedigrees::Expansion {
+                direction: direction.into(),
+                from_depth: from_depth.into(),
+                to_depth: to_depth.into(),
+                other_depth: other_depth.into(),
+            },
+        ))
+        .await?;
+        Ok(delta.into())
     }
 }

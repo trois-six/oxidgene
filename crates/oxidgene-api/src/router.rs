@@ -281,9 +281,10 @@ pub fn build_router(state: AppState) -> Router {
                 .put(media::update_media)
                 .delete(media::delete_media),
         )
+        .route("/{tree_id}/media/{media_id}/tags", post(media::add_tag))
         .route(
-            "/{tree_id}/media/{media_id}/tags",
-            post(media::add_tag).delete(media::remove_tag),
+            "/{tree_id}/media/{media_id}/tags/{tag}",
+            delete(media::remove_tag),
         )
         // Before `/{media_id}`, same reason as `upload`.
         .route("/{tree_id}/media/document", post(media::create_document))
@@ -425,7 +426,10 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/persons/{person_id}/detail-bundle",
             get(profile::get_person_detail_bundle),
         )
-        .route("/{tree_id}/profiles", get(profile::get_person_profiles))
+        .route(
+            "/{tree_id}/profiles",
+            get(profile::get_person_profiles).delete(profile::drop_tree_profiles),
+        )
         .route(
             "/{tree_id}/profiles/rebuild",
             post(profile::rebuild_tree_profiles),
@@ -434,11 +438,7 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/profiles/rebuild/{person_id}",
             post(profile::rebuild_person_profile),
         )
-        .route(
-            "/{tree_id}/profiles/drop",
-            post(profile::drop_tree_profiles),
-        )
-        // Declared after the fixed `rebuild` / `drop` segments so those win.
+        // Declared after the fixed `rebuild` segment so it wins.
         .route(
             "/{tree_id}/profiles/{person_id}",
             get(profile::get_person_profile),
@@ -450,7 +450,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/{tree_id}/pedigrees", post(profile::load_pedigrees))
         .route(
             "/{tree_id}/pedigree/{root_person_id}/expand",
-            patch(profile::expand_pedigree),
+            get(profile::expand_pedigree),
         );
 
     let history_routes = Router::new()

@@ -3989,7 +3989,7 @@ async fn test_profile_routes() {
     // Expansion returns a (here empty) delta, not an error.
     let (status, body) = send(
         &app,
-        Method::PATCH,
+        Method::GET,
         &format!(
             "/api/v1/trees/{tree_id}/pedigree/{person_id}/expand\
              ?direction=ancestors&from_depth=2&to_depth=4&other_depth=1"
@@ -4005,8 +4005,8 @@ async fn test_profile_routes() {
     // Dropping clears the projections; the next read re-materializes them.
     let (status, body) = send(
         &app,
-        Method::POST,
-        &format!("/api/v1/trees/{tree_id}/profiles/drop"),
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree_id}/profiles"),
         None,
     )
     .await;
