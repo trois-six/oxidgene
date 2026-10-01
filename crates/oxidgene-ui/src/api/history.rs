@@ -98,16 +98,13 @@ impl ApiClient {
         record_id: Uuid,
         version: i32,
     ) -> Result<AuditEntry, ApiError> {
-        let entry = self
-            .post(
-                &format!(
-                    "/api/v1/trees/{tree_id}/history/{}/{record_id}/revert",
-                    record_type.as_str()
-                ),
-                &RevertBody { version },
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(entry)
+        self.post(
+            &format!(
+                "/api/v1/trees/{tree_id}/history/{}/{record_id}/revert",
+                record_type.as_str()
+            ),
+            &RevertBody { version },
+        )
+        .await
     }
 }

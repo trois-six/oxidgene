@@ -1900,10 +1900,37 @@ type CacheInner =
 type Gate = std::sync::Arc<futures_util::lock::Mutex<()>>;
 type GateInner = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Gate>>>;
 
+/// The most responses the cache holds. Inserting past it drops the oldest.
+const CACHE_MAX_ENTRIES: usize = 256;
+
+/// How many times the cache was invalidated: once per tree for the
+/// invalidations scoped to one, and overall for the others.
+///
+/// A response is stored only if no invalidation covering it happened while
+/// it was in flight: a read sent before a write and answered after it may
+/// predate the write, and storing it would serve the old data for a TTL.
+#[derive(Default)]
+struct Generations {
+    all: u64,
+    trees: std::collections::HashMap<Uuid, u64>,
+}
+
+/// The generation a response under `key` must still match to be stored.
+type Generation = (u64, u64);
+
 #[derive(Clone, Default)]
 struct ResponseCache {
     entries: CacheInner,
     gates: GateInner,
+    generations: std::sync::Arc<std::sync::Mutex<Generations>>,
+}
+
+/// The tree a request path is about: the id after `/api/v1/trees/`, or
+/// `None` for a path outside any one tree.
+fn tree_of_path(path: &str) -> Option<Uuid> {
+    let rest = path.strip_prefix("/api/v1/trees/")?;
+    let id = rest.split(['/', '?']).next()?;
+    Uuid::parse_str(id).ok()
 }
 
 impl std::fmt::Debug for ResponseCache {
@@ -1928,14 +1955,55 @@ impl ResponseCache {
         }
     }
 
+    /// Stores `data` under `key`, first dropping the expired entries and,
+    /// at the size limit, the oldest ones.
     fn set(&self, key: String, data: Vec<u8>) {
-        if let Ok(mut cache) = self.entries.lock() {
-            cache.insert(key, (data, chrono::Utc::now().timestamp()));
+        let Ok(mut cache) = self.entries.lock() else {
+            return;
+        };
+        let now = chrono::Utc::now().timestamp();
+        cache.retain(|_, (_, stored)| now - *stored < CACHE_TTL_SECS);
+        cache.remove(&key);
+        while cache.len() >= CACHE_MAX_ENTRIES {
+            let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, (_, stored))| *stored)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            cache.remove(&oldest);
+        }
+        cache.insert(key, (data, now));
+    }
+
+    /// The invalidation count a response for `key` is fetched under.
+    fn generation(&self, key: &str) -> Generation {
+        let Ok(generations) = self.generations.lock() else {
+            return (u64::MAX, u64::MAX);
+        };
+        let tree = tree_of_path(key)
+            .and_then(|tree| generations.trees.get(&tree).copied())
+            .unwrap_or_default();
+        (generations.all, tree)
+    }
+
+    /// Stores `data` under `key` unless the cache was invalidated for it
+    /// since `generation` was read.
+    fn set_if_current(&self, key: String, data: Vec<u8>, generation: Generation) {
+        if self.generation(&key) == generation {
+            self.set(key, data);
         }
     }
 
     /// Remove all entries whose key starts with `prefix`.
     fn invalidate_prefix(&self, prefix: &str) {
+        if let Ok(mut generations) = self.generations.lock() {
+            match tree_of_path(prefix) {
+                Some(tree) => *generations.trees.entry(tree).or_default() += 1,
+                None => generations.all += 1,
+            }
+        }
         if let Ok(mut cache) = self.entries.lock() {
             cache.retain(|k, _| !k.starts_with(prefix));
         }
@@ -2404,15 +2472,20 @@ impl ApiClient {
     }
 
     /// Sends one GET, stores its body under `cache_key`, and deserializes it.
+    ///
+    /// The body is not stored when a write invalidated its tree while the
+    /// request was in flight: it may predate that write.
     async fn fetch_and_cache<T: serde::de::DeserializeOwned>(
         &self,
         cache_key: &str,
         request: reqwest::RequestBuilder,
     ) -> Result<T, ApiError> {
+        let generation = self.cache.generation(cache_key);
         let resp = self.send_request("GET", request).await?;
         let bytes = Self::successful_body("GET", resp).await?;
         let val: T = Self::deserialize(&bytes)?;
-        self.cache.set(cache_key.to_string(), bytes);
+        self.cache
+            .set_if_current(cache_key.to_string(), bytes, generation);
         Ok(val)
     }
 
@@ -2461,8 +2534,42 @@ impl ApiClient {
         }
     }
 
-    /// Helper: send a POST request with a JSON body.
+    /// Sends a request that writes at `path`. Once the server accepted it,
+    /// the cached reads of the tree `path` names are dropped, so no caller
+    /// has to remember to; a path outside any one tree drops nothing (the
+    /// tree list is invalidated by the tree methods themselves).
+    async fn send_write(
+        &self,
+        method: &'static str,
+        path: &str,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, ApiError> {
+        let resp = self.send_request(method, request).await?;
+        if resp.status().is_success()
+            && let Some(tree_id) = tree_of_path(path)
+        {
+            self.invalidate_tree(tree_id);
+        }
+        Ok(resp)
+    }
+
+    /// Helper: send a POST request with a JSON body, as a write.
     async fn post<T: serde::de::DeserializeOwned, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ApiError> {
+        let url = self.url(path);
+        let resp = self
+            .send_write("POST", path, self.client.post(&url).json(body))
+            .await?;
+        Self::handle_response("POST", resp).await
+    }
+
+    /// Helper: send a POST request that only reads — a query too large for
+    /// a URL, such as a batch of ids. It changes nothing, so it leaves the
+    /// cache alone; it is not cached either.
+    async fn post_read<T: serde::de::DeserializeOwned, B: Serialize>(
         &self,
         path: &str,
         body: &B,
@@ -2488,8 +2595,9 @@ impl ApiClient {
         let url = self.url(path);
         let bytes = body.len();
         let resp = self
-            .send_request(
+            .send_write(
                 "POST",
+                path,
                 self.client
                     .post(&url)
                     .query(query)
@@ -2514,7 +2622,7 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         let url = self.url(path);
         let resp = self
-            .send_request("PUT", self.client.put(&url).json(body))
+            .send_write("PUT", path, self.client.put(&url).json(body))
             .await?;
         Self::handle_response("PUT", resp).await
     }
@@ -2527,7 +2635,7 @@ impl ApiClient {
     ) -> Result<T, ApiError> {
         let url = self.url(path);
         let resp = self
-            .send_request("PATCH", self.client.patch(&url).json(body))
+            .send_write("PATCH", path, self.client.patch(&url).json(body))
             .await?;
         Self::handle_response("PATCH", resp).await
     }
@@ -2536,7 +2644,7 @@ impl ApiClient {
     async fn delete_status(&self, path: &str) -> Result<u16, ApiError> {
         let url = self.url(path);
         let resp = self
-            .send_request("DELETE", self.client.delete(&url))
+            .send_write("DELETE", path, self.client.delete(&url))
             .await?;
         let status = resp.status();
         Self::require_success(resp).await.inspect_err(|_| {
@@ -2554,7 +2662,7 @@ impl ApiClient {
     async fn post_no_content<B: Serialize>(&self, path: &str, body: &B) -> Result<(), ApiError> {
         let url = self.url(path);
         let resp = self
-            .send_request("POST", self.client.post(&url).json(body))
+            .send_write("POST", path, self.client.post(&url).json(body))
             .await?;
         Self::require_success(resp).await?;
         Ok(())
@@ -2567,7 +2675,7 @@ impl ApiClient {
     ) -> Result<(), ApiError> {
         let url = self.url(path);
         let resp = self
-            .send_request("DELETE", self.client.delete(&url).json(body))
+            .send_write("DELETE", path, self.client.delete(&url).json(body))
             .await?;
         Self::require_success(resp).await?;
         Ok(())
@@ -2814,11 +2922,8 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreatePersonBody,
     ) -> Result<Person, ApiError> {
-        let result = self
-            .post(&format!("/api/v1/trees/{tree_id}/persons"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(&format!("/api/v1/trees/{tree_id}/persons"), body)
+            .await
     }
 
     pub async fn update_person(
@@ -2827,18 +2932,13 @@ impl ApiClient {
         id: Uuid,
         body: &UpdatePersonBody,
     ) -> Result<Person, ApiError> {
-        let result = self
-            .put(&format!("/api/v1/trees/{tree_id}/persons/{id}"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.put(&format!("/api/v1/trees/{tree_id}/persons/{id}"), body)
+            .await
     }
 
     pub async fn delete_person(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/persons/{id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     /// The other persons of the tree bearing the same name as `person_id`,
@@ -2879,9 +2979,7 @@ impl ApiClient {
                 person_ids: others.to_vec(),
             },
         )
-        .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+        .await
     }
 
     /// Merge `duplicate` into `kept`, which survives, as `choices` says
@@ -2893,17 +2991,14 @@ impl ApiClient {
         duplicate: Uuid,
         choices: &MergeChoices,
     ) -> Result<Person, ApiError> {
-        let result = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
-                &MergePersonBody {
-                    duplicate_id: duplicate,
-                    choices,
-                },
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/persons/{kept}/merge"),
+            &MergePersonBody {
+                duplicate_id: duplicate,
+                choices,
+            },
+        )
+        .await
     }
 
     pub async fn get_ancestors(
@@ -2966,7 +3061,7 @@ impl ApiClient {
                 family_ids: family_ids[family_range].to_vec(),
             };
             let batch = self
-                .post::<RelationLabels, _>(
+                .post_read::<RelationLabels, _>(
                     &format!("/api/v1/trees/{tree_id}/relation-labels"),
                     &body,
                 )
@@ -2983,14 +3078,11 @@ impl ApiClient {
         person_id: Uuid,
         body: &CreatePersonNameBody,
     ) -> Result<PersonName, ApiError> {
-        let result = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names"),
+            body,
+        )
+        .await
     }
 
     pub async fn update_person_name(
@@ -3000,14 +3092,11 @@ impl ApiClient {
         name_id: Uuid,
         body: &UpdatePersonNameBody,
     ) -> Result<PersonName, ApiError> {
-        let result = self
-            .put(
-                &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"),
+            body,
+        )
+        .await
     }
 
     pub async fn delete_person_name(
@@ -3019,9 +3108,7 @@ impl ApiClient {
         self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/persons/{person_id}/names/{name_id}"
         ))
-        .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+        .await
     }
 
     // ── Families ────────────────────────────────────────────────────
@@ -3032,14 +3119,11 @@ impl ApiClient {
     }
 
     pub async fn create_family(&self, tree_id: Uuid) -> Result<Family, ApiError> {
-        let result = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/families"),
-                &serde_json::json!({}),
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/families"),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     /// Set a couple's privacy.
@@ -3049,21 +3133,16 @@ impl ApiClient {
         id: Uuid,
         privacy: Privacy,
     ) -> Result<Family, ApiError> {
-        let family = self
-            .put(
-                &format!("/api/v1/trees/{tree_id}/families/{id}"),
-                &serde_json::json!({ "privacy": privacy }),
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(family)
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/families/{id}"),
+            &serde_json::json!({ "privacy": privacy }),
+        )
+        .await
     }
 
     pub async fn delete_family(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/families/{id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     // ── Family Spouses ──────────────────────────────────────────────
@@ -3085,14 +3164,11 @@ impl ApiClient {
         family_id: Uuid,
         body: &AddSpouseBody,
     ) -> Result<serde_json::Value, ApiError> {
-        let result = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
+            body,
+        )
+        .await
     }
 
     // ── Family Children ─────────────────────────────────────────────
@@ -3114,14 +3190,11 @@ impl ApiClient {
         family_id: Uuid,
         body: &AddChildBody,
     ) -> Result<serde_json::Value, ApiError> {
-        let result = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/families/{family_id}/children"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/families/{family_id}/children"),
+            body,
+        )
+        .await
     }
 
     pub async fn remove_child(
@@ -3133,9 +3206,7 @@ impl ApiClient {
         self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/families/{family_id}/children/{child_id}"
         ))
-        .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+        .await
     }
 
     // ── Events ──────────────────────────────────────────────────────
@@ -3180,11 +3251,8 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateEventBody,
     ) -> Result<Event, ApiError> {
-        let result = self
-            .post(&format!("/api/v1/trees/{tree_id}/events"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(&format!("/api/v1/trees/{tree_id}/events"), body)
+            .await
     }
 
     pub async fn update_event(
@@ -3193,18 +3261,13 @@ impl ApiClient {
         id: Uuid,
         body: &UpdateEventBody,
     ) -> Result<Event, ApiError> {
-        let result = self
-            .put(&format!("/api/v1/trees/{tree_id}/events/{id}"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.put(&format!("/api/v1/trees/{tree_id}/events/{id}"), body)
+            .await
     }
 
     pub async fn delete_event(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/events/{id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     // ── Event Witnesses ────────────────────────────────────────────────
@@ -3226,14 +3289,11 @@ impl ApiClient {
         event_id: Uuid,
         body: &AddEventWitnessBody,
     ) -> Result<EventWitness, ApiError> {
-        let result = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/events/{event_id}/witnesses"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/events/{event_id}/witnesses"),
+            body,
+        )
+        .await
     }
 
     pub async fn remove_event_witness(
@@ -3245,9 +3305,7 @@ impl ApiClient {
         self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}"
         ))
-        .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+        .await
     }
 
     // ── Places ──────────────────────────────────────────────────────
@@ -3268,11 +3326,8 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreatePlaceBody,
     ) -> Result<Place, ApiError> {
-        let result = self
-            .post(&format!("/api/v1/trees/{tree_id}/places"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(&format!("/api/v1/trees/{tree_id}/places"), body)
+            .await
     }
 
     pub async fn update_place(
@@ -3281,11 +3336,8 @@ impl ApiClient {
         id: Uuid,
         body: &UpdatePlaceBody,
     ) -> Result<Place, ApiError> {
-        let result = self
-            .put(&format!("/api/v1/trees/{tree_id}/places/{id}"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.put(&format!("/api/v1/trees/{tree_id}/places/{id}"), body)
+            .await
     }
 
     // ── Sources ─────────────────────────────────────────────────────
@@ -3306,11 +3358,8 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateSourceBody,
     ) -> Result<Source, ApiError> {
-        let result = self
-            .post(&format!("/api/v1/trees/{tree_id}/sources"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(&format!("/api/v1/trees/{tree_id}/sources"), body)
+            .await
     }
 
     /// Deletes a source only if no citation, note or media link still points
@@ -3322,7 +3371,6 @@ impl ApiClient {
                 "/api/v1/trees/{tree_id}/sources/{id}?only_if_unused=true"
             ))
             .await?;
-        self.invalidate_tree(tree_id);
         Ok(status == 204)
     }
 
@@ -3359,17 +3407,14 @@ impl ApiClient {
         value: &str,
         particle: &str,
     ) -> Result<FamilyNameParticleUpdate, ApiError> {
-        let result = self
-            .patch(
-                &format!("/api/v1/trees/{tree_id}/dictionary/family-names/particle"),
-                &SetFamilyNameParticleBody {
-                    value: value.to_string(),
-                    particle: particle.to_string(),
-                },
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.patch(
+            &format!("/api/v1/trees/{tree_id}/dictionary/family-names/particle"),
+            &SetFamilyNameParticleBody {
+                value: value.to_string(),
+                particle: particle.to_string(),
+            },
+        )
+        .await
     }
 
     /// Give every person whose primary name carries family name `value` the
@@ -3383,18 +3428,15 @@ impl ApiClient {
         new_value: &str,
         particle: Option<&str>,
     ) -> Result<FamilyNameRename, ApiError> {
-        let result = self
-            .patch(
-                &format!("/api/v1/trees/{tree_id}/dictionary/family-names/rename"),
-                &RenameFamilyNameBody {
-                    value: value.to_string(),
-                    new_value: new_value.to_string(),
-                    particle: particle.map(str::to_string),
-                },
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.patch(
+            &format!("/api/v1/trees/{tree_id}/dictionary/family-names/rename"),
+            &RenameFamilyNameBody {
+                value: value.to_string(),
+                new_value: new_value.to_string(),
+                particle: particle.map(str::to_string),
+            },
+        )
+        .await
     }
 
     /// Distinct occupation labels in the tree, with the number of persons holding each.
@@ -3493,11 +3535,8 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateCitationBody,
     ) -> Result<Citation, ApiError> {
-        let result = self
-            .post(&format!("/api/v1/trees/{tree_id}/citations"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(&format!("/api/v1/trees/{tree_id}/citations"), body)
+            .await
     }
 
     pub async fn update_citation(
@@ -3506,21 +3545,16 @@ impl ApiClient {
         citation_id: Uuid,
         body: &UpdateCitationBody,
     ) -> Result<Citation, ApiError> {
-        let result = self
-            .put(
-                &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/citations/{citation_id}"),
+            body,
+        )
+        .await
     }
 
     pub async fn delete_citation(&self, tree_id: Uuid, citation_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/citations/{citation_id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     pub async fn list_citations(
@@ -3568,11 +3602,8 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateNoteBody,
     ) -> Result<Note, ApiError> {
-        let result = self
-            .post(&format!("/api/v1/trees/{tree_id}/notes"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.post(&format!("/api/v1/trees/{tree_id}/notes"), body)
+            .await
     }
 
     pub async fn update_note(
@@ -3581,18 +3612,13 @@ impl ApiClient {
         note_id: Uuid,
         body: &UpdateNoteBody,
     ) -> Result<Note, ApiError> {
-        let result = self
-            .put(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(result)
+        self.put(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"), body)
+            .await
     }
 
     pub async fn delete_note(&self, tree_id: Uuid, note_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/notes/{note_id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     // ── Media ───────────────────────────────────────────────────────
@@ -3716,7 +3742,7 @@ impl ApiClient {
                 sources: chunk.iter().map(|(_, source)| source.clone()).collect(),
             };
             match self
-                .post::<Vec<Option<String>>, _>(
+                .post_read::<Vec<Option<String>>, _>(
                     &format!("/api/v1/trees/{tree_id}/image-data"),
                     &body,
                 )
@@ -3795,7 +3821,7 @@ impl ApiClient {
                 person_ids: person_ids.to_vec(),
             };
             match self
-                .post::<Vec<WirePortraitImage>, _>(
+                .post_read::<Vec<WirePortraitImage>, _>(
                     &format!("/api/v1/trees/{tree_id}/portrait-images"),
                     &body,
                 )
@@ -3840,14 +3866,11 @@ impl ApiClient {
         person_id: Uuid,
         portrait: SetPortraitBody,
     ) -> Result<serde_json::Value, ApiError> {
-        let person = self
-            .put(
-                &format!("/api/v1/trees/{tree_id}/persons/{person_id}/portrait"),
-                &portrait,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(person)
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/portrait"),
+            &portrait,
+        )
+        .await
     }
 
     /// One media's metadata.
@@ -3889,7 +3912,8 @@ impl ApiClient {
         tree_id: Uuid,
         upload: MediaUpload,
     ) -> Result<Media, ApiError> {
-        let url = self.url(&format!("/api/v1/trees/{tree_id}/media/upload"));
+        let path = format!("/api/v1/trees/{tree_id}/media/upload");
+        let url = self.url(&path);
         let MediaUpload {
             file_name,
             bytes,
@@ -3924,11 +3948,9 @@ impl ApiClient {
         }
 
         let resp = self
-            .send_request("POST", self.client.post(&url).multipart(form))
+            .send_write("POST", &path, self.client.post(&url).multipart(form))
             .await?;
-        let media = Self::handle_response("POST", resp).await?;
-        self.invalidate_tree(tree_id);
-        Ok(media)
+        Self::handle_response("POST", resp).await
     }
 
     /// Add a page that names a file without holding its bytes.
@@ -3940,11 +3962,8 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateMediaBody,
     ) -> Result<Media, ApiError> {
-        let media = self
-            .post(&format!("/api/v1/trees/{tree_id}/media"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(media)
+        self.post(&format!("/api/v1/trees/{tree_id}/media"), body)
+            .await
     }
 
     /// Create an empty multi-page document.
@@ -3957,14 +3976,11 @@ impl ApiClient {
         tree_id: Uuid,
         title: Option<&str>,
     ) -> Result<Media, ApiError> {
-        let media = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/media/document"),
-                &serde_json::json!({ "title": title }),
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(media)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/media/document"),
+            &serde_json::json!({ "title": title }),
+        )
+        .await
     }
 
     /// A page of the tree's documents matching `filters`, each with its
@@ -4015,14 +4031,11 @@ impl ApiClient {
         media_id: Uuid,
         page_ids: &[Uuid],
     ) -> Result<Vec<Media>, ApiError> {
-        let pages = self
-            .put(
-                &format!("/api/v1/trees/{tree_id}/media/{media_id}/pages"),
-                &serde_json::json!({ "page_ids": page_ids }),
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(pages)
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/media/{media_id}/pages"),
+            &serde_json::json!({ "page_ids": page_ids }),
+        )
+        .await
     }
 
     /// Delete a document page and its external relations.
@@ -4035,9 +4048,7 @@ impl ApiClient {
         self.delete_no_content(&format!(
             "/api/v1/trees/{tree_id}/media/{media_id}/pages/{page_id}"
         ))
-        .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+        .await
     }
 
     /// Update a media's title and description.
@@ -4047,11 +4058,8 @@ impl ApiClient {
         media_id: Uuid,
         body: &UpdateMediaBody,
     ) -> Result<Media, ApiError> {
-        let media = self
-            .put(&format!("/api/v1/trees/{tree_id}/media/{media_id}"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(media)
+        self.put(&format!("/api/v1/trees/{tree_id}/media/{media_id}"), body)
+            .await
     }
 
     /// Add one media tag without replacing the other tags.
@@ -4061,14 +4069,11 @@ impl ApiClient {
         media_id: Uuid,
         tag: String,
     ) -> Result<Media, ApiError> {
-        let media = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/media/{media_id}/tags"),
-                &MediaTagBody { tag },
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(media)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/media/{media_id}/tags"),
+            &MediaTagBody { tag },
+        )
+        .await
     }
 
     /// Remove one media tag without replacing the other tags.
@@ -4082,17 +4087,13 @@ impl ApiClient {
             &format!("/api/v1/trees/{tree_id}/media/{media_id}/tags"),
             &MediaTagBody { tag },
         )
-        .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+        .await
     }
 
     /// Permanently delete a media record and its associated information.
     pub async fn delete_media(&self, tree_id: Uuid, media_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/media/{media_id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     /// Delete a media only when the supplied gallery link is its sole external
@@ -4108,9 +4109,6 @@ impl ApiClient {
                 "/api/v1/trees/{tree_id}/media/{media_id}?only_if_unreferenced_elsewhere=true&allowed_link_id={allowed_link_id}"
             ))
             .await?;
-        if status == 204 {
-            self.invalidate_tree(tree_id);
-        }
         Ok(status == 204)
     }
 
@@ -4153,7 +4151,7 @@ impl ApiClient {
                 vignette_ids: vignette_ids[vignette_offset..vignette_end].to_vec(),
             };
             match self
-                .post::<WireGalleryBundle, _>(
+                .post_read::<WireGalleryBundle, _>(
                     &format!("/api/v1/trees/{tree_id}/gallery-bundle"),
                     &body,
                 )
@@ -4213,19 +4211,14 @@ impl ApiClient {
         tree_id: Uuid,
         body: &CreateMediaLinkBody,
     ) -> Result<serde_json::Value, ApiError> {
-        let link = self
-            .post(&format!("/api/v1/trees/{tree_id}/media-links"), body)
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(link)
+        self.post(&format!("/api/v1/trees/{tree_id}/media-links"), body)
+            .await
     }
 
     /// Detach a media from an entity. The media itself is untouched.
     pub async fn delete_media_link(&self, tree_id: Uuid, link_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/media-links/{link_id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     // ── Vignettes ───────────────────────────────────────────────────
@@ -4260,14 +4253,11 @@ impl ApiClient {
         media_id: Uuid,
         body: &CreateVignetteBody,
     ) -> Result<Vignette, ApiError> {
-        let vignette = self
-            .post(
-                &format!("/api/v1/trees/{tree_id}/media/{media_id}/vignettes"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(vignette)
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/media/{media_id}/vignettes"),
+            body,
+        )
+        .await
     }
 
     pub async fn update_vignette(
@@ -4276,21 +4266,16 @@ impl ApiClient {
         vignette_id: Uuid,
         body: &UpdateVignetteBody,
     ) -> Result<Vignette, ApiError> {
-        let vignette = self
-            .put(
-                &format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}"),
-                body,
-            )
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(vignette)
+        self.put(
+            &format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}"),
+            body,
+        )
+        .await
     }
 
     pub async fn delete_vignette(&self, tree_id: Uuid, vignette_id: Uuid) -> Result<(), ApiError> {
         self.delete_no_content(&format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}"))
-            .await?;
-        self.invalidate_tree(tree_id);
-        Ok(())
+            .await
     }
 
     // ── Import / export ─────────────────────────────────────────────
@@ -4368,7 +4353,7 @@ impl ApiClient {
         &self,
         paths: Vec<String>,
     ) -> Result<ArchiveIndex, ApiError> {
-        self.post("/api/v1/geneanet/archives", &IndexArchivesBody { paths })
+        self.post_read("/api/v1/geneanet/archives", &IndexArchivesBody { paths })
             .await
     }
 
@@ -4378,7 +4363,7 @@ impl ApiClient {
         &self,
         body: &GeneanetPreviewBody,
     ) -> Result<GeneanetPreview, ApiError> {
-        self.post("/api/v1/geneanet/preview", body).await
+        self.post_read("/api/v1/geneanet/preview", body).await
     }
 
     /// Encode a collected session as the JSON the wizard writes to disk.
@@ -4438,7 +4423,7 @@ impl ApiClient {
         &self,
         body: &GeneanetPreviewBody,
     ) -> Result<GeneanetPlan, ApiError> {
-        self.post("/api/v1/geneanet/plan", body).await
+        self.post_read("/api/v1/geneanet/plan", body).await
     }
 
     /// Stage every local input and queue the Geneanet import. Step 5.
@@ -4584,7 +4569,10 @@ impl ApiClient {
                 descendant_depth,
             };
             match self
-                .post::<Vec<PedigreeEntry>, _>(&format!("/api/v1/trees/{tree_id}/pedigrees"), &body)
+                .post_read::<Vec<PedigreeEntry>, _>(
+                    &format!("/api/v1/trees/{tree_id}/pedigrees"),
+                    &body,
+                )
                 .await
             {
                 Ok(entries) => pedigrees.extend(
@@ -4748,7 +4736,7 @@ impl ApiClient {
         let mut matches = Vec::new();
         for terms in reference_term_batches(terms) {
             let mut batch = self
-                .post::<Vec<GivenNameReferenceMatch>, _>(
+                .post_read::<Vec<GivenNameReferenceMatch>, _>(
                     &format!("/api/v1/reference/{lang}/given-names/bundle"),
                     &ReferenceTermsBody { terms },
                 )
@@ -4768,7 +4756,7 @@ impl ApiClient {
         let mut matches = Vec::new();
         for terms in reference_term_batches(terms) {
             let mut batch = self
-                .post::<Vec<OccupationReferenceMatch>, _>(
+                .post_read::<Vec<OccupationReferenceMatch>, _>(
                     &format!("/api/v1/reference/{lang}/occupations/bundle"),
                     &ReferenceTermsBody { terms },
                 )
@@ -5032,6 +5020,135 @@ mod tests {
             assert_eq!(tokio::fs::read(&destination).await.unwrap(), b"original");
             assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
         }
+    }
+
+    #[test]
+    fn a_path_names_the_tree_it_writes_to() {
+        let tree = Uuid::from_u128(7);
+        let cases: [(String, Option<Uuid>); 7] = [
+            (format!("/api/v1/trees/{tree}"), Some(tree)),
+            (format!("/api/v1/trees/{tree}/persons"), Some(tree)),
+            (format!("/api/v1/trees/{tree}?q=x"), Some(tree)),
+            (
+                format!("/api/v1/trees/{tree}/media/{tree}/pages"),
+                Some(tree),
+            ),
+            ("/api/v1/trees".to_string(), None),
+            ("/api/v1/trees/not-an-id/persons".to_string(), None),
+            ("/api/v1/geneanet/plan".to_string(), None),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(tree_of_path(&path), expected, "{path}");
+        }
+    }
+
+    #[test]
+    fn a_response_fetched_across_a_write_to_its_tree_is_not_stored() {
+        let cache = ResponseCache::default();
+        let (written, other) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let key = format!("/api/v1/trees/{written}/persons/p");
+        let other_key = format!("/api/v1/trees/{other}/persons/p");
+        let (before, other_before) = (cache.generation(&key), cache.generation(&other_key));
+
+        cache.invalidate_prefix(&format!("/api/v1/trees/{written}"));
+        cache.set_if_current(key.clone(), b"stale".to_vec(), before);
+        cache.set_if_current(other_key.clone(), b"fresh".to_vec(), other_before);
+
+        assert!(cache.get(&key).is_none(), "may predate the write");
+        assert!(
+            cache.get(&other_key).is_some(),
+            "another tree was not written"
+        );
+
+        // Invalidating the tree list covers every tree.
+        let after = cache.generation(&other_key);
+        cache.invalidate_prefix("/api/v1/trees");
+        cache.set_if_current(other_key.clone(), b"stale".to_vec(), after);
+        assert!(cache.get(&other_key).is_none());
+    }
+
+    #[test]
+    fn the_cache_drops_expired_and_then_oldest_entries_on_insert() {
+        let cache = ResponseCache::default();
+        let now = chrono::Utc::now().timestamp();
+        cache.entries.lock().unwrap().extend([
+            ("expired".to_string(), (Vec::new(), now - CACHE_TTL_SECS)),
+            ("oldest".to_string(), (Vec::new(), now - 2)),
+        ]);
+        for index in 0..CACHE_MAX_ENTRIES - 1 {
+            cache.set(format!("k{index}"), Vec::new());
+        }
+        {
+            let entries = cache.entries.lock().unwrap();
+            assert!(!entries.contains_key("expired"));
+            assert!(entries.contains_key("oldest"));
+            assert_eq!(entries.len(), CACHE_MAX_ENTRIES);
+        }
+
+        cache.set("newest".to_string(), Vec::new());
+
+        let entries = cache.entries.lock().unwrap();
+        assert_eq!(entries.len(), CACHE_MAX_ENTRIES);
+        assert!(!entries.contains_key("oldest"));
+        assert!(entries.contains_key("newest"));
+    }
+
+    /// A write invalidates its tree's cached reads by itself; a POST that
+    /// only reads leaves them.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn writes_invalidate_their_tree_and_read_posts_do_not() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = ApiClient::new(&format!("http://{}", listener.local_addr().unwrap()));
+        let tree = Uuid::now_v7();
+        let cache_key = format!("/api/v1/trees/{tree}/persons");
+        api.cache.set(cache_key.clone(), b"cached".to_vec());
+        let server = async {
+            for body in [r#"{"names":[],"spouses":[]}"#, "{}"] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut reader = tokio::io::BufReader::new(&mut socket);
+                let mut head = String::new();
+                while !head.ends_with("\r\n\r\n") {
+                    assert!(reader.read_line(&mut head).await.unwrap() > 0);
+                }
+                let length = head
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length: ")
+                            .map(str::to_string)
+                    })
+                    .and_then(|length| length.trim().parse::<usize>().ok())
+                    .unwrap_or_default();
+                let mut request_body = vec![0; length];
+                reader.read_exact(&mut request_body).await.unwrap();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        };
+        let client = async {
+            api.relation_labels(tree, &[Uuid::now_v7()], &[])
+                .await
+                .unwrap();
+            assert!(
+                api.cache.get(&cache_key).is_some(),
+                "a read POST keeps the cache"
+            );
+            let _: serde_json::Value = api
+                .post(
+                    &format!("/api/v1/trees/{tree}/notes"),
+                    &serde_json::json!({}),
+                )
+                .await
+                .unwrap();
+            assert!(api.cache.get(&cache_key).is_none(), "a write drops it");
+        };
+        tokio::join!(server, client);
     }
 
     #[test]
