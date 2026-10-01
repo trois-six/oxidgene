@@ -4787,3 +4787,27 @@ async fn queries_are_answered_while_a_write_holds_the_writer() {
         .unwrap();
     assert!(data(&response)["createPerson"]["id"].is_string());
 }
+
+/// GraphQL answers go through the same compression as REST ones: a client
+/// accepting gzip gets a gzipped body.
+#[tokio::test]
+async fn graphql_responses_are_compressed_like_rest_ones() {
+    let app = setup_app().await;
+    let body = json!({ "query": "{ __schema { types { name description } } }" });
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/graphql")
+        .header("content-type", "application/json")
+        .header("accept-encoding", "gzip")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-encoding")
+            .map(|value| value.to_str().unwrap()),
+        Some("gzip")
+    );
+}

@@ -24,6 +24,22 @@ const GENEANET_BODY_LIMIT: usize = 32 * 1024 * 1024;
 const GENEANET_IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 
 use tower_http::compression::CompressionLayer;
+use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
+
+/// Which responses are worth compressing: tower-http's default (not tiny,
+/// not an image other than SVG, not a stream) less the formats that are
+/// compressed already or are opaque bytes — an archive, a PDF, a video or a
+/// sound, a raw download. Gzipping those spends CPU on every request and
+/// gains nothing, or even grows them.
+fn compressible() -> impl Predicate {
+    DefaultPredicate::new()
+        .and(NotForContentType::const_new("application/zip"))
+        .and(NotForContentType::const_new("application/gzip"))
+        .and(NotForContentType::const_new("application/pdf"))
+        .and(NotForContentType::const_new("application/octet-stream"))
+        .and(NotForContentType::const_new("video/"))
+        .and(NotForContentType::const_new("audio/"))
+}
 
 #[cfg(feature = "graphql")]
 use crate::graphql::{graphql_handler, graphql_playground};
@@ -572,24 +588,57 @@ pub fn build_router(state: AppState) -> Router {
         .layer(axum::middleware::map_response(
             crate::rest::error::envelope_rejections,
         ))
-        .layer(CompressionLayer::new())
         .with_state(state);
 
     #[cfg(feature = "graphql")]
-    {
-        let graphql_routes = Router::new()
+    let rest_router = rest_router.merge(
+        Router::new()
             .route("/graphql", post(graphql_handler).get(graphql_playground))
             .layer(graphql_body_limit)
-            .with_state(schema);
-        rest_router
-            .merge(graphql_routes)
-            .layer(axum::middleware::map_response(
-                crate::access::security_headers,
-            ))
+            .with_state(schema),
+    );
+
+    // Outermost, so GraphQL answers are compressed exactly like REST ones.
+    rest_router
+        .layer(CompressionLayer::new().compress_when(compressible()))
+        .layer(axum::middleware::map_response(
+            crate::access::security_headers,
+        ))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::Response;
+
+    use super::*;
+
+    fn compresses(content_type: &str) -> bool {
+        let response = Response::builder()
+            .header("content-type", content_type)
+            .body(Body::from(vec![b'x'; 4096]))
+            .unwrap();
+        compressible().should_compress(&response)
     }
 
-    #[cfg(not(feature = "graphql"))]
-    rest_router.layer(axum::middleware::map_response(
-        crate::access::security_headers,
-    ))
+    #[test]
+    fn text_formats_are_compressed_and_packed_or_opaque_ones_are_not() {
+        for content_type in [
+            "application/json",
+            "text/plain; charset=utf-8",
+            "image/svg+xml",
+        ] {
+            assert!(compresses(content_type), "{content_type}");
+        }
+        for content_type in [
+            "application/zip",
+            "application/pdf",
+            "application/octet-stream",
+            "video/mp4",
+            "audio/mpeg",
+            "image/jpeg",
+        ] {
+            assert!(!compresses(content_type), "{content_type}");
+        }
+    }
 }

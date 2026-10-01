@@ -12,6 +12,16 @@ use oxidgene_observability::{make_http_span, on_http_response};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+/// How long a browser may reuse a preflight answer before asking again.
+///
+/// Every read too large for a URL — a pedigree batch, a page's pictures — is a
+/// JSON `POST`, and so preflighted. Without a lifetime the browser keeps an
+/// answer for five seconds, which puts an extra round trip in front of nearly
+/// every such read. Two hours is the ceiling Chromium applies anyway; the
+/// policy itself only changes with the server's configuration, which restarts
+/// it.
+const PREFLIGHT_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(2 * 60 * 60);
+
 /// Compose the served application around the API router.
 ///
 /// The request context sits outside the host and origin checks, so a refused
@@ -31,7 +41,8 @@ pub fn app(api_router: Router, cors_origin: HeaderValue, hosts: AllowedHosts) ->
             Method::DELETE,
             Method::OPTIONS,
         ])
-        .allow_headers(tower_http::cors::Any);
+        .allow_headers(tower_http::cors::Any)
+        .max_age(PREFLIGHT_MAX_AGE);
     let api = request_context::wrap(allowed_hosts(
         same_origin_writes(
             with_time_limits(api_router, TimeLimits::default()),
@@ -159,6 +170,32 @@ mod tests {
                 .to_string();
             assert!(allowed.contains(method), "{method} not in {allowed:?}");
         }
+    }
+
+    /// The preflight of a cross-origin read sent as `POST` is kept by the
+    /// browser for two hours rather than asked again every few seconds.
+    #[tokio::test]
+    async fn preflights_are_cacheable() {
+        let api = Router::new().route("/api/v1/ping", axum::routing::post(|| async { "pong" }));
+        let app = app(
+            api,
+            HeaderValue::from_static("http://127.0.0.1:8081"),
+            AllowedHosts::loopback(),
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/api/v1/ping")
+                    .header("origin", "http://127.0.0.1:8081")
+                    .header("access-control-request-method", "POST")
+                    .header("access-control-request-headers", "content-type")
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("infallible router");
+        assert_eq!(response.headers()["access-control-max-age"], "7200");
     }
 
     #[tokio::test]

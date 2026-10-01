@@ -78,6 +78,10 @@ desktop session handoffs rather than genealogy import or export artifacts.
 - A malformed identifier is a `validation_error`.
 - Soft-deleted records are excluded by default.
 - User and imported content is returned verbatim and never translated.
+- REST and GraphQL responses are gzip-compressed alike for a client that
+  accepts it. Pictures other than SVG, archives, PDFs, video, sound and raw
+  `application/octet-stream` downloads are sent as they are: they are packed
+  already or opaque, and compressing them again only costs time.
 
 ### Authentication and privacy
 
@@ -88,6 +92,9 @@ for REST and GraphQL. Until that work is complete, the API is local or private
 infrastructure only and must not be published directly to an untrusted network.
 Server defaults, container publication, CORS, and UI media rendering follow
 [Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication).
+The standalone server's CORS policy lets the browser keep a preflight answer
+for two hours, so the `POST` reads (pedigree batches, a page's pictures) are
+not preceded by a preflight on every page.
 
 Direct HTTP media representations remain API-client transports, not browser
 navigation destinations. Frontends fetch their bytes through the typed client
