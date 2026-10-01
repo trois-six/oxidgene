@@ -43,7 +43,7 @@ use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
-use crate::ui_observability::use_ui_resource;
+use crate::ui_observability::{measure_ui, use_ui_resource};
 use crate::utils::parse_privacy;
 use crate::utils::use_synced;
 
@@ -549,24 +549,27 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
         .as_ref()
         .cloned()
         .unwrap_or_default();
-    let gallery_media = bundle
-        .media
-        .iter()
-        .map(|item| (item.media_id, item))
-        .collect::<std::collections::HashMap<_, _>>();
-    let gallery_vignettes = bundle
-        .vignettes
-        .iter()
-        .map(|item| (item.vignette_id, &item.image))
-        .collect::<std::collections::HashMap<_, _>>();
-    let rendered_items = items
-        .iter()
-        .cloned()
-        .map(|tile| {
-            let bundle = gallery_media.get(&tile.media.id).copied();
-            (tile, bundle)
-        })
-        .collect::<Vec<_>>();
+    let (gallery_vignettes, rendered_items) = measure_ui("gallery_assembly", || {
+        let gallery_media = bundle
+            .media
+            .iter()
+            .map(|item| (item.media_id, item))
+            .collect::<std::collections::HashMap<_, _>>();
+        let gallery_vignettes = bundle
+            .vignettes
+            .iter()
+            .map(|item| (item.vignette_id, &item.image))
+            .collect::<std::collections::HashMap<_, _>>();
+        let rendered_items = items
+            .iter()
+            .cloned()
+            .map(|tile| {
+                let bundle = gallery_media.get(&tile.media.id).copied();
+                (tile, bundle)
+            })
+            .collect::<Vec<_>>();
+        (gallery_vignettes, rendered_items)
+    });
 
     let open_tile = editing().and_then(|id| items.iter().find(|t| t.media.id == id).cloned());
     // A reader looking at a person with no photographs should be told so,

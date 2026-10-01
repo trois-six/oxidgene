@@ -384,12 +384,18 @@ fn use_side(
         refresh,
         NotesOf::Person(person_id),
     );
-    let pedigree = use_ancestor_pedigree(load_trace, api.clone(), tree_id, person_id.into(), i18n);
+    let pedigree = use_ancestor_pedigree(
+        load_trace.clone(),
+        api.clone(),
+        tree_id,
+        person_id.into(),
+        i18n,
+    );
     Side {
         notes,
         pedigree,
         mini: use_mini_pedigree(pedigree),
-        profile: use_side_profile(couple, person_id, pedigree, i18n),
+        profile: use_side_profile(load_trace, couple, person_id, pedigree, i18n),
     }
 }
 
@@ -723,6 +729,7 @@ fn shows_notes(notes: &NotesResource) -> bool {
 
 /// One spouse's profile, derived from the couple's load and their pedigree.
 fn use_side_profile(
+    load_trace: UiLoadTrace,
     couple: Resource<Result<Arc<CoupleData>, ApiError>>,
     person_id: Memo<Option<Uuid>>,
     pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
@@ -740,9 +747,10 @@ fn use_side_profile(
             Some(Ok(Some(pedigree))) => Some(pedigree),
             _ => None,
         };
-        Some(SharedProfile::new(build_profile(
-            bundle, pid, pedigree, &i18n,
-        )))
+        let profile = load_trace.measure("person_profile", || {
+            build_profile(bundle, pid, pedigree, &i18n)
+        });
+        Some(SharedProfile::new(profile))
     })
 }
 

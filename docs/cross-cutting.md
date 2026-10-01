@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:36:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:39:56Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -307,8 +307,13 @@ the rejected value.
   of its own, so neither looks like data arriving from nowhere.
 - Client response processing separates `ui.response.read` from
   `ui.response.deserialize`. Expensive synchronous transformations use
-  `ui.compute`, including pedigree-data construction and layout. These spans
-  use their stable compute label as the OpenTelemetry display name. Response
+  `ui.compute`: pedigree-data construction, the layout of each chart view
+  (`pedigree_layout.<view>`, and `pedigree_layout.mini` for a fragment), a
+  person's profile, the statistics charts, map and basemap, and a gallery's
+  assembly. These spans use their stable compute label as the OpenTelemetry
+  display name. A computation runs under the load in progress, else under the
+  operation running, if any; with neither it opens no span, rather than an
+  orphan root. Response
   spans use explicit display names and record HTTP status, expected and actual
   body sizes, and serialization format. `ui.render.stabilize` records that it
   waits for two animation frames after the resource cycle completes. Response

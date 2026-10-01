@@ -28,7 +28,7 @@ use crate::components::tree_icon_sidebar::ToolPageSidebar;
 use crate::i18n::{I18n, Language, use_i18n};
 use crate::prefs::{store, stored};
 use crate::router::Route;
-use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
+use crate::ui_observability::{UiPage, measure_ui, use_traced_resource, use_ui_load_trace};
 use crate::utils::event_type_label_key;
 
 /// The period widths offered, in years.
@@ -220,23 +220,28 @@ pub fn Statistics(tree_id: String) -> Element {
         }
     });
     let api_map = api.clone();
-    let basemap = use_traced_resource(load_trace, "basemap", move || {
+    let basemap = use_traced_resource(load_trace.clone(), "basemap", move || {
         let api = api_map.clone();
         async move { api.basemap().await.unwrap_or_default() }
     });
+    let paths_trace = load_trace.clone();
     let paths = use_memo(move || {
-        basemap
-            .read()
-            .as_ref()
-            .map(|countries| basemap_paths(countries))
-            .unwrap_or_default()
+        paths_trace.measure("statistics_basemap_paths", || {
+            basemap
+                .read()
+                .as_ref()
+                .map(|countries| basemap_paths(countries))
+                .unwrap_or_default()
+        })
     });
     let cities = use_memo(move || {
-        basemap
-            .read()
-            .as_ref()
-            .map(|countries| basemap_cities(countries, language().code()))
-            .unwrap_or_default()
+        load_trace.measure("statistics_basemap_cities", || {
+            basemap
+                .read()
+                .as_ref()
+                .map(|countries| basemap_cities(countries, language().code()))
+                .unwrap_or_default()
+        })
     });
 
     let tree_name = tree
@@ -299,7 +304,9 @@ pub fn Statistics(tree_id: String) -> Element {
                     match (tab(), stats_value) {
                         (StatsTab::Growth, _) => match growth_value {
                             None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-                            Some(value) => render_growth(value, Utc::now().date_naive(), &i18n),
+                            Some(value) => measure_ui("statistics_growth", || {
+                                render_growth(value, Utc::now().date_naive(), &i18n)
+                            }),
                         },
                         (_, None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
                         (current, Some(value)) => rsx! {
@@ -311,7 +318,9 @@ pub fn Statistics(tree_id: String) -> Element {
                                 StatsTab::Families => rsx! {
                                     PeriodCharts { stats, interval, range, view: PeriodView::Families }
                                 },
-                                StatsTab::Places => render_places(value, paths, cities, map_focus, &i18n),
+                                StatsTab::Places => measure_ui("statistics_places", || {
+                                    render_places(value, paths, cities, map_focus, &i18n)
+                                }),
                                 StatsTab::Names => render_names(value, &i18n),
                                 StatsTab::Records => rsx! {
                                     {render_extremes(value, &tree_id, &i18n)}
@@ -995,8 +1004,12 @@ fn PeriodCharts(
                 }
             }
             match view {
-                PeriodView::Population => render_population(stats, &periods, &i18n),
-                PeriodView::Families => render_families(stats, &periods, &i18n),
+                PeriodView::Population => measure_ui("statistics_population", || {
+                    render_population(stats, &periods, &i18n)
+                }),
+                PeriodView::Families => measure_ui("statistics_families", || {
+                    render_families(stats, &periods, &i18n)
+                }),
             }
         }
     }

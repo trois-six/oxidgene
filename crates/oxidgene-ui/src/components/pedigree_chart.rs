@@ -2424,8 +2424,25 @@ fn resolve_sosa_ancestors(props: &PedigreeChartProps) -> AncestorSet {
         .unwrap_or_default()
 }
 
+/// The `ui.compute` label of laying `view` out, so that a trace tells the
+/// views apart.
+fn layout_label(view: PedigreeView) -> &'static str {
+    match view {
+        PedigreeView::Tree => "pedigree_layout.tree",
+        PedigreeView::Wheel => "pedigree_layout.wheel",
+        PedigreeView::Fan => "pedigree_layout.fan",
+        PedigreeView::DescendantWheel => "pedigree_layout.descendant_wheel",
+        PedigreeView::DescendantFan => "pedigree_layout.descendant_fan",
+        PedigreeView::Lineage => "pedigree_layout.lineage",
+        PedigreeView::DescendantLineage => "pedigree_layout.descendant_lineage",
+        PedigreeView::Hourglass => "pedigree_layout.hourglass",
+        PedigreeView::Bowtie => "pedigree_layout.bowtie",
+    }
+}
+
 /// Lays the chart out in `shape`'s view.
 fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
+    let label = layout_label(shape.view);
     let sosa_ancestors = resolve_sosa_ancestors(props);
     // Every person an ancestor-only view draws is an ancestor of its root, so
     // the badge marking the SOSA root's ancestors would say nothing there; it
@@ -2435,7 +2452,7 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
     // the line that leads to the SOSA root.
     let descendant_circular = |arc| {
         ChartScene::Circular(circular::SharedCircular(Rc::new(
-            crate::ui_observability::measure_ui("pedigree_layout", || {
+            crate::ui_observability::measure_ui(label, || {
                 circular::descendant_circular_layout(
                     arc,
                     props.root_person_id,
@@ -2449,12 +2466,12 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
     };
     let horizontal = |layout: &dyn Fn() -> lineage::LineageLayout| {
         ChartScene::Lineage(lineage::SharedLineage(Rc::new(
-            crate::ui_observability::measure_ui("pedigree_layout", layout),
+            crate::ui_observability::measure_ui(label, layout),
         )))
     };
     let circular = |arc| {
         ChartScene::Circular(circular::SharedCircular(Rc::new(
-            crate::ui_observability::measure_ui("pedigree_layout", || {
+            crate::ui_observability::measure_ui(label, || {
                 circular::circular_layout(
                     arc,
                     props.root_person_id,
@@ -2468,7 +2485,7 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
     };
     match shape.view {
         PedigreeView::Tree => ChartScene::Tree(SharedLayout(Rc::new(
-            crate::ui_observability::measure_ui("pedigree_layout", || {
+            crate::ui_observability::measure_ui(label, || {
                 compute_layout(
                     props.root_person_id,
                     &props.data,
@@ -3434,7 +3451,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let viewport = use_signal(|| None::<(f64, f64)>);
     let mut window_width = use_signal(|| 0.0_f64);
 
-    let layout = crate::ui_observability::measure_ui("pedigree_layout", || {
+    let layout = crate::ui_observability::measure_ui("pedigree_layout.mini", || {
         compute_layout(
             props.root_person_id,
             &props.data,

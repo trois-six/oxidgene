@@ -142,6 +142,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // Everything the sections draw, derived once per load rather than on
     // every render — including the ones caused by opening a dialog.
+    let profile_trace = load_trace.clone();
     let profile = use_memo(move || {
         let Some(Ok(detail)) = &*detail_resource.read() else {
             return None;
@@ -152,12 +153,10 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
             Some(Ok(Some(pedigree))) => Some(pedigree),
             _ => None,
         };
-        Some(SharedProfile::new(build_profile(
-            std::sync::Arc::clone(detail),
-            pid,
-            pedigree,
-            &i18n,
-        )))
+        let profile = profile_trace.measure("person_profile", || {
+            build_profile(std::sync::Arc::clone(detail), pid, pedigree, &i18n)
+        });
+        Some(SharedProfile::new(profile))
     });
 
     // Resolve the name synchronously from the cache while the resource is

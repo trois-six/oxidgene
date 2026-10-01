@@ -210,6 +210,12 @@ impl UiLoadTrace {
         }
     }
 
+    /// Run `operation` as a `ui.compute` span of the load in progress.
+    ///
+    /// Outside a load the span goes under the operation running, if any — an
+    /// action, say. With neither there is nothing to file it under, and a
+    /// compute span of its own would only be an orphan root, so none is
+    /// opened.
     pub fn measure<T>(&self, name: &'static str, operation: impl FnOnce() -> T) -> T {
         #[cfg(feature = "telemetry-client")]
         {
@@ -224,9 +230,10 @@ impl UiLoadTrace {
                     otel.name = name,
                     ui.compute.name = name,
                 ),
-                None => {
+                None if !tracing::Span::current().is_none() => {
                     tracing::info_span!("ui.compute", otel.name = name, ui.compute.name = name,)
                 }
+                None => return operation(),
             };
             span.in_scope(operation)
         }
@@ -566,6 +573,27 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn a_compute_outside_a_load_joins_the_running_operation_or_opens_no_span() {
+        let captured = CapturedSpans::default();
+        let subscriber = tracing_subscriber::registry().with(captured.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let trace = UiLoadTrace::new(UiPage::Pedigree);
+
+        trace.measure("pedigree_layout.tree", || ());
+        assert!(captured.0.lock().expect("capture lock").is_empty());
+
+        action_span(UiAction::Export("gedzip")).in_scope(|| {
+            trace.measure("pedigree_layout.tree", || ());
+        });
+        let captured = captured.0.lock().expect("capture lock");
+        assert!(
+            captured.iter().any(
+                |(name, parent)| name == "ui.compute" && parent.as_deref() == Some("ui.export")
+            )
+        );
     }
 
     #[test]
