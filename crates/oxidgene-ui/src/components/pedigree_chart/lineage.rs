@@ -988,7 +988,6 @@ mod tests {
             label_given: "Marie-Madeleine-Antoinette".to_string(),
             birth_year: None,
             death_year: None,
-            photo_url: None,
             sosa_badge: SosaBadge::None,
             is_self: false,
             is_compact: false,

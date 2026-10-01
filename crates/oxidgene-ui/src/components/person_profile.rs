@@ -27,7 +27,7 @@ use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
-use crate::components::pedigree_chart::{AncestorSet, SharedPedigree};
+use crate::components::pedigree_chart::{AncestorSet, Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
@@ -1071,28 +1071,19 @@ pub(crate) fn use_ancestor_pedigree(
     })
 }
 
-/// The Ancestors section's pedigree fragment, assembled once per change. It
-/// carries a portrait picture per person, so rebuilding it inline meant
-/// copying those on every render of the page.
+/// The Ancestors section's pedigree fragment, assembled once per change
+/// rather than on every render of the page.
 pub(crate) fn use_mini_pedigree(
     pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
-    photos: Resource<HashMap<Uuid, CroppedSource>>,
 ) -> Memo<Option<(Uuid, SharedPedigree)>> {
     use_memo(move || {
         let cached = pedigree.read();
         let Some(Ok(Some(cached))) = &*cached else {
             return None;
         };
-        let mut data = crate::ui_observability::measure_ui("pedigree_data", || {
+        let data = crate::ui_observability::measure_ui("pedigree_data", || {
             crate::components::pedigree_chart::PedigreeData::from_pedigree(cached)
         });
-        if let Some(photos) = &*photos.read() {
-            data.photos = photos
-                .iter()
-                .filter(|(id, _)| cached.persons.contains_key(id))
-                .map(|(id, photo)| (*id, photo.clone()))
-                .collect();
-        }
         Some((cached.root_person_id, SharedPedigree::new(data)))
     })
 }
@@ -1772,6 +1763,7 @@ pub(crate) fn ancestors_section(
     i18n: &I18n,
     pedigree_resource: &Resource<Result<Option<Pedigree>, ApiError>>,
     mini_pedigree: Option<(Uuid, SharedPedigree)>,
+    portraits: Option<Portraits>,
     on_navigate: EventHandler<Uuid>,
 ) -> Element {
     // The assembled fragment decides what to draw; the resource is consulted
@@ -1784,6 +1776,7 @@ pub(crate) fn ancestors_section(
                 ancestor_levels: 2,
                 descendant_levels: 0,
                 on_person_navigate: on_navigate,
+                portraits,
             }
         },
         None => match &*pedigree_resource.read() {

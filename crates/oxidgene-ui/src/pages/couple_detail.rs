@@ -10,10 +10,10 @@ use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{FamilySpouse, Note};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, CroppedSource, PersonDetailBundle};
+use crate::api::{ApiClient, ApiError, PersonDetailBundle};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::media_gallery::MediaOwner;
-use crate::components::pedigree_chart::SharedPedigree;
+use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::{
     EnrichedEvent, EventOrigin, Profile, ProfileMediaCard, SHOW_MANUAL_REFRESH, SectionContext,
@@ -28,6 +28,7 @@ use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
 use crate::components::union_form::UnionForm;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
+use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 
 /// The family's spouses and each one's detail bundle, loaded together.
@@ -116,8 +117,10 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         let ids: Vec<Uuid> = [left_id(), right_id()].into_iter().flatten().collect();
         async move {
             match tid {
-                Some(tid) if !ids.is_empty() => api.portrait_map_for_ids(tid, &ids).await,
-                _ => HashMap::new(),
+                Some(tid) if !ids.is_empty() => {
+                    Shared::new(api.portrait_map_for_ids(tid, &ids).await)
+                }
+                _ => Portraits::default(),
             }
         }
     });
@@ -134,7 +137,6 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         &api,
         (tree_id_parsed, refresh, i18n),
         couple_resource,
-        photos_resource,
         left_id,
     );
     let right = use_side(
@@ -142,7 +144,6 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         &api,
         (tree_id_parsed, refresh, i18n),
         couple_resource,
-        photos_resource,
         right_id,
     );
 
@@ -374,7 +375,6 @@ fn use_side(
     api: &ApiClient,
     (tree_id, refresh, i18n): (Signal<Option<Uuid>>, Signal<u32>, I18n),
     couple: Resource<Result<Arc<CoupleData>, ApiError>>,
-    photos: Resource<HashMap<Uuid, CroppedSource>>,
     person_id: Memo<Option<Uuid>>,
 ) -> Side {
     let notes = use_notes(
@@ -388,7 +388,7 @@ fn use_side(
     Side {
         notes,
         pedigree,
-        mini: use_mini_pedigree(pedigree, photos),
+        mini: use_mini_pedigree(pedigree),
         profile: use_side_profile(couple, person_id, pedigree, i18n),
     }
 }
@@ -425,7 +425,7 @@ struct CoupleView<'a> {
     family_id: Uuid,
     nav: dioxus::router::Navigator,
     self_person_id: Option<Uuid>,
-    photos: Resource<HashMap<Uuid, CroppedSource>>,
+    photos: Resource<Portraits>,
     couple_notes: NotesResource,
     columns: &'a [Column; 2],
     unknown: &'a str,
@@ -663,7 +663,7 @@ impl CoupleView<'_> {
             for column in self.columns.iter() {
                 div { class: "cp-cell",
                     if column.person_id.is_some() {
-                        {ancestors_section(&self.ctx.i18n, &column.pedigree, column.mini.clone(), on_navigate)}
+                        {ancestors_section(&self.ctx.i18n, &column.pedigree, column.mini.clone(), self.photos.read().clone(), on_navigate)}
                     }
                 }
             }

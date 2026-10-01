@@ -298,12 +298,6 @@ pub struct PedigreeData {
     pub events_by_person: HashMap<Uuid, Vec<DomainEvent>>,
     pub events_by_family: HashMap<Uuid, Vec<DomainEvent>>,
     pub places: HashMap<Uuid, Place>,
-    /// person_id → the picture their portrait is drawn from, built by
-    /// [`ApiClient::portrait_map_for_ids`]. Absent means no portrait: the card
-    /// draws the silhouette rather than asking for bytes that do not exist.
-    /// A portrait that arrives as a region of a larger photograph carries that
-    /// region, and the card cuts it itself.
-    pub photos: HashMap<Uuid, CroppedSource>,
     /// The person this tree identifies as the current user.
     pub self_person_id: Option<Uuid>,
     /// How many generations each way the data was fetched for, when it came
@@ -322,6 +316,56 @@ pub type SharedPedigree = Shared<PedigreeData>;
 /// of persons on a large tree, and the chart compares it on every render to
 /// decide whether its layout is still current.
 pub type AncestorSet = Shared<HashSet<Uuid>>;
+
+/// person_id → the picture their portrait is drawn from, built by
+/// [`crate::api::ApiClient::portrait_map_for_ids`]. Absent means no portrait:
+/// the card draws the silhouette rather than asking for bytes that do not
+/// exist. A portrait that arrives as a region of a larger photograph carries
+/// that region, and the card cuts it itself.
+///
+/// Kept apart from the [`PedigreeData`] and the layout: portraits arrive
+/// after the pedigree, and on the web each one is a `data:` URL tens of
+/// kilobytes long. Folded into the pedigree, their arrival built a new one,
+/// which laid the chart out again and redrew every card, and each picture
+/// was copied into every node of the layout.
+pub type Portraits = Shared<HashMap<Uuid, CroppedSource>>;
+
+/// The portraits a chart's cards draw, provided by the chart to the pictures
+/// inside it. A signal, so that portraits arriving redraw only the pictures
+/// that read it — not the layout, the canvas or the cards around them.
+#[derive(Clone, Copy)]
+struct ChartPortraits(Signal<Option<Portraits>>);
+
+/// Provides `portraits` to the pictures of the chart being rendered, and
+/// keeps them current when a later render passes others.
+fn use_chart_portraits(portraits: Option<&Portraits>) {
+    let mut provided = use_context_provider(|| ChartPortraits(Signal::new(portraits.cloned()))).0;
+    if provided.peek().as_ref() != portraits {
+        provided.set(portraits.cloned());
+    }
+}
+
+/// The portrait of `person` among the chart's, when it has one.
+fn chart_portrait(person: Uuid) -> Option<CroppedSource> {
+    let ChartPortraits(portraits) = try_use_context::<ChartPortraits>()?;
+    portraits
+        .read()
+        .as_ref()
+        .and_then(|portraits| portraits.get(&person).cloned())
+}
+
+/// A card's picture: the person's portrait, else the silhouette of their sex.
+///
+/// A component of its own, the only part of a card that reads the chart's
+/// portraits, so their arrival redraws the pictures and nothing else.
+#[component]
+fn CardPortrait(person: Uuid, sex: Sex, x: f64, y: f64, width: f64, height: f64) -> Element {
+    let silhouette = CroppedSource::silhouette(sex);
+    let image = chart_portrait(person).unwrap_or_else(|| silhouette.clone());
+    rsx! {
+        CroppedSvgImage { image, x, y, width, height, fallback: silhouette }
+    }
+}
 
 /// Turn a projection event back into the domain shape the chart and the events
 /// panel already speak.
@@ -612,7 +656,6 @@ impl PedigreeData {
             events_by_person: people.events_by_person,
             events_by_family,
             places: HashMap::new(),
-            photos: HashMap::new(),
             self_person_id: None,
             ancestor_depth_loaded: Some(pedigree.ancestor_depth_loaded as usize),
             descendant_depth_loaded: Some(pedigree.descendant_depth_loaded as usize),
@@ -850,7 +893,6 @@ struct TreeNode {
     label_given: String,
     birth_year: Option<QualifiedYear>,
     death_year: Option<QualifiedYear>,
-    photo_url: Option<CroppedSource>,
     sosa_badge: SosaBadge,
     is_self: bool,
     /// Indices into the TreeNode arena of children (for RT traversal).
@@ -881,7 +923,6 @@ impl TreeNode {
         surname: String,
         birth_year: Option<QualifiedYear>,
         death_year: Option<QualifiedYear>,
-        photo_url: Option<CroppedSource>,
         sosa_badge: SosaBadge,
         is_self: bool,
         after: i32,
@@ -896,7 +937,6 @@ impl TreeNode {
             label_given: given,
             birth_year,
             death_year,
-            photo_url,
             sosa_badge,
             is_self,
             children: vec![],
@@ -922,7 +962,6 @@ impl TreeNode {
             label_given: String::new(),
             birth_year: None,
             death_year: None,
-            photo_url: None,
             sosa_badge: SosaBadge::None,
             is_self: false,
             children: vec![],
@@ -965,7 +1004,6 @@ struct PersonNode {
     surname: String,
     birth_year: Option<QualifiedYear>,
     death_year: Option<QualifiedYear>,
-    photo_url: Option<CroppedSource>,
     sosa_badge: SosaBadge,
     is_self: bool,
 }
@@ -987,8 +1025,6 @@ impl PersonNode {
         let birth_year = data.qualified_birth_year(id);
         let death_year = data.qualified_death_year(id);
 
-        let photo_url = data.photos.get(&id).cloned();
-
         let sosa_badge = if sosa_root_id == Some(id) {
             SosaBadge::Root
         } else if sosa_ancestors.contains(&id) {
@@ -1003,7 +1039,6 @@ impl PersonNode {
             surname,
             birth_year,
             death_year,
-            photo_url,
             sosa_badge,
             is_self: data.self_person_id == Some(id),
         }
@@ -1022,7 +1057,6 @@ impl PersonNode {
             label_given: self.given,
             birth_year: self.birth_year,
             death_year: self.death_year,
-            photo_url: self.photo_url,
             sosa_badge: self.sosa_badge,
             is_self: self.is_self,
             is_compact: false,
@@ -1062,7 +1096,6 @@ fn build_ascending_tree(
         root_pn.surname,
         root_pn.birth_year,
         root_pn.death_year,
-        root_pn.photo_url,
         root_pn.sosa_badge,
         root_pn.is_self,
         root_after,
@@ -1097,7 +1130,6 @@ fn build_ascending_tree(
                 pn.surname,
                 pn.birth_year,
                 pn.death_year,
-                pn.photo_url,
                 pn.sosa_badge,
                 pn.is_self,
                 0,
@@ -1124,7 +1156,6 @@ fn build_ascending_tree(
                 pn.surname,
                 pn.birth_year,
                 pn.death_year,
-                pn.photo_url,
                 pn.sosa_badge,
                 pn.is_self,
                 1,
@@ -1192,7 +1223,6 @@ fn build_descending_tree(
         root_pn.surname,
         root_pn.birth_year,
         root_pn.death_year,
-        root_pn.photo_url,
         root_pn.sosa_badge,
         root_pn.is_self,
         root_after,
@@ -1247,7 +1277,6 @@ fn build_descending_tree(
                         spn.surname,
                         spn.birth_year,
                         spn.death_year,
-                        spn.photo_url,
                         spn.sosa_badge,
                         spn.is_self,
                         spouse_after,
@@ -1289,7 +1318,6 @@ fn build_descending_tree(
                         cpn.surname,
                         cpn.birth_year,
                         cpn.death_year,
-                        cpn.photo_url,
                         cpn.sosa_badge,
                         cpn.is_self,
                         child_after,
@@ -2278,7 +2306,6 @@ struct LayoutNode {
     label_given: String,
     birth_year: Option<QualifiedYear>,
     death_year: Option<QualifiedYear>,
-    photo_url: Option<CroppedSource>,
     sosa_badge: SosaBadge,
     is_self: bool,
     is_compact: bool,
@@ -2877,7 +2904,6 @@ fn compute_layout(
         label_given: arena[ni].label_given.clone(),
         birth_year: arena[ni].birth_year,
         death_year: arena[ni].death_year,
-        photo_url: arena[ni].photo_url.clone(),
         sosa_badge: arena[ni].sosa_badge.clone(),
         is_self: arena[ni].is_self,
         is_compact,
@@ -3427,6 +3453,9 @@ pub struct MiniPedigreeProps {
     /// option as itself, for instance. `None` means the default theme.
     #[props(default)]
     pub theme: Option<&'static PedigreeTheme>,
+    /// The portraits the cards draw; `None` draws silhouettes.
+    #[props(default)]
+    pub portraits: Option<Portraits>,
 }
 
 /// Keeps `viewport` at the element's content size, once it has one.
@@ -3485,6 +3514,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
     let noop_click = EventHandler::new(|_: (Uuid, f64, f64)| {});
     let noop_empty_slot = EventHandler::new(|_: (Uuid, bool)| {});
     let preferred_scale = props.scale;
+    use_chart_portraits(props.portraits.as_ref());
     let preferred = crate::prefs::use_pedigree_theme();
     let theme = props.theme.unwrap_or_else(|| preferred.theme());
     // A ruled line is drawn as a band with a lighter core, the way an
@@ -3664,6 +3694,10 @@ pub struct PedigreeChartProps {
     /// graph — ensures badges appear even when jumping to distant ancestors.
     #[props(default)]
     pub sosa_ancestor_ids: Option<AncestorSet>,
+    /// The portraits the cards and the events panel draw, kept out of `data`
+    /// so that their arrival redraws only the pictures (see [`Portraits`]).
+    #[props(default)]
+    pub portraits: Option<Portraits>,
     /// Incremented by the parent to force re-centering on the root person,
     /// even when `root_person_id` hasn't changed (e.g. navigating back from
     /// the person profile page).
@@ -4016,10 +4050,6 @@ fn render_person_card(
         ("var(--pn-text)", "var(--pn-text-muted)")
     };
     let stroke = gender_stroke(node.sex);
-    let portrait = node
-        .photo_url
-        .clone()
-        .unwrap_or_else(|| CroppedSource::silhouette(node.sex));
     let card_class = if is_focus {
         "ped-card ped-card-focus"
     } else {
@@ -4089,7 +4119,7 @@ fn render_person_card(
             if *photo_mat {
                 rect { class: "ped-card-mat", x: "{ph_x}", y: "{ph_y}", rx: "{photo_round}", ry: "{photo_round}", width: "{ph_w}", height: "{ph_h}", style: "fill:var(--pn-mat,var(--white))" }
             }
-            CroppedSvgImage { image: portrait, x: *ph_x, y: *ph_y, width: *ph_w, height: *ph_h, fallback: CroppedSource::silhouette(node.sex) }
+            CardPortrait { person: pid, sex: node.sex, x: *ph_x, y: *ph_y, width: *ph_w, height: *ph_h }
             {sosa_mark(node, geo)}
             {card_text(geo, text_fill, date_fill)}
             if is_focus {
@@ -4826,6 +4856,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     // ── Selected person (drives event panel) ──
     let mut selected_person_id = use_signal(|| props.root_person_id);
     use_track_current_person(tid_parsed, Some(selected_person_id()));
+    use_chart_portraits(props.portraits.as_ref());
 
     // ── Event panel collapse (persisted via localStorage) ──
     let last_viewport_width = use_signal(|| VIEWPORT_DEFAULT_W);
@@ -5636,7 +5667,6 @@ mod layout_overlap_tests {
             "Surname".to_string(),
             None,
             None,
-            None,
             SosaBadge::None,
             false,
             if sex == Sex::Female { 1 } else { 0 },
@@ -6400,7 +6430,6 @@ mod geometry_golden_tests {
                 events_by_person: self.events_by_person,
                 events_by_family: HashMap::new(),
                 places: HashMap::new(),
-                photos: HashMap::new(),
                 self_person_id: None,
                 ancestor_depth_loaded: None,
                 descendant_depth_loaded: None,
@@ -6696,7 +6725,6 @@ mod geometry_golden_tests {
             label_given: given.to_string(),
             birth_year: None,
             death_year: None,
-            photo_url: None,
             sosa_badge: SosaBadge::None,
             is_self: false,
             is_compact,

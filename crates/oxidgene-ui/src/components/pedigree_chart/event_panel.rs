@@ -11,7 +11,7 @@ use super::{
     EVENT_PANEL_AUTO_COLLAPSE_WIDTH, EVENT_PANEL_KEYBOARD_STEP, EVENT_PANEL_MANUAL_STORAGE_KEY,
     EVENT_PANEL_MAX_RATIO, EVENT_PANEL_MAX_WIDTH, EVENT_PANEL_MIN_WIDTH,
     EVENT_PANEL_RATIO_STORAGE_KEY, SharedPedigree, VIEWPORT_DEFAULT_W,
-    WAIT_FOR_EVENT_PANEL_TRANSITION_JS, event_ui, format_lifespan,
+    WAIT_FOR_EVENT_PANEL_TRANSITION_JS, chart_portrait, event_ui, format_lifespan,
 };
 use crate::api::CroppedSource;
 use crate::components::cropped_image::CroppedImage;
@@ -254,11 +254,7 @@ fn EventPanelBody(data: SharedPedigree, selected: Uuid, tree_id: String) -> Elem
     // the translated one rather than a hardcoded "Unknown".
     let full_name = data.display_name(selected, &i18n);
     let silhouette = CroppedSource::silhouette(data.sex_of(selected));
-    let portrait = data
-        .photos
-        .get(&selected)
-        .cloned()
-        .unwrap_or_else(|| silhouette.clone());
+    let portrait = chart_portrait(selected).unwrap_or_else(|| silhouette.clone());
     // The same lifespan the card draws, rather than the old "n. 1620" / "d.
     // 1691" abbreviations: the panel sits beside the card showing the very
     // same person, and two spellings of one life read as two different facts.

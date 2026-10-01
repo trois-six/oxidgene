@@ -1,7 +1,5 @@
 //! Person detail page — shows names, events, notes, citations, and ancestry charts with full CRUD.
 
-use std::collections::HashMap;
-
 use dioxus::prelude::*;
 use uuid::Uuid;
 
@@ -10,6 +8,7 @@ use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::media_gallery::MediaOwner;
 use crate::components::merge_dialog::MergeDialog;
+use crate::components::pedigree_chart::Portraits;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::{
     ProfileMediaCard, SHOW_MANUAL_REFRESH, SectionContext, SharedProfile, ancestors_section,
@@ -23,6 +22,7 @@ use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
 use crate::i18n::use_i18n;
 use crate::router::Route;
+use crate::shared::Shared;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
@@ -125,9 +125,9 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         let _ = media_revision();
         async move {
             let (Some(tid), Some(person_id)) = (tid, person_id_parsed()) else {
-                return HashMap::new();
+                return Portraits::default();
             };
-            api.portrait_map_for_ids(tid, &[person_id]).await
+            Shared::new(api.portrait_map_for_ids(tid, &[person_id]).await)
         }
     });
 
@@ -138,7 +138,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         person_id_parsed.into(),
         i18n,
     );
-    let mini_pedigree = use_mini_pedigree(ancestor_pedigree_resource, photos_map_resource);
+    let mini_pedigree = use_mini_pedigree(ancestor_pedigree_resource);
 
     // Everything the sections draw, derived once per load rather than on
     // every render — including the ones caused by opening a dialog.
@@ -392,7 +392,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                     {family_section(ctx, profile, None)}
                     {timeline_section(ctx, profile, i18n.t("person.events_section"), &events)}
-                    {ancestors_section(&i18n, &ancestor_pedigree_resource, mini_pedigree(), on_navigate)}
+                    {ancestors_section(&i18n, &ancestor_pedigree_resource, mini_pedigree(), photos_map_resource.read().clone(), on_navigate)}
                 }
             }
             _ => rsx! {

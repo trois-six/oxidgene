@@ -4,8 +4,6 @@
 //! main view, a context menu for person actions (including search-or-create
 //! flows for AddSpouse/AddParents/AddChild), and union editing.
 
-use std::collections::HashMap;
-
 use dioxus::prelude::*;
 use dioxus::router::Navigator;
 use oxidgene_core::projection::Pedigree;
@@ -13,14 +11,12 @@ use oxidgene_core::types::Tree;
 use oxidgene_core::{ChildType, SpouseRole};
 use uuid::Uuid;
 
-use crate::api::{
-    AddChildBody, AddSpouseBody, ApiClient, ApiError, CreatePersonBody, CroppedSource,
-};
+use crate::api::{AddChildBody, AddSpouseBody, ApiClient, ApiError, CreatePersonBody};
 use crate::components::breadcrumb::TreeBreadcrumb;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::merge_dialog::MergeDialog;
-use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, SharedPedigree};
+use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, Portraits, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::use_sosa_ancestors;
 use crate::components::print::PrintHeading;
@@ -33,6 +29,7 @@ use crate::components::union_form::UnionForm;
 use crate::i18n::{I18n, use_i18n};
 use crate::prefs::PedigreeDefaults;
 use crate::router::Route;
+use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 use crate::utils::resolve_name;
 
@@ -540,9 +537,9 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         };
         async move {
             let Some(tid) = tid.filter(|_| !person_ids.is_empty()) else {
-                return HashMap::new();
+                return Portraits::default();
             };
-            api.portrait_map_for_ids(tid, &person_ids).await
+            Shared::new(api.portrait_map_for_ids(tid, &person_ids).await)
         }
     });
 
@@ -552,13 +549,8 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         pedigree_resource.restart();
     }
 
-    let pedigree_view = use_pedigree_view(
-        load_trace,
-        pedigree_resource,
-        photos_resource,
-        tree_resource,
-        selected_root,
-    );
+    let pedigree_view =
+        use_pedigree_view(load_trace, pedigree_resource, tree_resource, selected_root);
     let (pedigree_data, root_person_id) = pedigree_view();
 
     let writes = TreeWrites {
@@ -636,6 +628,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         tree_id: tree_id.clone(),
                         sosa_root_person_id: tree.as_ref().and_then(|tree| tree.sosa_root_person_id),
                         sosa_ancestor_ids: sosa_ancestors_resource.read().clone().filter(|set| !set.is_empty()),
+                        portraits: photos_resource.read().clone(),
                         center_gen: center_gen(),
                         on_person_click: move |(pid, x, y)| {
                             context_menu.set(Some((pid, x, y)));
@@ -771,19 +764,18 @@ fn overlay_dialogs(i18n: &I18n, writes: &TreeWrites, routes: &TreeRoutes) -> Ele
     }
 }
 
-/// The chart's data, assembled from the pedigree, its portraits and the tree,
-/// and the root it is drawn around.
+/// The chart's data, assembled from the pedigree and the tree, and the root
+/// it is drawn around. The portraits stay out of it (see [`Portraits`]).
 fn use_pedigree_view(
     load_trace: UiLoadTrace,
     pedigree_resource: Resource<Result<Pedigree, ApiError>>,
-    photos_resource: Resource<HashMap<Uuid, CroppedSource>>,
     tree_resource: Resource<Result<Tree, ApiError>>,
     selected_root: Signal<Option<Uuid>>,
 ) -> Memo<(Option<SharedPedigree>, Option<Uuid>)> {
     // ── Build pedigree data from the fetched pedigree ──
     //
     // Assembled once per change and shared from there. Every person, name,
-    // event, place and portrait the pedigree pulled in lives in here, and a
+    // event and place the pedigree pulled in lives in here, and a
     // dozen handlers below read it; rebuilt inline it was rebuilt — and deep
     // copied once per handler — on every render, including the render that
     // merely opened a context menu.
@@ -794,9 +786,6 @@ fn use_pedigree_view(
                 return (None, selected_root());
             };
             let mut pd = PedigreeData::from_pedigree(pedigree);
-            if let Some(photos) = &*photos_resource.read() {
-                pd.photos = photos.clone();
-            }
             pd.self_person_id = match &*tree_resource.read() {
                 Some(Ok(tree)) => tree.self_person_id,
                 _ => None,

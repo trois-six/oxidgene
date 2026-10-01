@@ -136,7 +136,6 @@ pub(super) fn unknown_spouse() -> LayoutNode {
         label_given: String::new(),
         birth_year: None,
         death_year: None,
-        photo_url: None,
         sosa_badge: SosaBadge::None,
         is_self: false,
         is_compact: false,

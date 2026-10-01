@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T14:43:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T10:44:57Z }
 ---
 
 
@@ -50,7 +50,9 @@ pedigree it holds, so raising the depth leaves the cards as they are until the
 deeper pedigree arrives, then lays it out and refits; lowering it within what is
 already loaded redraws immediately. The layout is recomputed only when the
 pedigree, focus, SOSA data, drawn depth or theme changes — never for the depth
-popover, the events sidebar or a selection.
+popover, the events sidebar or a selection. Portraits are not part of the
+layout either: they load after the pedigree and reach each card's picture and
+the events panel on their own, so their arrival redraws the pictures alone.
 
 Only the cards and connectors near the viewport are in the DOM, in every view
 (the wheel's and the fan's segments, the lineage view's boxes and lines

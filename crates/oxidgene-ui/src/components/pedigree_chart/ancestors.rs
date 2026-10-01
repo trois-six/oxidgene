@@ -79,7 +79,6 @@ fn empty_slot(sosa: u64, child: Uuid, is_father: bool) -> AncestorEntry {
             label_given: String::new(),
             birth_year: None,
             death_year: None,
-            photo_url: None,
             sosa_badge: SosaBadge::None,
             is_self: false,
             is_compact: false,
