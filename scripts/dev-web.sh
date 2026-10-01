@@ -21,6 +21,8 @@ fi
 
 export OXIDGENE_HOST="${OXIDGENE_HOST:-127.0.0.1}"
 export OXIDGENE_PORT="${OXIDGENE_PORT:-8080}"
+# A development server: GraphiQL, which loads from a CDN, is on here only.
+export OXIDGENE_GRAPHIQL="${OXIDGENE_GRAPHIQL:-true}"
 export OXIDGENE_API_URL="${OXIDGENE_API_URL:-http://127.0.0.1:${OXIDGENE_PORT}}"
 frontend_port="${OXIDGENE_WEB_PORT:-8081}"
 startup_timeout="${OXIDGENE_DEV_STARTUP_TIMEOUT:-300}"

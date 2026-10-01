@@ -3017,23 +3017,36 @@ async fn test_person_name_update_delete() {
 
 // ── GraphiQL playground ──────────────────────────────────────────────
 
-#[tokio::test]
-async fn test_graphiql_playground() {
-    let app = setup_app().await;
-
+/// `GET /graphql`: its status and body.
+async fn get_graphql(app: axum::Router) -> (StatusCode, String) {
     let request = Request::builder()
         .method(Method::GET)
         .uri("/graphql")
         .body(Body::empty())
         .unwrap();
-
     let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
+    let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let body = String::from_utf8(bytes.to_vec()).unwrap();
-    // Should contain GraphiQL HTML
-    assert!(body.contains("graphiql"));
+    (status, String::from_utf8(bytes.to_vec()).unwrap())
+}
+
+/// GraphiQL loads its scripts from a public CDN: it is served only where the
+/// deployment enables it, and is an unknown route elsewhere.
+#[tokio::test]
+async fn test_graphiql_playground() {
+    let app = setup_app().await;
+    let (status, body) = get_graphql(app.clone()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.contains(r#""error":"not_found""#), "{body}");
+
+    // The marker exists only where GraphQL is compiled in.
+    #[cfg(feature = "graphql")]
+    {
+        let enabled = app.layer(axum::Extension(oxidgene_api::graphql::GraphiQl));
+        let (status, body) = get_graphql(enabled).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("graphiql"));
+    }
 }
 
 // ── Geneanet and exports ─────────────────────────────────────────────

@@ -112,7 +112,22 @@ pub async fn graphql_handler(
     schema.execute(req.into_inner()).await.into()
 }
 
-/// Axum handler for `GET /graphql` — serves GraphiQL playground.
-pub async fn graphql_playground() -> impl IntoResponse {
-    Html(GraphiQLSource::build().endpoint("/graphql").finish())
+/// Marks a router whose `GET /graphql` serves GraphiQL: add it as an
+/// [`axum::Extension`] layer.
+///
+/// Off unless a deployment asks for it: the GraphiQL page loads its scripts
+/// and styles from a public CDN, so serving it makes every visitor's browser
+/// call a third party.
+#[derive(Clone, Copy, Debug)]
+pub struct GraphiQl;
+
+/// Axum handler for `GET /graphql` — serves the GraphiQL playground where
+/// [`GraphiQl`] enables it, and is an unknown route everywhere else.
+pub async fn graphql_playground(
+    enabled: Option<axum::Extension<GraphiQl>>,
+) -> axum::response::Response {
+    if enabled.is_none() {
+        return crate::rest::error::unknown_route().await;
+    }
+    Html(GraphiQLSource::build().endpoint("/graphql").finish()).into_response()
 }

@@ -66,6 +66,10 @@ spec:
               value: {{ .Values.backend.logFormat | quote }}
             - name: OXIDGENE_CORS_ORIGIN
               value: {{ .Values.backend.corsOrigin | quote }}
+            {{- if .Values.backend.graphiql }}
+            - name: OXIDGENE_GRAPHIQL
+              value: "true"
+            {{- end }}
             {{- with .Values.backend.allowedHosts }}
             - name: OXIDGENE_ALLOWED_HOSTS
               value: {{ join "," . | quote }}

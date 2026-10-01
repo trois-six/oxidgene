@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:54:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:13:09Z }
 ---
 
 # OxidGene Quickstart
@@ -206,6 +206,7 @@ for you; a server run by hand reads:
 | `OXIDGENE_LOG_FORMAT` | `text` | Console format, `text` or `json`. |
 | `OXIDGENE_CORS_ORIGIN` | `http://127.0.0.1:8081` | The one browser origin that may call the API; `*` is refused. Writes from any other origin answer `403 forbidden`. |
 | `OXIDGENE_ALLOWED_HOSTS` | Unset | Comma-separated host names the API also answers under. It always answers under `localhost`, `127.0.0.1`, `[::1]` and the host of `OXIDGENE_CORS_ORIGIN`; a request naming any other `Host` answers `403 forbidden`, which defeats DNS rebinding. `/healthz` answers whatever the host. |
+| `OXIDGENE_GRAPHIQL` | `false` | Serve GraphiQL at `GET /graphql`. Its page loads scripts from a public CDN, so it is meant for development; Compose and `just dev-web` turn it on. |
 | `OXIDGENE_MEDIA_BACKEND` | `filesystem` | `filesystem` or `s3`. |
 | `OXIDGENE_MEDIA_ROOT` | Platform data directory | Filesystem media root. |
 | `OXIDGENE_S3_BUCKET`, `OXIDGENE_S3_REGION` | `oxidgene-media`, `us-east-1` | S3 bucket and signing region. |
@@ -637,6 +638,7 @@ private network reaches. The release notes repeat the warning.
 | `backend.service.type` | `ClusterIP` | Backend Service type. |
 | `backend.service.port` | `8080` | Backend Service port. |
 | `backend.corsOrigin` | `https://oxidgene.example.invalid` | Allowed browser origin. Set it to the public application origin; its host is also one the API answers under. |
+| `backend.graphiql` | `false` | Serve GraphiQL at `GET /graphql` (`OXIDGENE_GRAPHIQL`); its page loads scripts from a public CDN. |
 | `backend.allowedHosts` | `[]` | Further host names the API answers under (`OXIDGENE_ALLOWED_HOSTS`), for a client calling the backend Service directly. Any other `Host` is refused. |
 | `backend.logLevel` | `info` | `OXIDGENE_LOG_LEVEL` value. |
 | `backend.otlpEndpoint` | `""` | Backend `OTEL_EXPORTER_OTLP_ENDPOINT`; empty disables its telemetry export and span creation. |

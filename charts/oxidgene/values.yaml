@@ -24,6 +24,9 @@ backend:
   # defeats DNS rebinding. Add an in-cluster name here only if something
   # calls the backend Service directly.
   allowedHosts: []
+  # Serve GraphiQL at GET /graphql. Its page loads scripts from a public CDN,
+  # so every visitor's browser calls a third party: a development aid.
+  graphiql: false
   logLevel: info
   # Console log format, `text` or `json`. With OTLP export enabled, a collector
   # that also scrapes these lines receives every event twice.

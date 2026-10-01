@@ -11,6 +11,7 @@
 //! | `OXIDGENE_LOG_FORMAT`            | `text`                                     | Console format, or `json`   |
 //! | `OXIDGENE_CORS_ORIGIN`           | `http://127.0.0.1:8081`                    | Allowed CORS origin         |
 //! | `OXIDGENE_ALLOWED_HOSTS`         | unset                                      | More `Host` names to answer |
+//! | `OXIDGENE_GRAPHIQL`              | `false`                                    | Serve GraphiQL at `GET /graphql` |
 //! | `OXIDGENE_MEDIA_BACKEND`         | `filesystem`                               | `filesystem` or `s3`        |
 //! | `OXIDGENE_MEDIA_ROOT`            | platform data dir (see below)              | Filesystem media root       |
 //! | `OXIDGENE_S3_BUCKET`             | `oxidgene-media`                            | S3 bucket                   |
@@ -93,6 +94,11 @@ pub struct ServerConfig {
     #[serde(default)]
     pub allowed_hosts: String,
 
+    /// Whether `GET /graphql` serves GraphiQL (default: off). The page loads
+    /// its scripts from a public CDN, so it is a development convenience.
+    #[serde(default)]
+    pub graphiql: bool,
+
     /// Directory uploaded media files are stored under.
     #[serde(default = "default_media_root")]
     pub media_root: PathBuf,
@@ -132,6 +138,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("log_format", &self.log_format)
             .field("cors_origin", &self.cors_origin)
             .field("allowed_hosts", &self.allowed_hosts)
+            .field("graphiql", &self.graphiql)
             .field("media_root", &self.media_root)
             .field("media_backend", &self.media_backend)
             .field("s3_bucket", &self.s3_bucket)
@@ -275,6 +282,15 @@ mod tests {
     fn network_defaults_do_not_expose_the_unauthenticated_backend() {
         assert_eq!(default_host(), "127.0.0.1");
         assert_eq!(default_cors_origin(), "http://127.0.0.1:8081");
+    }
+
+    #[test]
+    fn graphiql_is_off_unless_asked_for() {
+        let config: ServerConfig = Config::builder()
+            .build()
+            .and_then(Config::try_deserialize)
+            .expect("every field has a default");
+        assert!(!config.graphiql);
     }
 
     #[test]

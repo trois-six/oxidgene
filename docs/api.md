@@ -127,10 +127,12 @@ paths, HTTP methods, operation identifiers, and path parameters track the
 compiled REST surface. The document also defines the shared error envelope.
 
 GraphQL uses its executable schema and standard introspection instead of a
-separate OpenAPI description. GraphiQL is served at `GET /graphql` when the
-`graphql` feature is enabled: the standalone server enables it; the desktop's
-embedded server and the background worker do not, so the desktop serves REST
-only.
+separate OpenAPI description. The `graphql` feature is enabled in the
+standalone server only; the desktop's embedded server and the background
+worker do not compile it, so the desktop serves REST only. GraphiQL is served
+at `GET /graphql` only where the deployment enables it (`OXIDGENE_GRAPHIQL`,
+off by default): the page loads its scripts from a public CDN. Elsewhere
+`GET /graphql` is an unknown route (`404 not_found`).
 
 ### Connecting a client
 
@@ -1198,7 +1200,7 @@ Responses use a connection envelope:
 ## 3. GraphQL API
 
 Endpoint: `/graphql` using POST with a JSON body (`{"query": …, "variables": …}`)
-for queries and mutations; `GET /graphql` serves GraphiQL. No subscription
+for queries and mutations; `GET /graphql` serves GraphiQL where enabled. No subscription
 contract is currently exposed.
 
 ### Queries

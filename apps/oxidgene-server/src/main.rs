@@ -72,7 +72,10 @@ async fn main() {
         // running the jobs a previous run left marked as running.
         spawn_background_worker(&state, uses_sqlite, "embedded-server").await;
     }
-    let api_router = build_router(state);
+    let mut api_router = build_router(state);
+    if cfg.graphiql {
+        api_router = api_router.layer(axum::Extension(oxidgene_api::graphql::GraphiQl));
+    }
     reference_warmup.finish().await;
 
     // CORS remains single-origin until authentication and authorization ship.
