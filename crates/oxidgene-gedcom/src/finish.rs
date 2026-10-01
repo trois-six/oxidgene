@@ -12,9 +12,21 @@
 //! export asks `ged_io` not to split at all, and this pass splits each line a
 //! reader continues — notes, texts, causes, pages and a source's title,
 //! author, publication and abbreviation — between two non-space characters.
+//!
+//! And it writes what `ged_io` drops from a record it does write: a source's
+//! `PUBL`, which its writer leaves out, goes in as an [`Addition`] after the
+//! line opening the record.
+
+use std::collections::HashMap;
 
 use ged_io::types::note::Note as GedNote;
 use uuid::Uuid;
+
+/// A level-1 structure to write right after the line opening a record.
+pub(crate) struct Addition {
+    pub tag: &'static str,
+    pub text: String,
+}
 
 /// Opens the value of a placeholder note; the owner's id follows.
 const NOTE_SLOT: char = '\u{1}';
@@ -27,9 +39,14 @@ pub(crate) fn note_slot(owner: Uuid, has_notes: bool) -> Option<GedNote> {
     })
 }
 
-/// Writes the notes `notes_of` gives for each placeholder in its place, and
-/// continues every line too long for GEDCOM that a reader continues.
-pub(crate) fn finish<'n>(gedcom: &str, notes_of: impl Fn(Uuid) -> Vec<&'n str>) -> String {
+/// Writes the notes `notes_of` gives for each placeholder in its place, the
+/// `additions` of each record by its xref, and continues every line too long
+/// for GEDCOM that a reader continues.
+pub(crate) fn finish<'n>(
+    gedcom: &str,
+    notes_of: impl Fn(Uuid) -> Vec<&'n str>,
+    additions: &HashMap<String, Vec<Addition>>,
+) -> String {
     let mut out = String::with_capacity(gedcom.len() + gedcom.len() / 64);
     let mut record = "";
     for line in gedcom.lines() {
@@ -39,9 +56,18 @@ pub(crate) fn finish<'n>(gedcom: &str, notes_of: impl Fn(Uuid) -> Vec<&'n str>) 
             }
             continue;
         }
-        let (level, tag, value) = split_line(line);
+        let (level, xref, tag, value) = split_line(line);
         if level == Some(0) {
             record = tag;
+            push_line(&mut out, line, "");
+            for addition in xref
+                .and_then(|xref| additions.get(xref))
+                .into_iter()
+                .flatten()
+            {
+                push_text(&mut out, 1, addition.tag, &addition.text);
+            }
+            continue;
         }
         match (level, value) {
             (Some(level), Some(value)) if continued(level, tag, record) => {
@@ -59,21 +85,24 @@ pub(crate) fn finish<'n>(gedcom: &str, notes_of: impl Fn(Uuid) -> Vec<&'n str>) 
     out
 }
 
-/// The level, tag and value of a line as `ged_io` writes it; the tag of a
-/// record (`0 @I1@ INDI`) is the one after its xref.
-fn split_line(line: &str) -> (Option<u8>, &str, Option<&str>) {
+/// The level, xref, tag and value of a line as `ged_io` writes it.
+fn split_line(line: &str) -> (Option<u8>, Option<&str>, &str, Option<&str>) {
     let Some((level, rest)) = line.split_once(' ') else {
-        return (None, "", None);
+        return (None, None, "", None);
     };
-    let rest = match rest.strip_prefix('@') {
-        Some(after) => after.split_once(' ').map_or("", |(_, tag)| tag),
-        None => rest,
+    let (xref, rest) = if rest.starts_with('@') {
+        match rest.split_once(' ') {
+            Some((xref, tag)) => (Some(xref), tag),
+            None => (Some(rest), ""),
+        }
+    } else {
+        (None, rest)
     };
     let (tag, value) = match rest.split_once(' ') {
         Some((tag, value)) => (tag, Some(value)),
         None => (rest, None),
     };
-    (level.parse().ok(), tag, value)
+    (level.parse().ok(), xref, tag, value)
 }
 
 /// Whether a reader joins the `CONC` lines following a `tag` line — and so
@@ -222,7 +251,7 @@ mod tests {
             "0 @S1@ SOUR\n1 TITL {long}\n1 NOTE {long}\n2 CONT {long}\n\
              0 @I1@ INDI\n1 TITL {long}\n1 DEAT\n2 CAUS {long}\n2 PLAC {long}\n0 TRLR"
         );
-        let out = finish(&gedcom, |_| Vec::new());
+        let out = finish(&gedcom, |_| Vec::new(), &HashMap::new());
         let continued: Vec<&str> = out
             .lines()
             .filter(|line| line.contains(" CONC "))

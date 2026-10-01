@@ -164,7 +164,11 @@ pub fn export_gedcom(
     drop(build_guard);
 
     let gedcom = write_gedcom(&data)?;
-    let gedcom = crate::finish::finish(&gedcom, |owner| index.notes_of(owner));
+    let gedcom = crate::finish::finish(
+        &gedcom,
+        |owner| index.notes_of(owner),
+        &index.additions(sources),
+    );
     let (gedcom, extension_warnings) = inject_extensions(gedcom, media, vignettes, &index);
     warnings.extend(extension_warnings);
 
@@ -412,11 +416,34 @@ impl ExportIndex<'_> {
             xref: self.xrefs.source.get(&src.id).cloned(),
             title: Some(src.title.clone()),
             author: src.author.clone(),
-            publication_facts: src.publisher.clone(),
+            // `ged_io` writes no `PUBL`: `additions` adds it to the text.
+            publication_facts: None,
             abbreviation: src.abbreviation.clone(),
             notes: all_notes(self.notes_by_source.get(&src.id)),
             ..Default::default()
         }
+    }
+
+    /// What the text `ged_io` writes lacks, by record xref: each source's
+    /// publication facts, as `ged_io` 0.16 never writes a `PUBL`.
+    fn additions(&self, sources: &[Source]) -> HashMap<String, Vec<crate::finish::Addition>> {
+        let mut additions: HashMap<String, Vec<crate::finish::Addition>> = HashMap::new();
+        for src in sources {
+            let (Some(xref), Some(publisher)) = (
+                self.xrefs.source.get(&src.id),
+                src.publisher.as_deref().filter(|p| !p.trim().is_empty()),
+            ) else {
+                continue;
+            };
+            additions
+                .entry(xref.clone())
+                .or_default()
+                .push(crate::finish::Addition {
+                    tag: "PUBL",
+                    text: publisher.to_string(),
+                });
+        }
+        additions
     }
 
     /// An `OBJE` record for one page.

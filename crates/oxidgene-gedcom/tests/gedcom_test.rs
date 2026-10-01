@@ -789,6 +789,23 @@ fn every_quay_and_its_absence_survive_a_round_trip() {
     assert!(quays(&gedcom).contains(&("none".to_string(), None)));
 }
 
+/// A source's publication facts are exported once — `ged_io` writes no
+/// `PUBL` — and come back, over several lines too.
+#[test]
+fn a_source_publisher_survives_a_round_trip() {
+    let gedcom = CITATION_TEXT_GEDCOM.replace(
+        "1 TITL Sample register\n",
+        "1 TITL Sample register\n1 PUBL Sample press,\n2 CONT second edition\n",
+    );
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    let publisher = "Sample press,\nsecond edition";
+    assert_eq!(imported.sources[0].publisher.as_deref(), Some(publisher));
+    let exported = reexport(&imported);
+    assert_eq!(exported.matches("1 PUBL").count(), 1, "{exported}");
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    assert_eq!(back.sources[0].publisher.as_deref(), Some(publisher));
+}
+
 #[test]
 fn test_import_invalid_gedcom() {
     let tree_id = Uuid::now_v7();
