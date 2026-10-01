@@ -304,6 +304,7 @@ fn HomeHeader() -> Element {
                     to: Route::AppSettings {},
                     class: "home-settings-btn",
                     title: "{i18n.t(\"app_settings.title\")}",
+                    "aria-label": "{i18n.t(\"app_settings.title\")}",
                     svg {
                         width: "20",
                         height: "20",
@@ -748,6 +749,9 @@ fn TreeCard(
                             button {
                                 class: "tree-card-menu-btn",
                                 title: i18n.t("home.tree_actions"),
+                                "aria-label": i18n.t("home.tree_actions"),
+                                "aria-haspopup": "menu",
+                                "aria-expanded": menu_open,
                                 onclick: move |e: Event<MouseData>| {
                                     e.stop_propagation();
                                     if menu_open {

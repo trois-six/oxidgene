@@ -974,6 +974,8 @@ fn toolbar(i18n: &I18n, total: usize, filters: SearchFilters) -> Element {
             button {
                 class: if view() == mode { "sr-view-btn active" } else { "sr-view-btn" },
                 title: i18n.t(title_key),
+                "aria-label": i18n.t(title_key),
+                "aria-pressed": view() == mode,
                 onclick: move |_| {
                     if view() != mode {
                         view.set(mode);

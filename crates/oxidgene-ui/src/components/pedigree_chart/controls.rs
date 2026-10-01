@@ -89,6 +89,7 @@ pub(super) fn PedigreeTools(
         button {
             class: "isb-btn",
             title: "{i18n.t(\"pedigree.zoom_in\")}",
+            "aria-label": "{i18n.t(\"pedigree.zoom_in\")}",
             onclick: move |_| zoom(ZOOM_FACTOR),
             svg {
                 width: "16",
@@ -106,6 +107,7 @@ pub(super) fn PedigreeTools(
         button {
             class: "isb-btn",
             title: "{i18n.t(\"pedigree.zoom_out\")}",
+            "aria-label": "{i18n.t(\"pedigree.zoom_out\")}",
             onclick: move |_| zoom(1.0 / ZOOM_FACTOR),
             svg {
                 width: "16",
@@ -123,6 +125,7 @@ pub(super) fn PedigreeTools(
         button {
             class: "isb-btn",
             title: "{i18n.t(\"pedigree.fit_screen\")}",
+            "aria-label": "{i18n.t(\"pedigree.fit_screen\")}",
             onclick: move |_| {
                 spawn(async move {
                     fit_graph_in_viewport(saver.transform, viewport_rect, fit_target).await;
@@ -179,6 +182,7 @@ fn DepthPopover(
             button {
                 class: "isb-btn",
                 title: "{i18n.t(\"pedigree.depth\")}",
+                "aria-label": "{i18n.t(\"pedigree.depth\")}",
                 svg {
                     width: "16",
                     height: "16",

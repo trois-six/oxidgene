@@ -46,6 +46,7 @@ pub fn TreeIconSidebar(
             button {
                 class: "{profile_class}",
                 title: "{i18n.t(\"pedigree.profile_view\")}",
+                "aria-label": "{i18n.t(\"pedigree.profile_view\")}",
                 disabled: selected_person_id.is_none(),
                 onclick: move |_| on_profile_view.call(selected_person_id),
                 svg {
@@ -64,6 +65,7 @@ pub fn TreeIconSidebar(
                 button {
                     class: "{couple_class}",
                     title: "{i18n.t(\"pedigree.couple_view\")}",
+                    "aria-label": "{i18n.t(\"pedigree.couple_view\")}",
                     onclick: move |_| on_couple_view.call(family_id),
                     svg {
                         width: "16",
@@ -83,6 +85,7 @@ pub fn TreeIconSidebar(
             button {
                 class: "{pedigree_class}",
                 title: "{i18n.t(\"pedigree.tree_view\")}",
+                "aria-label": "{i18n.t(\"pedigree.tree_view\")}",
                 onclick: move |_| on_pedigree_view.call(selected_person_id),
                 svg {
                     width: "16",
@@ -112,6 +115,7 @@ pub fn TreeIconSidebar(
                 button {
                     class: "isb-btn",
                     title: "{i18n.t(\"pedigree.add_person\")}",
+                    "aria-label": "{i18n.t(\"pedigree.add_person\")}",
                     onclick: move |_| on_add_person.call(()),
                     svg {
                         width: "16",
