@@ -27,6 +27,14 @@ RUN OXIDGENE_API_URL="${OXIDGENE_API_URL}" OXIDGENE_LOG_LEVEL="${OXIDGENE_LOG_LE
     OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT}" \
     scripts/dx.sh build --package oxidgene-web --platform web --release
 
+# Precompress the bundle once, at gzip's highest level, for nginx's
+# gzip_static: every request then gets the smallest gzip without nginx
+# compressing anything at serve time. -n keeps the archives reproducible.
+RUN find target/dx/oxidgene-web/release/web/public -type f -size +1k \
+        \( -name '*.wasm' -o -name '*.js' -o -name '*.css' -o -name '*.html' \
+           -o -name '*.json' -o -name '*.svg' \) \
+        -exec gzip -9 -k -n {} +
+
 # The Content-Security-Policy lets the page connect to its own origin and to
 # the origins of the API and OTLP endpoint baked into this bundle.
 RUN connect=""; \
