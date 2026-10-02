@@ -1,0 +1,284 @@
+{
+  "home": {
+    "requests": 3,
+    "depth": 3,
+    "duplicates": 0,
+    "bytes": 33847
+  },
+  "pedigree:tree": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53667
+  },
+  "pedigree:wheel": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 11710
+  },
+  "pedigree:fan": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 11710
+  },
+  "pedigree:descendant-wheel": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 11710
+  },
+  "pedigree:descendant-fan": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 11710
+  },
+  "pedigree:lineage": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53667
+  },
+  "pedigree:descendant-lineage": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53667
+  },
+  "pedigree:hourglass": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53667
+  },
+  "pedigree:bowtie": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53667
+  },
+  "search": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 31077
+  },
+  "person": {
+    "requests": 5,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 172054
+  },
+  "history": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 9764
+  },
+  "couple": {
+    "requests": 4,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 225908
+  },
+  "kinship": {
+    "requests": 5,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 21718
+  },
+  "dictionary": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 919
+  },
+  "statistics": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 38235
+  },
+  "tools": {
+    "requests": 2,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 2764
+  },
+  "settings": {
+    "requests": 4,
+    "depth": 3,
+    "duplicates": 0,
+    "bytes": 8033
+  },
+  "appSettings": {
+    "requests": 0,
+    "depth": 0,
+    "duplicates": 0,
+    "bytes": 0
+  },
+  "home<-pedigree": {
+    "requests": 3,
+    "depth": 3,
+    "duplicates": 0,
+    "bytes": 16657
+  },
+  "pedigree<-home": {
+    "requests": 3,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 36477
+  },
+  "pedigree<-person": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 48062
+  },
+  "person<-pedigree": {
+    "requests": 4,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 166449
+  },
+  "pedigree<-search": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 38582
+  },
+  "search<-person": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 25472
+  },
+  "person<-history": {
+    "requests": 4,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 171631
+  },
+  "person<-couple": {
+    "requests": 3,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 28730
+  },
+  "person<-kinship": {
+    "requests": 4,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 166449
+  },
+  "pedigree<-dictionary": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53244
+  },
+  "pedigree<-statistics": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53244
+  },
+  "pedigree<-tools": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 53244
+  },
+  "pedigree<-settings": {
+    "requests": 2,
+    "depth": 2,
+    "duplicates": 0,
+    "bytes": 48062
+  },
+  "home<-appSettings": {
+    "requests": 3,
+    "depth": 3,
+    "duplicates": 0,
+    "bytes": 33847
+  },
+  "dictionary:Sources": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 1363
+  },
+  "dictionary:Places": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 1281
+  },
+  "dictionary:Occupations": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 50
+  },
+  "dictionary:Family Names": {
+    "requests": 0,
+    "depth": 0,
+    "duplicates": 0,
+    "bytes": 0
+  },
+  "statistics:Population": {
+    "requests": 0,
+    "depth": 0,
+    "duplicates": 0,
+    "bytes": 0
+  },
+  "statistics:Families": {
+    "requests": 0,
+    "depth": 0,
+    "duplicates": 0,
+    "bytes": 0
+  },
+  "statistics:Places": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 1664130
+  },
+  "statistics:Growth": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 164
+  },
+  "statistics:Overview": {
+    "requests": 0,
+    "depth": 0,
+    "duplicates": 0,
+    "bytes": 0
+  },
+  "tools:Places not located": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 606
+  },
+  "tools:Ancestry completeness": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 3749
+  },
+  "tools:Potential duplicates": {
+    "requests": 1,
+    "depth": 1,
+    "duplicates": 0,
+    "bytes": 2697
+  },
+  "tools:Anomalies": {
+    "requests": 0,
+    "depth": 0,
+    "duplicates": 0,
+    "bytes": 0
+  }
+}
