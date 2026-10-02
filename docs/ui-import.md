@@ -86,7 +86,7 @@ ISO-8859-1 unless it declares otherwise so only its reader can decode it, and
 a `.gdz` is a ZIP. There is no other way in: the backend imports a file only as
 a job. Anything with an unrecognised extension is read as GEDCOM — the reader
 says so soon enough if it is not, and a renamed `.ged` is common. See
-[API Contract §Import](api.md).
+[API Contract](api.md#import--export).
 
 **Only `.gdz` brings the photographs.** A GEDZIP is a `gedcom.ged` and the
 media files it references in one archive, so the media arrive held: stored,

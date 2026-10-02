@@ -3,7 +3,11 @@ type: "API Reference"
 title: "Geneanet Upload — API Specification"
 description: "Reverse-engineered reference for the Geneanet Upload app's api.geneanet.org surface, Cloudflare behavior per HTTP client, originals versus renditions, and login."
 tags: [oxidgene, reference, geneanet, api]
-generated: { by: human:maintainer, at: 2026-08-30T00:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+sources:
+  - id: geneweb-plugin-api
+    title: "geneanet/geneweb-plugin-api — server-side source of the GeneWeb plugin API"
+    url: "https://github.com/geneanet/geneweb-plugin-api"
 ---
 
 # Geneanet Upload — API Specification
@@ -29,6 +33,10 @@ Reverse-engineered from `geneanet-upload-last-linux-x64.AppImage` (**Geneanet Up
 - **Stack**: Electron 13.6.9 (Chromium 91.0.4472.164), AngularJS 1.8 renderer, `ng-file-upload` for multipart uploads.
 - **Base URL (production)**: `https://api.geneanet.org` (behind Cloudflare; HTTP/2; JSON responses).
 - Legend: **[app]** = observed in application source code · **[probe]** = verified by live request · **[auth]** = verified with a real access token · **[inferred]** = deduced, not confirmed.
+- **Sources**: Geneanet publishes no documentation of `api.geneanet.org`. Every
+  claim outside §8 rests on the observations above — the application's
+  recovered source and captures of live requests — which are not public and
+  cannot be cited. §8 alone rests on a public source[^geneweb-plugin-api].
 
 ---
 
@@ -755,3 +763,5 @@ Conclusions:
   body) — i.e. reaching the app ≠ authenticated; `gntsess5` still required for data.
 - www.geneanet.org issues `302` locale redirects to `en.geneanet.org` etc. — a client
   that follows redirects handles it transparently.
+
+[^geneweb-plugin-api]: geneanet/geneweb-plugin-api — server-side source of the GeneWeb plugin API, <https://github.com/geneanet/geneweb-plugin-api>.

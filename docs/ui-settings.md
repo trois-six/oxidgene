@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 
@@ -84,15 +84,15 @@ Each group has an uppercase orange label. Each item is a text button. The active
 ### Group 1 — Settings
 | Item | Section ID |
 |---|---|
-| Tree & Roots | `arbre` |
-| Privacy | `confidentialite` |
-| Date Display | `affichage` |
-| Entry Options | `saisie` |
+| Tree & Roots | `tree-roots` |
+| Privacy | `privacy` |
+| Date Display | `date-display` |
+| Entry Options | `entry-options` |
 
 ### Group 2 — Tools
 | Item | Section ID |
 |---|---|
-| History | `historique` |
+| History | `history` |
 
 Anomalies, ancestry completeness, potential duplicates and date conversion
 are tabs of the [Tools](ui-tools.md) page, reached from the sidebar's wrench
@@ -334,7 +334,7 @@ restore at its top.
 
 ---
 
-## 18. Section: Export
+## 12. Section: Export
 
 Two export format options, each displayed as a card with icon, name, description and an action button:
 
@@ -386,7 +386,7 @@ kept across a reload.
 
 ---
 
-## 19. Section: Global Preferences
+## 13. Section: Global Preferences
 
 Appearance, language, pedigree, and name-display preferences are
 application-level settings shared with [App Settings](ui-app-settings.md).
@@ -405,7 +405,7 @@ those depths; the global values initialize trees without a saved view.
 
 ---
 
-## 20. Design Consistency
+## 14. Design Consistency
 
 The settings page uses the shared `sub-page` layout and interaction states from
 [Common UI](ui-common.md). The light/dark theme applies globally.

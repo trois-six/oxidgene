@@ -125,7 +125,7 @@ In create mode, the modal adapts its title and pre-filled fields based on the tr
 | Title | "Add spouse to <person A>" |
 | Gender | Pre-selected to the opposite of the existing person (if Male → Female, and vice versa). Editable. |
 | Relationship created on save | A new Family is created (or the existing one is used if the person has no union yet). The new person is added as a FamilySpouse. |
-| Union section | A collapsed "Union details" section is available (date, place, note, source for the marriage). Same fields as the union block in the [couple edit modal](#14-couple-edit-modal). |
+| Union section | A collapsed "Union details" section is available (date, place, note, source for the marriage). Same fields as the union block in the [couple edit modal](#16-couple-edit-modal). |
 
 ### Add Child
 
@@ -407,7 +407,7 @@ Event types are organized by category. Types marked with **⟷** have a direct G
 - Probate ⟷ `PROB`
 - Will ⟷ `WILL`
 
-**Family** (also available as union events in the [couple edit modal](#14-couple-edit-modal))
+**Family** (also available as union events in the [couple edit modal](#16-couple-edit-modal))
 - Engagement ⟷ `ENGA`
 - Divorce / Separation ⟷ `DIV`
 - Adoption

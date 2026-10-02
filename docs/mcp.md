@@ -164,7 +164,7 @@ Bounds:
 - Connection pages follow the shared pagination rules (`first` defaults to
   25, maximum 100).
 - `get_pedigree` narrows each depth to 0–10 generations, the same range the
-  pedigree view offers ([Tree Settings §19](ui-settings.md)) and the limit
+  pedigree view offers ([Tree Settings §13](ui-settings.md#13-section-global-preferences)) and the limit
   REST and GraphQL enforce.
 
 The first delivery offers no MCP resources and no prompts.
