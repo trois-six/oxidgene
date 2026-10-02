@@ -6677,6 +6677,7 @@
     "app_settings.increase_descendant_levels": "Pokaż o jedno pokolenie potomków więcej",
     "app_settings.language": "Język",
     "app_settings.language_desc": "Wybierz język interfejsu.",
+    "app_settings.language_custom_hint": "Języki to pliki JSON. Umieść plik w tym folderze i ponownie otwórz tę stronę, aby dodać język.",
     "app_settings.language_file_error": "Nieprawidłowy plik języka.",
     "app_settings.language_title": "Język",
     "app_settings.names": "Nazwiska",

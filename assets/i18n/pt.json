@@ -6658,6 +6658,7 @@
     "app_settings.increase_descendant_levels": "Mostrar mais uma geração de descendentes",
     "app_settings.language": "Idioma",
     "app_settings.language_desc": "Escolha o idioma de apresentação da interface.",
+    "app_settings.language_custom_hint": "Os idiomas são ficheiros JSON. Coloque um nesta pasta e volte a abrir esta página para adicionar um idioma.",
     "app_settings.language_file_error": "Ficheiro de idioma inválido.",
     "app_settings.language_title": "Idioma",
     "app_settings.names": "Nomes",

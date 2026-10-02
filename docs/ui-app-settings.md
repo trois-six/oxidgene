@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: github-copilot/copilot, at: 2026-10-02T18:38:37Z }
+generated: { by: github-copilot/copilot, at: 2026-10-02T19:45:40Z }
 ---
 
 
@@ -25,6 +25,13 @@ This page is distinct from [Tree Settings](ui-settings.md), which configure per-
 ## 2. Layout
 
 Uses the standard `sub-page` layout pattern (see [General](general.md) section 8).
+
+Switching sidebar sections resets the scrollable content container to offset
+zero after the displayed section is updated. A short section must not inherit
+the scroll position of a long
+section. Editing a preference within the current section does not reset its
+scroll position. App Settings and Tree Settings use the same section-dependent
+scroll hook, regardless of whether content elements are remounted.
 
 ```
 +----------------------------------------------------------------------+
@@ -201,7 +208,10 @@ Names and flags are document metadata. Embedded files are ordered by filename;
 valid personal files follow, also ordered by filename.
 
 On desktop the Language section scans `<config directory>/languages/*.json`
-every time it is opened, and shows the folder below the choices. On Linux this
+every time it is opened, and shows a localized hint above the folder explaining
+that a JSON file can be added and the page reopened to offer its language.
+The list, hint and folder use the same stacked spacing as the theme picker.
+On Linux this
 is `~/.config/oxidgene/languages/`, respecting `XDG_CONFIG_HOME`. The folder is
 created at launch, but startup does not scan its contents: it reads only the
 selected `<code>.json`, if the stored preference names a personal language.
@@ -218,9 +228,12 @@ embedded/custom schema, including plural and date rules.
 
 ## 7. Section: Pedigree
 
-The Pedigree section, titled *Pedigree type*, controls how the pedigree is
-drawn and how deep it opens: the chart and the theme, then, under a *Pedigree
-depth* heading, the two depths.
+The Pedigree section contains two separate blocks with equally prominent
+headings. *Pedigree type* contains the chart and theme choices. *Pedigree depth*
+has its own block below, containing only the two generation counters. A shared
+section gap separates the blocks; depth is not a subsection inside the type
+card. Both App Settings and Tree Settings > Global preferences render the
+same component and spacing.
 
 ### Chart
 

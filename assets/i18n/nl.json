@@ -6658,6 +6658,7 @@
     "app_settings.increase_descendant_levels": "Eén generatie nakomelingen meer tonen",
     "app_settings.language": "Taal",
     "app_settings.language_desc": "Kies de weergavetaal van de interface.",
+    "app_settings.language_custom_hint": "Talen zijn JSON-bestanden. Plaats er een in deze map en open deze pagina opnieuw om een taal toe te voegen.",
     "app_settings.language_file_error": "Ongeldig taalbestand.",
     "app_settings.language_title": "Taal",
     "app_settings.names": "Namen",

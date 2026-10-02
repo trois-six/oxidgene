@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:00:02Z }
+generated: { by: github-copilot/copilot, at: 2026-10-02T19:45:40Z }
 ---
 
 
@@ -478,9 +478,16 @@ application-level settings shared with [App Settings](ui-app-settings.md).
 Changing them from the tree settings page immediately updates the same global
 preference; they are not stored on the current tree.
 
+The shared Language section includes the same localized personal-JSON hint,
+folder path and stacked spacing as App Settings. There is no separate global
+preferences implementation of these controls.
+
 The Pedigree section is the one [App Settings](ui-app-settings.md#7-section-pedigree)
 shows: the chart the tree view draws (tree, ancestor or descendant wheel, ancestor or descendant fan, lineage or descendant lineage, hourglass or bowtie), the
 pedigree theme, and the shared ancestor and descendant depth controls. The
+type choices (chart and theme) and generation counters occupy separate blocks,
+titled *Pedigree type* and *Pedigree depth*, with the same heading treatment
+and spacing on both settings pages. The
 chart is a per-device display preference like the theme, never a tree
 setting, so nothing about it reaches the server.
 
@@ -494,3 +501,10 @@ those depths; the global values initialize trees without a saved view.
 
 The settings page uses the shared `sub-page` layout and interaction states from
 [Common UI](ui-common.md). The light/dark theme applies globally.
+
+Every sidebar section switch resets the scrollable content container to offset
+zero after the displayed section is updated,
+including switches between global preferences and tree-specific settings. Short
+sections do not inherit a long section's scroll position. Preference changes
+within a section leave its scroll position intact. The section-dependent scroll
+hook is shared with App Settings and does not depend on remounting content.

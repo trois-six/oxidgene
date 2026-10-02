@@ -6658,6 +6658,7 @@
     "app_settings.increase_descendant_levels": "Eine Nachkommengeneration mehr anzeigen",
     "app_settings.language": "Sprache",
     "app_settings.language_desc": "Wählen Sie die Anzeigesprache der Oberfläche.",
+    "app_settings.language_custom_hint": "Sprachen sind JSON-Dateien. Legen Sie eine in diesen Ordner und öffnen Sie diese Seite erneut, um eine Sprache hinzuzufügen.",
     "app_settings.language_file_error": "Ungültige Sprachdatei.",
     "app_settings.language_title": "Sprache",
     "app_settings.names": "Namen",

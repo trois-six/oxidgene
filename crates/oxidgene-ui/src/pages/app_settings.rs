@@ -19,6 +19,21 @@ use crate::prefs::{
 use crate::theme::{CustomThemeLoader, Theme, ThemeState, reload_custom_themes, set_theme};
 use crate::ui_observability::{UiPage, use_ui_load_trace};
 
+pub(crate) fn use_settings_scroll_reset<T: Clone + 'static>(section: Signal<T>) {
+    use_effect(move || {
+        let _section = section();
+        document::eval(
+            r#"
+            requestAnimationFrame(() => {
+                const content = document.querySelector('.settings-layout')
+                    ?.closest('.sub-page-content');
+                if (content) content.scrollTop = 0;
+            });
+            "#,
+        );
+    });
+}
+
 /// Sidebar sections.
 #[derive(Clone, Copy, PartialEq)]
 enum Section {
@@ -39,6 +54,7 @@ pub fn AppSettings() -> Element {
     let pedigree_defaults = use_context::<Signal<Option<PedigreeDefaults>>>();
 
     let mut active_section = use_signal(|| Section::Appearance);
+    use_settings_scroll_reset(active_section);
 
     rsx! {
         style { {SHARED_SETTINGS_STYLES} }
@@ -280,7 +296,7 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
             h2 { class: "settings-section-title", {i18n.t("app_settings.language_title")} }
             p { class: "settings-section-subtitle", {i18n.t("app_settings.language_desc")} }
 
-            div { class: "app-settings-card",
+            div { class: "app-settings-card app-settings-option app-settings-option-stacked",
                 div { class: "lang-options",
                     for lang in options.languages {
                         button {
@@ -298,6 +314,9 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
                 }
                 if let Some(location) = options.location {
                     div { class: "app-theme-source",
+                        p { class: "app-settings-option-hint",
+                            {i18n.t("app_settings.language_custom_hint")}
+                        }
                         code { class: "app-theme-folder", {location} }
                     }
                 }
@@ -445,7 +464,11 @@ pub fn PedigreeDefaultsSection(pedigree_defaults: Signal<Option<PedigreeDefaults
                         }
                     }
                 }
-                h3 { class: "app-settings-subheading", {i18n.t("app_settings.pedigree_depth")} }
+            }
+        }
+        div { class: "settings-section",
+            h2 { class: "settings-section-title", {i18n.t("app_settings.pedigree_depth")} }
+            div { class: "app-settings-card",
                 div { class: "app-settings-option",
                     div { class: "app-settings-option-info",
                         span { class: "app-settings-option-label", {i18n.t("app_settings.ancestor_levels")} }
@@ -1002,16 +1025,8 @@ pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
         border-top: 1px solid var(--border);
     }
 
-    /* A heading grouping the options below it inside a card, such as the
-       pedigree's depths after its type. */
-    .app-settings-subheading {
-        margin: 1.25rem 0 0.75rem;
-        padding-top: 1.25rem;
-        border-top: 1px solid var(--border);
-        font-family: var(--font-heading);
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text-primary);
+    .settings-section + .settings-section {
+        margin-top: 1.25rem;
     }
 
     .pedigree-depth-stepper {
