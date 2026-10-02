@@ -1965,6 +1965,22 @@ pub struct ImportJobStarted {
     pub job_id: Uuid,
 }
 
+/// What an export holds and how it writes it, sent as its query options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ExportChoices {
+    /// Collapse each person's occupations into one `OCCU`, comma-separated,
+    /// for importers (e.g. Geneanet) that read a single profession field.
+    pub merge_occupations: bool,
+    /// Collapse each person's other names into the primary name's `SURN`,
+    /// for importers (e.g. Geneanet) that read the first `NAME` only.
+    pub merge_names: bool,
+    /// Write the notes, and the sources with their citations and
+    /// repositories.
+    pub include_notes_and_sources: bool,
+    /// Pack the media of a GEDZIP; a plain GEDCOM ignores it.
+    pub include_media: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ExportJobStarted {
     pub job_id: Uuid,
@@ -4882,43 +4898,29 @@ impl ApiClient {
             .await
     }
 
-    /// `merge_occupations` collapses each person's multiple `OCCU` tags back
-    /// into one, comma-separated (for importers, e.g. Geneanet, that only
-    /// support a single profession field). `merge_names` collapses each
-    /// person's non-primary names into the primary name's `SURN` tag,
-    /// comma-separated (for importers, e.g. Geneanet, that only read the
-    /// first `NAME` structure).
+    /// Export the tree as GEDCOM text, made as `choices` say.
     pub async fn export_gedcom(
         &self,
         tree_id: Uuid,
-        merge_occupations: bool,
-        merge_names: bool,
+        choices: ExportChoices,
     ) -> Result<ExportGedcomResult, ApiError> {
-        let query = [
-            ("merge_occupations", merge_occupations.to_string()),
-            ("merge_names", merge_names.to_string()),
-        ];
-        self.get_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &query)
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/gedcom/export"), &choices)
             .await
     }
 
-    /// Queue a GEDZIP export without holding the HTTP request while it is built.
+    /// Queue a GEDZIP export made as `choices` say, without holding the HTTP
+    /// request while it is built.
     pub async fn start_export_job(
         &self,
         tree_id: Uuid,
-        merge_occupations: bool,
-        merge_names: bool,
+        choices: ExportChoices,
     ) -> Result<ExportJobStarted, ApiError> {
-        let query = [
-            ("merge_occupations", merge_occupations.to_string()),
-            ("merge_names", merge_names.to_string()),
-        ];
         let response = self
             .send_request(
                 "POST",
                 self.client
                     .post(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs")))
-                    .query(&query),
+                    .query(&choices),
             )
             .await?;
         Self::handle_response("POST", response).await

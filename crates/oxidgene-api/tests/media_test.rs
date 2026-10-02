@@ -3118,6 +3118,110 @@ async fn a_gedzip_round_trip_carries_photographs_and_identifications_into_the_ne
     assert_eq!(links[0]["person_id"], rows[0]["person_id"]);
 }
 
+/// The entries of a GEDZIP, and the text of its `gedcom.ged`.
+fn gedzip_entries(archive: &[u8]) -> (Vec<String>, String) {
+    use std::io::Read as _;
+    let mut zip = zip::ZipArchive::new(Cursor::new(archive)).expect("a ZIP archive");
+    let names = zip.file_names().map(str::to_string).collect();
+    let mut gedcom = String::new();
+    zip.by_name("gedcom.ged")
+        .expect("the GEDCOM entry")
+        .read_to_string(&mut gedcom)
+        .unwrap();
+    (names, gedcom)
+}
+
+#[tokio::test]
+async fn a_gedzip_without_media_packs_no_file_and_still_imports() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    let (_, page_id, _) = attach_photo(&h, &person_id, "portrait.png").await;
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (status, vignette) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/media/{page_id}/vignettes"),
+        Some(json!({"x": 1, "y": 2, "width": 3, "height": 4, "person_id": person_id})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{vignette}");
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        h.db.clone(),
+        std::sync::Arc::new(oxidgene_api::profile::ProfileService::new(h.db.clone())),
+        std::sync::Arc::new(oxidgene_api::media::FsStore::new(&h.root.0)),
+        "media-test-worker",
+    );
+
+    // The job keeps the choice until its worker packs the archive.
+    let (status, started) = send(
+        &h.app,
+        Method::POST,
+        &format!("{base}/export-jobs?include_media=false"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    let job_id = started["job_id"].as_str().expect("job id");
+    assert!(worker.run_once().await.expect("runs the export job"));
+    let (_, done) = send(
+        &h.app,
+        Method::GET,
+        &format!("{base}/export-jobs/{job_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(done["phase"], "completed", "{done}");
+    assert!(
+        done["warnings"].as_array().is_none_or(Vec::is_empty),
+        "{done}"
+    );
+    let (status, _, archive) = raw(&h.app, done["download_url"].as_str().unwrap(), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The request a client waits on makes the same archive.
+    let (status, _, direct) = raw(
+        &h.app,
+        &format!("{base}/gedcom/export?format=gedzip&include_media=false"),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for archive in [&archive, &direct] {
+        let (names, gedcom) = gedzip_entries(archive);
+        assert_eq!(names, ["gedcom.ged"], "no media file");
+        assert!(!gedcom.contains("OBJE"), "{gedcom}");
+        assert!(!gedcom.contains("_OXIDGENE"), "{gedcom}");
+    }
+
+    // The archive imports cleanly, without a medium.
+    let (_, imported) = send(
+        &h.app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({"name": "without media"})),
+    )
+    .await;
+    let new_tree = imported["id"].as_str().unwrap().to_string();
+    let job = common::import_job(&h.app, &worker, &new_tree, "format=gedzip", archive).await;
+    assert_eq!(job["phase"], "completed", "{job}");
+    assert_eq!(job["result"]["warnings"], json!([]), "{job}");
+    assert_eq!(job["result"]["persons_count"], 1, "{job}");
+    let (_, media) = send(
+        &h.app,
+        Method::GET,
+        &format!("/api/v1/trees/{new_tree}/media"),
+        None,
+    )
+    .await;
+    assert_eq!(media["edges"], json!([]), "{media}");
+
+    // By default the photograph travels.
+    let (_, _, complete) = raw(&h.app, &format!("{base}/gedcom/export?format=gedzip"), &[]).await;
+    let (names, gedcom) = gedzip_entries(&complete);
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert!(gedcom.contains("OBJE"), "{gedcom}");
+}
+
 // ── Media library (Dictionary › Media) ──────────────────────────────
 
 /// Create a person with a primary name and return its id.

@@ -18,13 +18,7 @@ pub async fn start(
     Path(tree_id): Path<Uuid>,
     Query(query): Query<StartExportJobQuery>,
 ) -> Result<(StatusCode, Json<ExportJobStartedResponse>), ApiError> {
-    let job_id = background_job::start_export_job(
-        &state.db,
-        tree_id,
-        query.merge_occupations.unwrap_or(false),
-        query.merge_names.unwrap_or(false),
-    )
-    .await?;
+    let job_id = background_job::start_export_job(&state.db, tree_id, query.choices()).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(ExportJobStartedResponse { job_id }),

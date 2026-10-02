@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:30:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:25:11Z }
 ---
 
 
@@ -416,13 +416,21 @@ Two export format options, each displayed as a card with icon, name, description
 
 ### Export options (toggles)
 
+Checkboxes under the format row. Each applies to the next export only: none
+is stored, on the tree or elsewhere, and a reload restores the defaults. The
+section shows only the options of the chosen format.
+
 | Toggle | Description |
 |---|---|
-| Include contemporary persons | If disabled, persons subject to privacy rules are excluded from the export |
-| Include notes and sources | Exports personal notes and source references |
-| Include media (GEDZIP only) | Embeds photos and documents in the GEDZIP archive |
+| Include notes and sources | On by default. When disabled, the export leaves out every note (of a person, a family, an event, a source, a repository or a medium), every source with its citations, and every repository, which only sources reach. Nothing written points at a record left out, so the file still imports cleanly. A medium's own description stays: it describes the medium, it is not a note |
+| Include media (GEDZIP only) | On by default: the archive carries the photos and documents. When disabled, the archive holds `gedcom.ged` alone, and that GEDCOM has no `OBJE` record, no link to one and no identification (vignette) — not even a `FILE` reference to a file left behind, which an import would keep as a medium without its bytes. A plain GEDCOM never carries file bytes and always writes its media's references, so the option is not shown for it |
 | Merge occupations into a single field (GEDCOM only) | Off by default (one `OCCU` tag per profession, lossless). When enabled, collapses a person's multiple `OCCU` tags back into one, comma-separated, for compatibility with importers such as Geneanet that only support a single profession field. See [API Contract](api.md) (GEDCOM) |
 | Merge name aliases into a single field (GEDCOM only) | Off by default (one `NAME`/`SURN` structure per name, lossless). When enabled, collapses a person's non-primary names into the primary name's `SURN` tag, comma-separated, for compatibility with importers such as Geneanet that only read the first `NAME` structure. See [API Contract](api.md) (GEDCOM) |
+| Include contemporary persons (planned) | Leaves out the persons the contemporary-person rules hide. It waits for those rules ([§8](#contemporary-persons-planned)) and is not shown |
+
+The options travel with the export request — the GEDCOM request, or the
+GEDZIP export job, which keeps them until a worker packs the archive
+([API Contract](api.md)). The export's audit entry records its format only.
 
 Export is triggered directly by the format buttons.
 

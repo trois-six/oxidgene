@@ -18,6 +18,7 @@ use oxidgene_db::repo::{
     MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo,
     SourceRepo, SourceRepositoryRepo, TreeRepo, VignetteRepo, db_err,
 };
+pub use oxidgene_gedcom::export::ExportChoices;
 use oxidgene_gedcom::import::import_gedcom;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait,
@@ -770,17 +771,40 @@ async fn insert_spouse_ages(
     batch_insert::<event_spouse_age::Entity, _>(db, models, &mut |_| {}).await
 }
 
+/// The export choices a request's options make, REST's and GraphQL's alike:
+/// an option left out keeps the complete, lossless export.
+pub fn export_choices(
+    merge_occupations: Option<bool>,
+    merge_names: Option<bool>,
+    include_notes_and_sources: Option<bool>,
+    include_media: Option<bool>,
+) -> ExportChoices {
+    let default = ExportChoices::default();
+    ExportChoices {
+        merge_occupations: merge_occupations.unwrap_or(default.merge_occupations),
+        merge_names: merge_names.unwrap_or(default.merge_names),
+        include_notes_and_sources: include_notes_and_sources
+            .unwrap_or(default.include_notes_and_sources),
+        include_media: include_media.unwrap_or(default.include_media),
+    }
+}
+
 /// Tree `tree_id` as GEDCOM text, the export recorded in its audit log.
 ///
 /// The media keep their producers' paths: there is no archive to point
-/// into. See [`load_and_export`] for the two merge options.
+/// into, and leaving the media out is a GEDZIP's choice, so
+/// `choices.include_media` is not read. See [`load_and_export`] for the
+/// other choices.
 pub async fn export_gedcom(
     db: &DatabaseConnection,
     tree_id: Uuid,
-    merge_occupations: bool,
-    merge_names: bool,
+    choices: ExportChoices,
 ) -> Result<ExportData, OxidGeneError> {
-    let data = load_and_export(db, tree_id, merge_occupations, merge_names, false).await?;
+    let choices = ExportChoices {
+        include_media: true,
+        ..choices
+    };
+    let data = load_and_export(db, tree_id, choices, false).await?;
     crate::service::history::record_export(db, tree_id, "gedcom", None).await?;
     Ok(data)
 }
@@ -788,16 +812,16 @@ pub async fn export_gedcom(
 /// Load all entities from a tree and export them as a GEDCOM string.
 ///
 /// Verifies the tree exists, loads all entities, then calls the GEDCOM
-/// exporter to produce the output string. `merge_occupations` collapses each
-/// person's multiple `OCCU` tags back into one, and `merge_names` collapses
-/// each person's non-primary names into the primary name's `SURN` tag (see
-/// `oxidgene_gedcom::export::export_gedcom`).
+/// exporter to produce the output string. `choices` says what the file
+/// holds and how it writes it: the occupations or the names merged, the
+/// notes and sources or the media left out (see
+/// `oxidgene_gedcom::export::export_gedcom`). An archive without its media
+/// packs no file.
 #[tracing::instrument(name = "export.load", skip_all, fields(export.for_archive = for_archive))]
 pub async fn load_and_export(
     db: &DatabaseConnection,
     tree_id: Uuid,
-    merge_occupations: bool,
-    merge_names: bool,
+    choices: ExportChoices,
     for_archive: bool,
 ) -> Result<ExportData, OxidGeneError> {
     // Verify tree exists; its "Who am I?" person names the submitter.
@@ -810,7 +834,8 @@ pub async fn load_and_export(
     // pack for them and nothing better to say.
     let mut media_paths = std::collections::HashMap::new();
     let mut media_files = Vec::new();
-    for medium in records.media.iter().filter(|_| for_archive) {
+    let packed = for_archive && choices.include_media;
+    for medium in records.media.iter().filter(|_| packed) {
         let (Some(path), Some(key)) = (
             oxidgene_gedcom::export::archive_path(medium),
             medium.storage_key.clone(),
@@ -827,8 +852,7 @@ pub async fn load_and_export(
             oxidgene_gedcom::export::export_gedcom(
                 &records.export_records(),
                 &oxidgene_gedcom::export::ExportOptions {
-                    merge_occupations,
-                    merge_names,
+                    choices,
                     media_paths: &media_paths,
                     self_person_id: tree.self_person_id,
                     submitter: oxidgene_gedcom::export::SubmitterSettings {

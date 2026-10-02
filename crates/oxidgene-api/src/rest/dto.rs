@@ -457,11 +457,27 @@ pub struct FileImportStartedResponse {
     pub job_id: uuid::Uuid,
 }
 
-/// Options for creating an asynchronous GEDZIP export.
+/// Options for creating an asynchronous GEDZIP export: those of
+/// [`ExportGedcomQuery`] but the format.
 #[derive(Debug, Deserialize)]
 pub struct StartExportJobQuery {
     pub merge_occupations: Option<bool>,
     pub merge_names: Option<bool>,
+    pub include_notes_and_sources: Option<bool>,
+    pub include_media: Option<bool>,
+}
+
+impl StartExportJobQuery {
+    /// The choices these options make; an option left out keeps the
+    /// complete, lossless export.
+    pub fn choices(&self) -> crate::service::gedcom::ExportChoices {
+        crate::service::gedcom::export_choices(
+            self.merge_occupations,
+            self.merge_names,
+            self.include_notes_and_sources,
+            self.include_media,
+        )
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -491,6 +507,26 @@ pub struct ExportGedcomQuery {
     /// only read the first `NAME` structure. Defaults to `false` (one
     /// `NAME` per name, lossless).
     pub merge_names: Option<bool>,
+    /// Write the notes, and the sources with their citations and
+    /// repositories. Defaults to `true`.
+    pub include_notes_and_sources: Option<bool>,
+    /// Pack the media and write their `OBJE` records and links, in a
+    /// GEDZIP only: a plain GEDCOM always writes its media's references.
+    /// Defaults to `true`.
+    pub include_media: Option<bool>,
+}
+
+impl ExportGedcomQuery {
+    /// The choices these options make; an option left out keeps the
+    /// complete, lossless export.
+    pub fn choices(&self) -> crate::service::gedcom::ExportChoices {
+        crate::service::gedcom::export_choices(
+            self.merge_occupations,
+            self.merge_names,
+            self.include_notes_and_sources,
+            self.include_media,
+        )
+    }
 }
 
 // ── Projection DTOs ─────────────────────────────────────────────────

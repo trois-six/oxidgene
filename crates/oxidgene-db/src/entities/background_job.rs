@@ -19,6 +19,8 @@ pub struct Model {
     pub original_filename: Option<String>,
     pub merge_occupations: bool,
     pub merge_names: bool,
+    pub include_notes_and_sources: bool,
+    pub include_media: bool,
     pub done: i64,
     pub total: i64,
     pub attempt: i32,

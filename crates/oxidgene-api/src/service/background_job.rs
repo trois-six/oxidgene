@@ -623,13 +623,7 @@ impl BackgroundJobWorker {
             .with_heartbeat(
                 job.id,
                 "loading",
-                gedcom::load_and_export(
-                    &self.db,
-                    job.tree_id,
-                    job.merge_occupations,
-                    job.merge_names,
-                    true,
-                ),
+                gedcom::load_and_export(&self.db, job.tree_id, choices_of(job), true),
             )
             .await?;
 
@@ -1054,6 +1048,8 @@ mod tests {
                 original_filename: None,
                 merge_occupations: false,
                 merge_names: false,
+                include_notes_and_sources: true,
+                include_media: true,
             },
         )
         .await
@@ -1193,6 +1189,8 @@ mod tests {
             original_filename: None,
             merge_occupations: false,
             merge_names: false,
+            include_notes_and_sources: true,
+            include_media: true,
             done: 0,
             total: 0,
             attempt: 1,
@@ -1406,6 +1404,8 @@ pub async fn stage_geneanet_import(
                 original_filename: Some(file_name),
                 merge_occupations: false,
                 merge_names: false,
+                include_notes_and_sources: true,
+                include_media: true,
             },
         )
         .await?;
@@ -1469,18 +1469,24 @@ pub struct ImportJobStatus {
     pub error: Option<String>,
 }
 
-/// Queue a GEDZIP export of tree `tree_id`; the job's id.
+/// Queue a GEDZIP export of tree `tree_id` made as `choices` say; the job's
+/// id. The job keeps the choices until its worker runs it.
 ///
 /// A tree runs one job at a time: while another is queued or running, this
 /// is a [`OxidGeneError::Conflict`].
 pub async fn start_export_job(
     db: &DatabaseConnection,
     tree_id: Uuid,
-    merge_occupations: bool,
-    merge_names: bool,
+    choices: gedcom::ExportChoices,
 ) -> Result<Uuid, OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
     let job_id = Uuid::now_v7();
+    let gedcom::ExportChoices {
+        merge_occupations,
+        merge_names,
+        include_notes_and_sources,
+        include_media,
+    } = choices;
     BackgroundJobRepo::create(
         db,
         NewBackgroundJob {
@@ -1493,10 +1499,22 @@ pub async fn start_export_job(
             original_filename: None,
             merge_occupations,
             merge_names,
+            include_notes_and_sources,
+            include_media,
         },
     )
     .await?;
     Ok(job_id)
+}
+
+/// The choices export job `job` was queued with.
+fn choices_of(job: &BackgroundJob) -> gedcom::ExportChoices {
+    gedcom::ExportChoices {
+        merge_occupations: job.merge_occupations,
+        merge_names: job.merge_names,
+        include_notes_and_sources: job.include_notes_and_sources,
+        include_media: job.include_media,
+    }
 }
 
 /// Where export job `job_id` of tree `tree_id` stands.

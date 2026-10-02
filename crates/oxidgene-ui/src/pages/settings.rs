@@ -10,7 +10,7 @@ use oxidgene_core::enums::{
 use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, UpdateTreeBody};
+use crate::api::{ApiClient, ApiError, ExportChoices, UpdateTreeBody};
 use crate::components::audit_log::AuditLogSection;
 use crate::components::date_input::{
     calendar_from_value, calendar_value, format_date, format_example, input_format_label,
@@ -54,12 +54,11 @@ impl CompletedExport {
 async fn wait_for_export(
     api: &ApiClient,
     tree_id: Uuid,
-    merge_occupations: bool,
-    merge_names: bool,
+    choices: ExportChoices,
 ) -> Result<(String, chrono::DateTime<chrono::Utc>), ApiError> {
     let started = trace_ui_action_step(
         UiActionStep::ExportQueue,
-        api.start_export_job(tree_id, merge_occupations, merge_names),
+        api.start_export_job(tree_id, choices),
     )
     .await?;
     trace_ui_action_step(UiActionStep::ExportPoll, async {
@@ -142,7 +141,7 @@ type ExportOutcome = Result<Option<String>, String>;
 async fn export_gedzip(
     api: &ApiClient,
     tid: Uuid,
-    (merge_occupations, merge_names): (bool, bool),
+    choices: ExportChoices,
     file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
@@ -152,7 +151,7 @@ async fn export_gedzip(
     let Some(destination) = ready_destination(target, i18n).await? else {
         return Ok(None);
     };
-    let (download_path, expires_at) = wait_for_export(api, tid, merge_occupations, merge_names)
+    let (download_path, expires_at) = wait_for_export(api, tid, choices)
         .await
         .map_err(|error| error.to_string())?;
     completed.set(Some(CompletedExport {
@@ -169,13 +168,13 @@ async fn export_gedzip(
 async fn export_gedzip(
     api: &ApiClient,
     tid: Uuid,
-    (merge_occupations, merge_names): (bool, bool),
+    choices: ExportChoices,
     file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
     mut completed: Signal<Option<CompletedExport>>,
 ) -> ExportOutcome {
-    let (download_path, expires_at) = wait_for_export(api, tid, merge_occupations, merge_names)
+    let (download_path, expires_at) = wait_for_export(api, tid, choices)
         .await
         .map_err(|error| error.to_string())?;
     let export = CompletedExport {
@@ -267,16 +266,14 @@ async fn save_gedzip(
 async fn export_gedcom(
     api: &ApiClient,
     tid: Uuid,
-    (merge_occupations, merge_names): (bool, bool),
+    choices: ExportChoices,
     file_name: &str,
     i18n: &I18n,
 ) -> ExportOutcome {
-    let exported = trace_ui_action_step(
-        UiActionStep::ExportRequest,
-        api.export_gedcom(tid, merge_occupations, merge_names),
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+    let exported =
+        trace_ui_action_step(UiActionStep::ExportRequest, api.export_gedcom(tid, choices))
+            .await
+            .map_err(|error| error.to_string())?;
     save_gedcom(exported.gedcom.into_bytes(), file_name, i18n).await
 }
 
@@ -349,6 +346,8 @@ pub fn Settings(tree_id: String) -> Element {
     let export_format = use_signal(|| "gedcom".to_string());
     let export_merge_occupations = use_signal(|| false);
     let export_merge_names = use_signal(|| false);
+    let export_notes_and_sources = use_signal(|| true);
+    let export_media = use_signal(|| true);
     let mut last_export = use_signal(|| None::<CompletedExport>);
 
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
@@ -366,10 +365,13 @@ pub fn Settings(tree_id: String) -> Element {
         };
         let api = api_export.clone();
         let is_gedzip = export_format() == "gedzip";
-        let merges = (
-            !is_gedzip && export_merge_occupations(),
-            !is_gedzip && export_merge_names(),
-        );
+        // The merges are a plain GEDCOM's, the media a GEDZIP's.
+        let choices = ExportChoices {
+            merge_occupations: !is_gedzip && export_merge_occupations(),
+            merge_names: !is_gedzip && export_merge_names(),
+            include_notes_and_sources: export_notes_and_sources(),
+            include_media: !is_gedzip || export_media(),
+        };
         let extension = if is_gedzip { "gdz" } else { "ged" };
         let file_name = format!("{export_base_name}.{extension}");
         export_loading.set(true);
@@ -380,9 +382,9 @@ pub fn Settings(tree_id: String) -> Element {
         let action = UiAction::Export(if is_gedzip { "gedzip" } else { "gedcom" });
         spawn(trace_ui_action(action, async move {
             let outcome = if is_gedzip {
-                export_gedzip(&api, tid, merges, &file_name, &i18n, target, last_export).await
+                export_gedzip(&api, tid, choices, &file_name, &i18n, target, last_export).await
             } else {
-                export_gedcom(&api, tid, merges, &file_name, &i18n).await
+                export_gedcom(&api, tid, choices, &file_name, &i18n).await
             };
             match outcome {
                 Ok(Some(message)) => export_success.set(Some(message)),
@@ -481,6 +483,8 @@ pub fn Settings(tree_id: String) -> Element {
                             format: export_format,
                             merge_occupations: export_merge_occupations,
                             merge_names: export_merge_names,
+                            notes_and_sources: export_notes_and_sources,
+                            media: export_media,
                         }
                     },
                     "appearance" => rsx! { AppearanceSection { theme_state } },
@@ -1234,6 +1238,8 @@ fn ExportSection(
     format: Signal<String>,
     merge_occupations: Signal<bool>,
     merge_names: Signal<bool>,
+    notes_and_sources: Signal<bool>,
+    media: Signal<bool>,
 ) -> Element {
     let i18n = use_i18n();
     let is_gedzip = format() == "gedzip";
@@ -1284,38 +1290,28 @@ fn ExportSection(
                         if loading { {i18n.t("common.exporting")} } else { {download_label} }
                     }
                 }
-                if !is_gedzip {
-                    label {
-                        class: "settings-check settings-check-first",
-                        input {
-                            r#type: "checkbox",
-                            checked: merge_occupations(),
-                            onchange: move |e: Event<FormData>| merge_occupations.set(e.checked()),
-                        }
-                        div {
-                            div { class: "settings-check-label",
-                                {i18n.t("settings.export_merge_occupations")}
-                            }
-                            p { class: "settings-check-desc",
-                                {i18n.t("settings.export_merge_occupations_desc")}
-                            }
-                        }
+                ExportToggle {
+                    value: notes_and_sources,
+                    label: "settings.export_notes_and_sources",
+                    description: "settings.export_notes_and_sources_desc",
+                    first: true,
+                }
+                if is_gedzip {
+                    ExportToggle {
+                        value: media,
+                        label: "settings.export_media",
+                        description: "settings.export_media_desc",
                     }
-                    label {
-                        class: "settings-check",
-                        input {
-                            r#type: "checkbox",
-                            checked: merge_names(),
-                            onchange: move |e: Event<FormData>| merge_names.set(e.checked()),
-                        }
-                        div {
-                            div { class: "settings-check-label",
-                                {i18n.t("settings.export_merge_names")}
-                            }
-                            p { class: "settings-check-desc",
-                                {i18n.t("settings.export_merge_names_desc")}
-                            }
-                        }
+                } else {
+                    ExportToggle {
+                        value: merge_occupations,
+                        label: "settings.export_merge_occupations",
+                        description: "settings.export_merge_occupations_desc",
+                    }
+                    ExportToggle {
+                        value: merge_names,
+                        label: "settings.export_merge_names",
+                        description: "settings.export_merge_names_desc",
                     }
                 }
                 if let Some(until) = &downloadable_until {
@@ -1343,6 +1339,33 @@ fn ExportSection(
 
             if let (Ok(tid), Some(Some(Ok(tree)))) = (tree_id.parse::<Uuid>(), &*tree_resource.read()) {
                 SubmitterCard { key: "{tid}", tree_id: tid, tree: tree.clone() }
+            }
+        }
+    }
+}
+
+/// One export option: a checkbox with the translations of its label and
+/// description. The first of the options is set off from the format row
+/// above it.
+#[component]
+fn ExportToggle(
+    mut value: Signal<bool>,
+    label: &'static str,
+    description: &'static str,
+    #[props(default)] first: bool,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        label {
+            class: if first { "settings-check settings-check-first" } else { "settings-check" },
+            input {
+                r#type: "checkbox",
+                checked: value(),
+                onchange: move |e: Event<FormData>| value.set(e.checked()),
+            }
+            div {
+                div { class: "settings-check-label", {i18n.t(label)} }
+                p { class: "settings-check-desc", {i18n.t(description)} }
             }
         }
     }

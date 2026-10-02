@@ -3612,6 +3612,8 @@ async fn tree_list_marks_only_running_file_imports() {
             original_filename: None,
             merge_occupations: false,
             merge_names: false,
+            include_notes_and_sources: true,
+            include_media: true,
         },
     )
     .await

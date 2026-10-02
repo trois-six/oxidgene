@@ -6,7 +6,9 @@ use uuid::Uuid;
 
 use oxidgene_core::types::{Note, Person, PersonName};
 use oxidgene_core::{EventType, NameType, Privacy, Sex};
-use oxidgene_gedcom::export::{ExportOptions, ExportRecords, SubmitterSettings, export_gedcom};
+use oxidgene_gedcom::export::{
+    ExportChoices, ExportOptions, ExportRecords, SubmitterSettings, export_gedcom,
+};
 use oxidgene_gedcom::import::import_gedcom;
 
 /// Minimal GEDCOM 5.5.1 with one individual.
@@ -225,8 +227,7 @@ fn reexport(imported: &oxidgene_gedcom::ImportResult) -> String {
     export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -676,8 +677,7 @@ fn the_export_names_its_submitter() {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id,
                 submitter,
@@ -1066,8 +1066,7 @@ fn partners_are_exported_as_husband_and_wife() {
             ..Default::default()
         },
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1294,8 +1293,7 @@ fn test_export_produces_valid_gedcom() {
     let export = export_gedcom(
         &result.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1322,8 +1320,7 @@ fn test_export_family() {
     let export = export_gedcom(
         &result.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1352,8 +1349,7 @@ fn test_export_source() {
     let export = export_gedcom(
         &result.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1373,8 +1369,7 @@ fn test_export_empty() {
             ..Default::default()
         },
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1442,8 +1437,7 @@ fn test_export_long_utf8_note_does_not_panic() {
             ..Default::default()
         },
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1466,8 +1460,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
     let export = export_gedcom(
         &result.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1502,8 +1495,7 @@ fn test_roundtrip_preserves_individuals() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1546,8 +1538,7 @@ fn test_roundtrip_preserves_names() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1597,8 +1588,7 @@ fn test_roundtrip_preserves_surname_particle() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -1909,8 +1899,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -2033,8 +2022,7 @@ fn test_export_default_keeps_one_occu_tag_per_profession() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -2055,8 +2043,10 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: true,
-            merge_names: false,
+            choices: ExportChoices {
+                merge_occupations: true,
+                ..Default::default()
+            },
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -2136,8 +2126,7 @@ fn test_export_default_keeps_one_name_tag_per_person_name() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -2167,8 +2156,10 @@ fn test_export_merge_names_option_collapses_aliases_into_primary_surn() {
     let exported = export_gedcom(
         &imported.records(),
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: true,
+            choices: ExportChoices {
+                merge_names: true,
+                ..Default::default()
+            },
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -2304,8 +2295,7 @@ fn test_export_result_serialization() {
             ..Default::default()
         },
         &ExportOptions {
-            merge_occupations: false,
-            merge_names: false,
+            choices: ExportChoices::default(),
             media_paths: &HashMap::new(),
             self_person_id: None,
             submitter: Default::default(),
@@ -3075,4 +3065,171 @@ fn lds_ordinances_import_with_their_place() {
             "{pass}"
         );
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Export choices
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A family documented every way an export can leave out: notes on a
+/// person, an event and the family, a source with a note held by a
+/// repository with one, citations on a person and an event, and a
+/// photograph linked to a person and to the family.
+const DOCUMENTED_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @R1@ REPO
+1 NAME Sample Archives
+1 NOTE Archive remark
+0 @S1@ SOUR
+1 TITL Sample register
+1 NOTE Source remark
+1 REPO @R1@
+2 CALN E 1
+0 @M1@ OBJE
+1 FILE photos/sample.jpg
+2 FORM image/jpeg
+2 TITL Sample photograph
+0 @I1@ INDI
+1 NAME Alder /Sample/
+1 SEX M
+1 FAMS @F1@
+1 NOTE Person remark
+1 SOUR @S1@
+2 PAGE folio 1
+1 OBJE @M1@
+1 BIRT
+2 DATE 1 JAN 1850
+2 NOTE Birth remark
+2 SOUR @S1@
+3 PAGE folio 2
+0 @I2@ INDI
+1 NAME Birch /Example/
+1 SEX F
+1 FAMS @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 NOTE Family remark
+1 OBJE @M1@
+1 MARR
+2 DATE 2 FEB 1875
+0 TRLR
+";
+
+/// `DOCUMENTED_GEDCOM`, imported and exported again with `choices`.
+fn export_documented(choices: ExportChoices) -> String {
+    let imported = import_gedcom(DOCUMENTED_GEDCOM, Uuid::now_v7()).expect("imports");
+    assert_eq!(imported.notes.len(), 5, "{:?}", imported.notes);
+    assert_eq!(imported.citations.len(), 2);
+    assert_eq!(imported.repositories.len(), 1);
+    assert_eq!(imported.media_links.len(), 2);
+    export_gedcom(
+        &imported.records(),
+        &ExportOptions {
+            choices,
+            media_paths: &HashMap::new(),
+            self_person_id: None,
+            submitter: Default::default(),
+        },
+    )
+    .expect("exports")
+    .gedcom
+}
+
+/// The tag of each line of `gedcom` past its header, whose `SOUR` names the
+/// software that wrote it.
+fn tags(gedcom: &str) -> Vec<&str> {
+    gedcom
+        .lines()
+        .skip(1)
+        .skip_while(|line| !line.starts_with("0 "))
+        .filter_map(|line| {
+            line.split_whitespace()
+                .skip(1)
+                .find(|word| !word.starts_with('@'))
+        })
+        .collect()
+}
+
+/// Every pointer of `gedcom` names a record it holds.
+fn assert_every_pointer_resolves(gedcom: &str) {
+    let records: std::collections::HashSet<&str> = gedcom
+        .lines()
+        .filter_map(|line| line.strip_prefix("0 @"))
+        .filter_map(|rest| rest.split('@').next())
+        .collect();
+    for line in gedcom.lines().filter(|line| !line.starts_with("0 ")) {
+        let value = line.splitn(3, ' ').nth(2).unwrap_or_default();
+        if let Some(xref) = value
+            .strip_prefix('@')
+            .and_then(|rest| rest.strip_suffix('@'))
+        {
+            assert!(records.contains(xref), "dangling {line:?} in:\n{gedcom}");
+        }
+    }
+}
+
+#[test]
+fn an_export_without_notes_and_sources_holds_none_and_still_imports() {
+    let exported = export_documented(ExportChoices {
+        include_notes_and_sources: false,
+        ..Default::default()
+    });
+
+    let tags = tags(&exported);
+    for absent in ["NOTE", "SOUR", "REPO", "PAGE", "CALN"] {
+        assert!(!tags.contains(&absent), "{absent} in:\n{exported}");
+    }
+    assert!(!exported.contains("remark"), "{exported}");
+    assert!(!exported.contains("Sample register"), "{exported}");
+    assert!(!exported.contains("Sample Archives"), "{exported}");
+    assert_every_pointer_resolves(&exported);
+
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    assert_eq!(back.persons.len(), 2);
+    assert_eq!(back.families.len(), 1);
+    assert!(back.notes.is_empty(), "{:?}", back.notes);
+    assert!(back.sources.is_empty());
+    assert!(back.citations.is_empty());
+    assert!(back.repositories.is_empty());
+    // The media stay: the photograph, as a document of one page.
+    assert_eq!(back.media.iter().filter(|m| !m.is_document()).count(), 1);
+    assert_eq!(back.media_links.len(), 2);
+}
+
+#[test]
+fn an_export_without_media_holds_none_and_still_imports() {
+    let exported = export_documented(ExportChoices {
+        include_media: false,
+        ..Default::default()
+    });
+
+    assert!(!tags(&exported).contains(&"OBJE"), "{exported}");
+    assert!(!exported.contains("_OXIDGENE"), "{exported}");
+    assert!(!exported.contains("sample.jpg"), "{exported}");
+    assert_every_pointer_resolves(&exported);
+
+    let back = import_gedcom(&exported, Uuid::now_v7()).expect("re-imports");
+    assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    assert!(back.media.is_empty());
+    assert!(back.media_links.is_empty());
+    // The notes and sources stay.
+    assert_eq!(back.notes.len(), 5);
+    assert_eq!(back.citations.len(), 2);
+    assert_eq!(back.repositories.len(), 1);
+}
+
+#[test]
+fn the_complete_export_keeps_every_pointer_resolvable() {
+    let exported = export_documented(ExportChoices::default());
+    let tags = tags(&exported);
+    for present in ["NOTE", "SOUR", "REPO", "OBJE"] {
+        assert!(tags.contains(&present), "{present} missing:\n{exported}");
+    }
+    assert_every_pointer_resolves(&exported);
 }

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T03:00:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:25:11Z }
 ---
 
 
@@ -748,6 +748,11 @@ process after the originating request has completed. Its nullable
 the job is created. They contain no user or genealogical data and do not affect
 job execution when absent. A worker restores them only as the parent of its
 consumer span; retries retain the original context.
+
+An export job keeps the options it was queued with in `merge_occupations`,
+`merge_names` (both `false` by default), `include_notes_and_sources` and
+`include_media` (both `true`), for the worker that packs the archive; an
+import job leaves them at their defaults.
 
 A job's `payload_json` is cleared when it ends; its `result_json` stays for
 the status poll. Workers delete the rows of jobs ended more than a day ago,

@@ -24,18 +24,19 @@ use crate::service::history;
 /// wrapping the same GEDCOM data. Pass `?merge_occupations=true` to collapse
 /// each person's multiple `OCCU` tags back into one, comma-separated. Pass
 /// `?merge_names=true` to collapse each person's non-primary names into the
-/// primary name's `SURN` tag, comma-separated. Either way the export is
-/// recorded in the tree's audit log, as GraphQL's `exportGedcom` records it.
+/// primary name's `SURN` tag, comma-separated. Pass
+/// `?include_notes_and_sources=false` to leave the notes and the sources out,
+/// and `?format=gedzip&include_media=false` to leave the media out of an
+/// archive. Either way the export is recorded in the tree's audit log, as
+/// GraphQL's `exportGedcom` records it.
 pub async fn export_gedcom_handler(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
     Query(query): Query<ExportGedcomQuery>,
 ) -> Result<Response, ApiError> {
-    let merge_occupations = query.merge_occupations.unwrap_or(false);
-    let merge_names = query.merge_names.unwrap_or(false);
+    let choices = query.choices();
     if query.format.as_deref() != Some("gedzip") {
-        let data =
-            gedcom::export_gedcom(&state.db, tree_id, merge_occupations, merge_names).await?;
+        let data = gedcom::export_gedcom(&state.db, tree_id, choices).await?;
         return Ok(Json(ExportGedcomResponse {
             gedcom: data.gedcom,
             warnings: data.warnings,
@@ -43,8 +44,7 @@ pub async fn export_gedcom_handler(
         .into_response());
     }
 
-    let data =
-        gedcom::load_and_export(&state.db, tree_id, merge_occupations, merge_names, true).await?;
+    let data = gedcom::load_and_export(&state.db, tree_id, choices, true).await?;
     // The whole reason to choose this format over `.ged`. A medium whose
     // bytes have gone missing from the store is skipped rather than fatal:
     // the rest of the archive is still a correct export, and refusing to

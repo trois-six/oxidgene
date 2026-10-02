@@ -191,6 +191,8 @@ async fn background_job_persists_the_current_trace_context() {
             original_filename: Some("tree.ged".into()),
             merge_occupations: false,
             merge_names: false,
+            include_notes_and_sources: true,
+            include_media: true,
         },
     )
     .await
@@ -219,6 +221,8 @@ async fn background_jobs_are_exclusive_and_expired_leases_are_reclaimed() {
         original_filename: Some("tree.ged".into()),
         merge_occupations: false,
         merge_names: false,
+        include_notes_and_sources: true,
+        include_media: true,
     };
 
     BackgroundJobRepo::create(&db, new_job())
@@ -279,6 +283,8 @@ async fn ended_jobs_drop_their_payload_and_can_be_pruned() {
         original_filename: None,
         merge_occupations: false,
         merge_names: false,
+        include_notes_and_sources: true,
+        include_media: true,
     };
     let (import, export) = (Uuid::now_v7(), Uuid::now_v7());
 
@@ -394,6 +400,8 @@ async fn requeue_running_preserves_the_import_checkpoint() {
             original_filename: Some("tree.ged".into()),
             merge_occupations: false,
             merge_names: false,
+            include_notes_and_sources: true,
+            include_media: true,
         },
     )
     .await

@@ -94,6 +94,8 @@ async fn stage_import(
             original_filename: filename,
             merge_occupations: false,
             merge_names: false,
+            include_notes_and_sources: true,
+            include_media: true,
         },
     )
     .await;

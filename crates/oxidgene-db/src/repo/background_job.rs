@@ -65,6 +65,8 @@ pub struct NewBackgroundJob {
     pub original_filename: Option<String>,
     pub merge_occupations: bool,
     pub merge_names: bool,
+    pub include_notes_and_sources: bool,
+    pub include_media: bool,
 }
 
 pub type BackgroundJob = background_job::Model;
@@ -102,6 +104,8 @@ impl BackgroundJobRepo {
             original_filename: Set(input.original_filename),
             merge_occupations: Set(input.merge_occupations),
             merge_names: Set(input.merge_names),
+            include_notes_and_sources: Set(input.include_notes_and_sources),
+            include_media: Set(input.include_media),
             done: Set(0),
             total: Set(0),
             attempt: Set(0),

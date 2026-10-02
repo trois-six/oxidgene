@@ -222,7 +222,9 @@ pub async fn duplicate_tree(
 ) -> Result<Tree, OxidGeneError> {
     require_name(&name)?;
     let source_name = TreeRepo::get(db, source_tree_id).await?.name;
-    let export = gedcom::load_and_export(db, source_tree_id, false, false, false).await?;
+    let export =
+        gedcom::load_and_export(db, source_tree_id, gedcom::ExportChoices::default(), false)
+            .await?;
     let new_tree_id = Uuid::now_v7();
     let tree = TreeRepo::create(db, new_tree_id, name, None).await?;
     let summary = gedcom::import_and_persist(db, new_tree_id, &export.gedcom).await?;

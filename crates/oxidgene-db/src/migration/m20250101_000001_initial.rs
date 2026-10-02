@@ -394,6 +394,8 @@ enum BackgroundJob {
     OriginalFilename,
     MergeOccupations,
     MergeNames,
+    IncludeNotesAndSources,
+    IncludeMedia,
     Done,
     Total,
     Attempt,
@@ -1471,6 +1473,8 @@ async fn create_jobs_and_search(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .col(string_null(BackgroundJob::OriginalFilename))
                 .col(boolean(BackgroundJob::MergeOccupations).default(false))
                 .col(boolean(BackgroundJob::MergeNames).default(false))
+                .col(boolean(BackgroundJob::IncludeNotesAndSources).default(true))
+                .col(boolean(BackgroundJob::IncludeMedia).default(true))
                 .col(big_integer(BackgroundJob::Done).default(0))
                 .col(big_integer(BackgroundJob::Total).default(0))
                 .col(integer(BackgroundJob::Attempt).default(0))

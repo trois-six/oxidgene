@@ -1375,21 +1375,28 @@ impl QueryRoot {
     /// comma-separated (for importers, e.g. Geneanet, that only support a
     /// single profession field). Pass `merge_names: true` to collapse each
     /// person's non-primary names into the primary name's `SURN` tag,
-    /// comma-separated.
+    /// comma-separated. Pass `include_notes_and_sources: false` to leave the
+    /// notes and the sources out. A plain GEDCOM always writes its media's
+    /// references: only a GEDZIP (`startExportJob`) leaves the media out.
     async fn export_gedcom(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         merge_occupations: Option<bool>,
         merge_names: Option<bool>,
+        include_notes_and_sources: Option<bool>,
     ) -> Result<GqlExportGedcomResult> {
         let tree_id = live_tree(ctx, &tree_id).await?;
         let data = crate::service::gedcom::export_gedcom(
             // Writes the export's audit entry.
             db_from_ctx(ctx),
             tree_id,
-            merge_occupations.unwrap_or(false),
-            merge_names.unwrap_or(false),
+            crate::service::gedcom::export_choices(
+                merge_occupations,
+                merge_names,
+                include_notes_and_sources,
+                None,
+            ),
         )
         .await?;
         Ok(GqlExportGedcomResult {

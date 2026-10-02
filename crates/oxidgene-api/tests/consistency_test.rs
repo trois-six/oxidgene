@@ -2397,6 +2397,122 @@ async fn a_gedcom_export_is_audited_on_both_surfaces() {
     );
 }
 
+/// A person with a note and a cited source.
+const DOCUMENTED_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @S1@ SOUR
+1 TITL Sample register
+0 @I1@ INDI
+1 NAME Alder /Sample/
+1 NOTE Person remark
+1 SOUR @S1@
+2 PAGE folio 1
+0 TRLR
+";
+
+/// The `gedcom.ged` of the GEDZIP export job `job_id` once `worker` has run
+/// it.
+async fn exported_archive(
+    app: &axum::Router,
+    worker: &oxidgene_api::service::background_job::BackgroundJobWorker,
+    tree_id: &str,
+    job_id: &str,
+) -> String {
+    use http_body_util::BodyExt as _;
+    use std::io::Read as _;
+    use tower::ServiceExt as _;
+
+    assert!(worker.run_once().await.expect("runs the export job"));
+    let status = common::ok(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status["phase"], "completed", "{status}");
+    let request = axum::http::Request::builder()
+        .uri(status["download_url"].as_str().expect("download URL"))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("a ZIP");
+    assert_eq!(archive.len(), 1, "no media in the archive");
+    let mut gedcom = String::new();
+    archive
+        .by_name("gedcom.ged")
+        .expect("the GEDCOM entry")
+        .read_to_string(&mut gedcom)
+        .unwrap();
+    gedcom
+}
+
+#[tokio::test]
+async fn export_choices_travel_alike_on_both_surfaces() {
+    let db = common::setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree_id = common::new_tree(&app, "Documented").await;
+    common::import_gedcom(&app, &db, &tree_id, DOCUMENTED_GEDCOM).await;
+    let export = format!("/api/v1/trees/{tree_id}/gedcom/export");
+
+    let complete = common::ok(&app, Method::GET, &export, None).await;
+    assert!(
+        complete["gedcom"]
+            .as_str()
+            .unwrap()
+            .contains("Person remark"),
+        "{complete}"
+    );
+
+    // A plain GEDCOM.
+    let rest = common::ok(
+        &app,
+        Method::GET,
+        &format!("{export}?include_notes_and_sources=false"),
+        None,
+    )
+    .await["gedcom"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let data = common::gql_ok(
+        &app,
+        "query($t: ID!) { exportGedcom(treeId: $t, includeNotesAndSources: false) { gedcom } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    assert_eq!(data["exportGedcom"]["gedcom"], rest.as_str());
+    for absent in ["remark", "Sample register", "folio"] {
+        assert!(!rest.contains(absent), "{absent} in:\n{rest}");
+    }
+
+    // A GEDZIP job, which also packs no media.
+    let worker = common::worker_on(&db);
+    let started = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs?include_notes_and_sources=false&include_media=false"),
+        None,
+    )
+    .await;
+    let job_id = started["job_id"].as_str().unwrap();
+    let rest_archive = exported_archive(&app, &worker, &tree_id, job_id).await;
+    let data = common::gql_ok(
+        &app,
+        "mutation($t: ID!) { startExportJob(treeId: $t, includeNotesAndSources: false, includeMedia: false) { jobId } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    let job_id = data["startExportJob"]["jobId"].as_str().unwrap();
+    let gql_archive = exported_archive(&app, &worker, &tree_id, job_id).await;
+    assert_eq!(rest_archive, gql_archive);
+    assert_eq!(rest_archive, rest, "the same GEDCOM as the plain export");
+}
+
 #[tokio::test]
 async fn job_status_reads_alike_on_both_surfaces() {
     let app = setup_app().await;

@@ -73,11 +73,64 @@ pub struct ExportRecords<'a> {
     pub notes: &'a [Note],
 }
 
+impl ExportRecords<'_> {
+    /// These records without those `choices` leave out: the notes, and the
+    /// sources with their citations and repositories, unless they are
+    /// included; the media with their links and identifications, unless
+    /// they are.
+    ///
+    /// Nothing written points at a record left out: every pointer is looked
+    /// up among the records written, and a repository is reached only
+    /// through a source.
+    #[must_use]
+    pub fn chosen(mut self, choices: ExportChoices) -> Self {
+        if !choices.include_notes_and_sources {
+            self.notes = &[];
+            self.sources = &[];
+            self.citations = &[];
+            self.repositories = &[];
+            self.source_repositories = &[];
+        }
+        if !choices.include_media {
+            self.media = &[];
+            self.media_links = &[];
+            self.vignettes = &[];
+        }
+        self
+    }
+}
+
+/// What the person exporting chose: what the file holds, and how it writes
+/// it. The default is the complete, lossless export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportChoices {
+    /// Collapse each person's occupations into one `OCCU`.
+    pub merge_occupations: bool,
+    /// Collapse each person's other names into the primary name's `SURN`.
+    pub merge_names: bool,
+    /// Write the notes, and the sources with their citations and
+    /// repositories.
+    pub include_notes_and_sources: bool,
+    /// Write the media, their links and their identifications.
+    pub include_media: bool,
+}
+
+impl Default for ExportChoices {
+    fn default() -> Self {
+        Self {
+            merge_occupations: false,
+            merge_names: false,
+            include_notes_and_sources: true,
+            include_media: true,
+        }
+    }
+}
+
 /// How an export writes the records: see [`export_gedcom`].
 #[derive(Debug, Clone, Copy)]
 pub struct ExportOptions<'a> {
-    pub merge_occupations: bool,
-    pub merge_names: bool,
+    /// What the file holds and how it writes it.
+    pub choices: ExportChoices,
     /// The archive entry each media held in a GEDZIP is written as.
     pub media_paths: &'a HashMap<Uuid, String>,
     /// The tree's "Who am I?" person.
@@ -112,6 +165,9 @@ pub struct SubmitterSettings<'a> {
 /// `SURN` sub-tag, so this is an opt-in, lossy compatibility option; leave
 /// it `false` to keep the lossless one-`NAME`-per-`PersonName` export.
 ///
+/// `include_notes_and_sources` and `include_media` leave the notes and the
+/// sources, or the media, out of the file: see [`ExportRecords::chosen`].
+///
 /// `self_person_id` is the tree's "Who am I?" person: the `SUBM` record GEDCOM
 /// 5.5.1 requires is named after them, or `Not Provided` without one.
 ///
@@ -122,6 +178,12 @@ pub fn export_gedcom(
     records: &ExportRecords<'_>,
     options: &ExportOptions<'_>,
 ) -> Result<ExportResult, String> {
+    let ExportOptions {
+        choices,
+        media_paths,
+        self_person_id,
+        submitter,
+    } = *options;
     let ExportRecords {
         persons,
         person_names,
@@ -139,14 +201,12 @@ pub fn export_gedcom(
         media_links,
         vignettes,
         notes,
-    } = *records;
-    let ExportOptions {
+    } = records.chosen(choices);
+    let ExportChoices {
         merge_occupations,
         merge_names,
-        media_paths,
-        self_person_id,
-        submitter,
-    } = *options;
+        ..
+    } = choices;
     let mut warnings: Vec<String> = Vec::new();
     let build_span = tracing::info_span!(
         "export.build_model",
@@ -2104,8 +2164,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2168,8 +2227,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &paths,
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2238,8 +2296,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2374,8 +2431,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &media_paths,
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2426,8 +2482,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2449,8 +2504,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2486,8 +2540,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2556,8 +2609,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &paths,
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2644,8 +2696,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2715,8 +2766,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2782,10 +2832,12 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: // Merging the professions back into one OCCU is the case under
-            // test: it is what has to not multiply the scan.
-            true,
-                merge_names: false,
+                choices: ExportChoices {
+                    // Merging the professions back into one OCCU is the case
+                    // under test: it is what has to not multiply the scan.
+                    merge_occupations: true,
+                    ..Default::default()
+                },
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2857,8 +2909,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -2930,8 +2981,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -3010,8 +3060,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -3062,8 +3111,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: &HashMap::new(),
                 self_person_id: None,
                 submitter: Default::default(),
@@ -3093,8 +3141,7 @@ mod tests {
                 ..Default::default()
             },
             &ExportOptions {
-                merge_occupations: false,
-                merge_names: false,
+                choices: ExportChoices::default(),
                 media_paths: // No archive: nothing to point into.
             &HashMap::new(),
                 self_person_id: None,
