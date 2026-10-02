@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:08:32Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -182,11 +182,13 @@ refactor):
 
 - [ ] Implement authentication and session management.
 - [ ] Implement per-tree guest, read-only, and editor authorization.
-- [ ] Enforce person, family, and media privacy according to viewer access.
-- [ ] Build the tree's visibility and contemporary-person settings
-  ([Settings §8](ui-settings.md#8-section-privacy)): the age threshold, the
-  display mode, navigation to hidden persons and their photos, and the
-  export's *Include contemporary persons* option that depends on them.
+- [ ] Enforce person, family, and media privacy according to viewer access,
+  as one piece of work with the tree's visibility and contemporary-person
+  settings ([Settings §8](ui-settings.md#8-section-privacy)): the age
+  threshold, the display mode, navigation to hidden persons and their
+  photos, and the export's *Include contemporary persons* option. A
+  contemporary person is a privacy rule, so it is built and enforced with
+  the rest of privacy, not before it.
 - [ ] Record the author of every audit entry ([Data Model §5](data-model.md#5-change-history))
   and add access audit logging with anonymized operational output.
 - [ ] Mirror security behavior and errors across REST and GraphQL.
