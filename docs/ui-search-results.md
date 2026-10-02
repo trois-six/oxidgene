@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:05:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
 ---
 
 
@@ -133,7 +133,8 @@ A sort selector in the toolbar row above the results:
 
 ## 7. View Modes
 
-Two view mode buttons in the toolbar row (list icon and grid icon):
+Two view mode buttons in the toolbar row (list icon and grid icon), the shared
+[ViewToggle](ui-common.md#416-viewtoggle):
 
 ### List View (default)
 

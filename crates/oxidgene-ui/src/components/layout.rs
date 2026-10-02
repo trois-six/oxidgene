@@ -3562,12 +3562,14 @@ pub const LAYOUT_STYLES: &str = r#"
         color: var(--text-primary);
     }
 
-    .sr-view-modes {
+    /* The list / grid switch (components/view_toggle.rs). */
+    .view-toggle {
         display: flex;
         gap: 4px;
+        flex-shrink: 0;
     }
 
-    .sr-view-btn {
+    .view-toggle-btn {
         background: none;
         border: 1px solid var(--border);
         border-radius: 4px;
@@ -3577,13 +3579,13 @@ pub const LAYOUT_STYLES: &str = r#"
         font-size: 1rem;
     }
 
-    .sr-view-btn.active {
+    .view-toggle-btn.active {
         background: var(--orange);
         color: var(--on-accent);
         border-color: var(--orange);
     }
 
-    .sr-view-btn:hover:not(.active) {
+    .view-toggle-btn:hover:not(.active) {
         background: var(--bg-card-hover);
     }
 
@@ -7462,7 +7464,7 @@ pub const LAYOUT_STYLES: &str = r#"
         .dict-letter-strip, .dict-filter-row, .dict-page-size,
         .media-act, .media-upload-icon-btn, .media-drop-btn,
         .media-tag-remove, .media-identification-delete,
-        .sr-filters-toggle, .sr-filters, .sr-sort, .sr-view-modes,
+        .sr-filters-toggle, .sr-filters, .sr-sort, .view-toggle,
         .sr-filter-actions, .sr-clear-filters, .pager, .stats-option,
         .stats-interval,
         .tools-controls, .tools-place-actions, .tools-pair-actions, .ph-toolbar,

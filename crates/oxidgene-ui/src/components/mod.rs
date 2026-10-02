@@ -37,4 +37,5 @@ pub mod tree_cache;
 pub mod tree_icon_sidebar;
 pub mod tree_page;
 pub mod union_form;
+pub mod view_toggle;
 pub mod year_range;

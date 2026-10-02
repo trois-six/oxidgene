@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { apiUrl, expect, test } from "./fixtures";
 
 test("creates, renames and deletes a tree from the home page", async ({ page }) => {
     const name = `E2E home ${Date.now()}`;
@@ -35,4 +35,27 @@ test("creates, renames and deletes a tree from the home page", async ({ page }) 
 
     await page.reload();
     await expect(page.locator(".tree-card-name", { hasText: name })).toHaveCount(0);
+});
+
+test("sorts the trees by name either way and lays them out as a list", async ({ page, request }) => {
+    const token = `sortcheck${Date.now()}`;
+    for (const name of [`${token} Able`, `${token} Zulu`]) {
+        const created = await request.post(`${apiUrl}/api/v1/trees`, { data: { name } });
+        expect(created.ok()).toBeTruthy();
+    }
+    await page.goto("/");
+    await page.locator(".home-search-input").fill(token);
+    const names = page.locator(".tree-card-name");
+    await expect(names).toHaveCount(2);
+
+    await page.locator(".home-sort-select").selectOption({ label: "Name Z → A" });
+    await expect(names).toHaveText([new RegExp(`${token} Zulu`, "i"), new RegExp(`${token} Able`, "i")]);
+    await page.locator(".home-sort-select").selectOption({ label: "Name A → Z" });
+    await expect(names).toHaveText([new RegExp(`${token} Able`, "i"), new RegExp(`${token} Zulu`, "i")]);
+
+    const grid = page.locator(".trees-grid");
+    await expect(grid).not.toHaveClass(/trees-list/);
+    await page.getByRole("button", { name: "List of trees" }).click();
+    await expect(grid).toHaveClass(/trees-list/);
+    await expect(page.getByRole("button", { name: "List of trees" })).toHaveAttribute("aria-pressed", "true");
 });

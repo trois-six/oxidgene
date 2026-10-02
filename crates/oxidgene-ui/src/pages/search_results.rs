@@ -22,6 +22,7 @@ use crate::components::search_person::{PersonSearchSummary, render_person_search
 use crate::components::suggest_input::ValueInput;
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
+use crate::components::view_toggle::ViewToggle;
 use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
@@ -986,25 +987,9 @@ fn relation_group(
 
 /// The result count, the sort menu and the view switch.
 fn toolbar(i18n: &I18n, total: usize, filters: SearchFilters) -> Element {
-    let SearchFilters { mut sort, view, .. } = filters;
-    let view_button = |mode: ViewMode, title_key: &str, glyph: &str| {
-        let mut view = view;
-        rsx! {
-            button {
-                class: if view() == mode { "sr-view-btn active" } else { "sr-view-btn" },
-                title: i18n.t(title_key),
-                "aria-label": i18n.t(title_key),
-                "aria-pressed": view() == mode,
-                onclick: move |_| {
-                    if view() != mode {
-                        view.set(mode);
-                        filters.restart();
-                    }
-                },
-                "{glyph}"
-            }
-        }
-    };
+    let SearchFilters {
+        mut sort, mut view, ..
+    } = filters;
     rsx! {
         div { class: "sr-toolbar",
             span { class: "sr-count",
@@ -1019,9 +1004,14 @@ fn toolbar(i18n: &I18n, total: usize, filters: SearchFilters) -> Element {
                     }
                 }
             }
-            div { class: "sr-view-modes",
-                {view_button(ViewMode::List, "search.view_list", "\u{2630}")}
-                {view_button(ViewMode::Card, "search.view_grid", "\u{25A6}")}
+            ViewToggle {
+                list: view() == ViewMode::List,
+                list_label: i18n.t("search.view_list"),
+                grid_label: i18n.t("search.view_grid"),
+                on_change: move |list: bool| {
+                    view.set(if list { ViewMode::List } else { ViewMode::Card });
+                    filters.restart();
+                },
             }
         }
     }

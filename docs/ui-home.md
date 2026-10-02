@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
 ---
 
 
@@ -75,7 +75,9 @@ Single row below the page header. Contains from left to right:
 - Name A -> Z
 - Name Z -> A
 
-**View toggle** — two icon buttons: grid view (default) and list view. In list view, `grid-template-columns` collapses to a single column.
+Both name orders ignore case.
+
+**View toggle** — the shared [ViewToggle](ui-common.md#416-viewtoggle): a list button, then a grid button, the grid pressed by default. In list view the cards stack one per row (`grid-template-columns` collapses to a single column); the choice lasts while the page is open.
 
 **"+ New tree" button** — rightmost element. Visually prominent: orange gradient background, Cinzel font, white text, subtle shadow. Opens the new tree modal on click. Always visible regardless of the number of existing trees.
 
@@ -83,7 +85,7 @@ Single row below the page header. Contains from left to right:
 
 ## 6. Tree Card
 
-Cards are displayed in a responsive grid (`minmax(280px, 1fr)`). The last card in the grid is always the "+ Create a new tree" placeholder card.
+Cards are displayed in a responsive grid (`minmax(300px, 1fr)`), a single column below 640px or in list view. The last card in the grid is always the "+ Create a new tree" placeholder card.
 
 ### Anatomy (top to bottom)
 

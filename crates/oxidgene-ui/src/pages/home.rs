@@ -15,6 +15,7 @@ use crate::components::import_modal::ImportModal;
 use crate::components::modal::Modal;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::use_tree_cache;
+use crate::components::view_toggle::ViewToggle;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::ui_observability::{
@@ -101,6 +102,7 @@ pub fn Home() -> Element {
     let open_menu = use_signal(|| None::<(String, f64, f64)>);
     let search_query = use_signal(String::new);
     let sort_mode = use_signal(|| "recent".to_string());
+    let list_view = use_signal(|| false);
 
     let i18n = use_i18n();
 
@@ -148,7 +150,7 @@ pub fn Home() -> Element {
         div { class: "home-page",
             div { class: "home-main",
                 HomeHeader {}
-                HomeToolbar { search_query, sort_mode, show_create }
+                HomeToolbar { search_query, sort_mode, list_view, show_create }
 
                 // ── Trees grid ───────────────────────────────────────
                 match &*trees_resource.read() {
@@ -157,6 +159,7 @@ pub fn Home() -> Element {
                             trees: conn.edges.iter().map(|edge| TreeSummary::of(&edge.node)).collect::<Vec<_>>(),
                             query: search_query(),
                             sort: sort_mode(),
+                            list: list_view(),
                             open_menu,
                             duplicating: duplicating_tree_id(),
                             on_create: move |_| show_create.set(true),
@@ -345,11 +348,12 @@ fn HomeHeader() -> Element {
     }
 }
 
-/// Search, sort and the new-tree button.
+/// Search, sort, the list / grid switch and the new-tree button.
 #[component]
 fn HomeToolbar(
     search_query: Signal<String>,
     sort_mode: Signal<String>,
+    list_view: Signal<bool>,
     show_create: Signal<bool>,
 ) -> Element {
     let i18n = use_i18n();
@@ -381,6 +385,13 @@ fn HomeToolbar(
                 onchange: move |e: Event<FormData>| sort_mode.set(e.value()),
                 option { value: "recent", {i18n.t("home.sort_recent")} }
                 option { value: "name", {i18n.t("home.sort_name")} }
+                option { value: "name_desc", {i18n.t("home.sort_name_desc")} }
+            }
+            ViewToggle {
+                list: list_view(),
+                list_label: i18n.t("home.view_list"),
+                grid_label: i18n.t("home.view_grid"),
+                on_change: move |list| list_view.set(list),
             }
             button {
                 class: "home-btn-new home-btn-new-toolbar",
@@ -403,7 +414,8 @@ fn HomeToolbar(
 }
 
 /// The trees matching `query` in their name or description, sorted by name
-/// or else by last change, newest first.
+/// (`name`, or `name_desc` from Z to A) or else by last change, newest
+/// first.
 fn visible_trees(trees: &[TreeSummary], query: &str, sort: &str) -> Vec<TreeSummary> {
     let query = query.to_lowercase();
     let mut visible: Vec<TreeSummary> = trees
@@ -417,6 +429,9 @@ fn visible_trees(trees: &[TreeSummary], query: &str, sort: &str) -> Vec<TreeSumm
         .collect();
     match sort {
         "name" => visible.sort_by_cached_key(|tree| tree.name.to_lowercase()),
+        "name_desc" => {
+            visible.sort_by_cached_key(|tree| std::cmp::Reverse(tree.name.to_lowercase()));
+        }
         _ => visible.sort_by_key(|tree| std::cmp::Reverse(tree.updated_at)),
     }
     visible
@@ -429,6 +444,8 @@ fn TreesGrid(
     trees: Vec<TreeSummary>,
     query: String,
     sort: String,
+    /// One card per row rather than as many as fit.
+    list: bool,
     open_menu: Signal<Option<(String, f64, f64)>>,
     duplicating: Option<Uuid>,
     on_create: EventHandler<()>,
@@ -475,7 +492,7 @@ fn TreesGrid(
         };
     }
     rsx! {
-        div { class: "trees-grid",
+        div { class: if list { "trees-grid trees-list" } else { "trees-grid" },
             for tree in visible {
                 TreeCard {
                     key: "{tree.id}",
@@ -1161,6 +1178,7 @@ const HOME_STYLES: &str = r#"
         gap: 1.5rem;
         animation: home-fade-up 0.6s 0.15s ease backwards;
     }
+    .trees-grid.trees-list { grid-template-columns: minmax(0, 1fr); }
 
     /* ── Tree card ───────────────────────────────────────────────── */
 
@@ -1581,3 +1599,41 @@ const HOME_STYLES: &str = r#"
         .home-page-header h1 { font-size: 1.5rem; }
     }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tree(name: &str, hours_ago: i64) -> TreeSummary {
+        TreeSummary {
+            id: Uuid::now_v7(),
+            name: name.to_string(),
+            description: String::new(),
+            updated_at: Utc::now() - chrono::Duration::hours(hours_ago),
+            importing: false,
+        }
+    }
+
+    fn names(trees: Vec<TreeSummary>) -> Vec<String> {
+        trees.into_iter().map(|tree| tree.name).collect()
+    }
+
+    /// The three orders of the sort menu, the name ones ignoring case.
+    #[test]
+    fn trees_sort_by_recency_or_by_name_either_way() {
+        let trees = [tree("beta", 1), tree("Alpha", 3), tree("gamma", 2)];
+        assert_eq!(
+            names(visible_trees(&trees, "", "recent")),
+            ["beta", "gamma", "Alpha"]
+        );
+        assert_eq!(
+            names(visible_trees(&trees, "", "name")),
+            ["Alpha", "beta", "gamma"]
+        );
+        assert_eq!(
+            names(visible_trees(&trees, "", "name_desc")),
+            ["gamma", "beta", "Alpha"]
+        );
+        assert_eq!(names(visible_trees(&trees, "AL", "name_desc")), ["Alpha"]);
+    }
+}

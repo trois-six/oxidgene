@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
 ---
 
 
@@ -79,7 +79,7 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. No search fields her
 
 ## 4. Tabs
 
-Six tabs, text-labeled (icons alone are ambiguous at six items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as `.sr-view-btn.active`):
+Six tabs, text-labeled (icons alone are ambiguous at six items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as the shared view toggle's `.view-toggle-btn.active`):
 
 | Tab | Source field | Default active |
 |---|---|---|

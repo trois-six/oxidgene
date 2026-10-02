@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T03:51:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -709,6 +709,14 @@ event) and the media library (event years): two year fields under one
 label, each named *From* and *To* for assistive technology. What is typed is
 kept as typed until it reads as a year, so a half-typed year is never
 rejected mid-keystroke.
+
+### 4.16 ViewToggle
+
+One list / grid switch serves the [homepage](ui-home.md)'s trees and the
+[search results](ui-search-results.md): two icon buttons, list then grid, the
+one shown pressed (`aria-pressed`, the orange fill of an active choice). Each
+page names its own grid, whose cards differ, in the buttons' accessible names
+and tooltips. Pressing the shown view does nothing.
 
 ## 5. Accessibility
 
