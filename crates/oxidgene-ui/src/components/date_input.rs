@@ -839,13 +839,27 @@ fn literal_components(
         ),
         _ => y.abs().to_string(),
     };
-    match (day, name) {
-        (Some(d), Some(month)) if numeric => format!("{d:02}/{month}/{y}{era}"),
-        (None, Some(month)) if numeric => format!("{month}/{y}{era}"),
-        (Some(d), Some(name)) => format!("{d} {name} {y}{era}"),
-        (None, Some(name)) => format!("{name} {y}{era}"),
-        _ => format!("{y}{era}"),
-    }
+    let locale = i18n.0.locale();
+    let templates = if numeric {
+        &locale.dates.numeric
+    } else {
+        &locale.dates.display
+    };
+    let index = usize::from(name.is_some()) + usize::from(name.is_some() && day.is_some());
+    let day = day
+        .map(|day| {
+            if numeric {
+                format!("{day:02}")
+            } else {
+                day.to_string()
+            }
+        })
+        .unwrap_or_default();
+    let text = templates[index]
+        .replace("{year}", &y)
+        .replace("{month}", name.as_deref().unwrap_or_default())
+        .replace("{day}", &day);
+    format!("{text}{era}")
 }
 
 /// PascalCase value used by the qualifier `<select>` options.
@@ -1349,11 +1363,11 @@ mod tests {
     use crate::i18n::Language;
 
     fn en() -> I18n {
-        I18n::new(Language::En)
+        I18n::new(Language::english())
     }
 
     fn fr() -> I18n {
-        I18n::new(Language::Fr)
+        I18n::new(Language::try_from_code("fr").unwrap())
     }
 
     /// Most tests only care about the common calendar.

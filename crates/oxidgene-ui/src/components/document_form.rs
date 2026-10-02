@@ -357,7 +357,7 @@ async fn create_document(
     mut request: WriteRequest,
     i18n: &crate::i18n::I18n,
 ) -> Result<(), String> {
-    request.place_id = resolve_place(api, tree_id, &place, i18n.0.code())
+    request.place_id = resolve_place(api, tree_id, &place, i18n.0.reference_code())
         .await
         .map_err(|err| err.to_string())?;
     let title = Some(title.as_str()).filter(|title| !title.is_empty());

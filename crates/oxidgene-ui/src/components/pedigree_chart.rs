@@ -5523,7 +5523,7 @@ mod lifespan_tests {
     /// is nothing to explain rather than restating the card.
     #[test]
     fn the_tooltip_is_silent_on_exact_dates() {
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
         assert_eq!(
             lifespan_tooltip(
                 &i18n,
@@ -5546,7 +5546,7 @@ mod lifespan_tests {
     /// the card had to drop comes back.
     #[test]
     fn the_tooltip_spells_out_a_range() {
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
         assert_eq!(
             lifespan_tooltip(&i18n, None, range(1691, 1693, DateQualifier::Between)),
             "Between 1691 and 1693"
@@ -6396,7 +6396,7 @@ mod geometry_golden_tests {
                 deleted_at: None,
             }],
         );
-        let unions = data.unions_for_person(id(ROOT), &I18n::new(crate::i18n::Language::En));
+        let unions = data.unions_for_person(id(ROOT), &I18n::new(crate::i18n::Language::english()));
         let (_, _, year) = unions.iter().find(|(fid, _, _)| *fid == family).unwrap();
         assert_eq!(year, "ca 1870");
     }
@@ -6404,7 +6404,7 @@ mod geometry_golden_tests {
     #[test]
     fn culling_extents_contain_everything_a_card_or_connector_draws() {
         let data = wide_pedigree();
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
         for theme in [&PedigreeTheme::CLASSIC, &PedigreeTheme::MEDIEVAL] {
             let layout = compute_layout(
                 id(ROOT),
@@ -6625,7 +6625,7 @@ mod geometry_golden_tests {
             PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::CLASSIC,
         );
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
 
         // A name past either column, and two ranges — the pair that does not
         // fit even a full card and degrades to its marks.
@@ -6791,7 +6791,7 @@ mod geometry_golden_tests {
             .expect("default theme")
             .css();
         let data = wide_pedigree();
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
         let out_dir = std::env::var("OXIDGENE_PREVIEW_DIR").unwrap_or_else(|_| ".".to_string());
         let write_page = |name: &str, page: String| {
             let path = format!("{out_dir}/{name}.html");
@@ -7062,7 +7062,7 @@ mod geometry_golden_tests {
     /// a full name and a hedged lifespan — the tallest a card ever gets.
     #[test]
     fn every_theme_leaves_its_lifespan_inside_the_card() {
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
         for (name, theme) in [
             ("classic", &PedigreeTheme::CLASSIC),
             ("medieval", &PedigreeTheme::MEDIEVAL),
@@ -7101,7 +7101,7 @@ mod geometry_golden_tests {
     /// was drawn across the bottom of the photograph.
     #[test]
     fn every_theme_starts_its_names_below_the_portrait() {
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
         for (name, theme) in [
             ("classic", &PedigreeTheme::CLASSIC),
             ("medieval", &PedigreeTheme::MEDIEVAL),
@@ -7132,7 +7132,7 @@ mod geometry_golden_tests {
     /// its bottom point. Above the crown it can land on a ruled connector.
     #[test]
     fn medieval_more_relations_badge_stays_left_of_the_bottom_point() {
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
         let theme = &PedigreeTheme::MEDIEVAL;
 
         for is_compact in [false, true] {
@@ -7193,7 +7193,7 @@ mod geometry_golden_tests {
             PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::MEDIEVAL,
         );
-        let i18n = I18n::new(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::english());
 
         for is_compact in [false, true] {
             let classic = text_max_width(is_compact, &PedigreeTheme::CLASSIC);

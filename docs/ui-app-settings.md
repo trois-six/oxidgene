@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
+generated: { by: github-copilot/copilot, at: 2026-10-02T18:38:37Z }
 ---
 
 
@@ -141,8 +141,8 @@ and stays there until a theme is chosen: with a theme list anyone can extend,
 its own under a window left open all day was not wanted.
 
 A selected id that no longer resolves — a user theme whose file was renamed or
-removed — falls back to `light` for rendering while the stored id is kept, so
-restoring the file restores the choice.
+removed — resets the selection and stored preference to `light`. Restoring
+the file makes it available again but does not select it automatically.
 
 ### Custom themes
 
@@ -195,6 +195,24 @@ Displayed in a card:
 - Active language: orange border, subtle orange tint background
 - Clicking a language immediately switches the UI language (no save step)
 - The preference is persisted in `localStorage('oxidgene-lang')`
+
+The list comes from locale JSON documents, not a fixed Rust language list.
+Names and flags are document metadata. Embedded files are ordered by filename;
+valid personal files follow, also ordered by filename.
+
+On desktop the Language section scans `<config directory>/languages/*.json`
+every time it is opened, and shows the folder below the choices. On Linux this
+is `~/.config/oxidgene/languages/`, respecting `XDG_CONFIG_HOME`. The folder is
+created at launch, but startup does not scan its contents: it reads only the
+selected `<code>.json`, if the stored preference names a personal language.
+The browser has no personal filesystem catalogue.
+
+Adding or editing a file requires no restart or reload button. Invalid files
+are listed by filename with a localized error. A missing or invalid selected
+file resets the choice and persisted preference to English, including when
+discovered on returning to this section. See
+[Cross-cutting Rules §3.5](cross-cutting.md#35-adding-a-language) for the common
+embedded/custom schema, including plural and date rules.
 
 ---
 

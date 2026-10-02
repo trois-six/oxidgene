@@ -56,6 +56,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod geneanet;
+mod languages;
 mod mcp;
 mod media_assets;
 mod printing;
@@ -420,12 +421,16 @@ fn main() {
     let (geneanet_bridge, mut geneanet_handler) = geneanet::install(work_dir);
     let theme_loader =
         CustomThemeLoader::new(themes::DesktopThemeSource::install(&app_dirs.themes()));
+    let language_loader = oxidgene_ui::i18n::CustomLanguageLoader::new(
+        languages::DesktopLanguageSource::install(&app_dirs.languages()),
+    );
     let cfg = window_config(&app_dirs.webview());
     let mut launch = dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_context(geneanet_bridge)
         .with_context(printing::bridge())
-        .with_context(theme_loader);
+        .with_context(theme_loader)
+        .with_context(language_loader);
     // App Settings shows MCP clients the command that runs this very binary
     // with `mcp`. Without a resolvable path the page falls back to its note
     // rather than printing a command that would not run.

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
+generated: { by: github-copilot/copilot, at: 2026-10-02T18:38:37Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -372,7 +372,10 @@ sent to the server, and nothing is stored.
 - **Year starts on** *1 January* (the default) or *25 March*, the
   Annunciation style many registers kept: a date from 1 January to 24 March
   then bears the previous year's number, in every output.
-- One row per language, each with the shared copy button: English, French,
+- One row per available locale document, each with the shared copy button.
+  Patterns, month cases, day/year word forms and reading vocabulary come from
+  that document; personal locales discovered in Language settings also appear
+  here. The shipped locales are English, French,
   German, Spanish, Italian, Dutch, Polish and Portuguese, with their own
   number words, ordinals and month cases — for 2 February 1650, *the second
   of February, one thousand six hundred and fifty*; *le deux février mille
@@ -405,7 +408,7 @@ sent to the server, and nothing is stored.
 A pasted text fills the date input, or says why it cannot: nothing to read,
 no year found, or a day the month does not have.
 
-- Numbers in words in any of the eight languages or in Latin, cardinal or
+- Numbers in words in any available locale's JSON vocabulary or in Latin, cardinal or
   ordinal, in any case the tables know (*zweiten*, *zweiter*; *secunda*,
   *secundo*, *quartum*), compounds included (*sechzehnhundertfünfzig*,
   *milleseicentocinquanta*, *tweeëntwintig*, *quatre-vingt-dix*); in
@@ -430,7 +433,7 @@ no year found, or a day the month does not have.
 | All in words, or figures and month name | implemented |
 | Year from 1 January, or from 25 March (Annunciation style) | implemented |
 | Latin long and short forms, Roman reckoning, part-by-part breakdown | implemented |
-| Reading text in the eight languages and in Latin | implemented |
+| Reading text in available locale vocabularies and in Latin | implemented |
 | Copy of each output | implemented (the shared copy field) |
 | Double dating (*1649/50*) for the Annunciation style | proposed |
 | Other old styles (25 December, Easter) | proposed |

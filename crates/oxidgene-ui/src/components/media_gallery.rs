@@ -1868,7 +1868,7 @@ fn MediaEditPanel(
                 let saved = save_media_edit(
                     &api,
                     tree_id,
-                    i18n.0.code(),
+                    i18n.0.reference_code(),
                     target,
                     edit,
                     (note_id, page_note_id),

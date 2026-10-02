@@ -1,163 +1,84 @@
-//! Internationalization (i18n) module.
-//!
-//! Provides runtime language switching between the languages of the
-//! countries the place dictionary covers: English, French, German, Spanish,
-//! Italian, Dutch, Polish and Portuguese. Uses a Dioxus context signal for
-//! reactive updates across all components.
+//! JSON-driven runtime internationalization.
 
-mod de;
-mod en;
-mod es;
-mod fr;
-mod it;
-mod nl;
-mod pl;
-mod pt;
+use std::sync::Arc;
 
-use std::collections::HashMap;
+pub(crate) mod locale;
+use locale::replace_custom_languages;
+pub use locale::{CustomLanguage, Language, is_valid_custom_language_code, parse_custom_language};
 
 use dioxus::prelude::*;
 use oxidgene_core::enums::{Calendar, DateDisplayFormat};
 use oxidgene_core::types::Tree;
 
-/// Supported languages.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Language {
-    En,
-    Fr,
-    De,
-    Es,
-    It,
-    Nl,
-    Pl,
-    Pt,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CustomLanguages {
+    pub languages: Vec<CustomLanguage>,
+    pub errors: Vec<CustomLanguageError>,
 }
 
-impl Language {
-    /// Every language, in the order the settings page offers them.
-    pub const ALL: [Self; 8] = [
-        Self::En,
-        Self::Fr,
-        Self::De,
-        Self::Es,
-        Self::It,
-        Self::Nl,
-        Self::Pl,
-        Self::Pt,
-    ];
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomLanguageError {
+    pub file: String,
+    pub message: String,
+}
 
-    /// BCP-47 language code.
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::En => "en",
-            Self::Fr => "fr",
-            Self::De => "de",
-            Self::Es => "es",
-            Self::It => "it",
-            Self::Nl => "nl",
-            Self::Pl => "pl",
-            Self::Pt => "pt",
-        }
+pub trait CustomLanguageSource: Send + Sync {
+    fn location(&self) -> String;
+    fn load(&self) -> CustomLanguages;
+    fn load_code(&self, code: &str) -> Result<Option<CustomLanguage>, CustomLanguageError>;
+}
+
+#[derive(Clone)]
+pub struct CustomLanguageLoader(Arc<dyn CustomLanguageSource>);
+
+impl CustomLanguageLoader {
+    #[must_use]
+    pub fn new(source: Arc<dyn CustomLanguageSource>) -> Self {
+        Self(source)
     }
 
-    /// Native display label.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::En => "EN",
-            Self::Fr => "FR",
-            Self::De => "DE",
-            Self::Es => "ES",
-            Self::It => "IT",
-            Self::Nl => "NL",
-            Self::Pl => "PL",
-            Self::Pt => "PT",
-        }
+    #[must_use]
+    pub fn location(&self) -> String {
+        self.0.location()
     }
 
-    /// The language's own name for itself.
-    pub fn native_name(self) -> &'static str {
-        match self {
-            Self::En => "English",
-            Self::Fr => "Français",
-            Self::De => "Deutsch",
-            Self::Es => "Español",
-            Self::It => "Italiano",
-            Self::Nl => "Nederlands",
-            Self::Pl => "Polski",
-            Self::Pt => "Português",
-        }
+    #[must_use]
+    pub fn load(&self) -> CustomLanguages {
+        self.0.load()
     }
 
-    /// The flag shown beside the language in the settings.
-    pub fn flag(self) -> &'static str {
-        match self {
-            Self::En => "\u{1F1EC}\u{1F1E7}",
-            Self::Fr => "\u{1F1EB}\u{1F1F7}",
-            Self::De => "\u{1F1E9}\u{1F1EA}",
-            Self::Es => "\u{1F1EA}\u{1F1F8}",
-            Self::It => "\u{1F1EE}\u{1F1F9}",
-            Self::Nl => "\u{1F1F3}\u{1F1F1}",
-            Self::Pl => "\u{1F1F5}\u{1F1F1}",
-            Self::Pt => "\u{1F1F5}\u{1F1F9}",
-        }
+    pub fn load_code(&self, code: &str) -> Result<Option<CustomLanguage>, CustomLanguageError> {
+        self.0.load_code(code)
     }
+}
 
-    /// The suffix of the plural form for `count`: `_one` or `_other`, and in
-    /// Polish `_one`, `_few` or `_many`.
-    pub fn plural_suffix(self, count: usize) -> &'static str {
-        match self {
-            // French treats zero as singular: "0 personne".
-            Self::Fr if count <= 1 => "_one",
-            Self::Pl if count == 1 => "_one",
-            Self::Pl if (2..=4).contains(&(count % 10)) && !(12..=14).contains(&(count % 100)) => {
-                "_few"
-            }
-            Self::Pl => "_many",
-            _ if count == 1 => "_one",
-            _ => "_other",
-        }
+impl PartialEq for CustomLanguageLoader {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
+}
 
-    /// Parse a BCP-47 code or prefix (e.g. "fr-FR" → Fr).
-    ///
-    /// Returns `None` for a language the UI has no translation for, so a
-    /// caller walking a preference list can keep looking instead of settling
-    /// on English at the first unknown entry.
-    pub fn try_from_code(s: &str) -> Option<Self> {
-        // Only the primary subtag matters: "fr", "fr-FR", "fr_CA" all map to Fr.
-        let primary = s.split(['-', '_']).next().unwrap_or_default();
-        Self::ALL
-            .into_iter()
-            .find(|language| language.code() == primary.to_ascii_lowercase())
+impl std::fmt::Debug for CustomLanguageLoader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CustomLanguageLoader")
     }
+}
 
-    /// Pick the best supported language from an ordered preference list.
-    ///
-    /// Mirrors how the platform exposes its preferences (`navigator.languages`
-    /// is ordered most-preferred first): the first entry we have a translation
-    /// for wins, so a user whose OS lists German then French gets French rather
-    /// than English. English is the fallback when nothing matches — including
-    /// when detection produced no list at all.
-    pub fn from_preferences<'a>(codes: impl IntoIterator<Item = &'a str>) -> Self {
-        codes
-            .into_iter()
-            .find_map(Self::try_from_code)
-            .unwrap_or(Self::En)
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LanguageCatalog {
+    pub languages: Vec<Language>,
+    pub location: Option<String>,
+    pub errors: Vec<CustomLanguageError>,
+    pub revision: u64,
+}
 
-    /// The raw table for this language, with no fallback. `I18n::t` is what
-    /// callers want; this exists so a test can assert a locale really carries
-    /// a key, which `t` would hide behind its fallback to English.
-    pub(crate) fn translations(self) -> &'static HashMap<String, String> {
-        match self {
-            Self::En => en::translations(),
-            Self::Fr => fr::translations(),
-            Self::De => de::translations(),
-            Self::Es => es::translations(),
-            Self::It => it::translations(),
-            Self::Nl => nl::translations(),
-            Self::Pl => pl::translations(),
-            Self::Pt => pt::translations(),
+impl Default for LanguageCatalog {
+    fn default() -> Self {
+        Self {
+            languages: Language::builtins(),
+            location: None,
+            errors: Vec::new(),
+            revision: 0,
         }
     }
 }
@@ -234,13 +155,7 @@ impl I18n {
     /// named after a place or a product, say, which has no translation and
     /// should be shown as its author wrote it.
     pub fn try_t(&self, key: &str) -> Option<String> {
-        self.0.translations().get(key).cloned().or_else(|| {
-            if self.0 == Language::En {
-                None
-            } else {
-                Language::En.translations().get(key).cloned()
-            }
-        })
+        self.0.translation(key)
     }
 
     /// Look up a translation key with interpolation.
@@ -280,6 +195,9 @@ impl I18n {
 /// [tree cache](crate::components::tree_cache), the default outside a tree.
 pub fn use_i18n() -> I18n {
     let lang: Signal<Language> = use_context();
+    if let Some(catalog) = try_use_context::<Signal<LanguageCatalog>>() {
+        let _ = catalog.read().revision;
+    }
     let dates = try_use_context::<Signal<DateStyle>>().map_or(DateStyle::DEFAULT, |style| style());
     I18n(lang(), dates)
 }
@@ -292,10 +210,13 @@ pub fn use_i18n() -> I18n {
 /// when detection yields nothing at all. Provides a `Signal<Language>` in the
 /// Dioxus context.
 pub fn use_init_language() -> Signal<Language> {
-    let mut lang = use_context_provider(|| Signal::new(Language::En));
+    let loader = try_use_context::<CustomLanguageLoader>();
+    let mut lang = use_context_provider(|| Signal::new(Language::english()));
+    let mut catalog = use_context_provider(|| Signal::new(LanguageCatalog::default()));
 
     // On mount: read persisted language or detect browser/system language.
     use_effect(move || {
+        let loader = loader.clone();
         spawn(async move {
             // One ordered list: the explicit choice (if any) first, then what
             // the platform reports. An unreadable stored value therefore falls
@@ -321,11 +242,54 @@ pub fn use_init_language() -> Signal<Language> {
                 "#,
             );
             if let Ok(val) = result.await {
-                let prefs: Vec<&str> = val
+                let preferences: Vec<String> = val
                     .as_array()
-                    .map(|items| items.iter().filter_map(|v| v.as_str()).collect())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|value| value.as_str().map(str::to_owned))
+                            .collect()
+                    })
                     .unwrap_or_default();
-                lang.set(Language::from_preferences(prefs));
+                let stored = preferences.first().map(String::as_str).unwrap_or_default();
+                if let Some(code) = stored.strip_prefix("custom:") {
+                    match loader.as_ref().map(|loader| loader.load_code(code)) {
+                        Some(Ok(Some(custom))) if custom.code == code => {
+                            let options = replace_custom_languages(vec![custom]);
+                            let selected = options.first().copied().unwrap_or(Language::english());
+                            let mut languages = Language::builtins();
+                            languages.extend(options);
+                            catalog.set(LanguageCatalog {
+                                languages,
+                                location: loader.as_ref().map(CustomLanguageLoader::location),
+                                errors: Vec::new(),
+                                revision: 1,
+                            });
+                            lang.set(selected);
+                        }
+                        Some(Err(error)) => {
+                            replace_custom_languages(Vec::new());
+                            let mut next = LanguageCatalog {
+                                location: loader.as_ref().map(CustomLanguageLoader::location),
+                                ..LanguageCatalog::default()
+                            };
+                            next.errors.push(error);
+                            catalog.set(next);
+                            lang.set(Language::english());
+                            persist_language(Language::english());
+                        }
+                        _ => {
+                            replace_custom_languages(Vec::new());
+                            lang.set(Language::english());
+                            persist_language(Language::english());
+                        }
+                    }
+                } else {
+                    replace_custom_languages(Vec::new());
+                    lang.set(Language::from_preferences(
+                        preferences.iter().map(String::as_str),
+                    ));
+                }
             }
         });
     });
@@ -336,8 +300,37 @@ pub fn use_init_language() -> Signal<Language> {
 /// Persist the language choice to localStorage and update the signal.
 pub fn set_language(mut lang: Signal<Language>, new_lang: Language) {
     lang.set(new_lang);
-    let code = new_lang.code();
-    document::eval(&format!("localStorage.setItem('oxidgene-lang', '{code}');"));
+    persist_language(new_lang);
+}
+
+fn persist_language(language: Language) {
+    let id = language.id();
+    document::eval(&format!("localStorage.setItem('oxidgene-lang', '{id}');"));
+}
+
+pub fn reload_custom_languages(
+    mut language: Signal<Language>,
+    mut catalog: Signal<LanguageCatalog>,
+    loader: &CustomLanguageLoader,
+) {
+    let previous_id = language.peek().id();
+    let loaded = loader.load();
+    let custom = replace_custom_languages(loaded.languages);
+    let mut languages = Language::builtins();
+    languages.extend(custom);
+    let revision = catalog.peek().revision.wrapping_add(1);
+    catalog.set(LanguageCatalog {
+        languages,
+        location: Some(loader.location()),
+        errors: loaded.errors,
+        revision,
+    });
+
+    let selected = Language::from_storage_id(&previous_id).unwrap_or(Language::english());
+    language.set(selected);
+    if selected.id() != previous_id {
+        persist_language(selected);
+    }
 }
 
 #[cfg(test)]
@@ -346,10 +339,19 @@ mod language_detection_tests {
 
     #[test]
     fn matches_on_the_primary_subtag_only() {
-        assert_eq!(Language::try_from_code("fr"), Some(Language::Fr));
-        assert_eq!(Language::try_from_code("fr-FR"), Some(Language::Fr));
-        assert_eq!(Language::try_from_code("fr_CA"), Some(Language::Fr));
-        assert_eq!(Language::try_from_code("EN-gb"), Some(Language::En));
+        assert_eq!(
+            Language::try_from_code("fr"),
+            Some(Language::try_from_code("fr").unwrap())
+        );
+        assert_eq!(
+            Language::try_from_code("fr-FR"),
+            Some(Language::try_from_code("fr").unwrap())
+        );
+        assert_eq!(
+            Language::try_from_code("fr_CA"),
+            Some(Language::try_from_code("fr").unwrap())
+        );
+        assert_eq!(Language::try_from_code("EN-gb"), Some(Language::english()));
     }
 
     #[test]
@@ -363,22 +365,34 @@ mod language_detection_tests {
     fn picks_the_first_translated_entry_not_the_first_entry() {
         assert_eq!(
             Language::from_preferences(["sv-SE", "fr-FR", "en"]),
-            Language::Fr
+            Language::try_from_code("fr").unwrap()
         );
-        assert_eq!(Language::from_preferences(["pl-PL", "en"]), Language::Pl);
+        assert_eq!(
+            Language::from_preferences(["pl-PL", "en"]),
+            Language::try_from_code("pl").unwrap()
+        );
     }
 
     #[test]
     fn falls_back_to_english_without_a_usable_preference() {
-        assert_eq!(Language::from_preferences(["sv", "ja"]), Language::En);
-        assert_eq!(Language::from_preferences([]), Language::En);
+        assert_eq!(
+            Language::from_preferences(["sv", "ja"]),
+            Language::english()
+        );
+        assert_eq!(Language::from_preferences([]), Language::english());
     }
 
     #[test]
     fn an_explicit_choice_leading_the_list_wins_over_the_os() {
-        assert_eq!(Language::from_preferences(["en", "fr-FR"]), Language::En);
+        assert_eq!(
+            Language::from_preferences(["en", "fr-FR"]),
+            Language::english()
+        );
         // A corrupted stored value defers to the OS rather than pinning English.
-        assert_eq!(Language::from_preferences(["xx", "fr-FR"]), Language::Fr);
+        assert_eq!(
+            Language::from_preferences(["xx", "fr-FR"]),
+            Language::try_from_code("fr").unwrap()
+        );
     }
 }
 
@@ -386,15 +400,18 @@ mod language_detection_tests {
 mod parity_tests {
     use super::*;
 
-    /// Polish plurals have three forms: each `_one`/`_other` pair of the
-    /// other languages also has a `_few` and a `_many` form there. A lone
-    /// `_one` key is chosen by the code, not by a count.
-    fn polish_plural_forms() -> std::collections::HashSet<String> {
-        let en = en::translations();
+    fn additional_plural_forms(language: Language) -> std::collections::HashSet<String> {
+        let en = Language::english().translations();
+        let locale = language.locale();
+        let suffixes: std::collections::HashSet<_> =
+            std::iter::once(locale.plurals.default.as_str())
+                .chain(locale.plurals.rules.iter().map(|rule| rule.suffix.as_str()))
+                .filter(|suffix| !["_one", "_other"].contains(suffix))
+                .collect();
         en.keys()
             .filter_map(|key| key.strip_suffix("_one"))
             .filter(|stem| en.contains_key(&format!("{stem}_other")))
-            .flat_map(|stem| [format!("{stem}_few"), format!("{stem}_many")])
+            .flat_map(|stem| suffixes.iter().map(move |suffix| format!("{stem}{suffix}")))
             .collect()
     }
 
@@ -406,29 +423,29 @@ mod parity_tests {
     /// forgetting the others is exactly how that happens.
     #[test]
     fn every_table_carries_the_same_keys() {
-        let en = en::translations();
-        let polish = polish_plural_forms();
-        for language in Language::ALL {
+        let en = Language::english().translations();
+        for language in Language::builtins() {
+            let additional = additional_plural_forms(language);
             let table = language.translations();
             let missing: Vec<_> = en.keys().filter(|key| !table.contains_key(*key)).collect();
             let extra: Vec<_> = table
                 .keys()
                 .filter(|key| !en.contains_key(*key))
-                .filter(|key| !(language == Language::Pl && polish.contains(*key)))
+                .filter(|key| !additional.contains(*key))
                 .collect();
             assert!(missing.is_empty(), "{language:?} lacks {missing:?}");
             assert!(
                 extra.is_empty(),
                 "{language:?} has keys English lacks: {extra:?}"
             );
-            if language == Language::Pl {
-                let absent: Vec<_> = polish
+            {
+                let absent: Vec<_> = additional
                     .iter()
                     .filter(|key| !table.contains_key(*key))
                     .collect();
                 assert!(
                     absent.is_empty(),
-                    "Polish lacks the plural forms {absent:?}"
+                    "{language:?} lacks the declared plural forms {absent:?}"
                 );
             }
         }
@@ -443,7 +460,7 @@ mod parity_tests {
     /// keys built at run time are left to the code that builds them.
     #[test]
     fn every_literal_key_in_the_code_exists() {
-        let en = en::translations();
+        let en = Language::english().translations();
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut missing = Vec::new();
         for path in rust_sources(&root) {
@@ -461,7 +478,10 @@ mod parity_tests {
                 }
             }
         }
-        assert!(missing.is_empty(), "keys missing from en.rs: {missing:#?}");
+        assert!(
+            missing.is_empty(),
+            "keys missing from assets/i18n/en.json: {missing:#?}"
+        );
     }
 
     /// Key families the code builds at run time in a way the scan below
@@ -516,12 +536,13 @@ mod parity_tests {
             }
         }
         let stem = |key: &str| {
-            ["_one", "_other", "_few", "_many"]
+            ["_zero", "_one", "_two", "_other", "_few", "_many"]
                 .iter()
                 .find_map(|suffix| key.strip_suffix(suffix))
                 .map(str::to_string)
         };
-        let mut unused: Vec<_> = en::translations()
+        let mut unused: Vec<_> = Language::english()
+            .translations()
             .keys()
             .filter(|key| {
                 let stem = stem(key);
@@ -634,9 +655,9 @@ mod parity_tests {
     /// literal braces to the user rather than a number.
     #[test]
     fn matching_keys_interpolate_the_same_names() {
-        let en = en::translations();
-        for language in Language::ALL {
-            for (key, text) in language.translations() {
+        let en = Language::english().translations();
+        for language in Language::builtins() {
+            for (key, text) in &language.translations() {
                 // Polish `_few`/`_many` forms follow their `_other` sibling.
                 let reference = en.get(key).or_else(|| {
                     let stem = key
@@ -659,7 +680,7 @@ mod parity_tests {
     fn polish_counts_take_their_three_forms() {
         let forms: Vec<_> = [1, 2, 4, 5, 12, 14, 21, 22, 25, 112]
             .into_iter()
-            .map(|n| Language::Pl.plural_suffix(n))
+            .map(|n| Language::try_from_code("pl").unwrap().plural_suffix(n))
             .collect();
         assert_eq!(
             forms,
@@ -668,27 +689,30 @@ mod parity_tests {
                 "_many"
             ]
         );
-        assert_eq!(Language::Fr.plural_suffix(0), "_one");
-        assert_eq!(Language::En.plural_suffix(0), "_other");
+        assert_eq!(
+            Language::try_from_code("fr").unwrap().plural_suffix(0),
+            "_one"
+        );
+        assert_eq!(Language::english().plural_suffix(0), "_other");
     }
 
     /// The search results counted "1 results": the count is a plural.
     #[test]
     fn a_single_search_result_is_counted_in_the_singular() {
         assert_eq!(
-            I18n::new(Language::En).t_plural("search.results_count", 1),
+            I18n::new(Language::english()).t_plural("search.results_count", 1),
             "1 result"
         );
         assert_eq!(
-            I18n::new(Language::En).t_plural("search.results_count", 5),
+            I18n::new(Language::english()).t_plural("search.results_count", 5),
             "5 results"
         );
         assert_eq!(
-            I18n::new(Language::Pl).t_plural("search.results_count", 3),
+            I18n::new(Language::try_from_code("pl").unwrap()).t_plural("search.results_count", 3),
             "3 wyniki"
         );
         assert_eq!(
-            I18n::new(Language::Pl).t_plural("search.results_count", 5),
+            I18n::new(Language::try_from_code("pl").unwrap()).t_plural("search.results_count", 5),
             "5 wyników"
         );
     }

@@ -921,7 +921,7 @@ mod tests {
         use crate::i18n::{I18n, Language};
 
         for id in PedigreeThemeId::ALL {
-            for language in Language::ALL {
+            for language in Language::builtins() {
                 let i18n = I18n::new(language);
                 for key in [id.label_key(), id.hint_key()] {
                     let text = i18n.t(key);

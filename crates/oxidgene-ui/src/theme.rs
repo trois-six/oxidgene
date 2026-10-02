@@ -587,9 +587,7 @@ impl ThemeState {
     /// The theme in use.
     ///
     /// A selection that no longer resolves — a custom theme whose file was
-    /// renamed or removed — falls back to the default rather than leaving the
-    /// application unstyled. The stored id is kept as it is, so putting the
-    /// file back restores the choice.
+    /// renamed or removed — is reset to the default when the theme list loads.
     #[must_use]
     pub fn active(&self) -> &Theme {
         self.themes()
@@ -602,6 +600,14 @@ impl ThemeState {
     #[must_use]
     pub fn selected_id(&self) -> &str {
         &self.selected
+    }
+
+    fn normalize_selection(&mut self) -> bool {
+        if self.themes().any(|theme| theme.id == self.selected) {
+            return false;
+        }
+        self.selected = DEFAULT_THEME_ID.to_owned();
+        true
     }
 
     /// Theme files that could not be loaded.
@@ -633,10 +639,17 @@ pub fn use_init_theme() -> Signal<ThemeState> {
             .ok()
             .and_then(|value| value.as_str().map(str::to_owned));
 
-            state.set(ThemeState {
+            let mut next = ThemeState {
                 selected: stored.unwrap_or_else(|| DEFAULT_THEME_ID.to_owned()),
                 custom,
-            });
+            };
+            let selection_was_missing = next.normalize_selection();
+            state.set(next);
+            if selection_was_missing {
+                document::eval(&format!(
+                    "localStorage.setItem('{THEME_STORAGE_KEY}', '{DEFAULT_THEME_ID}');"
+                ));
+            }
         });
     });
 
@@ -653,7 +666,7 @@ pub fn set_theme(mut state: Signal<ThemeState>, id: &str) {
     ));
 }
 
-/// Re-read the user's theme folder, keeping the current selection.
+/// Re-read the user's theme folder and reset a selection whose file is gone.
 ///
 /// A folder that has not changed is not written back, so opening the section
 /// does not re-render the picker for nothing.
@@ -663,8 +676,16 @@ pub fn set_theme(mut state: Signal<ThemeState>, id: &str) {
 /// writes to is the shape a render loop comes from.
 pub fn reload_custom_themes(mut state: Signal<ThemeState>, loader: &CustomThemeLoader) {
     let custom = loader.load();
-    if state.peek().custom != custom {
-        state.write().custom = custom;
+    let mut next = state.peek().clone();
+    next.custom = custom;
+    let selection_was_missing = next.normalize_selection();
+    if *state.peek() != next {
+        state.set(next);
+    }
+    if selection_was_missing {
+        document::eval(&format!(
+            "localStorage.setItem('{THEME_STORAGE_KEY}', '{DEFAULT_THEME_ID}');"
+        ));
     }
 }
 
@@ -724,7 +745,7 @@ mod tests {
     /// named after a place or a product is not.
     #[test]
     fn only_themes_with_a_translation_are_translated() {
-        let fr = crate::i18n::I18n::new(crate::i18n::Language::Fr);
+        let fr = crate::i18n::I18n::new(crate::i18n::Language::try_from_code("fr").unwrap());
         assert_eq!(
             builtin_theme("dark").expect("dark theme").display_name(&fr),
             "Sombre"
@@ -854,13 +875,14 @@ mod tests {
     /// its id is still the stored choice. That must not leave the application
     /// with no palette at all.
     #[test]
-    fn a_selection_that_no_longer_resolves_falls_back_without_being_forgotten() {
-        let state = ThemeState {
+    fn a_selection_that_no_longer_resolves_resets_to_the_default() {
+        let mut state = ThemeState {
             selected: "gone".to_owned(),
             custom: CustomThemes::default(),
         };
+        assert!(state.normalize_selection());
         assert_eq!(state.active().id, DEFAULT_THEME_ID);
-        assert_eq!(state.selected_id(), "gone");
+        assert_eq!(state.selected_id(), DEFAULT_THEME_ID);
     }
 
     #[test]

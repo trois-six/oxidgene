@@ -717,7 +717,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     return;
                 }
             };
-            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.code()).await {
+            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.reference_code()).await
+            {
                 Ok(place_id) => place_id,
                 Err(e) => {
                     event_form_error.set(Some(format!("{e}")));
@@ -785,7 +786,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                 profession_form_error.set(Some(i18n.t(key)));
                 return;
             }
-            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.code()).await {
+            let place_id = match resolve_place(&api, tid, &place_str, i18n.0.reference_code()).await
+            {
                 Ok(place_id) => place_id,
                 Err(e) => {
                     profession_form_error.set(Some(format!("{e}")));
@@ -974,7 +976,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             current: &NotesSource::default(),
                         };
                         if let Err(e) =
-                            save_vital_event(&api, tid, new_pid, i18n.0.code(), event).await
+                            save_vital_event(&api, tid, new_pid, i18n.0.reference_code(), event)
+                                .await
                         {
                             save_error.set(Some(format!("{e}")));
                             saving.set(false);
@@ -1091,7 +1094,8 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                             source,
                             current: ns,
                         };
-                        match save_vital_event(&api, tid, pid, i18n.0.code(), event).await {
+                        match save_vital_event(&api, tid, pid, i18n.0.reference_code(), event).await
+                        {
                             Ok(Some(stored)) => target.set(stored),
                             Ok(None) => {}
                             Err(e) => {
@@ -3213,7 +3217,16 @@ pub fn EventEditor(
                 confidence,
             };
             let target = (person_id, event_id);
-            match save_event_edit(&api, tree_id, target, i18n.0.code(), edit, &current).await {
+            match save_event_edit(
+                &api,
+                tree_id,
+                target,
+                i18n.0.reference_code(),
+                edit,
+                &current,
+            )
+            .await
+            {
                 // Adopt the state that was just written, so pressing Save
                 // again reconciles against those rows instead of creating a
                 // second set.

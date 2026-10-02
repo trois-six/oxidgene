@@ -2,6 +2,15 @@
 
 use super::*;
 
+fn number_form(code: &str, number: usize, field: &str) -> String {
+    let locale = Language::try_from_code(code).unwrap().locale();
+    match field {
+        "days" => locale.dates.days[number].clone(),
+        "years" => locale.dates.years[number].clone(),
+        _ => panic!("unknown number form"),
+    }
+}
+
 fn ymd(year: i32, month: u8, day: u8) -> Ymd {
     Ymd {
         year,
@@ -27,12 +36,12 @@ fn english_numbers() {
         (2024, "two thousand and twenty-four"),
     ];
     for (n, words) in cases {
-        assert_eq!(en_cardinal(n), words, "{n}");
+        assert_eq!(number_form("en", n, "years"), words, "{n}");
     }
-    assert_eq!(en_ordinal(1), "first");
-    assert_eq!(en_ordinal(12), "twelfth");
-    assert_eq!(en_ordinal(20), "twentieth");
-    assert_eq!(en_ordinal(31), "thirty-first");
+    assert_eq!(number_form("en", 1, "days"), "first");
+    assert_eq!(number_form("en", 12, "days"), "twelfth");
+    assert_eq!(number_form("en", 20, "days"), "twentieth");
+    assert_eq!(number_form("en", 31, "days"), "thirty-first");
 }
 
 #[test]
@@ -57,7 +66,7 @@ fn french_numbers() {
         (2000, "deux mille"),
     ];
     for (n, words) in cases {
-        assert_eq!(fr_cardinal(n), words, "{n}");
+        assert_eq!(number_form("fr", n, "years"), words, "{n}");
     }
 }
 
@@ -75,12 +84,18 @@ fn german_numbers() {
         (2001, "zweitausendeins"),
     ];
     for (n, words) in cases {
-        assert_eq!(de_cardinal(n), words, "{n}");
+        assert_eq!(number_form("de", n, "years"), words, "{n}");
     }
-    assert_eq!(de_year(1650), "sechzehnhundertfünfzig");
-    assert_eq!(de_year(1901), "neunzehnhunderteins");
-    assert_eq!(de_year(2024), "zweitausendvierundzwanzig");
-    assert_eq!(de_year(987), "neunhundertsiebenundachtzig");
+    assert_eq!(number_form("de", 1650, "years"), "sechzehnhundertfünfzig");
+    assert_eq!(number_form("de", 1901, "years"), "neunzehnhunderteins");
+    assert_eq!(
+        number_form("de", 2024, "years"),
+        "zweitausendvierundzwanzig"
+    );
+    assert_eq!(
+        number_form("de", 987, "years"),
+        "neunhundertsiebenundachtzig"
+    );
     let ordinals = [
         (1, "ersten"),
         (2, "zweiten"),
@@ -92,7 +107,7 @@ fn german_numbers() {
         (31, "einunddreißigsten"),
     ];
     for (n, words) in ordinals {
-        assert_eq!(de_ordinal(n), words, "{n}");
+        assert_eq!(number_form("de", n, "days"), words, "{n}");
     }
 }
 
@@ -114,7 +129,7 @@ fn spanish_numbers() {
         (2000, "dos mil"),
     ];
     for (n, words) in cases {
-        assert_eq!(es_cardinal(n), words, "{n}");
+        assert_eq!(number_form("es", n, "years"), words, "{n}");
     }
 }
 
@@ -139,7 +154,7 @@ fn italian_numbers() {
         (2001, "duemilauno"),
     ];
     for (n, words) in cases {
-        assert_eq!(it_cardinal(n), words, "{n}");
+        assert_eq!(number_form("it", n, "years"), words, "{n}");
     }
 }
 
@@ -156,10 +171,13 @@ fn dutch_numbers() {
         (2024, "tweeduizendvierentwintig"),
     ];
     for (n, words) in cases {
-        assert_eq!(nl_cardinal(n), words, "{n}");
+        assert_eq!(number_form("nl", n, "years"), words, "{n}");
     }
-    assert_eq!(nl_year(1650), "zestienhonderdvijftig");
-    assert_eq!(nl_year(999), "negenhonderdnegenennegentig");
+    assert_eq!(number_form("nl", 1650, "years"), "zestienhonderdvijftig");
+    assert_eq!(
+        number_form("nl", 999, "years"),
+        "negenhonderdnegenennegentig"
+    );
     let ordinals = [
         (1, "eerste"),
         (2, "tweede"),
@@ -170,7 +188,7 @@ fn dutch_numbers() {
         (31, "eenendertigste"),
     ];
     for (n, words) in ordinals {
-        assert_eq!(nl_ordinal(n), words, "{n}");
+        assert_eq!(number_form("nl", n, "days"), words, "{n}");
     }
 }
 
@@ -192,10 +210,15 @@ fn polish_ordinals_in_the_genitive() {
         (2024, "dwa tysiące dwudziestego czwartego"),
     ];
     for (n, words) in cases {
-        assert_eq!(pl_ordinal(n), words, "{n}");
+        assert_eq!(number_form("pl", n, "years"), words, "{n}");
     }
     assert_eq!(
-        written(Language::Pl, ymd(1650, 2, 2), Form::Long).unwrap(),
+        written(
+            Language::try_from_code("pl").unwrap(),
+            ymd(1650, 2, 2),
+            Form::Long
+        )
+        .unwrap(),
         "drugiego lutego tysiąc sześćset pięćdziesiątego roku"
     );
 }
@@ -217,7 +240,7 @@ fn portuguese_numbers() {
         (2000, "dois mil"),
     ];
     for (n, words) in cases {
-        assert_eq!(pt_cardinal(n), words, "{n}");
+        assert_eq!(number_form("pt", n, "years"), words, "{n}");
     }
 }
 
@@ -305,45 +328,63 @@ fn every_language_writes_its_dates() {
     let date = ymd(1650, 2, 2);
     let long = |l| written(l, date, Form::Long).unwrap();
     assert_eq!(
-        long(Language::En),
+        long(Language::english()),
         "the second of February, one thousand six hundred and fifty"
     );
     assert_eq!(
-        long(Language::Fr),
+        long(Language::try_from_code("fr").unwrap()),
         "le deux février mille six cent cinquante"
     );
     assert_eq!(
-        long(Language::De),
+        long(Language::try_from_code("de").unwrap()),
         "am zweiten Februar sechzehnhundertfünfzig"
     );
     assert_eq!(
-        long(Language::Es),
+        long(Language::try_from_code("es").unwrap()),
         "dos de febrero de mil seiscientos cincuenta"
     );
-    assert_eq!(long(Language::It), "due febbraio milleseicentocinquanta");
     assert_eq!(
-        long(Language::Nl),
+        long(Language::try_from_code("it").unwrap()),
+        "due febbraio milleseicentocinquanta"
+    );
+    assert_eq!(
+        long(Language::try_from_code("nl").unwrap()),
         "de tweede februari zestienhonderdvijftig"
     );
     assert_eq!(
-        long(Language::Pt),
+        long(Language::try_from_code("pt").unwrap()),
         "dois de fevereiro de mil seiscentos e cinquenta"
     );
     assert_eq!(
-        written(Language::Fr, ymd(1650, 2, 1), Form::Long).unwrap(),
+        written(
+            Language::try_from_code("fr").unwrap(),
+            ymd(1650, 2, 1),
+            Form::Long
+        )
+        .unwrap(),
         "le premier février mille six cent cinquante"
     );
     assert_eq!(
-        written(Language::De, ymd(1650, 2, 2), Form::Short).unwrap(),
+        written(
+            Language::try_from_code("de").unwrap(),
+            ymd(1650, 2, 2),
+            Form::Short
+        )
+        .unwrap(),
         "2. Februar 1650"
     );
     assert_eq!(
-        written(Language::Pl, ymd(1650, 2, 2), Form::Short).unwrap(),
+        written(
+            Language::try_from_code("pl").unwrap(),
+            ymd(1650, 2, 2),
+            Form::Short
+        )
+        .unwrap(),
         "2 lutego 1650"
     );
     assert_eq!(
         written(
-            Language::Pl,
+            Language::try_from_code("pl").unwrap(),
             Ymd {
                 year: 1650,
                 month: Some(2),
@@ -354,7 +395,7 @@ fn every_language_writes_its_dates() {
         .unwrap(),
         "luty 1650"
     );
-    assert!(written(Language::En, ymd(4000, 1, 1), Form::Long).is_none());
+    assert!(written(Language::english(), ymd(4000, 1, 1), Form::Long).is_none());
 }
 
 #[test]
@@ -380,7 +421,7 @@ fn written_dates_read_back() {
                     continue;
                 }
                 let date = ymd(year, month, day);
-                for language in Language::ALL {
+                for language in Language::builtins() {
                     for form in [Form::Long, Form::Short] {
                         let text = written(language, date, form).unwrap();
                         assert_eq!(read(&text), Ok(date), "{language:?} {text}");
@@ -403,7 +444,7 @@ fn written_dates_read_back() {
                 month: Some(month),
                 day: None,
             };
-            for language in Language::ALL {
+            for language in Language::builtins() {
                 let text = written(language, month_only, Form::Long).unwrap();
                 assert_eq!(read(&text), Ok(month_only), "{language:?} {text}");
             }

@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
+generated: { by: github-copilot/copilot, at: 2026-10-02T18:51:54Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -45,22 +45,33 @@ are never translated.
 
 ### 3.2 Locale selection
 
-- English, French, German, Spanish, Italian, Dutch, Polish and Portuguese are
-  supported at runtime: the languages of the countries the
-  [place dictionary](place-dictionary.md) covers.
+- The language catalogue is discovered from `assets/i18n/*.json` at build
+  time, with no Rust enumeration or registration list. It currently includes
+  English, French, German, Spanish, Italian, Dutch, Polish and Portuguese.
+- Desktop also discovers `<config directory>/languages/*.json` when the
+  Language settings section is opened. Startup reads only the explicitly
+  selected custom file, not the directory. The browser offers embedded locales.
 - An explicit stored choice wins.
 - On first use, the client walks `navigator.languages` in preference order and
-  chooses the first supported primary language subtag.
+  chooses the first supported locale, trying the complete normalized code
+  and then progressively removing trailing subtags.
 - English is the fallback when detection or storage is unavailable.
 - Switching language updates mounted UI without a page reload and persists
   across sessions.
+- A custom selection is stored as `custom:<code>`. If its file disappears or
+  becomes invalid, the selection and stored preference reset to English.
 
 ### 3.3 Translation structure
 
-Translation maps live under `crates/oxidgene-ui/src/i18n/`. Keys use a stable,
+Locale documents live under `assets/i18n/`. Keys use a stable,
 hierarchical `surface.section.element` form. Every language's table must
 contain exactly the same keys and interpolation placeholders; tests enforce
 both properties.
+
+Source and personal locale documents remain readable JSON. Desktop compresses
+only embedded documents with Brotli at build time and decompresses them once
+when initializing the catalogue. Web keeps ordinary embedded JSON and no
+locale-compression decoder in WASM. See [Architecture §7.1](architecture.md#71-embedded-data).
 
 Dynamic values use named placeholders. Plural forms use `_one` and `_other`
 keys; `_one` covers 1, and 0 as well in French. Polish, whose plurals have
@@ -85,10 +96,42 @@ instead of the parenthesized form.
 
 ### 3.5 Adding a language
 
-Adding a language requires its complete translation map, registration in the
-language selector, placeholder and parity tests, date and number formatting,
-and review of layout expansion. Use logical CSS properties so future RTL
-support remains possible.
+One JSON document defines a language: its metadata, plural rules, translations,
+date patterns, number words and reading vocabulary. No Rust edit or manual
+selector registration is required. Add it to `assets/i18n/` for an embedded
+locale, or save it as `<code>.json` in the desktop languages directory and
+open Language settings. Embedded locales must have complete key and placeholder
+parity; custom documents may omit strings, which fall back to English.
+Review layout expansion and use logical CSS properties so future RTL support
+remains possible.
+
+#### Locale document contract
+
+Use an existing embedded document as the complete template. Documents have
+the same schema whether embedded or personal; they do not inherit another
+UI language.
+
+| Field | Contract |
+|---|---|
+| `code` | Normalized lowercase locale identifier, 2–35 ASCII letters/digits/hyphens; nonempty subtags of at most 8 characters. Custom files cannot claim an embedded code. |
+| `name`, `flag` | Native name and flag displayed verbatim; the name must be nonempty. |
+| `reference_language` | Reference-dictionary locale, default `en`. It is separate from the UI locale because a new translation does not create a professions, names or places dataset. |
+| `translations` | String key/value map with named interpolation placeholders. Unknown keys and mismatched placeholders are rejected in personal files. |
+| `plurals.rules` | Ordered rules, each with a category `suffix` and an AND-list of `conditions`. First matching rule wins. |
+| `plurals.default` | Category when no rule matches. Categories are `_zero`, `_one`, `_two`, `_few`, `_many`, `_other`; embedded parity checks derive their additional keys from these declarations. |
+| Plural condition | Optional nonzero `modulo`, inclusive `min`/`max`, and `exclude` pairs of inclusive ranges, evaluated after modulo. |
+| `dates.months`, `dates.months_with_day` | Twelve full month names, standalone and when accompanied by a day. |
+| `dates.display`, `dates.numeric` | Ordinary UI patterns for year only, month/year, and full date. The tree chooses precision and named/numeric presentation; the locale controls order and separators. Numeric day and month are zero-padded. Abbreviated and non-Gregorian names remain translation keys. |
+| `dates.long`, `dates.short` | The written-date tool's three corresponding patterns, with word numbers or numeric day/year. |
+| Date placeholders | `{year}`, then `{month}` when present, then `{day}` for a full date; each pattern must declare exactly its applicable placeholders. |
+| `dates.years`, `dates.days` | Explicit word forms indexed by value: 4000 and 32 entries, with index zero unused. They preserve historical year pronunciation and inflected date ordinals without language-specific Rust rules. The tool's supported year range remains 1–3999. |
+| `dates.reading` | Word-to-number-piece map: `{ "kind": "add", "value": 2 }`, or `hundred`, `thousand`, `and`. The shared reader folds and segments compounds and merges vocabularies from the available locales. |
+
+Malformed files are excluded and reported by filename with a localized error
+in settings. Files are sorted by filename. Reopening the section refreshes
+edited definitions as well as additions/removals; stable locale handles do not
+retarget when the file order changes. Standard GEDCOM values and the Latin
+historical-date engine remain protocol/domain logic, not UI locale dispatch.
 
 ### 3.6 Comparing words
 

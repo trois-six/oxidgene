@@ -7,7 +7,7 @@
 //! | Kind | Linux default | Holds |
 //! |---|---|---|
 //! | data | `$XDG_DATA_HOME/oxidgene` (`~/.local/share/oxidgene`) | the database and the media: the user's genealogy |
-//! | config | `$XDG_CONFIG_HOME/oxidgene` (`~/.config/oxidgene`) | what the user writes by hand: custom themes |
+//! | config | `$XDG_CONFIG_HOME/oxidgene` (`~/.config/oxidgene`) | personal theme and locale JSON documents |
 //! | state | `$XDG_STATE_HOME/oxidgene` (`~/.local/state/oxidgene`) | the desktop window's web profile: cookies, local storage |
 //! | cache | `$XDG_CACHE_HOME/oxidgene` (`~/.cache/oxidgene`) | disposable work: job scratch, staged inputs, the web cache |
 //!
@@ -77,6 +77,11 @@ impl AppDirs {
         self.config.join("themes")
     }
 
+    #[must_use]
+    pub fn languages(&self) -> PathBuf {
+        self.config.join("languages")
+    }
+
     /// The desktop window's web profile.
     #[must_use]
     pub fn webview(&self) -> PathBuf {
@@ -106,6 +111,7 @@ mod tests {
         assert_eq!(dirs.database(), Path::new("/d/oxidgene/oxidgene.db"));
         assert_eq!(dirs.media(), Path::new("/d/oxidgene/media"));
         assert_eq!(dirs.themes(), Path::new("/c/oxidgene/themes"));
+        assert_eq!(dirs.languages(), Path::new("/c/oxidgene/languages"));
         assert_eq!(dirs.webview(), Path::new("/s/oxidgene/webview"));
         assert_eq!(dirs.work(), Path::new("/k/oxidgene"));
     }

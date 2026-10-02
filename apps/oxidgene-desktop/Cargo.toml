@@ -37,7 +37,7 @@ gtk = { version = "0.18", default-features = false }
 oxidgene-api = { workspace = true, features = ["mcp"] }
 oxidgene-db = { workspace = true }
 oxidgene-observability = { workspace = true, optional = true }
-oxidgene-ui = { workspace = true }
+oxidgene-ui = { workspace = true, features = ["compressed-locales"] }
 oxidgene-geneanet = { workspace = true }
 serde = { workspace = true }
 # The window hands media over base64-encoded; they are written as bytes.

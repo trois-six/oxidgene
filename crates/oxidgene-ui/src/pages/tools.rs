@@ -379,7 +379,7 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
             // A dictionary label brings its coordinates, so the place is
             // located from now on; any other name is saved as typed.
             let known = if name.chars().count() >= MIN_LOOKUP_CHARS {
-                api.place_suggestions(i18n.0.code(), &name, 8)
+                api.place_suggestions(i18n.0.reference_code(), &name, 8)
                     .await
                     .unwrap_or_default()
                     .into_iter()
@@ -1068,7 +1068,7 @@ fn written_dates(
     };
     rsx! {
         div { class: "stats-card copy-card tools-words",
-            for language in Language::ALL {
+            for language in Language::available() {
                 CopyField {
                     key: "{language.code()}",
                     label: language.native_name().to_string(),

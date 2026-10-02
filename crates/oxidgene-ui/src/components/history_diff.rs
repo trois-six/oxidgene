@@ -1274,7 +1274,7 @@ mod tests {
 
     #[test]
     fn a_changed_field_is_the_only_changed_row() {
-        let i18n = I18n::new(Language::En);
+        let i18n = I18n::new(Language::english());
         let before = version(1, person(vec![name(1, "Alpha")], vec![]), vec![]);
         let after = version(2, person(vec![name(1, "Beta")], vec![]), vec![]);
         let sections = diff_versions(&i18n, Some(&before), &after);
@@ -1298,7 +1298,7 @@ mod tests {
 
     #[test]
     fn places_read_through_each_version_s_own_labels() {
-        let i18n = I18n::new(Language::En);
+        let i18n = I18n::new(Language::english());
         let place = Uuid::from_u128(99);
         let label = |text: &str| {
             vec![RecordLabel {
@@ -1328,7 +1328,7 @@ mod tests {
 
     #[test]
     fn a_renamed_place_is_not_a_change() {
-        let i18n = I18n::new(Language::En);
+        let i18n = I18n::new(Language::english());
         let place = Uuid::from_u128(99);
         let label = |text: &str| {
             vec![RecordLabel {
@@ -1364,7 +1364,7 @@ mod tests {
 
     #[test]
     fn a_deleted_state_lists_nothing_and_reads_as_empty_against() {
-        let i18n = I18n::new(Language::En);
+        let i18n = I18n::new(Language::english());
         let named = version(1, person(vec![name(1, "Alpha")], vec![]), vec![]);
         let mut deleted = version(2, person(vec![], vec![]), vec![]);
         deleted.deleted = true;
@@ -1387,7 +1387,7 @@ mod tests {
 
     #[test]
     fn a_first_version_shows_everything_as_added() {
-        let i18n = I18n::new(Language::En);
+        let i18n = I18n::new(Language::english());
         let first = version(1, person(vec![name(1, "Alpha")], vec![]), vec![]);
         let sections = diff_versions(&i18n, None, &first);
         assert!(
@@ -1400,7 +1400,7 @@ mod tests {
 
     #[test]
     fn an_entry_reads_as_its_action_and_what_it_touched() {
-        let i18n = I18n::new(Language::En);
+        let i18n = I18n::new(Language::english());
         assert_eq!(
             describe_entry(&i18n, &entry()),
             format!(
@@ -1429,7 +1429,7 @@ mod tests {
                 .collect(),
         ]
         .concat();
-        for language in Language::ALL {
+        for language in Language::builtins() {
             for key in &keys {
                 assert!(
                     language.translations().contains_key(key),

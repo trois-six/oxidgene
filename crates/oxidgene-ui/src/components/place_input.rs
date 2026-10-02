@@ -125,7 +125,7 @@ pub fn PlaceInput(
     let suggestions = use_ui_resource("place_input_suggest", move || {
         let api = api.clone();
         let text = debounced();
-        let lang = i18n.0.code();
+        let lang = i18n.0.reference_code();
         let enabled = tree_cache.entry_suggestions();
         async move {
             if !enabled {

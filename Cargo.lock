@@ -5216,6 +5216,8 @@ name = "oxidgene-ui"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "brotli",
+ "brotli-decompressor",
  "chrono",
  "dioxus",
  "futures-channel",

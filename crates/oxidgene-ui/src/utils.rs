@@ -557,7 +557,7 @@ mod enum_table_tests {
 
     #[test]
     fn a_recorded_age_reads_in_words() {
-        let en = I18n::new(Language::En);
+        let en = I18n::new(Language::english());
         assert_eq!(age_label(&en, "34y").as_deref(), Some("aged 34 years"));
         assert_eq!(
             age_label(&en, "< 1y 6m").as_deref(),
@@ -569,7 +569,7 @@ mod enum_table_tests {
         );
         assert_eq!(age_label(&en, "INFANT").as_deref(), Some("infant"));
         assert_eq!(age_label(&en, "majeur"), None);
-        let pl = I18n::new(Language::Pl);
+        let pl = I18n::new(Language::try_from_code("pl").unwrap());
         assert_eq!(age_label(&pl, "22y").as_deref(), Some("w wieku 22 lat"));
         assert_eq!(age_label(&pl, "1y").as_deref(), Some("w wieku 1 roku"));
     }
@@ -578,7 +578,7 @@ mod enum_table_tests {
     #[test]
     fn every_confidence_level_is_translated_in_every_locale() {
         for level in CONFIDENCE_LEVELS {
-            for lang in Language::ALL {
+            for lang in Language::builtins() {
                 assert!(
                     lang.translations().contains_key(confidence_key(level)),
                     "{lang:?} {level:?}"
@@ -594,7 +594,7 @@ mod enum_table_tests {
     fn every_event_type_is_translated_in_every_locale() {
         for et in EVENT_TYPES {
             let key = event_type_label_key(*et);
-            for lang in Language::ALL {
+            for lang in Language::builtins() {
                 let translated = lang.translations().get(key).cloned();
                 assert!(
                     translated.is_some_and(|t| !t.is_empty()),
@@ -620,7 +620,7 @@ mod enum_table_tests {
     fn every_name_type_is_translated_in_every_locale() {
         for nt in NAME_TYPES {
             let key = name_type_label_key(*nt);
-            for lang in Language::ALL {
+            for lang in Language::builtins() {
                 assert!(
                     lang.translations().get(key).is_some_and(|t| !t.is_empty()),
                     "{lang:?} has no translation for {key}"

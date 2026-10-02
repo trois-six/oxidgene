@@ -1931,7 +1931,7 @@ mod tests {
 
     #[test]
     fn fallback_events_keep_their_own_gendered_label() {
-        let fr = I18n::new(Language::Fr);
+        let fr = I18n::new(Language::try_from_code("fr").unwrap());
 
         assert_eq!(
             fr.t(&vitals_event_key(EventType::Baptism, true, Sex::Male)),

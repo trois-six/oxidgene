@@ -534,7 +534,7 @@ impl FormScope {
         if let Some(key) = parts.validate() {
             return Err(self.i18n.t(key));
         }
-        resolve_place(&self.api, self.tid, place, self.i18n.0.code())
+        resolve_place(&self.api, self.tid, place, self.i18n.0.reference_code())
             .await
             .map_err(|e| e.to_string())
     }

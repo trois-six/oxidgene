@@ -9,7 +9,9 @@ use crate::components::copy_field::CopyField;
 use crate::components::pedigree_chart::PedigreeViewSwatch;
 use crate::components::pedigree_theme::{CardFrame, LinkSpec, PedigreeThemeId, Point, link_path};
 use crate::components::pedigree_view::PedigreeView;
-use crate::i18n::{self, Language, use_i18n};
+use crate::i18n::{
+    self, CustomLanguageLoader, Language, LanguageCatalog, reload_custom_languages, use_i18n,
+};
 use crate::prefs::{
     PedigreeDefaults, SortParticles, set_pedigree_defaults, set_pedigree_theme, set_pedigree_view,
     set_sort_particles,
@@ -263,6 +265,14 @@ pub fn AppearanceSection(theme_state: Signal<ThemeState>) -> Element {
 pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
     let i18n = use_i18n();
     let current = *lang_signal.read();
+    let catalog: Signal<LanguageCatalog> = use_context();
+    let loader = try_use_context::<CustomLanguageLoader>();
+    use_effect(move || {
+        if let Some(loader) = &loader {
+            reload_custom_languages(lang_signal, catalog, loader);
+        }
+    });
+    let options = catalog.read().clone();
 
     rsx! {
         div { class: "settings-section",
@@ -272,15 +282,31 @@ pub fn LanguageSection(lang_signal: Signal<Language>) -> Element {
 
             div { class: "app-settings-card",
                 div { class: "lang-options",
-                    for lang in Language::ALL {
+                    for lang in options.languages {
                         button {
                             key: "{lang.code()}",
                             class: if current == lang { "lang-option active" } else { "lang-option" },
+                            aria_pressed: if current == lang { "true" } else { "false" },
                             onclick: move |_| i18n::set_language(lang_signal, lang),
                             span { class: "lang-option-flag", {lang.flag()} }
                             span { class: "lang-option-label", {lang.native_name()} }
                             if current == lang {
                                 span { class: "lang-option-check", "\u{2713}" }
+                            }
+                        }
+                    }
+                }
+                if let Some(location) = options.location {
+                    div { class: "app-theme-source",
+                        code { class: "app-theme-folder", {location} }
+                    }
+                }
+                if !options.errors.is_empty() {
+                    ul { class: "app-theme-errors",
+                        for error in options.errors {
+                            li { key: "{error.file}",
+                                strong { "{error.file}: " }
+                                {i18n.t("app_settings.language_file_error")}
                             }
                         }
                     }

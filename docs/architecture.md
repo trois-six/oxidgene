@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T15:20:06Z }
+generated: { by: github-copilot/copilot, at: 2026-10-02T18:51:54Z }
 ---
 
 
@@ -306,9 +306,18 @@ at its best quality it compresses the 18 MB CSV to 1.58 MB (xz -6: 1.68 MB,
 zstd -19: 1.73 MB) and decodes it in about 45 ms in pure Rust, with no C
 library; its decoder is the only part linked into the binaries.
 
-The frontend's embedded files (theme JSON, portrait SVGs, the logo) stay
-uncompressed: they weigh a few kilobytes, and a decoder in the WebAssembly
-bundle would weigh more than it saves.
+Desktop enables the UI's `compressed-locales` feature. The UI build script
+discovers locale JSON documents and Brotli-compresses them at quality 11 with
+a 16 MiB window in `OUT_DIR`, leaving source JSON readable in git. Unchanged
+files reuse their compressed output. The desktop embeds only the compressed
+bytes and uses the existing pure-Rust decoder once when initializing the shared
+runtime catalogue; neither the compressor nor the original JSON strings are
+linked into the application.
+
+The web build keeps its embedded locale JSON uncompressed and adds no Brotli
+decoder to WASM; HTTP bundle compression remains separate. Themes, portraits
+and the logo also stay uncompressed. Personal locale files remain ordinary
+JSON, read by an injected desktop source rather than by `oxidgene-ui`.
 
 ---
 
@@ -480,7 +489,7 @@ directory.
 | Kind | Linux path | Contents | Safe to delete? |
 |---|---|---|---|
 | Data | `~/.local/share/oxidgene/` | `oxidgene.db` (with its `-wal` and `-shm`), `media/` | No: the user's genealogy, irreplaceable |
-| Config | `~/.config/oxidgene/` | `themes/`, the custom themes ([App Settings](ui-app-settings.md)) | No: written by the user |
+| Config | `~/.config/oxidgene/` | `themes/` and `languages/`, personal JSON theme and locale documents ([App Settings](ui-app-settings.md)) | No: written by the user |
 | State | `~/.local/state/oxidgene/` | `webview/`: the desktop window's cookies, local storage (the UI preferences: language, theme, pedigree defaults), media keys, storage | While the application is closed; the UI preferences reset |
 | Cache | `~/.cache/oxidgene/` | `jobs/` (each running job's scratch: staged source, a Geneanet import's archives and pages, an export's media and archive), `staging/` (uploads, a decoded Geneanet session's media, the pages the Geneanet window fetched, a media archive being streamed), and WebKitGTK's `WebKitCache/` and `CacheStorage/` | Yes, while the application is closed |
 

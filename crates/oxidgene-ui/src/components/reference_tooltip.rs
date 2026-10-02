@@ -68,7 +68,7 @@ pub fn OccupationsHover(titles: ReadSignal<Vec<String>>) -> Element {
     let mut hovered = use_signal(|| false);
     let references = use_ui_resource("occupation_reference_bundle", move || {
         let api = api.clone();
-        let lang_code = language().code();
+        let lang_code = language().reference_code();
         let terms = titles();
         let wanted = hovered();
         async move {
@@ -199,7 +199,7 @@ pub fn GivenNamesHover(given_names: ReadSignal<String>) -> Element {
     let mut hovered = use_signal(|| false);
     let references = use_ui_resource("given_name_reference_bundle", move || {
         let api = api.clone();
-        let lang_code = language().code();
+        let lang_code = language().reference_code();
         let terms = split_given_name_tokens(&given_names.read())
             .into_iter()
             .map(|(word, _)| word)

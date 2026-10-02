@@ -668,11 +668,18 @@ mod tests {
     use crate::i18n::Language;
 
     fn en(up: usize, down: usize, sex: Sex) -> String {
-        relation_label(up, down, sex, false, &I18n::new(Language::En)).unwrap()
+        relation_label(up, down, sex, false, &I18n::new(Language::english())).unwrap()
     }
 
     fn fr(up: usize, down: usize, sex: Sex) -> String {
-        relation_label(up, down, sex, false, &I18n::new(Language::Fr)).unwrap()
+        relation_label(
+            up,
+            down,
+            sex,
+            false,
+            &I18n::new(Language::try_from_code("fr").unwrap()),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -713,7 +720,7 @@ mod tests {
 
     #[test]
     fn half_siblings_have_their_own_word() {
-        let en = I18n::new(Language::En);
+        let en = I18n::new(Language::english());
         assert_eq!(
             relation_label(1, 1, Sex::Male, true, &en).as_deref(),
             Some("Half-brother")

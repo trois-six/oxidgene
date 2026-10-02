@@ -488,7 +488,7 @@ mod relation_tests {
 
     #[test]
     fn a_spouse_identifies_someone_better_than_their_parents() {
-        let en = I18n::new(Language::En);
+        let en = I18n::new(Language::english());
         let mut s = summary(Sex::Male);
         s.father_name = Some("Parent One".into());
         s.mother_name = Some("Parent Two".into());
@@ -509,7 +509,7 @@ mod relation_tests {
     fn a_single_known_parent_is_named_alone() {
         // "son of Parent One and —" would be worse than naming the one parent
         // the record actually has.
-        let en = I18n::new(Language::En);
+        let en = I18n::new(Language::english());
         let mut s = summary(Sex::Female);
         s.mother_name = Some("Parent Two".into());
         assert_eq!(
@@ -520,7 +520,7 @@ mod relation_tests {
 
     #[test]
     fn sex_picks_the_wording_and_unknown_stays_neutral() {
-        let fr = I18n::new(Language::Fr);
+        let fr = I18n::new(Language::try_from_code("fr").unwrap());
         let mut s = summary(Sex::Unknown);
         s.father_name = Some("Parent One".into());
         assert_eq!(
@@ -537,7 +537,7 @@ mod relation_tests {
 
     #[test]
     fn several_spouses_are_all_named() {
-        let en = I18n::new(Language::En);
+        let en = I18n::new(Language::english());
         let mut s = summary(Sex::Male);
         s.spouse_names = vec!["Spouse One".into(), "Spouse Two".into()];
         assert_eq!(
@@ -548,7 +548,7 @@ mod relation_tests {
 
     #[test]
     fn the_children_count_is_pluralised_and_omitted_at_zero() {
-        let en = I18n::new(Language::En);
+        let en = I18n::new(Language::english());
         let mut s = summary(Sex::Male);
         s.spouse_names = vec!["Spouse One".into()];
         assert_eq!(
@@ -573,6 +573,6 @@ mod relation_tests {
     fn nothing_recorded_draws_no_line() {
         // `None` rather than an empty string: the row omits the element
         // instead of reserving a blank line for it.
-        assert!(relation_label(&summary(Sex::Male), &I18n::new(Language::En)).is_none());
+        assert!(relation_label(&summary(Sex::Male), &I18n::new(Language::english())).is_none());
     }
 }

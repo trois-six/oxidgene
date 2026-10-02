@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:20:16Z }
+generated: { by: github-copilot/copilot, at: 2026-10-02T18:38:37Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -107,8 +107,7 @@ selector and no `prefers-color-scheme` branch: `light` is the default and the
 only way to change it is to choose another theme.
 
 The choice is stored as the theme's id in `localStorage('oxidgene-theme')`.
-An id that no longer resolves falls back to `light` for rendering while the
-stored value is kept.
+An id that no longer resolves resets the selected and stored value to `light`.
 
 #### File format
 
@@ -137,7 +136,7 @@ theme file is user input that ends up inside a `<style>` element, so CSS
 functions, named colours and anything else are refused rather than passed
 through.
 
-Custom themes live in `<data directory>/themes/*.json` and are read by the
+Custom themes live in `<config directory>/themes/*.json` and are read by the
 desktop application; see
 [App Settings](ui-app-settings.md#custom-themes). A file that fails to load is
 reported in settings by name with the reason.

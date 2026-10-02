@@ -13,6 +13,10 @@ workspace = true
 
 [features]
 telemetry-client = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+compressed-locales = ["dep:brotli", "dep:brotli-decompressor"]
+
+[build-dependencies]
+brotli = { workspace = true, optional = true }
 
 [dependencies]
 oxidgene-core = { workspace = true }
@@ -38,6 +42,7 @@ tracing-opentelemetry = { workspace = true, optional = true }
 gloo-timers = { version = "0.3", features = ["futures"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+brotli-decompressor = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["time", "fs", "io-util"] }
 tempfile = { workspace = true }
 

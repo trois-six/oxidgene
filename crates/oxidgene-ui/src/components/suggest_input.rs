@@ -209,7 +209,7 @@ pub(crate) fn use_value_suggestions(
         let api = api.clone();
         let text = debounced();
         let scope = scope();
-        let lang = i18n.0.code();
+        let lang = i18n.0.reference_code();
         let enabled = tree_cache.entry_suggestions();
         async move {
             let query = match field {
