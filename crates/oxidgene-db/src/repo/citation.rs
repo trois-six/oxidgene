@@ -107,17 +107,37 @@ impl CitationRepo {
         Self::list_live(db, tree_id, targets).await
     }
 
-    /// Citations attached to event `event_id` of tree `tree_id`.
-    pub async fn list_for_event(
+    /// Citations of tree `tree_id` attached directly to any of `person_ids`,
+    /// from live sources.
+    pub async fn list_for_persons(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
-        event_id: Uuid,
+        person_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
-        Self::list_live(
-            db,
-            tree_id,
-            Condition::all().add(Column::EventId.eq(event_id)),
-        )
+        in_chunks(person_ids, |chunk| {
+            Self::list_live(
+                db,
+                tree_id,
+                Condition::all().add(Column::PersonId.is_in(chunk)),
+            )
+        })
+        .await
+    }
+
+    /// Citations of tree `tree_id` attached to any of `event_ids`, from live
+    /// sources.
+    pub async fn list_for_events(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        event_ids: &[Uuid],
+    ) -> Result<Vec<Citation>, OxidGeneError> {
+        in_chunks(event_ids, |chunk| {
+            Self::list_live(
+                db,
+                tree_id,
+                Condition::all().add(Column::EventId.is_in(chunk)),
+            )
+        })
         .await
     }
 
@@ -132,19 +152,6 @@ impl CitationRepo {
             .filter(source::Column::TreeId.eq(tree_id))
             .filter(source::Column::DeletedAt.is_null())
             .filter(targets)
-            .all(db)
-            .await
-            .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
-    }
-
-    /// List citations for a given source.
-    pub async fn list_by_source(
-        db: &impl ConnectionTrait,
-        source_id: Uuid,
-    ) -> Result<Vec<Citation>, OxidGeneError> {
-        let models = Entity::find()
-            .filter(Column::SourceId.eq(source_id))
             .all(db)
             .await
             .map_err(db_err)?;

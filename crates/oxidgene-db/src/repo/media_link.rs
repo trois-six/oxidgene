@@ -11,7 +11,7 @@ use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 
 /// Which of a media link's four nullable targets to match on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MediaLinkTarget {
     Person,
     Family,
@@ -189,13 +189,27 @@ impl MediaLinkRepo {
         entity: MediaLinkTarget,
         entity_id: Uuid,
     ) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
+        Self::list_with_media_for_many(db, entity, &[entity_id]).await
+    }
+
+    /// Every media attached to any of `entity_ids`, with the media itself,
+    /// in gallery order: [`Self::list_with_media`] for several entities of
+    /// one kind at once.
+    pub async fn list_with_media_for_many(
+        db: &impl ConnectionTrait,
+        entity: MediaLinkTarget,
+        entity_ids: &[Uuid],
+    ) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
         let column = match entity {
             MediaLinkTarget::Person => Column::PersonId,
             MediaLinkTarget::Family => Column::FamilyId,
             MediaLinkTarget::Event => Column::EventId,
             MediaLinkTarget::Source => Column::SourceId,
         };
-        Self::with_media(db, Condition::all().add(column.eq(entity_id))).await
+        in_chunks(entity_ids, |chunk| {
+            Self::with_media(db, Condition::all().add(column.is_in(chunk)))
+        })
+        .await
     }
 
     /// Every media attached directly to a person or one of their families.
@@ -209,21 +223,6 @@ impl MediaLinkRepo {
             targets = targets.add(Column::FamilyId.is_in(family_ids.iter().copied()));
         }
         Self::with_media(db, targets).await
-    }
-
-    /// Every media tile attached to any of the supplied events.
-    pub async fn list_with_media_for_events(
-        db: &impl ConnectionTrait,
-        event_ids: &[Uuid],
-    ) -> Result<Vec<(MediaLink, Media)>, OxidGeneError> {
-        if event_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        Self::with_media(
-            db,
-            Condition::all().add(Column::EventId.is_in(event_ids.iter().copied())),
-        )
-        .await
     }
 
     /// The links matching `targets`, each with its media, in gallery order.

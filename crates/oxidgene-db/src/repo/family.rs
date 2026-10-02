@@ -4,7 +4,7 @@ use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Family};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect, Set};
 use uuid::Uuid;
 
 use crate::entities::family::{self, ActiveModel, Column, Entity};
@@ -28,15 +28,26 @@ impl FamilyRepo {
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 
-    /// How many live families tree `tree_id` holds.
-    pub async fn count(db: &impl ConnectionTrait, tree_id: Uuid) -> Result<i64, OxidGeneError> {
-        let count = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
-            .count(db)
-            .await
-            .map_err(db_err)?;
-        Ok(count as i64)
+    /// How many live families each of `tree_ids` holds; a tree without any is
+    /// absent.
+    pub async fn count_by_trees(
+        db: &impl ConnectionTrait,
+        tree_ids: &[Uuid],
+    ) -> Result<Vec<(Uuid, i64)>, OxidGeneError> {
+        in_chunks(tree_ids, |chunk| async move {
+            Entity::find()
+                .select_only()
+                .column(Column::TreeId)
+                .column_as(Column::Id.count(), "count")
+                .filter(Column::TreeId.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .group_by(Column::TreeId)
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await
     }
 
     /// The live families among `ids`, in no particular order.

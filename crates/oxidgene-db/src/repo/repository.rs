@@ -225,15 +225,27 @@ impl SourceRepositoryRepo {
         db: &impl ConnectionTrait,
         repository_id: Uuid,
     ) -> Result<Vec<SourceRepository>, OxidGeneError> {
-        let models = source_repository::Entity::find()
-            .inner_join(source::Entity)
-            .filter(source_repository::Column::RepositoryId.eq(repository_id))
-            .filter(source::Column::DeletedAt.is_null())
-            .order_by_asc(source_repository::Column::Id)
-            .all(db)
-            .await
-            .map_err(db_err)?;
-        Ok(models.into_iter().map(link_into_domain).collect())
+        Self::list_by_repositories(db, &[repository_id]).await
+    }
+
+    /// The links to these repositories from live sources, each repository's
+    /// in order.
+    pub async fn list_by_repositories(
+        db: &impl ConnectionTrait,
+        repository_ids: &[Uuid],
+    ) -> Result<Vec<SourceRepository>, OxidGeneError> {
+        in_chunks(repository_ids, |chunk| async move {
+            let models = source_repository::Entity::find()
+                .inner_join(source::Entity)
+                .filter(source_repository::Column::RepositoryId.is_in(chunk))
+                .filter(source::Column::DeletedAt.is_null())
+                .order_by_asc(source_repository::Column::Id)
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            Ok(models.into_iter().map(link_into_domain).collect())
+        })
+        .await
     }
 
     /// The names of the live repositories holding each of these sources, in

@@ -191,6 +191,99 @@ fn data(resp: &Value) -> &Value {
     resp.get("data").expect("missing 'data' in response")
 }
 
+/// The nested fields of a page, read in one batch for all of its records,
+/// answer exactly what each record answers read alone — the same records,
+/// in the same order, with the same filters — on a tree holding a record of
+/// every kind.
+#[tokio::test]
+async fn a_page_nests_what_each_record_nests_alone() {
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree = common::populated::populated_tree(&app, &db, "Batches", 2).await;
+    let cases = [
+        (
+            "persons",
+            "person",
+            "id names { id } primaryName { id } events { id place { id } } families { id } \
+             citations { id } media { id } notes { id }",
+        ),
+        (
+            "families",
+            "family",
+            "id spouses { id person { id names { id } } } children { id person { id } } \
+             events { id }",
+        ),
+        (
+            "events",
+            "event",
+            "id place { id } person { id } family { id } citations { id } media { id } \
+             notes { id } witnesses { id person { id } }",
+        ),
+        (
+            "sources",
+            "source",
+            "id citations { id } repositories { id repository { id } source { id } }",
+        ),
+        (
+            "repositories",
+            "repository",
+            "id sources { id repository { id } source { id } }",
+        ),
+    ];
+    let variables = |id: &Value| json!({ "t": tree.tree_id, "id": id });
+    for (list, single, selection) in cases {
+        let page = common::gql_ok(
+            &app,
+            &format!(
+                "query($t: ID!) {{ {list}(treeId: $t, first: 100) {{ edges {{ node {{ {selection} }} }} }} }}"
+            ),
+            variables(&Value::Null),
+        )
+        .await;
+        let edges = page[list]["edges"].as_array().unwrap();
+        assert!(!edges.is_empty(), "the fixture holds no {list}");
+        for node in edges.iter().map(|edge| &edge["node"]) {
+            let alone = common::gql_ok(
+                &app,
+                &format!(
+                    "query($t: ID!, $id: ID!) {{ {single}(treeId: $t, id: $id) {{ {selection} }} }}"
+                ),
+                variables(&node["id"]),
+            )
+            .await;
+            assert_eq!(&alone[single], node, "{single} read alone");
+        }
+    }
+
+    // A tree list's counts are read for every tree at once.
+    let other = common::new_tree(&app, "Empty").await;
+    let trees = common::gql_ok(
+        &app,
+        "{ trees(first: 100) { edges { node { id personCount familyCount } } } }",
+        json!({}),
+    )
+    .await;
+    for node in trees["trees"]["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|edge| &edge["node"])
+    {
+        let alone = common::gql_ok(
+            &app,
+            "query($id: ID!) { tree(id: $id) { id personCount familyCount } }",
+            json!({ "id": node["id"] }),
+        )
+        .await;
+        assert_eq!(&alone["tree"], node);
+        if node["id"] == other.as_str() {
+            assert_eq!(node["personCount"], 0);
+        } else {
+            assert!(node["personCount"].as_i64().unwrap() > 0, "{node}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn person_detail_bundle_query_excludes_unrelated_person_citations() {
     let app = setup_app().await;

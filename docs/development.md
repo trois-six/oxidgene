@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T11:00:46Z }
 ---
 
 # Development Environment and Workflows
@@ -118,9 +118,10 @@ Algorithmic complexity is tested at three levels.
   a note, a citation, a media link and a portrait crop on every person,
   counting the statements SeaORM issues. A request that runs more on the
   larger one queries per person, family or event, an N+1 to batch. The same
-  survey runs over GraphQL; the connections whose nested lists are resolved
-  record by record (persons, families, events) are declared, and for them
-  the cost of one record must stay constant. The batch reads (pedigrees,
+  survey runs over GraphQL, the connections with their nested fields among
+  it, which must cost the same for a page of 40 records and one of 100: the
+  nested fields are read in batches, one query per relation for the whole
+  page (`graphql/loaders.rs`). The batch reads (pedigrees,
   portrait images, image data, gallery bundles, relation labels) are asked
   for 4 and for 64 ids and must cost the same, except the pedigrees, which
   assemble one walk per root and must keep the cost of one root constant.

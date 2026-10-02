@@ -129,11 +129,30 @@ impl NoteRepo {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
-        in_chunks(person_ids, |chunk| async move {
+        Self::list_live_by(db, tree_id, Column::PersonId, person_ids).await
+    }
+
+    /// List the live notes attached to any of the given events in a tree.
+    pub async fn list_by_events(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        event_ids: &[Uuid],
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        Self::list_live_by(db, tree_id, Column::EventId, event_ids).await
+    }
+
+    /// The live notes of a tree whose `column` is one of `ids`.
+    async fn list_live_by(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        column: Column,
+        ids: &[Uuid],
+    ) -> Result<Vec<Note>, OxidGeneError> {
+        in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::TreeId.eq(tree_id))
                 .filter(Column::DeletedAt.is_null())
-                .filter(Column::PersonId.is_in(chunk))
+                .filter(column.is_in(chunk))
                 .all(db)
                 .await
                 .map_err(db_err)?;

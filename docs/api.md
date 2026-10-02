@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T08:22:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T11:00:46Z }
 ---
 
 
@@ -1373,8 +1373,12 @@ The schema mirrors §2 operation by operation, following these rules:
   array is a list. A REST `204` is a `Boolean!`.
 - **Nested records.** `Person`, `Family` and `Event` resolve their nested lists
   (names, families, events, citations, media, notes, spouses, children,
-  witnesses) completely — never cut to a first page — with one query per
-  list, whatever the size of the tree. `Tree.personCount` and
+  witnesses) completely — never cut to a first page. Every nested field —
+  those lists, an event's place, person and family, a source's citations
+  and repositories, a tree's counts — is read in batches: the fields of a
+  whole page, or of a whole level of the document, are answered by one query
+  per relation, so a request costs the same number of statements for ten
+  records as for a hundred. `Tree.personCount` and
   `Tree.familyCount` are counts, and `Tree.importInProgress` and
   `Tree.importJobId` are the transient job fields the REST tree list adds.
 - **Absence.** A singular query answers `null` for a record that is absent,

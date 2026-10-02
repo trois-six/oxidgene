@@ -95,6 +95,25 @@ impl SourceRepo {
         .await
     }
 
+    /// Get multiple sources by ID, whatever their tree (excludes
+    /// soft-deleted): for ids read from records of one tree already, such as
+    /// a repository's links.
+    pub async fn get_many_by_id(
+        db: &impl ConnectionTrait,
+        ids: &[Uuid],
+    ) -> Result<Vec<Source>, OxidGeneError> {
+        in_chunks(ids, |chunk| async move {
+            let models = Entity::find()
+                .filter(Column::Id.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(db_err)?;
+            Ok(models.into_iter().map(into_domain).collect())
+        })
+        .await
+    }
+
     /// Create a new source.
     #[expect(
         clippy::too_many_arguments,

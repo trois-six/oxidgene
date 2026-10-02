@@ -9,11 +9,12 @@ use oxidgene_core::enums::{
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventFilter,
-    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo,
-    NewBackgroundJob, NoteFilter, NoteRepo, PaginationParams, PersonDistinctRepo, PersonMergeRepo,
-    PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo,
-    RepositoryFields, RepositoryRepo, SourceRepo, SourceRepositoryFields, SourceRepositoryRepo,
-    TreeChanges, TreeRepo, UploadedMedia, UploadedMediaMetadata, connect, run_migrations,
+    EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaLinkTarget,
+    MediaPatch, MediaRepo, NewBackgroundJob, NoteFilter, NoteRepo, PaginationParams,
+    PersonDistinctRepo, PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo,
+    PersonRepo, PlaceRepo, RepositoryFields, RepositoryRepo, SourceRepo, SourceRepositoryFields,
+    SourceRepositoryRepo, TreeChanges, TreeRepo, UploadedMedia, UploadedMediaMetadata, connect,
+    run_migrations,
 };
 use sea_orm::DatabaseConnection;
 use std::sync::{Arc, Mutex};
@@ -740,6 +741,36 @@ async fn person_list_tree_scoped() {
     assert_eq!(conn_b.total_count, 1);
 }
 
+#[tokio::test]
+async fn counts_by_trees_leave_out_deleted_records_and_empty_trees() {
+    let db = setup_db().await;
+    let (tree_a, tree_b, empty) = (
+        create_tree(&db).await,
+        create_tree(&db).await,
+        create_tree(&db).await,
+    );
+    create_person(&db, tree_a).await;
+    let deleted = create_person(&db, tree_a).await;
+    PersonRepo::delete(&db, deleted).await.unwrap();
+    create_person(&db, tree_b).await;
+    create_person(&db, tree_b).await;
+    FamilyRepo::create(&db, Uuid::now_v7(), tree_b)
+        .await
+        .unwrap();
+
+    let mut persons = PersonRepo::count_by_trees(&db, &[tree_a, tree_b, empty])
+        .await
+        .unwrap();
+    persons.sort();
+    let mut expected = vec![(tree_a, 1), (tree_b, 2)];
+    expected.sort();
+    assert_eq!(persons, expected);
+    let families = FamilyRepo::count_by_trees(&db, &[tree_a, tree_b, empty])
+        .await
+        .unwrap();
+    assert_eq!(families, vec![(tree_b, 1)]);
+}
+
 // ───────────────────────── PersonName tests ─────────────────────────
 
 #[tokio::test]
@@ -1098,7 +1129,7 @@ async fn source_and_citation_lifecycle() {
     assert_eq!(citation.page.as_deref(), Some("p. 42"));
 
     // List citations by source
-    let citations = CitationRepo::list_by_source(&db, src_id).await.unwrap();
+    let citations = CitationRepo::list_by_sources(&db, &[src_id]).await.unwrap();
     assert_eq!(citations.len(), 1);
 
     // Update citation
@@ -1152,7 +1183,7 @@ async fn source_and_citation_lifecycle() {
         "other fields kept"
     );
     assert!(
-        CitationRepo::list_by_source(&db, src_id)
+        CitationRepo::list_by_sources(&db, &[src_id])
             .await
             .unwrap()
             .is_empty(),
@@ -1827,9 +1858,10 @@ async fn event_media_batch_excludes_other_events_and_deleted_media() {
     }
     soft_delete_media(&db, media_ids[1]).await;
 
-    let rows = MediaLinkRepo::list_with_media_for_events(&db, &event_ids[..2])
-        .await
-        .unwrap();
+    let rows =
+        MediaLinkRepo::list_with_media_for_many(&db, MediaLinkTarget::Event, &event_ids[..2])
+            .await
+            .unwrap();
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0.event_id, Some(event_ids[0]));

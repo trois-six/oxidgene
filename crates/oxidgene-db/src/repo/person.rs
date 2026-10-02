@@ -142,15 +142,26 @@ impl PersonRepo {
         .await
     }
 
-    /// How many live persons tree `tree_id` holds.
-    pub async fn count(db: &impl ConnectionTrait, tree_id: Uuid) -> Result<i64, OxidGeneError> {
-        let count = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
-            .count(db)
-            .await
-            .map_err(db_err)?;
-        Ok(count as i64)
+    /// How many live persons each of `tree_ids` holds; a tree without any is
+    /// absent.
+    pub async fn count_by_trees(
+        db: &impl ConnectionTrait,
+        tree_ids: &[Uuid],
+    ) -> Result<Vec<(Uuid, i64)>, OxidGeneError> {
+        in_chunks(tree_ids, |chunk| async move {
+            Entity::find()
+                .select_only()
+                .column(Column::TreeId)
+                .column_as(Column::Id.count(), "count")
+                .filter(Column::TreeId.is_in(chunk))
+                .filter(Column::DeletedAt.is_null())
+                .group_by(Column::TreeId)
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await
     }
 
     /// List all persons in a tree without pagination (excludes soft-deleted).

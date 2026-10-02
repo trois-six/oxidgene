@@ -42,6 +42,7 @@ macro_rules! connection {
 mod error;
 pub mod history;
 pub mod inputs;
+mod loaders;
 pub mod mutation;
 pub mod query;
 mod scope;
@@ -76,6 +77,10 @@ pub type OxidGeneSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
 /// Build the async-graphql schema with the given database connections,
 /// profile service, purge queue and media store.
+///
+/// Its requests run through [`graphql_handler`], which gives each the
+/// batcher its nested fields read through: executed without it, a nested
+/// field answers an error.
 pub fn build_schema(
     db: impl Into<Connections>,
     profiles: Arc<ProfileService>,
@@ -118,12 +123,13 @@ pub(crate) fn build_schema_with_local_file_access(
         .finish()
 }
 
-/// Axum handler for `POST /graphql`.
+/// Axum handler for `POST /graphql`: the nested fields of the response
+/// are read in batches ([`loaders`]).
 pub async fn graphql_handler(
     State(schema): State<OxidGeneSchema>,
     req: GraphQLRequest,
 ) -> GraphQLResponse {
-    schema.execute(req.into_inner()).await.into()
+    loaders::execute(&schema, req.into_inner()).await.into()
 }
 
 /// Marks a router whose `GET /graphql` serves GraphiQL: add it as an

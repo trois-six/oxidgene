@@ -10,7 +10,7 @@ use oxidgene_core::types::{
 };
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo,
-    PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, VignetteRepo,
+    MediaLinkTarget, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, VignetteRepo,
 };
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
@@ -150,7 +150,7 @@ pub async fn load_person_detail_bundle(
     let (places, citations, media_rows, mut profile_media_rows, profile_vignettes) = tokio::try_join!(
         PlaceRepo::get_many(db, &place_ids),
         CitationRepo::list_for_person_events(db, tree_id, person_id, &event_ids),
-        MediaLinkRepo::list_with_media_for_events(db, &event_ids),
+        MediaLinkRepo::list_with_media_for_many(db, MediaLinkTarget::Event, &event_ids),
         MediaLinkRepo::list_with_media_for_profile(db, person_id, &profile_family_ids),
         VignetteRepo::list_for_person(db, person_id),
     )?;

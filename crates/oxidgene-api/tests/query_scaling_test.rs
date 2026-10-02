@@ -342,9 +342,11 @@ async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
 /// nested lists, `$tree` and `$anchor` bound.
 #[cfg(feature = "graphql")]
 const GRAPHQL_CASES: &[&str] = &[
-    "query($tree: ID!) { persons(treeId: $tree, first: 100) { edges { node { id names { surname } events { eventType } families { id } citations { id } media { id } notes { id } } } } }",
-    "query($tree: ID!) { families(treeId: $tree, first: 100) { edges { node { id spouses { id person { id } } children { id person { id } } events { id } } } } }",
-    "query($tree: ID!) { events(treeId: $tree, first: 100) { edges { node { id place { id } citations { id } media { id } notes { id } witnesses { personId } } } } }",
+    "query($tree: ID!) { persons(treeId: $tree, first: 100) { edges { node { id names { surname } primaryName { surname } events { eventType place { id } } families { id } citations { id } media { id } notes { id } } } } }",
+    "query($tree: ID!) { families(treeId: $tree, first: 100) { edges { node { id spouses { id person { id names { surname } } } children { id person { id } } events { id } } } } }",
+    "query($tree: ID!) { events(treeId: $tree, first: 100) { edges { node { id place { id } person { id } family { id } citations { id } media { id } notes { id } witnesses { personId person { id } } } } } }",
+    "query($tree: ID!) { sources(treeId: $tree, first: 100) { edges { node { id citations { id } repositories { id repository { id } source { id } } } } } }",
+    "query { trees(first: 100) { edges { node { id personCount familyCount } } } }",
     "query($tree: ID!) { citations(treeId: $tree, first: 100) { edges { node { id } } } }",
     "query($tree: ID!) { notes(treeId: $tree, first: 100) { edges { node { id } } } }",
     "query($tree: ID!) { personProfiles(treeId: $tree, first: 100) { edges { node { personId } } } }",
@@ -362,32 +364,6 @@ const GRAPHQL_CASES: &[&str] = &[
     "query($tree: ID!) { dictionaryPlaces(treeId: $tree) { __typename } }",
 ];
 
-/// Connections whose nested lists are resolved record by record, with why:
-/// for these the test holds the cost of one record constant instead of the
-/// page's. A DataLoader would batch them; until then each nested list is one
-/// query per record, as docs/api.md (GraphQL, nested records) states.
-#[cfg(feature = "graphql")]
-const PER_RECORD: &[(&str, &str)] = &[
-    (
-        "persons(",
-        "names, events, families, citations, media and notes per person",
-    ),
-    ("families(", "spouses, children and events per family"),
-    (
-        "events(",
-        "place, citations, media, notes and witnesses per event",
-    ),
-];
-
-/// The number of nodes of the connection `data` answers, or 1.
-#[cfg(feature = "graphql")]
-fn nodes(data: &Value) -> usize {
-    data.as_object()
-        .and_then(|fields| fields.values().next())
-        .and_then(|field| field["edges"].as_array())
-        .map_or(1, |edges| edges.len().max(1))
-}
-
 #[cfg(feature = "graphql")]
 #[tokio::test]
 async fn no_graphql_query_issues_statements_per_record() {
@@ -402,24 +378,18 @@ async fn no_graphql_query_issues_statements_per_record() {
     let mut grows = Vec::new();
     for query in GRAPHQL_CASES {
         let mut counts = Vec::new();
-        let mut sizes = Vec::new();
         for (tree, anchor) in [&small, &large] {
             counter.store(0, Ordering::Relaxed);
             let response =
                 common::gql(&app, query, json!({ "tree": tree, "anchor": anchor })).await;
             assert!(response.get("errors").is_none(), "{query}: {response}");
             counts.push(counter.load(Ordering::Relaxed));
-            sizes.push(nodes(&response["data"]));
         }
         assert!(counts[0] > 0, "{query}: no statement counted");
-        let per_record = PER_RECORD.iter().any(|(field, _)| query.contains(field));
-        // Per record, a tenth of slack for the page's fixed statements.
-        let grew = if per_record {
-            counts[1] * sizes[0] * 10 > counts[0] * sizes[1] * 11
-        } else {
-            counts[1] > counts[0]
-        };
-        if grew {
+        // A connection's page is up to 100 records: the larger tree fills
+        // it, where the small one holds 40 persons and 16 families. Their
+        // nested fields are read per relation, never per record.
+        if counts[1] > counts[0] {
             grows.push(format!(
                 "{query}: {} statements for 40 persons, {} for 160",
                 counts[0], counts[1]
