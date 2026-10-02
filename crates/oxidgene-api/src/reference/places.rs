@@ -127,7 +127,7 @@ pub struct PlaceLocation {
 /// The index place searches build is reused when it is in memory. Otherwise
 /// the dictionary is decompressed and read once for the rows named like
 /// the tree's places (a few thousand of 285,000), and dropped with them:
-/// about a quarter of a second in a release build, and nothing held in
+/// about a fifth of a second in a release build, and nothing held in
 /// memory afterwards, where building the whole index would take three
 /// times as long and keep a few tens of megabytes for the session.
 pub fn locate_places(lang: ReferenceLang, labels: &[(&str, i64)]) -> Vec<PlaceLocation> {
@@ -430,7 +430,12 @@ impl Dictionary {
         Self::parse_keeping(csv, |folded, line| {
             names.contains(folded)
                 || second_field(line).is_some_and(|code| {
-                    !code.is_empty() && codes.contains(&code.to_ascii_uppercase())
+                    // The codes are written in capitals: uppercase only the rare
+                    // one that is not, rather than every row's.
+                    !code.is_empty()
+                        && (codes.contains(code.as_ref())
+                            || code.bytes().any(|b| b.is_ascii_lowercase())
+                                && codes.contains(&code.to_ascii_uppercase()))
                 })
         })
     }

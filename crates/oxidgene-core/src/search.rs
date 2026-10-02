@@ -37,22 +37,72 @@ pub fn fold_words(text: &str) -> String {
 /// with no decomposition — a stroke, a ligature, a thorn — are spelled out
 /// (`ł` → `l`, `æ` → `ae`, `ß` → `ss`, `þ` → `th`).
 pub fn fold_text(text: &str, other: impl Fn(char) -> Separator) -> String {
-    let mut folded = String::with_capacity(text.len());
+    if text.is_ascii() {
+        fold_ascii(text, other)
+    } else {
+        fold_any(text, other)
+    }
+}
+
+/// [`fold_text`] of ASCII text, the bulk of what is folded (nine names in
+/// ten of the place dictionary): ASCII is its own canonical decomposition,
+/// bears no mark, and only its letters have a case, so it folds without
+/// decomposing it.
+fn fold_ascii(text: &str, other: impl Fn(char) -> Separator) -> String {
+    let mut folded = Words::with_capacity(text.len());
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            folded.push(c.to_ascii_lowercase());
+        } else if c.is_whitespace() || other(c) == Separator::Break {
+            folded.space();
+        } else {
+            folded.push(c);
+        }
+    }
+    folded.0
+}
+
+fn fold_any(text: &str, other: impl Fn(char) -> Separator) -> String {
+    let mut folded = Words::with_capacity(text.len());
     for c in text.nfd() {
         if is_combining_mark(c) {
             continue;
         }
         if let Some(plain) = spelled_out(c) {
-            folded.push_str(plain);
+            plain.chars().for_each(|p| folded.push(p));
         } else if c.is_alphanumeric() {
-            folded.extend(c.to_lowercase().filter(|l| !is_combining_mark(*l)));
+            c.to_lowercase()
+                .filter(|l| !is_combining_mark(*l))
+                .for_each(|l| folded.push(l));
         } else if c.is_whitespace() || other(c) == Separator::Break {
-            folded.push(' ');
+            folded.space();
         } else {
-            folded.extend(c.to_lowercase());
+            c.to_lowercase().for_each(|l| folded.push(l));
         }
     }
-    folded.split_whitespace().collect::<Vec<_>>().join(" ")
+    folded.0
+}
+
+/// Folded words being written: a break becomes one space between two words,
+/// none before the first or after the last. No folded character is
+/// whitespace, so the breaks are the only spaces.
+struct Words(String, bool);
+
+impl Words {
+    fn with_capacity(capacity: usize) -> Self {
+        Self(String::with_capacity(capacity), false)
+    }
+
+    fn push(&mut self, c: char) {
+        if std::mem::take(&mut self.1) && !self.0.is_empty() {
+            self.0.push(' ');
+        }
+        self.0.push(c);
+    }
+
+    fn space(&mut self) {
+        self.1 = true;
+    }
 }
 
 /// The unaccented spelling of a Latin letter that canonical decomposition
@@ -112,6 +162,37 @@ mod tests {
     fn a_decomposed_accent_folds_with_its_letter() {
         assert_eq!(fold_words("E\u{301}loi\u{308}se"), "eloise");
         assert_eq!(fold_words("\u{130}LK"), "ilk");
+    }
+
+    #[test]
+    fn ascii_folds_as_any_text_does() {
+        let every: String = (0u8..128).map(char::from).collect();
+        let keep_dots = |c: char| {
+            if c == '.' {
+                Separator::Keep
+            } else {
+                Separator::Break
+            }
+        };
+        for text in [
+            every.as_str(),
+            "",
+            "   ",
+            " Saint-Malo  (Ille) ",
+            "A.B\tC\u{b}D\u{1f}E",
+            "L'Abergement-de-Cuisery",
+        ] {
+            assert_eq!(
+                fold_ascii(text, |_| Separator::Break),
+                fold_any(text, |_| Separator::Break),
+                "{text:?}"
+            );
+            assert_eq!(
+                fold_ascii(text, keep_dots),
+                fold_any(text, keep_dots),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]
