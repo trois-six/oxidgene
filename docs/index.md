@@ -5,6 +5,7 @@ okf_version: "0.2"
 # Foundation
 
 * [General](general.md) - Product vision, target users, feature scope, and MVP boundaries for OxidGene.
+* [Features](features.md) - The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree.
 * [Quickstart](quickstart.md) - Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment.
 * [Architecture](architecture.md) - Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene.
 * [Development](development.md) - Local development, secure coding practices, verification workflows, and just command reference for OxidGene.

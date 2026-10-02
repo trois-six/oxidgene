@@ -62,7 +62,7 @@ the repository root.
 | `just test-verbose` | Run the workspace tests while preserving test output. |
 | `just ui-js` | Run the browser JavaScript unit tests on Node.js (§2.7). |
 | `just e2e [args]` | Build the web bundle and server, then run the Playwright end-to-end suite (§2.7). |
-| `just screenshots` | Build the web bundle and server, take the README and feature-list screenshots of the fictitious screenshot tree, and encode them with the README carousel into `assets/screenshots/` (§2.7). |
+| `just screenshots` | Build the web bundle and server, take the README and [Features](features.md) screenshots of the fictitious screenshot tree, and encode them with the README carousel into `assets/screenshots/` (§2.7). |
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings. |
@@ -374,7 +374,7 @@ naming it: it passes while the defect stands and fails once it is fixed,
 which is the signal to remove the mark.
 
 **Screenshots.** `just screenshots` takes the images of the README and of
-the feature list with the suite's servers and browser, through its own
+[Features](features.md) with the suite's servers and browser, through its own
 Playwright configuration (`e2e/playwright.screenshots.config.ts`), so
 `just e2e` never runs it. `e2e/screenshots/family.ts` builds the fictitious
 Landrevel family from a seeded generator — some 400 persons over eight
