@@ -1,0 +1,4276 @@
+"""
+Input for adding a child to a family.
+"""
+input AddChildInput {
+	personId: String!
+	childType: GqlChildType!
+	sortOrder: Int! = 0
+}
+
+"""
+Input for adding a witness to an event.
+"""
+input AddEventWitnessInput {
+	personId: String!
+	relation: String
+	sortOrder: Int! = 0
+}
+
+"""
+Input for recording that a source is held at a repository.
+"""
+input AddSourceRepositoryInput {
+	repositoryId: ID!
+	callNumber: String
+	mediaType: GqlSourceMediaType
+	"""
+	Where it goes among the source's links; after them when omitted.
+	"""
+	sortOrder: Int
+}
+
+"""
+Input for adding a spouse to a family.
+"""
+input AddSpouseInput {
+	personId: String!
+	role: GqlSpouseRole!
+	sortOrder: Int! = 0
+}
+
+"""
+A found ancestor and which key facts are recorded.
+"""
+type AncestorFacts {
+	personId: String!
+	name: String!
+	"""
+	`Sex` in its snake_case form.
+	"""
+	sex: String!
+	"""
+	The birth, or the baptism, when it carries a date.
+	"""
+	birth: RecordDate
+	"""
+	The death, or the burial, when it carries a date.
+	"""
+	death: RecordDate
+	hasBirth: Boolean!
+	hasDeath: Boolean!
+	hasUnion: Boolean!
+	living: Boolean!
+}
+
+"""
+A tree's ancestry completeness.
+"""
+type AncestryCompleteness {
+	"""
+	The SOSA root, `None` when the tree has none.
+	"""
+	root: PersonRef
+	"""
+	One per generation, the root's first, up to the generations asked
+	for; empty without a root.
+	"""
+	generations: [AncestryGeneration!]!
+}
+
+"""
+One SOSA number of a generation.
+"""
+type AncestryEntry {
+	sosa: Int!
+	"""
+	`None` for a missing ancestor.
+	"""
+	person: AncestorFacts
+}
+
+"""
+One generation of ancestors.
+"""
+type AncestryGeneration {
+	"""
+	1 for the root, 2 for the parents…
+	"""
+	generation: Int!
+	"""
+	The ancestors a complete tree has there: 2^(generation − 1).
+	"""
+	expected: Int!
+	"""
+	Those known. An ancestor reached through two lines (pedigree
+	collapse) counts at each of their SOSA numbers.
+	"""
+	found: Int!
+	"""
+	Found ancestors with a birth or a baptism, with a death or a burial,
+	and with a union to the other parent of their child (§4).
+	"""
+	withBirth: Int!
+	withDeath: Int!
+	withUnion: Int!
+	"""
+	Found ancestors with no death recorded who may be alive.
+	"""
+	living: Int!
+	"""
+	Ancestors missing because their child is missing too: implied, not
+	listed in `entries`.
+	"""
+	impliedMissing: Int!
+	"""
+	The found ancestors, and the missing parents of the previous
+	generation's found ones, by SOSA number.
+	"""
+	entries: [AncestryEntry!]!
+}
+
+"""
+One anomaly: the persons concerned, the subject first, and what the
+rule measured.
+"""
+type Anomaly {
+	persons: [PersonRef!]!
+	"""
+	The union concerned, for the rules about one.
+	"""
+	familyId: String
+	"""
+	The figure the rule measured: whole years for ages and gaps in
+	years, days for gaps between births and deaths.
+	"""
+	value: Int
+	"""
+	The event concerned, an `EventType` in its snake_case form.
+	"""
+	eventType: String
+	"""
+	Recorded text the rule is about: an unreadable date, a relation.
+	"""
+	text: String
+}
+
+"""
+What one rule found.
+"""
+type AnomalyRule {
+	rule: String!
+	"""
+	`dates`, `filiation`, `unions`, `witnesses` or `data_quality`.
+	"""
+	category: String!
+	"""
+	`error` for the impossible, `warning` for the unlikely.
+	"""
+	severity: String!
+	"""
+	Everything found, of which `items` lists at most
+	[`MAX_ITEMS_PER_RULE`].
+	"""
+	count: Int!
+	items: [Anomaly!]!
+}
+
+"""
+A populated place, labelled on the map from a zoom on.
+"""
+type BasemapCity {
+	name: String!
+	"""
+	Its names in the interface languages, where they differ.
+	"""
+	names: [LocalName!]!
+	"""
+	Longitude and latitude in tenths of a degree.
+	"""
+	lon: Int!
+	lat: Int!
+	"""
+	The web map zoom level it is labelled from, in tenths (Natural
+	Earth's `MIN_ZOOM`).
+	"""
+	zoom: Int!
+	"""
+	In thousands.
+	"""
+	population: Int!
+}
+
+"""
+One country's outline and populated places.
+"""
+type BasemapCountry {
+	"""
+	ISO 3166-1 alpha-2 code, `-99` where Natural Earth has none.
+	"""
+	iso: String!
+	name: String!
+	"""
+	Outer rings, each a flat list of `longitude, latitude` pairs in tenths
+	of a degree.
+	"""
+	rings: [[Int!]!]!
+	"""
+	Populated places, by the zoom they are labelled from, then the most
+	populated first.
+	"""
+	cities: [BasemapCity!]!
+}
+
+type CountEntry {
+	label: String!
+	count: Int!
+}
+
+"""
+Input for creating a citation.
+"""
+input CreateCitationInput {
+	sourceId: String!
+	personId: String
+	eventId: String
+	familyId: String
+	page: String
+	"""
+	Omitted or null when the evidence is not assessed.
+	"""
+	confidence: GqlConfidence
+	text: String
+}
+
+"""
+Input for creating an event.
+"""
+input CreateEventInput {
+	eventType: GqlEventType!
+	dateValue: String
+	dateQualifier: GqlDateQualifier
+	dateValue2: String
+	calendar: GqlCalendar
+	cause: String
+	"""
+	The age the record gives, for an individual event: a GEDCOM age
+	(`34y`, `< 1y 6m`, `CHILD`), returned in canonical form.
+	"""
+	age: String
+	"""
+	The authority responsible for the event's record.
+	"""
+	agency: String
+	"""
+	For a family event, the age its record gives for each spouse named.
+	"""
+	spouseAges: [SpouseAgeInput!]
+	placeId: String
+	personId: String
+	familyId: String
+	description: String
+}
+
+"""
+Input for creating a media link.
+"""
+input CreateMediaLinkInput {
+	mediaId: String!
+	personId: String
+	eventId: String
+	sourceId: String
+	familyId: String
+	sortOrder: Int! = 0
+}
+
+"""
+Input for creating a note.
+"""
+input CreateNoteInput {
+	text: String!
+	personId: String
+	eventId: String
+	familyId: String
+	sourceId: String
+	"""
+	The media this note is about — distinct from the media's own
+	description, which is the caption shown under its tile.
+	"""
+	mediaId: String
+	"""
+	The repository this note is about.
+	"""
+	repositoryId: String
+}
+
+"""
+Input for creating a new person.
+"""
+input CreatePersonInput {
+	sex: GqlSex!
+}
+
+"""
+Input for creating a place.
+"""
+input CreatePlaceInput {
+	name: String!
+	latitude: Float
+	longitude: Float
+}
+
+"""
+Input for creating a repository.
+"""
+input CreateRepositoryInput {
+	name: String!
+	address: String
+	phone: String
+	email: String
+	website: String
+}
+
+"""
+Input for creating a source.
+"""
+input CreateSourceInput {
+	title: String!
+	author: String
+	publisher: String
+	abbreviation: String
+	"""
+	The organisation responsible for the source's data.
+	"""
+	agency: String
+}
+
+"""
+Input for creating a new tree.
+"""
+input CreateTreeInput {
+	name: String!
+	description: String
+}
+
+"""
+Input for cropping a region out of a media file.
+"""
+input CreateVignetteInput {
+	mediaId: String!
+	x: Int!
+	y: Int!
+	width: Int!
+	height: Int!
+	personId: String
+	eventId: String
+}
+
+"""
+Implement the DateTime<Utc> scalar
+
+The input/output is a string in RFC3339 format.
+"""
+scalar DateTime
+
+type FamilyRecord {
+	familyId: String!
+	spouses: [PersonRef!]!
+	children: Int!
+	"""
+	The union's date, when it has one.
+	"""
+	date: RecordDate
+}
+
+"""
+One deposit's byte size, collected by the desktop login window.
+"""
+input GeneanetDepositSizeInput {
+	depositId: Int!
+	size: Int!
+}
+
+"""
+Inputs needed to import a Geneanet tree and its already fetched media.
+"""
+input GeneanetImportInput {
+	gwBase64: String!
+	fileName: String!
+	collection: String!
+	depositSizes: [GeneanetDepositSizeInput!]! = []
+	archivePaths: [String!]! = []
+	fetched: [GeneanetMediaPathInput!]! = []
+	"""
+	Which bytes to keep per medium. `RENDITIONS`, the default, ignores
+	`depositSizes` and `archivePaths`.
+	"""
+	mediaFidelity: GqlGeneanetMediaFidelity! = RENDITIONS
+}
+
+"""
+A string-keyed path entry used for locally staged media.
+"""
+input GeneanetMediaPathInput {
+	url: String!
+	path: String!
+}
+
+"""
+Shared inputs for Geneanet preview and fetch planning.
+"""
+input GeneanetPreviewInput {
+	gwBase64: String!
+	fileName: String!
+	collection: String!
+	depositSizes: [GeneanetDepositSizeInput!]! = []
+	archivePaths: [String!]! = []
+	"""
+	Which bytes to keep per medium. `RENDITIONS`, the default, ignores
+	`depositSizes` and `archivePaths`.
+	"""
+	mediaFidelity: GqlGeneanetMediaFidelity! = RENDITIONS
+}
+
+"""
+Session content to encode as a downloadable Geneanet archive.
+"""
+input GeneanetSessionEncodeInput {
+	collection: String!
+	depositSizes: [GeneanetDepositSizeInput!]! = []
+	account: String
+	media: [GeneanetMediaPathInput!]! = []
+}
+
+"""
+What a write did.
+"""
+enum GqlAuditAction {
+	CREATE
+	UPDATE
+	DELETE
+	MERGE
+	IMPORT
+	EXPORT
+	REVERT
+}
+
+"""
+Which part of a tree a write touched.
+"""
+enum GqlAuditCategory {
+	DATA
+	SETTINGS
+	MEDIA
+	IMPORT
+	EXPORT
+	HISTORY
+}
+
+"""
+Facts about a write beyond what it changed.
+"""
+type GqlAuditDetails {
+	format: String
+	fileName: String
+	count: Int
+	eventType: GqlEventType
+	version: Int
+	otherLabel: String
+	newLabel: String
+}
+
+"""
+The kind of row a write changed.
+"""
+enum GqlAuditEntity {
+	TREE
+	PERSON
+	PERSON_NAME
+	PERSON_DISTINCT
+	FAMILY
+	FAMILY_SPOUSE
+	FAMILY_CHILD
+	EVENT
+	EVENT_WITNESS
+	PLACE
+	SOURCE
+	SOURCE_REPOSITORY
+	REPOSITORY
+	CITATION
+	NOTE
+	FAMILY_NAME
+	MEDIA
+	MEDIA_TAG
+	MEDIA_PAGE
+	MEDIA_LINK
+	VIGNETTE
+	PORTRAIT
+}
+
+"""
+One write to a tree.
+"""
+type GqlAuditEntry {
+	id: ID!
+	treeId: ID!
+	occurredAt: DateTime!
+	category: GqlAuditCategory!
+	action: GqlAuditAction!
+	entity: GqlAuditEntity!
+	entityId: ID
+	subject: GqlAuditSubject
+	subjectId: ID
+	label: String
+	details: GqlAuditDetails!
+	versionCount: Int!
+}
+
+type GqlAuditEntryConnection {
+	edges: [GqlAuditEntryEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlAuditEntryEdge {
+	cursor: String!
+	node: GqlAuditEntry!
+}
+
+"""
+The kind of record a write is about.
+"""
+enum GqlAuditSubject {
+	TREE
+	PERSON
+	FAMILY
+	PLACE
+	SOURCE
+	REPOSITORY
+	MEDIA
+}
+
+"""
+Identifier returned after queuing a background job.
+"""
+type GqlBackgroundJobStarted {
+	jobId: ID!
+}
+
+"""
+Calendar system.
+"""
+enum GqlCalendar {
+	GREGORIAN
+	JULIAN
+	HEBREW
+	FRENCH_REPUBLICAN
+}
+
+type GqlChildLinkSnapshot {
+	id: ID!
+	familyId: ID!
+	personId: ID!
+	childType: GqlChildType!
+	sortOrder: Int!
+}
+
+"""
+Child type.
+"""
+enum GqlChildType {
+	BIOLOGICAL
+	ADOPTED
+	FOSTER
+	STEP
+	UNKNOWN
+}
+
+"""
+A citation linking a source to an entity.
+"""
+type GqlCitation {
+	id: ID!
+	sourceId: ID!
+	personId: ID
+	eventId: ID
+	familyId: ID
+	page: String
+	"""
+	Null when the evidence is not assessed.
+	"""
+	confidence: GqlConfidence
+	text: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+type GqlCitationConnection {
+	edges: [GqlCitationEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlCitationEdge {
+	cursor: String!
+	node: GqlCitation!
+}
+
+type GqlCitationSnapshot {
+	id: ID!
+	sourceId: ID!
+	page: String
+	confidence: GqlConfidence
+	text: String
+}
+
+"""
+Confidence level.
+"""
+enum GqlConfidence {
+	VERY_LOW
+	LOW
+	MEDIUM
+	HIGH
+	VERY_HIGH
+}
+
+"""
+Everything the couple page draws. Mirrors REST's
+`GET /families/{familyId}/detail-bundle`.
+"""
+type GqlCoupleDetailBundle {
+	family: GqlFamily!
+	spouses: [GqlFamilySpouse!]!
+	"""
+	One per spouse, in the order of `spouses`.
+	"""
+	persons: [GqlPersonDetailBundle!]!
+	"""
+	The family's notes, then each spouse's.
+	"""
+	notes: [GqlNote!]!
+	"""
+	The media attached to the family itself.
+	"""
+	media: [GqlProfileMediaTile!]!
+	gallery: GqlGalleryBundle!
+}
+
+"""
+How much of a date a tree writes.
+"""
+enum GqlDateDisplayFormat {
+	DAY_MONTH_YEAR
+	NUMERIC
+	MONTH_YEAR
+	YEAR
+}
+
+"""
+The order and form of a tree's date fields.
+"""
+enum GqlDateInputFormat {
+	SLASHES
+	DASHES
+	ISO
+	MONTH_NAME
+}
+
+"""
+Date qualifier.
+"""
+enum GqlDateQualifier {
+	EXACT
+	ABOUT
+	CALCULATED
+	ESTIMATED
+	PERHAPS
+	BEFORE
+	AFTER
+	OR
+	BETWEEN
+	FROM_AGE
+}
+
+"""
+A distinct dictionary value with the number of people who use it.
+"""
+type GqlDictionaryEntry {
+	value: String!
+	sortKey: String!
+	count: Int!
+	"""
+	Family names only: how many of `count` carry the value as their
+	primary name, i.e. how many a rename would reach.
+	"""
+	primaryCount: Int
+}
+
+"""
+What kind of record a medium is — the distinction GEDCOM cannot draw.
+"""
+enum GqlDocumentCategory {
+	PORTRAIT
+	GROUP_PHOTO
+	FAMILY_DOCUMENT
+	CIVIL_RECORD
+	PARISH_RECORD
+	NOTARIAL_ARCHIVE
+	MILITARY_ARCHIVE
+	CENSUS
+	COAT_OF_ARMS
+	GRAVE
+	OTHER
+}
+
+"""
+Two records of a tree that may be one person.
+"""
+type GqlDuplicatePair {
+	"""
+	From 0 to 100, how alike the two records are.
+	"""
+	score: Int!
+	"""
+	What they share, strongest first.
+	"""
+	reasons: [String!]!
+	first: GqlSearchEntry!
+	second: GqlSearchEntry!
+	"""
+	Both records' full birth and death dates.
+	"""
+	firstDates: LifeDates!
+	secondDates: LifeDates!
+}
+
+"""
+A genealogical event.
+"""
+type GqlEvent {
+	id: ID!
+	treeId: ID!
+	eventType: GqlEventType!
+	dateValue: String
+	dateSort: String
+	dateQualifier: GqlDateQualifier!
+	dateValue2: String
+	calendar: GqlCalendar!
+	cause: String
+	"""
+	The age the record gives, in canonical GEDCOM form.
+	"""
+	age: String
+	"""
+	The authority responsible for the event's record.
+	"""
+	agency: String
+	"""
+	For a family event, the ages its record gives for the spouses.
+	"""
+	spouseAges: [GqlSpouseAge!]!
+	placeId: ID
+	personId: ID
+	familyId: ID
+	description: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	Resolved place for this event.
+	"""
+	place: GqlPlace
+	"""
+	Resolved person for this event.
+	"""
+	person: GqlPerson
+	"""
+	Resolved family for this event.
+	"""
+	family: GqlFamily
+	"""
+	Citations for this event.
+	"""
+	citations: [GqlCitation!]!
+	"""
+	Media linked to this event, in gallery order.
+	"""
+	media: [GqlMedia!]!
+	"""
+	Notes for this event.
+	"""
+	notes: [GqlNote!]!
+	"""
+	Witnesses (godparents, etc.) linked to this event.
+	"""
+	witnesses: [GqlEventWitness!]!
+}
+
+type GqlEventConnection {
+	edges: [GqlEventEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlEventEdge {
+	cursor: String!
+	node: GqlEvent!
+}
+
+type GqlEventMediaTile {
+	eventId: ID!
+	linkId: ID!
+	sortOrder: Int!
+	media: GqlMedia!
+}
+
+type GqlEventSnapshot {
+	id: ID!
+	eventType: GqlEventType!
+	dateValue: String
+	dateSort: NaiveDate
+	dateQualifier: GqlDateQualifier!
+	dateValue2: String
+	calendar: GqlCalendar!
+	cause: String
+	age: String
+	agency: String
+	placeId: ID
+	description: String
+	witnesses: [GqlWitnessSnapshot!]!
+	spouseAges: [GqlSpouseAgeSnapshot!]!
+	notes: [GqlNoteSnapshot!]!
+	citations: [GqlCitationSnapshot!]!
+}
+
+"""
+Event type.
+"""
+enum GqlEventType {
+	BIRTH
+	DEATH
+	BAPTISM
+	CONFIRMATION
+	FIRST_COMMUNION
+	BAR_BAT_MITZVAH
+	MILITARY_SERVICE
+	BURIAL
+	CREMATION
+	GRADUATION
+	IMMIGRATION
+	EMIGRATION
+	NATURALIZATION
+	CENSUS
+	OCCUPATION
+	RESIDENCE
+	RETIREMENT
+	WILL
+	PROBATE
+	ADOPTION
+	CASTE_NAME
+	PHYSICAL_DESCRIPTION
+	EDUCATION
+	NATIONAL_ID
+	NATIONAL_ORIGIN
+	CHILDREN_COUNT
+	MARRIAGES_COUNT
+	PROPERTY
+	RELIGION
+	SOCIAL_SECURITY_NUMBER
+	NOBILITY_TITLE
+	FACT
+	LDS_BAPTISM
+	LDS_CONFIRMATION
+	BLESSING
+	ORDINATION
+	CHRISTENING
+	ADULT_CHRISTENING
+	ACCOMPLISHMENT
+	ACQUISITION
+	MEMBERSHIP
+	CHANGE_NAME
+	CIRCUMCISION
+	AWARD
+	MILITARY_DISCHARGE
+	DEGREE
+	DISTINCTION
+	ELECTION
+	EXCOMMUNICATION
+	FUNERAL
+	HOSPITALIZATION
+	ILLNESS
+	PASSENGER_LIST
+	MILITARY_DISTINCTION
+	MILITARY_PROMOTION
+	MILITARY_MOBILIZATION
+	PROPERTY_SALE
+	ENDOWMENT
+	LDS_DOTATION
+	SEALING_CHILD
+	SEALING_SPOUSE
+	SEALING_PARENT
+	FAMILY_LINK_LDS
+	NO_MARRIAGE
+	NO_MENTION
+	MARRIAGE
+	DIVORCE
+	ANNULMENT
+	ENGAGEMENT
+	MARRIAGE_BANN
+	MARRIAGE_CONTRACT
+	MARRIAGE_LICENSE
+	MARRIAGE_SETTLEMENT
+	CIVIL_UNION
+	SEPARATION
+	DIVORCE_FILED
+	OTHER
+}
+
+"""
+A witness (or godparent, etc.) linked to an event — a pointer to another
+person in the tree, mirroring GEDCOM's `ASSO`/`RELA` association.
+"""
+type GqlEventWitness {
+	id: ID!
+	eventId: ID!
+	personId: ID!
+	relation: String
+	sortOrder: Int!
+	"""
+	Resolved person for this witness.
+	"""
+	person: GqlPerson
+}
+
+"""
+Result of a GEDCOM export operation.
+"""
+type GqlExportGedcomResult {
+	gedcom: String!
+	warnings: [String!]!
+}
+
+"""
+Pollable state of a durable GEDZIP export.
+"""
+type GqlExportJobStatus {
+	phase: String!
+	done: Int!
+	total: Int!
+	downloadUrl: String
+	"""
+	When the archive stops being downloadable, set exactly when
+	`download_url` is.
+	"""
+	expiresAt: DateTime
+	warnings: [String!]!
+	error: String
+}
+
+"""
+A family unit.
+"""
+type GqlFamily {
+	id: ID!
+	treeId: ID!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	Spouses in this family.
+	"""
+	spouses: [GqlFamilySpouseDetail!]!
+	"""
+	Children in this family.
+	"""
+	children: [GqlFamilyChildDetail!]!
+	"""
+	Events associated with this family.
+	"""
+	events: [GqlEvent!]!
+}
+
+"""
+Raw family child record (returned from mutations).
+"""
+type GqlFamilyChild {
+	id: ID!
+	familyId: ID!
+	personId: ID!
+	childType: GqlChildType!
+	sortOrder: Int!
+}
+
+"""
+A child with resolved person data.
+"""
+type GqlFamilyChildDetail {
+	id: ID!
+	person: GqlPerson!
+	childType: GqlChildType!
+	sortOrder: Int!
+}
+
+type GqlFamilyConnection {
+	edges: [GqlFamilyEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlFamilyEdge {
+	cursor: String!
+	node: GqlFamily!
+}
+
+"""
+Result of the dictionary's bulk surname-particle edit.
+"""
+type GqlFamilyNameParticleUpdate {
+	"""
+	The surname as it will still be listed — re-cutting moves where the
+	name files, not the text itself.
+	"""
+	value: String!
+	surnamePrefix: String
+	surname: String!
+	namesUpdated: Int!
+	personsUpdated: Int!
+}
+
+"""
+Result of the dictionary's family-name rename.
+"""
+type GqlFamilyNameRename {
+	value: String!
+	newValue: String!
+	surnamePrefix: String
+	surname: String!
+	namesUpdated: Int!
+	personsUpdated: Int!
+	"""
+	`newValue` was already listed: the renamed names joined it.
+	"""
+	merged: Boolean!
+}
+
+"""
+Raw family spouse record (returned from mutations).
+"""
+type GqlFamilySpouse {
+	id: ID!
+	familyId: ID!
+	personId: ID!
+	role: GqlSpouseRole!
+	sortOrder: Int!
+}
+
+"""
+A spouse with resolved person data.
+"""
+type GqlFamilySpouseDetail {
+	id: ID!
+	person: GqlPerson!
+	role: GqlSpouseRole!
+	sortOrder: Int!
+}
+
+type GqlGalleryBundle {
+	media: [GqlGalleryMedia!]!
+	vignettes: [GqlGalleryVignette!]!
+}
+
+type GqlGalleryMedia {
+	mediaId: ID!
+	source: GqlImageSource
+	eventIds: [ID!]!
+	documentPreviews: [GqlImageSource!]!
+}
+
+type GqlGalleryVignette {
+	vignetteId: ID!
+	source: GqlImageSource!
+	"""
+	Set when `source` is a whole picture the client must crop itself.
+	"""
+	crop: GqlImageCrop
+}
+
+type GqlGeneanetArchiveIndex {
+	archives: [GqlGeneanetIndexedArchive!]!
+	fileCount: Int!
+}
+
+type GqlGeneanetDepositSize {
+	depositId: Int!
+	size: Int!
+}
+
+type GqlGeneanetImportResult {
+	personsCount: Int!
+	familiesCount: Int!
+	eventsCount: Int!
+	sourcesCount: Int!
+	placesCount: Int!
+	notesCount: Int!
+	mediaCount: Int!
+	linksCount: Int!
+	portraitsCount: Int!
+	isolatedCount: Int!
+	"""
+	The people counted by `isolatedCount`, in creation order.
+	"""
+	isolatedPeople: [GqlGeneanetIsolatedPerson!]!
+	vignettesCount: Int!
+	skipped: [String!]!
+	warnings: [String!]!
+}
+
+type GqlGeneanetIndexedArchive {
+	path: String!
+	fileName: String!
+	fileCount: Int!
+	imageCount: Int!
+	error: String
+}
+
+type GqlGeneanetInspection {
+	personCount: Int!
+	familyCount: Int!
+	skippedBlocks: Int!
+}
+
+"""
+A person the Geneanet import created for an identification outside the
+tree.
+"""
+type GqlGeneanetIsolatedPerson {
+	personId: ID!
+	surname: String!
+	givenNames: String!
+}
+
+"""
+Which bytes a Geneanet import keeps for each medium.
+"""
+enum GqlGeneanetMediaFidelity {
+	"""
+	Geneanet's own `normal` rendition of every page: recompressed and
+	resized, and needing nothing from the user but their login.
+	"""
+	RENDITIONS
+	"""
+	The uploaded files, taken from the user's data archives where they can
+	be identified there and downloaded otherwise.
+	"""
+	ORIGINALS
+}
+
+type GqlGeneanetMediaPath {
+	url: String!
+	path: String!
+}
+
+type GqlGeneanetNeededMedia {
+	depositId: Int!
+	viewId: Int!
+	page: Int
+	url: String!
+	original: Boolean!
+}
+
+type GqlGeneanetPreview {
+	personCount: Int!
+	photoCount: Int!
+	personsWithPhoto: Int!
+	attachmentCount: Int!
+	inArchives: Int!
+	toMatch: Int!
+	toDownload: Int!
+	groupPhotos: Int!
+	unlinkedViews: Int!
+	documents: Int!
+	documentPages: Int!
+	unlinkedNames: Int!
+	outsideTree: Int!
+	ambiguous: Int!
+	unlinkedNamesSample: [String!]!
+	outsideTreeNames: [String!]!
+	ambiguousNames: [String!]!
+	mismatch: Boolean!
+}
+
+type GqlGeneanetSession {
+	collection: String!
+	depositSizes: [GqlGeneanetDepositSize!]!
+	account: String
+	photoCount: Int!
+	media: [GqlGeneanetMediaPath!]!
+}
+
+type GqlGeneanetSessionArchive {
+	archiveBase64: String!
+}
+
+"""
+Static reference information for one given name.
+"""
+type GqlGivenNameReference {
+	label: String!
+	origin: String!
+	meaning: String!
+	text: String!
+	feastDay: String
+}
+
+type GqlGivenNameReferenceMatch {
+	term: String!
+	reference: GqlGivenNameReference!
+}
+
+"""
+A region of a picture the client fetches for itself, and therefore has to
+cut for itself.
+"""
+type GqlImageCrop {
+	x: Int!
+	y: Int!
+	width: Int!
+	height: Int!
+	"""
+	The full picture's pixel size, which is what `x`/`y` are measured in.
+	"""
+	sourceWidth: Int!
+	sourceHeight: Int!
+}
+
+"""
+Where a picture lives.
+
+Exactly one of the three payload fields is set, matching `kind`. A held
+picture names its resource rather than a URL: turning it into something
+drawable is the client's business, because until authentication ships no
+backend address may appear in the markup.
+"""
+type GqlImageSource {
+	kind: GqlImageSourceKind!
+	"""
+	Set when `kind` is `REMOTE`.
+	"""
+	url: String
+	"""
+	Set when `kind` is `THUMBNAIL`.
+	"""
+	mediaId: ID
+	"""
+	Set when `kind` is `CROP`.
+	"""
+	vignetteId: ID
+}
+
+"""
+Which resource a picture comes from. Never the picture itself — the bytes
+travel over their own request, so a payload listing a hundred images stays
+small and each one is cached, decoded and lazily loaded by the engine that
+draws it.
+"""
+enum GqlImageSourceKind {
+	"""
+	An address outside our control, which the client fetches directly.
+	"""
+	REMOTE
+	"""
+	The thumbnail this backend generated for a media it holds.
+	"""
+	THUMBNAIL
+	"""
+	The region this backend cuts out of a media it holds.
+	"""
+	CROP
+}
+
+"""
+Pollable state of a durable genealogy file import.
+"""
+type GqlImportJobStatus {
+	phase: String!
+	done: Int!
+	total: Int!
+	result: GqlImportResult
+	geneanetResult: GqlGeneanetImportResult
+	error: String
+}
+
+"""
+Result of an import operation, whatever the source format.
+"""
+type GqlImportResult {
+	personsCount: Int!
+	familiesCount: Int!
+	eventsCount: Int!
+	sourcesCount: Int!
+	mediaCount: Int!
+	placesCount: Int!
+	notesCount: Int!
+	warnings: [String!]!
+}
+
+"""
+Every way found to go from one person of a tree to another.
+"""
+type GqlKinship {
+	fromPersonId: ID!
+	toPersonId: ID!
+	"""
+	Closest relationship first.
+	"""
+	paths: [GqlKinshipPath!]!
+	"""
+	More paths exist than were enumerated.
+	"""
+	truncated: Boolean!
+	"""
+	A search row for every person the paths name.
+	"""
+	persons: [GqlSearchEntry!]!
+}
+
+"""
+One way to go from the first person to the second: one segment for a
+blood relationship, one more per union crossed.
+"""
+type GqlKinshipPath {
+	segments: [GqlKinshipSegment!]!
+}
+
+"""
+A stretch of a path that climbs to its highest generation and comes back
+down without passing through a union.
+"""
+type GqlKinshipSegment {
+	"""
+	One person, or both spouses of the family the two lines descend from.
+	"""
+	ancestorIds: [ID!]!
+	familyId: ID
+	"""
+	From below the ancestors down to the segment's first person.
+	"""
+	fromLine: [ID!]!
+	"""
+	From below the ancestors down to the segment's last person.
+	"""
+	toLine: [ID!]!
+	half: Boolean!
+	"""
+	The union joining the previous segment's last person to this one's
+	first.
+	"""
+	unionFamilyId: ID
+}
+
+"""
+A media file.
+"""
+type GqlMedia {
+	id: ID!
+	treeId: ID!
+	fileName: String!
+	mimeType: String!
+	"""
+	Path as it appears in GEDCOM. Not a URL and not where our copy lives —
+	fetch the bytes from `/api/v1/trees/{treeId}/media/{id}/file`.
+	"""
+	filePath: String!
+	"""
+	Key of the stored bytes, or null when the record names a file we have
+	never received (every GEDCOM-imported row starts that way).
+	"""
+	storageKey: String
+	"""
+	Hex SHA-256 of the stored bytes.
+	"""
+	sha256: String
+	"""
+	Key of the generated thumbnail; null for PDFs and byte-less records.
+	"""
+	thumbnailKey: String
+	"""
+	Intrinsic pixel size, after applying any EXIF orientation.
+	"""
+	width: Int
+	height: Int
+	"""
+	Pages in the document; 1 for photos and single-page files. For an
+	`isDocument` row it is the number of page images assembled into it.
+	"""
+	pageCount: Int!
+	"""
+	The document this is a page of, or null when this row *is* a document.
+	
+	The only thing separating the two kinds of row, on both APIs: a null
+	parent means a document — the container a gallery lists, carrying the
+	title, date, place, category, medium, privacy, description, tags and
+	note, and no bytes. Anything else is a page, which carries the bytes
+	or the remote URL and nothing else of consequence.
+	"""
+	parentMediaId: ID
+	"""
+	Zero-based position within that document.
+	"""
+	pageIndex: Int!
+	fileSize: Int!
+	title: String
+	description: String
+	dateValue: String
+	dateSort: String
+	"""
+	Whether this is shown when the tree is published.
+	"""
+	privacy: GqlPrivacy!
+	"""
+	What the medium physically is, in GEDCOM's own vocabulary.
+	"""
+	sourceMediaType: GqlSourceMediaType!
+	"""
+	What kind of record it is; null when unclassified.
+	"""
+	documentCategory: GqlDocumentCategory
+	"""
+	Free-form labels for this media or document.
+	"""
+	tags: [String!]!
+	placeId: ID
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+"""
+A document category and how many documents are filed under it.
+"""
+type GqlMediaCategoryFacet {
+	category: GqlDocumentCategory!
+	count: Int!
+}
+
+type GqlMediaConnection {
+	edges: [GqlMediaEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+"""
+A checked media attachment URL; binary content is read over HTTP.
+"""
+type GqlMediaDownload {
+	"""
+	Same-origin attachment URL. Availability is checked when this is resolved;
+	the HTTP request revalidates it and can still fail if storage changes.
+	"""
+	url: String!
+}
+
+type GqlMediaEdge {
+	cursor: String!
+	node: GqlMedia!
+	"""
+	How many records — persons, families, events and sources — the
+	document is attached to, through itself or one of its pages.
+	"""
+	usageCount: Int!
+}
+
+"""
+The values the media list's filters can take in a tree.
+"""
+type GqlMediaFacets {
+	tags: [GqlMediaTagFacet!]!
+	kinds: [GqlMediaKindFacet!]!
+	categories: [GqlMediaCategoryFacet!]!
+}
+
+"""
+The format of a media's file, read from its MIME type.
+"""
+enum GqlMediaFileKind {
+	IMAGE
+	PDF
+	VIDEO
+	AUDIO
+	OTHER
+}
+
+"""
+A file kind and how many documents hold a page of it.
+"""
+type GqlMediaKindFacet {
+	kind: GqlMediaFileKind!
+	count: Int!
+}
+
+"""
+A link between media and an entity.
+"""
+type GqlMediaLink {
+	id: ID!
+	mediaId: ID!
+	personId: ID
+	eventId: ID
+	sourceId: ID
+	familyId: ID
+	sortOrder: Int!
+}
+
+"""
+A tag and how many documents carry it.
+"""
+type GqlMediaTagFacet {
+	"""
+	The spelling most of those documents carry.
+	"""
+	tag: String!
+	count: Int!
+}
+
+"""
+A media together with the link that attached it — one gallery tile.
+"""
+type GqlMediaWithLink {
+	linkId: ID!
+	sortOrder: Int!
+	media: GqlMedia!
+}
+
+type GqlNameSnapshot {
+	id: ID!
+	nameType: GqlNameType!
+	givenNames: String
+	surname: String
+	surnamePrefix: String
+	prefix: String
+	suffix: String
+	nickname: String
+	isPrimary: Boolean!
+	sortOrder: Int!
+}
+
+"""
+Name type.
+"""
+enum GqlNameType {
+	BIRTH
+	MARRIED
+	ALSO_KNOWN_AS
+	MAIDEN
+	RELIGIOUS
+	GIVEN_NAME
+	ALIAS
+	BYNAME
+	SOBRIQUET
+	OTHER
+}
+
+"""
+A textual note.
+"""
+type GqlNote {
+	id: ID!
+	treeId: ID!
+	text: String!
+	personId: ID
+	eventId: ID
+	familyId: ID
+	sourceId: ID
+	mediaId: ID
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+type GqlNoteConnection {
+	edges: [GqlNoteEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlNoteEdge {
+	cursor: String!
+	node: GqlNote!
+}
+
+type GqlNoteSnapshot {
+	id: ID!
+	text: String!
+}
+
+"""
+Static reference information for one occupation label.
+"""
+type GqlOccupationReference {
+	label: String!
+	summary: String!
+	text: String!
+}
+
+type GqlOccupationReferenceMatch {
+	term: String!
+	reference: GqlOccupationReference!
+}
+
+"""
+Relay-style pagination info.
+"""
+type GqlPageInfo {
+	hasNextPage: Boolean!
+	endCursor: String
+}
+
+"""
+Full windowed pedigree for a root person.
+"""
+type GqlPedigree {
+	treeId: ID!
+	rootPersonId: ID!
+	nodes: [GqlPedigreeNode!]!
+	edges: [GqlPedigreeEdge!]!
+	ancestorDepthLoaded: Int!
+	descendantDepthLoaded: Int!
+}
+
+"""
+Delta returned by expand operations (only the new nodes and edges).
+"""
+type GqlPedigreeDelta {
+	newNodes: [GqlPedigreeNode!]!
+	newEdges: [GqlPedigreeEdge!]!
+	ancestorDepthLoaded: Int!
+	descendantDepthLoaded: Int!
+}
+
+"""
+Direction for pedigree expansion.
+"""
+enum GqlPedigreeDirection {
+	ANCESTORS
+	DESCENDANTS
+}
+
+"""
+An edge connecting a parent to a child within a family.
+"""
+type GqlPedigreeEdge {
+	parentId: ID!
+	childId: ID!
+	familyId: ID!
+	edgeType: GqlChildType!
+}
+
+"""
+One pedigree from a batched request, paired with the root it was asked for.
+"""
+type GqlPedigreeEntry {
+	rootPersonId: ID!
+	pedigree: GqlPedigree!
+}
+
+"""
+A single node in the pedigree tree (minimal data for card display).
+"""
+type GqlPedigreeNode {
+	personId: ID!
+	sex: GqlSex!
+	displayName: String!
+	"""
+	The whole birth event — its date, precision, second date, calendar and
+	place — rather than a year and a place name pulled out of it. Falls
+	back to the baptism when no birth was recorded.
+	"""
+	birth: GqlProfileEvent
+	"""
+	The whole death event, falling back to the burial. See `birth`.
+	"""
+	death: GqlProfileEvent
+	occupation: String
+	primaryMediaPath: String
+	"""
+	Relative to root: 0 = root, -1 = parent, +1 = child.
+	"""
+	generation: Int!
+	"""
+	Sosa-Stradonitz number if on ancestor path.
+	"""
+	sosaNumber: String
+	"""
+	Where the card's portrait is drawn from, when the person has one.
+	"""
+	portrait: GqlPortraitRef
+	"""
+	Whether the person is the tree's SOSA root or one of its ancestors.
+	"""
+	sosaAncestor: Boolean!
+}
+
+"""
+A person in a genealogical tree.
+"""
+type GqlPerson {
+	id: ID!
+	treeId: ID!
+	sex: GqlSex!
+	privacy: GqlPrivacy!
+	"""
+	The whole media representing this person, if their portrait is one.
+	"""
+	portraitMediaId: ID
+	"""
+	The region of a larger image representing them, if it is a crop.
+	"""
+	portraitVignetteId: ID
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	All names for this person.
+	"""
+	names: [GqlPersonName!]!
+	"""
+	Primary name of this person.
+	"""
+	primaryName: GqlPersonName
+	"""
+	Events associated with this person.
+	"""
+	events: [GqlEvent!]!
+	"""
+	Families this person belongs to (as spouse).
+	"""
+	families: [GqlFamily!]!
+	"""
+	Citations referencing this person directly.
+	"""
+	citations: [GqlCitation!]!
+	"""
+	Media linked to this person, in gallery order.
+	"""
+	media: [GqlMedia!]!
+	"""
+	Notes attached to this person.
+	"""
+	notes: [GqlNote!]!
+}
+
+type GqlPersonConnection {
+	edges: [GqlPersonEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlPersonDetailBundle {
+	sosaNumber: Int
+	persons: [GqlPerson!]!
+	names: [GqlPersonName!]!
+	events: [GqlEvent!]!
+	places: [GqlPlace!]!
+	spouses: [GqlFamilySpouse!]!
+	children: [GqlFamilyChild!]!
+	citations: [GqlCitation!]!
+	sources: [GqlSource!]!
+	profileMedia: [GqlProfileMediaTile!]!
+	profileVignettes: [GqlVignette!]!
+	eventMedia: [GqlEventMediaTile!]!
+	gallery: GqlGalleryBundle!
+	"""
+	Where the person's own portrait is drawn from.
+	"""
+	portrait: GqlPortraitRef
+	"""
+	Those of `persons` who are the SOSA root or one of its ancestors.
+	"""
+	sosaAncestorIds: [ID!]!
+}
+
+type GqlPersonEdge {
+	cursor: String!
+	node: GqlPerson!
+}
+
+"""
+A person name.
+"""
+type GqlPersonName {
+	id: ID!
+	personId: ID!
+	nameType: GqlNameType!
+	givenNames: String
+	"""
+	Surname root, particle excluded — see `surnamePrefix`.
+	"""
+	surname: String
+	"""
+	The surname particle, GEDCOM `SPFX` ("de la", "van der").
+	"""
+	surnamePrefix: String
+	prefix: String
+	suffix: String
+	nickname: String
+	isPrimary: Boolean!
+	sortOrder: Int!
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+"""
+A denormalized person profile — everything needed for card/detail
+display in a single object.
+"""
+type GqlPersonProfile {
+	personId: ID!
+	treeId: ID!
+	sex: GqlSex!
+	primaryName: GqlProfileName
+	otherNames: [GqlProfileName!]!
+	birth: GqlProfileEvent
+	death: GqlProfileEvent
+	baptism: GqlProfileEvent
+	burial: GqlProfileEvent
+	occupation: String
+	otherEvents: [GqlProfileEvent!]!
+	familiesAsSpouse: [GqlProfileFamilyLink!]!
+	familyAsChild: GqlProfileChildLink
+	primaryMedia: GqlProfileMediaRef
+	mediaCount: Int!
+	citationCount: Int!
+	noteCount: Int!
+	updatedAt: DateTime!
+	builtAt: DateTime!
+}
+
+type GqlPersonProfileConnection {
+	edges: [GqlPersonProfileEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlPersonProfileEdge {
+	cursor: String!
+	node: GqlPersonProfile!
+}
+
+"""
+Server-side ordering for person search results.
+"""
+enum GqlPersonSearchSort {
+	RELEVANCE
+	NAME_ASC
+	NAME_DESC
+	BIRTH_ASC
+	BIRTH_DESC
+}
+
+type GqlPersonSnapshot {
+	sex: GqlSex!
+	privacy: GqlPrivacy!
+	names: [GqlNameSnapshot!]!
+	events: [GqlEventSnapshot!]!
+	notes: [GqlNoteSnapshot!]!
+	citations: [GqlCitationSnapshot!]!
+	parents: [GqlChildLinkSnapshot!]!
+	unions: [GqlUnionSnapshot!]!
+}
+
+"""
+A person reached from a dictionary usage drill-down.
+"""
+type GqlPersonUsageEntry {
+	personId: ID!
+	givenNames: String
+	surname: String
+	birthYear: Int
+	birthQualifier: GqlDateQualifier!
+	deathYear: Int
+	deathQualifier: GqlDateQualifier!
+}
+
+"""
+A person with ancestry depth info.
+"""
+type GqlPersonWithDepth {
+	person: GqlPerson!
+	depth: Int!
+}
+
+"""
+A geographic place.
+"""
+type GqlPlace {
+	id: ID!
+	treeId: ID!
+	name: String!
+	latitude: Float
+	longitude: Float
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+type GqlPlaceConnection {
+	edges: [GqlPlaceEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+"""
+A place paired with its event and media usage count.
+"""
+type GqlPlaceDictionaryEntry {
+	place: GqlPlace!
+	count: Int!
+}
+
+type GqlPlaceEdge {
+	cursor: String!
+	node: GqlPlace!
+}
+
+"""
+What a place dictionary entry is.
+"""
+enum GqlPlaceKind {
+	COMMUNE
+	MUNICIPAL_ARRONDISSEMENT
+	SETTLEMENT
+	PARISH
+	FORMER_NAME
+	FORMER_COMMUNE
+}
+
+type GqlPlaceSnapshot {
+	name: String!
+	latitude: Float
+	longitude: Float
+}
+
+"""
+A place suggested from the place dictionary.
+"""
+type GqlPlaceSuggestion {
+	"""
+	The place as a genealogy records it, most specific part first.
+	"""
+	label: String!
+	name: String!
+	"""
+	The INSEE commune code in France.
+	"""
+	code: String
+	subdivision: String!
+	region: String!
+	country: String!
+	kind: GqlPlaceKind!
+	validFrom: String
+	validUntil: String
+	"""
+	INSEE code of the commune holding a former commune's territory today.
+	"""
+	successor: String
+	latitude: Float
+	longitude: Float
+	"""
+	Filed under today's subdivision and region rather than a former one.
+	"""
+	current: Boolean!
+}
+
+"""
+The media or vignette selected to represent one person.
+"""
+type GqlPortrait {
+	personId: ID!
+	mediaId: ID
+	vignetteId: ID
+	filePath: String!
+	hasThumbnail: Boolean!
+}
+
+"""
+One display-ready portrait returned by the batched image query.
+"""
+type GqlPortraitImage {
+	personId: ID!
+	source: GqlImageSource!
+	"""
+	Set when `source` is a whole picture the client must crop itself.
+	"""
+	crop: GqlImageCrop
+}
+
+"""
+Where a person's portrait is drawn from, as pedigree nodes and search rows
+carry it.
+"""
+type GqlPortraitRef {
+	source: GqlImageSource!
+	"""
+	Set when `source` is a whole picture the client must crop itself.
+	"""
+	crop: GqlImageCrop
+}
+
+"""
+A tree's potential duplicates: every pair found, and the best listed.
+"""
+type GqlPotentialDuplicates {
+	count: Int!
+	pairs: [GqlDuplicatePair!]!
+}
+
+"""
+Per-person privacy override.
+"""
+enum GqlPrivacy {
+	DEFAULT
+	PUBLIC
+	PRIVATE
+}
+
+"""
+A child link (child's relationship to parents).
+"""
+type GqlProfileChildLink {
+	familyId: ID!
+	childType: GqlChildType!
+	fatherId: ID
+	fatherDisplayName: String
+	fatherSurname: String
+	fatherGivenNames: String
+	motherId: ID
+	motherDisplayName: String
+	motherSurname: String
+	motherGivenNames: String
+}
+
+"""
+An event summary with its place name resolved (birth, death, etc.).
+"""
+type GqlProfileEvent {
+	eventId: ID!
+	eventType: GqlEventType!
+	dateValue: String
+	"""
+	How precise `date_value` is — without it a client cannot tell
+	"1849" from "about 1849".
+	"""
+	dateQualifier: GqlDateQualifier!
+	placeName: String
+	placeId: ID
+	description: String
+	"""
+	The age the record gives for the profile's person at this event.
+	"""
+	age: String
+}
+
+"""
+A family link (spouse relationship).
+"""
+type GqlProfileFamilyLink {
+	familyId: ID!
+	role: GqlSpouseRole!
+	spouseId: ID
+	spouseDisplayName: String
+	spouseSurname: String
+	spouseGivenNames: String
+	spouseSex: GqlSex
+	marriage: GqlProfileEvent
+	childrenIds: [ID!]!
+	childrenCount: Int!
+}
+
+"""
+A media reference (portrait / primary photo).
+"""
+type GqlProfileMediaRef {
+	mediaId: ID!
+	filePath: String!
+	mimeType: String!
+	title: String
+}
+
+type GqlProfileMediaTile {
+	linkId: ID!
+	sortOrder: Int!
+	"""
+	The conjugal family this media reaches the profile through; null when
+	it is attached to the person directly.
+	"""
+	familyId: ID
+	media: GqlMedia!
+}
+
+"""
+A name entry, pre-computed for display.
+"""
+type GqlProfileName {
+	nameId: ID!
+	nameType: GqlNameType!
+	displayName: String!
+	givenNames: String
+	surname: String
+}
+
+"""
+Result of a projection rebuild operation.
+"""
+type GqlProfileRebuildResult {
+	rebuilt: Boolean!
+	personsCount: Int!
+}
+
+type GqlRecordLabel {
+	id: ID!
+	label: String!
+}
+
+"""
+A record's state: exactly one field is set, the one `recordType` names.
+"""
+type GqlRecordSnapshot {
+	recordType: GqlRecordType!
+	person: GqlPersonSnapshot
+	place: GqlPlaceSnapshot
+	source: GqlSourceSnapshot
+	repository: GqlRepositorySnapshot
+	tree: GqlTreeSnapshot
+}
+
+"""
+The kinds of record whose versions are kept.
+"""
+enum GqlRecordType {
+	PERSON
+	PLACE
+	SOURCE
+	REPOSITORY
+	TREE
+}
+
+"""
+One state of a versioned record: a stored past state, or the live record
+as its current one.
+"""
+type GqlRecordVersion {
+	id: ID!
+	treeId: ID!
+	recordType: GqlRecordType!
+	recordId: ID!
+	version: Int!
+	current: Boolean!
+	deleted: Boolean!
+	entry: GqlAuditEntry
+	snapshot: GqlRecordSnapshot
+	labels: [GqlRecordLabel!]!
+}
+
+type GqlRecordVersionConnection {
+	edges: [GqlRecordVersionEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlRecordVersionEdge {
+	cursor: String!
+	node: GqlRecordVersion!
+}
+
+type GqlRelationLabels {
+	names: [GqlPersonName!]!
+	spouses: [GqlFamilySpouse!]!
+}
+
+"""
+A place holding sources: an archive, a library, a registry office.
+"""
+type GqlRepository {
+	id: ID!
+	treeId: ID!
+	name: String!
+	"""
+	The postal address, over several lines.
+	"""
+	address: String
+	phone: String
+	email: String
+	website: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	The live sources this repository holds, one link per call number.
+	"""
+	sources: [GqlSourceRepository!]!
+}
+
+type GqlRepositoryConnection {
+	edges: [GqlRepositoryEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlRepositoryEdge {
+	cursor: String!
+	node: GqlRepository!
+}
+
+type GqlRepositorySnapshot {
+	name: String!
+	address: String
+	phone: String
+	email: String
+	website: String
+	notes: [GqlNoteSnapshot!]!
+}
+
+"""
+A single search result entry.
+"""
+type GqlSearchEntry {
+	personId: ID!
+	sex: GqlSex!
+	displayName: String!
+	surname: String!
+	givenNames: String!
+	birthYear: String
+	birthQualifier: GqlDateQualifier!
+	birthPlace: String
+	deathYear: String
+	deathQualifier: GqlDateQualifier!
+	"""
+	Display names of every spouse, in family order.
+	"""
+	spouseNames: [String!]!
+	fatherName: String
+	motherName: String
+	childrenCount: Int!
+	"""
+	Where the row's portrait is drawn from, when the person has one.
+	"""
+	portrait: GqlPortraitRef
+}
+
+"""
+Paginated search results.
+"""
+type GqlSearchResult {
+	entries: [GqlSearchEntry!]!
+	totalCount: Int!
+}
+
+"""
+Biological sex.
+"""
+enum GqlSex {
+	MALE
+	FEMALE
+	UNKNOWN
+}
+
+"""
+A bibliographic source.
+"""
+type GqlSource {
+	id: ID!
+	treeId: ID!
+	title: String!
+	author: String
+	publisher: String
+	abbreviation: String
+	"""
+	The organisation responsible for the source's data.
+	"""
+	agency: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	Citations from this source.
+	"""
+	citations: [GqlCitation!]!
+	"""
+	The repositories holding this source, each under one call number.
+	"""
+	repositories: [GqlSourceRepository!]!
+}
+
+type GqlSourceConnection {
+	edges: [GqlSourceEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+"""
+The next level of the source dictionary drill-down.
+"""
+type GqlSourceDictionaryDrill {
+	prefix: String!
+	total: Int!
+	groups: [GqlSourceDictionaryGroup!]!
+	"""
+	The sources under `prefix`, when there is no group left to choose.
+	"""
+	sources: [GqlSourceDictionaryEntry!]
+}
+
+"""
+A source paired with the number of citations that use it.
+"""
+type GqlSourceDictionaryEntry {
+	source: GqlSource!
+	count: Int!
+	"""
+	The names of the repositories holding the source, each once.
+	"""
+	repositories: [String!]!
+}
+
+"""
+One selectable prefix in the source dictionary drill-down.
+"""
+type GqlSourceDictionaryGroup {
+	label: String!
+	count: Int!
+}
+
+type GqlSourceEdge {
+	cursor: String!
+	node: GqlSource!
+}
+
+"""
+What a medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`.
+"""
+enum GqlSourceMediaType {
+	AUDIO
+	BOOK
+	CARD
+	ELECTRONIC
+	FICHE
+	FILM
+	MAGAZINE
+	MANUSCRIPT
+	MAP
+	NEWSPAPER
+	PHOTO
+	TOMBSTONE
+	VIDEO
+	OTHER
+}
+
+"""
+That a source is held at a repository, under one call number.
+"""
+type GqlSourceRepository {
+	id: ID!
+	sourceId: ID!
+	repositoryId: ID!
+	callNumber: String
+	"""
+	The medium the source is kept on there.
+	"""
+	mediaType: GqlSourceMediaType
+	sortOrder: Int!
+	"""
+	The repository, unless it was deleted.
+	"""
+	repository: GqlRepository
+	"""
+	The source, unless it was deleted.
+	"""
+	source: GqlSource
+}
+
+type GqlSourceRepositorySnapshot {
+	id: ID!
+	repositoryId: ID!
+	callNumber: String
+	mediaType: GqlSourceMediaType
+	sortOrder: Int!
+}
+
+type GqlSourceSnapshot {
+	title: String!
+	author: String
+	publisher: String
+	abbreviation: String
+	agency: String
+	notes: [GqlNoteSnapshot!]!
+	repositories: [GqlSourceRepositorySnapshot!]!
+}
+
+"""
+The age a family event's record gives for one spouse.
+"""
+type GqlSpouseAge {
+	personId: ID!
+	"""
+	Canonical GEDCOM age.
+	"""
+	age: String!
+}
+
+type GqlSpouseAgeSnapshot {
+	id: ID!
+	familySpouseId: ID!
+	personId: ID!
+	age: String!
+}
+
+type GqlSpouseLinkSnapshot {
+	id: ID!
+	personId: ID!
+	role: GqlSpouseRole!
+	sortOrder: Int!
+}
+
+"""
+Spouse role.
+"""
+enum GqlSpouseRole {
+	HUSBAND
+	WIFE
+	PARTNER
+}
+
+"""
+The entry-form field a value suggestion is for.
+"""
+enum GqlSuggestionField {
+	FAMILY_NAMES
+	"""
+	One given name: the form completes the word being typed.
+	"""
+	GIVEN_NAMES
+	OCCUPATIONS
+	"""
+	Source titles.
+	"""
+	SOURCES
+	"""
+	The tree's place names.
+	"""
+	PLACES
+}
+
+"""
+A genealogical tree.
+"""
+type GqlTree {
+	id: ID!
+	name: String!
+	description: String
+	sosaRootPersonId: ID
+	selfPersonId: ID
+	"""
+	What `Default` privacy resolves to for everything in this tree.
+	"""
+	defaultPrivacy: GqlTreeDefaultPrivacy!
+	"""
+	Whether entry fields suggest values as the user types.
+	"""
+	entrySuggestions: Boolean!
+	"""
+	How much of a date the tree's pages write.
+	"""
+	dateFormat: GqlDateDisplayFormat!
+	"""
+	Whether lifespans write the birth and death symbols.
+	"""
+	dateSymbols: Boolean!
+	"""
+	Whether an approximate date reads « c. ».
+	"""
+	dateCirca: Boolean!
+	"""
+	The calendar a date recorded in another one is also given in.
+	"""
+	dateCalendar: GqlCalendar!
+	"""
+	Whether surname fields write in capitals.
+	"""
+	surnameUppercase: Boolean!
+	"""
+	Whether adding a relative offers the persons already in the tree.
+	"""
+	suggestPersons: Boolean!
+	"""
+	The order and form of a date field's parts.
+	"""
+	dateInputFormat: GqlDateInputFormat!
+	"""
+	The calendar an empty date field starts in.
+	"""
+	dateInputCalendar: GqlCalendar!
+	"""
+	Who the tree's GEDCOM exports say they are from.
+	"""
+	submitterName: String
+	submitterEmail: String
+	submitterAddress: String
+	createdAt: DateTime!
+	updatedAt: DateTime!
+	"""
+	Whether an import is queued or running into the tree. Read from the
+	job queue, not stored on the tree: it turns false once the job ends.
+	"""
+	importInProgress: Boolean!
+	"""
+	The import job running into the tree, while one is.
+	"""
+	importJobId: ID
+	"""
+	Count of persons in this tree.
+	"""
+	personCount: Int!
+	"""
+	Count of families in this tree.
+	"""
+	familyCount: Int!
+}
+
+type GqlTreeConnection {
+	edges: [GqlTreeEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+"""
+What `Default` privacy resolves to, for one tree.
+"""
+enum GqlTreeDefaultPrivacy {
+	PUBLIC
+	PRIVATE
+}
+
+type GqlTreeEdge {
+	cursor: String!
+	node: GqlTree!
+}
+
+"""
+A flat media link with the display fields needed by tree-wide consumers.
+"""
+type GqlTreeMediaLink {
+	linkId: ID!
+	entityId: ID!
+	entityType: String!
+	mediaId: ID!
+	filePath: String!
+	fileName: String!
+	mimeType: String!
+	hasThumbnail: Boolean!
+}
+
+"""
+One tree's most recently modified persons, from a batch.
+"""
+type GqlTreeRecentPersons {
+	treeId: ID!
+	persons: [GqlSearchEntry!]!
+}
+
+type GqlTreeSnapshot {
+	name: String!
+	description: String
+	defaultPrivacy: GqlTreeDefaultPrivacy!
+	entrySuggestions: Boolean!
+	dateFormat: GqlDateDisplayFormat!
+	dateSymbols: Boolean!
+	dateCirca: Boolean!
+	dateCalendar: GqlCalendar!
+	surnameUppercase: Boolean!
+	suggestPersons: Boolean!
+	dateInputFormat: GqlDateInputFormat!
+	dateInputCalendar: GqlCalendar!
+	sosaRootPersonId: ID
+	selfPersonId: ID
+	submitterName: String
+	submitterEmail: String
+	submitterAddress: String
+}
+
+type GqlUnionSnapshot {
+	familyId: ID!
+	privacy: GqlPrivacy!
+	spouses: [GqlSpouseLinkSnapshot!]!
+	children: [GqlChildLinkSnapshot!]!
+	events: [GqlEventSnapshot!]!
+	notes: [GqlNoteSnapshot!]!
+	citations: [GqlCitationSnapshot!]!
+}
+
+"""
+A value an entry-form field suggests.
+"""
+type GqlValueSuggestion {
+	value: String!
+	"""
+	Persons carrying the value, or citations of the source; 0 for a term
+	only a reference sheet knows.
+	"""
+	count: Int!
+	"""
+	Whether a reference sheet answers to the value itself.
+	"""
+	reference: Boolean!
+}
+
+"""
+The state a write replaced, beside the state it produced.
+"""
+type GqlVersionChange {
+	version: GqlRecordVersion!
+	previous: GqlRecordVersion!
+}
+
+type GqlVersionChangeConnection {
+	edges: [GqlVersionChangeEdge!]!
+	pageInfo: GqlPageInfo!
+	totalCount: Int!
+}
+
+type GqlVersionChangeEdge {
+	cursor: String!
+	node: GqlVersionChange!
+}
+
+"""
+A rectangular region of a media file, kept as coordinates rather than as a
+second copy of the pixels.
+
+Fetch the cropped image itself from
+`/api/v1/trees/{treeId}/vignettes/{id}/image`.
+"""
+type GqlVignette {
+	id: ID!
+	mediaId: ID!
+	"""
+	Crop rectangle, in the source image's own pixel coordinates.
+	"""
+	x: Int!
+	y: Int!
+	width: Int!
+	height: Int!
+	personId: ID
+	eventId: ID
+	createdAt: DateTime!
+	updatedAt: DateTime!
+}
+
+type GqlWitnessSnapshot {
+	id: ID!
+	personId: ID!
+	relation: String
+	sortOrder: Int!
+}
+
+"""
+One day's changes to the number of persons.
+"""
+type GrowthDay {
+	date: NaiveDate!
+	"""
+	Persons created, imported or restored that day.
+	"""
+	added: Int!
+	"""
+	Persons deleted or merged into another that day.
+	"""
+	removed: Int!
+}
+
+"""
+A completed import, to mark on the chart.
+"""
+type GrowthImport {
+	occurredAt: DateTime!
+	"""
+	`gedcom`, `gedzip`, `geneweb`, `geneanet`, or `duplicate`.
+	"""
+	format: String
+	"""
+	The imported file's name, or the source tree's for a duplication.
+	"""
+	fileName: String
+	"""
+	Persons the import brought.
+	"""
+	persons: Int!
+}
+
+"""
+Where a held picture lives, as an input. Mirrors `ImageSource`: `kind`
+selects which of the payload fields is meaningful.
+"""
+input ImageSourceInput {
+	kind: GqlImageSourceKind!
+	url: String
+	mediaId: ID
+	vignetteId: ID
+}
+
+"""
+A record's birth (or baptism) and death (or burial) dates, as recorded.
+"""
+type LifeDates {
+	birth: RecordDate
+	death: RecordDate
+}
+
+"""
+A name in one interface language.
+"""
+type LocalName {
+	lang: String!
+	name: String!
+}
+
+"""
+Filters of `mediaList`. Every field is optional and the set ones combine
+with AND; blank text is no filter.
+"""
+input MediaListFilterInput {
+	"""
+	Tags in any spelling, matched case-insensitively: a document must
+	carry all of them.
+	"""
+	tags: [String!]! = []
+	"""
+	Documents with at least one page of this file kind.
+	"""
+	kind: GqlMediaFileKind
+	category: GqlDocumentCategory
+	"""
+	Substring of the title or a file name, case- and accent-insensitive.
+	"""
+	name: String
+	"""
+	Substring of a connected person's name, case- and accent-insensitive.
+	"""
+	linkedName: String
+	"""
+	Earliest year, inclusive, of a linked event.
+	"""
+	eventFrom: Int
+	"""
+	Latest year, inclusive, of a linked event.
+	"""
+	eventTo: Int
+	"""
+	Earliest day, inclusive and in UTC, the document was added.
+	"""
+	addedFrom: NaiveDate
+	"""
+	Latest day, inclusive and in UTC, the document was added.
+	"""
+	addedTo: NaiveDate
+}
+
+"""
+What the comparison of a merge chose (`docs/api.md`, merge). Every field
+defaults to "as the kept person has it, everything else moves".
+"""
+input MergeChoicesInput {
+	"""
+	Own events of either person left out of the merged record.
+	"""
+	leftOutEvents: [ID!]! = []
+	"""
+	The duplicate's direct media links not taken.
+	"""
+	leftOutMediaLinks: [ID!]! = []
+	surnameFromDuplicate: Boolean! = false
+	givenNamesFromDuplicate: Boolean! = false
+	sexFromDuplicate: Boolean! = false
+}
+
+type MutationRoot {
+	"""
+	Create a new tree. A blank name is refused.
+	"""
+	createTree(input: CreateTreeInput!): GqlTree!
+	"""
+	Duplicate a tree through a lossless GEDCOM round trip.
+	
+	The duplication path deliberately never enables export compatibility
+	options: those are for third-party interchange, not a copy inside
+	OxidGene. Mirrors `POST /trees/:tree_id/duplicate`.
+	"""
+	duplicateTree(treeId: ID!, name: String!): GqlTree!
+	"""
+	Update an existing tree. A blank name is refused, and a SOSA root or
+	own record from another tree is not found.
+	"""
+	updateTree(id: ID!, input: UpdateTreeInput!): GqlTree!
+	"""
+	Delete a tree.
+	
+	Flags it as deleted and returns straight away; the rows it owns and its
+	projections are removed by the background purge worker. See
+	[`crate::service::purge`].
+	"""
+	deleteTree(id: ID!): Boolean!
+	"""
+	Create a new person in a tree.
+	"""
+	createPerson(treeId: ID!, input: CreatePersonInput!): GqlPerson!
+	"""
+	Update a person.
+	"""
+	updatePerson(treeId: ID!, id: ID!, input: UpdatePersonInput!): GqlPerson!
+	"""
+	Delete a person (soft delete).
+	"""
+	deletePerson(treeId: ID!, id: ID!): Boolean!
+	"""
+	Record that a person differs from each of `otherPersonIds`, so those
+	pairs stop being offered as homonyms.
+	"""
+	markPersonsDistinct(treeId: ID!, personId: ID!, otherPersonIds: [ID!]!): Boolean!
+	"""
+	Merge `duplicateId` into `personId`, which is kept; the duplicate is
+	soft-deleted. `choices` carries what the comparison chose. Returns the
+	kept person.
+	"""
+	mergePersons(treeId: ID!, personId: ID!, duplicateId: ID!, choices: MergeChoicesInput! = {leftOutEvents: [], leftOutMediaLinks: [], surnameFromDuplicate: false, givenNamesFromDuplicate: false, sexFromDuplicate: false}): GqlPerson!
+	"""
+	Add a name to a person.
+	"""
+	addPersonName(treeId: ID!, personId: ID!, input: PersonNameInput!): GqlPersonName!
+	"""
+	Update a name of a person; a name of somebody else is not found.
+	"""
+	updatePersonName(treeId: ID!, personId: ID!, id: ID!, input: UpdatePersonNameInput!): GqlPersonName!
+	"""
+	Delete a name of a person (hard delete); a name of somebody else is
+	not found.
+	"""
+	deletePersonName(treeId: ID!, personId: ID!, id: ID!): Boolean!
+	"""
+	Create a new family in a tree.
+	"""
+	createFamily(treeId: ID!): GqlFamily!
+	"""
+	Update a family: its privacy, and `updatedAt` either way.
+	"""
+	updateFamily(treeId: ID!, id: ID!, input: UpdateFamilyInput!): GqlFamily!
+	"""
+	Delete a family (soft delete).
+	"""
+	deleteFamily(treeId: ID!, id: ID!): Boolean!
+	"""
+	Add a spouse to a family.
+	"""
+	addSpouse(treeId: ID!, familyId: ID!, input: AddSpouseInput!): GqlFamilySpouse!
+	"""
+	Remove a spouse link from a family (hard delete); a link of another
+	family is not found.
+	"""
+	removeSpouse(treeId: ID!, familyId: ID!, id: ID!): Boolean!
+	"""
+	Add a child to a family.
+	"""
+	addChild(treeId: ID!, familyId: ID!, input: AddChildInput!): GqlFamilyChild!
+	"""
+	Remove a child link from a family (hard delete); a link of another
+	family is not found.
+	"""
+	removeChild(treeId: ID!, familyId: ID!, id: ID!): Boolean!
+	"""
+	Create a new event.
+	"""
+	createEvent(treeId: ID!, input: CreateEventInput!): GqlEvent!
+	"""
+	Update an event. A place of another tree is not found.
+	"""
+	updateEvent(treeId: ID!, id: ID!, input: UpdateEventInput!): GqlEvent!
+	"""
+	Delete an event (soft delete).
+	"""
+	deleteEvent(treeId: ID!, id: ID!): Boolean!
+	"""
+	Add a witness to an event.
+	"""
+	addEventWitness(treeId: ID!, eventId: ID!, input: AddEventWitnessInput!): GqlEventWitness!
+	"""
+	Remove a witness from an event (hard delete). With `eventId`, a
+	witness of another event is not found.
+	"""
+	removeEventWitness(treeId: ID!, id: ID!, eventId: ID): Boolean!
+	"""
+	Create a new place. A blank name is refused.
+	"""
+	createPlace(treeId: ID!, input: CreatePlaceInput!): GqlPlace!
+	"""
+	Update a place. A blank name is refused.
+	"""
+	updatePlace(treeId: ID!, id: ID!, input: UpdatePlaceInput!): GqlPlace!
+	"""
+	Delete a place (hard delete).
+	"""
+	deletePlace(treeId: ID!, id: ID!): Boolean!
+	"""
+	Create a new source. A blank title is refused.
+	"""
+	createSource(treeId: ID!, input: CreateSourceInput!): GqlSource!
+	"""
+	Update a source. A blank title is refused.
+	"""
+	updateSource(treeId: ID!, id: ID!, input: UpdateSourceInput!): GqlSource!
+	"""
+	Delete a source (soft delete).
+	With `onlyIfUnused`, the source is kept if any citation, note, media link or repository
+	link still points at it; the return value says whether it was deleted.
+	"""
+	deleteSource(treeId: ID!, id: ID!, onlyIfUnused: Boolean! = false): Boolean!
+	"""
+	Create a repository. A blank name is refused.
+	"""
+	createRepository(treeId: ID!, input: CreateRepositoryInput!): GqlRepository!
+	"""
+	Update a repository. A blank name is refused.
+	"""
+	updateRepository(treeId: ID!, id: ID!, input: UpdateRepositoryInput!): GqlRepository!
+	"""
+	Delete a repository (soft delete). With `onlyIfUnused`, a repository
+	still holding a live source or the subject of a note is kept; the
+	return value says whether it was deleted.
+	"""
+	deleteRepository(treeId: ID!, id: ID!, onlyIfUnused: Boolean! = false): Boolean!
+	"""
+	Record that a source is held at a repository, under a call number.
+	"""
+	addSourceRepository(treeId: ID!, sourceId: ID!, input: AddSourceRepositoryInput!): GqlSourceRepository!
+	"""
+	Update a source's link to a repository; a link of another source is
+	not found.
+	"""
+	updateSourceRepository(treeId: ID!, sourceId: ID!, id: ID!, input: UpdateSourceRepositoryInput!): GqlSourceRepository!
+	"""
+	Remove a source's link to a repository; a link of another source is
+	not found.
+	"""
+	removeSourceRepository(treeId: ID!, sourceId: ID!, id: ID!): Boolean!
+	"""
+	Create a new citation.
+	"""
+	createCitation(treeId: ID!, input: CreateCitationInput!): GqlCitation!
+	"""
+	Update a citation.
+	"""
+	updateCitation(treeId: ID!, id: ID!, input: UpdateCitationInput!): GqlCitation!
+	"""
+	Delete a citation (hard delete).
+	"""
+	deleteCitation(treeId: ID!, id: ID!): Boolean!
+	"""
+	Add a page naming a file we do not hold — a URL, or a path a GEDCOM
+	mentioned — to a document. Mirrors `POST /trees/{treeId}/media`.
+	"""
+	uploadMedia(treeId: ID!, input: UploadMediaInput!): GqlMedia!
+	"""
+	Upload a file's bytes, base64-encoded.
+	
+	Creates a page of `documentId`, or fills in an existing page when
+	`mediaId` is given. Mirrors `POST /trees/{treeId}/media/upload`; see
+	[`UploadMediaFileInput`] for why the content is base64 rather than an
+	`Upload` scalar.
+	"""
+	uploadMediaFile(treeId: ID!, input: UploadMediaFileInput!): GqlMedia!
+	"""
+	Update media metadata.
+	"""
+	updateMedia(treeId: ID!, id: ID!, input: UpdateMediaInput!): GqlMedia!
+	"""
+	Atomically add a tag without replacing the media's other tags.
+	"""
+	addMediaTag(treeId: ID!, id: ID!, tag: String!): GqlMedia!
+	"""
+	Atomically remove one tag without replacing the media's other tags.
+	"""
+	removeMediaTag(treeId: ID!, id: ID!, tag: String!): Boolean!
+	"""
+	Permanently delete media and its associated data.
+	
+	With `onlyIfUnreferencedElsewhere`, the supplied gallery link is
+	ignored while checking references; `false` means another reference
+	retained the media. This is the GraphQL mirror of REST's
+	`only_if_unreferenced_elsewhere` query parameter.
+	"""
+	deleteMedia(treeId: ID!, id: ID!, onlyIfUnreferencedElsewhere: Boolean! = false, allowedLinkId: ID): Boolean!
+	"""
+	Choose what represents a person: a whole media, a region of one, or
+	nothing.
+	
+	One write on the person. Passing neither id clears the portrait;
+	passing both is refused, since that is not a state the model holds.
+	"""
+	setPersonPortrait(treeId: ID!, personId: ID!, mediaId: ID, vignetteId: ID): GqlPerson!
+	"""
+	Create an empty multi-page document.
+	"""
+	createMediaDocument(treeId: ID!, title: String): GqlMedia!
+	"""
+	Set a document's page order. The list must name exactly its pages.
+	"""
+	reorderMediaPages(treeId: ID!, documentId: ID!, pageIds: [ID!]!): [GqlMedia!]!
+	"""
+	Remove a page from its document, permanently.
+	
+	The bytes, transcript, links and identifications go with it. Removing
+	the last page leaves the document standing and empty.
+	"""
+	deleteMediaPage(treeId: ID!, documentId: ID!, pageId: ID!): Boolean!
+	"""
+	Crop a region out of a media file.
+	"""
+	createVignette(treeId: ID!, input: CreateVignetteInput!): GqlVignette!
+	"""
+	Move or re-attribute a vignette.
+	"""
+	updateVignette(treeId: ID!, id: ID!, input: UpdateVignetteInput!): GqlVignette!
+	"""
+	Delete a vignette. The media it cropped is untouched.
+	"""
+	deleteVignette(treeId: ID!, id: ID!): Boolean!
+	"""
+	Create a media link.
+	"""
+	createMediaLink(treeId: ID!, input: CreateMediaLinkInput!): GqlMediaLink!
+	"""
+	Delete a media link (hard delete).
+	"""
+	deleteMediaLink(treeId: ID!, id: ID!): Boolean!
+	"""
+	Create a new note.
+	"""
+	createNote(treeId: ID!, input: CreateNoteInput!): GqlNote!
+	"""
+	Update a note.
+	"""
+	updateNote(treeId: ID!, id: ID!, input: UpdateNoteInput!): GqlNote!
+	"""
+	Delete a note (soft delete).
+	"""
+	deleteNote(treeId: ID!, id: ID!): Boolean!
+	"""
+	Re-cut every occurrence of one surname at the given particle — the
+	dictionary's bulk repair for an import that guessed wrong across a
+	whole family. Triggers a full projection rebuild when anything changed.
+	"""
+	setFamilyNameParticle(treeId: ID!, input: SetFamilyNameParticleInput!): GqlFamilyNameParticleUpdate!
+	"""
+	Give every person whose primary name carries one surname another one,
+	merging into that name when it is already listed. Mirrors
+	`PATCH /trees/{id}/dictionary/family-names/rename`.
+	"""
+	renameFamilyName(treeId: ID!, input: RenameFamilyNameInput!): GqlFamilyNameRename!
+	"""
+	Queue a durable GEDZIP export. The artifact is downloaded through the
+	URL exposed by `exportJobStatus` once the worker completes it. A tree
+	already running a job answers CONFLICT. The options are
+	`exportGedcom`'s, plus `includeMedia: false` to pack no media and
+	write no `OBJE`.
+	"""
+	startExportJob(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean, includeNotesAndSources: Boolean, includeMedia: Boolean): GqlBackgroundJobStarted!
+	"""
+	Encode a Geneanet wizard session as a base64 archive.
+	"""
+	encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GqlGeneanetSessionArchive!
+	"""
+	Delete the staged media of a decoded session the wizard closed or
+	reset without importing, as `POST /geneanet/session/release` does. A
+	path the backend did not stage is ignored.
+	"""
+	releaseGeneanetSessionMedia(paths: [String!]!): Boolean!
+	"""
+	Decode a saved Geneanet session. Its media are staged as local files
+	for a following desktop import, just as they are through REST.
+	"""
+	decodeGeneanetSession(archiveBase64: String!): GqlGeneanetSession!
+	"""
+	Queue a Geneanet tree import with media collected by the desktop window.
+	"""
+	importGeneanet(treeId: ID!, input: GeneanetImportInput!): GqlBackgroundJobStarted!
+	"""
+	Put a record back as one of its versions had it. The restore is a
+	write of its own, returned as its audit entry. Mirrors
+	`POST /trees/{treeId}/history/{recordType}/{recordId}/revert`.
+	"""
+	revertRecord(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, version: Int!): GqlAuditEntry!
+	"""
+	Rebuild every projection of a tree (all persons + search index).
+	"""
+	rebuildTreeProfiles(treeId: ID!): GqlProfileRebuildResult!
+	"""
+	Rebuild the projection of a single person.
+	"""
+	rebuildPersonProfile(treeId: ID!, personId: ID!): GqlProfileRebuildResult!
+	"""
+	Drop every projection of a tree. For debugging or after bulk operations.
+	"""
+	dropTreeProfiles(treeId: ID!): Boolean!
+}
+
+"""
+ISO 8601 calendar date without timezone.
+Format: %Y-%m-%d
+
+# Examples
+
+* `1994-11-13`
+* `2000-02-24`
+"""
+scalar NaiveDate
+
+type ParentAgeSeries {
+	fatherFirstChild: [YearSum!]!
+	motherFirstChild: [YearSum!]!
+	fatherLastChild: [YearSum!]!
+	motherLastChild: [YearSum!]!
+	"""
+	At the birth of each child, by year of that birth.
+	"""
+	fatherEveryChild: [YearSum!]!
+	motherEveryChild: [YearSum!]!
+}
+
+"""
+Input for adding or updating a person name.
+"""
+input PersonNameInput {
+	nameType: GqlNameType!
+	givenNames: String
+	"""
+	The surname root, particle excluded.
+	
+	Stored verbatim: the server does not detect a particle hiding in it.
+	Callers holding a full surname should split it with
+	`oxidgene_core::types::split_surname_particle` first, as the UI does.
+	"""
+	surname: String
+	"""
+	The surname particle, GEDCOM `SPFX` ("de la", "van der").
+	"""
+	surnamePrefix: String
+	prefix: String
+	suffix: String
+	nickname: String
+	isPrimary: Boolean!
+	sortOrder: Int
+}
+
+type PersonRecord {
+	personId: String!
+	name: String!
+	"""
+	`Sex` in its snake_case form.
+	"""
+	sex: String!
+	"""
+	The event the list is about (a birth, a death).
+	"""
+	date: RecordDate
+	place: String
+	birth: RecordDate
+	death: RecordDate
+	"""
+	Age in whole years, at death or today.
+	"""
+	age: Int
+}
+
+"""
+A person named in a list or a record.
+"""
+type PersonRef {
+	personId: String!
+	name: String!
+}
+
+type PlaceUsage {
+	placeId: String!
+	name: String!
+	count: Int!
+	latitude: Float
+	longitude: Float
+}
+
+type PyramidBand {
+	"""
+	First age of the band, which spans five years.
+	"""
+	from: Int!
+	men: Int!
+	women: Int!
+}
+
+type QueryRoot {
+	"""
+	Load the family neighborhood and evidence rendered by one person page.
+	"""
+	personDetailBundle(treeId: ID!, personId: ID!): GqlPersonDetailBundle!
+	"""
+	Load everything one couple page draws: the family, its spouses and
+	their person bundles, the family's and spouses' notes, the family's
+	media. Mirrors `GET /trees/{treeId}/families/{familyId}/detail-bundle`.
+	"""
+	coupleDetailBundle(treeId: ID!, familyId: ID!): GqlCoupleDetailBundle!
+	"""
+	List all trees with cursor-based pagination.
+	"""
+	trees(first: Int, after: String): GqlTreeConnection!
+	"""
+	The tree's audit log, newest first, optionally narrowed to one
+	category or to the writes about one record. Mirrors
+	`GET /trees/{treeId}/audit`.
+	"""
+	auditEntries(treeId: ID!, first: Int, after: String, category: GqlAuditCategory, subjectId: ID): GqlAuditEntryConnection!
+	"""
+	One audit entry. Mirrors `GET /trees/{treeId}/audit/{entryId}`.
+	"""
+	auditEntry(treeId: ID!, id: ID!): GqlAuditEntry!
+	"""
+	The versions one write produced, each beside the version it replaced.
+	Mirrors `GET /trees/{treeId}/audit/{entryId}/changes`.
+	"""
+	auditEntryChanges(treeId: ID!, entryId: ID!, first: Int, after: String): GqlVersionChangeConnection!
+	"""
+	A record's versions, latest — the live record — first. Mirrors
+	`GET /trees/{treeId}/history/{recordType}/{recordId}`.
+	"""
+	recordVersions(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, first: Int, after: String): GqlRecordVersionConnection!
+	"""
+	One version of a record. Mirrors
+	`GET /trees/{treeId}/history/{recordType}/{recordId}/{version}`.
+	"""
+	recordVersion(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, version: Int!): GqlRecordVersion!
+	"""
+	Get a single tree by ID.
+	"""
+	tree(id: ID!): GqlTree
+	"""
+	List persons in a tree with cursor-based pagination.
+	"""
+	persons(treeId: ID!, first: Int, after: String, search: String): GqlPersonConnection!
+	"""
+	Get a single person by ID.
+	"""
+	person(treeId: ID!, id: ID!): GqlPerson
+	"""
+	Load the names and spouse links needed to label a bounded set of relations.
+	"""
+	relationLabels(treeId: ID!, personIds: [ID!]!, familyIds: [ID!]!): GqlRelationLabels!
+	"""
+	Resolve one SOSA-Stradonitz number from the tree's configured root.
+	
+	Returns null when the tree has no SOSA root or the ancestry chain is
+	incomplete at that number, matching REST's not-found outcome.
+	"""
+	personBySosa(treeId: ID!, number: Int!): GqlPerson
+	"""
+	Every person's selected portrait, with enough data for a pedigree to
+	choose its thumbnail, original file or cropped vignette endpoint.
+	"""
+	portraits(treeId: ID!): [GqlPortrait!]!
+	"""
+	Load display-ready portraits for a bounded set of people in one operation.
+	"""
+	portraitImages(treeId: ID!, personIds: [ID!]!): [GqlPortraitImage!]!
+	"""
+	Resolve held picture sources to inline `data:` URLs in one operation,
+	for a client that cannot serve them from an origin of its own.
+	Mirrors REST's `image-data` endpoint.
+	"""
+	imageData(treeId: ID!, sources: [ImageSourceInput!]!): [String]!
+	"""
+	Load display-ready media gallery data in one bounded operation.
+	"""
+	galleryBundle(treeId: ID!, mediaIds: [ID!]!, vignetteIds: [ID!]!): GqlGalleryBundle!
+	"""
+	Get ancestors of a person, each at its shortest distance, down to
+	`maxDepth` generations (at most, and by default, 64).
+	"""
+	ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [GqlPersonWithDepth!]!
+	"""
+	Get descendants of a person, each at its shortest distance, down to
+	`maxDepth` generations (at most, and by default, 64).
+	"""
+	descendants(treeId: ID!, personId: ID!, maxDepth: Int): [GqlPersonWithDepth!]!
+	"""
+	List families in a tree with cursor-based pagination.
+	"""
+	families(treeId: ID!, first: Int, after: String): GqlFamilyConnection!
+	"""
+	Get a single family by ID.
+	"""
+	family(treeId: ID!, id: ID!): GqlFamily
+	"""
+	List events in a tree with optional filters and cursor-based pagination.
+	"""
+	events(treeId: ID!, first: Int, after: String, eventType: GqlEventType, personId: ID, familyId: ID): GqlEventConnection!
+	"""
+	Get a single event by ID.
+	"""
+	event(treeId: ID!, id: ID!): GqlEvent
+	"""
+	List places in a tree with optional filters and cursor-based pagination.
+	"""
+	places(		treeId: ID!,		first: Int,		after: String,
+		"""
+		Places whose name contains it.
+		"""
+		search: String,
+		"""
+		Places named exactly so, trimmed, ignoring case.
+		"""
+		name: String,
+		"""
+		These places.
+		"""
+		ids: [ID!]
+	): GqlPlaceConnection!
+	"""
+	Get a single place by ID.
+	"""
+	place(treeId: ID!, id: ID!): GqlPlace
+	"""
+	List sources in a tree with cursor-based pagination.
+	"""
+	sources(		treeId: ID!,		first: Int,		after: String,
+		"""
+		Sources titled exactly so, trimmed, ignoring case.
+		"""
+		title: String
+	): GqlSourceConnection!
+	"""
+	Get a single source by ID.
+	"""
+	source(treeId: ID!, id: ID!): GqlSource
+	"""
+	List repositories in a tree with cursor-based pagination.
+	"""
+	repositories(treeId: ID!, first: Int, after: String): GqlRepositoryConnection!
+	"""
+	Get a single repository by ID.
+	"""
+	repository(treeId: ID!, id: ID!): GqlRepository
+	"""
+	List citations in a tree with optional entity filters and pagination.
+	"""
+	citations(treeId: ID!, personId: ID, eventId: ID, familyId: ID, sourceId: ID, first: Int, after: String): GqlCitationConnection!
+	"""
+	Get a single note by ID.
+	"""
+	note(treeId: ID!, id: ID!): GqlNote
+	"""
+	List notes in a tree with optional entity filters and pagination.
+	"""
+	notes(treeId: ID!, personId: ID, eventId: ID, familyId: ID, sourceId: ID, mediaId: ID, repositoryId: ID, first: Int, after: String): GqlNoteConnection!
+	"""
+	Distinct family names and their person counts.
+	"""
+	dictionaryFamilyNames(treeId: ID!): [GqlDictionaryEntry!]!
+	"""
+	Distinct occupation labels and their person counts.
+	"""
+	dictionaryOccupations(treeId: ID!): [GqlDictionaryEntry!]!
+	"""
+	Sources whose titles match a prefix, with citation counts.
+	"""
+	dictionarySources(treeId: ID!, prefix: String): [GqlSourceDictionaryEntry!]!
+	"""
+	The next selectable source-title prefixes for the smart drill-down.
+	"""
+	dictionarySourceDrill(treeId: ID!, prefix: String): GqlSourceDictionaryDrill!
+	"""
+	The country outlines the statistics heat map is drawn over.
+	"""
+	basemap: [BasemapCountry!]!
+	"""
+	A tree's statistics, time series filed by year. `approximate` lets
+	ages and averages use dates about, calculated or estimated;
+	`language` names places' countries, regions and subdivisions
+	(English when omitted).
+	"""
+	treeStatistics(treeId: ID!, approximate: Boolean, language: String): TreeStatistics!
+	"""
+	How many persons a tree held over the days it was worked on, day by
+	day, with its imports.
+	"""
+	treeGrowth(treeId: ID!): TreeGrowth!
+	"""
+	Which ancestors of the tree's SOSA root are known, generation by
+	generation, and which of their key facts are recorded; `generations`
+	counts the root's (8 when omitted, at most 15).
+	"""
+	ancestryCompleteness(treeId: ID!, generations: Int): AncestryCompleteness!
+	"""
+	The tree's anomalies: dates, filiations, unions, witnesses and
+	records that are impossible or unlikely, by rule.
+	"""
+	treeAnomalies(treeId: ID!): TreeAnomalies!
+	"""
+	The pairs of records of the tree that may be one person, best first.
+	"""
+	potentialDuplicates(treeId: ID!): GqlPotentialDuplicates!
+	"""
+	The places of the tree the statistics cannot locate, with their
+	usage, most used first.
+	"""
+	unlocatedPlaces(treeId: ID!): [PlaceUsage!]!
+	"""
+	Places with their event and media usage count.
+	"""
+	dictionaryPlaces(treeId: ID!): [GqlPlaceDictionaryEntry!]!
+	"""
+	People who carry one family name.
+	"""
+	familyNameUsage(treeId: ID!, value: String!): [GqlPersonUsageEntry!]!
+	"""
+	People whose occupation exactly matches one dictionary value.
+	"""
+	occupationUsage(treeId: ID!, value: String!): [GqlPersonUsageEntry!]!
+	"""
+	People cited by one source, directly or through an individual event.
+	"""
+	sourceUsage(treeId: ID!, sourceId: ID!): [GqlPersonUsageEntry!]!
+	"""
+	People with an individual event at one place.
+	"""
+	placeUsage(treeId: ID!, placeId: ID!): [GqlPersonUsageEntry!]!
+	"""
+	Resolve static occupation reference content for `fr` or `en`.
+	"""
+	occupationReference(language: String!, term: String!): GqlOccupationReference
+	"""
+	Resolve several static occupation references in one operation.
+	"""
+	occupationReferences(language: String!, terms: [String!]!): [GqlOccupationReferenceMatch!]!
+	"""
+	Resolve static given-name reference content for `fr` or `en`.
+	"""
+	givenNameReference(language: String!, term: String!): GqlGivenNameReference
+	"""
+	Resolve several static given-name references in one operation.
+	"""
+	givenNameReferences(language: String!, terms: [String!]!): [GqlGivenNameReferenceMatch!]!
+	"""
+	Suggest places from the place dictionary for `fr` or `en`. The text
+	before the first comma matches place names; each part after a comma
+	must start a word of the code, subdivision, region or country.
+	"""
+	placeSuggestions(language: String!, query: String!, limit: Int): [GqlPlaceSuggestion!]!
+	"""
+	Values an entry-form field suggests: the tree's values with a word
+	starting with `query`, then, for occupations and given names, the
+	reference terms the tree does not hold yet. `limit` defaults to 10.
+	`surname` and `givenNames` scope a name field to the persons the
+	person search's filters of the same names find.
+	"""
+	valueSuggestions(treeId: ID!, field: GqlSuggestionField!, language: String!, query: String!, limit: Int, surname: String, givenNames: String): [GqlValueSuggestion!]!
+	"""
+	List a tree's documents with cursor-based pagination, narrowed by
+	`filter`, each edge carrying the document's usage count.
+	"""
+	mediaList(treeId: ID!, first: Int, after: String, filter: MediaListFilterInput): GqlMediaConnection!
+	"""
+	The tags, file kinds and categories the tree's documents carry, each
+	with its document count; with `tags`, the tags are counted among the
+	documents carrying every tag given.
+	"""
+	mediaFacets(treeId: ID!, tags: [String!]! = []): GqlMediaFacets!
+	"""
+	Get a single media by ID.
+	"""
+	media(treeId: ID!, id: ID!): GqlMedia
+	"""
+	A checked HTTP attachment URL for one stored original of any media type.
+	"""
+	mediaDownload(treeId: ID!, id: ID!): GqlMediaDownload!
+	"""
+	A checked HTTP attachment URL for a complete document ZIP.
+	"""
+	mediaArchive(treeId: ID!, id: ID!): GqlMediaDownload!
+	"""
+	Whether the supplied gallery link is this media's sole external
+	reference. Mirrors REST's `deletion-status` endpoint.
+	"""
+	canDeleteMedia(treeId: ID!, id: ID!, allowedLinkId: ID!): Boolean!
+	"""
+	Every media attached to one entity, with its link.
+	
+	`entityType` is `person`, `family`, `event` or `source`. Mirrors
+	`GET /trees/{treeId}/media-links?entity_type=…&entity_id=…`.
+	"""
+	entityMedia(treeId: ID!, entityType: String!, entityId: ID!): [GqlMediaWithLink!]!
+	"""
+	Everything one media file is attached to.
+	
+	The other direction from `entityMedia`: what lets a media's own panel
+	say which events it documents. Mirrors
+	`GET /trees/{treeId}/media-links?media_id=…`.
+	"""
+	mediaLinks(treeId: ID!, mediaId: ID!): [GqlMediaLink!]!
+	"""
+	Every person and event media link in a tree.
+	"""
+	treeMediaLinks(treeId: ID!): [GqlTreeMediaLink!]!
+	"""
+	The pages of a multi-page document, in order.
+	"""
+	mediaPages(treeId: ID!, mediaId: ID!): [GqlMedia!]!
+	"""
+	Vignettes on a media file, in page order.
+	"""
+	mediaVignettes(treeId: ID!, mediaId: ID!): [GqlVignette!]!
+	"""
+	Vignettes attributed to a person, or standing as evidence for an event.
+	
+	Exactly one of `personId` or `eventId` is required — an unfiltered list
+	of every crop in a tree is not a view anything needs.
+	"""
+	vignettes(treeId: ID!, personId: ID, eventId: ID): [GqlVignette!]!
+	"""
+	Get a single vignette by ID.
+	"""
+	vignette(treeId: ID!, id: ID!): GqlVignette
+	"""
+	Export all entities in a tree as a GEDCOM 5.5.1 string, recording
+	the export in the tree's audit log. Pass `merge_occupations: true` to
+	collapse each person's multiple `OCCU` tags back into one,
+	comma-separated (for importers, e.g. Geneanet, that only support a
+	single profession field). Pass `merge_names: true` to collapse each
+	person's non-primary names into the primary name's `SURN` tag,
+	comma-separated. Pass `include_notes_and_sources: false` to leave the
+	notes and the sources out. A plain GEDCOM always writes its media's
+	references: only a GEDZIP (`startExportJob`) leaves the media out.
+	"""
+	exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean, includeNotesAndSources: Boolean): GqlExportGedcomResult!
+	"""
+	Poll a durable GEDZIP export created by `startExportJob`.
+	"""
+	exportJobStatus(treeId: ID!, jobId: ID!): GqlExportJobStatus!
+	"""
+	Poll a durable genealogy file import created by `startFileImportJob`.
+	"""
+	importJobStatus(treeId: ID!, jobId: ID!): GqlImportJobStatus!
+	"""
+	Inspect a GeneWeb export before selecting its destination tree.
+	"""
+	inspectGeneweb(gwBase64: String!, fileName: String!): GqlGeneanetInspection!
+	"""
+	Index local Geneanet archives by path.
+	"""
+	indexGeneanetArchives(paths: [String!]!): GqlGeneanetArchiveIndex!
+	"""
+	Preview a Geneanet import without writing a tree or fetching media.
+	"""
+	geneanetPreview(input: GeneanetPreviewInput!): GqlGeneanetPreview!
+	"""
+	List the media that the signed-in Geneanet window still has to fetch.
+	"""
+	geneanetPlan(input: GeneanetPreviewInput!): [GqlGeneanetNeededMedia!]!
+	"""
+	Get a single profile (denormalised) person profile.
+	
+	Falls back to building it from the DB if not yet materialized.
+	"""
+	personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
+	"""
+	One page of a tree's person projections, by person id. Mirrors
+	`GET /trees/{treeId}/profiles`.
+	
+	Materializes the tree first if it has never been built.
+	"""
+	personProfiles(treeId: ID!, first: Int, after: String): GqlPersonProfileConnection!
+	"""
+	Server-side person search in a tree (spec name: `searchPersons`).
+	
+	Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL)
+	with accent-folded, normalised matching. Returns paginated results.
+	"""
+	searchPersons(treeId: ID!, query: String!, limit: Int! = 25, offset: Int! = 0, sex: GqlSex, surname: String, givenNames: String, occupation: String, spouseSurname: String, spouseGivenNames: String, fatherSurname: String, fatherGivenNames: String, motherSurname: String, motherGivenNames: String, birthFrom: Int, birthTo: Int, deathFrom: Int, deathTo: Int, place: String, eventType: GqlEventType, eventFrom: Int, eventTo: Int, hasMedia: Boolean! = false, sort: GqlPersonSearchSort): GqlSearchResult!
+	"""
+	The other persons of the tree bearing the same folded primary surname
+	and given names, less those already confirmed to be somebody else.
+	"""
+	personHomonyms(treeId: ID!, personId: ID!): [GqlSearchEntry!]!
+	"""
+	The persons of the tree modified most recently, newest first.
+	Mirrors `GET /trees/{treeId}/persons/recently-modified`.
+	"""
+	recentlyModifiedPersons(treeId: ID!, limit: Int! = 5): [GqlSearchEntry!]!
+	"""
+	The persons modified most recently in each of several trees, in one
+	operation; a tree that is missing or deleted is left out. Mirrors
+	`GET /trees/recent-persons`.
+	"""
+	recentPersonsOfTrees(treeIds: [ID!]!, limit: Int! = 5): [GqlTreeRecentPersons!]!
+	"""
+	Every way found to go from a person to another: their blood
+	relationships, or the shortest paths through unions when they share
+	no ancestor.
+	"""
+	kinship(treeId: ID!, personId: ID!, otherPersonId: ID!): GqlKinship!
+	"""
+	Get a windowed pedigree for a root person.
+	
+	Returns nodes and edges within the given ancestor / descendant depth,
+	assembled on demand from family links and the stored projections.
+	"""
+	pedigree(		treeId: ID!,
+		"""
+		The person to draw the pedigree around; without it, the tree's SOSA root, else its first person (as REST's `GET /pedigree`).
+		"""
+		rootPersonId: ID,		ancestorDepth: Int!,		descendantDepth: Int!
+	): GqlPedigree!
+	"""
+	Assemble several pedigrees in one operation, for a screen that draws one
+	small pedigree per row. Mirrors REST's `pedigrees` endpoint.
+	"""
+	pedigrees(treeId: ID!, rootPersonIds: [ID!]!, ancestorDepth: Int!, descendantDepth: Int!): [GqlPedigreeEntry!]!
+	"""
+	Expand a pedigree in one direction, returning only the new nodes and
+	edges (delta). The client merges the delta into its current view. A
+	read, like REST's `GET …/expand`.
+	
+	`otherDepth` is the depth already loaded in the opposite direction —
+	pass it so the returned `*DepthLoaded` values match what you hold.
+	"""
+	expandPedigree(treeId: ID!, rootPersonId: ID!, direction: GqlPedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int! = 0): GqlPedigreeDelta!
+}
+
+"""
+A date as recorded, for the client to format in its language.
+"""
+type RecordDate {
+	value: String
+	value2: String
+	"""
+	`DateQualifier` in its snake_case form.
+	"""
+	qualifier: String!
+	"""
+	`Calendar` in its snake_case form.
+	"""
+	calendar: String!
+	sort: NaiveDate
+}
+
+"""
+Input for the dictionary's family-name rename.
+
+Every person whose primary name carries surname `value` (as listed, matched
+exactly) gets `new_value`, stored as sent. `particle` chooses where
+`new_value` splits and must be at its head; absent, the split `new_value`
+already has in the tree is kept, or detected when it is new.
+"""
+input RenameFamilyNameInput {
+	value: String!
+	newValue: String!
+	particle: String
+}
+
+"""
+Input for the dictionary's bulk surname-particle edit.
+
+`value` is a surname as listed by the dictionary, particle included;
+`particle` is the new cut to apply to every occurrence of it, empty meaning
+"this name has no particle". The particle must already be at the head of
+`value` — this edit moves a boundary, it never adds a word.
+"""
+input SetFamilyNameParticleInput {
+	value: String!
+	particle: String!
+}
+
+"""
+An average for men and for women, by year.
+"""
+type SexSeries {
+	men: [YearSum!]!
+	women: [YearSum!]!
+}
+
+"""
+A summary over everyone, over men and over women.
+"""
+type SexSummary {
+	all: Summary!
+	men: Summary!
+	women: Summary!
+}
+
+"""
+The age a family event's record gives for one spouse.
+"""
+input SpouseAgeInput {
+	personId: ID!
+	"""
+	A GEDCOM age (`34y`, `< 1y 6m`, `CHILD`); blank leaves it out.
+	"""
+	age: String!
+}
+
+"""
+One record.
+"""
+type StatRecord {
+	"""
+	What the record is, in snake_case: `longest_life_man`,
+	`longest_life_woman`, `earliest_birth`, `latest_birth`,
+	`youngest_at_union`, `oldest_at_union`, `longest_union`,
+	`most_unions`, `first_union`, `last_union`, `most_children`,
+	`oldest_first_child`, `youngest_first_child`, `youngest_death`,
+	`largest_spouse_gap`, `most_places`, `longest_widowhood`,
+	`largest_sibling_gap` or `most_generations`.
+	"""
+	kind: String!
+	"""
+	Who holds it: one person, a couple, a survivor and the spouse they
+	outlived, or the eldest and the youngest sibling.
+	"""
+	persons: [PersonRef!]!
+	"""
+	Days for an age or a duration, a number for a count; absent for a
+	record that is a date only.
+	"""
+	value: Float
+	"""
+	The spouses the parent with the most children had them with.
+	"""
+	value2: Int
+	"""
+	The event the record is about, when it is one.
+	"""
+	date: RecordDate
+}
+
+"""
+A set of values in brief, to a tenth; every figure is absent when there
+is no value.
+"""
+type Summary {
+	count: Int!
+	mean: Float
+	median: Float
+	"""
+	Population standard deviation.
+	"""
+	stdDev: Float
+	min: Float
+	max: Float
+}
+
+"""
+A tree's anomalies.
+"""
+type TreeAnomalies {
+	"""
+	Persons examined.
+	"""
+	persons: Int!
+	"""
+	The rules that found something, in catalogue order.
+	"""
+	rules: [AnomalyRule!]!
+}
+
+"""
+How the number of persons in a tree changed, day by day.
+"""
+type TreeGrowth {
+	"""
+	Each day (UTC) the number of persons changed, oldest first. Their
+	running total of `added - removed` is the number of persons at the end
+	of each day, and the last one the tree's persons now.
+	"""
+	days: [GrowthDay!]!
+	"""
+	The tree's recorded imports, oldest first.
+	"""
+	imports: [GrowthImport!]!
+}
+
+"""
+Everything the Statistics page draws.
+"""
+type TreeStatistics {
+	persons: Int!
+	men: Int!
+	women: Int!
+	unknownSex: Int!
+	unions: Int!
+	"""
+	Places named by at least one event or media.
+	"""
+	places: Int!
+	sources: Int!
+	"""
+	The first and the last year of the tree's dated events.
+	"""
+	firstYear: Int
+	lastYear: Int
+	"""
+	Persons with a dated birth (or baptism), and with a dated death (or
+	burial).
+	"""
+	datedBirths: Int!
+	datedDeaths: Int!
+	"""
+	Persons without a known parent, who are no one's parent, and who
+	are no one's spouse.
+	"""
+	withoutParents: Int!
+	withoutChildren: Int!
+	withoutUnion: Int!
+	"""
+	Distinct family names and first given names.
+	"""
+	surnames: Int!
+	givenNames: Int!
+	"""
+	Age at death, in years.
+	"""
+	lifespan: SexSummary!
+	"""
+	Age at the first union, in years.
+	"""
+	firstUnionAge: SexSummary!
+	"""
+	Parents' age at the birth of each of their children, in years.
+	"""
+	generationInterval: Summary!
+	"""
+	Children per union.
+	"""
+	familySize: Summary!
+	topSurnames: [CountEntry!]!
+	topGivenNamesMen: [CountEntry!]!
+	topGivenNamesWomen: [CountEntry!]!
+	topOccupations: [CountEntry!]!
+	"""
+	Every event type with how many events it has, most used first; the
+	label is the `EventType` in its snake_case form.
+	"""
+	eventTypes: [CountEntry!]!
+	"""
+	How many unions have 0, 1, 2… children, by that number.
+	"""
+	childrenHistogram: [Int!]!
+	"""
+	Per year, the births, baptisms, unions, deaths and burials dated in
+	it, however their dates are qualified.
+	"""
+	eventsByYear: [YearCounts!]!
+	"""
+	Per year, the births (or baptisms) of men and of women.
+	"""
+	birthsBySex: [YearCounts!]!
+	"""
+	Per year of birth, the births, and the deaths before one and before
+	five years of age among them.
+	"""
+	mortality: [YearCounts!]!
+	"""
+	Age at death by year of death.
+	"""
+	ageAtDeath: SexSeries!
+	"""
+	Age at death by year of birth.
+	"""
+	lifeExpectancy: SexSeries!
+	"""
+	Per year, the births in each month.
+	"""
+	birthsByMonth: [YearCounts!]!
+	parentsAge: ParentAgeSeries!
+	ageAtFirstUnion: SexSeries!
+	"""
+	Per year, the unions on each weekday, Monday first.
+	"""
+	unionsByWeekday: [YearCounts!]!
+	"""
+	Per year, the unions in each month.
+	"""
+	unionsByMonth: [YearCounts!]!
+	"""
+	Union durations, in years.
+	"""
+	unionDuration: [YearSum!]!
+	childrenPerUnion: [YearSum!]!
+	"""
+	Time between two births in a family, in months.
+	"""
+	birthSpacing: [YearSum!]!
+	"""
+	Gap between a family's first and last child, in months.
+	"""
+	firstLastChildGap: [YearSum!]!
+	"""
+	Age difference between spouses, in months.
+	"""
+	spouseAgeGap: [YearSum!]!
+	pyramid: [PyramidBand!]!
+	records: [StatRecord!]!
+	recentBirths: [PersonRecord!]!
+	recentDeaths: [PersonRecord!]!
+	recentUnions: [UnionRecord!]!
+	oldestPossiblyAlive: [PersonRecord!]!
+	longestLives: [PersonRecord!]!
+	"""
+	The unions with the most children, most first.
+	"""
+	largestFamilies: [FamilyRecord!]!
+	"""
+	The used places that could be located, for the heat map.
+	"""
+	locatedPlaces: [PlaceUsage!]!
+	"""
+	The ten most used places, located or not.
+	"""
+	topPlaces: [PlaceUsage!]!
+	"""
+	Used places that could not be located.
+	"""
+	unlocatedPlaces: Int!
+	"""
+	Distinct countries, regions and subdivisions of the used places.
+	"""
+	countries: Int!
+	regions: Int!
+	subdivisions: Int!
+	"""
+	Births (or baptisms) by the country, region and subdivision of their
+	place, named in the requested language.
+	"""
+	birthsByCountry: [CountEntry!]!
+	birthsByRegion: [CountEntry!]!
+	birthsBySubdivision: [CountEntry!]!
+}
+
+type UnionRecord {
+	familyId: String!
+	spouses: [PersonRef!]!
+	date: RecordDate!
+	place: String
+}
+
+"""
+Input for updating a citation.
+"""
+input UpdateCitationInput {
+	"""
+	Repoints the citation at another source.
+	"""
+	sourceId: ID
+	page: String
+	"""
+	Null marks the evidence as not assessed.
+	"""
+	confidence: GqlConfidence
+	text: String
+}
+
+"""
+Input for updating an event.
+"""
+input UpdateEventInput {
+	eventType: GqlEventType
+	dateValue: String
+	dateQualifier: GqlDateQualifier
+	dateValue2: String
+	calendar: GqlCalendar
+	cause: String
+	age: String
+	agency: String
+	"""
+	Replaces a family event's spouse ages when given; an empty list
+	clears them.
+	"""
+	spouseAges: [SpouseAgeInput!]
+	placeId: String
+	description: String
+}
+
+"""
+Input for updating a family.
+"""
+input UpdateFamilyInput {
+	privacy: GqlPrivacy
+}
+
+"""
+Input for updating media metadata.
+
+A media carries the same descriptive fields a fact does. There is no source
+field on purpose: a media *is* a source document. `dateSort` is absent
+because the server derives it, exactly as it does for an event.
+"""
+input UpdateMediaInput {
+	title: String
+	description: String
+	dateValue: String
+	dateValue2: String
+	dateQualifier: GqlDateQualifier
+	calendar: GqlCalendar
+	placeId: String
+	"""
+	The URL of a remote media. Refused for a media whose bytes we hold.
+	"""
+	filePath: String
+	mimeType: String
+	"""
+	The picture's pixel size, sent together or not at all. Accepted only
+	for a page we do not hold: we never fetch a remote file, so the client
+	that displayed it is the only witness to how big it is.
+	"""
+	width: Int
+	height: Int
+	"""
+	Whether this is shown when the tree is published.
+	"""
+	privacy: GqlPrivacy
+	"""
+	What the medium physically is, in GEDCOM's own vocabulary.
+	"""
+	sourceMediaType: GqlSourceMediaType
+	"""
+	What kind of record it is. Setting it without a `sourceMediaType` also
+	sets the medium it implies, so a census return does not export as
+	`OTHER`.
+	"""
+	documentCategory: GqlDocumentCategory
+}
+
+"""
+Input for updating a note.
+"""
+input UpdateNoteInput {
+	text: String
+}
+
+"""
+Input for updating a person.
+"""
+input UpdatePersonInput {
+	sex: GqlSex
+	privacy: GqlPrivacy
+}
+
+"""
+Input for updating a person name (all fields optional except id).
+"""
+input UpdatePersonNameInput {
+	nameType: GqlNameType
+	givenNames: String
+	surname: String
+	surnamePrefix: String
+	prefix: String
+	suffix: String
+	nickname: String
+	isPrimary: Boolean
+	sortOrder: Int
+}
+
+"""
+Input for updating a place.
+"""
+input UpdatePlaceInput {
+	name: String
+	latitude: Float
+	longitude: Float
+}
+
+"""
+Input for updating a repository.
+"""
+input UpdateRepositoryInput {
+	name: String
+	address: String
+	phone: String
+	email: String
+	website: String
+}
+
+"""
+Input for updating a source.
+"""
+input UpdateSourceInput {
+	title: String
+	author: String
+	publisher: String
+	abbreviation: String
+	agency: String
+}
+
+"""
+Input for updating a source's link to a repository.
+"""
+input UpdateSourceRepositoryInput {
+	"""
+	Points the link at another repository.
+	"""
+	repositoryId: ID
+	callNumber: String
+	mediaType: GqlSourceMediaType
+	sortOrder: Int
+}
+
+"""
+Input for updating an existing tree.
+"""
+input UpdateTreeInput {
+	"""
+	What `Default` privacy resolves to for everything in this tree.
+	"""
+	defaultPrivacy: GqlTreeDefaultPrivacy
+	"""
+	Whether entry fields suggest values as the user types.
+	"""
+	entrySuggestions: Boolean
+	"""
+	How much of a date the tree's pages write.
+	"""
+	dateFormat: GqlDateDisplayFormat
+	"""
+	Whether lifespans write the birth and death symbols.
+	"""
+	dateSymbols: Boolean
+	"""
+	Whether an approximate date reads « c. ».
+	"""
+	dateCirca: Boolean
+	"""
+	The calendar a date recorded in another one is also given in.
+	"""
+	dateCalendar: GqlCalendar
+	"""
+	Whether surname fields write in capitals.
+	"""
+	surnameUppercase: Boolean
+	"""
+	Whether adding a relative offers the persons already in the tree.
+	"""
+	suggestPersons: Boolean
+	"""
+	The order and form of a date field's parts.
+	"""
+	dateInputFormat: GqlDateInputFormat
+	"""
+	The calendar an empty date field starts in.
+	"""
+	dateInputCalendar: GqlCalendar
+	name: String
+	description: String
+	sosaRootPersonId: String
+	selfPersonId: String
+	"""
+	Who the tree's GEDCOM exports say they are from.
+	"""
+	submitterName: String
+	submitterEmail: String
+	submitterAddress: String
+}
+
+"""
+Input for moving or re-attributing a vignette.
+
+The four rectangle fields travel together: send all of them or none.
+"""
+input UpdateVignetteInput {
+	x: Int
+	y: Int
+	width: Int
+	height: Int
+	personId: String
+	eventId: String
+}
+
+"""
+Input for uploading a file's actual bytes.
+
+The content travels base64-encoded in the request body, the same choice the
+GEDCOM and GeneWeb import mutations make: adding the `Upload` scalar would
+mean multipart GraphQL requests, a transport every client would then have
+to special-case for one field. REST's `POST .../media/upload` is the
+efficient path and is what the UI uses; this exists so no operation is
+reachable from only one of the two APIs.
+
+Base64 inflates the payload by a third, so the effective size ceiling here
+is correspondingly lower than REST's.
+"""
+input UploadMediaFileInput {
+	"""
+	The document the file becomes a page of. Ignored when `mediaId` names
+	an existing page to fill in.
+	"""
+	documentId: String
+	fileName: String!
+	"""
+	Base64-encoded file content.
+	"""
+	contentBase64: String!
+	title: String
+	description: String
+	"""
+	Attach the bytes to an existing page instead of creating one.
+	"""
+	mediaId: String
+}
+
+"""
+Input for recording a media file we do not hold the bytes of.
+
+The metadata-only path, mirroring `POST /trees/{id}/media`. To send actual
+bytes, use `uploadMediaFile`.
+"""
+input UploadMediaInput {
+	"""
+	The document this becomes a page of. Bytes and URLs live on pages, and
+	a page always belongs to a document; create one with
+	`createMediaDocument` first.
+	"""
+	documentId: String!
+	fileName: String!
+	mimeType: String!
+	filePath: String!
+	fileSize: Int!
+	title: String
+	description: String
+}
+
+"""
+One year's counts per category (a month, a weekday, a kind of event).
+"""
+type YearCounts {
+	year: Int!
+	counts: [Int!]!
+}
+
+"""
+The values one year adds to an average: their sum and how many they
+are, so a period's average is its years' sums over their counts.
+"""
+type YearSum {
+	year: Int!
+	sum: Float!
+	count: Int!
+}
+
+"""
+Directs the executor to include this field or fragment only when the `if` argument is true.
+"""
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Directs the executor to skip this field or fragment when the `if` argument is true.
+"""
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Provides a scalar specification URL for specifying the behavior of custom scalar types.
+"""
+directive @specifiedBy(url: String!) on SCALAR
+schema {
+	query: QueryRoot
+	mutation: MutationRoot
+}

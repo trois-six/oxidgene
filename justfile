@@ -163,6 +163,11 @@ theme-preview:
 places *args:
     cargo run --package oxidgene-place-dictionary -- {{args}}
 
+# Rewrite docs/schema.graphql, the committed SDL of the GraphQL schema, after
+# an intended schema change (a guard fails while the two differ).
+graphql-schema:
+    OXIDGENE_BLESS=1 cargo nextest run -p oxidgene-api --features graphql --test guards_test -E 'test(the_schema_matches_its_snapshot)'
+
 # Regenerate the OpenAPI specification from the REST router
 openapi:
     cargo build --package oxidgene-api

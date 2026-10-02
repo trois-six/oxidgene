@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:25:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:19:19Z }
 ---
 
 
@@ -28,7 +28,12 @@ errors, update behavior, projection refresh, and integration-test coverage.
 REST-only and GraphQL-only product operations are not part of the accepted
 contract. A temporary implementation gap is a defect to close, not an API
 exception to document. Changes to an operation update both mappings, their
-tests, and this specification in the same change.
+tests, and this specification in the same change. The mapping is declared
+operation by operation in the parity table of
+`crates/oxidgene-api/tests/guards/api_contract.rs`: a guard fails when a
+route or a root GraphQL field is missing from it, when it names one that no
+longer exists, and when a route of the router has no row in §2 — or a row of
+§2 no route.
 
 The [Assistant Access (MCP)](mcp.md) server is an adapter over a
 curated subset of these operations, not a third mirror. It never offers an
@@ -127,8 +132,13 @@ partial media warnings only where their endpoint contract says so.
 
 ### Machine-readable schema
 
-The REST API exposes its OpenAPI 3.1 description at
-`GET /api/v1/openapi.json`. The build script generates the document from the
+The REST API exposes its OpenAPI 3.1 description:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/openapi.json` | The OpenAPI 3.1 document of the REST surface; open, even where the rest of the API takes a credential |
+
+The build script generates the document from the
 Axum router AST on every API build, including nested and merged routers, so its
 paths, HTTP methods, operation identifiers, and path parameters track the
 compiled REST surface. Each handler's extractors are read from the sources too:
@@ -1336,9 +1346,12 @@ contract is currently exposed.
 The executable schema is the contract's GraphQL side; this specification does
 not copy it. Its source is `crates/oxidgene-api/src/graphql/`: the root
 queries in `query.rs`, the mutations in `mutation.rs`, the output types in
-`types.rs` and `history.rs`, and the input types in `inputs.rs`. A client reads
-it through standard introspection on `/graphql`, or browses it in GraphiQL
-where the deployment enables it. Every query is limited to a depth of 16 and a
+`types.rs` and `history.rs`, and the input types in `inputs.rs`. Its SDL is
+committed as [schema.graphql](schema.graphql), which `just graphql-schema`
+regenerates: a guard fails while the two differ, so every schema change is
+reviewed as a diff of that file. A client reads the schema through standard
+introspection on `/graphql`, or browses it in GraphiQL where the deployment
+enables it. Every query is limited to a depth of 16 and a
 complexity of 1,000.
 
 The schema mirrors §2 operation by operation, following these rules:

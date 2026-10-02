@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:18:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:34:20Z }
 ---
 
 # Development Environment and Workflows
@@ -72,6 +72,7 @@ the repository root.
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
 | `just theme-preview` | Write an HTML preview of every theme's pedigree card to `OXIDGENE_PREVIEW_DIR`. |
+| `just graphql-schema` | Rewrite `docs/schema.graphql`, the committed SDL of the GraphQL schema, after an intended schema change ([API Contract](api.md#schema)). |
 | `just openapi` | Build `oxidgene-api`, whose build script regenerates from the REST router the OpenAPI document served at `/api/v1/openapi.json` ([API Contract](api.md)). |
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
