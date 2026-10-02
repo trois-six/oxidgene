@@ -82,6 +82,16 @@ pub struct ExportOptions<'a> {
     pub media_paths: &'a HashMap<Uuid, String>,
     /// The tree's "Who am I?" person.
     pub self_person_id: Option<Uuid>,
+    /// The tree's submitter settings.
+    pub submitter: SubmitterSettings<'a>,
+}
+
+/// Who a tree's exports say they are from, as its settings hold it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SubmitterSettings<'a> {
+    pub name: Option<&'a str>,
+    pub email: Option<&'a str>,
+    pub address: Option<&'a str>,
 }
 
 /// Export domain model entities to a GEDCOM 5.5.1 string.
@@ -135,6 +145,7 @@ pub fn export_gedcom(
         merge_names,
         media_paths,
         self_person_id,
+        submitter,
     } = *options;
     let mut warnings: Vec<String> = Vec::new();
     let build_span = tracing::info_span!(
@@ -196,7 +207,7 @@ pub fn export_gedcom(
         header: Some(gedcom_header()),
         ..Default::default()
     };
-    data.submitters = vec![index.submitter(self_person_id)];
+    data.submitters = vec![index.submitter(submitter.name, self_person_id)];
     data.sources = sources.iter().map(|src| index.source(src)).collect();
     data.repositories = repositories
         .iter()
@@ -223,7 +234,7 @@ pub fn export_gedcom(
     let gedcom = crate::finish::finish(
         &gedcom,
         |owner| index.notes_of(owner),
-        &index.additions(persons, families, sources, repositories),
+        &index.additions(persons, families, sources, repositories, submitter),
     );
     let (gedcom, extension_warnings) = inject_extensions(gedcom, media, vignettes, &index);
     warnings.extend(extension_warnings);
@@ -460,15 +471,22 @@ struct ExportIndex<'a> {
 impl ExportIndex<'_> {
     /// The `SUBM` record: who the file is from.
     ///
-    /// The display name of the tree's "Who am I?" person, and `Not Provided`
-    /// — Gramps' wording for the same gap — when the tree names nobody, or
-    /// somebody nameless.
-    fn submitter(&self, self_person_id: Option<Uuid>) -> Submitter {
-        let name = self_person_id
-            .and_then(|id| self.names_by_person.get(&id))
-            .and_then(|names| PersonName::primary(names.iter().copied()))
-            .map(PersonName::display_name)
-            .filter(|name| !name.trim().is_empty())
+    /// The tree's submitter name; else the display name of its "Who am I?"
+    /// person; else `Not Provided` — Gramps' wording for the same gap — when
+    /// the tree names nobody, or somebody nameless. Its email and address are
+    /// `additions`: `ged_io` writes neither the one nor a multi-line other.
+    fn submitter(&self, setting: Option<&str>, self_person_id: Option<Uuid>) -> Submitter {
+        let name = setting
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                self_person_id
+                    .and_then(|id| self.names_by_person.get(&id))
+                    .and_then(|names| PersonName::primary(names.iter().copied()))
+                    .map(PersonName::display_name)
+                    .filter(|name| !name.trim().is_empty())
+            })
             .unwrap_or_else(|| "Not Provided".to_string());
         Submitter {
             xref: Some(SUBMITTER_XREF.to_string()),
@@ -516,8 +534,17 @@ impl ExportIndex<'_> {
         families: &[Family],
         sources: &[Source],
         repositories: &[Repository],
+        submitter: SubmitterSettings<'_>,
     ) -> HashMap<String, Vec<crate::finish::Addition>> {
         let mut additions: HashMap<String, Vec<crate::finish::Addition>> = HashMap::new();
+        for (tag, value) in [("ADDR", submitter.address), ("EMAIL", submitter.email)] {
+            if let Some(value) = value.filter(|v| !v.trim().is_empty()) {
+                additions
+                    .entry(SUBMITTER_XREF.to_string())
+                    .or_default()
+                    .push(crate::finish::Addition::new(tag, value.trim()));
+            }
+        }
         let private = persons
             .iter()
             .filter(|p| p.privacy == Privacy::Private)
@@ -2047,6 +2074,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2110,6 +2138,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &paths,
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2179,6 +2208,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2314,6 +2344,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &media_paths,
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2365,6 +2396,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2387,6 +2419,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2423,6 +2456,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2492,6 +2526,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &paths,
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2579,6 +2614,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2649,6 +2685,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2717,6 +2754,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2789,6 +2827,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2861,6 +2900,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2940,6 +2980,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -2991,6 +3032,7 @@ mod tests {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");
@@ -3022,6 +3064,7 @@ mod tests {
                 media_paths: // No archive: nothing to point into.
             &HashMap::new(),
                 self_person_id: None,
+                submitter: Default::default(),
             },
         )
         .expect("exports");

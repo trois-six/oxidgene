@@ -520,6 +520,12 @@ pub struct TreeSnapshot {
     pub entry_suggestions: bool,
     pub sosa_root_person_id: Option<Uuid>,
     pub self_person_id: Option<Uuid>,
+    #[serde(default)]
+    pub submitter_name: Option<String>,
+    #[serde(default)]
+    pub submitter_email: Option<String>,
+    #[serde(default)]
+    pub submitter_address: Option<String>,
 }
 
 /// A snapshot item that keeps its identity across versions.

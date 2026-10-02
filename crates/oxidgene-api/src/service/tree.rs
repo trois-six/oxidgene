@@ -61,6 +61,13 @@ pub struct TreePatch {
     pub default_privacy: Option<TreeDefaultPrivacy>,
     /// Whether entry fields suggest values as the user types.
     pub entry_suggestions: Option<bool>,
+    /// Who the tree's GEDCOM exports say they are from.
+    #[serde(default, deserialize_with = "double_option")]
+    pub submitter_name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub submitter_email: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub submitter_address: Option<Option<String>>,
 }
 
 /// Every tree, a page at a time, each with the import running into it.
@@ -143,6 +150,9 @@ pub async fn update_tree(
             self_person_id: patch.self_person_id,
             default_privacy: patch.default_privacy,
             entry_suggestions: patch.entry_suggestions,
+            submitter_name: patch.submitter_name.map(blank_to_none),
+            submitter_email: patch.submitter_email.map(blank_to_none),
+            submitter_address: patch.submitter_address.map(blank_to_none),
         },
     )
     .await?;
@@ -208,7 +218,9 @@ pub async fn duplicate_tree(
         Some(tree.name.clone()),
     )
     .await?;
-    Ok(tree)
+    // As the import left it: it fills the settings the file carries, such
+    // as the submitter.
+    TreeRepo::get(db, new_tree_id).await
 }
 
 fn require_name(name: &str) -> Result<(), OxidGeneError> {
@@ -218,4 +230,9 @@ fn require_name(name: &str) -> Result<(), OxidGeneError> {
         ));
     }
     Ok(())
+}
+
+/// `text` trimmed, unless it is blank.
+fn blank_to_none(text: Option<String>) -> Option<String> {
+    text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
 }

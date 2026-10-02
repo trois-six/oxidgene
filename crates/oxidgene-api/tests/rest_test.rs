@@ -2852,6 +2852,50 @@ async fn test_gedcom_import() {
     assert_eq!(edges.len(), 2);
 }
 
+/// An import fills the tree's empty submitter settings from the submitter
+/// the header points at, never overwriting one, and a duplicate carries them
+/// over through its GEDCOM.
+#[tokio::test]
+async fn an_import_fills_only_the_empty_submitter_settings() {
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree_id = create_tree_via_api(&app).await;
+    let uri = format!("/api/v1/trees/{tree_id}");
+    common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(serde_json::json!({ "submitter_name": "Kept Fixture" })),
+    )
+    .await;
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n1 SUBM @U1@\n\
+                  0 @U1@ SUBM\n1 NAME Imported Fixture\n1 EMAIL imported@example.org\n\
+                  0 @U2@ SUBM\n1 NAME Other Fixture\n\
+                  0 @I1@ INDI\n1 NAME Alpha /Fixture/\n0 TRLR\n";
+    let summary = common::import_gedcom(&app, &db, &tree_id, gedcom).await;
+    assert!(
+        summary["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w.as_str().unwrap().contains("1 other submitter")),
+        "{summary}"
+    );
+    let tree = common::ok(&app, Method::GET, &uri, None).await;
+    assert_eq!(tree["submitter_name"], "Kept Fixture");
+    assert_eq!(tree["submitter_email"], "imported@example.org");
+
+    let copy = common::ok(
+        &app,
+        Method::POST,
+        &format!("{uri}/duplicate"),
+        Some(serde_json::json!({ "name": "Copy" })),
+    )
+    .await;
+    assert_eq!(copy["submitter_name"], "Kept Fixture");
+    assert_eq!(copy["submitter_email"], "imported@example.org");
+}
+
 #[tokio::test]
 async fn test_gedcom_import_spans_multiple_insert_batches() {
     let db = setup_db().await;

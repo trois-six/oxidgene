@@ -299,6 +299,9 @@ impl SnapshotRepo {
                 entry_suggestions: row.entry_suggestions,
                 sosa_root_person_id: row.sosa_root_person_id,
                 self_person_id: row.self_person_id,
+                submitter_name: row.submitter_name,
+                submitter_email: row.submitter_email,
+                submitter_address: row.submitter_address,
             }),
             labels,
         }])
@@ -490,6 +493,9 @@ impl SnapshotRepo {
         active.description = Set(snapshot.description.clone());
         active.default_privacy = Set(snapshot.default_privacy.into());
         active.entry_suggestions = Set(snapshot.entry_suggestions);
+        active.submitter_name = Set(snapshot.submitter_name.clone());
+        active.submitter_email = Set(snapshot.submitter_email.clone());
+        active.submitter_address = Set(snapshot.submitter_address.clone());
         active.sosa_root_person_id =
             Set(snapshot.sosa_root_person_id.filter(|id| live.contains(id)));
         active.self_person_id = Set(snapshot.self_person_id.filter(|id| live.contains(id)));

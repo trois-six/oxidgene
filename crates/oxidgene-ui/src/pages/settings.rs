@@ -461,6 +461,8 @@ pub fn Settings(tree_id: String) -> Element {
                     },
                     "export" => rsx! {
                         ExportSection {
+                            tree_id: tree_id.clone(),
+                            tree_resource,
                             on_export,
                             on_download_again,
                             downloadable_until: downloadable_until.clone(),
@@ -945,6 +947,8 @@ fn EntryOptionsSection(
 
 #[component]
 fn ExportSection(
+    tree_id: String,
+    tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
     on_export: EventHandler<MouseEvent>,
     on_download_again: EventHandler<MouseEvent>,
     /// When the last GEDZIP export stops being downloadable, formatted;
@@ -1061,6 +1065,96 @@ fn ExportSection(
                         "{message}"
                     }
                 }
+            }
+
+            if let (Ok(tid), Some(Some(Ok(tree)))) = (tree_id.parse::<Uuid>(), &*tree_resource.read()) {
+                SubmitterCard { key: "{tid}", tree_id: tid, tree: tree.clone() }
+            }
+        }
+    }
+}
+
+/// Who the tree's exports say they are from: GEDCOM's submitter (`SUBM`).
+/// A blank name falls back to the "Who am I?" person, then to `Not
+/// Provided`.
+#[component]
+fn SubmitterCard(tree_id: Uuid, tree: oxidgene_core::types::Tree) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let mut name = use_signal(|| tree.submitter_name.clone().unwrap_or_default());
+    let mut email = use_signal(|| tree.submitter_email.clone().unwrap_or_default());
+    let mut address = use_signal(|| tree.submitter_address.clone().unwrap_or_default());
+    let mut saving = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut saved = use_signal(|| false);
+    let field = |text: String| Some(Some(text.trim().to_string()).filter(|t| !t.is_empty()));
+    let save = move |_| {
+        let api = api.clone();
+        let body = UpdateTreeBody {
+            submitter_name: field(name()),
+            submitter_email: field(email()),
+            submitter_address: field(address()),
+            ..Default::default()
+        };
+        saving.set(true);
+        saved.set(false);
+        error.set(None);
+        spawn(async move {
+            match api.update_tree(tree_id, &body).await {
+                Ok(tree) => {
+                    tree_cache.refresh_tree(tree_id, tree);
+                    saved.set(true);
+                }
+                Err(e) => error.set(Some(e.to_string())),
+            }
+            saving.set(false);
+        });
+    };
+    rsx! {
+        div { class: "card settings-card",
+            h3 { class: "settings-card-title", {i18n.t("settings.submitter")} }
+            p { class: "settings-card-desc", {i18n.t("settings.submitter_desc")} }
+            div { class: "form-row",
+                div { class: "form-group",
+                    label { {i18n.t("settings.submitter_name")} }
+                    input {
+                        r#type: "text",
+                        value: "{name}",
+                        placeholder: i18n.t("settings.submitter_name_placeholder"),
+                        oninput: move |e: Event<FormData>| name.set(e.value()),
+                    }
+                }
+                div { class: "form-group",
+                    label { {i18n.t("settings.submitter_email")} }
+                    input {
+                        r#type: "email",
+                        value: "{email}",
+                        oninput: move |e: Event<FormData>| email.set(e.value()),
+                    }
+                }
+            }
+            div { class: "form-group",
+                label { {i18n.t("settings.submitter_address")} }
+                textarea {
+                    rows: 3,
+                    value: "{address}",
+                    oninput: move |e: Event<FormData>| address.set(e.value()),
+                }
+            }
+            div { class: "settings-export-row",
+                button {
+                    class: "btn btn-primary",
+                    disabled: saving(),
+                    onclick: save,
+                    if saving() { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                }
+            }
+            if let Some(err) = error() {
+                div { class: "error-msg settings-feedback", "{err}" }
+            }
+            if saved() {
+                div { class: "success-msg settings-feedback", {i18n.t("settings.submitter_saved")} }
             }
         }
     }

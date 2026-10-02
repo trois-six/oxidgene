@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
 ---
 
 
@@ -37,7 +37,10 @@ independent of this schema reset (see §4.1).
 | `default_privacy` | TreeDefaultPrivacy | Stored tree-wide intent (`Private` by default); not enforced in the current MVP |
 | `entry_suggestions` | bool | Whether entry fields suggest values as the user types ([Common UI §4.4](ui-common.md)); `true` by default, set in [Settings](ui-settings.md) §10 |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
-| `self_person_id` | UUID v7? | FK → Person — person representing the current user, used only for the blue pedigree badge, set in [Settings](ui-settings.md) §7 |
+| `self_person_id` | UUID v7? | FK → Person — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
+| `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §18 |
+| `submitter_email` | String? | The submitter's email (`SUBM.EMAIL`), written only when set |
+| `submitter_address` | Text? | The submitter's postal address over several lines (`SUBM.ADDR`), written only when set |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -1045,7 +1048,7 @@ privacy, all its spouses and children, and its events, notes and citations.
 Portraits, media links and notes about a media are left out: media are audited,
 never versioned. A place's snapshot is its name and coordinates; a source's,
 its fields and notes; the tree's, its name, description, default privacy, SOSA
-root and "self" person. A source's snapshot also lists its repository links —
+root, "self" person and submitter. A source's snapshot also lists its repository links —
 repository, call number, medium, order — with the repositories' names in
 `labels`; a repository's holds its name, address, contact details and notes. A
 family event's snapshot lists the spouses' ages, by membership.

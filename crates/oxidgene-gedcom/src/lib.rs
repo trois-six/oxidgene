@@ -43,6 +43,11 @@ pub struct ImportResult {
     pub media_links: Vec<MediaLink>,
     pub vignettes: Vec<Vignette>,
     pub notes: Vec<Note>,
+    /// The tree the records were read for.
+    pub tree_id: uuid::Uuid,
+    /// The submitter the header points at (`HEAD.SUBM`), for the tree's
+    /// settings to take where they are empty.
+    pub submitter: Option<ImportedSubmitter>,
     /// Warnings collected during import (non-fatal issues).
     pub warnings: Vec<String>,
     /// The `@I…@` xref each imported person was given a UUID for.
@@ -59,6 +64,14 @@ pub struct ImportResult {
     /// OxidGene's vignette extension uses the record xref to attach each crop
     /// to its source image after the standard GEDCOM model has been imported.
     pub media_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+}
+
+/// The submitter a file says it is from: each field when the file states it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportedSubmitter {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub address: Option<String>,
 }
 
 impl ImportResult {

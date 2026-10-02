@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
 ---
 
 
@@ -562,7 +562,10 @@ projection in the same transaction.
 `PUT /trees/{id}` accepts `default_privacy` (`"public" | "private"`) — what
 `"default"` resolves to for everything in that tree — and `entry_suggestions`
 (a boolean, `updateTree`'s `entrySuggestions` in GraphQL), which turns the
-entry fields' suggestions off or on for the tree. **Privacy** is accepted on
+entry fields' suggestions off or on for the tree, and the GEDCOM submitter:
+`submitter_name`, `submitter_email` and `submitter_address` (GraphQL
+`submitterName`, `submitterEmail`, `submitterAddress`) — omitted keeps, `null`
+or a blank value clears, on both surfaces. **Privacy** is accepted on
 all three of `PUT .../persons/{id}`,
 `PUT .../families/{id}` and `PUT .../media/{id}` as `"default" | "public" |
 "private"`. The family route's body is optional — it long predates this field as
@@ -1925,7 +1928,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster |
 | Nicknames (`NICK`) | Full | Full | On the name that carries it. A non-primary `aka` name that only restates the primary name (or names nobody) to carry a `NICK` imports as a `Byname` holding the nickname alone, as the person form records one; a byname exports as such an `aka` name |
 | Restriction (`RESN`) | Person and family privacy | Person and family privacy | `confidential` or `privacy` on an `INDI` or `FAM`, in any case and among several comma-separated values, makes the record `Private`; `locked`, another value or no `RESN` leaves it `Default`. A `Private` person or family is exported with `RESN confidential` (`ged_io` writes no record-level `RESN`, so the export adds it); `Public` has no `RESN` value and comes back as `Default` |
-| Submitter (`SUBM`) | Not imported | One record, pointed at by `HEAD.SUBM` | GEDCOM 5.5.1 requires a submitter. The record's `NAME` is the display name of the tree's "Who am I?" person (`self_person_id`), or `Not Provided` when the tree names nobody |
+| Submitter (`SUBM`) | The record `HEAD.SUBM` points at fills the tree's submitter settings that are empty — never one already set; `Not Provided` is no name. Other `SUBM` records are a warning with their count | One record, pointed at by `HEAD.SUBM` | GEDCOM 5.5.1 requires a submitter. The record's `NAME` is the tree's submitter name, else the display name of its "Who am I?" person (`self_person_id`), else `Not Provided` (Gramps' wording). `EMAIL` and the multi-line `ADDR` are written only when set (`ged_io` writes neither, so the export adds them). A duplicated tree carries the settings over |
 | Header charset | Declared `CHAR` decoded | `CHAR UTF-8` | A `.ged` is read in the character set it declares — a byte-order mark first, then `HEAD.CHAR`: UTF-8, UTF-16, ANSEL, ISO-8859-1 or -15, and `ANSI` as Windows-1252 — so files from GEDCOM 5 software keep their accents. Export declares UTF-8 explicitly |
 | GEDCOM version | 5.5.1 + 7.0 | 5.5.1 only | ged_io auto-detects on import |
 
@@ -1953,7 +1956,9 @@ the next block for a `fam`, and reported as one warning naming its line.
 
 ### Not currently imported (silently skipped)
 
-- Submitter records (`SUBM`)
+- Submitter records other than the one `HEAD.SUBM` points at (a warning
+  counts them), and the `SUBM` pointers of individual and family records
+  (`INDI.SUBM`, `FAM.SUBM`), which `ged_io` does not parse
 - Religion of a single event (`RELI` under an event; `RELI` as an individual
   attribute is imported, see above)
 - Custom/vendor tags (`_CUSTOM`), OxidGene's own `_OXIDGENE_*` media

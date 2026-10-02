@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use oxidgene_core::types::{Note, Person, PersonName};
 use oxidgene_core::{NameType, Privacy, Sex};
-use oxidgene_gedcom::export::{ExportOptions, ExportRecords, export_gedcom};
+use oxidgene_gedcom::export::{ExportOptions, ExportRecords, SubmitterSettings, export_gedcom};
 use oxidgene_gedcom::import::import_gedcom;
 
 /// Minimal GEDCOM 5.5.1 with one individual.
@@ -229,6 +229,7 @@ fn reexport(imported: &oxidgene_gedcom::ImportResult) -> String {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .expect("exports")
@@ -661,11 +662,13 @@ fn unicode_compose(text: &str) -> String {
 }
 
 /// GEDCOM 5.5.1 requires `HEAD.SUBM` and the record it points at: named after
-/// the tree's "Who am I?" person, else `Not Provided`.
+/// the tree's submitter setting, else its "Who am I?" person, else `Not
+/// Provided`; the setting's email and address are written when set, and the
+/// import reads the submitter back — but not `Not Provided`.
 #[test]
 fn the_export_names_its_submitter() {
     let imported = import_gedcom(FAMILY_GEDCOM, Uuid::now_v7()).expect("imports");
-    let export = |self_person_id: Option<Uuid>| {
+    let export_with = |self_person_id: Option<Uuid>, submitter: SubmitterSettings<'_>| {
         export_gedcom(
             &ExportRecords {
                 persons: &imported.persons,
@@ -677,11 +680,13 @@ fn the_export_names_its_submitter() {
                 merge_names: false,
                 media_paths: &HashMap::new(),
                 self_person_id,
+                submitter,
             },
         )
         .expect("exports")
         .gedcom
     };
+    let export = |self_person_id: Option<Uuid>| export_with(self_person_id, Default::default());
     let header_and_submitter = |gedcom: &str| {
         let head = gedcom.split("\n0 ").next().unwrap_or_default().to_string();
         let record = gedcom
@@ -702,6 +707,36 @@ fn the_export_names_its_submitter() {
     let back = import_gedcom(&named, Uuid::now_v7()).expect("re-imports");
     assert_eq!(back.persons.len(), 3);
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    assert_eq!(
+        back.submitter.and_then(|s| s.name).as_deref(),
+        Some("Jane Smith")
+    );
+    let unnamed = import_gedcom(&export(None), Uuid::now_v7()).expect("re-imports");
+    assert_eq!(unnamed.submitter, None, "Not Provided is no name");
+
+    let settings = SubmitterSettings {
+        name: Some("Alpha Fixture"),
+        email: Some("alpha@example.org"),
+        address: Some("1 Fixture Road\nSampleton"),
+    };
+    let set = export_with(Some(imported.persons[1].id), settings);
+    let (_, record) = header_and_submitter(&set);
+    let record = record.unwrap_or_default();
+    assert!(record.contains("\n1 NAME Alpha Fixture"), "{record}");
+    assert!(record.contains("\n1 EMAIL alpha@example.org"), "{record}");
+    assert!(
+        record.contains("\n1 ADDR 1 Fixture Road\n2 CONT Sampleton"),
+        "{record}"
+    );
+    let back = import_gedcom(&set, Uuid::now_v7()).expect("re-imports");
+    assert_eq!(
+        back.submitter,
+        Some(oxidgene_gedcom::ImportedSubmitter {
+            name: Some("Alpha Fixture".to_string()),
+            email: Some("alpha@example.org".to_string()),
+            address: Some("1 Fixture Road\nSampleton".to_string()),
+        })
+    );
 }
 
 /// A citation's transcript, `DATA.TEXT`, written over several lines.
@@ -1035,6 +1070,7 @@ fn partners_are_exported_as_husband_and_wife() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .expect("exports");
@@ -1262,6 +1298,7 @@ fn test_export_produces_valid_gedcom() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1289,6 +1326,7 @@ fn test_export_family() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1318,6 +1356,7 @@ fn test_export_source() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1338,6 +1377,7 @@ fn test_export_empty() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1406,6 +1446,7 @@ fn test_export_long_utf8_note_does_not_panic() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1429,6 +1470,7 @@ fn test_export_association_is_level_one_not_nested_in_event() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1464,6 +1506,7 @@ fn test_roundtrip_preserves_individuals() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1507,6 +1550,7 @@ fn test_roundtrip_preserves_names() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1557,6 +1601,7 @@ fn test_roundtrip_preserves_surname_particle() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1868,6 +1913,7 @@ fn test_roundtrip_occupation_exports_as_occu_tag() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -1991,6 +2037,7 @@ fn test_export_default_keeps_one_occu_tag_per_profession() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -2012,6 +2059,7 @@ fn test_export_merge_occupations_option_collapses_to_one_occu_tag() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -2092,6 +2140,7 @@ fn test_export_default_keeps_one_name_tag_per_person_name() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -2122,6 +2171,7 @@ fn test_export_merge_names_option_collapses_aliases_into_primary_surn() {
             merge_names: true,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();
@@ -2258,6 +2308,7 @@ fn test_export_result_serialization() {
             merge_names: false,
             media_paths: &HashMap::new(),
             self_person_id: None,
+            submitter: Default::default(),
         },
     )
     .unwrap();

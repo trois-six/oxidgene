@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::enums::TreeDefaultPrivacy;
 
 /// A genealogical tree (project).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tree {
     pub id: Uuid,
     pub name: String,
@@ -20,6 +20,16 @@ pub struct Tree {
     /// Whether entry fields suggest values as the user types.
     #[serde(default = "enabled")]
     pub entry_suggestions: bool,
+    /// Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when
+    /// unset, the "Who am I?" person's name.
+    #[serde(default)]
+    pub submitter_name: Option<String>,
+    /// The submitter's email (`SUBM.EMAIL`).
+    #[serde(default)]
+    pub submitter_email: Option<String>,
+    /// The submitter's postal address, over several lines (`SUBM.ADDR`).
+    #[serde(default)]
+    pub submitter_address: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

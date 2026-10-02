@@ -602,12 +602,8 @@ fn RenameTreeModal(
         }
         spawn(async move {
             let body = UpdateTreeBody {
-                default_privacy: None,
-                entry_suggestions: None,
                 name: Some(name),
-                description: None,
-                sosa_root_person_id: None,
-                self_person_id: None,
+                ..Default::default()
             };
             match api.update_tree(tree_id, &body).await {
                 Ok(tree) => {

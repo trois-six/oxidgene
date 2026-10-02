@@ -17,6 +17,10 @@ pub struct Model {
     pub default_privacy: TreeDefaultPrivacy,
     /// Whether entry fields suggest values as the user types.
     pub entry_suggestions: bool,
+    pub submitter_name: Option<String>,
+    pub submitter_email: Option<String>,
+    #[sea_orm(column_type = "Text")]
+    pub submitter_address: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

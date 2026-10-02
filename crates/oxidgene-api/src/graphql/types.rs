@@ -786,6 +786,10 @@ pub struct GqlTree {
     pub default_privacy: GqlTreeDefaultPrivacy,
     /// Whether entry fields suggest values as the user types.
     pub entry_suggestions: bool,
+    /// Who the tree's GEDCOM exports say they are from.
+    pub submitter_name: Option<String>,
+    pub submitter_email: Option<String>,
+    pub submitter_address: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     /// The import running into the tree, when the tree list already knows it:
@@ -840,6 +844,9 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             self_person_id: t.self_person_id.map(|id| ID(id.to_string())),
             default_privacy: t.default_privacy.into(),
             entry_suggestions: t.entry_suggestions,
+            submitter_name: t.submitter_name,
+            submitter_email: t.submitter_email,
+            submitter_address: t.submitter_address,
             created_at: t.created_at,
             updated_at: t.updated_at,
             import_job: None,

@@ -31,6 +31,9 @@ pub struct TreeChanges {
     pub self_person_id: Option<Option<Uuid>>,
     pub default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
     pub entry_suggestions: Option<bool>,
+    pub submitter_name: Option<Option<String>>,
+    pub submitter_email: Option<Option<String>>,
+    pub submitter_address: Option<Option<String>>,
 }
 
 impl TreeRepo {
@@ -64,6 +67,9 @@ impl TreeRepo {
             self_person_id: Set(None),
             default_privacy: Set(oxidgene_core::enums::TreeDefaultPrivacy::default().into()),
             entry_suggestions: Set(true),
+            submitter_name: Set(None),
+            submitter_email: Set(None),
+            submitter_address: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -99,10 +105,51 @@ impl TreeRepo {
         if let Some(entry_suggestions) = changes.entry_suggestions {
             active.entry_suggestions = Set(entry_suggestions);
         }
+        if let Some(name) = changes.submitter_name {
+            active.submitter_name = Set(name);
+        }
+        if let Some(email) = changes.submitter_email {
+            active.submitter_email = Set(email);
+        }
+        if let Some(address) = changes.submitter_address {
+            active.submitter_address = Set(address);
+        }
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
+    }
+
+    /// Give tree `id` the submitter an import read, each field only where the
+    /// tree's own is empty: an import never overwrites a setting.
+    pub async fn fill_submitter(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        name: Option<String>,
+        email: Option<String>,
+        address: Option<String>,
+    ) -> Result<(), OxidGeneError> {
+        let existing = find_live(db, id).await?;
+        let mut active: ActiveModel = existing.clone().into_active_model();
+        for (stored, imported, column) in [
+            (existing.submitter_name, name, Column::SubmitterName),
+            (existing.submitter_email, email, Column::SubmitterEmail),
+            (
+                existing.submitter_address,
+                address,
+                Column::SubmitterAddress,
+            ),
+        ] {
+            if stored.is_none()
+                && let Some(value) = imported
+            {
+                active.set(column, Some(value).into());
+            }
+        }
+        if active.is_changed() {
+            active.update(db).await.map_err(db_err)?;
+        }
+        Ok(())
     }
 
     /// Mark a tree as deleted, without touching the rows it owns.
@@ -166,6 +213,9 @@ fn into_domain(m: tree::Model) -> Tree {
         self_person_id: m.self_person_id,
         default_privacy: m.default_privacy.into(),
         entry_suggestions: m.entry_suggestions,
+        submitter_name: m.submitter_name,
+        submitter_email: m.submitter_email,
+        submitter_address: m.submitter_address,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

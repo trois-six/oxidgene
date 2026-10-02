@@ -324,7 +324,11 @@ fn entry_key(raw: &str) -> String {
 pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResult, String> {
     let ctx = ImportContext::allocate(data, tree_id);
     let now = ctx.now;
-    let mut result = ImportResult::default();
+    let mut result = ImportResult {
+        tree_id,
+        ..ImportResult::default()
+    };
+    import_submitter(data, &mut result);
 
     // Place name → UUID (dedup by exact name match)
     let mut place_map: HashMap<String, Uuid> = HashMap::new();
@@ -446,6 +450,39 @@ fn allocate_ids<'a>(xrefs: impl Iterator<Item = Option<&'a String>>) -> HashMap<
         .flatten()
         .map(|xref| (xref.clone(), Uuid::now_v7()))
         .collect()
+}
+
+/// What `export` names the submitter when nobody is: not a name to keep.
+const NOT_PROVIDED: &str = "Not Provided";
+
+/// The submitter `HEAD.SUBM` points at, and a warning counting the other
+/// `SUBM` records, which are not imported.
+fn import_submitter(data: &GedcomData, result: &mut ImportResult) {
+    let pointer = data
+        .header
+        .as_ref()
+        .and_then(|h| h.submitter_tag.as_deref());
+    let submitter = pointer.and_then(|pointer| {
+        data.submitters
+            .iter()
+            .find(|s| s.xref.as_deref() == Some(pointer))
+    });
+    if let Some(submitter) = submitter {
+        let imported = crate::ImportedSubmitter {
+            name: non_blank(submitter.name.as_deref()).filter(|n| n != NOT_PROVIDED),
+            email: first_non_blank(&submitter.email),
+            address: submitter.address.as_ref().and_then(address_text),
+        };
+        if imported != crate::ImportedSubmitter::default() {
+            result.submitter = Some(imported);
+        }
+    }
+    let others = data.submitters.len() - usize::from(submitter.is_some());
+    if others > 0 {
+        result.warnings.push(format!(
+            "{others} other submitter record(s) (SUBM) were not imported"
+        ));
+    }
 }
 
 /// The repositories an import knows: the `REPO` records by xref, and the

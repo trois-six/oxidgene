@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:49:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
 ---
 
 
@@ -354,6 +354,17 @@ Two export format options, each displayed as a card with icon, name, description
 | Merge name aliases into a single field (GEDCOM only) | Off by default (one `NAME`/`SURN` structure per name, lossless). When enabled, collapses a person's non-primary names into the primary name's `SURN` tag, comma-separated, for compatibility with importers such as Geneanet that only read the first `NAME` structure. See [API Contract](api.md) (GEDCOM) |
 
 Export is triggered directly by the format buttons.
+
+### Submitter
+
+A card under the export options says who the exported files are from —
+GEDCOM's submitter (`SUBM`), which GEDCOM 5.5.1 requires: **Name**, **Email**
+and **Address** (several lines), saved together by their own **Save** and
+stored on the tree (`submitter_name`, `submitter_email`,
+`submitter_address`). A blank name falls back to the person set as **Who am
+I?** (§7), else to `Not Provided`; the email and address are written only when
+set. An import fills those that are empty from the file's submitter, never
+overwriting one.
 
 GEDZIP exports use the shared download transport described in
 [Common UI](ui-common.md). On browsers with a file-system save picker, the

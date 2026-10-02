@@ -484,6 +484,9 @@ pub struct GqlTreeSnapshot {
     pub entry_suggestions: bool,
     pub sosa_root_person_id: Option<ID>,
     pub self_person_id: Option<ID>,
+    pub submitter_name: Option<String>,
+    pub submitter_email: Option<String>,
+    pub submitter_address: Option<String>,
 }
 
 impl From<TreeSnapshot> for GqlTreeSnapshot {
@@ -495,6 +498,9 @@ impl From<TreeSnapshot> for GqlTreeSnapshot {
             entry_suggestions: t.entry_suggestions,
             sosa_root_person_id: t.sosa_root_person_id.map(id),
             self_person_id: t.self_person_id.map(id),
+            submitter_name: t.submitter_name,
+            submitter_email: t.submitter_email,
+            submitter_address: t.submitter_address,
         }
     }
 }

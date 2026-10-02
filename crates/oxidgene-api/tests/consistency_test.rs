@@ -308,6 +308,57 @@ async fn tree_settings_only_name_persons_of_the_tree() {
     assert!(data["updateTree"]["sosaRootPersonId"].is_null(), "{data}");
 }
 
+/// The submitter settings are set, kept and cleared alike on both surfaces,
+/// a blank value clearing like null.
+#[tokio::test]
+async fn submitter_settings_behave_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Submitted").await;
+    let uri = format!("/api/v1/trees/{tree_id}");
+    let set = common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({
+            "submitter_name": " Alpha Fixture ",
+            "submitter_email": "alpha@example.org",
+            "submitter_address": "1 Fixture Road\nSampleton",
+        })),
+    )
+    .await;
+    assert_eq!(set["submitter_name"], "Alpha Fixture");
+    assert_eq!(set["submitter_address"], "1 Fixture Road\nSampleton");
+    let kept = common::ok(&app, Method::PUT, &uri, Some(json!({ "name": "Renamed" }))).await;
+    assert_eq!(kept["submitter_email"], "alpha@example.org");
+    let cleared = common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "submitter_email": null, "submitter_address": " " })),
+    )
+    .await;
+    assert!(cleared["submitter_email"].is_null() && cleared["submitter_address"].is_null());
+
+    let vars = json!({ "t": tree_id });
+    let set = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!) { updateTree(id: $t, input: { submitterEmail: "beta@example.org", submitterAddress: "2 Sample Lane" }) { submitterName submitterEmail submitterAddress } }"#,
+        vars.clone(),
+    )
+    .await;
+    assert_eq!(set["updateTree"]["submitterName"], "Alpha Fixture");
+    assert_eq!(set["updateTree"]["submitterEmail"], "beta@example.org");
+    let cleared = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!) { updateTree(id: $t, input: { submitterName: null, submitterEmail: "" }) { submitterName submitterEmail submitterAddress } }"#,
+        vars,
+    )
+    .await;
+    assert!(cleared["updateTree"]["submitterName"].is_null());
+    assert!(cleared["updateTree"]["submitterEmail"].is_null());
+    assert_eq!(cleared["updateTree"]["submitterAddress"], "2 Sample Lane");
+}
+
 #[tokio::test]
 async fn the_tree_list_reports_a_running_import_on_both_surfaces() {
     let app = setup_app().await;

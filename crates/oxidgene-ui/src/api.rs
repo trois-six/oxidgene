@@ -750,6 +750,13 @@ pub struct UpdateTreeBody {
     /// Whether entry fields suggest values as the user types.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entry_suggestions: Option<bool>,
+    /// Who the tree's GEDCOM exports say they are from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub submitter_name: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub submitter_email: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub submitter_address: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize)]

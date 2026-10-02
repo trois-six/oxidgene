@@ -754,6 +754,20 @@ fn tree_section(
         before.map(|t| on_off(t.entry_suggestions)),
         Some(on_off(after.entry_suggestions)),
     );
+    for (key, get) in [
+        (
+            "history.field.submitter_name",
+            (|t: &TreeSnapshot| t.submitter_name.clone()) as fn(&TreeSnapshot) -> Option<String>,
+        ),
+        ("history.field.submitter_email", |t| {
+            t.submitter_email.clone()
+        }),
+        ("history.field.submitter_address", |t| {
+            t.submitter_address.clone()
+        }),
+    ] {
+        group.row(i18n.t(key), before.and_then(get), get(after));
+    }
     group.reference_row(
         i18n.t("history.field.sosa_root"),
         before

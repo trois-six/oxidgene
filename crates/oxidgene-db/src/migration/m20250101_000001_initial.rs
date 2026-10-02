@@ -92,6 +92,9 @@ enum Tree {
     SelfPersonId,
     DefaultPrivacy,
     EntrySuggestions,
+    SubmitterName,
+    SubmitterEmail,
+    SubmitterAddress,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -422,6 +425,10 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 )
                 // Whether the tree's entry fields suggest values.
                 .col(boolean(Tree::EntrySuggestions).default(true))
+                // Who the tree's GEDCOM exports say they are from (`SUBM`).
+                .col(string_null(Tree::SubmitterName))
+                .col(string_null(Tree::SubmitterEmail))
+                .col(text_null(Tree::SubmitterAddress))
                 .col(timestamp_with_time_zone(Tree::CreatedAt))
                 .col(timestamp_with_time_zone(Tree::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Tree::DeletedAt))

@@ -313,6 +313,16 @@ async fn persist_import_result_in_with_progress(
     on_inserted: &mut impl FnMut(usize),
 ) -> Result<ImportSummary, OxidGeneError> {
     let now = Utc::now();
+    if let Some(submitter) = &result.submitter {
+        TreeRepo::fill_submitter(
+            db,
+            result.tree_id,
+            submitter.name.clone(),
+            submitter.email.clone(),
+            submitter.address.clone(),
+        )
+        .await?;
+    }
     insert_standalone_records(db, &result, now, on_inserted).await?;
     insert_persons_and_families(db, &result, now, on_inserted).await?;
     insert_attached_records(db, &result, now, on_inserted).await?;
@@ -821,6 +831,11 @@ pub async fn load_and_export(
                     merge_names,
                     media_paths: &media_paths,
                     self_person_id: tree.self_person_id,
+                    submitter: oxidgene_gedcom::export::SubmitterSettings {
+                        name: tree.submitter_name.as_deref(),
+                        email: tree.submitter_email.as_deref(),
+                        address: tree.submitter_address.as_deref(),
+                    },
                 },
             )
         })

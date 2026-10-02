@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
 ---
 
 
@@ -188,7 +188,7 @@ note pointer, a missing spouse or source, a GEDZIP file it does not hold).
 
 | GEDCOM tag | Description | Reason |
 |---|---|---|
-| SUBM | Submitter records | Not imported; the export writes its own |
+| SUBM other than `HEAD.SUBM`'s, `INDI.SUBM`, `FAM.SUBM` | Other submitter records and pointers | The header's submitter fills the tree's empty submitter settings; the others are counted in one warning, the record pointers are not parsed by `ged_io` |
 | AGE that is not a GEDCOM age | Free text, empty value | `ged_io` would reject the file; left out with a warning naming its line |
 | RELI inside an event | Religion of one event | Not in current data model; `RELI` as an attribute is imported |
 | `_CUSTOM` tags | Vendor-specific extensions | Ignored, OxidGene's own `_OXIDGENE_*` media extensions excepted |

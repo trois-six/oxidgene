@@ -40,6 +40,10 @@ pub struct UpdateTreeInput {
     pub description: MaybeUndefined<String>,
     pub sosa_root_person_id: MaybeUndefined<String>,
     pub self_person_id: MaybeUndefined<String>,
+    /// Who the tree's GEDCOM exports say they are from.
+    pub submitter_name: MaybeUndefined<String>,
+    pub submitter_email: MaybeUndefined<String>,
+    pub submitter_address: MaybeUndefined<String>,
 }
 
 impl From<CreateTreeInput> for crate::service::tree::NewTree {
@@ -62,6 +66,9 @@ impl TryFrom<UpdateTreeInput> for crate::service::tree::TreePatch {
             self_person_id: patch_id(input.self_person_id)?,
             default_privacy: input.default_privacy.map(Into::into),
             entry_suggestions: input.entry_suggestions,
+            submitter_name: patch(input.submitter_name),
+            submitter_email: patch(input.submitter_email),
+            submitter_address: patch(input.submitter_address),
         })
     }
 }
