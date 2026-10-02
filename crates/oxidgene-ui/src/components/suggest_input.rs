@@ -268,9 +268,10 @@ pub fn ValueInput(
     tree_id: Uuid,
     field: SuggestionField,
     #[props(default)] placeholder: Option<String>,
-    /// The field stores its text in capitals, as surname fields do.
+    /// A surname entry field: it writes its text, and suggests surnames, in
+    /// capitals while the tree's automatic uppercase for surnames is on.
     #[props(default)]
-    uppercase: bool,
+    surname: bool,
     /// Offer only what the tree holds, as search filters do: a term no
     /// record carries would find nobody.
     #[props(default)]
@@ -278,6 +279,8 @@ pub fn ValueInput(
     #[props(default)] on_change: Option<EventHandler<()>>,
 ) -> Element {
     let i18n = use_i18n();
+    let tree_cache = use_tree_cache();
+    let uppercase = surname && tree_cache.surname_uppercase();
     let mut value = value;
     // What the user typed last; empty until they type, so a form opening
     // with a filled field asks for nothing.

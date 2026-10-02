@@ -147,7 +147,7 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
     for (table, columns) in [
         (
             "tree",
-            "sosa_root_person_id, self_person_id, default_privacy, entry_suggestions, date_format, date_symbols, date_circa, date_calendar, submitter_name, submitter_email, submitter_address",
+            "sosa_root_person_id, self_person_id, default_privacy, entry_suggestions, date_format, date_symbols, date_circa, date_calendar, surname_uppercase, suggest_persons, date_input_format, date_input_calendar, submitter_name, submitter_email, submitter_address",
         ),
         ("person", "privacy, portrait_media_id, portrait_vignette_id"),
         ("person_name", "surname_prefix, sort_order"),

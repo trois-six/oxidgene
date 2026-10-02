@@ -301,6 +301,10 @@ impl SnapshotRepo {
                 date_symbols: row.date_symbols,
                 date_circa: row.date_circa,
                 date_calendar: row.date_calendar.into(),
+                surname_uppercase: row.surname_uppercase,
+                suggest_persons: row.suggest_persons,
+                date_input_format: row.date_input_format.into(),
+                date_input_calendar: row.date_input_calendar.into(),
                 sosa_root_person_id: row.sosa_root_person_id,
                 self_person_id: row.self_person_id,
                 submitter_name: row.submitter_name,
@@ -501,6 +505,10 @@ impl SnapshotRepo {
         active.date_symbols = Set(snapshot.date_symbols);
         active.date_circa = Set(snapshot.date_circa);
         active.date_calendar = Set(snapshot.date_calendar.into());
+        active.surname_uppercase = Set(snapshot.surname_uppercase);
+        active.suggest_persons = Set(snapshot.suggest_persons);
+        active.date_input_format = Set(snapshot.date_input_format.into());
+        active.date_input_calendar = Set(snapshot.date_input_calendar.into());
         active.submitter_name = Set(snapshot.submitter_name.clone());
         active.submitter_email = Set(snapshot.submitter_email.clone());
         active.submitter_address = Set(snapshot.submitter_address.clone());

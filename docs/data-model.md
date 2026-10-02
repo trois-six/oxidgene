@@ -40,6 +40,10 @@ independent of this schema reset (see §4.1).
 | `date_symbols` | bool | Whether lifespans write `* 1842 + 1907` rather than `1842-1907`; `false` by default |
 | `date_circa` | bool | Whether an approximate date reads « c. 1842 » rather than « about 1842 »; `false` by default |
 | `date_calendar` | Calendar | The calendar a date recorded in another one is also given in; `gregorian` by default |
+| `surname_uppercase` | bool | Whether surname fields write what is typed in capitals; `true` by default. Set in [Settings](ui-settings.md) §10 |
+| `suggest_persons` | bool | Whether adding a parent, partner, child or sibling offers the tree's persons before a new one; `true` by default |
+| `date_input_format` | DateInputFormat | The order and form of a date field's parts: `slashes` (default, `dd/mm/yyyy`), `dashes`, `iso` (`yyyy-mm-dd`) or `month_name` (`dd Mmm yyyy`) |
+| `date_input_calendar` | Calendar | The calendar an empty date field starts in; `gregorian` by default |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
 | `self_person_id` | UUID v7? | FK → Person — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
 | `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §12 |
@@ -601,7 +605,7 @@ The enums and their variants are defined in
 `crates/oxidgene-core/src/enums.rs`, which is authoritative; this section
 does not copy them. `Sex`, `NameType`, `SpouseRole`, `ChildType`, `Privacy`,
 `TreeDefaultPrivacy`, `DateQualifier`, `Calendar`, `DateDisplayFormat`,
-`EventType`, `Confidence`, `SourceMediaType`, `DocumentCategory` and
+`DateInputFormat`, `EventType`, `Confidence`, `SourceMediaType`, `DocumentCategory` and
 `MediaFileKind` live there.
 
 **Representation.** Every variant has one stable English `snake_case`

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError};
 use crate::i18n::DateStyle;
+use oxidgene_core::enums::{Calendar, DateInputFormat};
 use oxidgene_core::types::Tree;
 
 // ─── Public context type ────────────────────────────────────────────
@@ -115,14 +116,36 @@ impl TreeCache {
         generation.set(next);
     }
 
-    /// Whether the tree held lets its entry fields suggest values: on until a
-    /// loaded tree says otherwise. Entry fields only live on a tree's pages,
-    /// so the tree held is theirs.
+    /// One of the held tree's entry options (Tree Settings §10), `default`
+    /// until a tree is loaded. Entry fields only live on a tree's pages, so
+    /// the tree held is theirs.
+    fn entry_option<T>(&self, read: impl FnOnce(&Tree) -> T, default: T) -> T {
+        self.tree.read().as_ref().map_or(default, read)
+    }
+
+    /// Whether the tree held lets its entry fields suggest values.
     pub fn entry_suggestions(&self) -> bool {
-        self.tree
-            .read()
-            .as_ref()
-            .is_none_or(|tree| tree.entry_suggestions)
+        self.entry_option(|tree| tree.entry_suggestions, true)
+    }
+
+    /// Whether the tree held writes its surnames in capitals as they are
+    /// typed.
+    pub fn surname_uppercase(&self) -> bool {
+        self.entry_option(|tree| tree.surname_uppercase, true)
+    }
+
+    /// Whether adding a relative to the tree held offers its persons first.
+    pub fn suggest_persons(&self) -> bool {
+        self.entry_option(|tree| tree.suggest_persons, true)
+    }
+
+    /// How the tree held enters dates: the order and form of a date field's
+    /// parts, and the calendar an empty one starts in.
+    pub fn date_input(&self) -> (DateInputFormat, Calendar) {
+        self.entry_option(
+            |tree| (tree.date_input_format, tree.date_input_calendar),
+            (DateInputFormat::default(), Calendar::default()),
+        )
     }
 
     /// Current generation — include this in `use_resource` dependencies

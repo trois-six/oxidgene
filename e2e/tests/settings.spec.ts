@@ -1,5 +1,41 @@
 import { apiUrl, expect, test } from "./fixtures";
 
+test("the tree's entry options shape the person form and the linking panel", async ({ page, request, tree }) => {
+    await page.goto(`/trees/${tree.treeId}/settings`);
+    await page.getByRole("button", { name: "Entry Options", exact: true }).click();
+    const saved = () =>
+        page.waitForResponse((r) => r.url().endsWith(`/api/v1/trees/${tree.treeId}`) && r.request().method() === "PUT");
+    let save = saved();
+    await page.getByLabel("Input date format").selectOption({ label: "YYYY-MM-DD" });
+    expect((await save).ok()).toBeTruthy();
+    for (const card of ["Automatic uppercase for surnames", "Suggest existing persons"]) {
+        save = saved();
+        await page.locator(".settings-card", { hasText: card }).getByRole("button", { name: "No" }).click();
+        expect((await save).ok()).toBeTruthy();
+    }
+    const stored = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}`)).json();
+    expect([stored.date_input_format, stored.surname_uppercase, stored.suggest_persons]).toEqual(["iso", false, false]);
+
+    // A date field starts with its year, and a surname keeps its case.
+    await page.goto(`/trees/${tree.treeId}`);
+    const card = page.locator("g.ped-card").filter({ hasText: /Bernard\s*ASHDOWN/ }).first();
+    await card.click({ button: "right" });
+    await page.locator(".context-menu").getByRole("button", { name: "Edit individual" }).click();
+    const form = page.locator(".person-form-modal");
+    await expect(form.locator(".pf-date-row").first().locator(".pf-date-part").first()).toHaveAttribute("placeholder", "YYYY");
+    const surname = form.locator(".form-group", { hasText: "Birth name *" }).locator("input").first();
+    await surname.fill("Lowcase");
+    await expect(surname).toHaveValue("Lowcase");
+
+    // Adding a spouse only offers a new person.
+    await page.goto(`/trees/${tree.treeId}`);
+    await card.click({ button: "right" });
+    await page.locator(".context-menu").getByRole("button", { name: "Add spouse" }).click();
+    const panel = page.locator(".linking-card");
+    await expect(panel.getByRole("button", { name: "Create New Person as Spouse" })).toBeVisible();
+    await expect(panel.locator(".search-person")).toHaveCount(0);
+});
+
 test("the tree's date display settings reach the person page and the pedigree", async ({ page, request, tree }) => {
     // A fully dated event, which the fixture's year-only dates lack.
     const event = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}/events`, {

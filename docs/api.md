@@ -587,8 +587,12 @@ projection in the same transaction.
 entry fields' suggestions off or on for the tree, the date display settings
 `date_format` (`"day_month_year" | "numeric" | "month_year" | "year"`),
 `date_symbols`, `date_circa` (booleans) and `date_calendar` (a calendar) —
-GraphQL `dateFormat`, `dateSymbols`, `dateCirca`, `dateCalendar`, read on the
-tree and in its history snapshots — and the GEDCOM submitter:
+GraphQL `dateFormat`, `dateSymbols`, `dateCirca`, `dateCalendar` — the entry
+options `surname_uppercase`, `suggest_persons` (booleans), `date_input_format`
+(`"slashes" | "dashes" | "iso" | "month_name"`) and `date_input_calendar` (a
+calendar) — GraphQL `surnameUppercase`, `suggestPersons`, `dateInputFormat`,
+`dateInputCalendar` — all read on the tree and in its history snapshots, and
+the GEDCOM submitter:
 `submitter_name`, `submitter_email` and `submitter_address` (GraphQL
 `submitterName`, `submitterEmail`, `submitterAddress`) — omitted keeps, `null`
 or a blank value clears, on both surfaces. **Privacy** is accepted on

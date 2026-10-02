@@ -4,14 +4,16 @@
 //! and GEDCOM export functionality.
 
 use dioxus::prelude::*;
-use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateQualifier, TreeDefaultPrivacy};
+use oxidgene_core::enums::{
+    Calendar, DateDisplayFormat, DateInputFormat, DateQualifier, TreeDefaultPrivacy,
+};
 use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, UpdateTreeBody};
 use crate::components::audit_log::AuditLogSection;
 use crate::components::date_input::{
-    calendar_from_value, calendar_value, format_date, format_example,
+    calendar_from_value, calendar_value, format_date, format_example, input_format_label,
 };
 use crate::components::history_diff::format_timestamp;
 use crate::components::pedigree_chart::format_lifespan;
@@ -1017,28 +1019,13 @@ fn DateDisplaySection(tree_id: String, tree_resource: TreeResource) -> Element {
             div { class: "card settings-card",
                 h3 { class: "settings-card-title", {i18n.t("settings.date_calendar")} }
                 p { class: "settings-section-subtitle", {i18n.t("settings.date_calendar_desc")} }
-                select {
-                    class: "settings-date-select",
-                    "aria-label": i18n.t("settings.date_calendar"),
-                    onchange: move |e: Event<FormData>| {
-                        let calendar = calendar_from_value(&e.value());
-                        pick(
-                            DateStyle { calendar, ..style },
-                            UpdateTreeBody { date_calendar: Some(calendar), ..Default::default() },
-                        );
-                    },
-                    for calendar in [
-                        Calendar::Gregorian,
-                        Calendar::Julian,
-                        Calendar::FrenchRepublican,
-                        Calendar::Hebrew,
-                    ] {
-                        option {
-                            value: calendar_value(calendar),
-                            selected: style.calendar == calendar,
-                            {i18n.t(&format!("calendar.{calendar}"))}
-                        }
-                    }
+                CalendarSelect {
+                    label: i18n.t("settings.date_calendar"),
+                    value: style.calendar,
+                    on_change: move |calendar| pick(
+                        DateStyle { calendar, ..style },
+                        UpdateTreeBody { date_calendar: Some(calendar), ..Default::default() },
+                    ),
                 }
             }
             if let Some(err) = error() {
@@ -1108,30 +1095,149 @@ fn DatePreview(style: DateStyle) -> Element {
     }
 }
 
+/// One of the calendars, picked from a dropdown named `label`.
+#[component]
+fn CalendarSelect(label: String, value: Calendar, on_change: EventHandler<Calendar>) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        select {
+            class: "settings-date-select",
+            "aria-label": "{label}",
+            onchange: move |e: Event<FormData>| on_change.call(calendar_from_value(&e.value())),
+            for calendar in [
+                Calendar::Gregorian,
+                Calendar::Julian,
+                Calendar::FrenchRepublican,
+                Calendar::Hebrew,
+            ] {
+                option {
+                    value: calendar_value(calendar),
+                    selected: value == calendar,
+                    {i18n.t(&format!("calendar.{calendar}"))}
+                }
+            }
+        }
+    }
+}
+
+/// The tree's entry options as the section shows them.
+#[derive(Clone, Copy, PartialEq)]
+struct EntryOptions {
+    suggestions: bool,
+    surname_uppercase: bool,
+    suggest_persons: bool,
+    date_format: DateInputFormat,
+    calendar: Calendar,
+}
+
+impl EntryOptions {
+    /// A new tree's.
+    const DEFAULT: Self = Self {
+        suggestions: true,
+        surname_uppercase: true,
+        suggest_persons: true,
+        date_format: DateInputFormat::Slashes,
+        calendar: Calendar::Gregorian,
+    };
+
+    fn of(tree: &oxidgene_core::types::Tree) -> Self {
+        Self {
+            suggestions: tree.entry_suggestions,
+            surname_uppercase: tree.surname_uppercase,
+            suggest_persons: tree.suggest_persons,
+            date_format: tree.date_input_format,
+            calendar: tree.date_input_calendar,
+        }
+    }
+}
+
+/// How the tree's forms help with entry: suggestions, surnames in capitals,
+/// existing persons offered, and how dates are entered.
 #[component]
 fn EntryOptionsSection(tree_id: String, tree_resource: TreeResource) -> Element {
     let i18n = use_i18n();
     let (save, error) = use_save_tree_setting(tree_id.parse().ok());
-    // Local override so the control answers the click, not the save.
-    let mut local_override = use_signal(|| None::<bool>);
-    let current = local_override().unwrap_or_else(|| match &*tree_resource.read() {
-        Some(Some(Ok(tree))) => tree.entry_suggestions,
-        _ => true,
-    });
+    // Local override so the controls answer the click, not the save.
+    let mut local = use_signal(|| None::<EntryOptions>);
+    let stored = match &*tree_resource.read() {
+        Some(Some(Ok(tree))) => EntryOptions::of(tree),
+        _ => EntryOptions::DEFAULT,
+    };
+    let options = local().unwrap_or(stored);
+    let mut pick = move |next: EntryOptions, body: UpdateTreeBody| {
+        local.set(Some(next));
+        save.call(body);
+    };
 
     rsx! {
         div { class: "settings-section",
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
             h2 { class: "settings-section-title", {i18n.t("settings.entry_options")} }
+            p { class: "settings-section-subtitle", {i18n.t("settings.entry_options_desc")} }
 
             ToggleCard {
                 title: i18n.t("settings.entry_suggestions"),
                 description: i18n.t("settings.entry_suggestions_desc"),
-                value: current,
-                on_change: move |value| {
-                    local_override.set(Some(value));
-                    save.call(UpdateTreeBody { entry_suggestions: Some(value), ..Default::default() });
-                },
+                value: options.suggestions,
+                on_change: move |suggestions| pick(
+                    EntryOptions { suggestions, ..options },
+                    UpdateTreeBody { entry_suggestions: Some(suggestions), ..Default::default() },
+                ),
+            }
+            ToggleCard {
+                title: i18n.t("settings.surname_uppercase"),
+                description: i18n.t("settings.surname_uppercase_desc"),
+                value: options.surname_uppercase,
+                on_change: move |surname_uppercase| pick(
+                    EntryOptions { surname_uppercase, ..options },
+                    UpdateTreeBody { surname_uppercase: Some(surname_uppercase), ..Default::default() },
+                ),
+            }
+            ToggleCard {
+                title: i18n.t("settings.suggest_persons"),
+                description: i18n.t("settings.suggest_persons_desc"),
+                value: options.suggest_persons,
+                on_change: move |suggest_persons| pick(
+                    EntryOptions { suggest_persons, ..options },
+                    UpdateTreeBody { suggest_persons: Some(suggest_persons), ..Default::default() },
+                ),
+            }
+            div { class: "card settings-card",
+                h3 { class: "settings-card-title", {i18n.t("settings.input_date_format")} }
+                p { class: "settings-section-subtitle", {i18n.t("settings.input_date_format_desc")} }
+                select {
+                    class: "settings-date-select",
+                    "aria-label": i18n.t("settings.input_date_format"),
+                    onchange: move |e: Event<FormData>| {
+                        let value = e.value();
+                        let Some(date_format) = DateInputFormat::ALL
+                            .into_iter()
+                            .find(|format| format.as_str() == value) else { return };
+                        pick(
+                            EntryOptions { date_format, ..options },
+                            UpdateTreeBody { date_input_format: Some(date_format), ..Default::default() },
+                        );
+                    },
+                    for format in DateInputFormat::ALL {
+                        option {
+                            value: format.as_str(),
+                            selected: options.date_format == format,
+                            {input_format_label(&i18n, format)}
+                        }
+                    }
+                }
+            }
+            div { class: "card settings-card",
+                h3 { class: "settings-card-title", {i18n.t("settings.input_calendar")} }
+                p { class: "settings-section-subtitle", {i18n.t("settings.input_calendar_desc")} }
+                CalendarSelect {
+                    label: i18n.t("settings.input_calendar"),
+                    value: options.calendar,
+                    on_change: move |calendar| pick(
+                        EntryOptions { calendar, ..options },
+                        UpdateTreeBody { date_input_calendar: Some(calendar), ..Default::default() },
+                    ),
+                }
             }
             if let Some(err) = error() {
                 div { class: "error-msg settings-feedback", "{err}" }

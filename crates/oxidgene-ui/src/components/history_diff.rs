@@ -12,7 +12,7 @@ use oxidgene_core::types::join_surname_particle;
 use oxidgene_core::{Confidence, SpouseRole, TreeDefaultPrivacy};
 use uuid::Uuid;
 
-use crate::components::date_input::{format_date, format_day, format_example};
+use crate::components::date_input::{format_date, format_day, format_example, input_format_label};
 use crate::i18n::I18n;
 use crate::utils::{child_type_label_key, event_type_label_key, name_type_label_key};
 
@@ -753,6 +753,39 @@ fn date_display_rows(
     );
 }
 
+/// The tree's entry options added since entry suggestions, each named as its
+/// card names it.
+fn entry_option_rows(
+    group: &mut GroupBuilder,
+    i18n: &I18n,
+    before: Option<&TreeSnapshot>,
+    after: &TreeSnapshot,
+) {
+    let on_off = |on: bool| i18n.t(if on { "common.yes" } else { "common.no" });
+    group.row(
+        i18n.t("settings.surname_uppercase"),
+        before.map(|t| on_off(t.surname_uppercase)),
+        Some(on_off(after.surname_uppercase)),
+    );
+    group.row(
+        i18n.t("settings.suggest_persons"),
+        before.map(|t| on_off(t.suggest_persons)),
+        Some(on_off(after.suggest_persons)),
+    );
+    let format = |t: &TreeSnapshot| input_format_label(i18n, t.date_input_format);
+    group.row(
+        i18n.t("settings.input_date_format"),
+        before.map(format),
+        Some(format(after)),
+    );
+    let calendar = |t: &TreeSnapshot| i18n.t(&format!("calendar.{}", t.date_input_calendar));
+    group.row(
+        i18n.t("settings.input_calendar"),
+        before.map(calendar),
+        Some(calendar(after)),
+    );
+}
+
 fn tree_section(
     i18n: &I18n,
     (old, before): (&Side, Option<&TreeSnapshot>),
@@ -787,6 +820,7 @@ fn tree_section(
         Some(on_off(after.entry_suggestions)),
     );
     date_display_rows(&mut group, i18n, before, after);
+    entry_option_rows(&mut group, i18n, before, after);
     for (key, get) in [
         (
             "history.field.submitter_name",

@@ -767,6 +767,18 @@ pub struct UpdateTreeBody {
     /// The calendar a date recorded in another one is also given in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date_calendar: Option<oxidgene_core::enums::Calendar>,
+    /// Whether surname fields write in capitals.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surname_uppercase: Option<bool>,
+    /// Whether adding a relative offers the persons already in the tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggest_persons: Option<bool>,
+    /// The order and form of a date field's parts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_input_format: Option<oxidgene_core::enums::DateInputFormat>,
+    /// The calendar an empty date field starts in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_input_calendar: Option<oxidgene_core::enums::Calendar>,
     /// Who the tree's GEDCOM exports say they are from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub submitter_name: Option<Option<String>>,

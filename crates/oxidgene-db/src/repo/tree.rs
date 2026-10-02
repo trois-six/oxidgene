@@ -35,6 +35,10 @@ pub struct TreeChanges {
     pub date_symbols: Option<bool>,
     pub date_circa: Option<bool>,
     pub date_calendar: Option<oxidgene_core::enums::Calendar>,
+    pub surname_uppercase: Option<bool>,
+    pub suggest_persons: Option<bool>,
+    pub date_input_format: Option<oxidgene_core::enums::DateInputFormat>,
+    pub date_input_calendar: Option<oxidgene_core::enums::Calendar>,
     pub submitter_name: Option<Option<String>>,
     pub submitter_email: Option<Option<String>>,
     pub submitter_address: Option<Option<String>>,
@@ -58,6 +62,16 @@ impl TreeChanges {
         set(
             &mut active.date_calendar,
             self.date_calendar.map(Into::into),
+        );
+        set(&mut active.surname_uppercase, self.surname_uppercase);
+        set(&mut active.suggest_persons, self.suggest_persons);
+        set(
+            &mut active.date_input_format,
+            self.date_input_format.map(Into::into),
+        );
+        set(
+            &mut active.date_input_calendar,
+            self.date_input_calendar.map(Into::into),
         );
         set(&mut active.submitter_name, self.submitter_name);
         set(&mut active.submitter_email, self.submitter_email);
@@ -107,6 +121,10 @@ impl TreeRepo {
             date_symbols: Set(false),
             date_circa: Set(false),
             date_calendar: Set(oxidgene_core::enums::Calendar::default().into()),
+            surname_uppercase: Set(true),
+            suggest_persons: Set(true),
+            date_input_format: Set(oxidgene_core::enums::DateInputFormat::default().into()),
+            date_input_calendar: Set(oxidgene_core::enums::Calendar::default().into()),
             submitter_name: Set(None),
             submitter_email: Set(None),
             submitter_address: Set(None),
@@ -231,6 +249,10 @@ fn into_domain(m: tree::Model) -> Tree {
         date_symbols: m.date_symbols,
         date_circa: m.date_circa,
         date_calendar: m.date_calendar.into(),
+        surname_uppercase: m.surname_uppercase,
+        suggest_persons: m.suggest_persons,
+        date_input_format: m.date_input_format.into(),
+        date_input_calendar: m.date_input_calendar.into(),
         submitter_name: m.submitter_name,
         submitter_email: m.submitter_email,
         submitter_address: m.submitter_address,

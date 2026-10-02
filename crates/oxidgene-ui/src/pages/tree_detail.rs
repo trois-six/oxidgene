@@ -837,6 +837,8 @@ fn linking_panel(
 ) -> Element {
     let mut linking = writes.overlays.linking;
     let (title_key, search_key, create_key) = mode.label_keys();
+    // A tree that does not suggest its persons only offers a new one.
+    let suggest = writes.tree_cache.suggest_persons();
     let body = match *mode {
         LinkingMode::Kinship(from) => {
             let (nav, tree_id) = (dioxus::router::navigator(), tree_id.to_string());
@@ -875,13 +877,15 @@ fn linking_panel(
             let (select, create) = (writes.clone(), writes.clone());
             let (select_data, create_data) = (data.clone(), data);
             rsx! {
-                SearchPerson {
-                    tree_id: tid,
-                    placeholder: i18n.t(search_key),
-                    on_select: move |person_id| select.link(Some(person_id), select_data.as_ref()),
-                    on_cancel: move |_| linking.set(None),
+                if suggest {
+                    SearchPerson {
+                        tree_id: tid,
+                        placeholder: i18n.t(search_key),
+                        on_select: move |person_id| select.link(Some(person_id), select_data.as_ref()),
+                        on_cancel: move |_| linking.set(None),
+                    }
+                    div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
                 }
-                div { class: "linking-panel-or", {i18n.t("common.or_divider")} }
                 button {
                     class: "btn btn-outline",
                     onclick: move |_| create.link(None, create_data.as_ref()),
@@ -901,8 +905,10 @@ fn linking_panel(
                 }
             }
             div { class: "linking-panel",
-                p { class: "linking-panel-title",
-                    {i18n.t("linking.search_existing")}
+                if suggest || matches!(mode, LinkingMode::Kinship(_)) {
+                    p { class: "linking-panel-title",
+                        {i18n.t("linking.search_existing")}
+                    }
                 }
                 {body}
             }

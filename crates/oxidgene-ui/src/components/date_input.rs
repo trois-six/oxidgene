@@ -22,9 +22,10 @@ use dioxus::prelude::*;
 use oxidgene_core::calendar::{
     convert as convert_components, days_in_month, from_jdn, months_in_year, to_jdn,
 };
-use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateQualifier};
+use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateInputFormat, DateQualifier};
 use oxidgene_core::types::Event as DomainEvent;
 
+use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::I18n;
 
 // ── Month vocabularies ────────────────────────────────────────────────────
@@ -498,6 +499,22 @@ pub fn format_example(i18n: &I18n, format: DateDisplayFormat) -> String {
         Some("12 MAR 1842"),
         None,
     )
+}
+
+/// A date input format named the way its fields read — `DD/MM/YYYY`,
+/// `DD Mar YYYY` — with the reader's own placeholders.
+pub fn input_format_label(i18n: &I18n, format: DateInputFormat) -> String {
+    let (d, m, y) = (
+        i18n.t("date.ph_day"),
+        i18n.t("date.ph_month"),
+        i18n.t("date.ph_year"),
+    );
+    match format {
+        DateInputFormat::Slashes => format!("{d}/{m}/{y}"),
+        DateInputFormat::Dashes => format!("{d}-{m}-{y}"),
+        DateInputFormat::Iso => format!("{y}-{m}-{d}"),
+        DateInputFormat::MonthName => format!("{d} {} {y}", i18n.t("date.month.3")),
+    }
 }
 
 /// [`format_date`] over an event's own columns — the form every view but the
@@ -1017,19 +1034,116 @@ fn age_inputs(mut parts: Signal<DateParts>, i18n: I18n, on_change: EventHandler<
     }
 }
 
-/// The day / month / year triplet (or its `Or` / `Between` counterpart).
+/// Which date of the widget a field edits: the first, or the far end of an
+/// `Or` / `Between`.
+#[derive(Clone, Copy, PartialEq)]
+enum End {
+    First,
+    Second,
+}
+
+impl End {
+    /// This end's `(day, month, year)`.
+    fn of(self, p: &DateParts) -> (Option<u8>, Option<u8>, Option<i32>) {
+        match self {
+            End::First => (p.day, p.month, p.year),
+            End::Second => (p.day2, p.month2, p.year2),
+        }
+    }
+
+    fn set_day(self, p: &mut DateParts, v: Option<u8>) {
+        match self {
+            End::First => p.day = v,
+            End::Second => p.day2 = v,
+        }
+    }
+
+    fn set_month(self, p: &mut DateParts, v: Option<u8>) {
+        match self {
+            End::First => p.month = v,
+            End::Second => p.month2 = v,
+        }
+    }
+
+    fn set_year(self, p: &mut DateParts, v: Option<i32>) {
+        match self {
+            End::First => p.year = v,
+            End::Second => p.year2 = v,
+        }
+    }
+}
+
+/// How the fields of one date are laid out: their order, what goes between
+/// them, and whether the month is picked by name.
+#[derive(Debug, PartialEq)]
+struct PartLayout {
+    year_first: bool,
+    separator: &'static str,
+    named_months: bool,
+}
+
+impl PartLayout {
+    /// The tree's input format, for a date in `calendar`. A calendar nobody
+    /// counts in always names its months (see [`uses_named_months`]), and
+    /// named months stand between the numbers without separators.
+    fn of(format: DateInputFormat, calendar: Calendar) -> Self {
+        let named_months = uses_named_months(calendar) || format == DateInputFormat::MonthName;
+        let separator = match format {
+            _ if named_months => "",
+            DateInputFormat::Slashes => "/",
+            DateInputFormat::Dashes | DateInputFormat::Iso | DateInputFormat::MonthName => "-",
+        };
+        Self {
+            year_first: format == DateInputFormat::Iso,
+            separator,
+            named_months,
+        }
+    }
+}
+
+/// The day / month / year triplet (or its `Or` / `Between` counterpart), in
+/// the order and form of the tree's input format.
 fn part_inputs(
+    parts: Signal<DateParts>,
+    end: End,
+    i18n: I18n,
+    on_change: EventHandler<()>,
+    format: DateInputFormat,
+) -> Element {
+    let layout = PartLayout::of(format, parts().calendar);
+    let day = day_input(parts, end, i18n, on_change);
+    let month = if layout.named_months {
+        month_select(parts, end, i18n, on_change)
+    } else {
+        month_input(parts, end, i18n, on_change)
+    };
+    let year = year_input(parts, end, i18n, on_change);
+    let [first, middle, last] = if layout.year_first {
+        [year, month, day]
+    } else {
+        [day, month, year]
+    };
+    let sep = layout.separator;
+    rsx! {
+        {first}
+        if !sep.is_empty() {
+            span { class: "pf-date-separator", "aria-hidden": "true", "{sep}" }
+        }
+        {middle}
+        if !sep.is_empty() {
+            span { class: "pf-date-separator", "aria-hidden": "true", "{sep}" }
+        }
+        {last}
+    }
+}
+
+fn day_input(
     mut parts: Signal<DateParts>,
-    second: bool,
+    end: End,
     i18n: I18n,
     on_change: EventHandler<()>,
 ) -> Element {
-    let p = parts();
-    let (d, m, y) = if second {
-        (p.day2, p.month2, p.year2)
-    } else {
-        (p.day, p.month, p.year)
-    };
+    let (day, _, _) = end.of(&parts());
     rsx! {
         input {
             class: "pf-date-part pf-date-dd",
@@ -1037,70 +1151,99 @@ fn part_inputs(
             inputmode: "numeric",
             maxlength: 2,
             placeholder: "{i18n.t(\"date.ph_day\")}",
-            value: opt_num(d),
+            value: opt_num(day),
             onkeydown: |e| numeric_keydown(&e, false),
             oninput: move |e| {
                 let mut np = parts();
                 // Out-of-range values are kept, not clamped away: `validate`
                 // says what is wrong with them, where silently blanking the
                 // field would just look like the app eating keystrokes.
-                let v = parse_u8(&e.value());
-                if second { np.day2 = v; } else { np.day = v; }
+                end.set_day(&mut np, parse_u8(&e.value()));
                 parts.set(np);
                 on_change.call(());
             },
         }
-        if uses_named_months(p.calendar) {
-            // Named months are chosen, not typed: see `uses_named_months`.
-            select {
-                class: "pf-date-month-select",
-                onchange: move |e| {
-                    let mut np = parts();
-                    let v = parse_u8(&e.value());
-                    if second { np.month2 = v; } else { np.month = v; }
-                    parts.set(np);
-                    on_change.call(());
-                },
-                // Bound through `selected` on each option rather than `value`
-                // on the select: the list is built by a loop, so it is
-                // appended *after* the element's own attributes are applied,
-                // and a value set on a select that has no options yet selects
-                // nothing at all — which is how a converted date came back
-                // showing "MM" over a month it knew perfectly well.
-                //
-                // The empty entry carries no word: a date known to the year
-                // alone is ordinary — « an VI », with no month in the record —
-                // and blank says that better than any label could. It holds a
-                // non-breaking space only so the row keeps its height and stays
-                // clickable, an empty <option> collapsing to nothing in some
-                // engines.
-                option { value: "", selected: m.is_none(), "\u{00A0}" }
-                for idx in month_options(p.calendar, y, m) {
-                    option {
-                        value: "{idx}",
-                        selected: m == Some(idx),
-                        {i18n.t(&month_label_key(p.calendar, idx))}
-                    }
+    }
+}
+
+/// A month picked from its calendar's names: see `uses_named_months`.
+fn month_select(
+    mut parts: Signal<DateParts>,
+    end: End,
+    i18n: I18n,
+    on_change: EventHandler<()>,
+) -> Element {
+    let p = parts();
+    let (_, month, year) = end.of(&p);
+    rsx! {
+        select {
+            class: "pf-date-month-select",
+            onchange: move |e| {
+                let mut np = parts();
+                end.set_month(&mut np, parse_u8(&e.value()));
+                parts.set(np);
+                on_change.call(());
+            },
+            // Bound through `selected` on each option rather than `value`
+            // on the select: the list is built by a loop, so it is
+            // appended *after* the element's own attributes are applied,
+            // and a value set on a select that has no options yet selects
+            // nothing at all — which is how a converted date came back
+            // showing "MM" over a month it knew perfectly well.
+            //
+            // The empty entry carries no word: a date known to the year
+            // alone is ordinary — « an VI », with no month in the record —
+            // and blank says that better than any label could. It holds a
+            // non-breaking space only so the row keeps its height and stays
+            // clickable, an empty <option> collapsing to nothing in some
+            // engines.
+            option { value: "", selected: month.is_none(), "\u{00A0}" }
+            for idx in month_options(p.calendar, year, month) {
+                option {
+                    value: "{idx}",
+                    selected: month == Some(idx),
+                    {i18n.t(&month_label_key(p.calendar, idx))}
                 }
             }
-        } else {
-            input {
-                class: "pf-date-part pf-date-mm",
-                r#type: "text",
-                inputmode: "numeric",
-                maxlength: 2,
-                placeholder: "{i18n.t(\"date.ph_month\")}",
-                value: opt_num(m),
-                onkeydown: |e| numeric_keydown(&e, false),
-                oninput: move |e| {
-                    let mut np = parts();
-                    let v = parse_u8(&e.value());
-                    if second { np.month2 = v; } else { np.month = v; }
-                    parts.set(np);
-                    on_change.call(());
-                },
-            }
         }
+    }
+}
+
+/// A month typed as its number.
+fn month_input(
+    mut parts: Signal<DateParts>,
+    end: End,
+    i18n: I18n,
+    on_change: EventHandler<()>,
+) -> Element {
+    let (_, month, _) = end.of(&parts());
+    rsx! {
+        input {
+            class: "pf-date-part pf-date-mm",
+            r#type: "text",
+            inputmode: "numeric",
+            maxlength: 2,
+            placeholder: "{i18n.t(\"date.ph_month\")}",
+            value: opt_num(month),
+            onkeydown: |e| numeric_keydown(&e, false),
+            oninput: move |e| {
+                let mut np = parts();
+                end.set_month(&mut np, parse_u8(&e.value()));
+                parts.set(np);
+                on_change.call(());
+            },
+        }
+    }
+}
+
+fn year_input(
+    mut parts: Signal<DateParts>,
+    end: End,
+    i18n: I18n,
+    on_change: EventHandler<()>,
+) -> Element {
+    let (_, _, year) = end.of(&parts());
+    rsx! {
         input {
             class: "pf-date-part pf-date-yyyy",
             r#type: "text",
@@ -1108,12 +1251,11 @@ fn part_inputs(
             // Five, so a BCE year still fits with its minus sign.
             maxlength: 5,
             placeholder: "{i18n.t(\"date.ph_year\")}",
-            value: opt_num(y),
+            value: opt_num(year),
             onkeydown: |e| numeric_keydown(&e, true),
             oninput: move |e| {
                 let mut np = parts();
-                let v = parse_year(&e.value());
-                if second { np.year2 = v; } else { np.year = v; }
+                end.set_year(&mut np, parse_year(&e.value()));
                 parts.set(np);
                 on_change.call(());
             },
@@ -1131,6 +1273,16 @@ pub fn DateInput(
     on_change: EventHandler<()>,
 ) -> Element {
     let mut parts = parts;
+    let (format, calendar) = use_tree_cache().date_input();
+    // A blank field starts in the tree's input calendar; its own selector
+    // still changes it, and a date already entered keeps its calendar. Read
+    // through `peek`, so this runs once, after the first render.
+    use_effect(move || {
+        let blank = *parts.peek();
+        if blank.is_empty() && blank.calendar != calendar {
+            parts.set(DateParts { calendar, ..blank });
+        }
+    });
     let p = parts();
     let literal = p.literal(&i18n);
     let sep = if p.qualifier == DateQualifier::Or {
@@ -1173,10 +1325,10 @@ pub fn DateInput(
                 if p.is_from_age() {
                     {age_inputs(parts, i18n, on_change)}
                 } else {
-                    {part_inputs(parts, false, i18n, on_change)}
+                    {part_inputs(parts, End::First, i18n, on_change, format)}
                     if p.needs_second_date() {
                         span { class: "pf-date-separator", "{sep}" }
-                        {part_inputs(parts, true, i18n, on_change)}
+                        {part_inputs(parts, End::Second, i18n, on_change, format)}
                     }
                 }
             }
@@ -2089,5 +2241,46 @@ mod tests {
         // The application's own days keep the default form.
         let day = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
         assert_eq!(format_day(&years, day), "28 Sep 2026");
+    }
+
+    /// The tree's input format orders a date's fields and says what stands
+    /// between them; a calendar nobody counts in still names its months.
+    #[test]
+    fn the_input_format_lays_the_fields_out() {
+        let layout = |format, calendar| PartLayout::of(format, calendar);
+        let laid = |year_first, separator, named_months| PartLayout {
+            year_first,
+            separator,
+            named_months,
+        };
+        let gregorian = Calendar::Gregorian;
+        assert_eq!(
+            layout(DateInputFormat::Slashes, gregorian),
+            laid(false, "/", false)
+        );
+        assert_eq!(
+            layout(DateInputFormat::Dashes, gregorian),
+            laid(false, "-", false)
+        );
+        assert_eq!(
+            layout(DateInputFormat::Iso, gregorian),
+            laid(true, "-", false)
+        );
+        assert_eq!(
+            layout(DateInputFormat::MonthName, gregorian),
+            laid(false, "", true)
+        );
+        assert_eq!(
+            layout(DateInputFormat::Iso, Calendar::FrenchRepublican),
+            laid(true, "", true)
+        );
+        assert_eq!(
+            input_format_label(&en(), DateInputFormat::Iso),
+            "YYYY-MM-DD"
+        );
+        assert_eq!(
+            input_format_label(&fr(), DateInputFormat::MonthName),
+            "JJ mars AAAA"
+        );
     }
 }

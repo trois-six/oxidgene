@@ -96,6 +96,10 @@ enum Tree {
     DateSymbols,
     DateCirca,
     DateCalendar,
+    SurnameUppercase,
+    SuggestPersons,
+    DateInputFormat,
+    DateInputCalendar,
     SubmitterName,
     SubmitterEmail,
     SubmitterAddress,
@@ -440,6 +444,21 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(boolean(Tree::DateCirca).default(false))
                 .col(
                     ColumnDef::new(Tree::DateCalendar)
+                        .string_len(20)
+                        .not_null()
+                        .default("gregorian"),
+                )
+                // How the tree's forms help with entry (Settings §10).
+                .col(boolean(Tree::SurnameUppercase).default(true))
+                .col(boolean(Tree::SuggestPersons).default(true))
+                .col(
+                    ColumnDef::new(Tree::DateInputFormat)
+                        .string_len(20)
+                        .not_null()
+                        .default("slashes"),
+                )
+                .col(
+                    ColumnDef::new(Tree::DateInputCalendar)
                         .string_len(20)
                         .not_null()
                         .default("gregorian"),

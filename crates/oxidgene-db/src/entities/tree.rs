@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use super::sea_enums::{Calendar, DateDisplayFormat, TreeDefaultPrivacy};
+use super::sea_enums::{Calendar, DateDisplayFormat, DateInputFormat, TreeDefaultPrivacy};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "tree")]
@@ -25,6 +25,14 @@ pub struct Model {
     pub date_circa: bool,
     /// The calendar a date recorded in another one is also given in.
     pub date_calendar: Calendar,
+    /// Whether surname fields write in capitals.
+    pub surname_uppercase: bool,
+    /// Whether adding a relative offers the persons already in the tree.
+    pub suggest_persons: bool,
+    /// The order and form of a date field's parts.
+    pub date_input_format: DateInputFormat,
+    /// The calendar an empty date field starts in.
+    pub date_input_calendar: Calendar,
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
     #[sea_orm(column_type = "Text")]

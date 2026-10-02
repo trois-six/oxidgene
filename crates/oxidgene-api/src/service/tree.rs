@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::enums::{Calendar, DateDisplayFormat, TreeDefaultPrivacy};
+use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateInputFormat, TreeDefaultPrivacy};
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{Connection, Tree};
 use oxidgene_db::repo::{BackgroundJobRepo, PaginationParams, TreeChanges, TreeRepo};
@@ -69,6 +69,14 @@ pub struct TreePatch {
     pub date_circa: Option<bool>,
     /// The calendar a date recorded in another one is also given in.
     pub date_calendar: Option<Calendar>,
+    /// Whether surname fields write in capitals.
+    pub surname_uppercase: Option<bool>,
+    /// Whether adding a relative offers the persons already in the tree.
+    pub suggest_persons: Option<bool>,
+    /// The order and form of a date field's parts.
+    pub date_input_format: Option<DateInputFormat>,
+    /// The calendar an empty date field starts in.
+    pub date_input_calendar: Option<Calendar>,
     /// Who the tree's GEDCOM exports say they are from.
     #[serde(default, deserialize_with = "double_option")]
     pub submitter_name: Option<Option<String>>,
@@ -162,6 +170,10 @@ pub async fn update_tree(
             date_symbols: patch.date_symbols,
             date_circa: patch.date_circa,
             date_calendar: patch.date_calendar,
+            surname_uppercase: patch.surname_uppercase,
+            suggest_persons: patch.suggest_persons,
+            date_input_format: patch.date_input_format,
+            date_input_calendar: patch.date_input_calendar,
             submitter_name: patch.submitter_name.map(blank_to_none),
             submitter_email: patch.submitter_email.map(blank_to_none),
             submitter_address: patch.submitter_address.map(blank_to_none),

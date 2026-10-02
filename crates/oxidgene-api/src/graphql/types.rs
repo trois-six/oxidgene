@@ -245,6 +245,37 @@ impl From<GqlDateDisplayFormat> for oxidgene_core::enums::DateDisplayFormat {
     }
 }
 
+/// The order and form of a tree's date fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlDateInputFormat {
+    Slashes,
+    Dashes,
+    Iso,
+    MonthName,
+}
+
+impl From<oxidgene_core::enums::DateInputFormat> for GqlDateInputFormat {
+    fn from(v: oxidgene_core::enums::DateInputFormat) -> Self {
+        match v {
+            oxidgene_core::enums::DateInputFormat::Slashes => Self::Slashes,
+            oxidgene_core::enums::DateInputFormat::Dashes => Self::Dashes,
+            oxidgene_core::enums::DateInputFormat::Iso => Self::Iso,
+            oxidgene_core::enums::DateInputFormat::MonthName => Self::MonthName,
+        }
+    }
+}
+
+impl From<GqlDateInputFormat> for oxidgene_core::enums::DateInputFormat {
+    fn from(v: GqlDateInputFormat) -> Self {
+        match v {
+            GqlDateInputFormat::Slashes => Self::Slashes,
+            GqlDateInputFormat::Dashes => Self::Dashes,
+            GqlDateInputFormat::Iso => Self::Iso,
+            GqlDateInputFormat::MonthName => Self::MonthName,
+        }
+    }
+}
+
 /// What a medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlSourceMediaType {
@@ -825,6 +856,14 @@ pub struct GqlTree {
     pub date_circa: bool,
     /// The calendar a date recorded in another one is also given in.
     pub date_calendar: GqlCalendar,
+    /// Whether surname fields write in capitals.
+    pub surname_uppercase: bool,
+    /// Whether adding a relative offers the persons already in the tree.
+    pub suggest_persons: bool,
+    /// The order and form of a date field's parts.
+    pub date_input_format: GqlDateInputFormat,
+    /// The calendar an empty date field starts in.
+    pub date_input_calendar: GqlCalendar,
     /// Who the tree's GEDCOM exports say they are from.
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
@@ -887,6 +926,10 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             date_symbols: t.date_symbols,
             date_circa: t.date_circa,
             date_calendar: t.date_calendar.into(),
+            surname_uppercase: t.surname_uppercase,
+            suggest_persons: t.suggest_persons,
+            date_input_format: t.date_input_format.into(),
+            date_input_calendar: t.date_input_calendar.into(),
             submitter_name: t.submitter_name,
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,

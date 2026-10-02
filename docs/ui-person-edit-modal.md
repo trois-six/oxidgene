@@ -179,8 +179,9 @@ Displayed as the first block in the scrollable body, with a section divider labe
 
 ### Family Name
 
-Single text input. Automatically converted to uppercase on input. It
-suggests the tree's surnames ([Common UI §4.4](ui-common.md)).
+Single text input. Converted to uppercase on input unless the tree's
+automatic uppercase for surnames is off ([Settings §10](ui-settings.md#10-section-entry-options)).
+It suggests the tree's surnames ([Common UI §4.4](ui-common.md)).
 
 ### First Names
 

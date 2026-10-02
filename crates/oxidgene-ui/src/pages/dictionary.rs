@@ -672,7 +672,7 @@ fn FamilyNameEditor(
                         value: name,
                         tree_id,
                         field: SuggestionField::FamilyNames,
-                        uppercase: true,
+                        surname: true,
                         on_change: move |()| {
                             typed_particle.set(None);
                             error.set(None);

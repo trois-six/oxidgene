@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::enums::{Calendar, DateDisplayFormat, TreeDefaultPrivacy};
+use crate::enums::{Calendar, DateDisplayFormat, DateInputFormat, TreeDefaultPrivacy};
 
 /// A genealogical tree (project).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,6 +34,18 @@ pub struct Tree {
     /// The calendar a date recorded in another one is also given in.
     #[serde(default)]
     pub date_calendar: Calendar,
+    /// Whether surname fields write what is typed in capitals.
+    #[serde(default = "enabled")]
+    pub surname_uppercase: bool,
+    /// Whether adding a relative offers the persons already in the tree.
+    #[serde(default = "enabled")]
+    pub suggest_persons: bool,
+    /// The order and form of a date field's parts.
+    #[serde(default)]
+    pub date_input_format: DateInputFormat,
+    /// The calendar an empty date field starts in.
+    #[serde(default)]
+    pub date_input_calendar: Calendar,
     /// Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when
     /// unset, the "Who am I?" person's name.
     #[serde(default)]

@@ -1154,7 +1154,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     tree_id: tid,
                                     field: SuggestionField::FamilyNames,
                                     placeholder: i18n.t("person_form.surname_placeholder"),
-                                    uppercase: true,
+                                    surname: true,
                                     on_change: move |()| has_changes.set(true),
                                 }
                                 // Surface the split the save path will apply, and
@@ -1386,7 +1386,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                             }
                                                             div { class: "form-group",
                                                                 label { {i18n.t("person_form.surname")} }
-                                                                ValueInput { value: edit_name_surname, tree_id: tid, field: SuggestionField::FamilyNames, uppercase: true }
+                                                                ValueInput { value: edit_name_surname, tree_id: tid, field: SuggestionField::FamilyNames, surname: true }
                                                                 {render_particle_row(&i18n, &edit_name_surname(), edit_name_particle_override)}
                                                             }
                                                         }

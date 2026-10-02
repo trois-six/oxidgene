@@ -471,6 +471,118 @@ async fn date_display_settings_behave_alike_on_both_surfaces() {
     assert_eq!(numeric["date_format"], "numeric", "{versions}");
 }
 
+/// The entry options of a tree added after entry suggestions, as both
+/// surfaces read them.
+async fn entry_options(app: &axum::Router, tree_id: &str) -> serde_json::Value {
+    let rest = common::ok(app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
+    let gql = common::gql_ok(
+        app,
+        "query($t: ID!) { tree(id: $t) { surnameUppercase suggestPersons dateInputFormat dateInputCalendar } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    let gql = &gql["tree"];
+    assert_eq!(gql["surnameUppercase"], rest["surname_uppercase"]);
+    assert_eq!(gql["suggestPersons"], rest["suggest_persons"]);
+    assert_eq!(
+        gql["dateInputFormat"].as_str().map(str::to_lowercase),
+        rest["date_input_format"].as_str().map(str::to_string)
+    );
+    assert_eq!(
+        gql["dateInputCalendar"].as_str().map(str::to_lowercase),
+        rest["date_input_calendar"].as_str().map(str::to_string)
+    );
+    json!({
+        "surname_uppercase": rest["surname_uppercase"],
+        "suggest_persons": rest["suggest_persons"],
+        "date_input_format": rest["date_input_format"],
+        "date_input_calendar": rest["date_input_calendar"],
+    })
+}
+
+#[tokio::test]
+async fn entry_options_behave_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Entered").await;
+    let uri = format!("/api/v1/trees/{tree_id}");
+    assert_eq!(
+        entry_options(&app, &tree_id).await,
+        json!({
+            "surname_uppercase": true,
+            "suggest_persons": true,
+            "date_input_format": "slashes",
+            "date_input_calendar": "gregorian",
+        })
+    );
+
+    let set = json!({
+        "surname_uppercase": false,
+        "suggest_persons": false,
+        "date_input_format": "iso",
+        "date_input_calendar": "julian",
+    });
+    common::ok(&app, Method::PUT, &uri, Some(set.clone())).await;
+    assert_eq!(entry_options(&app, &tree_id).await, set);
+    common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "entry_suggestions": false })),
+    )
+    .await;
+    assert_eq!(entry_options(&app, &tree_id).await, set);
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "date_input_format": "dots" })),
+    )
+    .await;
+    assert!(status.is_client_error(), "{status}");
+
+    let vars = json!({ "t": tree_id });
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!) { updateTree(id: $t, input: { surnameUppercase: true, suggestPersons: true, dateInputFormat: MONTH_NAME, dateInputCalendar: HEBREW }) { id } }",
+        vars.clone(),
+    )
+    .await;
+    assert_eq!(
+        entry_options(&app, &tree_id).await,
+        json!({
+            "surname_uppercase": true,
+            "suggest_persons": true,
+            "date_input_format": "month_name",
+            "date_input_calendar": "hebrew",
+        })
+    );
+    let refused = gql(
+        &app,
+        "mutation($t: ID!) { updateTree(id: $t, input: { dateInputFormat: DOTS }) { id } }",
+        vars,
+    )
+    .await;
+    assert!(refused["errors"].is_array(), "{refused}");
+
+    // Each accepted write is a settings change whose version of the tree
+    // holds the options it replaced.
+    let versions = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/history/tree/{tree_id}?first=100"),
+        None,
+    )
+    .await;
+    let edges = versions["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), 4, "{versions}");
+    assert_eq!(
+        edges[0]["node"]["snapshot"]["date_input_format"],
+        "month_name"
+    );
+    assert_eq!(edges[1]["node"]["snapshot"]["date_input_format"], "iso");
+    assert_eq!(edges[1]["node"]["snapshot"]["surname_uppercase"], false);
+}
+
 #[tokio::test]
 async fn the_tree_list_reports_a_running_import_on_both_surfaces() {
     let app = setup_app().await;

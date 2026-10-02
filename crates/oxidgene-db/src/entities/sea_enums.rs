@@ -630,6 +630,42 @@ impl From<DateDisplayFormat> for enums::DateDisplayFormat {
     }
 }
 
+/// The order and form of a tree's date fields — stored as a string column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
+pub enum DateInputFormat {
+    #[sea_orm(string_value = "slashes")]
+    Slashes,
+    #[sea_orm(string_value = "dashes")]
+    Dashes,
+    #[sea_orm(string_value = "iso")]
+    Iso,
+    #[sea_orm(string_value = "month_name")]
+    MonthName,
+}
+
+impl From<enums::DateInputFormat> for DateInputFormat {
+    fn from(v: enums::DateInputFormat) -> Self {
+        match v {
+            enums::DateInputFormat::Slashes => Self::Slashes,
+            enums::DateInputFormat::Dashes => Self::Dashes,
+            enums::DateInputFormat::Iso => Self::Iso,
+            enums::DateInputFormat::MonthName => Self::MonthName,
+        }
+    }
+}
+
+impl From<DateInputFormat> for enums::DateInputFormat {
+    fn from(v: DateInputFormat) -> Self {
+        match v {
+            DateInputFormat::Slashes => Self::Slashes,
+            DateInputFormat::Dashes => Self::Dashes,
+            DateInputFormat::Iso => Self::Iso,
+            DateInputFormat::MonthName => Self::MonthName,
+        }
+    }
+}
+
 /// What `Privacy::Default` resolves to for one tree — stored as a string
 /// column. Two variants, so "the tree follows the tree" cannot be written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]

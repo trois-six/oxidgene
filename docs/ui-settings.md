@@ -309,25 +309,40 @@ Stored as `tree.date_format`, `tree.date_symbols`, `tree.date_circa` and
 
 ## 10. Section: Entry Options
 
+How the tree's forms help with entry. Each control saves on the click and is
+handed back to the tree cache, so a form opened afterwards follows it; each
+change is a *Settings* entry of the [history](#11-section-history).
+
 ### Data entry assistance
+
+Three Yes / No cards:
 
 | Toggle | Description |
 |---|---|
 | Entry suggestions | Yes (default) / No. Place, surname, given-name, occupation and source fields, the search filters' included, suggest what the tree holds and the built-in dictionaries. Stored as `tree.entry_suggestions`. See [Common UI §4.4](ui-common.md) |
-| Automatic uppercase for surnames | Surname field is auto-uppercased on input |
-| Suggest existing persons | When adding a parent or partner, suggests persons already in the tree |
+| Automatic uppercase for surnames | Yes (default) / No. The surname entry fields — the person form's birth name and its other names, the dictionary's family-name rename — write what is typed in capitals and suggest surnames in capitals. With No, a surname is stored as typed. Search filters never change case. Stored as `tree.surname_uppercase` |
+| Suggest existing persons | Yes (default) / No. When a parent, partner, child or sibling is added from the [tree view](ui-genealogy-tree.md)'s action picker, the panel searches the tree's persons before offering to create one. With No, it only offers to create one. Stored as `tree.suggest_persons` |
 
 ### Input date format
 
-Dropdown for the expected date format during editing:
-- `dd/mm/yyyy`
-- `dd-mm-yyyy`
-- `yyyy-mm-dd` (ISO 8601)
-- `dd Mmm yyyy` (e.g. 12 Mar 1842)
+A dropdown, each option named with the reader's own placeholders:
+
+| Option | Stored as | Fields |
+|---|---|---|
+| `DD/MM/YYYY` (default) | `slashes` | day `/` month `/` year, the month typed as a number |
+| `DD-MM-YYYY` | `dashes` | day `-` month `-` year |
+| `YYYY-MM-DD` (ISO 8601) | `iso` | year `-` month `-` day |
+| `DD Mar YYYY` | `month_name` | day, month picked by name, year |
+
+It lays out every [DateInput](ui-common.md#43-dateinput) of the tree. A
+Republican or Hebrew date always picks its month by name, without
+separators, whatever the format. Stored as `tree.date_input_format`.
 
 ### Default calendar for input
 
-Same options as the display section. The calendar can be overridden field by field during editing.
+Same options as the display calendar. An empty date field starts in it; the
+field's own calendar selector still changes it, and a date already entered
+keeps its calendar. Stored as `tree.date_input_calendar`.
 
 ### Place dictionary
 

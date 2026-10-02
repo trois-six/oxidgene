@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:59:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T03:51:08Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -294,7 +294,11 @@ Edits partial dates, calendar, qualifier, and an optional second bound. It
 supports exact, about, calculated, estimated, perhaps, before, after, or,
 between, and age-derived input. Changing calendars converts representable dates
 rather than relabeling values. Invalid or unrepresentable input remains visible
-with a localized inline error.
+with a localized inline error. The tree's entry options
+([Tree Settings §10](ui-settings.md#10-section-entry-options)) set the order of
+the day, month and year fields, their separators, whether a Gregorian or
+Julian month is typed or picked by name, and the calendar an empty field
+starts in.
 
 Display formatting uses the shared date formatter; year-only surfaces use
 `qualified_year()` so precision is not discarded. The formatter writes in the
@@ -394,8 +398,8 @@ the [value suggestions](api.md) endpoint:
   suggests for `Ma`, and picking replaces that word only.
 - **Picking** fills in the value as the tree or the sheet writes it, never a
   sheet's label: an occupation is entered as the record names it. A surname
-  field writing in capitals capitalizes what it picks, and lists each
-  spelling once.
+  field writing in capitals — while the tree's automatic uppercase for
+  surnames is on — capitalizes what it picks, and lists each spelling once.
 - **Search filters.** The surname, given-name and occupation criteria of
   [Search Results](ui-search-results.md), the relatives' included, use the
   same field but list only the tree's values: a term no record carries

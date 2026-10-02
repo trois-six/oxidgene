@@ -287,9 +287,9 @@ Clicking the pencil icon opens a small **action picker modal** (not a full-scree
 | **Edit individual** | Opens the full person edit modal |
 | **Merge with...** | Opens the [merge wizard](ui-merge.md) on its search for the other record of this person |
 | **Edit union** | See below — expands into a sub-list if multiple unions exist |
-| **Add spouse** | Opens a new person form pre-linked as spouse |
-| **Add child** | Opens a new person form pre-linked as child |
-| **Add sibling** | Opens a new person form pre-linked as sibling |
+| **Add spouse** | Opens the linking panel: a search of the tree's persons to link as spouse, or a new person created as one. Without the tree's *Suggest existing persons* ([Settings §10](ui-settings.md#10-section-entry-options)), only the new person is offered |
+| **Add child** | The same panel, for a child |
+| **Add sibling** | The same panel, for a sibling |
 | **Relationship with…** | Asks for a second person — with shortcuts for the user and the SOSA root — then opens the [Kinship](ui-kinship.md) page between the two |
 | **Go to…** | In the wheels, fans and lineage (§10): opens a list of the person's relatives the chart does not draw around them — spouses and children in an ancestor chart, parents and spouses in a descendant one — under a heading per kind, each with their lifespan; choosing one makes them the focus. The chart's own focus is left out, and so is the entry when the list would be empty. Not offered on the tree, which draws them all |
 

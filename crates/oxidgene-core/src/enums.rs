@@ -323,6 +323,37 @@ impl DateDisplayFormat {
     }
 }
 
+/// The order and form of a date field's parts while a date is entered
+/// (`docs/ui-settings.md` §10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DateInputFormat {
+    /// Day, month and year, the month typed as a number: `dd/mm/yyyy`.
+    #[default]
+    Slashes,
+    /// The same order: `dd-mm-yyyy`.
+    Dashes,
+    /// Year, month and day: `yyyy-mm-dd` (ISO 8601).
+    Iso,
+    /// Day, month and year, the month picked by name: `dd Mmm yyyy`.
+    MonthName,
+}
+
+impl DateInputFormat {
+    /// Every format, in the order a choice offers them.
+    pub const ALL: [Self; 4] = [Self::Slashes, Self::Dashes, Self::Iso, Self::MonthName];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Slashes => "slashes",
+            Self::Dashes => "dashes",
+            Self::Iso => "iso",
+            Self::MonthName => "month_name",
+        }
+    }
+}
+
 /// What kind of thing a medium physically *is* — GEDCOM's
 /// `SOURCE_MEDIA_TYPE`.
 ///
