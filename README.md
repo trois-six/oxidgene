@@ -1,122 +1,83 @@
 # OxidGene
 
 <p align="center">
-	<img src="assets/brand/OxidGene.png" alt="OxidGene Logo" width="300">
+	<img src="assets/brand/OxidGene.png" alt="OxidGene logo" width="240">
 </p>
 
-A modern, high-performance genealogy platform built entirely in Rust.
+OxidGene is a genealogy application written entirely in Rust. Bring your trees
+in from GEDCOM, GEDZIP, GeneWeb or Geneanet, then explore, edit and question
+them: pedigrees and fan charts with the family's photographs, profiles,
+statistics on a map, consistency tools, kinship, and a history of every
+change. It runs as a desktop application that works offline, or as a web
+deployment for your own server.
 
-Start with the [OxidGene Quickstart](docs/quickstart.md) to run
-the desktop application, the Docker Compose stack, or a Kubernetes deployment.
-
-## Screenshots
+<p align="center">
+	<img src="assets/screenshots/readme-carousel.webp" alt="A tour of OxidGene: pedigree, person, fan chart, couple, statistics map, kinship, search, media library, history and themes, on a fictitious family" width="900">
+</p>
 
 <table>
 	<tr>
-		<td rowspan="2" width="68%">
-			<img src="assets/screenshots/screenshot2.png" alt="OxidGene interactive genealogy tree">
-		</td>
-		<td width="32%">
-			<img src="assets/screenshots/screenshot1.png" alt="OxidGene tree dashboard">
-		</td>
+		<td width="33%"><a href="assets/screenshots/pedigree.webp"><img src="assets/screenshots/pedigree.webp" alt="Pedigree with portraits and the events panel"></a></td>
+		<td width="33%"><a href="assets/screenshots/person.webp"><img src="assets/screenshots/person.webp" alt="Person profile with portrait, notes and gallery"></a></td>
+		<td width="33%"><a href="assets/screenshots/fan-chart-dark.webp"><img src="assets/screenshots/fan-chart-dark.webp" alt="Fan chart of six generations in the dark theme"></a></td>
 	</tr>
 	<tr>
-		<td width="32%">
-			<img src="assets/screenshots/screenshot3.png" alt="OxidGene person detail page">
-		</td>
+		<td><a href="assets/screenshots/statistics-map.webp"><img src="assets/screenshots/statistics-map.webp" alt="Statistics: heat map of the places"></a></td>
+		<td><a href="assets/screenshots/kinship.webp"><img src="assets/screenshots/kinship.webp" alt="Kinship between two first cousins"></a></td>
+		<td><a href="assets/screenshots/history.webp"><img src="assets/screenshots/history.webp" alt="A person's versions compared side by side"></a></td>
 	</tr>
 </table>
 
-## Overview
+<sub>The family shown is fictitious; the portraits are public-domain studio
+photographs of anonymous sitters (<a href="e2e/fixtures/media/CREDITS.md">credits</a>).</sub>
 
-OxidGene is a multiplatform genealogy application featuring:
+## Highlights
 
-- **Bring your family history with you**: Import and export GEDCOM 5.5.1,
-	GEDCOM 7.0, and GEDZIP archives, including their media
-- **Reconnect your Geneanet archives**: Import GeneWeb `.gw` and `gwplus`
-	trees, then use the guided desktop workflow to recover linked photos and
-	documents without storing shared media twice
-- **Explore and edit complete family trees**: Navigate interactive pedigrees,
-	open a person or a couple on a full profile page, manage people, families,
-	events, sources, places, notes, and media, and find records through
-	dictionary views and a search that suggests matching people as you type
-- **See how any two people are related**: Trace every path between two
-	persons of a tree, through the ancestors they share or through unions when
-	they share none
-- **Read your tree as a whole**: A statistics page maps where the tree's
-	events happened on an offline heat map and charts names, occupations,
-	lifespans, unions, and children period by period, with the notable records
-- **Catch duplicates as you go**: Saving a person who shares a name with
-	someone else in the tree asks whether they are the same, so the two can be
-	merged or confirmed as different people
-- **Never lose a change**: Every write to a tree is recorded in an audit log,
-	and every version of a person can be compared side by side and restored,
-	even after a deletion
-- **Enjoy genealogy on every screen**: Use the responsive WebAssembly frontend
-	on desktop or mobile browsers, or run the native desktop application for
-	Linux, Windows, and macOS built from the same Dioxus codebase
-- **Keep working offline**: The desktop application embeds SQLite and stores
-	your genealogy and media locally, with no server required
-- **Type places the way the records name them**: Every place field suggests
-	from a built-in place dictionary of France, the United Kingdom, Germany,
-	Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium,
-	Luxembourg and the Netherlands, with the
-	municipalities merged away, their former names, and the subdivisions and
-	regions they were filed under at the time, while still accepting any free
-	text
-- **Understand what the records say**: Explanatory sheets for more than 3,000
-	historical occupations, including trades and offices particular to each
-	covered country, and more than 2,000 given names with their meaning and
-	feast day, in all eight interface
-	languages and recognised whatever the language of the record, shown right
-	beside the person
-- **Ask your AI assistant about your tree**: The desktop application serves
-	your trees read-only to Claude and any other Model Context Protocol client
-- **Make the workspace your own**: Switch colour themes or add your own on the
-	desktop, draw the pedigree in a classic or heraldic medieval style, and
-	change between English, French, German, Spanish, Italian, Dutch, Polish and
-	Portuguese without restarting the application
-- **Integrate without compromise**: Build on the REST API, and on the web
-	deployment's GraphQL API, kept strictly symmetric with it; the desktop
-	serves REST only. Full OpenTelemetry instrumentation.
-- **Stay fast as trees grow**: Rust powers the complete stack, backed by
-	durable read projections and efficient family traversal
+- **Import everything, lose nothing**: GEDCOM 5.5.1 and 7.0, GEDZIP with its
+	media, GeneWeb, and a guided recovery of a Geneanet tree's photos and their
+	links to persons.
+- **See the family**: an interactive pedigree with portraits, and eight other
+	charts — wheels, fans, lineages, hourglass and bowtie — that all print.
+- **Read the tree as a whole**: statistics with an offline heat map of the
+	places, names, lifespans and unions period by period, and the tree's
+	records.
+- **Keep it consistent**: anomalies by rule, potential duplicates with a merge
+	wizard, ancestry completeness, and every relationship between two persons.
+- **Never lose a change**: an audit log of every write, and every version of a
+	person compared side by side and restorable, even after a deletion.
+- **Understand the records**: a built-in place dictionary of twelve countries,
+	explanatory sheets for thousands of occupations and given names, four
+	calendars, and dates written out in nine languages.
+- **Make it yours**: colour themes, a medieval pedigree, eight interface
+	languages, and per-tree date and entry options.
+- **Integrate**: a REST API with its OpenAPI document; the web deployment also
+	serves a GraphQL API strictly symmetric with it (the desktop serves REST
+	only); and a read-only MCP server for AI assistants on the desktop.
+
+The complete list is in [Features](docs/features.md).
+
+## Quick start
+
+- **Desktop**: build and run the application, which embeds its server and an
+	SQLite database, with `just desktop`.
+- **Web**: start the Docker Compose stack, or deploy the Helm chart to
+	Kubernetes.
+
+Requirements and every installation path are in the
+[Quickstart](docs/quickstart.md).
 
 ## Documentation
 
-Full specifications are available in
-[`docs/`](docs/index.md):
-
-- [Quickstart](docs/quickstart.md) - installation and deployment
-	paths.
-- [General](docs/general.md) - vision, users, features, and MVP
-	scope.
-- [Architecture](docs/architecture.md) - technology stack,
-	crate layout, build, and deployment.
-- [Data Model](docs/data-model.md) - entities, enums, and ERD.
-- [API Contract](docs/api.md) - REST and GraphQL endpoints.
-- [Assistant Access (MCP)](docs/mcp.md) - the read-only Model Context
-	Protocol server of the desktop application.
-- [Place Dictionary](docs/place-dictionary.md) - the built-in places, their
-	sources and how they are generated.
-- [Geneanet Media Import](docs/geneanet-media-import.md) - recovering the
-	links between people and photos that a Geneanet export drops.
-- [Roadmap](docs/roadmap.md) - delivery status and milestones.
-- UI specifications: [Homepage](docs/ui-home.md),
-	[Tree View](docs/ui-genealogy-tree.md),
-	[Person Profile](docs/ui-person-profile.md),
-	[Couple Profile](docs/ui-couple-profile.md),
-	[Person History](docs/ui-person-history.md),
-	[Kinship](docs/ui-kinship.md), [Statistics](docs/ui-statistics.md),
-	[Dictionary](docs/ui-dictionary.md), [Person Edit](docs/ui-person-edit-modal.md),
-	[Import](docs/ui-import.md), [Settings](docs/ui-settings.md), and
-	[App Settings](docs/ui-app-settings.md).
+The specifications in [`docs/`](docs/index.md) describe the product as it is:
+architecture, data model, API contract, and one specification per page and
+workflow. Delivery status and planned work are in the
+[Roadmap](docs/roadmap.md).
 
 ## Development
 
-The development environment, prerequisites, and `just` command reference are
-documented in [Development](docs/development.md).
+The development environment, the `just` recipes, the tests and the guards are
+described in [Development](docs/development.md).
 
 ## License
 
-GNU Affero General Public License v3.0 - see [LICENSE](LICENSE) for details.
+GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
