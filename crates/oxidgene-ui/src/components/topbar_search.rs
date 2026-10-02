@@ -15,7 +15,9 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, NameScope, PersonSearchParams, PersonSearchSort, SuggestionField};
 use crate::components::context_menu::ContextMenuSurface;
-use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
+use crate::components::search_person::{
+    PersonSearchSummary, render_person_search_summary, summary_portraits,
+};
 use crate::components::suggest_input::{
     picked_text, render_suggest_row, suggest_rows, suggestions_shown, use_value_suggestions,
 };
@@ -153,14 +155,16 @@ pub fn TopbarSearch(
         _ => (Vec::new(), 0, None),
     };
 
-    let person_ids: Vec<Uuid> = rows.iter().map(PersonSearchSummary::person_id).collect();
     let api_portraits = api.clone();
     let portraits_resource = use_ui_resource("topbar_search_portraits", move || {
         let api = api_portraits.clone();
-        let person_ids = person_ids.clone();
+        let rows = match &*suggestions.read() {
+            Some(Some((rows, _, _))) => rows.clone(),
+            _ => Vec::new(),
+        };
         async move {
             let tid = tid?;
-            Some(api.portrait_map_for_ids(tid, &person_ids).await)
+            Some(summary_portraits(&api, tid, &rows).await)
         }
     });
     let portraits = match &*portraits_resource.read() {

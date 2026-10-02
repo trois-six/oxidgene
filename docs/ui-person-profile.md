@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
 ---
 
 
@@ -24,8 +24,18 @@ and parents' other unions and children needed for half-siblings. Places,
 citations, sources, and event media are fetched only when referenced by this
 neighborhood; the page does not list and filter the corresponding tree-wide
 collections. All compact event galleries reuse the page-level event-media and
-gallery bundle instead of issuing requests per event. Notes and the main person
-gallery use their entity-filtered endpoints.
+gallery bundle instead of issuing requests per event. Notes use their
+entity-filtered endpoint, and the two-generation pedigree its own request,
+both alongside the bundle.
+
+The page draws its text as soon as the bundle answers. The bundle carries the
+pictures' addresses, not the pictures: the gallery's thumbnails and crops and
+the person's own portrait (shown in the header and the mini pedigree) are
+resolved together in one further request, and appear when it answers. The
+bundle also says which of its persons are the tree's SOSA root or one of its
+ancestors, for the family narrative's marks, so the page never loads the
+tree's ancestry. Occupation and given-name sheets are asked for the first time
+the pointer enters those fields, not when the page opens.
 
 ---
 

@@ -7,13 +7,13 @@ use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::media_gallery::MediaOwner;
 use crate::components::merge_dialog::MergeDialog;
-use crate::components::pedigree_chart::Portraits;
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::{
-    ProfileMediaCard, SHOW_MANUAL_REFRESH, SectionContext, SharedProfile, ancestors_section,
-    build_profile, family_section, header_section, media_event_links, notes_section,
-    refresh_button, timeline_placeholder, timeline_section, use_ancestor_pedigree,
-    use_mini_pedigree, use_sosa_ancestors, use_tree_resource,
+    PagePictures, ProfileMediaCard, SHOW_MANUAL_REFRESH, SectionContext, SharedProfile,
+    ancestors_section, build_profile, family_section, header_section, media_event_links,
+    notes_section, page_gallery, page_portraits, pedigree_failure, refresh_button,
+    timeline_placeholder, timeline_section, use_ancestor_pedigree, use_mini_pedigree,
+    use_page_pictures, use_tree_resource,
 };
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
@@ -21,7 +21,6 @@ use crate::components::tree_icon_sidebar::{ProfilePageSidebar, TreeSidebarView};
 use crate::components::tree_page::ToolPageFrame;
 use crate::i18n::use_i18n;
 use crate::router::{Route, person_route, push_tree_route};
-use crate::shared::Shared;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
 
 /// Page rendered at `/trees/:tree_id/persons/:person_id`.
@@ -109,26 +108,30 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         refresh,
         i18n,
     );
-    let sosa_ancestors_resource = use_sosa_ancestors(
+    // The gallery's pictures and this person's portrait — reused by the
+    // header and the mini pedigree — in one request once the bundle is in.
+    let wanted_pictures = use_memo(move || {
+        let detail = detail_resource.read();
+        let Some(Ok(detail)) = &*detail else {
+            return None;
+        };
+        let person_id = person_id_parsed()?;
+        Some(PagePictures {
+            galleries: vec![detail.gallery.clone()],
+            portraits: detail
+                .portrait
+                .clone()
+                .map(|portrait| (person_id, portrait))
+                .into_iter()
+                .collect(),
+        })
+    });
+    let pictures_resource = use_page_pictures(
         load_trace.clone(),
         api.clone(),
         tree_id_parsed,
-        tree_resource,
+        wanted_pictures,
     );
-
-    // This person's portrait, reused by the header and mini pedigree.
-    let api_photos_map = api.clone();
-    let photos_map_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
-        let api = api_photos_map.clone();
-        let tid = tree_id_parsed();
-        let _ = media_revision();
-        async move {
-            let (Some(tid), Some(person_id)) = (tid, person_id_parsed()) else {
-                return Portraits::default();
-            };
-            Shared::new(api.portrait_map_for_ids(tid, &[person_id]).await)
-        }
-    });
 
     let ancestor_pedigree_resource = use_ancestor_pedigree(
         load_trace.clone(),
@@ -209,7 +212,11 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
     // ── Render ────────────────────────────────────────────────────────
 
-    let sosa_ancestors = sosa_ancestors_resource.read().clone().unwrap_or_default();
+    let sosa_ancestors: std::collections::HashSet<Uuid> = profile
+        .as_ref()
+        .map(|profile| profile.bundle.sosa_ancestor_ids.iter().copied().collect())
+        .unwrap_or_default();
+    let portraits = page_portraits(&pictures_resource);
     let couple_family_id = profile
         .as_ref()
         .and_then(|profile| profile.default_couple_id());
@@ -218,6 +225,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         tree_id,
         sosa_ancestors: &sosa_ancestors,
         media_revision,
+        gallery: page_gallery(&pictures_resource),
     });
 
     rsx! {
@@ -314,8 +322,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
 
         match (profile.as_ref(), ctx.as_ref()) {
             (Some(profile), Some(ctx)) => {
-                let photo = photos_map_resource
-                    .read()
+                let photo = portraits
                     .as_ref()
                     .and_then(|photos| photos.get(&profile.person_id).cloned());
                 let is_self = matches!(
@@ -360,7 +367,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                         related_family_ids: profile.union_family_ids(),
                         event_links,
                         preloaded_tiles: Some(profile.profile_tiles(true)),
-                        preloaded_bundle: Some(std::sync::Arc::clone(&profile.bundle.gallery)),
+                        preloaded_bundle: Some(std::sync::Arc::clone(&ctx.gallery)),
                         preloaded_portrait: profile.person.as_ref().map(|person| (
                             person.portrait_media_id,
                             person.portrait_vignette_id,
@@ -371,7 +378,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                     {family_section(ctx, profile, None)}
                     {timeline_section(ctx, profile, i18n.t("person.events_section"), &events)}
-                    {ancestors_section(&i18n, &ancestor_pedigree_resource, mini_pedigree(), photos_map_resource.read().clone(), on_navigate)}
+                    {ancestors_section(&i18n, pedigree_failure(&ancestor_pedigree_resource), mini_pedigree(), portraits.clone(), on_navigate)}
                 }
             }
             _ => rsx! {

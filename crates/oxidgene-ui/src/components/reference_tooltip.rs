@@ -2,14 +2,14 @@
 //!
 //! Wraps a span of text (an occupation label, a given name) and — only when
 //! a matching fiche exists in `/api/v1/reference` (backend module
-//! `oxidgene-api::reference`) — shows it on hover. Resolves eagerly on
-//! mount (not on hover) so a term with no fiche renders as plain, unstyled
-//! text: no help cursor, no bubble, nothing.
+//! `oxidgene-api::reference`) — shows it on hover. The fiches are asked for
+//! the first time the pointer enters the field, not when the page opens: a
+//! profile's reader rarely hovers them, and asking at mount put two requests
+//! (and their preflights) on every profile. Until then, and for a term with
+//! no fiche, the text renders plain: no help cursor, no bubble.
 //!
 //! Both fields resolve every term they display through one bounded batch
-//! operation. A component per term would put one request per term on the
-//! wire at mount, which is what made a profile with several occupations
-//! open slowly.
+//! operation, a component per term being one request per term.
 
 use std::collections::HashMap;
 
@@ -65,11 +65,16 @@ pub fn OccupationsHover(titles: ReadSignal<Vec<String>>) -> Element {
     // only resolved after the first render, and moving from one profile to
     // another keeps this component and hands it the next person's titles.
     let language = use_context::<Signal<Language>>();
+    let mut hovered = use_signal(|| false);
     let references = use_ui_resource("occupation_reference_bundle", move || {
         let api = api.clone();
         let lang_code = language().code();
         let terms = titles();
+        let wanted = hovered();
         async move {
+            if !wanted {
+                return Vec::new();
+            }
             api.reference_occupations(lang_code, &terms)
                 .await
                 .unwrap_or_default()
@@ -87,15 +92,22 @@ pub fn OccupationsHover(titles: ReadSignal<Vec<String>>) -> Element {
         })
         .unwrap_or_default();
     rsx! {
-        for (i , title) in titles().into_iter().enumerate() {
-            span { key: "occ-{title}",
-                if i > 0 {
-                    ", "
+        span {
+            onmouseenter: move |_| {
+                if !hovered() {
+                    hovered.set(true);
                 }
-                if let Some(fiche) = fiches.get(&title) {
-                    FicheHover { fiche: fiche.clone(), "{title}" }
-                } else {
-                    "{title}"
+            },
+            for (i , title) in titles().into_iter().enumerate() {
+                span { key: "occ-{title}",
+                    if i > 0 {
+                        ", "
+                    }
+                    if let Some(fiche) = fiches.get(&title) {
+                        FicheHover { fiche: fiche.clone(), "{title}" }
+                    } else {
+                        "{title}"
+                    }
                 }
             }
         }
@@ -184,6 +196,7 @@ pub fn GivenNamesHover(given_names: ReadSignal<String>) -> Element {
     let api = use_context::<ApiClient>();
     // Both read inside the resource, as in `OccupationsHover`.
     let language = use_context::<Signal<Language>>();
+    let mut hovered = use_signal(|| false);
     let references = use_ui_resource("given_name_reference_bundle", move || {
         let api = api.clone();
         let lang_code = language().code();
@@ -191,7 +204,11 @@ pub fn GivenNamesHover(given_names: ReadSignal<String>) -> Element {
             .into_iter()
             .map(|(word, _)| word)
             .collect::<Vec<_>>();
+        let wanted = hovered();
         async move {
+            if !wanted {
+                return Vec::new();
+            }
             api.reference_given_names(lang_code, &terms)
                 .await
                 .unwrap_or_default()
@@ -209,18 +226,25 @@ pub fn GivenNamesHover(given_names: ReadSignal<String>) -> Element {
         })
         .unwrap_or_default();
     rsx! {
-        for (i, (word, sep)) in tokens.into_iter().enumerate() {
-            if let Some(fiche) = fiches.get(&word) {
-                FicheHover {
-                    key: "given-{i}-{word}",
-                    fiche: fiche.clone(),
+        span {
+            onmouseenter: move |_| {
+                if !hovered() {
+                    hovered.set(true);
+                }
+            },
+            for (i, (word, sep)) in tokens.into_iter().enumerate() {
+                if let Some(fiche) = fiches.get(&word) {
+                    FicheHover {
+                        key: "given-{i}-{word}",
+                        fiche: fiche.clone(),
+                        "{word}"
+                    }
+                } else {
                     "{word}"
                 }
-            } else {
-                "{word}"
-            }
-            if !sep.is_empty() {
-                "{sep}"
+                if !sep.is_empty() {
+                    "{sep}"
+                }
             }
         }
     }

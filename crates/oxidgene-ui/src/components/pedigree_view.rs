@@ -90,6 +90,17 @@ impl PedigreeView {
         )
     }
 
+    /// Whether the view draws its people's portraits: the card views do, the
+    /// circular ones write names in their segments and draw none, so the page
+    /// fetches no picture for them.
+    #[must_use]
+    pub const fn draws_portraits(self) -> bool {
+        !matches!(
+            self,
+            Self::Wheel | Self::Fan | Self::DescendantWheel | Self::DescendantFan
+        )
+    }
+
     /// Whether the view draws ancestors, and so whether the ancestor depth
     /// control means anything while it is shown.
     #[must_use]

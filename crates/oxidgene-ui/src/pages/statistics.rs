@@ -136,6 +136,9 @@ pub fn Statistics(tree_id: String) -> Element {
     // first time a tab needs it, never before.
     let statistics_wanted = use_signal(|| false);
     let growth_wanted = use_signal(|| false);
+    // The base map is drawn by the Places tab alone: 1.6 MB of outlines
+    // nobody else needs.
+    let basemap_wanted = use_signal(|| false);
     let want = move |value: StatsTab| {
         let wanted = if value == StatsTab::Growth {
             growth_wanted
@@ -143,6 +146,9 @@ pub fn Statistics(tree_id: String) -> Element {
             statistics_wanted
         };
         want_once(wanted);
+        if value == StatsTab::Places {
+            want_once(basemap_wanted);
+        }
     };
     use_effect(move || {
         spawn(restore_choices(interval, approximate));
@@ -190,7 +196,13 @@ pub fn Statistics(tree_id: String) -> Element {
     let api_map = api.clone();
     let basemap = use_traced_resource(load_trace.clone(), "basemap", move || {
         let api = api_map.clone();
-        async move { api.basemap().await.unwrap_or_default() }
+        let wanted = basemap_wanted();
+        async move {
+            if !wanted {
+                return Vec::new();
+            }
+            api.basemap().await.unwrap_or_default()
+        }
     });
     let paths_trace = load_trace.clone();
     let paths = use_memo(move || {

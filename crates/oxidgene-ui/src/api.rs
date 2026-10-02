@@ -14,9 +14,9 @@ use opentelemetry::global;
 use opentelemetry::propagation::Injector;
 use oxidgene_core::projection::{Pedigree, PersonProfile, SearchEntry, SearchResult};
 use oxidgene_core::types::{
-    AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
-    FamilySpouse, ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place,
-    QualifiedYear, Repository, Source, SourceRepository, SpouseAge, Tree, Vignette,
+    Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse,
+    ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place, QualifiedYear,
+    Repository, Source, SourceRepository, SpouseAge, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -159,13 +159,15 @@ pub struct SourceGroupEntry {
 /// Response for the Sources tab's smart drill-down (ui-dictionary.md
 /// §8.10): the backend auto-skips forced single-choice levels, so `prefix`
 /// may be longer than the prefix that was requested. `groups` is empty
-/// once `total` has dropped to <= the drill threshold — fetch the final
-/// flat list via `dictionary_sources(tree_id, &prefix)` instead.
+/// once `total` has dropped to <= the drill threshold, and the level's
+/// sources then come with it.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SourceDrillResponse {
     pub prefix: String,
     pub total: i64,
     pub groups: Vec<SourceGroupEntry>,
+    #[serde(default)]
+    pub sources: Option<Vec<SourceDictionaryEntry>>,
 }
 
 /// A place paired with its usage count (events + media referencing it).
@@ -1095,14 +1097,9 @@ struct WirePortraitImage {
 }
 
 /// A picture's address and the region to take out of it, as sent by the API.
-/// [`ApiClient::resolve_source`] turns it into the drawable [`CroppedSource`]
-/// the components take.
-#[derive(Debug, Clone, Deserialize)]
-struct WireCroppedSource {
-    source: ImageSource,
-    #[serde(default)]
-    crop: Option<ImageCrop>,
-}
+/// [`ApiClient::resolve_pictures`] turns it into the drawable
+/// [`CroppedSource`] the components take.
+type WireCroppedSource = oxidgene_core::types::PortraitRef;
 
 const PORTRAIT_BATCH_SIZE: usize = 1_024;
 
@@ -1173,7 +1170,7 @@ fn relation_label_batch_ranges(
 
 /// A gallery's pictures, resolved to something drawable.
 ///
-/// The wire form ([`WireGalleryBundle`]) carries addresses; the fields here
+/// The wire form ([`GallerySources`]) carries addresses; the fields here
 /// carry whatever this platform draws them from.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GalleryBundle {
@@ -1195,13 +1192,62 @@ pub struct GalleryVignette {
     pub image: CroppedSource,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct WireGalleryBundle {
+/// A gallery's picture addresses, as the API sends them: what a page holds
+/// until [`ApiClient::resolve_pictures`] turns them, with the page's
+/// portraits, into a [`GalleryBundle`] in one request.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct GallerySources {
     media: Vec<WireGalleryMedia>,
     vignettes: Vec<WireGalleryVignette>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+impl GallerySources {
+    /// Every address, in the order [`Self::resolve`] takes them back.
+    fn sources(&self) -> impl Iterator<Item = ImageSource> + '_ {
+        let media = self.media.iter().flat_map(|item| {
+            item.source
+                .iter()
+                .cloned()
+                .chain(item.document_previews.iter().cloned())
+        });
+        let vignettes = self.vignettes.iter().map(|item| item.image.source.clone());
+        media.chain(vignettes)
+    }
+
+    /// The gallery drawn from `drawn`, one slot per address of
+    /// [`Self::sources`], in order.
+    fn resolve(&self, drawn: &mut impl Iterator<Item = Option<String>>) -> GalleryBundle {
+        let mut bundle = GalleryBundle::default();
+        for item in &self.media {
+            let source = item.source.as_ref().and_then(|_| drawn.next().flatten());
+            let previews = item
+                .document_previews
+                .iter()
+                .filter_map(|_| drawn.next().flatten())
+                .collect();
+            bundle.media.push(GalleryMedia {
+                media_id: item.media_id,
+                source,
+                event_ids: item.event_ids.clone(),
+                document_previews: previews,
+            });
+        }
+        for item in &self.vignettes {
+            if let Some(source) = drawn.next().flatten() {
+                bundle.vignettes.push(GalleryVignette {
+                    vignette_id: item.vignette_id,
+                    image: CroppedSource {
+                        source,
+                        crop: item.image.crop,
+                    },
+                });
+            }
+        }
+        bundle
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 struct WireGalleryMedia {
     media_id: Uuid,
     source: Option<ImageSource>,
@@ -1209,7 +1255,7 @@ struct WireGalleryMedia {
     document_previews: Vec<ImageSource>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 struct WireGalleryVignette {
     vignette_id: Uuid,
     #[serde(flatten)]
@@ -1917,9 +1963,10 @@ pub struct ExportGedcomResult {
     pub warnings: Vec<String>,
 }
 
-/// Everything one person page renders, with its pictures already resolved to
-/// something this platform can draw.
-#[derive(Debug, Clone)]
+/// Everything one person page renders. Its pictures are addresses: the page
+/// draws its text at once and resolves them, with the person's portrait, in
+/// one request of its own ([`ApiClient::resolve_pictures`]).
+#[derive(Debug, Clone, Deserialize)]
 pub struct PersonDetailBundle {
     pub sosa_number: Option<u64>,
     pub persons: Vec<oxidgene_core::types::Person>,
@@ -1933,27 +1980,37 @@ pub struct PersonDetailBundle {
     pub profile_media: Vec<ProfileMediaTile>,
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
+    pub gallery: GallerySources,
+    /// Where the person's own portrait is drawn from.
+    #[serde(default)]
+    pub portrait: Option<oxidgene_core::types::PortraitRef>,
+    /// Those of `persons` who are the tree's SOSA root or one of its
+    /// ancestors.
+    #[serde(default)]
+    pub sosa_ancestor_ids: Vec<Uuid>,
+}
+
+/// Everything one couple page renders: the family, each spouse's person
+/// bundle, the family's and spouses' notes, and the family's own media.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CoupleDetailBundle {
+    pub family: Family,
+    pub spouses: Vec<FamilySpouse>,
+    /// One per spouse, in the order of `spouses`.
+    pub persons: Vec<PersonDetailBundle>,
+    pub notes: Vec<oxidgene_core::types::Note>,
+    pub media: Vec<MediaWithLink>,
+    pub gallery: GallerySources,
+}
+
+/// A screen's pictures, resolved in one request: its galleries as one — a
+/// gallery looks its pictures up by media and vignette — and the portraits.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ResolvedPictures {
     /// Shared rather than owned: it carries every thumbnail as a base64 data
     /// URI, and every gallery on the page reads the same one.
     pub gallery: std::sync::Arc<GalleryBundle>,
-}
-
-/// The same bundle as the API sends it: its gallery carries addresses.
-#[derive(Debug, Clone, Deserialize)]
-struct WirePersonDetailBundle {
-    sosa_number: Option<u64>,
-    persons: Vec<oxidgene_core::types::Person>,
-    names: Vec<oxidgene_core::types::PersonName>,
-    events: Vec<oxidgene_core::types::Event>,
-    places: Vec<oxidgene_core::types::Place>,
-    spouses: Vec<oxidgene_core::types::FamilySpouse>,
-    children: Vec<oxidgene_core::types::FamilyChild>,
-    citations: Vec<oxidgene_core::types::Citation>,
-    sources: Vec<oxidgene_core::types::Source>,
-    profile_media: Vec<ProfileMediaTile>,
-    profile_vignettes: Vec<Vignette>,
-    event_media: Vec<EventMediaTile>,
-    gallery: WireGalleryBundle,
+    pub portraits: HashMap<Uuid, CroppedSource>,
 }
 
 /// A media a person's profile shows, and the couple it reaches it through.
@@ -2128,6 +2185,91 @@ impl ResponseCache {
     }
 }
 
+/// Where the batch of several trees' recent persons is read from.
+const RECENT_PERSONS_PATH: &str = "/api/v1/trees/recent-persons";
+
+// ── Picture cache ───────────────────────────────────────────────────
+
+/// How many bytes of picture data the session keeps.
+const PICTURE_CACHE_MAX_BYTES: usize = 24 * 1024 * 1024;
+
+/// How long a kept picture is used without asking again, in seconds: long
+/// enough for going back and forth between pages, short enough that a change
+/// made elsewhere — another tab, another person — shows within minutes.
+const PICTURE_CACHE_TTL_SECS: i64 = 10 * 60;
+
+/// The pictures the web client fetched as `data:` URLs, kept for the session
+/// and keyed by the address they were fetched for, so a page visited again
+/// draws them without downloading them again.
+///
+/// The response cache cannot do this: pictures are read with `POST`, never
+/// cached there. Bounded in bytes, oldest dropped first; a tree's are dropped
+/// whenever this client writes to it, as its cached reads are.
+#[derive(Clone, Default)]
+struct PictureCache(std::sync::Arc<std::sync::Mutex<PictureEntries>>);
+
+#[derive(Default)]
+struct PictureEntries {
+    entries: HashMap<(Uuid, ImageSource), (String, i64)>,
+    bytes: usize,
+}
+
+impl std::fmt::Debug for PictureCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let count = self.0.lock().map(|e| e.entries.len()).unwrap_or(0);
+        write!(f, "PictureCache({count})")
+    }
+}
+
+impl PictureCache {
+    fn get(&self, tree_id: Uuid, source: &ImageSource) -> Option<String> {
+        let entries = self.0.lock().ok()?;
+        let (data, stored) = entries.entries.get(&(tree_id, source.clone()))?;
+        (chrono::Utc::now().timestamp() - stored < PICTURE_CACHE_TTL_SECS).then(|| data.clone())
+    }
+
+    fn set(&self, tree_id: Uuid, source: ImageSource, data: String) {
+        let Ok(mut entries) = self.0.lock() else {
+            return;
+        };
+        if data.len() > PICTURE_CACHE_MAX_BYTES / 4 {
+            return;
+        }
+        let now = chrono::Utc::now().timestamp();
+        if let Some((old, _)) = entries.entries.remove(&(tree_id, source.clone())) {
+            entries.bytes -= old.len();
+        }
+        while entries.bytes + data.len() > PICTURE_CACHE_MAX_BYTES {
+            let Some(oldest) = entries
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, stored))| *stored)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            if let Some((old, _)) = entries.entries.remove(&oldest) {
+                entries.bytes -= old.len();
+            }
+        }
+        entries.bytes += data.len();
+        entries.entries.insert((tree_id, source), (data, now));
+    }
+
+    fn invalidate_tree(&self, tree_id: Uuid) {
+        if let Ok(mut entries) = self.0.lock() {
+            let PictureEntries { entries, bytes } = &mut *entries;
+            entries.retain(|(tree, _), (data, _)| {
+                let keep = *tree != tree_id;
+                if !keep {
+                    *bytes -= data.len();
+                }
+                keep
+            });
+        }
+    }
+}
+
 // ── API Client ──────────────────────────────────────────────────────
 
 /// Typed HTTP client for the OxidGene REST API.
@@ -2136,6 +2278,8 @@ pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
     cache: ResponseCache,
+    /// The pictures fetched as `data:` URLs this session (see [`PictureCache`]).
+    pictures: PictureCache,
     /// The shell that serves backend-held pictures from its own origin, when
     /// this build has one. Absent on the web, where pictures are fetched here
     /// and handed to the markup as `data:` URLs instead.
@@ -2357,6 +2501,7 @@ impl ApiClient {
             client: builder.build().expect("failed to build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
             cache: ResponseCache::default(),
+            pictures: PictureCache::default(),
             image_host: None,
             auth: None,
         }
@@ -2496,6 +2641,9 @@ impl ApiClient {
     pub fn invalidate_tree(&self, tree_id: Uuid) {
         self.cache
             .invalidate_prefix(&format!("/api/v1/trees/{tree_id}"));
+        // The batch of several trees' recent persons names no single tree.
+        self.cache.invalidate_prefix(RECENT_PERSONS_PATH);
+        self.pictures.invalidate_tree(tree_id);
     }
 
     /// Helper: send a cached GET request and deserialize JSON response.
@@ -2859,26 +3007,22 @@ impl ApiClient {
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<PersonDetailBundle, ApiError> {
-        let wire: WirePersonDetailBundle = self
-            .get(&format!(
-                "/api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle"
-            ))
-            .await?;
-        Ok(PersonDetailBundle {
-            gallery: std::sync::Arc::new(self.resolve_gallery(tree_id, wire.gallery).await),
-            sosa_number: wire.sosa_number,
-            persons: wire.persons,
-            names: wire.names,
-            events: wire.events,
-            places: wire.places,
-            spouses: wire.spouses,
-            children: wire.children,
-            citations: wire.citations,
-            sources: wire.sources,
-            profile_media: wire.profile_media,
-            profile_vignettes: wire.profile_vignettes,
-            event_media: wire.event_media,
-        })
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle"
+        ))
+        .await
+    }
+
+    /// Everything one couple page draws, in one request.
+    pub async fn get_couple_detail_bundle(
+        &self,
+        tree_id: Uuid,
+        family_id: Uuid,
+    ) -> Result<CoupleDetailBundle, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/families/{family_id}/detail-bundle"
+        ))
+        .await
     }
 
     // ── Persons ─────────────────────────────────────────────────────
@@ -3036,16 +3180,35 @@ impl ApiClient {
         .await
     }
 
-    /// The persons of the tree modified most recently, newest first.
-    pub async fn recently_modified_persons(
+    /// The persons modified most recently in each of `tree_ids`, in one
+    /// request; a tree the server no longer has is left out.
+    pub async fn recent_persons_of_trees(
         &self,
-        tree_id: Uuid,
+        tree_ids: &[Uuid],
         limit: usize,
-    ) -> Result<Vec<SearchEntry>, ApiError> {
-        self.get(&format!(
-            "/api/v1/trees/{tree_id}/persons/recently-modified?limit={limit}"
-        ))
-        .await
+    ) -> Result<HashMap<Uuid, Vec<SearchEntry>>, ApiError> {
+        #[derive(Deserialize)]
+        struct TreeRecentPersons {
+            tree_id: Uuid,
+            persons: Vec<SearchEntry>,
+        }
+        if tree_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ids = tree_ids
+            .iter()
+            .map(Uuid::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let trees: Vec<TreeRecentPersons> = self
+            .get(&format!(
+                "{RECENT_PERSONS_PATH}?tree_ids={ids}&limit={limit}"
+            ))
+            .await?;
+        Ok(trees
+            .into_iter()
+            .map(|tree| (tree.tree_id, tree.persons))
+            .collect())
     }
 
     /// Record that `person_id` is a different person from each of `others`.
@@ -3079,23 +3242,6 @@ impl ApiClient {
                 duplicate_id: duplicate,
                 choices,
             },
-        )
-        .await
-    }
-
-    pub async fn get_ancestors(
-        &self,
-        tree_id: Uuid,
-        person_id: Uuid,
-        max_depth: Option<i32>,
-    ) -> Result<Vec<AncestryLink>, ApiError> {
-        let mut params = Vec::new();
-        if let Some(d) = max_depth {
-            params.push(("max_depth", d.to_string()));
-        }
-        self.get_with_query(
-            &format!("/api/v1/trees/{tree_id}/persons/{person_id}/ancestors"),
-            &params,
         )
         .await
     }
@@ -3652,28 +3798,11 @@ impl ApiClient {
             .await
     }
 
-    /// Sources in the tree whose title starts with `prefix` (empty = all),
-    /// each paired with its citation count. Used as the final flat-list step
-    /// of the Sources tab's smart drill-down once a prefix's count is small
-    /// enough to display directly (see ui-dictionary.md §8).
-    pub async fn dictionary_sources(
-        &self,
-        tree_id: Uuid,
-        prefix: &str,
-    ) -> Result<Vec<SourceDictionaryEntry>, ApiError> {
-        self.get_with_query(
-            &format!("/api/v1/trees/{tree_id}/dictionary/sources"),
-            &[("prefix", prefix)],
-        )
-        .await
-    }
-
     /// Resolves the Sources tab's smart drill-down starting from `prefix`
     /// (empty = start from the top): the backend auto-skips forced
     /// single-choice levels and returns either the real next branch
-    /// choices, or an empty `groups` list once the count is small enough to
-    /// fetch the final flat list (via `dictionary_sources`, passing back
-    /// the response's `prefix`). See ui-dictionary.md §8.10.
+    /// choices, or, once the count is small enough, an empty `groups` list
+    /// and the level's sources. See ui-dictionary.md §8.10.
     pub async fn dictionary_source_groups(
         &self,
         tree_id: Uuid,
@@ -3928,7 +4057,9 @@ impl ApiClient {
     /// per source with no network at all. Everywhere else the bytes have to be
     /// fetched and inlined as `data:` URLs — and that happens for the whole set
     /// in one request, because a pedigree resolving one portrait at a time is
-    /// one round trip per person on screen.
+    /// one round trip per person on screen. A picture fetched earlier in the
+    /// session comes from the [`PictureCache`], and one asked for twice on the
+    /// same screen is fetched once.
     ///
     /// Returns one slot per source, in order.
     async fn resolve_sources(
@@ -3937,13 +4068,25 @@ impl ApiClient {
         sources: Vec<ImageSource>,
     ) -> Vec<Option<String>> {
         let (mut resolved, pending) = self.resolve_locally(tree_id, sources);
-        if pending.is_empty() {
-            return resolved;
+        let mut wanted: Vec<ImageSource> = Vec::new();
+        let mut slots: HashMap<ImageSource, Vec<usize>> = HashMap::new();
+        for (index, source) in pending {
+            if let Some(data) = self.pictures.get(tree_id, &source) {
+                resolved[index] = Some(data);
+                continue;
+            }
+            slots
+                .entry(source.clone())
+                .or_insert_with(|| {
+                    wanted.push(source);
+                    Vec::new()
+                })
+                .push(index);
         }
 
-        for chunk in pending.chunks(IMAGE_DATA_BATCH_SIZE) {
+        for chunk in wanted.chunks(IMAGE_DATA_BATCH_SIZE) {
             let body = ImageDataRequest {
-                sources: chunk.iter().map(|(_, source)| source.clone()).collect(),
+                sources: chunk.to_vec(),
             };
             match self
                 .post_read::<Vec<Option<String>>, _>(
@@ -3953,8 +4096,12 @@ impl ApiClient {
                 .await
             {
                 Ok(urls) => {
-                    for ((index, _), url) in chunk.iter().zip(urls) {
-                        resolved[*index] = url;
+                    for (source, url) in chunk.iter().zip(urls) {
+                        let Some(url) = url else { continue };
+                        for &index in slots.get(source).into_iter().flatten() {
+                            resolved[index] = Some(url.clone());
+                        }
+                        self.pictures.set(tree_id, source.clone(), url);
                     }
                 }
                 Err(error) => {
@@ -3970,50 +4117,94 @@ impl ApiClient {
         resolved
     }
 
-    /// Resolve every address in a gallery to something drawable, in one pass.
-    async fn resolve_gallery(&self, tree_id: Uuid, wire: WireGalleryBundle) -> GalleryBundle {
-        // Every address on the screen, flattened so one request answers for the
-        // lot, then handed back to the slot it came from.
-        let mut sources = Vec::new();
-        for item in &wire.media {
-            sources.extend(item.source.iter().cloned());
-            sources.extend(item.document_previews.iter().cloned());
-        }
-        for item in &wire.vignettes {
-            sources.push(item.image.source.clone());
-        }
+    /// Turn a screen's galleries and portraits into things it can draw, in
+    /// one request: every address flattened so one call answers for the lot,
+    /// then handed back to the slot it came from.
+    pub async fn resolve_pictures(
+        &self,
+        tree_id: Uuid,
+        galleries: &[&GallerySources],
+        portraits: &[(Uuid, oxidgene_core::types::PortraitRef)],
+    ) -> ResolvedPictures {
+        let sources = galleries
+            .iter()
+            .flat_map(|gallery| gallery.sources())
+            .chain(
+                portraits
+                    .iter()
+                    .map(|(_, portrait)| portrait.source.clone()),
+            )
+            .collect();
         let mut drawn = self.resolve_sources(tree_id, sources).await.into_iter();
-
-        let mut bundle = GalleryBundle::default();
-        for item in wire.media {
-            let source = item.source.and_then(|_| drawn.next().flatten());
-            let previews = item
-                .document_previews
-                .iter()
-                .filter_map(|_| drawn.next().flatten())
-                .collect();
-            bundle.media.push(GalleryMedia {
-                media_id: item.media_id,
-                source,
-                event_ids: item.event_ids,
-                document_previews: previews,
-            });
+        let mut gallery = GalleryBundle::default();
+        for sources in galleries {
+            let resolved = sources.resolve(&mut drawn);
+            gallery.media.extend(resolved.media);
+            gallery.vignettes.extend(resolved.vignettes);
         }
-        for item in wire.vignettes {
-            if let Some(source) = drawn.next().flatten() {
-                bundle.vignettes.push(GalleryVignette {
-                    vignette_id: item.vignette_id,
-                    image: CroppedSource {
-                        source,
-                        crop: item.image.crop,
+        let portraits = portraits
+            .iter()
+            .zip(drawn)
+            .filter_map(|((person_id, portrait), source)| {
+                Some((
+                    *person_id,
+                    CroppedSource {
+                        source: source?,
+                        crop: portrait.crop,
                     },
-                });
-            }
+                ))
+            })
+            .collect();
+        ResolvedPictures {
+            gallery: std::sync::Arc::new(gallery),
+            portraits,
         }
-        bundle
     }
 
-    /// Load portraits in bounded batches, issuing as many batches as needed.
+    /// The portraits of people whose sources a payload already carried —
+    /// pedigree nodes, search rows — in one request.
+    pub async fn portraits_from_refs(
+        &self,
+        tree_id: Uuid,
+        portraits: &[(Uuid, oxidgene_core::types::PortraitRef)],
+    ) -> HashMap<Uuid, CroppedSource> {
+        self.resolve_pictures(tree_id, &[], portraits)
+            .await
+            .portraits
+    }
+
+    /// The thumbnails of `media_ids`, drawable, in one request — a
+    /// document's pages, which would otherwise be a request per page.
+    pub async fn thumbnails(&self, tree_id: Uuid, media_ids: &[Uuid]) -> HashMap<Uuid, String> {
+        let sources = media_ids
+            .iter()
+            .map(|&media_id| ImageSource::Thumbnail { media_id })
+            .collect();
+        media_ids
+            .iter()
+            .zip(self.resolve_sources(tree_id, sources).await)
+            .filter_map(|(id, source)| Some((*id, source?)))
+            .collect()
+    }
+
+    /// The portraits of search rows, which carry their sources.
+    pub async fn entry_portraits(
+        &self,
+        tree_id: Uuid,
+        entries: &[SearchEntry],
+    ) -> HashMap<Uuid, CroppedSource> {
+        let refs: Vec<_> = entries
+            .iter()
+            .filter_map(|entry| Some((entry.person_id, entry.portrait.clone()?)))
+            .collect();
+        if refs.is_empty() {
+            return HashMap::new();
+        }
+        self.portraits_from_refs(tree_id, &refs).await
+    }
+
+    /// The portraits of people known only by id: their sources first, in
+    /// bounded batches, then their pictures.
     pub async fn portrait_map_for_ids(
         &self,
         tree_id: Uuid,
@@ -4032,23 +4223,11 @@ impl ApiClient {
                 .await
             {
                 Ok(images) => {
-                    // One request for the batch's pictures, not one per person.
-                    let sources = images
-                        .iter()
-                        .map(|image| image.image.source.clone())
-                        .collect::<Vec<_>>();
-                    let drawn = self.resolve_sources(tree_id, sources).await;
-                    for (image, source) in images.into_iter().zip(drawn) {
-                        if let Some(source) = source {
-                            portraits.insert(
-                                image.person_id,
-                                CroppedSource {
-                                    source,
-                                    crop: image.image.crop,
-                                },
-                            );
-                        }
-                    }
+                    let refs: Vec<_> = images
+                        .into_iter()
+                        .map(|image| (image.person_id, image.image))
+                        .collect();
+                    portraits.extend(self.portraits_from_refs(tree_id, &refs).await);
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -4355,14 +4534,15 @@ impl ApiClient {
                 vignette_ids: vignette_ids[vignette_offset..vignette_end].to_vec(),
             };
             match self
-                .post_read::<WireGalleryBundle, _>(
+                .post_read::<GallerySources, _>(
                     &format!("/api/v1/trees/{tree_id}/gallery-bundle"),
                     &body,
                 )
                 .await
             {
                 Ok(batch) => {
-                    let batch = self.resolve_gallery(tree_id, batch).await;
+                    let resolved = self.resolve_pictures(tree_id, &[&batch], &[]).await;
+                    let batch = std::sync::Arc::unwrap_or_clone(resolved.gallery);
                     bundle.media.extend(batch.media);
                     bundle.vignettes.extend(batch.vignettes);
                 }
@@ -4819,6 +4999,22 @@ impl ApiClient {
         .await
     }
 
+    /// The pedigree around the tree's default root — its SOSA root, else its
+    /// first person — chosen by the server, so nothing has to be read first.
+    pub async fn get_default_pedigree(
+        &self,
+        tree_id: Uuid,
+        ancestor_depth: u32,
+        descendant_depth: u32,
+    ) -> Result<Pedigree, ApiError> {
+        let params = [
+            ("ancestor_depth", ancestor_depth.to_string()),
+            ("descendant_depth", descendant_depth.to_string()),
+        ];
+        self.get_with_query(&format!("/api/v1/trees/{tree_id}/pedigree"), &params)
+            .await
+    }
+
     /// A tree's statistics, time series filed by year; `approximate` lets
     /// ages and averages use approximate dates, and places are named in
     /// `lang`.
@@ -4989,6 +5185,75 @@ impl Injector for HeaderInjector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kept_picture_is_found_until_its_tree_is_written_to() {
+        let cache = PictureCache::default();
+        let (tree, other) = (Uuid::now_v7(), Uuid::now_v7());
+        let source = ImageSource::Thumbnail {
+            media_id: Uuid::now_v7(),
+        };
+        cache.set(tree, source.clone(), "data:image/jpeg;base64,AAAA".into());
+        cache.set(other, source.clone(), "data:image/jpeg;base64,BBBB".into());
+        assert_eq!(
+            cache.get(tree, &source).as_deref(),
+            Some("data:image/jpeg;base64,AAAA")
+        );
+        cache.invalidate_tree(tree);
+        assert_eq!(cache.get(tree, &source), None);
+        assert!(cache.get(other, &source).is_some());
+    }
+
+    #[test]
+    fn the_picture_cache_drops_its_oldest_pictures_past_its_size() {
+        let cache = PictureCache::default();
+        let tree = Uuid::now_v7();
+        let picture = "x".repeat(PICTURE_CACHE_MAX_BYTES / 5);
+        let sources: Vec<ImageSource> = (0..8)
+            .map(|_| ImageSource::Thumbnail {
+                media_id: Uuid::now_v7(),
+            })
+            .collect();
+        for source in &sources {
+            cache.set(tree, source.clone(), picture.clone());
+        }
+        let kept = sources
+            .iter()
+            .filter(|source| cache.get(tree, source).is_some())
+            .count();
+        assert_eq!(kept, 5);
+        assert!(cache.0.lock().unwrap().bytes <= PICTURE_CACHE_MAX_BYTES);
+        // A picture too large to be worth keeping is not kept.
+        let huge = ImageSource::Thumbnail {
+            media_id: Uuid::now_v7(),
+        };
+        cache.set(tree, huge.clone(), "x".repeat(PICTURE_CACHE_MAX_BYTES / 2));
+        assert_eq!(cache.get(tree, &huge), None);
+    }
+
+    #[test]
+    fn a_gallery_takes_its_pictures_back_in_the_order_it_gave_its_addresses() {
+        let (page, preview, vignette) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let sources: GallerySources = serde_json::from_value(serde_json::json!({
+            "media": [{
+                "media_id": page,
+                "source": { "kind": "thumbnail", "media_id": page },
+                "event_ids": [],
+                "document_previews": [{ "kind": "thumbnail", "media_id": preview }]
+            }],
+            "vignettes": [{
+                "vignette_id": vignette,
+                "source": { "kind": "crop", "vignette_id": vignette }
+            }]
+        }))
+        .unwrap();
+        assert_eq!(sources.sources().count(), 3);
+        let mut drawn = ["a", "b", "c"].map(|s| Some(s.to_string())).into_iter();
+        let gallery = sources.resolve(&mut drawn);
+        assert_eq!(gallery.media[0].source.as_deref(), Some("a"));
+        assert_eq!(gallery.media[0].document_previews, ["b"]);
+        assert_eq!(gallery.vignettes[0].image.source, "c");
+    }
 
     #[test]
     fn a_path_segment_escapes_everything_that_could_end_or_alter_it() {

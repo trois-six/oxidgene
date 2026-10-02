@@ -288,7 +288,7 @@ impl ImageCrop {
 /// drawable is the client's business, and deliberately so: until authentication
 /// ships, no backend address may appear in the markup (see
 /// `docs/cross-cutting.md` §7.1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ImageSource {
     /// An address outside our control, which the reader's engine fetches for

@@ -1,8 +1,11 @@
 //! Home / landing page — tree dashboard.
 
+use std::collections::HashMap;
+
 use chrono::Utc;
 use dioxus::prelude::*;
 use oxidgene_core::Sex;
+use oxidgene_core::projection::SearchEntry;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
@@ -39,6 +42,23 @@ pub fn Home() -> Element {
         let _tick = refresh_counter();
         async move { api.list_trees(Some(100), None).await }
     });
+    // Every card's recent persons, in one request once the list is in.
+    let api_recent = api.clone();
+    let recent_resource = use_traced_resource(load_trace.clone(), "recent_persons", move || {
+        let api = api_recent.clone();
+        let tree_ids: Vec<Uuid> = trees_resource
+            .read()
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .map(|connection| connection.edges.iter().map(|edge| edge.node.id).collect())
+            .unwrap_or_default();
+        async move {
+            api.recent_persons_of_trees(&tree_ids, RECENT_PERSONS)
+                .await
+                .ok()
+        }
+    });
+    use_context_provider(|| RecentPersonsBatch(recent_resource));
     let imports_active = use_memo(move || {
         trees_resource
             .read()
@@ -861,6 +881,11 @@ fn TreeCard(
     }
 }
 
+/// Every card's recent persons, read once by the home page; `None` while on
+/// its way or when it failed.
+#[derive(Clone, Copy)]
+struct RecentPersonsBatch(Resource<Option<HashMap<Uuid, Vec<SearchEntry>>>>);
+
 /// The persons of a tree card's tree modified most recently.
 ///
 /// Each is the shared search row, drawn statically — the card, not the row,
@@ -871,27 +896,23 @@ fn RecentPersons(tree_id: Uuid) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
 
-    let api_rows = api.clone();
-    let rows = use_ui_resource("home_recent_persons", move || {
-        let api = api_rows.clone();
-        async move { api.recently_modified_persons(tree_id, RECENT_PERSONS).await }
+    let RecentPersonsBatch(batch) = use_context::<RecentPersonsBatch>();
+    // The home page reads every card's rows in one request.
+    let rows = use_memo(move || {
+        let batch = batch.read();
+        let batch = batch.as_ref()?.as_ref()?;
+        Some(batch.get(&tree_id).cloned().unwrap_or_default())
     });
     // Pictures follow the rows rather than holding them back.
     let portraits = use_ui_resource("home_recent_portraits", move || {
         let api = api.clone();
-        let person_ids: Vec<Uuid> = rows
-            .read()
-            .as_ref()
-            .and_then(|result| result.as_ref().ok())
-            .map(|entries| entries.iter().map(|entry| entry.person_id).collect())
-            .unwrap_or_default();
-        async move { api.portrait_map_for_ids(tree_id, &person_ids).await }
+        let entries = rows().unwrap_or_default();
+        async move { api.entry_portraits(tree_id, &entries).await }
     });
 
     // Nothing while loading or when the read failed: the card works without.
-    let entries = match &*rows.read() {
-        Some(Ok(entries)) => entries.clone(),
-        _ => return rsx! {},
+    let Some(entries) = rows() else {
+        return rsx! {};
     };
     let portraits = portraits.read().clone().unwrap_or_default();
     let tree_id = tree_id.to_string();

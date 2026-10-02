@@ -9,7 +9,9 @@
 
 use dioxus::prelude::*;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent, SearchEntry};
-use oxidgene_core::types::{QualifiedYear, year_from_date};
+use std::collections::HashMap;
+
+use oxidgene_core::types::{PortraitRef, QualifiedYear, year_from_date};
 use oxidgene_core::{DateQualifier, Sex};
 use uuid::Uuid;
 
@@ -35,6 +37,7 @@ pub(crate) struct PersonSearchSummary {
     father_name: Option<String>,
     mother_name: Option<String>,
     children_count: u32,
+    portrait: Portrait,
 }
 
 impl PersonSearchSummary {
@@ -59,8 +62,50 @@ impl PersonSearchSummary {
             father_name: None,
             mother_name: None,
             children_count: 0,
+            portrait: Portrait::Unknown,
         }
     }
+}
+
+/// What a summary knows of its person's portrait.
+#[derive(Clone)]
+enum Portrait {
+    /// Where it is drawn from, as a search row carries it.
+    Known(PortraitRef),
+    /// The person has none.
+    None,
+    /// Not said by what the summary was made from: asked by id.
+    Unknown,
+}
+
+/// The portraits of `summaries`: those a search row carried resolved
+/// straight away, the others asked for by id — one request each way at most.
+pub(crate) async fn summary_portraits(
+    api: &ApiClient,
+    tree_id: Uuid,
+    summaries: &[PersonSearchSummary],
+) -> HashMap<Uuid, CroppedSource> {
+    let refs: Vec<(Uuid, PortraitRef)> = summaries
+        .iter()
+        .filter_map(|summary| match &summary.portrait {
+            Portrait::Known(portrait) => Some((summary.person_id, portrait.clone())),
+            _ => None,
+        })
+        .collect();
+    let unknown: Vec<Uuid> = summaries
+        .iter()
+        .filter(|summary| matches!(summary.portrait, Portrait::Unknown))
+        .map(|summary| summary.person_id)
+        .collect();
+    let mut portraits = if refs.is_empty() {
+        HashMap::new()
+    } else {
+        api.portraits_from_refs(tree_id, &refs).await
+    };
+    if !unknown.is_empty() {
+        portraits.extend(api.portrait_map_for_ids(tree_id, &unknown).await);
+    }
+    portraits
 }
 
 impl From<&SearchEntry> for PersonSearchSummary {
@@ -77,6 +122,10 @@ impl From<&SearchEntry> for PersonSearchSummary {
             father_name: entry.father_name.clone(),
             mother_name: entry.mother_name.clone(),
             children_count: entry.children_count,
+            portrait: entry
+                .portrait
+                .clone()
+                .map_or(Portrait::None, Portrait::Known),
         }
     }
 }
@@ -114,6 +163,8 @@ impl From<PersonProfile> for PersonSearchSummary {
                 .iter()
                 .map(|family| family.children_count)
                 .sum(),
+            // A profile does not say where its portrait is drawn from.
+            portrait: Portrait::Unknown,
         }
     }
 }
@@ -246,19 +297,13 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let search_for_portraits = search_resource;
     let portraits_resource = use_ui_resource("search_portraits", move || {
         let api = api_portraits.clone();
-        let person_ids = search_for_portraits
+        let entries = search_for_portraits
             .read()
             .as_ref()
             .and_then(|result| result.as_ref().ok())
-            .map(|result| {
-                result
-                    .entries
-                    .iter()
-                    .map(|entry| entry.person_id)
-                    .collect::<Vec<_>>()
-            })
+            .map(|result| result.entries.clone())
             .unwrap_or_default();
-        async move { api.portrait_map_for_ids(tree_id, &person_ids).await }
+        async move { api.entry_portraits(tree_id, &entries).await }
     });
 
     let results: Vec<SearchEntry> = {
@@ -412,6 +457,7 @@ mod relation_tests {
             father_name: None,
             mother_name: None,
             children_count: 0,
+            portrait: Portrait::None,
         }
     }
 

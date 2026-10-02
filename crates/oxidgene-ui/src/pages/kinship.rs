@@ -25,16 +25,21 @@ async fn load_ends(
     tid: Option<Uuid>,
     ends: [Option<Uuid>; 2],
 ) -> HashMap<Uuid, PersonSearchSummary> {
-    let mut summaries = HashMap::new();
     let Some(tid) = tid else {
-        return summaries;
+        return HashMap::new();
     };
-    for id in ends.into_iter().flatten() {
-        if let Ok(profile) = api.get_person_profile(tid, id).await {
-            summaries.insert(id, PersonSearchSummary::from(profile));
-        }
-    }
-    summaries
+    // Both at once: neither waits for the other.
+    let profiles = futures_util::future::join_all(
+        ends.into_iter()
+            .flatten()
+            .map(|id| async move { api.get_person_profile(tid, id).await.ok() }),
+    )
+    .await;
+    profiles
+        .into_iter()
+        .flatten()
+        .map(|profile| (profile.person_id, PersonSearchSummary::from(profile)))
+        .collect()
 }
 
 /// Page rendered at `/trees/:tree_id/kinship?from=...&to=...`.
@@ -94,16 +99,24 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     let portraits_resource = use_traced_resource(load_trace, "portraits", move || {
         let api = api_portraits.clone();
         let tid = tree_id_parsed();
-        let mut ids: Vec<Uuid> = [from_parsed(), to_parsed()].into_iter().flatten().collect();
-        if let Some(Some(Ok(kinship))) = &*kinship_resource.read() {
-            ids.extend(kinship.persons.iter().map(|person| person.person_id));
-        }
-        let ids = sorted_unique(ids);
+        // Once, after the result: its rows carry every portrait it draws,
+        // the two ends' included. Without a result — the same person twice,
+        // or a failure — only the ends, asked by id.
+        let wanted = match &*kinship_resource.read() {
+            None => None,
+            Some(Some(Ok(kinship))) => Some(Ok(kinship.persons.clone())),
+            Some(_) => Some(Err(sorted_unique(
+                [from_parsed(), to_parsed()].into_iter().flatten(),
+            ))),
+        };
         async move {
-            let Some(tid) = tid else {
+            let (Some(tid), Some(wanted)) = (tid, wanted) else {
                 return HashMap::new();
             };
-            api.portrait_map_for_ids(tid, &ids).await
+            match wanted {
+                Ok(rows) => api.entry_portraits(tid, &rows).await,
+                Err(ends) => api.portrait_map_for_ids(tid, &ends).await,
+            }
         }
     });
 

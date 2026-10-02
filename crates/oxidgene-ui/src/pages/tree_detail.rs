@@ -17,7 +17,6 @@ use crate::components::context_menu::{ContextMenu, PersonAction};
 use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, Portraits, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
-use crate::components::person_profile::use_sosa_ancestors;
 use crate::components::print::PrintHeading;
 use crate::components::search_person::SearchPerson;
 use crate::components::topbar_search::TopbarSearch;
@@ -401,52 +400,21 @@ fn use_root_selection(tree_id: &str, person: Option<&String>) -> RootSelection {
     }
 }
 
-/// The chart's root: the selected person, else the tree's SOSA root, else
-/// its first person.
-async fn pedigree_root(
-    api: &ApiClient,
-    tree_cache: &TreeCache,
-    tid: Uuid,
-    selected: Option<Uuid>,
-) -> Option<Uuid> {
-    if selected.is_some() {
-        return selected;
-    }
-    // Goes through the same TreeCache as the tree resource instead of a raw
-    // `get_tree` call, avoiding a duplicate `GET /trees/:id` request.
-    if let Some(root) = fetch_tree_cached(api, tree_cache, tid)
-        .await
-        .ok()
-        .and_then(|tree| tree.sosa_root_person_id)
-    {
-        return Some(root);
-    }
-    let first = api.list_persons(tid, Some(1), None).await.ok()?;
-    first.edges.first().map(|e| e.node.id)
-}
-
-/// The pedigree around the chosen root, `levels` generations up and down.
+/// The pedigree around the selected person, else around the tree's default
+/// root — its SOSA root, else its first person — which the server chooses,
+/// so the chart waits on nothing else; `levels` generations up and down. A
+/// tree without anyone answers `404`, and the page offers its first person.
 async fn load_pedigree(
     api: &ApiClient,
-    tree_cache: &TreeCache,
     tid: Uuid,
     selected: Option<Uuid>,
     (ancestor_levels, descendant_levels): (usize, usize),
 ) -> Result<Pedigree, ApiError> {
-    let Some(root_id) = pedigree_root(api, tree_cache, tid, selected).await else {
-        // Empty tree — no persons at all.
-        return Err(ApiError::Api {
-            status: 404,
-            body: "No persons in tree".to_string(),
-        });
-    };
-    api.get_pedigree(
-        tid,
-        root_id,
-        ancestor_levels as u32,
-        descendant_levels as u32,
-    )
-    .await
+    let (up, down) = (ancestor_levels as u32, descendant_levels as u32);
+    match selected {
+        Some(root_id) => api.get_pedigree(tid, root_id, up, down).await,
+        None => api.get_default_pedigree(tid, up, down).await,
+    }
 }
 
 /// Page rendered at `/trees/:tree_id?person=...`.
@@ -493,13 +461,6 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
         _ => None,
     };
 
-    let sosa_ancestors_resource = use_sosa_ancestors(
-        load_trace.clone(),
-        api.clone(),
-        tree_id_parsed,
-        tree_resource,
-    );
-
     // ── Fetch pedigree from the API ──
     let api_pedigree = api.clone();
     let mut pedigree_resource = use_traced_resource(load_trace.clone(), "pedigree", move || {
@@ -521,26 +482,45 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                 (defaults.ancestor_levels, defaults.descendant_levels),
                 |view| (view.ancestor_levels, view.descendant_levels),
             );
-            load_pedigree(&api, &tree_cache, tid, sel_root, levels).await
+            load_pedigree(&api, tid, sel_root, levels).await
         }
     });
 
-    // ── Fetch the portrait map for the tree (person_id → image URL) ──
+    // ── The portraits of the chart's people, whose sources the pedigree
+    // carries — only for a view that draws them ──
+    let view_pref = try_use_context::<Signal<crate::components::pedigree_view::PedigreeView>>();
     let api_photos = api.clone();
     let photos_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
         let api = api_photos.clone();
         let tid = tree_id_parsed();
-        let _gen = tree_cache.generation();
-        let person_ids = match &*pedigree_resource.read() {
-            Some(Ok(pedigree)) => pedigree.persons.keys().copied().collect::<Vec<_>>(),
+        let draws_portraits = view_pref.is_none_or(|view| view.read().draws_portraits());
+        let refs = match &*pedigree_resource.read() {
+            Some(Ok(pedigree)) if draws_portraits => pedigree
+                .persons
+                .values()
+                .filter_map(|node| Some((node.person_id, node.portrait.clone()?)))
+                .collect::<Vec<_>>(),
             _ => Vec::new(),
         };
         async move {
-            let Some(tid) = tid.filter(|_| !person_ids.is_empty()) else {
+            let Some(tid) = tid.filter(|_| !refs.is_empty()) else {
                 return Portraits::default();
             };
-            Shared::new(api.portrait_map_for_ids(tid, &person_ids).await)
+            Shared::new(api.portraits_from_refs(tid, &refs).await)
         }
+    });
+    // The SOSA root's ancestors in the window, as the server marked them.
+    let sosa_ancestors = use_memo(move || match &*pedigree_resource.read() {
+        Some(Ok(pedigree)) => {
+            let marked: std::collections::HashSet<Uuid> = pedigree
+                .persons
+                .values()
+                .filter(|node| node.sosa_ancestor)
+                .map(|node| node.person_id)
+                .collect();
+            (!marked.is_empty()).then(|| Shared::new(marked))
+        }
+        _ => None,
     });
 
     // Force resources to re-fetch when tree_id changes (component reused by router).
@@ -618,7 +598,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         data: data.clone(),
                         tree_id: tree_id.clone(),
                         sosa_root_person_id: tree.as_ref().and_then(|tree| tree.sosa_root_person_id),
-                        sosa_ancestor_ids: sosa_ancestors_resource.read().clone().filter(|set| !set.is_empty()),
+                        sosa_ancestor_ids: sosa_ancestors(),
                         portraits: photos_resource.read().clone(),
                         center_gen: center_gen(),
                         on_person_click: move |(pid, x, y)| {

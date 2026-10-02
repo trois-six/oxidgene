@@ -488,7 +488,11 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
             if still_typing {
                 crate::utils::sleep_ms(200).await;
             }
-            api.search_persons_filtered(tid, &params).await.map(Some)
+            let result = api.search_persons_filtered(tid, &params).await?;
+            Ok(Some(Searched {
+                result,
+                limit: params.limit,
+            }))
         }
     });
 
@@ -512,10 +516,15 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
     let api_portraits = api.clone();
     let portraits_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
         let api = api_portraits.clone();
-        let person_ids = result_ids(&search_resource);
+        // Only the list draws them; the cards draw small pedigrees.
+        let entries = if (filters.view)() == ViewMode::List {
+            all_entries()
+        } else {
+            Vec::new()
+        };
         async move {
-            match tree_id {
-                Some(tree_id) => api.portrait_map_for_ids(tree_id, &person_ids).await,
+            match tree_id.filter(|_| !entries.is_empty()) {
+                Some(tree_id) => api.entry_portraits(tree_id, &entries).await,
                 None => Default::default(),
             }
         }
@@ -608,7 +617,23 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 }
 
 /// The people a search found.
-fn result_ids(search: &Resource<Result<Option<SearchResult>, ApiError>>) -> Vec<Uuid> {
+/// A search's answer, and the page size it was asked at — which tells rows
+/// fetched for the list from rows fetched for the cards.
+#[derive(Debug, Clone)]
+struct Searched {
+    result: SearchResult,
+    limit: u32,
+}
+
+impl std::ops::Deref for Searched {
+    type Target = SearchResult;
+
+    fn deref(&self) -> &SearchResult {
+        &self.result
+    }
+}
+
+fn result_ids(search: &Resource<Result<Option<Searched>, ApiError>>) -> Vec<Uuid> {
     search
         .read()
         .as_ref()
@@ -628,7 +653,7 @@ fn use_card_pedigrees(
     load_trace: UiLoadTrace,
     api: &ApiClient,
     tree_id: Option<Uuid>,
-    search: Resource<Result<Option<SearchResult>, ApiError>>,
+    search: Resource<Result<Option<Searched>, ApiError>>,
     view: Signal<ViewMode>,
 ) -> (Memo<HashMap<Uuid, SharedPedigree>>, bool) {
     let api = api.clone();
@@ -636,9 +661,13 @@ fn use_card_pedigrees(
         let api = api.clone();
         // Switching to the card view re-runs the search at the card view's
         // page size; the rows still on screen belong to the list. Asking
-        // for their pedigrees fetched a batch nobody would see.
-        let searching = *search.state().read() == UseResourceState::Pending;
-        let wanted = view() == ViewMode::Card && !searching;
+        // for their pedigrees fetched a batch nobody would see, so only rows
+        // searched at the cards' size are asked for.
+        let card_rows = matches!(
+            &*search.read(),
+            Some(Ok(Some(searched))) if searched.limit as usize == ViewMode::Card.per_page()
+        );
+        let wanted = view() == ViewMode::Card && card_rows;
         let person_ids = result_ids(&search);
         async move {
             match tree_id.filter(|_| wanted && !person_ids.is_empty()) {
@@ -677,7 +706,7 @@ enum ResultsBody {
 
 impl ResultsBody {
     fn of(
-        search: &Option<Result<Option<SearchResult>, ApiError>>,
+        search: &Option<Result<Option<Searched>, ApiError>>,
         empty: bool,
         view: ViewMode,
     ) -> Self {

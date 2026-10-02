@@ -331,7 +331,7 @@ Level "AD44 - HOTEL - (":     REAL BRANCH: "AD44 - HOTEL - (N" (3) / "AD44 - HOT
 
 The user experiences exactly **two** navigation steps (the two "REAL BRANCH" points above), not fourteen.
 
-**Backend contract**: `GET .../dictionary/sources/groups?prefix=...` performs this resolution server-side in a loop and returns the *resolved* prefix (which may be longer than the requested `prefix`) together with `total` and the real next-level `groups` — empty `groups` signals "the count is already <= 250; fetch the final list at this resolved prefix instead of drilling further." This keeps the compression to a single request per user click regardless of how many forced characters were skipped. See `DictionaryRepo::resolve_source_drill_down` (`oxidgene-db`).
+**Backend contract**: `GET .../dictionary/sources/groups?prefix=...` performs this resolution server-side in a loop and returns the *resolved* prefix (which may be longer than the requested `prefix`) together with `total` and the real next-level `groups` — empty `groups` signals "the count is already <= 250", and the final list at this resolved prefix then comes in the same answer. This keeps each user click, the final level included, to a single request regardless of how many forced characters were skipped. See `DictionaryRepo::resolve_source_drill_down` (`oxidgene-db`).
 
 ---
 
@@ -471,9 +471,9 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
     ]
   }
   ```
-  `prefix` in the response is the *resolved* prefix — it may be longer than the request's `prefix` if single-choice levels were skipped. `groups` is empty when `total <= 250`; the frontend then fetches the final list using the response's `prefix`, not the one it originally requested.
+  `prefix` in the response is the *resolved* prefix — it may be longer than the request's `prefix` if single-choice levels were skipped. `groups` is empty when `total <= 250`, and the response then also carries `sources`: the final list at the resolved `prefix` (each source with its citation count), so the tab renders it without a second request.
 
-- **`GET /dictionary/sources?prefix={prefix}`** — Returns every source whose title starts with `prefix` (case-insensitive), each paired with its citation count. Used both for the legacy unfiltered fetch (`prefix` absent) and as the final flat-list step once `groups` comes back empty.
+- **`GET /dictionary/sources?prefix={prefix}`** — Returns every source whose title starts with `prefix` (case-insensitive), each paired with its citation count, for API clients; the tab itself takes the final list from the drill-down response.
 
 ### Backend Logic
 

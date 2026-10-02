@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T19:59:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -423,7 +423,16 @@ linked event ids through one bounded gallery bundle. It
 must not mount one image, page-list, or reverse-link resource per tile. Larger
 sets are split into as many batches of 1,024 identifiers as necessary. Viewer
 and editor panels may use an individual endpoint after the user opens one
-asset.
+asset; a document's page list in its editor resolves every page's thumbnail
+in one request too.
+
+On the web, where pictures are fetched and inlined as `data:` URLs, a screen
+asks for all of its pictures at once, each distinct address once. The client
+keeps those it fetched for the session, keyed by tree and address, so a page
+visited again draws them without downloading them: at most 24 MB, the oldest
+dropped first, each reused for ten minutes, and a tree's dropped whenever the
+client writes to it, as its cached reads are. The desktop serves pictures from
+its own origin and needs none of this.
 
 A tile draws its document's page previews when there are any, its own
 thumbnail when the tile is a stored page, and the address when it is a remote

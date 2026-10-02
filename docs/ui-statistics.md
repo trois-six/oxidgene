@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:02:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -134,7 +134,8 @@ Three rows of tiles, each a figure with what it counts:
 
 - The background is an offline map: the country borders of the
   [basemap](api.md), drawn as SVG in a Mercator projection. No tile server
-  and no network access are involved.
+  is involved; the outlines are asked for the first time the Places tab
+  shows, and the browser keeps them, so the other tabs never load them.
 - The heat is the tree's place usages (events and media that name a place):
   each located place adds a soft radial spot weighted by its usage count,
   and overlapping spots add up, from the theme's cool to its warm color.

@@ -145,7 +145,8 @@ async fn load_sources_view(
             groups: resolved.groups,
         });
     }
-    let sources = api.dictionary_sources(tid, &resolved.prefix).await?;
+    // The last level comes with its sources.
+    let sources = resolved.sources.unwrap_or_default();
     Ok(SourcesView::List {
         prefix: resolved.prefix,
         sources,
@@ -248,7 +249,11 @@ pub fn Dictionary(tree_id: String) -> Element {
         letter_filter.clone().set(None);
         current_page.set(1);
         expanded.set(None);
-        source_history.set(Vec::new());
+        // Only when there is something to clear: setting it marks it changed,
+        // which re-ran the Sources request the tab switch had just sent.
+        if !source_history.peek().is_empty() {
+            source_history.set(Vec::new());
+        }
     }
 
     // Scroll back to the top of the scrollable content area whenever the

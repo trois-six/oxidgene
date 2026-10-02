@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T18:36:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
 ---
 
 
@@ -53,6 +53,14 @@ pedigree, focus, SOSA data, drawn depth or theme changes — never for the depth
 popover, the events sidebar or a selection. Portraits are not part of the
 layout either: they load after the pedigree and reach each card's picture and
 the events panel on their own, so their arrival redraws the pictures alone.
+
+Opening a tree with no person chosen asks the server for the pedigree around
+the tree's default root (its SOSA root, else its first person), so the chart
+waits on no other request; the tree's own record loads beside it. Each node
+carries its portrait's source and whether it is the SOSA root or one of its
+ancestors, so the pictures come from one further request and the SOSA badges
+need no ancestry of their own. The circular views (wheel, fan and their
+descendant forms) draw no portrait and ask for none.
 
 Only the cards and connectors near the viewport are in the DOM, in every view
 (the wheel's and the fan's segments, the lineage view's boxes and lines

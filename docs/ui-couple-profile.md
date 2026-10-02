@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T12:44:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
 ---
 
 
@@ -176,14 +176,17 @@ appears in the spouse's column and in the couple's gallery.
 
 ## 7. Loading
 
-The page fetches the family and its spouses, then both spouses' detail bundles
-concurrently. A family that no longer exists fails the load.
+The page reads everything it draws as text in one request, the couple's
+detail bundle: the family, its spouses, each spouse's person detail bundle,
+the family's and the spouses' notes, and the family's own media. A family
+that no longer exists fails the load. The SOSA marks come with the person
+bundles, so the page never loads the tree's ancestry.
 
-The page also loads the following:
-- the notes of each spouse and of the family;
-- both portraits, in one request;
-- each spouse's two-generation pedigree;
-- the tree and the SOSA ancestor set, once.
+Beside it, the page loads the tree (for the breadcrumb), and once the couple
+is in:
+- every picture it draws — both spouses' galleries, the couple's gallery and
+  both portraits — in one request, after the text is shown;
+- both spouses' two-generation pedigrees, in one batched request.
 
 While the couple loads, the page shows a single loading message. Selecting
 another couple scrolls the content back to the top.

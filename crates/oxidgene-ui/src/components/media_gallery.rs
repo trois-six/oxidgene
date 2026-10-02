@@ -18,7 +18,7 @@
 //! draws a labelled file icon in that case instead of a broken image, which is
 //! what an `<img>` onto a 404 gives you.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
 use dioxus::html::geometry::WheelDelta;
@@ -2424,6 +2424,30 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
         _ => Vec::new(),
     };
 
+    // Every page's thumbnail in one request: a document runs to a hundred
+    // pages and more, and a request per page queued them all.
+    let thumbnails = use_ui_resource("document_page_thumbnails", {
+        let api = api.clone();
+        move || {
+            let api = api.clone();
+            let ids: Vec<Uuid> = match &*pages.read() {
+                Some(Ok(list)) => list
+                    .iter()
+                    .filter(|page| page.thumbnail_key.is_some())
+                    .map(|page| page.id)
+                    .collect(),
+                _ => Vec::new(),
+            };
+            async move {
+                if ids.is_empty() {
+                    return HashMap::new();
+                }
+                api.thumbnails(tree_id, &ids).await
+            }
+        }
+    });
+    let thumbnails = thumbnails.read_unchecked().clone().unwrap_or_default();
+
     // Moving a page sends the whole order, not a "move up" operation: the
     // server applies it as one list, so a failure cannot leave the pages half
     // reordered.
@@ -2492,7 +2516,10 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                             span { class: "doc-page-number", "{index + 1}" }
                             div { class: "doc-page-thumb",
                                 if has_thumbnail {
-                                    PrivateThumbnail { tree_id, media_id: page_id, alt: name }
+                                    BundledThumbnail {
+                                        source: thumbnails.get(&page_id).cloned(),
+                                        alt: name,
+                                    }
                                 } else if let Some(remote) = remote {
                                     img { src: "{remote}", alt: "{name}", loading: "lazy" }
                                 } else {

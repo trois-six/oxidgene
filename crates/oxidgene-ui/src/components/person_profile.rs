@@ -16,18 +16,19 @@ use oxidgene_core::Sex;
 use oxidgene_core::enums::{Calendar, DateQualifier, EventType, SpouseRole};
 use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{
-    Event as DomainEvent, Note, Person, PersonName, QualifiedYear, Tree, Vignette,
+    Event as DomainEvent, Note, Person, PersonName, PortraitRef, QualifiedYear, Tree, Vignette,
 };
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ApiError, CroppedSource, GalleryBundle, MediaWithLink, PersonDetailBundle,
+    ApiClient, ApiError, CroppedSource, GalleryBundle, GallerySources, MediaWithLink,
+    PersonDetailBundle, ResolvedPictures,
 };
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
-use crate::components::pedigree_chart::{AncestorSet, Portraits, SharedPedigree};
+use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
@@ -1017,33 +1018,52 @@ pub(crate) fn use_tree_resource(
     })
 }
 
-/// The SOSA root's ancestors, which the tree view badges and the family
-/// narrative marks in green.
-pub(crate) fn use_sosa_ancestors(
+/// What a profile page has to draw besides its text: its galleries'
+/// addresses and its people's portraits.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct PagePictures {
+    pub galleries: Vec<GallerySources>,
+    pub portraits: Vec<(Uuid, PortraitRef)>,
+}
+
+/// A profile page's pictures, resolved in one request once its bundle has
+/// answered — the text is drawn first, without waiting for them.
+pub(crate) fn use_page_pictures(
     load_trace: UiLoadTrace,
     api: ApiClient,
     tree_id: Signal<Option<Uuid>>,
-    tree_resource: Resource<Result<Tree, ApiError>>,
-) -> Resource<AncestorSet> {
-    let tree_cache = use_tree_cache();
-    use_traced_resource(load_trace, "sosa_ancestors", move || {
+    wanted: Memo<Option<PagePictures>>,
+) -> Resource<ResolvedPictures> {
+    use_traced_resource(load_trace, "pictures", move || {
         let api = api.clone();
         let tid = tree_id();
-        let _gen = tree_cache.generation();
-        let sosa_root = match &*tree_resource.read() {
-            Some(Ok(tree)) => tree.sosa_root_person_id,
-            _ => None,
-        };
+        let wanted = wanted();
         async move {
-            let (Some(tid), Some(sosa_id)) = (tid, sosa_root) else {
-                return AncestorSet::default();
+            let (Some(tid), Some(wanted)) = (tid, wanted) else {
+                return ResolvedPictures::default();
             };
-            match api.get_ancestors(tid, sosa_id, None).await {
-                Ok(entries) => Shared::new(entries.into_iter().map(|a| a.person_id).collect()),
-                Err(_) => AncestorSet::default(),
-            }
+            let galleries: Vec<&GallerySources> = wanted.galleries.iter().collect();
+            api.resolve_pictures(tid, &galleries, &wanted.portraits)
+                .await
         }
     })
+}
+
+/// The portraits a page resolved, as the charts take them.
+pub(crate) fn page_portraits(pictures: &Resource<ResolvedPictures>) -> Option<Portraits> {
+    pictures
+        .read()
+        .as_ref()
+        .map(|pictures| Shared::new(pictures.portraits.clone()))
+}
+
+/// The gallery a page resolved, or an empty one while it is on its way.
+pub(crate) fn page_gallery(pictures: &Resource<ResolvedPictures>) -> Arc<GalleryBundle> {
+    pictures
+        .read()
+        .as_ref()
+        .map(|pictures| Arc::clone(&pictures.gallery))
+        .unwrap_or_default()
 }
 
 /// The Ancestors section's small static pedigree window (self + parents +
@@ -1116,6 +1136,9 @@ pub(crate) struct SectionContext<'a> {
     pub sosa_ancestors: &'a HashSet<Uuid>,
     /// Bumped when a gallery changes what is attached, so the page reloads.
     pub media_revision: Signal<u32>,
+    /// The page's pictures, every gallery of it reading the same one; empty
+    /// until they arrive, after the text.
+    pub gallery: Arc<GalleryBundle>,
 }
 
 /// The mark shown before a person's name: ♂, ♀, or `?` when unknown.
@@ -1735,7 +1758,7 @@ pub(crate) fn timeline_section(
                                                     read_only: true,
                                                     compact: true,
                                                     preloaded_tiles: Some(tiles),
-                                                    preloaded_bundle: Some(Arc::clone(&profile.bundle.gallery)),
+                                                    preloaded_bundle: Some(Arc::clone(&ctx.gallery)),
                                                     on_changed: move |()| media_revision += 1,
                                                 }
                                             }
@@ -1770,16 +1793,26 @@ pub(crate) fn timeline_placeholder(i18n: &I18n, error: Option<&str>) -> Element 
     }
 }
 
+/// Why a mini pedigree could not be loaded, once its load failed.
+pub(crate) fn pedigree_failure(
+    pedigree: &Resource<Result<Option<Pedigree>, ApiError>>,
+) -> Option<String> {
+    match &*pedigree.read() {
+        Some(Err(error)) => Some(error.to_string()),
+        _ => None,
+    }
+}
+
 /// The Ancestors card: a small static (no pan/zoom/drag) pedigree fragment.
 pub(crate) fn ancestors_section(
     i18n: &I18n,
-    pedigree_resource: &Resource<Result<Option<Pedigree>, ApiError>>,
+    failure: Option<String>,
     mini_pedigree: Option<(Uuid, SharedPedigree)>,
     portraits: Option<Portraits>,
     on_navigate: EventHandler<Uuid>,
 ) -> Element {
-    // The assembled fragment decides what to draw; the resource is consulted
-    // only to tell "still loading" apart from "failed".
+    // The assembled fragment decides what to draw; without one, `failure`
+    // tells "still loading" apart from "failed".
     let body = match mini_pedigree {
         Some((root_person_id, data)) => rsx! {
             crate::components::pedigree_chart::MiniPedigree {
@@ -1791,11 +1824,11 @@ pub(crate) fn ancestors_section(
                 portraits,
             }
         },
-        None => match &*pedigree_resource.read() {
-            Some(Err(e)) => rsx! {
-                div { class: "error-msg", {i18n.t_args("person.load_ancestry_error", &[("error", &e.to_string())])} }
+        None => match failure {
+            Some(e) => rsx! {
+                div { class: "error-msg", {i18n.t_args("person.load_ancestry_error", &[("error", &e)])} }
             },
-            _ => rsx! {
+            None => rsx! {
                 div { class: "loading", {i18n.t("person.loading_ancestry")} }
             },
         },

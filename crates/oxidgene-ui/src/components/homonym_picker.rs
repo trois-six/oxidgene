@@ -120,11 +120,11 @@ pub fn HomonymPicker(props: HomonymPickerProps) -> Element {
     let chosen_now = move || chosen().filter(|id| valid_ids.contains(id));
 
     let api_portraits = api.clone();
-    let portrait_ids = homonym_ids.clone();
+    let homonyms = props.homonyms.clone();
     let portraits_resource = use_ui_resource("homonym_portraits", move || {
         let api = api_portraits.clone();
-        let ids = portrait_ids.clone();
-        async move { api.portrait_map_for_ids(tree_id, &ids).await }
+        let homonyms = homonyms.clone();
+        async move { api.entry_portraits(tree_id, &homonyms).await }
     });
     let portraits = portraits_resource.read().clone().unwrap_or_default();
 

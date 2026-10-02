@@ -1,7 +1,7 @@
 //! Couple page — both spouses of a family side by side, with what they share
 //! drawn once across the two columns.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -10,15 +10,15 @@ use oxidgene_core::projection::Pedigree;
 use oxidgene_core::types::{FamilySpouse, Note};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, PersonDetailBundle};
+use crate::api::{ApiClient, ApiError, CoupleDetailBundle, MediaWithLink, PersonDetailBundle};
 use crate::components::media_gallery::MediaOwner;
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::person_profile::{
-    EnrichedEvent, EventOrigin, Profile, ProfileMediaCard, SHOW_MANUAL_REFRESH, SectionContext,
-    SharedProfile, ancestors_section, build_profile, children_list, couple_sides, family_section,
-    header_section, media_event_links, notes_section, refresh_button, timeline_section, union_line,
-    use_ancestor_pedigree, use_mini_pedigree, use_sosa_ancestors, use_tree_resource,
+    EnrichedEvent, EventOrigin, PagePictures, Profile, ProfileMediaCard, SHOW_MANUAL_REFRESH,
+    SectionContext, SharedProfile, ancestors_section, build_profile, children_list, couple_sides,
+    family_section, header_section, media_event_links, notes_section, page_gallery, page_portraits,
+    refresh_button, timeline_section, union_line, use_page_pictures, use_tree_resource,
 };
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
@@ -30,20 +30,82 @@ use crate::router::{Route, person_route, push_tree_route};
 use crate::shared::Shared;
 use crate::ui_observability::{UiLoadTrace, UiPage, use_traced_resource, use_ui_load_trace};
 
-/// The family's spouses and each one's detail bundle, loaded together.
+/// The couple's bundle, arranged for the page: each spouse's person bundle
+/// and notes by person.
 struct CoupleData {
     spouses: Vec<FamilySpouse>,
     bundles: HashMap<Uuid, Arc<PersonDetailBundle>>,
+    /// The family's own notes.
+    notes: Vec<Note>,
+    /// Each spouse's notes.
+    person_notes: HashMap<Uuid, Vec<Note>>,
+    /// The family's own media, and the addresses of their pictures.
+    media: Vec<MediaWithLink>,
+    gallery: crate::api::GallerySources,
 }
 
 impl CoupleData {
+    fn from_bundle(bundle: CoupleDetailBundle) -> Self {
+        let mut notes = Vec::new();
+        let mut person_notes: HashMap<Uuid, Vec<Note>> = HashMap::new();
+        for note in bundle.notes {
+            match note.person_id {
+                Some(person_id) => person_notes.entry(person_id).or_default().push(note),
+                None => notes.push(note),
+            }
+        }
+        let bundles = bundle
+            .spouses
+            .iter()
+            .zip(bundle.persons)
+            .map(|(spouse, person)| (spouse.person_id, Arc::new(person)))
+            .collect();
+        Self {
+            spouses: bundle.spouses,
+            bundles,
+            notes,
+            person_notes,
+            media: bundle.media,
+            gallery: bundle.gallery,
+        }
+    }
+
     fn sex_of(&self, person_id: Uuid) -> Sex {
         self.bundles
             .get(&person_id)
             .and_then(|bundle| bundle.persons.iter().find(|p| p.id == person_id))
             .map_or(Sex::Unknown, |person| person.sex)
     }
+
+    /// Everyone either bundle marks as the SOSA root or one of its
+    /// ancestors.
+    fn sosa_ancestors(&self) -> HashSet<Uuid> {
+        self.bundles
+            .values()
+            .flat_map(|bundle| bundle.sosa_ancestor_ids.iter().copied())
+            .collect()
+    }
+
+    /// Every gallery of the page and both spouses' portraits.
+    fn pictures(&self) -> PagePictures {
+        PagePictures {
+            galleries: self
+                .bundles
+                .values()
+                .map(|bundle| bundle.gallery.clone())
+                .chain(std::iter::once(self.gallery.clone()))
+                .collect(),
+            portraits: self
+                .bundles
+                .iter()
+                .filter_map(|(id, bundle)| Some((*id, bundle.portrait.clone()?)))
+                .collect(),
+        }
+    }
 }
+
+/// The couple's load: `None` while it is on its way.
+type CoupleResource = Resource<Result<Arc<CoupleData>, ApiError>>;
 
 /// Page rendered at `/trees/:tree_id/couples/:family_id`.
 #[component]
@@ -72,6 +134,8 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
 
     // ── Resources ────────────────────────────────────────────────────
 
+    // The family, both spouses' bundles, the notes and the family's media,
+    // in one request.
     let api_couple = api.clone();
     let couple_resource = use_traced_resource(load_trace.clone(), "couple", move || {
         let api = api_couple.clone();
@@ -82,7 +146,8 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
             let (Some(tid), Some(fid)) = (tid, fid) else {
                 return Err(ApiError::invalid_ids(&i18n));
             };
-            load_couple(api, tid, fid).await
+            let bundle = api.get_couple_detail_bundle(tid, fid).await?;
+            Ok(Arc::new(CoupleData::from_bundle(bundle)))
         }
     });
 
@@ -101,50 +166,43 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         refresh,
         i18n,
     );
-    let sosa_ancestors_resource = use_sosa_ancestors(
+
+    // Every picture of the page — the three galleries and both portraits —
+    // in one request once the couple is in.
+    let wanted_pictures = use_memo(move || match &*couple_resource.read() {
+        Some(Ok(data)) => Some(data.pictures()),
+        _ => None,
+    });
+    let pictures = use_page_pictures(
         load_trace.clone(),
         api.clone(),
         tree_id_parsed,
-        tree_resource,
+        wanted_pictures,
     );
 
-    let api_photos = api.clone();
-    let photos_resource = use_traced_resource(load_trace.clone(), "portraits", move || {
-        let api = api_photos.clone();
+    // Both spouses' ancestors, in one request.
+    let api_pedigrees = api.clone();
+    let pedigrees = use_traced_resource(load_trace.clone(), "ancestor_pedigrees", move || {
+        let api = api_pedigrees.clone();
+        let _tick = refresh();
         let tid = tree_id_parsed();
-        let _ = media_revision();
         let ids: Vec<Uuid> = [left_id(), right_id()].into_iter().flatten().collect();
         async move {
             match tid {
-                Some(tid) if !ids.is_empty() => {
-                    Shared::new(api.portrait_map_for_ids(tid, &ids).await)
-                }
-                _ => Portraits::default(),
+                Some(tid) if !ids.is_empty() => api.get_pedigrees(tid, &ids, 2, 0).await,
+                _ => HashMap::new(),
             }
         }
     });
 
-    let couple_notes = use_notes(
-        load_trace.clone(),
-        &api,
-        tree_id_parsed,
-        refresh,
-        NotesOf::Family(family_id_parsed),
-    );
     let left = use_side(
         load_trace.clone(),
-        &api,
-        (tree_id_parsed, refresh, i18n),
+        i18n,
         couple_resource,
+        pedigrees,
         left_id,
     );
-    let right = use_side(
-        load_trace.clone(),
-        &api,
-        (tree_id_parsed, refresh, i18n),
-        couple_resource,
-        right_id,
-    );
+    let right = use_side(load_trace, i18n, couple_resource, pedigrees, right_id);
 
     // ── Render ────────────────────────────────────────────────────────
 
@@ -163,14 +221,20 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         _ => None,
     };
 
-    let (loaded, load_error) = match &*couple_resource.read() {
-        Some(Ok(_)) => (true, None),
-        Some(Err(error)) => (false, Some(error.to_string())),
-        None => (false, None),
+    let couple_read = couple_resource.read();
+    let (data, load_error) = match &*couple_read {
+        Some(Ok(data)) => (Some(Arc::clone(data)), None),
+        Some(Err(error)) => (None, Some(error.to_string())),
+        None => (None, None),
     };
-    let columns = [left.column(left_id()), right.column(right_id())];
+    drop(couple_read);
+    let pedigrees_loaded = pedigrees.read().is_some();
+    let columns = [
+        left.column(left_id(), data.as_deref(), pedigrees_loaded),
+        right.column(right_id(), data.as_deref(), pedigrees_loaded),
+    ];
     let unknown = i18n.t("couple.unknown_spouse");
-    let title = if loaded {
+    let title = if data.is_some() {
         i18n.t_args(
             "couple.title",
             &[
@@ -182,12 +246,16 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
         String::new()
     };
 
-    let sosa_ancestors = sosa_ancestors_resource.read().clone().unwrap_or_default();
+    let sosa_ancestors = data
+        .as_ref()
+        .map(|data| data.sosa_ancestors())
+        .unwrap_or_default();
     let ctx = tree_id_parsed().map(|tree_id| SectionContext {
         i18n,
         tree_id,
         sosa_ancestors: &sosa_ancestors,
         media_revision,
+        gallery: page_gallery(&pictures),
     });
     let selected_person_id = left_id().or(right_id());
     use_track_current_person(tree_id_parsed(), selected_person_id);
@@ -235,16 +303,16 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
             }
         }
 
-        match (loaded, ctx.as_ref(), family_id_parsed()) {
-            (true, Some(ctx), Some(family_id)) => {
+        match (data.as_ref(), ctx.as_ref(), family_id_parsed()) {
+            (Some(data), Some(ctx), Some(family_id)) => {
                 let view = CoupleView {
                     ctx,
                     tree_id: &tree_id,
                     family_id,
                     nav,
                     self_person_id,
-                    photos: photos_resource,
-                    couple_notes,
+                    photos: page_portraits(&pictures),
+                    data,
                     columns: &columns,
                     unknown: &unknown,
                 };
@@ -267,33 +335,11 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     }
 }
 
-/// Loads the family (which fails once the couple is deleted), its spouses,
-/// and both spouses' bundles, fetched concurrently.
-async fn load_couple(api: ApiClient, tid: Uuid, fid: Uuid) -> Result<Arc<CoupleData>, ApiError> {
-    let (_family, spouses) =
-        futures_util::future::try_join(api.get_family(tid, fid), api.list_family_spouses(tid, fid))
-            .await?;
-    let bundles = futures_util::future::try_join_all(spouses.iter().map(|spouse| {
-        let api = api.clone();
-        let pid = spouse.person_id;
-        async move {
-            api.get_person_detail_bundle(tid, pid)
-                .await
-                .map(|bundle| (pid, Arc::new(bundle)))
-        }
-    }))
-    .await?;
-    Ok(Arc::new(CoupleData {
-        spouses,
-        bundles: bundles.into_iter().collect(),
-    }))
-}
-
 /// Deleting the couple from its edit modal leaves nothing to show: go back
 /// to the tree, on whichever spouse was on screen.
 fn use_back_to_tree_when_deleted(
     tree_id: &str,
-    couple: Resource<Result<Arc<CoupleData>, ApiError>>,
+    couple: CoupleResource,
     left_id: Memo<Option<Uuid>>,
     right_id: Memo<Option<Uuid>>,
 ) {
@@ -317,25 +363,29 @@ fn use_back_to_tree_when_deleted(
     });
 }
 
-/// The notes list a notes resource loads.
-type NotesResource = Resource<Option<Result<Vec<Note>, ApiError>>>;
-
-/// One spouse's loads: their notes, ancestors and profile.
+/// One spouse's derived state: their ancestors and profile.
 struct Side {
-    notes: NotesResource,
-    pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
+    pedigree: Memo<Option<Shared<Pedigree>>>,
     mini: Memo<Option<(Uuid, SharedPedigree)>>,
     profile: Memo<Option<SharedProfile>>,
 }
 
 impl Side {
     /// What this side shows in a render.
-    fn column(&self, person_id: Option<Uuid>) -> Column {
+    fn column(
+        &self,
+        person_id: Option<Uuid>,
+        data: Option<&CoupleData>,
+        pedigrees_loaded: bool,
+    ) -> Column {
+        let notes = person_id
+            .and_then(|id| data?.person_notes.get(&id).cloned())
+            .unwrap_or_default();
         Column {
             person_id,
             profile: (self.profile)(),
-            notes: self.notes,
-            pedigree: self.pedigree,
+            notes,
+            pedigree_missing: pedigrees_loaded && self.pedigree.read().is_none(),
             mini: (self.mini)(),
         }
     }
@@ -345,8 +395,9 @@ impl Side {
 struct Column {
     person_id: Option<Uuid>,
     profile: Option<SharedProfile>,
-    notes: NotesResource,
-    pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
+    notes: Vec<Note>,
+    /// The batch answered without this spouse's ancestors.
+    pedigree_missing: bool,
     mini: Option<(Uuid, SharedPedigree)>,
 }
 
@@ -359,32 +410,33 @@ impl Column {
     }
 }
 
-/// Starts one spouse's loads.
+/// One spouse's derived state, from the couple and the pedigree batch.
 fn use_side(
     load_trace: UiLoadTrace,
-    api: &ApiClient,
-    (tree_id, refresh, i18n): (Signal<Option<Uuid>>, Signal<u32>, I18n),
-    couple: Resource<Result<Arc<CoupleData>, ApiError>>,
+    i18n: I18n,
+    couple: CoupleResource,
+    pedigrees: Resource<HashMap<Uuid, Pedigree>>,
     person_id: Memo<Option<Uuid>>,
 ) -> Side {
-    let notes = use_notes(
-        load_trace.clone(),
-        api,
-        tree_id,
-        refresh,
-        NotesOf::Person(person_id),
-    );
-    let pedigree = use_ancestor_pedigree(
-        load_trace.clone(),
-        api.clone(),
-        tree_id,
-        person_id.into(),
-        i18n,
-    );
+    let pedigree = use_memo(move || {
+        let pid = person_id()?;
+        pedigrees
+            .read()
+            .as_ref()?
+            .get(&pid)
+            .cloned()
+            .map(Shared::new)
+    });
+    let mini = use_memo(move || {
+        let pedigree = pedigree.read().clone()?;
+        let data = crate::ui_observability::measure_ui("pedigree_data", || {
+            crate::components::pedigree_chart::PedigreeData::from_pedigree(&pedigree)
+        });
+        Some((pedigree.root_person_id, SharedPedigree::new(data)))
+    });
     Side {
-        notes,
         pedigree,
-        mini: use_mini_pedigree(pedigree),
+        mini,
         profile: use_side_profile(load_trace, couple, person_id, pedigree, i18n),
     }
 }
@@ -421,8 +473,8 @@ struct CoupleView<'a> {
     family_id: Uuid,
     nav: dioxus::router::Navigator,
     self_person_id: Option<Uuid>,
-    photos: Resource<Portraits>,
-    couple_notes: NotesResource,
+    photos: Option<Portraits>,
+    data: &'a CoupleData,
     columns: &'a [Column; 2],
     unknown: &'a str,
 }
@@ -512,7 +564,6 @@ impl CoupleView<'_> {
                 self.ctx,
                 profile,
                 self.photos
-                    .read()
                     .as_ref()
                     .and_then(|photos| photos.get(&profile.person_id).cloned()),
                 self.self_person_id == Some(profile.person_id),
@@ -536,17 +587,17 @@ impl CoupleView<'_> {
 
     fn notes_rows(&self) -> Element {
         let i18n = &self.ctx.i18n;
-        let has_person_notes = self.columns.iter().any(|column| shows_notes(&column.notes));
+        let has_person_notes = self.columns.iter().any(|column| !column.notes.is_empty());
         rsx! {
-            if shows_notes(&self.couple_notes) {
+            if !self.data.notes.is_empty() {
                 div { class: "cp-span",
-                    {notes_section(i18n, "couple.notes_section", self.couple_notes.read().as_ref().and_then(Option::as_ref))}
+                    {notes_section(i18n, "couple.notes_section", Some(&Ok(self.data.notes.clone())))}
                 }
             }
             if has_person_notes {
                 for column in self.columns.iter() {
                     div { class: "cp-cell",
-                        {notes_section(i18n, "person.notes_section", column.notes.read().as_ref().and_then(Option::as_ref))}
+                        {notes_section(i18n, "person.notes_section", Some(&Ok(column.notes.clone())))}
                     }
                 }
             }
@@ -563,6 +614,8 @@ impl CoupleView<'_> {
                     owner: MediaOwner::Family(self.family_id),
                     title: i18n.t("couple.media_section"),
                     event_links: media_event_links(couple_events.iter(), i18n),
+                    preloaded_tiles: Some(self.data.media.clone()),
+                    preloaded_bundle: Some(Arc::clone(&self.ctx.gallery)),
                     revision: media_revision(),
                     on_changed: move |()| media_revision += 1,
                 }
@@ -577,7 +630,7 @@ impl CoupleView<'_> {
                             title: i18n.t("media.section"),
                             event_links: media_event_links(self.own_events(profile), i18n),
                             preloaded_tiles: Some(profile.profile_tiles(false)),
-                            preloaded_bundle: Some(Arc::clone(&profile.bundle.gallery)),
+                            preloaded_bundle: Some(Arc::clone(&self.ctx.gallery)),
                             preloaded_portrait: profile.person.as_ref().map(|person| (
                                 person.portrait_media_id,
                                 person.portrait_vignette_id,
@@ -650,7 +703,7 @@ impl CoupleView<'_> {
             for column in self.columns.iter() {
                 div { class: "cp-cell",
                     if column.person_id.is_some() {
-                        {ancestors_section(&self.ctx.i18n, &column.pedigree, column.mini.clone(), self.photos.read().clone(), on_navigate)}
+                        {ancestors_section(&self.ctx.i18n, column.pedigree_missing.then(String::new), column.mini.clone(), self.photos.clone(), on_navigate)}
                     }
                 }
             }
@@ -658,55 +711,12 @@ impl CoupleView<'_> {
     }
 }
 
-/// A person's profile in a tree.
-/// Whose notes a notes resource loads.
-enum NotesOf {
-    Person(Memo<Option<Uuid>>),
-    Family(Signal<Option<Uuid>>),
-}
-
-/// One notes list — `None` while there is no one to load it for.
-fn use_notes(
-    load_trace: UiLoadTrace,
-    api: &ApiClient,
-    tree_id: Signal<Option<Uuid>>,
-    refresh: Signal<u32>,
-    of: NotesOf,
-) -> NotesResource {
-    let api = api.clone();
-    use_traced_resource(load_trace, "notes", move || {
-        let api = api.clone();
-        let _tick = refresh();
-        let tid = tree_id();
-        let (person, family) = match &of {
-            NotesOf::Person(person) => (person(), None),
-            NotesOf::Family(family) => (None, family()),
-        };
-        async move {
-            let tid = tid?;
-            if person.is_none() && family.is_none() {
-                return None;
-            }
-            Some(api.list_notes(tid, person, None, family, None, None).await)
-        }
-    })
-}
-
-/// Whether a notes card has anything to say: notes, or why they failed.
-fn shows_notes(notes: &NotesResource) -> bool {
-    match &*notes.read() {
-        Some(Some(Ok(notes))) => !notes.is_empty(),
-        Some(Some(Err(_))) => true,
-        _ => false,
-    }
-}
-
 /// One spouse's profile, derived from the couple's load and their pedigree.
 fn use_side_profile(
     load_trace: UiLoadTrace,
-    couple: Resource<Result<Arc<CoupleData>, ApiError>>,
+    couple: CoupleResource,
     person_id: Memo<Option<Uuid>>,
-    pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
+    pedigree: Memo<Option<Shared<Pedigree>>>,
     i18n: I18n,
 ) -> Memo<Option<SharedProfile>> {
     use_memo(move || {
@@ -716,13 +726,9 @@ fn use_side_profile(
             return None;
         };
         let bundle = Arc::clone(data.bundles.get(&pid)?);
-        let pedigree = pedigree.read();
-        let pedigree = match &*pedigree {
-            Some(Ok(Some(pedigree))) => Some(pedigree),
-            _ => None,
-        };
+        let pedigree = pedigree.read().clone();
         let profile = load_trace.measure("person_profile", || {
-            build_profile(bundle, pid, pedigree, &i18n)
+            build_profile(bundle, pid, pedigree.as_deref(), &i18n)
         });
         Some(SharedProfile::new(profile))
     })
