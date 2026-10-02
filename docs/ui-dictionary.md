@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 
@@ -290,9 +290,9 @@ Clearing the filter restores the full list at the current level.
 
 The Sources tab never shows a page-size selector or pagination controls (unlike section 6, which still applies to the other three tabs). While drilling down (> 250 matches at the current level), the UI shows branch-choice buttons, not a list — there is nothing to paginate. Once a level resolves to <= 250 matches, every matching source is rendered at once.
 
-### 8.9 Non-Sources Tabs (No Change)
+### 8.9 Other Tabs
 
-**Family Names, Places, Occupations** tabs continue to use the standard A–Z alphabet index (section 5) — they do not use smart drill-down, since their distribution across the alphabet is sufficiently varied.
+**Family Names, Places, Occupations** tabs use the standard A–Z alphabet index (section 5) — they do not use smart drill-down, since their distribution across the alphabet is sufficiently varied.
 
 ### 8.10 Compression: Auto-Skip Forced Single-Choice Levels
 
@@ -404,55 +404,31 @@ All labels use i18n keys under the `dictionary.` prefix. Surnames, source
 titles, place names, and occupation labels are user content and are not
 translated; see [Cross-cutting Rules §3](cross-cutting.md).
 
-| Key | English | French |
-|---|---|---|
-| `dictionary.breadcrumb` | Dictionary | Dictionnaire |
-| `dictionary.tab.family_names` | Family Names | Noms de famille |
-| `dictionary.tab.sources` | Sources | Sources |
-| `dictionary.tab.places` | Places | Lieux |
-| `dictionary.tab.occupations` | Occupations | Professions |
-| `dictionary.letter_all` | All | Tout |
-| `dictionary.filter_placeholder` | Filter... | Filtrer... |
-| `dictionary.page_size` | Per page | Par page |
-| `dictionary.page_size_all` | All | Tout |
-| `dictionary.count_one` | {count} entry | {count} entrée |
-| `dictionary.count_other` | {count} entries | {count} entrées |
-| `dictionary.person_count_one` | {count} person | {count} personne |
-| `dictionary.person_count_other` | {count} persons | {count} personnes |
-| `dictionary.citation_count_one` | {count} citation | {count} citation |
-| `dictionary.citation_count_other` | {count} citations | {count} citations |
-| `dictionary.reference_count_one` | {count} reference | {count} référence |
-| `dictionary.reference_count_other` | {count} references | {count} références |
-| `dictionary.large_list_warning` | Showing all {count} entries may be slow. | Afficher les {count} entrées peut être lent. |
-| `dictionary.no_entries_family_names` | No family names yet. | Aucun nom de famille pour l'instant. |
-| `dictionary.no_entries_sources` | No sources yet. | Aucune source pour l'instant. |
-| `dictionary.no_entries_places` | No places yet. | Aucun lieu pour l'instant. |
-| `dictionary.no_entries_occupations` | No occupations yet. | Aucune profession pour l'instant. |
-| `dictionary.no_matches` | No entries match. | Aucune entrée ne correspond. |
-| `dictionary.clear_filter` | Clear filter | Effacer le filtre |
-| `dictionary.view_usage` | View usage | Voir les usages |
+The keys and their values in the eight interface languages are in the
+translation tables of `crates/oxidgene-ui/src/i18n/` (`en.rs`, `fr.rs`, …),
+which are authoritative and kept at exact key parity
+([Cross-cutting Rules §3](cross-cutting.md)).
 
 ---
 
 ## 14. Navigation & Access Point
 
-- New route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`
+- Route: `Route::Dictionary { tree_id: String }` → `/trees/:tree_id/dictionary`
 - Entry point: the **Book/index** button of the shared `TreeIconSidebar` component (`crates/oxidgene-ui/src/components/tree_icon_sidebar.rs`), first of the group after the trailing separator (see [Genealogy Tree](ui-genealogy-tree.md) section "Left Sidebar (ISB)"). The sidebar finds the tree from the route, so the button needs no wiring on any page; on the Dictionary itself it shows as current.
 
 ---
 
 ## 15. Data Sources
 
-None of the following aggregations exist yet; they must be added before this page can be implemented:
+Each tab reads one aggregation of `DictionaryRepo` (`oxidgene-db`), run per
+request ([API Contract](api.md#dictionary)):
 
-| Tab | Aggregation needed |
+| Tab | Aggregation |
 |---|---|
 | Family Names | Distinct full surnames (`surname_prefix` + `surname`, exact spelling) over the `person_name` rows of live persons, counted per person, with the count of persons carrying each as their primary name (`DictionaryRepo::family_names`) |
-| Sources | `COUNT(Citation)` per `source_id`, joined onto the existing `SourceRepo::list` |
-| Places | `COUNT(Event) + COUNT(Media)` per `place_id`, joined onto the existing `PlaceRepo::list` |
-| Occupations | `GROUP BY description, COUNT(*)` over `Event` where `event_type = Occupation` — new aggregation, no existing index |
-
-`SourceRepo` and `PlaceRepo` already expose paginated `list` (see [API Contract](api.md)); the occupation and family-name aggregations are new.
+| Sources | The tree's sources, each with its citation count (`DictionaryRepo::sources_with_usage`, or `sources_with_usage_by_prefix` once the drill-down of section 8 has narrowed them) |
+| Places | The tree's places, each with the count of events and media referencing it (`DictionaryRepo::places_with_usage`) |
+| Occupations | The distinct descriptions of `Occupation` events, with their counts (`DictionaryRepo::occupations`) |
 
 ---
 
@@ -473,40 +449,36 @@ Two endpoints back the intelligent Sources navigation (section 8), both taking a
   ```
   `prefix` in the response is the *resolved* prefix — it may be longer than the request's `prefix` if single-choice levels were skipped. `groups` is empty when `total <= 250`, and the response then also carries `sources`: the final list at the resolved `prefix` (each source with its citation count), so the tab renders it without a second request.
 
-- **`GET /dictionary/sources?prefix={prefix}`** — Returns every source whose title starts with `prefix` (case-insensitive), each paired with its citation count, for API clients; the tab itself takes the final list from the drill-down response.
+- **`GET /dictionary/sources?prefix={prefix}`** — Returns every source whose title starts with `prefix` (case-insensitive), each paired with its citation count; with `prefix` absent, every source. It serves API clients: the tab itself takes the final list from the drill-down response.
 
 ### Backend Logic
 
 - **Grouping**: `DictionaryRepo::source_group_counts(prefix)` groups all sources whose (uppercased) title starts with `prefix` by exactly one more character, returning only groups that actually occur — no prefix-format assumptions (no French-archive-specific parsing), it works for any title text.
 - **Compression**: `DictionaryRepo::resolve_source_drill_down(prefix, threshold)` loops `source_group_counts`, extending `prefix` by the single available character while there is exactly one group and the total is still above `threshold` (`SOURCE_DRILL_THRESHOLD = 250`). It stops at whichever comes first — a genuine branch (`groups.len() != 1`) or `total <= threshold` — and returns `(resolved_prefix, total, groups)` with `groups` cleared in the latter case. A same-prefix guard prevents infinite loops if every remaining title is exactly `prefix` itself (no further characters to consume).
-- **No caching layer**: both queries run directly against the `source` table per request (no precomputed prefix index) — acceptable given a single tree's source count is bounded in the tens of thousands and the query is a full-table scan grouped in Rust, not SQL. Revisit if this proves slow on very large trees.
-
-### Data Model
-
-No schema changes — prefixes are computed on the fly from `source.title` on every request.
+- **Computed per request**: both queries read the `source` table on every request, grouping the titles in Rust; no prefix index or other data is stored for the drill-down.
 
 ---
 
-## 17. Implementation Notes
+## 17. Sources Drill-Down State
 
-### UI State Management
-
-- `source_history: Vec<String>` holds only the branch labels the user actually clicked (real, multi-way choices — never an auto-skipped level). Empty = "All sources" root.
-- The query sent to the backend is always `source_history.last()` (or empty at root); the single combined resource re-resolves on every history change and returns either the next branch choices or the final list (section 18).
-- The breadcrumb (section 8.6) renders `source_history` as clickable crumbs, plus one extra non-clickable "active" crumb for the resolved prefix when it differs from the last clicked label (i.e. when auto-skip occurred).
-- Clicking an earlier breadcrumb crumb truncates `source_history` to that point; clicking a branch-choice button appends its label.
-- The quick-filter text is reset on every navigation action (breadcrumb click, root click, branch click) so a stale filter can't silently hide the next level's results.
-
-### Performance
-
-- One HTTP round trip per user click, regardless of how many characters were auto-skipped (the backend loop in section 18 is server-side).
-- No caching layer beyond the existing `ApiClient` response cache (30s TTL, keyed by URL + query params) — acceptable at current tree sizes; see section 18's "No caching layer" note.
-- Lazy-load child sources only when expanding a row (existing behavior, no change).
-
-### Responsive
-
-- On mobile (<640px), breadcrumb becomes scrollable horizontally if too long.
-- Drill-down buttons reuse the same `.dict-letter-btn` styling and responsive wrapping as the alphabet index (section 14), so no separate mobile handling was needed.
+- `source_history` holds only the branch labels the user actually clicked
+  (real, multi-way choices — never an auto-skipped level); empty is the "All
+  sources" root.
+- The query sent to the backend is `source_history`'s last label (empty at
+  the root); one resource re-resolves on every history change and returns
+  either the next branch choices or the final list (section 8.5), so each
+  click costs one request however many levels are skipped (section 16).
+- The breadcrumb (section 8.6) renders `source_history` as clickable crumbs,
+  plus one non-clickable "active" crumb for the resolved prefix when it
+  differs from the last clicked label (when levels were skipped).
+- Clicking an earlier crumb truncates `source_history` to that point; clicking
+  a branch-choice button appends its label.
+- The quick-filter text is reset on every navigation action (crumb, root or
+  branch click), so a stale filter cannot hide the next level's results.
+- A row's usage is loaded only when the row is expanded.
+- On mobile (<640px), a breadcrumb too long for the width scrolls
+  horizontally; the drill-down buttons reuse the `.dict-letter-btn` styling
+  and wrapping of the alphabet index (section 5).
 
 ---
 
@@ -645,36 +617,9 @@ narrower 120px tiles.
 
 ### 18.9 Internationalization
 
-Tags, titles and file names are user content and are not translated.
-
-| Key | English | French |
-|---|---|---|
-| `dictionary.tab.media` | Media | Médias |
-| `dictionary.media.tags` | Tags | Étiquettes |
-| `dictionary.media.tag` | Tag | Étiquette |
-| `dictionary.media.name` | Name | Nom |
-| `dictionary.media.name_placeholder` | Filter by title or file name… | Filtrer par titre ou nom de fichier… |
-| `dictionary.media.per_page` | Per page | Par page |
-| `dictionary.media.filters` | Filters | Filtres |
-| `dictionary.media.kind` | File type | Type de fichier |
-| `dictionary.media.kind_any` | Any type | Tous les types |
-| `dictionary.media.kind.{image,pdf,video,audio,other}` | Image, PDF, Video, Audio, Other | Image, PDF, Vidéo, Audio, Autre |
-| `dictionary.media.category` | Category | Catégorie |
-| `dictionary.media.category_any` | Any category | Toutes les catégories |
-| `dictionary.media.linked_name` | Linked person | Personne liée |
-| `dictionary.media.linked_name_placeholder` | Name of a linked or identified person | Nom d'une personne liée ou identifiée |
-| `dictionary.media.event_years` | Linked event between | Événement lié entre |
-| `dictionary.media.added` | Added between | Ajouté entre |
-| `dictionary.media.from` / `.to` | From / To | Du / Au |
-| `dictionary.media.clear_all` | Clear all filters | Effacer tous les filtres |
-| `dictionary.media.count_one` / `_other` | {count} media item(s) | {count} média(s) |
-| `dictionary.media.usage_one` / `_other` | Linked to {count} record(s) | Lié à {count} fiche(s) |
-| `dictionary.media.unlinked` | Not linked | Non lié |
-| `dictionary.media.none` | No media in this tree yet. | Aucun média dans cet arbre pour l'instant. |
-| `dictionary.media.no_matches` | No media match these filters. | Aucun média ne correspond à ces filtres. |
-| `dictionary.media.invalid_range` | A range ends before it starts. | Une plage se termine avant de commencer. |
-| `dictionary.media.page` | Page {page} of {pages} | Page {page} sur {pages} |
-| `dictionary.media.previous_page` / `next_page` | Previous page / Next page | Page précédente / Page suivante |
+Tags, titles and file names are user content and are not translated. The
+tab's labels are the `dictionary.tab.media` and `dictionary.media.*` keys of
+the translation tables (section 13).
 
 ---
 

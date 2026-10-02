@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 
@@ -156,9 +156,8 @@ Horizontal arrangement: avatar on the left, text information on the right.
 +----------------------------------+
 ```
 
-The card is drawn as SVG primitives inside one `<g>`; the HTML card and its
-`.pc-*` classes were removed when the pedigree became pure SVG, and only the
-`.ped-card*` classes remain for hover and theming.
+The card is drawn as SVG primitives inside one `<g>`, with no HTML; the
+`.ped-card*` classes carry its hover and theming.
 
 **Portrait**:
 - 50×50px, square in the classic theme; shape, size, and whether a mat is

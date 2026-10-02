@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T21:48:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -681,12 +681,10 @@ There is one way to run this, and it is the wizard: tree card `⋮` → Import �
 **From Geneanet**. See [Import](ui-import.md) for its steps — four under the
 default renditions answer, five when the original uploads are asked for.
 
-> **The CLI is gone (2026-08-18).** `oxidgene-cli geneanet-media` had six
-> subcommands; three needed direct HTTP, which no longer works at all (below),
-> and the other three — printing a console script, folding its output into a
-> manifest, and reporting the join offline — were all superseded by the window.
-> Removing it also took `client.rs` and `media.rs` out of this crate, and with
-> them `reqwest`, so the server no longer links an HTTP client.
+> There is no command-line route: fetching needs direct HTTP, which Geneanet
+> refuses (below), and the rest — collecting, building the manifest and
+> reporting the join — is what the window does. `oxidgene-geneanet` performs
+> no HTTP, and the server links no HTTP client.
 
 ### Collect once, import many times
 
@@ -770,20 +768,18 @@ The challenge is adaptive: the same binary completed a full manifest earlier
 the same day, then began to be challenged after sustained requests from the
 same address.
 
-**What the client does about it (settled 2026-08-17).** This section has now
-said three different things, so here is the measurement that ends it: **no
-direct download succeeds**. Every request from an HTTP client is challenged,
-whatever cookie it presents and whatever the stack.
+**What the client does about it.** No direct download succeeds: every
+request from an HTTP client is challenged, whatever cookie it presents and
+whatever the stack.
 
 A browser-impersonating transport (`wreq` + `wreq-util`, pinned to a
-current-Chrome profile) was tried and **removed**. It worked — and it was the
-wrong trade twice over. It only worked while the pinned profile stayed current
-(a Chrome 131 profile was already being challenged), so it was a treadmill with
-a silent failure mode; and it dragged a BoringSSL toolchain, a `bindgen` build
-and a patched, vendored copy of `tungstenite` through the whole workspace to
-resolve a linker clash it had caused.
+current-Chrome profile) is not used, although it can pass. It passes only
+while the pinned profile stays current (a Chrome 131 profile was already
+challenged), a treadmill with a silent failure mode; and it brings a
+BoringSSL toolchain, a `bindgen` build and a patched, vendored copy of
+`tungstenite` into the whole workspace to resolve a linker clash of its own.
 
-**Every request now goes through the login window**, media as well as metadata.
+**Every request goes through the login window**, media as well as metadata.
 That is not an optimisation and not a preference — it is the only place the
 bytes can come from. A real browser engine, on the user's own session, against
 their own data, is what the check is asking for rather than a way around it.
@@ -835,7 +831,7 @@ rows — precisely what the original export could not express, and what
 >
 > That match does double duty. The `#image` URL would otherwise be imported as
 > a *remote* medium — a dead link, since it 403s for anyone not signed in —
-> sitting beside the stored copy of the same photo. The import now drops the
+> sitting beside the stored copy of the same photo. The import drops the
 > remote row and points the person's portrait at the stored one instead, so a portrait
 > appears once and shows up as the person's avatar.
 >
