@@ -15,7 +15,7 @@ COPY apps/ apps/
 COPY assets/themes/ assets/themes/
 COPY assets/portraits/ assets/portraits/
 COPY assets/fonts/ assets/fonts/
-COPY assets/brand/logo_64.b64 assets/brand/logo_64.b64
+COPY assets/brand/logo_64.png assets/brand/logo_64.png
 COPY scripts/dx.sh scripts/dx.sh
 
 # An empty base URL makes browser API calls same-origin for Kubernetes Ingress.

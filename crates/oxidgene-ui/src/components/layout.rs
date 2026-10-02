@@ -11,11 +11,17 @@ use crate::components::tree_cache;
 use crate::i18n;
 use crate::router::Route;
 
-/// Logo PNG embedded at compile time (64×64 resize).
-pub const LOGO_PNG_B64: &str = include_str!(concat!(
+/// The logo (a 64×64 resize), embedded as the PNG itself.
+const LOGO_PNG: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/brand/logo_64.b64"
+    "/../../assets/brand/logo_64.png"
 ));
+
+/// The logo as a data URL, encoded the first time a page draws it.
+pub fn logo_data_url() -> &'static str {
+    static URL: LazyLock<String> = LazyLock::new(|| crate::utils::png_data_url(LOGO_PNG));
+    &URL
+}
 
 /// Stop a resized `<textarea>` from stranding its own text.
 ///
@@ -107,7 +113,7 @@ pub fn Layout() -> Element {
             nav { class: "app-nav",
                 Link { to: Route::Home {}, class: "nav-logo",
                     img {
-                        src: LOGO_PNG_B64,
+                        src: logo_data_url(),
                         alt: "OxidGene",
                         class: "nav-logo-img",
                     }

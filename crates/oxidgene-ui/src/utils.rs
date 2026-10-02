@@ -473,6 +473,15 @@ pub fn truncate_text_to_fit(text: &str, max_width_px: f32, font_size_px: f32) ->
     }
 }
 
+/// A PNG as a `data:` URL, for an `<img>` with no file to point at.
+pub fn png_data_url(png: &[u8]) -> String {
+    use base64::Engine as _;
+    format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
+    )
+}
+
 /// A byte count in the largest unit that leaves it above one.
 pub fn human_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];

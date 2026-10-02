@@ -69,56 +69,48 @@ const ZOOM_MIN: f64 = 0.3;
 /// Four steps past the 200 % the chart used to stop at: close enough to read
 /// the smallest line of a compact card on a large screen.
 const ZOOM_MAX: f64 = 4.0;
-// ── Default portraits (embedded as data URIs) ────────────────────────────
+// ── Default portraits ────────────────────────────────────────────────────
 
-const PORTRAIT_MALE: &str = include_str!(concat!(
+/// The silhouettes, embedded as the PNG files themselves.
+const PORTRAIT_MALE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/portraits/male.b64"
+    "/../../assets/portraits/male.png"
 ));
-const PORTRAIT_FEMALE: &str = include_str!(concat!(
+const PORTRAIT_FEMALE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/portraits/female.b64"
+    "/../../assets/portraits/female.png"
 ));
-const PORTRAIT_UNKNOWN: &str = include_str!(concat!(
+const PORTRAIT_UNKNOWN: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/portraits/unknown.b64"
+    "/../../assets/portraits/unknown.png"
 ));
 
+/// The silhouette as a data URL, for a build with no shell to serve it.
+///
+/// Encoded once, the first time a card asks, from the same bytes
+/// [`silhouette_png`] serves, so whichever path a card takes it draws the
+/// identical PNG.
 pub(crate) fn default_portrait(sex: Sex) -> &'static str {
+    use std::sync::LazyLock;
+
+    static URLS: LazyLock<[String; 3]> = LazyLock::new(|| {
+        [Sex::Male, Sex::Female, Sex::Unknown]
+            .map(|sex| crate::utils::png_data_url(silhouette_png(sex)))
+    });
     match sex {
-        Sex::Male => PORTRAIT_MALE,
-        Sex::Female => PORTRAIT_FEMALE,
-        Sex::Unknown => PORTRAIT_UNKNOWN,
+        Sex::Male => &URLS[0],
+        Sex::Female => &URLS[1],
+        Sex::Unknown => &URLS[2],
     }
 }
 
 /// The silhouette's own bytes, for a shell that serves it as a file.
-///
-/// Decoded once from the same embedded data URL the web build inlines, so
-/// there is one copy of the picture and the two platforms cannot drift apart:
-/// whichever path a card takes, it draws the identical PNG.
 #[must_use]
 pub fn silhouette_png(sex: Sex) -> &'static [u8] {
-    use base64::Engine as _;
-    use std::sync::OnceLock;
-
-    static DECODED: OnceLock<[Vec<u8>; 3]> = OnceLock::new();
-    let decoded = DECODED.get_or_init(|| {
-        [Sex::Male, Sex::Female, Sex::Unknown].map(|sex| {
-            let data_url = default_portrait(sex);
-            let encoded = data_url
-                .split_once(";base64,")
-                .expect("the embedded silhouette is a base64 data URL")
-                .1;
-            base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .expect("the embedded silhouette is valid base64")
-        })
-    });
     match sex {
-        Sex::Male => &decoded[0],
-        Sex::Female => &decoded[1],
-        Sex::Unknown => &decoded[2],
+        Sex::Male => PORTRAIT_MALE,
+        Sex::Female => PORTRAIT_FEMALE,
+        Sex::Unknown => PORTRAIT_UNKNOWN,
     }
 }
 

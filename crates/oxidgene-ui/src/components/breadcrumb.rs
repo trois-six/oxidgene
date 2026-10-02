@@ -19,7 +19,7 @@ pub fn TreeBreadcrumb(
         nav { class: "td-bc",
             Link { to: Route::Home {}, class: "td-bc-logo",
                 img {
-                    src: crate::components::layout::LOGO_PNG_B64,
+                    src: crate::components::layout::logo_data_url(),
                     alt: "OxidGene",
                     class: "td-bc-logo-img",
                 }
