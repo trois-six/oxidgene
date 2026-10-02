@@ -76,8 +76,9 @@ OxidGene is a multiplatform genealogy application featuring:
 	desktop, draw the pedigree in a classic or heraldic medieval style, and
 	change between English, French, German, Spanish, Italian, Dutch, Polish and
 	Portuguese without restarting the application
-- **Integrate without compromise**: Build on REST and GraphQL APIs with full
-	feature parity. Full OpenTelemetry instrumentation.
+- **Integrate without compromise**: Build on the REST API, and on the web
+	deployment's GraphQL API, kept strictly symmetric with it; the desktop
+	serves REST only. Full OpenTelemetry instrumentation.
 - **Stay fast as trees grow**: Rust powers the complete stack, backed by
 	durable read projections and efficient family traversal
 

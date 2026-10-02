@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:51:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -131,15 +131,14 @@ migration re-keys them in place.
 {
   "error": "validation_error",
   "message": "The request is invalid",
-  "request_id": "optional-correlation-id",
-  "details": {
-    "field": "stable_field_code"
-  }
+  "request_id": "optional-correlation-id"
 }
 ```
 
-`request_id` and `details` are optional. Details contain machine-readable
-values, never stack traces, SQL, filesystem paths, secrets, or genealogy.
+`error` is the stable code and `message` the safe English message its code
+always carries — never the internal cause, which may hold SQL, filesystem
+paths, secrets, or genealogy. `request_id` is present only on an unexpected
+error (a `500`), and names the server log line that records it.
 
 | Status | Code | Meaning |
 |---|---|---|
@@ -148,9 +147,9 @@ values, never stack traces, SQL, filesystem paths, secrets, or genealogy.
 | 401 | `unauthenticated` | The desktop's embedded server received a request without its launch token (§7.1); later, any missing authentication. |
 | 403 | `forbidden` | A browser page on another origin attempted a write, or a request named a host the server does not answer under (§7.1); later, a viewer lacking access. |
 | 404 | `not_found` | Missing or soft-deleted resource. |
-| 409 | `conflict` | State conflicts with an invariant or concurrent change. |
-| 413 | `payload_too_large` | Request exceeds the documented endpoint limit. |
-| 415 | `unsupported_media_type` | Payload or media format is unsupported. |
+| 409 | `conflict` | State conflicts with an invariant or concurrent change, such as starting an import or export while another runs on the tree. |
+| 413 | `payload_too_large` | Request body exceeds the route's limit. |
+| 415 | `unsupported_media_type` | Payload format is unsupported, such as a body without a JSON content type on a JSON route. |
 | 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1). |
 | 500 | `database_error` | Persistence failed unexpectedly. |
 | 500 | `io_error` | Storage or transport I/O failed unexpectedly. |
@@ -187,10 +186,11 @@ uppercase code (`VALIDATION_ERROR`, `GEDCOM_ERROR`, `NOT_FOUND`, `CONFLICT`,
 
 ### 4.4 Validation
 
-Field validation returns stable field identifiers suitable for localized
-inline errors. Clients retain submitted values and focus the first invalid
-field. Cross-field and domain validation appears in a summary and links to the
-relevant control where possible.
+A `validation_error` names neither the field nor the value it refused: its
+message is the generic one of its code on both surfaces. Forms therefore
+validate their fields before submitting, retain submitted values, and focus
+the first invalid field; a `validation_error` the server still returns appears
+as a summary, localized from its code.
 
 ## 5. Logging and observability
 

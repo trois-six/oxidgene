@@ -602,8 +602,7 @@ reads these values yet; see [Data Model](data-model.md) (Privacy).
 | `GET` | `/trees/{tree_id}/portraits` | Every person's portrait in the tree, as `{person_id, media_id?, vignette_id?, file_path, has_thumbnail}` |
 | `POST` | `/trees/{tree_id}/portrait-images` | Load display-ready portraits for `{person_ids: [...]}` in one bounded operation, returning `{person_id, source}` rows |
 
-Replaces `PUT /media-links/{link_id}/profile`, and `MediaLink` no longer carries
-`is_profile`. The portrait is a property of the *person* — see
+The portrait is a property of the *person*, not of a media link — see
 [Data Model](data-model.md) (Person) for why — so setting one is a single write
 and needs no clearing pass over the person's other links.
 
@@ -678,7 +677,7 @@ Each year is paired with a `birth_qualifier` / `death_qualifier` so a list can h
 | `PATCH` | `/trees/{tree_id}/dictionary/family-names/rename` | Bulk rename — see below |
 | `GET` | `/trees/{tree_id}/dictionary/occupations` | Distinct occupation labels + counts |
 | `GET` | `/trees/{tree_id}/dictionary/occupations/usage?value=...` | Persons with an occupation |
-| `GET` | `/trees/{tree_id}/dictionary/sources` | Sources + citation counts |
+| `GET` | `/trees/{tree_id}/dictionary/sources?prefix=...` | Sources + citation counts; `prefix` keeps the titles starting with it, ignoring case (absent or empty: every source) |
 | `GET` | `/trees/{tree_id}/dictionary/sources/groups?prefix=` | The Sources tab's next drill-down level: `{prefix, total, groups}`, single-choice levels skipped so `prefix` may be longer than asked. Once no group is left (`total` within the drill threshold), the level's sources come with it in `sources`, so the tab needs no second request. GraphQL: `dictionarySourceDrill` |
 | `GET` | `/trees/{tree_id}/dictionary/sources/{source_id}/usage` | Persons citing a source |
 | `GET` | `/trees/{tree_id}/dictionary/places` | Places + reference counts (events + media) |
@@ -1012,7 +1011,7 @@ bytes are carried in the request and it performs no filesystem handoff.
 | `POST` | `/geneanet/session/release` | JSON `{ "paths": [...] }`. Delete the media a decoded session staged that the wizard no longer needs — closed, or reset without importing. A path the backend did not stage is ignored. Returns `204` |
 | `POST` | `/geneanet/preview` | **Step 4.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on |
 | `POST` | `/geneanet/plan` | **Step 4.** List the media the server cannot produce on its own, for the login window to fetch. Same body as the preview. Under `media_fidelity: "renditions"` that is one `normal` rendition per page of every attached deposit; under `"originals"` it is each single-page deposit's download that no archive length accounts for, plus a rendition per document page to recognise it by |
-| `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt |
+| `POST` | `/trees/{tree_id}/geneanet/import` | **Step 5.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt: the `persons_count`, `families_count`, `events_count`, `sources_count`, `places_count`, `notes_count`, `media_count`, `links_count`, `portraits_count`, `isolated_count` and `vignettes_count` written, `isolated_people` (`[{ person_id, surname, given_names }]`, the persons created for identifications outside the tree, in creation order), and the `skipped` photos and `warnings`, one line each |
 
 The preview and import bodies carry the `.gw` **base64-encoded** (`gw_base64`)
 because they bundle it with other fields and JSON cannot hold raw bytes — the
@@ -1078,8 +1077,7 @@ negative GraphQL `Int` included, is a `validation_error`. REST, GraphQL and
 the assistant tools ([MCP](mcp.md)) enforce the same limit, and the batched
 `pedigrees` checks the tree's projections once for the whole batch.
 
-The profile and pedigree vocabulary is identical across REST and GraphQL. No
-legacy `/cache/*` routes or `cached*` GraphQL aliases are part of the contract.
+The profile and pedigree vocabulary is identical across REST and GraphQL.
 
 **A pedigree node carries its portrait and its SOSA mark.** `portrait` is
 the node's portrait source and crop, absent when the person has none, so a
@@ -1089,7 +1087,7 @@ the window, so a chart marks them without loading the whole ancestry. Both are
 read once for the whole window (and for each of a batch's pedigrees), never
 stored.
 
-**A pedigree node carries whole events, not extracted years.** `PedigreeNode` and `PedigreeFamilyMember` expose `birth` / `death` as `ProfileEvent`s. They used to hold a `birth_year` string plus a `birth_place` string, and everything that did not fit those two — the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id — was gone before any client saw it: a birth on 2 Nov 1788 arrived as `"1788"`, and a death recorded as "between 11 Nov 1691 and 20 Aug 1693" as a qualifier promising a second date the payload could not carry. `ProfileEvent` therefore also carries `date_qualifier`, `date_value2` and `calendar`, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
+**A pedigree node carries whole events, not extracted years.** `PedigreeNode` and `PedigreeFamilyMember` expose `birth` / `death` as `ProfileEvent`s rather than a year and a place name, so nothing a client may draw is lost before it sees it: the day and month, the far end of an `Or`/`Between` range, the calendar, the place's id. `ProfileEvent` carries `date_qualifier`, `date_value2` and `calendar` beside the date, which is what lets a client render « entre 11 nov. 1691 et 20 août 1693 » rather than « entre 1691 ».
 
 `birth` falls back to the **baptism** and `death` to the **burial**, and the fallback triggers on a missing *date*, not a missing event — a parish tree is full of empty birth stubs created to hang a source on, and one of those would otherwise mask a perfectly good "vers 1620" on the baptism. Each event keeps its own precision; there is deliberately no single "approximate" flag spanning both ends of a life. See [Tree View](ui-genealogy-tree.md) for how a client draws these.
 
@@ -1174,6 +1172,7 @@ warmed at server and desktop startup so no request pays for it.
 | `GET` | `/reference/{lang}/given-names?term=...` | Given-name fiche (label, origin, meaning, text, feast day) for `lang`; 404 if none |
 | `POST` | `/reference/{lang}/given-names/bundle` | Ordered, deduplicated matches for `{terms: string[]}`; unknown terms are omitted |
 | `GET` | `/reference/{lang}/places?q=...&limit=...` | Place suggestions from the place dictionary, best first; `limit` defaults to 10, 1–50 accepted, 400 otherwise |
+| `GET` | `/reference/basemap` | Country outlines and named places of the statistics heat map (see [Statistics](#statistics)) |
 
 Errors use the shared envelope: an unsupported `lang`, a batch over the
 limit or a `limit` out of range is `400 validation_error`, a term without a
@@ -1240,11 +1239,11 @@ sources through `POST /image-data` in one request and hands them to the markup
 as `data:` URLs. Resolving them one at a time would be a request per portrait on
 a pedigree.
 
-Sending the bytes inline instead — which is what these payloads used to do —
-inflated them by a third in base64, put a whole album through a single JSON
-parse before anything could be drawn, and denied the rendering engine every
-optimisation it has for images: no caching between renders or pages, no decode
-off the main thread, and no skipping a picture that never scrolls into view.
+The payloads do not carry the bytes inline: base64 would inflate them by a
+third, put a whole album through a single JSON parse before anything could be
+drawn, and deny the rendering engine every optimisation it has for images —
+caching between renders or pages, decoding off the main thread, and skipping a
+picture that never scrolls into view.
 
 ### Update semantics — omitted vs `null`
 
@@ -1266,11 +1265,13 @@ omitting them leaves them alone, and `null` is rejected.
 
 ### Pagination
 
-All list endpoints accept:
-- `first` (i32): number of items to return (default 25, max 100).
+The collection endpoints — trees, persons, families, events, places, sources,
+repositories, citations, notes, media, audit entries and their changes, record
+versions — page by cursor. They accept:
+- `first` (i32): number of items to return (default 25, clamped to 1–100).
 - `after` (String): cursor for forward pagination.
 
-Responses use a connection envelope:
+Their responses use a connection envelope:
 
 ```json
 {
@@ -1285,9 +1286,22 @@ Responses use a connection envelope:
 }
 ```
 
-A few lists are answered whole, on both surfaces, because their client
-draws or filters the whole set and each row is a handful of short fields;
-none of them carries a profile, an event list or a picture:
+Every other list is one of these documented exceptions:
+
+- **Person search** (`/persons/search`, GraphQL `searchPersons`) pages a ranked
+  result by `limit` and `offset` and answers `{ entries, total_count }`.
+- **Ancestors and descendants** return every person within `max_depth`
+  generations, and pedigrees every person within their depths: the depth is
+  the bound.
+- **Lists under one record** — a person's names and homonyms, a family's
+  spouses and children, an event's witnesses, a source's repositories and a
+  repository's sources, a medium's pages, vignettes and links, an entity's
+  media — are returned whole.
+- **Limited lists** — the persons recently modified, value and place
+  suggestions, the reference bundles — return at most their documented limit.
+- **Whole lists** — answered whole, on both surfaces, because their client
+  draws or filters the whole set and each row is a handful of short fields;
+  none of them carries a profile, an event list or a picture:
 
 | List | Why it is whole |
 |---|---|
@@ -1309,663 +1323,74 @@ Endpoint: `/graphql` using POST with a JSON body (`{"query": …, "variables": �
 for queries and mutations; `GET /graphql` serves GraphiQL where enabled. No subscription
 contract is currently exposed.
 
-### Queries
+### Schema
 
-```graphql
-type Query {
-  # Trees
-  trees(first: Int, after: String): TreeConnection!
-  tree(id: ID!): Tree
+The executable schema is the contract's GraphQL side; this specification does
+not copy it. Its source is `crates/oxidgene-api/src/graphql/`: the root
+queries in `query.rs`, the mutations in `mutation.rs`, the output types in
+`types.rs` and `history.rs`, and the input types in `inputs.rs`. A client reads
+it through standard introspection on `/graphql`, or browses it in GraphiQL
+where the deployment enables it. Every query is limited to a depth of 16 and a
+complexity of 1,000.
 
-  # Persons
-  persons(treeId: ID!, first: Int, after: String, search: String): PersonConnection!
-  person(treeId: ID!, id: ID!): Person
-  personDetailBundle(treeId: ID!, personId: ID!): PersonDetailBundle!
-  coupleDetailBundle(treeId: ID!, familyId: ID!): CoupleDetailBundle!  # mirrors GET …/families/{family_id}/detail-bundle
-  relationLabels(treeId: ID!, personIds: [ID!]!, familyIds: [ID!]!): RelationLabels!
-  personBySosa(treeId: ID!, number: Int!): Person
-  personHomonyms(treeId: ID!, personId: ID!): [SearchEntry!]!
-  recentlyModifiedPersons(treeId: ID!, limit: Int = 5): [SearchEntry!]!
-  recentPersonsOfTrees(treeIds: [ID!]!, limit: Int = 5): [TreeRecentPersons!]!  # mirrors GET /trees/recent-persons
-  ancestors(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
-  descendants(treeId: ID!, personId: ID!, maxDepth: Int): [PersonWithDepth!]!
-  kinship(treeId: ID!, personId: ID!, otherPersonId: ID!): Kinship!
-  portraits(treeId: ID!): [Portrait!]!
-  portraitImages(treeId: ID!, personIds: [ID!]!): [PortraitImage!]!
+The schema mirrors §2 operation by operation, following these rules:
 
-  # Dictionary and static reference content
-  dictionaryFamilyNames(treeId: ID!): [DictionaryEntry!]!
-  dictionaryOccupations(treeId: ID!): [DictionaryEntry!]!
-  dictionarySources(treeId: ID!, prefix: String): [SourceDictionaryEntry!]!
-  dictionarySourceDrill(treeId: ID!, prefix: String): SourceDictionaryDrill!
-  dictionaryPlaces(treeId: ID!): [PlaceDictionaryEntry!]!
-  treeStatistics(treeId: ID!, approximate: Boolean, language: String): TreeStatistics!
-  treeGrowth(treeId: ID!): TreeGrowth!
-  ancestryCompleteness(treeId: ID!, generations: Int): AncestryCompleteness!
-  treeAnomalies(treeId: ID!): TreeAnomalies!
-  unlocatedPlaces(treeId: ID!): [PlaceUsage!]!
-  potentialDuplicates(treeId: ID!): PotentialDuplicates!   # { count, pairs { score reasons first second } }
-  basemap: [BasemapCountry!]!
-  familyNameUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
-  occupationUsage(treeId: ID!, value: String!): [PersonUsageEntry!]!
-  sourceUsage(treeId: ID!, sourceId: ID!): [PersonUsageEntry!]!
-  placeUsage(treeId: ID!, placeId: ID!): [PersonUsageEntry!]!
-  occupationReference(language: String!, term: String!): OccupationReference
-  occupationReferences(language: String!, terms: [String!]!): [OccupationReferenceMatch!]!
-  givenNameReference(language: String!, term: String!): GivenNameReference
-  givenNameReferences(language: String!, terms: [String!]!): [GivenNameReferenceMatch!]!
-  placeSuggestions(language: String!, query: String!, limit: Int): [PlaceSuggestion!]!
-  valueSuggestions(treeId: ID!, field: SuggestionField!, language: String!, query: String!, limit: Int): [ValueSuggestion!]!
+- **Names.** A REST resource or action becomes a camelCase field: a list
+  query for a collection (`persons`, `families`), a singular query for one
+  record (`person`, `family`), and a `create…`/`update…`/`delete…` mutation
+  per write (`createPerson`); other operations take the name of the action
+  (`mergePersons`, `renameFamilyName`, `startExportJob`). Arguments and fields
+  are the REST ones in camelCase, and enum values are the REST values in upper
+  case (`BIRTH`, `ABOUT`).
+- **Arguments.** Every tree-scoped field takes `treeId`, the other
+  identifiers of its REST path — the record it acts on as `id` — and its query
+  parameters. A REST body becomes one `input` argument of a `…Input` type.
+- **Results.** A REST list with the cursor envelope of the
+  [Pagination](#pagination) section is a connection (`edges`, `pageInfo`,
+  `totalCount`), paginated with the same `first` and `after`; a bare REST
+  array is a list. A REST `204` is a `Boolean!`.
+- **Nested records.** `Person`, `Family` and `Event` resolve their nested lists
+  (names, families, events, citations, media, notes, spouses, children,
+  witnesses) completely — never cut to a first page — with one query per
+  list, whatever the size of the tree. `Tree.personCount` and
+  `Tree.familyCount` are counts, and `Tree.importInProgress` and
+  `Tree.importJobId` are the transient job fields the REST tree list adds.
+- **Absence.** A singular query answers `null` for a record that is absent,
+  deleted or of another tree, where REST answers `404`; a tree that does not
+  exist is `NOT_FOUND` on every field.
+- **Updates.** An `Update…Input` field distinguishes omitted from `null` as
+  described in [Update semantics](#update-semantics--omitted-vs-null).
+- **Errors.** Errors use the codes of
+  [Cross-cutting Rules §4.3](cross-cutting.md#43-graphql-mapping).
 
-  # Geneanet import wizard (the archive path operation is desktop-only)
-  inspectGeneweb(gwBase64: String!, fileName: String!): GeneanetInspection!
-  indexGeneanetArchives(paths: [String!]!): GeneanetArchiveIndex!
-  geneanetPreview(input: GeneanetPreviewInput!): GeneanetPreview!
-  geneanetPlan(input: GeneanetPreviewInput!): [GeneanetNeededMedia!]!
+The rows of §2 name their GraphQL twin where these rules do not make it
+obvious; introspection is authoritative. The transport differences the
+[Surfaces and parity](#surfaces-and-parity) section allows are the only
+operations without a twin: file uploads and direct media reads stay on REST.
+GraphQL reaches the same media through `mediaDownload` and `mediaArchive`
+(the URL to fetch), polls the import jobs the REST upload creates with
+`importJobStatus`, and starts GEDZIP exports with `startExportJob`.
 
-  # Families
-  families(treeId: ID!, first: Int, after: String): FamilyConnection!
-  family(treeId: ID!, id: ID!): Family
-
-  # Events
-  events(treeId: ID!, first: Int, after: String, eventType: EventType, personId: ID, familyId: ID): EventConnection!
-  event(treeId: ID!, id: ID!): Event
-
-  # Places
-  places(treeId: ID!, first: Int, after: String, search: String, name: String, ids: [ID!]): PlaceConnection!
-  place(treeId: ID!, id: ID!): Place
-
-  # Sources
-  sources(treeId: ID!, first: Int, after: String, title: String): SourceConnection!
-  source(treeId: ID!, id: ID!): Source
-
-  # Citations
-  citations(
-    treeId: ID!
-    personId: ID
-    eventId: ID
-    familyId: ID
-    sourceId: ID
-    first: Int
-    after: String
-  ): CitationConnection!
-
-  # Notes
-  notes(
-    treeId: ID!
-    personId: ID
-    eventId: ID
-    familyId: ID
-    sourceId: ID
-    mediaId: ID
-    first: Int
-    after: String
-  ): NoteConnection!
-  note(treeId: ID!, id: ID!): Note
-
-  # Media
-  mediaList(treeId: ID!, first: Int, after: String): MediaConnection!
-  media(treeId: ID!, id: ID!): Media
-  mediaDownload(treeId: ID!, id: ID!): GqlMediaDownload!    # { url }, original attachment
-  mediaArchive(treeId: ID!, id: ID!): GqlMediaDownload!     # { url }, complete document ZIP
-  imageData(treeId: ID!, sources: [ImageSourceInput!]!): [String]!
-  galleryBundle(treeId: ID!, mediaIds: [ID!]!, vignetteIds: [ID!]!): GalleryBundle!
-
-  # Media galleries
-  entityMedia(treeId: ID!, entityType: String!, entityId: ID!): [MediaWithLink!]!
-  treeMediaLinks(treeId: ID!): [TreeMediaLink!]!              # all person/event links in a tree
-  mediaLinks(treeId: ID!, mediaId: ID!): [MediaLink!]!       # what one file is attached to
-  mediaPages(treeId: ID!, mediaId: ID!): [Media!]!           # a document's pages, in order
-
-  # Vignettes
-  mediaVignettes(treeId: ID!, mediaId: ID!): [Vignette!]!
-  vignettes(treeId: ID!, personId: ID, eventId: ID): [Vignette!]!   # exactly one filter
-  vignette(treeId: ID!, id: ID!): Vignette
-
-  # Text GEDCOM compatibility export and durable job status
-  # Records the export in the tree's audit log, as REST does.
-  exportGedcom(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): ExportGedcomResult!
-  importJobStatus(treeId: ID!, jobId: ID!): ImportJobStatus!
-  exportJobStatus(treeId: ID!, jobId: ID!): ExportJobStatus!
-
-  # Read projections (see Data Model section 4) — mirrors the REST routes
-  personProfile(treeId: ID!, personId: ID!): GqlPersonProfile!
-  personProfiles(treeId: ID!, first: Int, after: String): GqlPersonProfileConnection!
-  pedigree(treeId: ID!, rootPersonId: ID, ancestorDepth: Int!, descendantDepth: Int!): GqlPedigree!
-  pedigrees(treeId: ID!, rootPersonIds: [ID!]!, ancestorDepth: Int!, descendantDepth: Int!): [PedigreeEntry!]!
-  # A read, like REST's `GET …/expand`: only what an expansion adds.
-  expandPedigree(treeId: ID!, rootPersonId: ID!, direction: PedigreeDirection!, fromDepth: Int!, toDepth: Int!, otherDepth: Int = 0): GqlPedigreeDelta!
-  searchPersons(
-    treeId: ID!
-    query: String!
-    limit: Int
-    offset: Int
-    sex: Sex
-    surname: String
-    givenNames: String
-    occupation: String
-    spouseSurname: String
-    spouseGivenNames: String
-    fatherSurname: String
-    fatherGivenNames: String
-    motherSurname: String
-    motherGivenNames: String
-    birthFrom: Int
-    birthTo: Int
-    deathFrom: Int
-    deathTo: Int
-    place: String
-    eventType: EventType
-    eventFrom: Int
-    eventTo: Int
-    hasMedia: Boolean = false
-    sort: PersonSearchSort
-  ): GqlSearchResult!
-
-  # History — mirrors the REST audit and history routes
-  auditEntries(treeId: ID!, first: Int, after: String, category: GqlAuditCategory, subjectId: ID): GqlAuditEntryConnection!
-  auditEntry(treeId: ID!, id: ID!): GqlAuditEntry!
-  auditEntryChanges(treeId: ID!, entryId: ID!, first: Int, after: String): GqlVersionChangeConnection!
-  recordVersions(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, first: Int, after: String): GqlRecordVersionConnection!
-  recordVersion(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, version: Int!): GqlRecordVersion!
-}
-```
-
-### Mutations
-
-```graphql
-type Mutation {
-  # Trees
-  createTree(input: CreateTreeInput!): Tree!
-  duplicateTree(treeId: ID!, name: String!): Tree!
-  updateTree(id: ID!, input: UpdateTreeInput!): Tree!
-  deleteTree(id: ID!): Boolean!
-
-  # Persons
-  createPerson(treeId: ID!, input: CreatePersonInput!): Person!
-  updatePerson(treeId: ID!, id: ID!, input: UpdatePersonInput!): Person!
-  deletePerson(treeId: ID!, id: ID!): Boolean!
-  markPersonsDistinct(treeId: ID!, personId: ID!, otherPersonIds: [ID!]!): Boolean!
-  mergePersons(treeId: ID!, personId: ID!, duplicateId: ID!, choices: MergeChoicesInput): Person!
-
-  # Person Names
-  addPersonName(treeId: ID!, personId: ID!, input: PersonNameInput!): PersonName!
-  updatePersonName(treeId: ID!, personId: ID!, nameId: ID!, input: PersonNameInput!): PersonName!
-  deletePersonName(treeId: ID!, personId: ID!, nameId: ID!): Boolean!
-
-  # Dictionary — bulk family-name edits (mirror the REST PATCH routes)
-  setFamilyNameParticle(treeId: ID!, input: SetFamilyNameParticleInput!): GqlFamilyNameParticleUpdate!
-  renameFamilyName(treeId: ID!, input: RenameFamilyNameInput!): GqlFamilyNameRename!
-    # input { value, newValue, particle }; result { value, newValue, surnamePrefix,
-    # surname, namesUpdated, personsUpdated, merged }
-
-  # Families
-  createFamily(treeId: ID!, input: CreateFamilyInput!): Family!
-  updateFamily(treeId: ID!, id: ID!, input: UpdateFamilyInput!): Family!
-  deleteFamily(treeId: ID!, id: ID!): Boolean!
-  addSpouse(treeId: ID!, familyId: ID!, input: AddSpouseInput!): FamilySpouse!
-  removeSpouse(treeId: ID!, familyId: ID!, spouseId: ID!): Boolean!
-  addChild(treeId: ID!, familyId: ID!, input: AddChildInput!): FamilyChild!
-  removeChild(treeId: ID!, familyId: ID!, childId: ID!): Boolean!
-
-  # Events
-  createEvent(treeId: ID!, input: CreateEventInput!): Event!
-  updateEvent(treeId: ID!, id: ID!, input: UpdateEventInput!): Event!
-  deleteEvent(treeId: ID!, id: ID!): Boolean!
-  addEventWitness(treeId: ID!, eventId: ID!, input: AddEventWitnessInput!): EventWitness!
-  # With eventId, a witness of another event is NOT_FOUND.
-  removeEventWitness(treeId: ID!, id: ID!, eventId: ID): Boolean!
-
-  # Places
-  createPlace(treeId: ID!, input: CreatePlaceInput!): Place!
-  updatePlace(treeId: ID!, id: ID!, input: UpdatePlaceInput!): Place!
-  deletePlace(treeId: ID!, id: ID!): Boolean!
-
-  # Sources
-  createSource(treeId: ID!, input: CreateSourceInput!): Source!
-  updateSource(treeId: ID!, id: ID!, input: UpdateSourceInput!): Source!
-  deleteSource(treeId: ID!, id: ID!, onlyIfUnused: Boolean! = false): Boolean!
-
-  # Citations
-  createCitation(treeId: ID!, input: CreateCitationInput!): Citation!
-  updateCitation(treeId: ID!, id: ID!, input: UpdateCitationInput!): Citation!
-  deleteCitation(treeId: ID!, id: ID!): Boolean!
-
-  # Media
-  uploadMedia(treeId: ID!, input: UploadMediaInput!): Media!          # metadata only
-  uploadMediaFile(treeId: ID!, input: UploadMediaFileInput!): Media!  # bytes, base64
-  updateMedia(treeId: ID!, id: ID!, input: UpdateMediaInput!): Media!
-  # Permanently deletes media. With onlyIfUnreferencedElsewhere, allowedLinkId
-  # is required and the result is false when another reference retains it.
-  deleteMedia(treeId: ID!, id: ID!, onlyIfUnreferencedElsewhere: Boolean! = false, allowedLinkId: ID): Boolean!
-  createMediaLink(treeId: ID!, input: CreateMediaLinkInput!): MediaLink!
-  setPersonPortrait(treeId: ID!, personId: ID!, mediaId: ID, vignetteId: ID): Person!
-
-  # Multi-page documents
-  createMediaDocument(treeId: ID!, title: String): Media!
-  appendMediaPage(documentId: ID!, mediaId: ID!): Media!
-  reorderMediaPages(documentId: ID!, pageIds: [ID!]!): [Media!]!
-  deleteMediaPage(treeId: ID!, documentId: ID!, pageId: ID!): Boolean!
-  deleteMediaLink(treeId: ID!, id: ID!): Boolean!
-
-  # Vignettes
-  createVignette(input: CreateVignetteInput!): Vignette!
-  updateVignette(id: ID!, input: UpdateVignetteInput!): Vignette!
-  deleteVignette(id: ID!): Boolean!
-
-  # Notes
-  createNote(treeId: ID!, input: CreateNoteInput!): Note!
-  updateNote(treeId: ID!, id: ID!, input: UpdateNoteInput!): Note!
-  deleteNote(treeId: ID!, id: ID!): Boolean!
-
-  # Durable GEDZIP exports contain no binary GraphQL payload. Ordinary file
-  # import jobs are created by the streaming REST upload endpoint.
-  startExportJob(treeId: ID!, mergeOccupations: Boolean, mergeNames: Boolean): BackgroundJobStarted!
-
-  # Geneanet session archives use base64. Import inputs name files on the
-  # shared desktop filesystem; the mutation stages them into durable storage.
-  encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GeneanetSessionArchive!
-  decodeGeneanetSession(archiveBase64: String!): GeneanetSession!
-  releaseGeneanetSessionMedia(paths: [String!]!): Boolean!
-  importGeneanet(treeId: ID!, input: GeneanetImportInput!): BackgroundJobStarted!
-
-  # History
-  revertRecord(treeId: ID!, recordType: GqlRecordType!, recordId: ID!, version: Int!): GqlAuditEntry!
-
-  # Read projections (see Data Model section 4) — mirrors the REST routes
-  rebuildTreeProfiles(treeId: ID!): GqlProfileRebuildResult!
-  rebuildPersonProfile(treeId: ID!, personId: ID!): GqlProfileRebuildResult!
-  dropTreeProfiles(treeId: ID!): Boolean!
-}
-```
+### Geneanet operations
 
 `GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size,
 archive-path and `mediaFidelity` data as REST's preview and plan bodies
 (`mediaFidelity` is `GeneanetMediaFidelity`: `RENDITIONS`, the default, or
-`ORIGINALS`). `GeneanetImportInput` adds the source-URL-to-local-path map. These paths are the staging handoff:
-GraphQL does not carry the corresponding bytes, and the mutation copies every
-input to job-owned durable storage before returning its job id.
-`indexGeneanetArchives`, `releaseGeneanetSessionMedia` and paths returned from `decodeGeneanetSession` are
-desktop-only because they refer to the local filesystem. The runtime capability
-that protects the REST data plane also protects these GraphQL fields. A caller
-polls `importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and
+`ORIGINALS`). `GeneanetImportInput` adds the source-URL-to-local-path map.
+These paths are the staging handoff: GraphQL does not carry the corresponding
+bytes, and the mutation copies every input to job-owned durable storage before
+returning its job id. `indexGeneanetArchives`, `releaseGeneanetSessionMedia`
+and paths returned from `decodeGeneanetSession` are desktop-only because they
+refer to the local filesystem. The runtime capability that protects the REST
+data plane also protects these GraphQL fields. A caller polls
+`importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and
 `geneanetResult` is set for a completed Geneanet job.
-
-### Key Types
-
-The nested lists of `Person`, `Family` and `Event` (names, families, events,
-citations, media, spouses, children, witnesses) are complete — never cut to a
-first page — and each is read with one query, whatever the size of the tree.
-`Tree.personCount` and `familyCount` are counts, not a page of rows.
-
-```graphql
-type Tree {
-  id: ID!
-  name: String!
-  description: String
-  personCount: Int!
-  familyCount: Int!
-  # An import queued or running into the tree, read from the job queue.
-  importInProgress: Boolean!
-  importJobId: ID
-  createdAt: DateTime!
-  updatedAt: DateTime!
-}
-
-type Person {
-  id: ID!
-  sex: Sex!
-  names: [PersonName!]!
-  primaryName: PersonName
-  families: [Family!]!
-  events: [Event!]!
-  citations: [Citation!]!
-  media: [Media!]!
-  notes: [Note!]!
-  createdAt: DateTime!
-  updatedAt: DateTime!
-}
-
-type PersonWithDepth {
-  person: Person!
-  depth: Int!
-}
-
-type Family {
-  id: ID!
-  spouses: [FamilySpouseDetail!]!
-  children: [FamilyChildDetail!]!
-  events: [Event!]!
-  createdAt: DateTime!
-  updatedAt: DateTime!
-}
-
-type FamilySpouseDetail {
-  id: ID!
-  person: Person!
-  role: SpouseRole!
-  sortOrder: Int!
-}
-
-type FamilyChildDetail {
-  id: ID!
-  person: Person!
-  childType: ChildType!
-  sortOrder: Int!
-}
-
-type Event {
-  id: ID!
-  eventType: EventType!
-  dateValue: String
-  dateSort: Date
-  dateQualifier: DateQualifier!
-  dateValue2: String
-  calendar: Calendar!
-  place: Place
-  person: Person
-  family: Family
-  description: String
-  cause: String            # GEDCOM CAUS tag (e.g. cause of death)
-  age: String              # GEDCOM AGE, canonical form (34y, < 1y 6m, CHILD)
-  agency: String           # GEDCOM AGNC, the authority responsible for the record
-  spouseAges: [SpouseAge!]! # family event: { personId, age } per spouse (HUSB.AGE / WIFE.AGE)
-  witnesses: [EventWitness!]!
-  citations: [Citation!]!
-  media: [Media!]!
-  notes: [Note!]!
-  createdAt: DateTime!
-  updatedAt: DateTime!
-}
-
-type EventWitness {
-  id: ID!
-  eventId: ID!
-  personId: ID!
-  relation: String         # free text, e.g. "Godmother"
-  sortOrder: Int!
-}
-
-# Returned by a completed import job, whatever the source format.
-type ImportResult {
-  personsCount: Int!
-  familiesCount: Int!
-  eventsCount: Int!
-  sourcesCount: Int!
-  mediaCount: Int!
-  placesCount: Int!
-  notesCount: Int!
-  warnings: [String!]!
-}
-
-type BackgroundJobStarted {
-  jobId: ID!
-}
-
-type ImportJobStatus {
-  phase: String!
-  done: Int!
-  total: Int!
-  result: ImportResult
-  geneanetResult: GeneanetImportResult
-  error: String
-}
-
-type GeneanetImportResult {
-  personsCount: Int!
-  familiesCount: Int!
-  eventsCount: Int!
-  sourcesCount: Int!
-  placesCount: Int!
-  notesCount: Int!
-  mediaCount: Int!
-  linksCount: Int!
-  portraitsCount: Int!
-  isolatedCount: Int!
-  isolatedPeople: [GeneanetIsolatedPerson!]!
-  vignettesCount: Int!
-  skipped: [String!]!
-  warnings: [String!]!
-}
-
-# A person created for an identification outside the tree, in creation order.
-# REST: `isolated_people: [{ person_id, surname, given_names }]`.
-type GeneanetIsolatedPerson {
-  personId: ID!
-  surname: String!
-  givenNames: String!
-}
-
-type ExportJobStatus {
-  phase: String!
-  done: Int!
-  total: Int!
-  downloadUrl: String
-  expiresAt: DateTime
-  warnings: [String!]!
-  error: String
-}
-
-# Connection types (Relay-style pagination)
-type TreeConnection {
-  edges: [TreeEdge!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-type TreeEdge {
-  cursor: String!
-  node: Tree!
-}
-
-type PageInfo {
-  hasNextPage: Boolean!
-  endCursor: String
-}
-
-# The same edge/pageInfo/totalCount shape is exposed by Person, Family, Event,
-# Place, Source, Citation, Note, and Media connection types, and by
-# GqlAuditEntry, GqlRecordVersion and GqlVersionChange.
-
-# --- History types (see Data Model section 5) ---
-
-type GqlAuditEntry {
-  id: ID!
-  treeId: ID!
-  occurredAt: DateTime!
-  category: GqlAuditCategory!   # DATA, SETTINGS, MEDIA, IMPORT, EXPORT, HISTORY
-  action: GqlAuditAction!       # CREATE, UPDATE, DELETE, MERGE, IMPORT, EXPORT, REVERT
-  entity: GqlAuditEntity!       # PERSON, PERSON_NAME, EVENT, MEDIA_TAG, …
-  entityId: ID
-  subject: GqlAuditSubject      # TREE, PERSON, FAMILY, PLACE, SOURCE, MEDIA
-  subjectId: ID
-  label: String
-  details: GqlAuditDetails!     # format, fileName, count, eventType, version, otherLabel, newLabel
-  versionCount: Int!
-}
-
-type GqlRecordVersion {
-  id: ID!
-  treeId: ID!
-  recordType: GqlRecordType!    # PERSON, PLACE, SOURCE, TREE
-  recordId: ID!
-  version: Int!
-  current: Boolean!             # the live record
-  deleted: Boolean!
-  entry: GqlAuditEntry          # the write that produced the state
-  snapshot: GqlRecordSnapshot   # recordType plus exactly one of person, place, source, tree; null when deleted
-  labels: [GqlRecordLabel!]!    # { id, label }
-}
-
-type GqlVersionChange {
-  version: GqlRecordVersion!
-  previous: GqlRecordVersion!
-}
-
-# GqlPersonSnapshot, GqlPlaceSnapshot, GqlSourceSnapshot and GqlTreeSnapshot
-# carry the same fields as the REST snapshot, camelCased.
-
-# --- Read projection types (see Data Model section 4) ---
-
-type GqlPersonProfile {
-  personId: ID!
-  treeId: ID!
-  sex: Sex!
-  primaryName: GqlProfileName
-  otherNames: [GqlProfileName!]!
-  birth: GqlProfileEvent
-  death: GqlProfileEvent
-  baptism: GqlProfileEvent
-  burial: GqlProfileEvent
-  occupation: String
-  otherEvents: [GqlProfileEvent!]!
-  familiesAsSpouse: [GqlProfileFamilyLink!]!
-  familyAsChild: GqlProfileChildLink
-  primaryMedia: GqlProfileMediaRef
-  mediaCount: Int!
-  citationCount: Int!
-  noteCount: Int!
-  updatedAt: DateTime!
-  builtAt: DateTime!
-}
-
-type GqlProfileName {
-  nameId: ID!
-  nameType: NameType!
-  displayName: String!
-  givenNames: String
-  surname: String
-}
-
-type GqlProfileEvent {
-  eventId: ID!
-  eventType: EventType!
-  dateValue: String
-  dateSort: Date
-  dateQualifier: DateQualifier!
-  dateValue2: String
-  calendar: Calendar!
-  placeName: String
-  placeId: ID
-  description: String
-}
-
-type GqlProfileFamilyLink {
-  familyId: ID!
-  role: SpouseRole!
-  spouseId: ID
-  spouseDisplayName: String
-  spouseSurname: String
-  spouseGivenNames: String
-  spouseSex: Sex
-  marriage: GqlProfileEvent
-  childrenIds: [ID!]!
-  childrenCount: Int!
-}
-
-type GqlProfileChildLink {
-  familyId: ID!
-  childType: ChildType!
-  fatherId: ID
-  fatherDisplayName: String
-  fatherSurname: String
-  fatherGivenNames: String
-  motherId: ID
-  motherDisplayName: String
-  motherSurname: String
-  motherGivenNames: String
-}
-
-type GqlProfileMediaRef {
-  mediaId: ID!
-  filePath: String!
-  mimeType: String!
-  title: String
-}
-
-type GqlPedigree {
-  treeId: ID!
-  rootPersonId: ID!
-  persons: [PedigreeNode!]!
-  edges: [PedigreeEdge!]!
-  ancestorDepthLoaded: Int!
-  descendantDepthLoaded: Int!
-  builtAt: DateTime!
-}
-
-type PedigreeNode {
-  personId: ID!
-  sex: Sex!
-  displayName: String!
-  givenNames: String
-  surname: String
-  # Whole events, not a year and a place name pulled out of them — see below.
-  # Fall back to baptism / burial when the birth / death carries no date.
-  birth: GqlProfileEvent
-  death: GqlProfileEvent
-  occupation: String
-  primaryMediaPath: String
-  generation: Int!
-  sosaNumber: Int
-  portrait: PortraitRef         # absent without a portrait
-  sosaAncestor: Boolean!        # the SOSA root or one of its ancestors
-}
-
-type PedigreeEdge {
-  parentId: ID!
-  childId: ID!
-  familyId: ID!
-  edgeType: ChildType!
-}
-
-type PedigreeDelta {
-  newNodes: [PedigreeNode!]!
-  newEdges: [PedigreeEdge!]!
-  ancestorDepthLoaded: Int!
-  descendantDepthLoaded: Int!
-}
-
-type SearchResult {
-  entries: [SearchEntry!]!
-  totalCount: Int!
-}
-
-type SearchEntry {
-  personId: ID!
-  sex: Sex!
-  displayName: String!
-  surname: String!
-  givenNames: String!
-  birthYear: String
-  birthQualifier: DateQualifier!
-  birthPlace: String
-  deathYear: String
-  deathQualifier: DateQualifier!
-  spouseNames: [String!]!
-  fatherName: String
-  motherName: String
-  childrenCount: Int!
-  portrait: PortraitRef         # absent without a portrait
-}
-
-# Where a portrait is drawn from: an image source and, for a picture the
-# client cuts itself, the region.
-type PortraitRef {
-  source: ImageSource!
-  crop: ImageCrop
-}
-
-enum PedigreeDirection {
-  ANCESTORS
-  DESCENDANTS
-}
-```
 
 ---
 
 ## 4. GEDCOM Compatibility Reference
 
-The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Architecture](architecture.md) §1). See [Data Model](data-model.md) for the full enum-to-GEDCOM-tag mapping.
+The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Architecture](architecture.md) §1). See [Data Model §2](data-model.md#2-enums) for the rules mapping the enums onto GEDCOM.
 
 ### Round-trip fidelity
 
