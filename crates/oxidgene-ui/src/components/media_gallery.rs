@@ -2175,7 +2175,7 @@ fn MediaFileMeta(file_media: oxidgene_core::types::Media, page_count: i32) -> El
                 span { "{w} × {h}" }
             }
             if file_media.file_size > 0 {
-                span { {format_size(file_media.file_size)} }
+                span { {media_size(file_media.file_size)} }
             }
             if page_count > 1 {
                 span {
@@ -2800,7 +2800,7 @@ fn MediaFacts(
                     span { "{w} \u{00D7} {h}" }
                 }
                 if file_media.file_size > 0 {
-                    span { {format_size(file_media.file_size)} }
+                    span { {media_size(file_media.file_size)} }
                 }
                 if crate::api::media_source(&file_media) == MediaSource::Remote {
                     span { title: "{file_media.file_path}", {i18n.t("media.source_remote")} }
@@ -4997,17 +4997,10 @@ pub(crate) fn MediaTagForm(on_add: EventHandler<String>) -> Element {
     }
 }
 
-/// A file size a person can read at a glance.
-fn format_size(bytes: i64) -> String {
-    const KIB: f64 = 1024.0;
-    let bytes = bytes.max(0) as f64;
-    if bytes < KIB {
-        format!("{bytes:.0} B")
-    } else if bytes < KIB * KIB {
-        format!("{:.0} KB", bytes / KIB)
-    } else {
-        format!("{:.1} MB", bytes / (KIB * KIB))
-    }
+/// A stored file size as a person reads it; a negative size, which the
+/// column allows but no write produces, reads as empty.
+fn media_size(bytes: i64) -> String {
+    crate::utils::human_size(u64::try_from(bytes).unwrap_or(0))
 }
 
 #[cfg(test)]
@@ -5197,14 +5190,6 @@ mod tests {
         assert_eq!(archive_stem("Livret de famille"), "Livret de famille");
         assert_eq!(archive_stem("deposit_4713.jpg"), "deposit_4713");
         assert_eq!(archive_stem("  "), "document");
-    }
-
-    #[test]
-    fn sizes_read_in_the_unit_that_fits() {
-        assert_eq!(format_size(0), "0 B");
-        assert_eq!(format_size(512), "512 B");
-        assert_eq!(format_size(2048), "2 KB");
-        assert_eq!(format_size(5 * 1024 * 1024), "5.0 MB");
     }
 
     #[test]
