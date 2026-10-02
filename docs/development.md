@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T21:48:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 # Development Environment and Workflows
@@ -61,10 +61,12 @@ the repository root.
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings. |
+| `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. Not part of `just check`. |
 | `just cyclomatic` | Fail on any function above a cyclomatic complexity of 15 (§2.1). |
 | `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, and tests. |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
+| `just openapi` | Build `oxidgene-api`, whose build script regenerates from the REST router the OpenAPI document served at `/api/v1/openapi.json` ([API Contract](api.md)). |
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
 
@@ -287,6 +289,19 @@ The selection is by Cargo target (`--lib --bins`, `--doc`, `--test '*'`)
 rather than by a nextest filter, so each category builds only its own test
 binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS and
 are run by hand as described where they are introduced.
+
+The opt-in tests and the golden checks read these variables:
+
+| Variable | Read by |
+|----------|---------|
+| `OXIDGENE_TEST_DATABASE_URL` | `oxidgene-db`'s `migration_test` with the `postgres` feature: an empty disposable PostgreSQL database to migrate up and down |
+| `OXIDGENE_REAL_*` | `just real-import` (§3, *Real-data import check*), which also sets `OXIDGENE_REAL_WORKDIR` to its staging directory under `target/` |
+| `OXIDGENE_GENEANET_ARCHIVES`, `OXIDGENE_RENDITION_WIDTH` | `oxidgene-geneanet`'s `phash_separation` (§3, *Geneanet content matching*); the width of the simulated rendition defaults to 600 pixels |
+| `OXIDGENE_GW`, `OXIDGENE_REFERENCES` | `oxidgene-geneanet`'s `unkeyed_references`: a `.gw` export and a dump of Geneanet's media references, to measure which unkeyed references the name alone would join |
+| `OXIDGENE_PHASH_JPEG` | The `compare_jpeg_phash_decode_strategies` test of `oxidgene-geneanet`'s `phash` module: a JPEG, or a ZIP holding one, to time the decode strategies on |
+| `OXIDGENE_PREVIEW_DIR` | The `theme_preview` test of `oxidgene-ui`, which writes an HTML preview of every theme there (default: the current directory) |
+| `OXIDGENE_BLESS` | The pedigree layout golden tests of `oxidgene-ui`: set, they print fresh golden blocks instead of comparing |
+| `OXIDGENE_BLESS_E2E_FIXTURE` | `rest_test.rs`: set to `1`, it rewrites the end-to-end fixture (below) |
 
 CI runs each category as its own job on every change outside the
 documentation. The `CI` job, the one status check branch protection

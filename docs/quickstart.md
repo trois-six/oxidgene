@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:13:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 # OxidGene Quickstart
@@ -194,8 +194,9 @@ observability backend.
 ### Server configuration
 
 `oxidgene-server` reads an optional `oxidgene.toml` in its working directory
-and the environment, which overrides it. Compose and the Helm chart set these
-for you; a server run by hand reads:
+and the environment, which overrides it; `oxidgene-worker` reads the same
+configuration and uses its database, logging and media settings. Compose and
+the Helm chart set these for you; a server run by hand reads:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -641,6 +642,7 @@ private network reaches. The release notes repeat the warning.
 | `backend.graphiql` | `false` | Serve GraphiQL at `GET /graphql` (`OXIDGENE_GRAPHIQL`); its page loads scripts from a public CDN. |
 | `backend.allowedHosts` | `[]` | Further host names the API answers under (`OXIDGENE_ALLOWED_HOSTS`), for a client calling the backend Service directly. Any other `Host` is refused. |
 | `backend.logLevel` | `info` | `OXIDGENE_LOG_LEVEL` value. |
+| `backend.logFormat` | `json` | `OXIDGENE_LOG_FORMAT` value, `text` or `json`. With OTLP export enabled, a collector that also scrapes these lines receives every event twice. |
 | `backend.otlpEndpoint` | `""` | Backend `OTEL_EXPORTER_OTLP_ENDPOINT`; empty disables its telemetry export and span creation. |
 | `backend.extraEnv` | `[]` | Additional container environment entries. |
 | `backend.resources` | See `values.yaml` | CPU and memory requests and limits. |
@@ -662,9 +664,18 @@ private network reaches. The release notes repeat the warning.
 | `worker.image.tag` | Chart `appVersion` | Worker image tag; set an explicit value to override the released chart version. |
 | `worker.image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy. |
 | `worker.logLevel` | `info` | Worker `OXIDGENE_LOG_LEVEL` value. |
+| `worker.logFormat` | `json` | Worker `OXIDGENE_LOG_FORMAT` value, `text` or `json`. |
 | `worker.otlpEndpoint` | `""` | Worker `OTEL_EXPORTER_OTLP_ENDPOINT`; empty disables its telemetry export and span creation. |
 | `worker.extraEnv` | `[]` | Additional worker container environment entries. |
 | `worker.resources` | See `values.yaml` | CPU and memory requests and limits. |
+| `worker.podAnnotations` | `{}` | Additional Pod annotations. |
+| `worker.podLabels` | `{}` | Additional Pod labels. |
+| `worker.podSecurityContext` | Restricted defaults | Pod-level UID, GID, FSGroup, and seccomp settings. |
+| `worker.securityContext` | Restricted defaults | Container privilege, capability, and read-only-root settings. |
+| `worker.nodeSelector` | `{}` | Node selection constraints. |
+| `worker.tolerations` | `[]` | Pod tolerations. |
+| `worker.affinity` | `{}` | Pod affinity and anti-affinity. |
+| `worker.topologySpreadConstraints` | `[]` | Pod topology spread rules. |
 
 #### Frontend
 
