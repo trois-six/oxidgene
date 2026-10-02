@@ -116,6 +116,20 @@ fn descendant_rings(tree: &Tree, angles: &Angles, arc: ChartArc) -> DescendantRi
         });
         r += ring_depth;
     }
+    // A union of the outermost generation has no children drawn — a
+    // childless couple, or a root alone with its spouse — and still needs
+    // its band, outside the last ring of persons.
+    if tree
+        .people
+        .iter()
+        .any(|person| person.depth == deepest && !person.unions.is_empty())
+    {
+        rings.unions.push(Ring {
+            r_in: r,
+            r_out: r + UNION_RING,
+            flow: LabelFlow::Tangential,
+        });
+    }
     rings
 }
 
@@ -252,7 +266,10 @@ pub(in crate::components::pedigree_chart) fn descendant_circular_layout(
     let radius = rings
         .people
         .last()
-        .map_or(arc.root_radius, |ring| ring.r_out);
+        .into_iter()
+        .chain(rings.unions.last())
+        .map(|ring| ring.r_out)
+        .fold(arc.root_radius, f64::max);
     let max_zoom = max_zoom_for(&segments);
     CircularLayout {
         entries,
@@ -373,6 +390,32 @@ mod tests {
                 s.start >= 90.0 - EPS && s.end <= 270.0 + EPS,
                 "below the root"
             );
+        }
+    }
+
+    /// A union of the outermost generation drawn — here the root's own,
+    /// childless — gets its band outside the persons' rings. It had none,
+    /// and the chart panicked on an out-of-bounds ring.
+    #[test]
+    fn a_childless_union_of_the_last_generation_gets_its_band() {
+        let mut f = Fixture::default();
+        f.person(1, Sex::Male, "Root", "Branch_A")
+            .person(2, Sex::Female, "Spouse_1", "Branch_B");
+        f.family(100, &[1, 2], &[]);
+        let data = f.build();
+        for arc in [ChartArc::DESCENDANT_WHEEL, ChartArc::DESCENDANT_FAN] {
+            let layout = descendant_circular_layout(
+                arc,
+                id(1),
+                &data,
+                3,
+                None,
+                &HashSet::new(),
+                DateStyle::DEFAULT,
+            );
+            let union = layout.segments.iter().find(|s| s.union).expect("the union");
+            assert!((union.ring.r_in - arc.root_radius).abs() < EPS);
+            assert_eq!(layout.entries[union.entry].node.id, Some(id(2)));
         }
     }
 
