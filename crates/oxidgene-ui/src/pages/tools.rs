@@ -15,6 +15,8 @@ use crate::api::{
 };
 use crate::components::copy_field::CopyField;
 use crate::components::date_input::{DateInput, DateParts};
+use crate::components::empty_state::EmptyState;
+use crate::components::event_icon::EventIcon;
 use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
@@ -30,6 +32,7 @@ use crate::router::Route;
 use crate::ui_observability::{
     UiCommand, UiPage, trace_ui_action, use_ui_load_trace, use_ui_resource,
 };
+use oxidgene_core::enums::EventType;
 
 const TAB_STORAGE_KEY: &str = "oxidgene-tools-tab";
 const GENERATIONS_STORAGE_KEY: &str = "oxidgene-tools-generations";
@@ -602,13 +605,16 @@ fn Ancestry(tree_id: Uuid, tree_route: String) -> Element {
         None | Some(None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
         Some(Some(Err(_))) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
         Some(Some(Ok(result))) if result.root.is_none() => rsx! {
-            div { class: "empty-state tools-empty",
+            EmptyState {
+                class: "tools-empty",
+                action: rsx! {
+                    Link {
+                        to: Route::Settings { tree_id: tree_route.clone() },
+                        class: "btn btn-outline btn-sm",
+                        {i18n.t("tools.ancestry.choose_root")}
+                    }
+                },
                 p { {i18n.t("tools.ancestry.no_root")} }
-                Link {
-                    to: Route::Settings { tree_id: tree_route.clone() },
-                    class: "btn btn-outline btn-sm",
-                    {i18n.t("tools.ancestry.choose_root")}
-                }
             }
         },
         Some(Some(Ok(result))) => rsx! {
@@ -711,10 +717,16 @@ fn ancestor_cells(
             }
             div { class: "tools-dates text-muted",
                 if person.birth.is_some() {
-                    span { "\u{2726} {date_text(i18n, person.birth.as_ref())}" }
+                    span {
+                        EventIcon { event_type: EventType::Birth, bare: true }
+                        " {date_text(i18n, person.birth.as_ref())}"
+                    }
                 }
                 if person.death.is_some() {
-                    span { "\u{271D} {date_text(i18n, person.death.as_ref())}" }
+                    span {
+                        EventIcon { event_type: EventType::Death, bare: true }
+                        " {date_text(i18n, person.death.as_ref())}"
+                    }
                 }
             }
         }

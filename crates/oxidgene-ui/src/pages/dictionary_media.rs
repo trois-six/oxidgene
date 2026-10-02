@@ -13,6 +13,7 @@ use oxidgene_core::{DocumentCategory, MediaFileKind, SourceMediaType};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, MediaListFilters, MediaListItem, MediaTagFacet};
+use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaLibraryGrid, MediaLibraryTile};
 use crate::components::pager::Pager;
 use crate::components::year_range::YearRange;
@@ -255,15 +256,17 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         }
 
         if let Some(message) = error {
-            div { class: "empty-state", "{message}" }
+            div { class: "error-msg", "{message}" }
         } else if items.is_none() {
-            div { class: "empty-state", {i18n.t("dictionary.loading")} }
+            div { class: "loading", {i18n.t("dictionary.loading")} }
         } else if tiles.is_empty() && *applied.read() == MediaListFilters::default() {
-            div { class: "empty-state", {i18n.t("dictionary.media.none")} }
+            EmptyState { p { {i18n.t("dictionary.media.none")} } }
         } else if tiles.is_empty() {
-            div { class: "empty-state",
+            EmptyState {
+                action: rsx! {
+                    button { class: "sr-clear-filters", onclick: clear_all, {i18n.t("dictionary.media.clear_all")} }
+                },
                 p { {i18n.t("dictionary.media.no_matches")} }
-                button { class: "sr-clear-filters", onclick: clear_all, {i18n.t("dictionary.media.clear_all")} }
             }
         } else {
             MediaLibraryGrid {

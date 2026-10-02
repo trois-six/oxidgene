@@ -27,6 +27,7 @@ use crate::api::{
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
+use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
@@ -1580,7 +1581,7 @@ pub(crate) fn family_section(
             }
 
             if is_empty {
-                div { class: "empty-state",
+                EmptyState {
                     p { {i18n.t("person.no_family_connections")} }
                 }
             }
@@ -1680,7 +1681,7 @@ pub(crate) fn timeline_section(
                 h2 { style: "font-size: 1.1rem;", "{title}" }
             }
             if events.is_empty() {
-                div { class: "empty-state",
+                EmptyState {
                     p { {i18n.t("person.no_events")} }
                 }
             } else {

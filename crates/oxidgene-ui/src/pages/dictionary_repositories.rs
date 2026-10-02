@@ -7,6 +7,7 @@ use oxidgene_core::types::Repository;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, HeldSource};
+use crate::components::empty_state::EmptyState;
 use crate::components::source_forms::{RepositoryEditor, medium_label};
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
@@ -116,10 +117,10 @@ pub fn DictionaryRepositories(tree_id: Uuid) -> Element {
             }
         }
         match listed {
-            None if failed => rsx! { div { class: "empty-state", {i18n.t("dictionary.error")} } },
-            None => rsx! { div { class: "empty-state", {i18n.t("dictionary.loading")} } },
+            None if failed => rsx! { div { class: "error-msg", {i18n.t("dictionary.error")} } },
+            None => rsx! { div { class: "loading", {i18n.t("dictionary.loading")} } },
             Some(list) if list.is_empty() => rsx! {
-                div { class: "empty-state", {i18n.t("dictionary.no_entries_repositories")} }
+                EmptyState { p { {i18n.t("dictionary.no_entries_repositories")} } }
             },
             Some(list) => rsx! {
                 div { class: "dict-src-summary", {i18n.t_plural("dictionary.count", list.len())} }

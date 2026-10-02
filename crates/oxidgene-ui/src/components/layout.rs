@@ -768,16 +768,86 @@ pub const LAYOUT_STYLES: &str = r#"
         padding: 4px 8px;
     }
 
+    /* The one person picker (components/person_picker.rs): the chosen
+       person's search row and its buttons, in a frame of their own. */
+    .person-picker-display,
+    .person-picker-empty {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+    }
+    .person-picker-empty { border-style: dashed; }
+    .person-picker-empty p { margin: 0; }
+    .person-picker-person {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex: 1;
+    }
+    /* A row passed in as a link keeps none of a result list's frame. */
+    .person-picker-person .search-person-result {
+        border: none;
+        padding: 0;
+        background: none;
+    }
+    .person-picker-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+    .btn-danger-outline {
+        color: var(--red) !important;
+        border-color: var(--red) !important;
+    }
+    .btn-danger-outline:hover {
+        background: color-mix(in srgb, var(--red) 10%, transparent) !important;
+    }
+    @media (max-width: 768px) {
+        .person-picker-display {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .person-picker-person { align-items: flex-start; }
+        .person-picker-person .sp-result-name {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            overflow-wrap: anywhere;
+        }
+        .person-picker-person .sp-result-meta { overflow-wrap: anywhere; }
+        .person-picker-actions { justify-content: flex-end; }
+    }
+
+    /* The one empty state (components/empty_state.rs). */
     .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
         text-align: center;
         padding: 48px 24px;
         color: var(--text-secondary);
     }
 
     .empty-state h3 {
-        margin-bottom: 8px;
         font-weight: 500;
+        color: var(--text-primary);
     }
+
+    .empty-state p { margin: 0; }
+
+    .empty-state-icon {
+        font-size: 3.5rem;
+        line-height: 1;
+    }
+
+    .empty-state-action { margin-top: 4px; }
 
     .empty-tree-container {
         display: flex;
@@ -3712,10 +3782,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     .kin-end-slot { flex: 1; min-width: 0; }
     .kin-end-label {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 28px;
         margin-bottom: 6px;
         font-size: 0.75rem;
         text-transform: uppercase;
@@ -7071,7 +7137,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .tools-empty { padding: 24px; }
-    .tools-empty p { margin: 0 0 12px; }
 
     .stats-table th {
         padding: 5px 8px;

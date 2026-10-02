@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:20:16Z }
 ---
 
 
@@ -146,7 +146,7 @@ on the homepage.
 
 ### SOSA 1 (Root person)
 
-A **person picker** component enclosed in a card displays the currently
+The shared [person picker](ui-common.md#42-personpicker), enclosed in a card, displays the currently
 selected person with the same summary as a person-search result: profile photo
 or sex-specific placeholder portrait, surname and given names, birth and death
 years, and birth place when known. Two buttons appear on the right. On narrow

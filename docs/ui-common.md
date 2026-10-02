@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:20:16Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -273,12 +273,19 @@ explanation, cancel action, and explicit confirm action. Danger mode uses
 
 ### 4.2 PersonPicker
 
-Displays an optional selected person with the same canonical summary as each
-person-search result: profile photo or sex-specific placeholder portrait,
-surname and given names, birth and death years, and birth place when known.
-**Change** opens the shared person search; **Clear** is available only when the
-field is optional. It receives `tree_id`, selected person, required state, and
-an `EventHandler<Option<Person>>`.
+The one picker of a person (`components/person_picker.rs`), used by the
+[settings](ui-settings.md)' SOSA root and *Who am I?* cards and by the two
+ends of the [kinship](ui-kinship.md) page. It displays the selected person
+with the same canonical summary as each person-search result: profile photo
+or sex-specific placeholder portrait, surname and given names, birth and death
+years, and birth place when known — the caller passes that row, a plain
+summary or a link to the profile. The row and its buttons sit in one frame;
+below 768px the buttons move under the row. **Change** opens the shared
+person search in its place, and cancelling it keeps the current person;
+**Clear** is offered only when the field is optional, and an optional field
+with nobody chosen says so beside a choose button. A required field with
+nobody chosen opens on the search. It receives `tree_id`, the selected row,
+the labels, and an `EventHandler<Option<Uuid>>` (`None` on clear).
 
 Portrait maps used by the pedigree, person profile, search results, person
 picker, and settings load their display-ready images in one bounded API
@@ -569,14 +576,25 @@ within narrow viewports. The detailed viewer contract is in
 
 ### 4.6 EventIcon
 
-One component maps event types to an icon and semantic token. Every icon has an
-accessible localized label and is never the only representation of event type.
+One component (`components/event_icon.rs`) maps event types to an icon and a
+semantic tone (birth, death, union, other — the `--green`, `--blue` and
+`--orange` tints of `.ev-ic`). Framed in its tone's badge it decorates an
+event whose name is written beside it, as in the pedigree's events panel, and
+is hidden from assistive technology. Bare, it marks a date on its own — the
+birth and death years of person-search rows, search results and the tools'
+lists (`✦ 1842 ✝ 1907`) — and is then named by the event type's localized name
+(`role="img"`, `aria-label`, tooltip). Either way the event type is never
+conveyed by the glyph alone.
 
 ### 4.7 EmptyState
 
-Used only for genuinely empty content, with an optional icon, localized title,
-localized explanation, and one relevant action. Loading and error states never
-reuse the empty state.
+The one empty state (`components/empty_state.rs`, `.empty-state`), used only
+for genuinely empty content — no tree, no event, no match for a filter — with
+an optional icon, localized title, localized explanation, and one relevant
+action (clearing the filter, creating the first tree, choosing a root).
+Loading and error states never reuse the empty state: they are written with
+`.loading` and `.error-msg`. A page may give it a class of its own for
+spacing, as the homepage does.
 
 ### 4.8 ContextMenu
 

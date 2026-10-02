@@ -14,6 +14,7 @@ use crate::api::{
     ApiClient, ApiError, DictionaryEntry, PersonUsageEntry, PlaceDictionaryEntry,
     SourceDictionaryEntry, SourceGroupEntry,
 };
+use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::pager::Pager;
 use crate::components::pedigree_chart::format_lifespan;
@@ -1068,17 +1069,19 @@ fn render_clear_filters(i18n: I18n, filters: ListFilters) -> Element {
         ..
     } = filters;
     rsx! {
-        div { class: "empty-state",
+        EmptyState {
+            action: rsx! {
+                button {
+                    class: "sr-clear-filters",
+                    onclick: move |_| {
+                        quick_filter.set(String::new());
+                        letter_filter.set(None);
+                        current_page.set(1);
+                    },
+                    {i18n.t("dictionary.clear_filter")}
+                }
+            },
             p { {i18n.t("dictionary.no_matches")} }
-            button {
-                class: "sr-clear-filters",
-                onclick: move |_| {
-                    quick_filter.set(String::new());
-                    letter_filter.set(None);
-                    current_page.set(1);
-                },
-                {i18n.t("dictionary.clear_filter")}
-            }
         }
     }
 }
@@ -1194,11 +1197,11 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
         {render_toolbar(i18n, letters, filters, total_filtered)}
 
         if is_loading {
-            div { class: "empty-state", {i18n.t("dictionary.loading")} }
+            div { class: "loading", {i18n.t("dictionary.loading")} }
         } else if is_error {
-            div { class: "empty-state", {i18n.t("dictionary.error")} }
+            div { class: "error-msg", {i18n.t("dictionary.error")} }
         } else if all_entries.is_empty() {
-            div { class: "empty-state", {i18n.t(empty_key)} }
+            EmptyState { p { {i18n.t(empty_key)} } }
         } else if rows.is_empty() {
             {render_clear_filters(i18n, filters)}
         } else {
@@ -1381,13 +1384,15 @@ fn render_sources_groups(
         }
         div { class: "dict-src-groups-label", {i18n.t("dictionary.sources_choose_letter")} }
         if filtered.is_empty() {
-            div { class: "empty-state",
-                p { {i18n.t("dictionary.no_matches")} }
-                button {
+            EmptyState {
+                action: rsx! {
+                    button {
                     class: "sr-clear-filters",
                     onclick: move |_| quick_filter.set(String::new()),
                     {i18n.t("dictionary.clear_filter")}
                 }
+                },
+                p { {i18n.t("dictionary.no_matches")} }
             }
         } else {
             div { class: "dict-letter-strip",
@@ -1452,13 +1457,15 @@ fn render_sources_list(
         }
 
         if filtered.is_empty() {
-            div { class: "empty-state",
-                p { {i18n.t("dictionary.no_matches")} }
-                button {
+            EmptyState {
+                action: rsx! {
+                    button {
                     class: "sr-clear-filters",
                     onclick: move |_| quick_filter.set(String::new()),
                     {i18n.t("dictionary.clear_filter")}
                 }
+                },
+                p { {i18n.t("dictionary.no_matches")} }
             }
         } else {
             div { class: "dict-list",
@@ -1551,9 +1558,9 @@ fn render_sources_tab(
         {render_sources_breadcrumb(i18n, history, quick_filter, &active_prefix)}
 
         if is_loading {
-            div { class: "empty-state", {i18n.t("dictionary.loading")} }
+            div { class: "loading", {i18n.t("dictionary.loading")} }
         } else if is_error {
-            div { class: "empty-state", {i18n.t("dictionary.error")} }
+            div { class: "error-msg", {i18n.t("dictionary.error")} }
         } else {
             match view {
                 Some(SourcesView::Groups { prefix, total, groups }) if !groups.is_empty() => {
@@ -1563,7 +1570,7 @@ fn render_sources_tab(
                     render_sources_list(ctx, &sources, source_edit)
                 }
                 _ => rsx! {
-                    div { class: "empty-state", {i18n.t("dictionary.no_entries_sources")} }
+                    EmptyState { p { {i18n.t("dictionary.no_entries_sources")} } }
                 },
             }
         }
@@ -1614,11 +1621,11 @@ fn render_places_tab(
         {render_toolbar(i18n, letters, filters, total_filtered)}
 
         if is_loading {
-            div { class: "empty-state", {i18n.t("dictionary.loading")} }
+            div { class: "loading", {i18n.t("dictionary.loading")} }
         } else if is_error {
-            div { class: "empty-state", {i18n.t("dictionary.error")} }
+            div { class: "error-msg", {i18n.t("dictionary.error")} }
         } else if all_entries.is_empty() {
-            div { class: "empty-state", {i18n.t("dictionary.no_entries_places")} }
+            EmptyState { p { {i18n.t("dictionary.no_entries_places")} } }
         } else if rows.is_empty() {
             {render_clear_filters(i18n, filters)}
         } else {

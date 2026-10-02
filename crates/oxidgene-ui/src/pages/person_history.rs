@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::empty_state::EmptyState;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
     version_label,
@@ -186,7 +187,7 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
                     div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
                 },
                 Some(Ok(_)) if versions.read().is_empty() => rsx! {
-                    div { class: "card empty-state",
+                    EmptyState { class: "card",
                         p { {i18n.t("history.no_versions")} }
                     }
                 },

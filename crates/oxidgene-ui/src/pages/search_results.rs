@@ -14,6 +14,8 @@ use uuid::Uuid;
 use crate::api::{
     ApiClient, ApiError, CroppedSource, PersonSearchParams, PersonSearchSort, SuggestionField,
 };
+use crate::components::empty_state::EmptyState;
+use crate::components::event_icon::EventIcon;
 use crate::components::pager::Pager;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
@@ -604,8 +606,14 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
         // ── Results ──
         match body {
-            ResultsBody::Message(key) => rsx! {
-                div { class: "empty-state", p { {i18n.t(key)} } }
+            ResultsBody::Loading => rsx! {
+                div { class: "loading", {i18n.t("search.loading")} }
+            },
+            ResultsBody::Failed => rsx! {
+                div { class: "error-msg", {i18n.t("search.error")} }
+            },
+            ResultsBody::Empty(key) => rsx! {
+                EmptyState { p { {i18n.t(key)} } }
             },
             ResultsBody::Cards => results.cards(tree_id.unwrap_or_default(), &card_pedigrees.read(), pedigrees_loaded),
             ResultsBody::List => results.list(portraits.as_ref()),
@@ -699,8 +707,10 @@ fn use_card_pedigrees(
 
 /// What the results area shows.
 enum ResultsBody {
-    /// A message instead of results, by its i18n key.
-    Message(&'static str),
+    Loading,
+    Failed,
+    /// Nothing to list, and why, by its i18n key.
+    Empty(&'static str),
     Cards,
     List,
 }
@@ -712,10 +722,10 @@ impl ResultsBody {
         view: ViewMode,
     ) -> Self {
         match (search, empty, view) {
-            (Some(Ok(None)), ..) => Self::Message("search.start_search"),
-            (None, ..) => Self::Message("search.loading"),
-            (Some(Err(_)), ..) => Self::Message("search.error"),
-            (_, true, _) => Self::Message("search.no_results"),
+            (Some(Ok(None)), ..) => Self::Empty("search.start_search"),
+            (None, ..) => Self::Loading,
+            (Some(Err(_)), ..) => Self::Failed,
+            (_, true, _) => Self::Empty("search.no_results"),
             (_, _, ViewMode::Card) => Self::Cards,
             (_, _, ViewMode::List) => Self::List,
         }
@@ -1169,10 +1179,16 @@ fn SearchPedigreeCard(
                 }
                 div { class: "sp-result-dates",
                     if let Some(ref by) = birth_year {
-                        span { class: "sp-birth", "\u{2726} {by}" }
+                        span { class: "sp-birth",
+                            EventIcon { event_type: EventType::Birth, bare: true }
+                            " {by}"
+                        }
                     }
                     if let Some(ref dy) = death_year {
-                        span { class: "sp-death", "\u{271D} {dy}" }
+                        span { class: "sp-death",
+                            EventIcon { event_type: EventType::Death, bare: true }
+                            " {dy}"
+                        }
                     }
                 }
             }

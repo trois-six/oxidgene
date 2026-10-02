@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::empty_state::EmptyState;
 use crate::components::history_diff::{
     HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
@@ -75,7 +76,7 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
                     let loaded: Vec<AuditEntry> = entries.items();
                     rsx! {
                         if loaded.is_empty() {
-                            div { class: "card empty-state", p { {i18n.t("history.no_entries")} } }
+                            EmptyState { class: "card", p { {i18n.t("history.no_entries")} } }
                         }
                         ol { class: "al-entries",
                             for entry in loaded {

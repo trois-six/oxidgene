@@ -2,6 +2,7 @@
 
 use dioxus::prelude::*;
 
+use crate::components::empty_state::EmptyState;
 use crate::i18n::use_i18n;
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_ui_load_trace};
@@ -13,7 +14,7 @@ pub fn NotFound(segments: Vec<String>) -> Element {
     let i18n = use_i18n();
     let path = format!("/{}", segments.join("/"));
     rsx! {
-        div { class: "empty-state",
+        EmptyState {
             h1 { {i18n.t("not_found.title")} }
             p { class: "text-muted",
                 {i18n.t("not_found.message_prefix")}

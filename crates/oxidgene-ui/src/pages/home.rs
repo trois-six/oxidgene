@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::api::{ApiClient, CreateTreeBody, DuplicateTreeBody, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::context_menu::ContextMenuSurface;
+use crate::components::empty_state::EmptyState;
 use crate::components::import_modal::ImportModal;
 use crate::components::modal::Modal;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
@@ -458,23 +459,26 @@ fn TreesGrid(
     let visible = visible_trees(&trees, &query, &sort);
     if trees.is_empty() {
         return rsx! {
-            div { class: "home-empty",
-                div { class: "home-empty-icon", "🌳" }
-                h3 { {i18n.t("home.no_trees")} }
+            EmptyState {
+                class: "home-empty",
+                icon: rsx! { "🌳" },
+                title: i18n.t("home.no_trees"),
+                action: rsx! {
+                    button {
+                        class: "home-btn-new",
+                        onclick: move |_| on_create.call(()),
+                        {i18n.t("home.new_tree")}
+                    }
+                },
                 p { {i18n.t("home.no_trees_hint")} }
-                button {
-                    class: "home-btn-new",
-                    style: "margin-top: 0.5rem;",
-                    onclick: move |_| on_create.call(()),
-                    {i18n.t("home.new_tree")}
-                }
             }
         };
     }
     if visible.is_empty() {
         return rsx! {
-            div { class: "home-empty",
-                div { class: "home-empty-icon",
+            EmptyState {
+                class: "home-empty",
+                icon: rsx! {
                     svg {
                         width: "48",
                         height: "48",
@@ -485,8 +489,8 @@ fn TreesGrid(
                         circle { cx: "11", cy: "11", r: "8" }
                         path { d: "M21 21l-4.35-4.35" }
                     }
-                }
-                h3 { {i18n.t("home.no_search_results")} }
+                },
+                title: i18n.t("home.no_search_results"),
                 p { {i18n.t("home.no_search_results_hint")} }
             }
         };
@@ -1490,27 +1494,18 @@ const HOME_STYLES: &str = r#"
 
     /* ── Empty state ─────────────────────────────────────────────── */
 
+    /* The shared EmptyState, roomier and in the page's heading face. */
     .home-empty {
-        text-align: center;
         padding: 5rem 2rem;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
         gap: 1rem;
-    }
-
-    .home-empty-icon {
-        font-size: 3.5rem;
     }
 
     .home-empty h3 {
         font-family: var(--font-heading);
         font-size: 1.2rem;
-        color: var(--text-primary);
     }
 
     .home-empty p {
-        color: var(--text-secondary);
         font-size: 0.9rem;
     }
 

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Kinship"
 description: "Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none."
 tags: [oxidgene, specification, ui, ux, kinship]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-27T18:25:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:20:16Z }
 ---
 
 # Visual & Functional Specifications — Kinship
@@ -41,8 +41,8 @@ name, **Relationship**) and the tree icon sidebar with no active view.
 
 ```
 +-------------------------------------------------------------+
-|  FROM            [Change]      TO                 [Change] |
-|  [person row]           [⇄]    [person row]                 |
+|  FROM                          TO                          |
+|  [person row]  [Change]  [⇄]   [person row]  [Change]       |
 +-------------------------------------------------------------+
   2 relationships found
 +-------------------------------------------------------------+
@@ -60,13 +60,14 @@ name, **Relationship**) and the tree icon sidebar with no active view.
 
 ### 2.1 The two ends
 
-Both persons are drawn with the shared person row of
-[Search Results §7](ui-search-results.md), outlined in the accent colour, and
-link to their profiles.
+Each end is the shared [person picker](ui-common.md#42-personpicker): the
+person drawn with the shared person row of
+[Search Results §7](ui-search-results.md), linking to their profile, under the
+end's label.
 
-- **Change**, on either end, replaces that person with the shared person
-  search; picking a result updates `from` or `to`. Cancelling keeps the
-  current person.
+- **Change**, beside either person, replaces that person with the shared
+  person search; picking a result updates `from` or `to`. Cancelling keeps
+  the current person. An end with nobody yet opens on the search.
 - **⇄** swaps the two persons. Relations are worded from the first person's
   point of view, so a swap turns an uncle into a nephew.
 

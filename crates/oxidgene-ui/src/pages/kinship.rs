@@ -11,9 +11,8 @@ use oxidgene_core::types::{Kinship as KinshipReport, KinshipPath, KinshipSegment
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, CroppedSource};
-use crate::components::search_person::{
-    PersonSearchSummary, SearchPerson, render_person_search_summary,
-};
+use crate::components::person_picker::PersonPicker;
+use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
@@ -69,7 +68,6 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
             *selected.write() = 0;
         }
     }
-    let mut picking = use_signal(|| None::<End>);
 
     let page = use_tree_page(&tree_id);
 
@@ -122,8 +120,6 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
 
     let ends = ends_resource.read().clone().unwrap_or_default();
     let portraits = portraits_resource.read().clone().unwrap_or_default();
-    let choosing_from = picking() == Some(End::From) || from_parsed().is_none();
-    let choosing_to = picking() == Some(End::To) || to_parsed().is_none();
 
     let go = {
         let tree_id = tree_id.clone();
@@ -138,12 +134,9 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
     };
     let pick = |end: End| {
         let go = go.clone();
-        move |id: Uuid| {
-            picking.set(None);
-            match end {
-                End::From => go(Some(id), to_parsed()),
-                End::To => go(from_parsed(), Some(id)),
-            }
+        move |id: Uuid| match end {
+            End::From => go(Some(id), to_parsed()),
+            End::To => go(from_parsed(), Some(id)),
         }
     };
     let (on_pick_from, on_pick_to) = (pick(End::From), pick(End::To));
@@ -164,10 +157,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
                 {end_slot(EndSlot {
                     label: i18n.t("kinship.from"),
                     id: from_parsed(),
-                    choosing: choosing_from,
-                    on_change: EventHandler::new(move |()| picking.set(Some(End::From))),
                     on_pick: EventHandler::new(on_pick_from),
-                    on_cancel: EventHandler::new(move |()| picking.set(None)),
                     tree_id: tree_id_parsed(),
                     route_tree_id: &tree_id,
                     ends: &ends,
@@ -185,10 +175,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
                 {end_slot(EndSlot {
                     label: i18n.t("kinship.to"),
                     id: to_parsed(),
-                    choosing: choosing_to,
-                    on_change: EventHandler::new(move |()| picking.set(Some(End::To))),
                     on_pick: EventHandler::new(on_pick_to),
-                    on_cancel: EventHandler::new(move |()| picking.set(None)),
                     tree_id: tree_id_parsed(),
                     route_tree_id: &tree_id,
                     ends: &ends,
@@ -238,7 +225,7 @@ fn kinship_status(
     }
 }
 
-/// Which of the two persons is being chosen again.
+/// One of the two persons.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum End {
     From,
@@ -249,10 +236,7 @@ enum End {
 struct EndSlot<'a> {
     label: String,
     id: Option<Uuid>,
-    choosing: bool,
-    on_change: EventHandler<()>,
     on_pick: EventHandler<Uuid>,
-    on_cancel: EventHandler<()>,
     tree_id: Option<Uuid>,
     route_tree_id: &'a str,
     ends: &'a HashMap<Uuid, PersonSearchSummary>,
@@ -260,12 +244,12 @@ struct EndSlot<'a> {
     i18n: &'a I18n,
 }
 
-/// One of the two ends: the person as the shared row with a button to
-/// choose someone else, or the person search while choosing.
+/// One of the two ends: the shared person picker, the person drawn as the
+/// shared row leading to their profile.
 fn end_slot(slot: EndSlot<'_>) -> Element {
     let i18n = slot.i18n;
-    let on_change = slot.on_change;
-    let row = slot.id.filter(|_| !slot.choosing).map(|id| {
+    let on_pick = slot.on_pick;
+    let row = slot.id.map(|id| {
         let summary = slot
             .ends
             .get(&id)
@@ -275,30 +259,24 @@ fn end_slot(slot: EndSlot<'_>) -> Element {
             &summary,
             slot.portraits.get(&id).cloned(),
             slot.route_tree_id,
-            "kin-end",
+            "",
             i18n,
         )
     });
     rsx! {
         div { class: "kin-end-slot",
-            div { class: "kin-end-label",
-                "{slot.label}"
-                if row.is_some() {
-                    button {
-                        class: "btn btn-outline btn-sm kin-change",
-                        onclick: move |_| on_change.call(()),
-                        {i18n.t("kinship.change")}
-                    }
-                }
-            }
-            if let Some(row) = row {
-                {row}
-            } else if let Some(tid) = slot.tree_id {
-                SearchPerson {
+            div { class: "kin-end-label", "{slot.label}" }
+            if let Some(tid) = slot.tree_id {
+                PersonPicker {
                     tree_id: tid,
-                    placeholder: i18n.t("kinship.choose"),
-                    on_select: slot.on_pick,
-                    on_cancel: slot.on_cancel,
+                    selected: row,
+                    search_placeholder: i18n.t("kinship.choose"),
+                    change_label: i18n.t("kinship.change"),
+                    on_change: move |person: Option<Uuid>| {
+                        if let Some(person) = person {
+                            on_pick.call(person);
+                        }
+                    },
                 }
             }
         }

@@ -38,7 +38,7 @@ use crate::i18n::{DateStyle, I18n, use_i18n};
 use crate::prefs::use_pedigree_defaults;
 use crate::shared::Shared;
 
-use crate::utils::{escape_xml, event_type_label_key, truncate_text_to_fit};
+use crate::utils::{escape_xml, truncate_text_to_fit};
 
 mod ancestors;
 mod circular;
@@ -257,47 +257,6 @@ fn card_bg(is_focus: bool, is_sibling: bool) -> &'static str {
         "var(--pn-spouse-bg)"
     } else {
         "var(--pn-bg)"
-    }
-}
-
-/// Returns `(icon, css_class, i18n_key)` for an event type.
-///
-/// The third element is an i18n key that must be resolved via `i18n.t()`.
-fn event_ui(et: EventType) -> (&'static str, &'static str, &'static str) {
-    match et {
-        EventType::Birth => ("\u{2726}", "ev-ic ev-ic-birth", "event.type.birth"),
-        EventType::Baptism => ("\u{271F}", "ev-ic ev-ic-birth", "event.type.baptism"),
-        EventType::Death => ("\u{271D}", "ev-ic ev-ic-death", "event.type.death"),
-        EventType::Burial => ("\u{26B0}", "ev-ic ev-ic-death", "event.type.burial"),
-        EventType::Cremation => ("\u{271D}", "ev-ic ev-ic-death", "event.type.cremation"),
-        EventType::Marriage => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.type.marriage"),
-        EventType::Engagement => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.type.engagement"),
-        EventType::MarriageBann => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.banns"),
-        EventType::MarriageContract => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.contract"),
-        EventType::MarriageLicense => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.license"),
-        EventType::MarriageSettlement => {
-            ("\u{1F48D}", "ev-ic ev-ic-marry", "event.short.settlement")
-        }
-        EventType::Divorce => ("\u{2696}", "ev-ic ev-ic-other", "event.type.divorce"),
-        EventType::Annulment => ("\u{2696}", "ev-ic ev-ic-other", "event.type.annulment"),
-        EventType::CivilUnion => ("\u{1F48D}", "ev-ic ev-ic-marry", "event.type.civil_union"),
-        EventType::Separation => ("\u{2696}", "ev-ic ev-ic-other", "event.type.separation"),
-        EventType::DivorceFiled => ("\u{2696}", "ev-ic ev-ic-other", "event.type.divorce_filed"),
-        EventType::Census => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.census"),
-        EventType::Occupation => ("\u{2692}", "ev-ic ev-ic-other", "event.type.occupation"),
-        EventType::Residence => ("\u{1F3E1}", "ev-ic ev-ic-other", "event.type.residence"),
-        EventType::Will => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.will"),
-        EventType::Probate => ("\u{1F4DC}", "ev-ic ev-ic-other", "event.type.probate"),
-        EventType::Adoption => ("\u{1FAC2}", "ev-ic ev-ic-other", "event.type.adoption"),
-        EventType::Education => ("\u{1F393}", "ev-ic ev-ic-other", "event.type.education"),
-        EventType::MarriagesCount => (
-            "\u{1F48D}",
-            "ev-ic ev-ic-other",
-            "event.type.marriages_count",
-        ),
-        EventType::Religion => ("\u{271F}", "ev-ic ev-ic-other", "event.type.religion"),
-        // Types without a dedicated icon still retain their localized name.
-        _ => ("\u{25C6}", "ev-ic ev-ic-other", event_type_label_key(et)),
     }
 }
 

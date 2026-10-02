@@ -17,9 +17,8 @@ use crate::components::date_input::{
 };
 use crate::components::history_diff::format_timestamp;
 use crate::components::pedigree_chart::format_lifespan;
-use crate::components::search_person::{
-    PersonSearchSummary, SearchPerson, render_person_search_summary,
-};
+use crate::components::person_picker::PersonPicker;
+use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{DateStyle, I18n, Language, use_i18n};
@@ -687,7 +686,6 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
     let tree_cache = use_tree_cache();
     let load_trace = use_context::<UiLoadTrace>();
     let [title, description, search, change, clear, none, saved] = setting.keys();
-    let mut show_search = use_signal(|| false);
     let mut message = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     // Local override so the UI updates immediately after save/clear, without
@@ -718,7 +716,6 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
 
     let set_person = use_callback(move |person: Option<Uuid>| {
         let api = api.clone();
-        show_search.set(false);
         message.set(false);
         error.set(None);
         spawn(async move {
@@ -762,40 +759,16 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
             p { class: "settings-card-desc",
                 {i18n.t(description)}
             }
-            if show_search() {
-                SearchPerson {
-                    tree_id,
-                    placeholder: i18n.t(search),
-                    on_select: move |person_id: Uuid| set_person.call(Some(person_id)),
-                    on_cancel: move |_| show_search.set(false),
-                }
-            } else if let Some(summary) = &summary {
-                div { class: "sosa-root-display",
-                    div { class: "sosa-root-person",
-                        {render_person_search_summary(summary, portrait.clone(), &i18n)}
-                    }
-                    div { class: "sosa-root-actions",
-                        button {
-                            class: "btn btn-outline btn-sm",
-                            onclick: move |_| show_search.set(true),
-                            {i18n.t(change)}
-                        }
-                        button {
-                            class: "btn btn-outline btn-sm btn-danger-outline",
-                            onclick: move |_| set_person.call(None),
-                            {i18n.t(clear)}
-                        }
-                    }
-                }
-            } else {
-                div { class: "sosa-root-empty",
-                    p { class: "text-muted", {i18n.t(none)} }
-                    button {
-                        class: "btn btn-primary btn-sm",
-                        onclick: move |_| show_search.set(true),
-                        {i18n.t(change)}
-                    }
-                }
+            PersonPicker {
+                tree_id,
+                selected: summary
+                    .as_ref()
+                    .map(|summary| render_person_search_summary(summary, portrait.clone(), &i18n)),
+                search_placeholder: i18n.t(search),
+                change_label: i18n.t(change),
+                clear_label: i18n.t(clear),
+                empty_label: i18n.t(none),
+                on_change: move |person| set_person.call(person),
             }
             if message() {
                 div { class: "success-msg settings-feedback", {i18n.t(saved)} }
@@ -1576,45 +1549,6 @@ const SETTINGS_STYLES: &str = r#"
     .settings-date-preview dt { color: var(--text-secondary); }
     .settings-date-preview dd { margin: 0; color: var(--text-primary); }
 
-    /* SOSA root person display */
-    .sosa-root-display {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 12px;
-        background: var(--bg-deep);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-    }
-    .sosa-root-person {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-width: 0;
-    }
-    .sosa-root-actions {
-        display: flex;
-        gap: 6px;
-        flex-shrink: 0;
-    }
-    .sosa-root-empty {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 10px 12px;
-        background: var(--bg-deep);
-        border: 1px dashed var(--border);
-        border-radius: 6px;
-    }
-    .btn-danger-outline {
-        color: var(--red) !important;
-        border-color: var(--red) !important;
-    }
-    .btn-danger-outline:hover {
-        background: color-mix(in srgb, var(--red) 10%, transparent) !important;
-    }
 
     @media (max-width: 768px) {
         .settings-export-row {
@@ -1623,25 +1557,6 @@ const SETTINGS_STYLES: &str = r#"
         }
         .settings-export-format {
             width: 100%;
-        }
-        .sosa-root-display {
-            flex-direction: column;
-            align-items: stretch;
-        }
-        .sosa-root-person {
-            align-items: flex-start;
-        }
-        .sosa-root-person .sp-result-name {
-            white-space: normal;
-            overflow: visible;
-            text-overflow: clip;
-            overflow-wrap: anywhere;
-        }
-        .sosa-root-person .sp-result-meta {
-            overflow-wrap: anywhere;
-        }
-        .sosa-root-actions {
-            justify-content: flex-end;
         }
     }
 "#;

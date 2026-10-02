@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::api::{AddChildBody, ApiClient, ApiError};
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
+use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::modal::Modal;
 use crate::components::person_form::{
@@ -931,7 +932,7 @@ impl UnionEventsSection<'_> {
         let marriage_id = (self.marriage.event_id)();
         rsx! {
             if self.events.is_empty() && marriage_id.is_none() {
-                div { class: "empty-state",
+                EmptyState {
                     p { {i18n.t("union_form.no_events")} }
                 }
             }
@@ -1142,7 +1143,7 @@ impl ChildrenSection<'_> {
             }
             match children {
                 Some(Ok(children)) if children.is_empty() => rsx! {
-                    div { class: "empty-state",
+                    EmptyState {
                         p { {i18n.t("union_form.no_children")} }
                     }
                 },

@@ -17,9 +17,11 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CroppedSource};
 use crate::components::cropped_image::CroppedImage;
+use crate::components::event_icon::EventIcon;
 use crate::components::pedigree_chart::lifespan_tooltip;
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
+use oxidgene_core::enums::EventType;
 
 #[derive(Clone)]
 pub(crate) struct PersonSearchSummary {
@@ -421,10 +423,16 @@ pub(crate) fn render_person_search_summary(
                 // The marks (`ca`, `<`, `..`) spelled out, as on a pedigree card.
                 title: lifespan_tooltip(i18n, summary.birth_year, summary.death_year),
                 if let Some(ref birth_year) = summary.birth_year {
-                    span { class: "sp-birth", "\u{2726} {birth_year}" }
+                    span { class: "sp-birth",
+                        EventIcon { event_type: EventType::Birth, bare: true }
+                        " {birth_year}"
+                    }
                 }
                 if let Some(ref death_year) = summary.death_year {
-                    span { class: "sp-death", "\u{271D} {death_year}" }
+                    span { class: "sp-death",
+                        EventIcon { event_type: EventType::Death, bare: true }
+                        " {death_year}"
+                    }
                 }
             }
             if let Some(relation) = relation {

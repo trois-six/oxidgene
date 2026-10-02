@@ -11,11 +11,12 @@ use super::{
     EVENT_PANEL_AUTO_COLLAPSE_WIDTH, EVENT_PANEL_KEYBOARD_STEP, EVENT_PANEL_MANUAL_STORAGE_KEY,
     EVENT_PANEL_MAX_RATIO, EVENT_PANEL_MAX_WIDTH, EVENT_PANEL_MIN_WIDTH,
     EVENT_PANEL_RATIO_STORAGE_KEY, SharedPedigree, VIEWPORT_DEFAULT_W,
-    WAIT_FOR_EVENT_PANEL_TRANSITION_JS, chart_portrait, event_ui, format_lifespan,
+    WAIT_FOR_EVENT_PANEL_TRANSITION_JS, chart_portrait, format_lifespan,
 };
 use crate::api::CroppedSource;
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::format_event_date;
+use crate::components::event_icon::EventIcon;
 use crate::i18n::{I18n, use_i18n};
 
 /// The events of a life that its family's panel shows too.
@@ -318,8 +319,7 @@ fn PedigreeEventRow(
 ) -> Element {
     let i18n = use_i18n();
     let nav = use_navigator();
-    let (icon, ic_class, label_key) = event_ui(event.event_type);
-    let label = i18n.t(label_key);
+    let label = i18n.t(row_label_key(event.event_type));
     let full_label = match event_context(&data, &event, selected, &i18n) {
         Some(context) => format!("{label} ({context})"),
         None => label,
@@ -350,7 +350,7 @@ fn PedigreeEventRow(
                     person_id: selected.to_string(),
                 });
             },
-            div { class: ic_class, "{icon}" }
+            EventIcon { event_type: event.event_type }
             div { class: "ev-info",
                 div { class: "ev-type", "{full_label}" }
                 if !date.is_empty() {
@@ -361,6 +361,18 @@ fn PedigreeEventRow(
                 }
             }
         }
+    }
+}
+
+/// An event's name in the narrow panel: the marriage formalities by their
+/// short names, every other type by its own.
+fn row_label_key(event_type: EventType) -> &'static str {
+    match event_type {
+        EventType::MarriageBann => "event.short.banns",
+        EventType::MarriageContract => "event.short.contract",
+        EventType::MarriageLicense => "event.short.license",
+        EventType::MarriageSettlement => "event.short.settlement",
+        other => crate::utils::event_type_label_key(other),
     }
 }
 
