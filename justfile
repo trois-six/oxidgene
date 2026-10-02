@@ -59,6 +59,20 @@ e2e *args:
     cd e2e && npm ci --no-audit --no-fund && npx playwright install chromium
     cd e2e && E2E_API_PORT="{{ e2e_api_port }}" E2E_WEB_PORT="{{ e2e_web_port }}" npx playwright test {{ args }}
 
+# Takes every page of the fictitious Landrevel family (e2e/screenshots/) on
+# the e2e suite's throwaway servers, then encodes the captures into
+# assets/screenshots/ with the README carousel (scripts/screenshots.py). The
+# data, clock, viewport, language and themes are fixed, so a run reproduces
+# the committed images (see docs/development.md).
+# Regenerate the README and feature screenshots
+screenshots:
+    OXIDGENE_API_URL="http://127.0.0.1:{{ e2e_api_port }}" scripts/dx.sh build --package oxidgene-web --platform web
+    cargo build --locked --package oxidgene-server
+    cd e2e && npm ci --no-audit --no-fund && npx playwright install chromium
+    rm -rf target/screenshots/raw
+    cd e2e && E2E_API_PORT="{{ e2e_api_port }}" E2E_WEB_PORT="{{ e2e_web_port }}" npx playwright test --config playwright.screenshots.config.ts
+    uv run --quiet scripts/screenshots.py
+
 # Run tests with output
 test-verbose:
     cargo nextest run --workspace --no-capture

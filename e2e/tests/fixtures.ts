@@ -39,9 +39,20 @@ export interface SeededTree {
 /// Import `gedcom` into tree `treeId` the way the application does: upload it
 /// as an import job, then wait for the backend's worker to complete it.
 export async function importGedcom(request: APIRequestContext, treeId: string, gedcom: string): Promise<void> {
-    const started = await request.post(`${apiUrl}/api/v1/trees/${treeId}/import-jobs?format=gedcom`, {
+    await importFile(request, treeId, Buffer.from(gedcom, "utf8"), "gedcom");
+}
+
+/// Import a genealogy file of `format` into tree `treeId` as an import job,
+/// and wait for the backend's worker to complete it.
+export async function importFile(
+    request: APIRequestContext,
+    treeId: string,
+    bytes: Buffer,
+    format: "gedcom" | "gedzip" | "geneweb",
+): Promise<void> {
+    const started = await request.post(`${apiUrl}/api/v1/trees/${treeId}/import-jobs?format=${format}`, {
         headers: { "content-type": "application/octet-stream" },
-        data: Buffer.from(gedcom, "utf8"),
+        data: bytes,
     });
     expect(started.status(), await started.text()).toBe(202);
     const jobId = (await started.json()).job_id as string;

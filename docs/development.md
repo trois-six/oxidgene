@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:13:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T14:58:33Z }
 ---
 
 # Development Environment and Workflows
@@ -62,6 +62,7 @@ the repository root.
 | `just test-verbose` | Run the workspace tests while preserving test output. |
 | `just ui-js` | Run the browser JavaScript unit tests on Node.js (§2.7). |
 | `just e2e [args]` | Build the web bundle and server, then run the Playwright end-to-end suite (§2.7). |
+| `just screenshots` | Build the web bundle and server, take the README and feature-list screenshots of the fictitious screenshot tree, and encode them with the README carousel into `assets/screenshots/` (§2.7). |
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings. |
@@ -371,6 +372,31 @@ falling back to a title or a class where the markup offers no name.
 A test that documents a known defect is marked `test.fail()` with a comment
 naming it: it passes while the defect stands and fails once it is fixed,
 which is the signal to remove the mark.
+
+**Screenshots.** `just screenshots` takes the images of the README and of
+the feature list with the suite's servers and browser, through its own
+Playwright configuration (`e2e/playwright.screenshots.config.ts`), so
+`just e2e` never runs it. `e2e/screenshots/family.ts` builds the fictitious
+Landrevel family from a seeded generator — some 400 persons over eight
+generations, invented names and dates on real place names so the map can
+locate them, notes, sources, repositories, witnesses, a few deliberate
+anomalies and a pair of duplicates — and imports it as a GEDZIP with the
+public-domain portraits and document scans of `e2e/fixtures/media/`, whose
+sources and licences `e2e/fixtures/media/CREDITS.md` lists. A handful of
+edits through REST then give the home page its recently modified persons and
+the root a history. `e2e/screenshots/screenshots.spec.ts` opens each page at
+1440 × 900 pixels, in English, in the light or dark theme it names, with the
+browser clock and every timestamp the API returns pinned to fixed instants,
+and saves the captures under `target/screenshots/raw/`.
+`scripts/screenshots.py` then writes each one to `assets/screenshots/` as a
+lossless WebP, about half the size of the same PNG, and assembles the README
+carousel, `readme-carousel.webp`: an animated WebP of ten frames, three
+seconds each, 1200 pixels wide, lossy. A capture that differs from the
+committed image only by Chromium's occasional rounding — at most 200 pixels,
+two levels apart — keeps the committed file, so a run over unchanged pages
+leaves the repository untouched. Re-run it after a visible change to a page
+it shows, and look at every image before committing it: the fixture is
+fictitious, and a screenshot must never show anyone's real data.
 
 The E2E workflow (`.github/workflows/e2e.yml`) runs from the nightly
 workflow, before a release, and on demand. It installs the toolchain of
