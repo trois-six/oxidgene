@@ -3464,7 +3464,7 @@ async fn test_graphql_geneanet_import_job() {
     let response = graphql(
         app.clone(),
         &format!(
-            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase result {{ personsCount }} geneanetResult {{ personsCount familiesCount mediaCount isolatedCount isolatedPeople {{ personId surname givenNames }} }} error }} }}"#
+            r#"{{ importJobStatus(treeId: "{tree_id}", jobId: "{job_id}") {{ phase result {{ personsCount }} geneanetResult {{ personsCount familiesCount imagesCount documentsCount documentPagesCount isolatedCount isolatedPeople {{ personId surname givenNames }} }} error }} }}"#
         ),
         None,
     )
@@ -3474,7 +3474,9 @@ async fn test_graphql_geneanet_import_job() {
     assert!(result["result"].is_null());
     assert_eq!(result["geneanetResult"]["personsCount"], 2);
     assert_eq!(result["geneanetResult"]["familiesCount"], 1);
-    assert_eq!(result["geneanetResult"]["mediaCount"], 0);
+    for count in ["imagesCount", "documentsCount", "documentPagesCount"] {
+        assert_eq!(result["geneanetResult"][count], 0, "{count}");
+    }
     assert_eq!(result["geneanetResult"]["isolatedCount"], 1);
     let isolated = &result["geneanetResult"]["isolatedPeople"][0];
     assert_eq!(isolated["surname"], "BRANCH_C");

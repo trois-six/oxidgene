@@ -558,7 +558,7 @@ impl BackgroundJobWorker {
         summary: geneanet::GeneanetImportSummary,
     ) -> Result<(), OxidGeneError> {
         self.progress(job.id, "projections", 0, 0).await?;
-        self.complete_import(job, summary.persons_count, &summary)
+        self.complete_import(job, summary.receipt.persons_count, &summary)
             .await?;
         self.cleanup_import_inputs(job).await;
         Ok(())

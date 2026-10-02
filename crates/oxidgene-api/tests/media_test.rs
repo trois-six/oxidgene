@@ -3561,3 +3561,118 @@ async fn the_media_facets_count_what_the_tree_holds() {
         "kinds still count the whole library"
     );
 }
+
+// ── Import receipts ─────────────────────────────────────────────────
+
+/// The media records stored in tree `tree_id`, counted as a receipt counts
+/// them.
+async fn stored_media_counts(
+    db: &sea_orm::DatabaseConnection,
+    tree_id: &str,
+) -> oxidgene_api::service::gedcom::MediaCounts {
+    use oxidgene_db::entities::media;
+    use sea_orm::{ColumnTrait as _, EntityTrait as _, QueryFilter as _};
+
+    let rows = media::Entity::find()
+        .filter(media::Column::TreeId.eq(Uuid::parse_str(tree_id).unwrap()))
+        .filter(media::Column::DeletedAt.is_null())
+        .all(db)
+        .await
+        .expect("lists the stored media");
+    oxidgene_api::service::gedcom::MediaCounts::of_rows(
+        rows.iter().map(|row| (row.id, row.parent_media_id)),
+    )
+}
+
+/// GEDCOM, GEDZIP and GeneWeb imports report their media alike: images (a
+/// record of one page) apart from documents and their pages, and exactly
+/// what they stored, on both surfaces.
+#[tokio::test]
+async fn every_import_receipt_counts_the_media_records_it_stored() {
+    let h = setup().await;
+    let person_id = person(&h).await;
+    attach_photo(&h, &person_id, "portrait.png").await;
+    let register = document(&h, "Fixture register").await;
+    for name in ["p1.png", "p2.png"] {
+        add_page(&h, &register, name).await;
+    }
+    let base = format!("/api/v1/trees/{}", h.tree_id);
+    let (status, _, gedzip) =
+        raw(&h.app, &format!("{base}/gedcom/export?format=gedzip"), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, gedcom) = send(&h.app, Method::GET, &format!("{base}/gedcom/export"), None).await;
+    assert_eq!(status, StatusCode::OK, "{gedcom}");
+    let gedcom = gedcom["gedcom"]
+        .as_str()
+        .expect("GEDCOM text")
+        .as_bytes()
+        .to_vec();
+    let geneweb = b"encoding: utf-8\n\nfam BRANCH_A person_a.0 #image https://example.invalid/portrait.jpg + BRANCH_B person_b.0\n".to_vec();
+
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        h.db.clone(),
+        std::sync::Arc::new(oxidgene_api::profile::ProfileService::new(h.db.clone())),
+        std::sync::Arc::new(oxidgene_api::media::FsStore::new(&h.root.0)),
+        "media-test-worker",
+    );
+    for (format, bytes) in [("gedzip", gedzip), ("gedcom", gedcom), ("geneweb", geneweb)] {
+        let (status, tree) = send(
+            &h.app,
+            Method::POST,
+            "/api/v1/trees",
+            Some(json!({ "name": format!("Receipt {format}") })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{tree}");
+        let tree_id = tree["id"].as_str().unwrap().to_string();
+        let job = common::import_job(
+            &h.app,
+            &worker,
+            &tree_id,
+            &format!("format={format}"),
+            bytes,
+        )
+        .await;
+        assert_eq!(job["phase"], "completed", "{format}: {job}");
+
+        let stored = stored_media_counts(&h.db, &tree_id).await;
+        assert_ne!(stored, Default::default(), "{format} stores media");
+        let receipt: oxidgene_api::service::gedcom::MediaCounts =
+            serde_json::from_value(job["result"].clone()).expect("a receipt");
+        assert_eq!(receipt, stored, "{format}: {job}");
+
+        let job_id = job_id_of(&h, &tree_id).await;
+        let data = common::gql_ok(
+            &h.app,
+            "query($t: ID!, $j: ID!) { importJobStatus(treeId: $t, jobId: $j) { result { imagesCount documentsCount documentPagesCount } } }",
+            json!({ "t": tree_id, "j": job_id }),
+        )
+        .await;
+        let gql = &data["importJobStatus"]["result"];
+        for (rest_field, gql_field) in [
+            ("images_count", "imagesCount"),
+            ("documents_count", "documentsCount"),
+            ("document_pages_count", "documentPagesCount"),
+        ] {
+            assert_eq!(
+                job["result"][rest_field], gql[gql_field],
+                "{format} {rest_field}"
+            );
+        }
+    }
+}
+
+/// The id of the one import job of tree `tree_id`.
+async fn job_id_of(h: &Harness, tree_id: &str) -> String {
+    use oxidgene_db::entities::background_job;
+    use sea_orm::{ColumnTrait as _, EntityTrait as _, QueryFilter as _};
+
+    background_job::Entity::find()
+        .filter(background_job::Column::TreeId.eq(Uuid::parse_str(tree_id).unwrap()))
+        .one(&h.db)
+        .await
+        .expect("reads the jobs")
+        .expect("the import job")
+        .id
+        .to_string()
+}

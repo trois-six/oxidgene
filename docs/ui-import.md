@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:23:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T08:14:23Z }
 ---
 
 
@@ -128,8 +128,14 @@ cannot be guessed at.
 
 ### Result
 
-The counts every import reports, whatever the source: people, families, events,
-sources, places, media. Warnings collapse behind a disclosure with a count.
+One receipt for every import, whatever the source — a file here, Geneanet in
+§9.7: people, families, events, sources, places, **images** and
+**documents**. Media are counted over the records the import stored, the same
+way for GEDCOM, GEDZIP, GeneWeb and Geneanet: a record of a single page — a
+photograph, a single scan — is an image; any other is a document, and the
+label gives their pages ("documents (38 pages)") when there are any. Images
+plus document pages are the pictures stored; images plus documents are the
+tiles the gallery shows. Warnings collapse behind a disclosure with a count.
 
 ---
 
@@ -542,8 +548,10 @@ the UI and embedded backend to share a filesystem.
 - A multi-page deposit imports as one document plus ordered page media.
 - Missing pages are reported by page number.
 
-The receipt contains aggregate counts and skipped-item summaries, followed by
-**Open the tree** and **Import another**. It never displays an account name.
+The receipt is the import receipt of the file tab (§3), with the media links
+written (**attachments**) beside its counts, then the findings, the
+skipped-item summaries and the warnings, followed by **Open the tree** and
+**Import another**. It never displays an account name.
 
 When the import created people for identifications outside the tree
 ([Geneanet Media Import §9](geneanet-media-import.md)), the receipt reads each

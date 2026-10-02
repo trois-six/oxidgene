@@ -312,7 +312,8 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
             div { class: "import-done",
                 div { class: "import-done-icon", "✓" }
                 h3 { {i18n.t("import.done_title")} }
-                ImportCounts { result: imported }
+                ImportCounts { result: imported.clone() }
+                ImportWarnings { warnings: imported.warnings }
             }
         };
     }
@@ -557,10 +558,16 @@ async fn start_file_import_upload(
     Ok(started.job_id)
 }
 
-/// The counts every import reports, however it was sourced.
+/// The counts every import reports, however it was sourced, then those
+/// only this source has, `children`.
 #[component]
-fn ImportCounts(result: ImportResult) -> Element {
+fn ImportCounts(result: ImportResult, children: Element) -> Element {
     let i18n = use_i18n();
+    let documents = if result.document_pages_count == 0 {
+        i18n.t("import.stat_documents")
+    } else {
+        i18n.t_plural("import.stat_documents_pages", result.document_pages_count)
+    };
 
     rsx! {
         div { class: "import-stats",
@@ -569,17 +576,28 @@ fn ImportCounts(result: ImportResult) -> Element {
             Stat { value: result.events_count, label: i18n.t("import.stat_events") }
             Stat { value: result.sources_count, label: i18n.t("import.stat_sources") }
             Stat { value: result.places_count, label: i18n.t("import.stat_places") }
-            Stat { value: result.media_count, label: i18n.t("import.stat_media") }
+            Stat { value: result.images_count, label: i18n.t("import.stat_images") }
+            Stat { value: result.documents_count, label: documents }
+            {children}
         }
-        if !result.warnings.is_empty() {
-            details { class: "import-warnings",
-                summary {
-                    {i18n.t_plural("import.warning_count", result.warnings.len())}
-                }
-                ul {
-                    for warning in result.warnings.iter().take(100) {
-                        li { "{warning}" }
-                    }
+    }
+}
+
+/// An import's warnings, behind a disclosure with their count.
+#[component]
+fn ImportWarnings(warnings: Vec<String>) -> Element {
+    let i18n = use_i18n();
+    if warnings.is_empty() {
+        return rsx! {};
+    }
+    rsx! {
+        details { class: "import-warnings",
+            summary {
+                {i18n.t_plural("import.warning_count", warnings.len())}
+            }
+            ul {
+                for warning in warnings.iter().take(100) {
+                    li { "{warning}" }
                 }
             }
         }
@@ -2301,10 +2319,7 @@ fn GeneanetDone(tree_id: Uuid, result: GeneanetImportResult) -> Element {
             div { class: "import-done-icon", "✓" }
             h3 { {i18n.t("import.done_title")} }
 
-            div { class: "import-stats",
-                Stat { value: result.persons_count, label: i18n.t("import.stat_persons") }
-                Stat { value: result.families_count, label: i18n.t("import.stat_families") }
-                Stat { value: result.media_count, label: i18n.t("import.stat_media") }
+            ImportCounts { result: result.receipt.clone(),
                 Stat { value: result.links_count, label: i18n.t("geneanet.stat_attachments") }
             }
 
@@ -2339,18 +2354,7 @@ fn GeneanetDone(tree_id: Uuid, result: GeneanetImportResult) -> Element {
                     }
                 }
             }
-            if !result.warnings.is_empty() {
-                details { class: "import-warnings",
-                    summary {
-                        {i18n.t_plural("import.warning_count", result.warnings.len())}
-                    }
-                    ul {
-                        for warning in result.warnings.iter().take(100) {
-                            li { "{warning}" }
-                        }
-                    }
-                }
-            }
+            ImportWarnings { warnings: result.receipt.warnings.clone() }
         }
     }
 }

@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T08:14:23Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -812,12 +812,16 @@ the import, rebuilds projections, stores the receipt in the job, and deletes all
 job inputs on completion or failure. A worker resuming from the persisted
 `projections` checkpoint uses the stored receipt and does not replay the import.
 
-The receipt counts what the import stored. Its persons are the `.gw`'s, with
-those created for identifications outside the tree counted apart as isolated
-people; its places include those a deposit's location created; its media are
-the pictures stored — each photograph once, each page of a document once, the
-document row that holds no file not among them; its links are every media
-link written, to people, couples and events alike.
+The receipt counts what the import stored, and is the receipt of every
+import ([Import §3](ui-import.md)) with the Geneanet counts beside it. Its
+persons are the `.gw`'s, with those created for identifications outside the
+tree counted apart as isolated people; its places include those a deposit's
+location created; its media are counted as every import's are: each deposit
+stored is one record, an **image** when it holds one page, a **document**
+otherwise, whose pages are counted beside it — so images plus document pages
+are the pictures stored. A `.gw` medium left in the tree (a non-portrait
+`#image`) counts the same way. Its links are every media link written, to
+people, couples and events alike.
 
 A photo shared by several people is **stored once** with several `MediaLink`
 rows — precisely what the original export could not express, and what

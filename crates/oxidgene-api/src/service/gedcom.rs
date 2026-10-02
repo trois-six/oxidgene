@@ -33,17 +33,74 @@ use uuid::Uuid;
 /// parameters while substantially reducing database round trips.
 const BATCH_SIZE: usize = 500;
 
-/// Summary returned after a GEDCOM import.
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+/// The receipt of an import, whatever its source: GEDCOM, GEDZIP, GeneWeb,
+/// or the tree half of a Geneanet import, which adds its own counts beside
+/// it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct ImportSummary {
     pub persons_count: usize,
     pub families_count: usize,
     pub events_count: usize,
     pub sources_count: usize,
-    pub media_count: usize,
+    /// The media records stored, as pictures and documents.
+    #[serde(flatten)]
+    pub media: MediaCounts,
     pub places_count: usize,
     pub notes_count: usize,
     pub warnings: Vec<String>,
+}
+
+/// The media records an import stored, counted the same way for every kind
+/// of import.
+///
+/// A media record is a row with no parent; its pages are the rows beneath
+/// it, each holding a file or a link to one. A record of exactly one page —
+/// a photograph, a single scan — is an image. Any other — a register of
+/// many pages, or a record whose pages all failed to arrive — is a
+/// document, and its pages are counted beside it. So images plus document
+/// pages are the pictures stored, and images plus documents the tiles a
+/// gallery shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub struct MediaCounts {
+    /// Records of a single page.
+    pub images_count: usize,
+    /// Records of any other number of pages.
+    pub documents_count: usize,
+    /// The pages of those documents.
+    pub document_pages_count: usize,
+}
+
+impl MediaCounts {
+    /// Count one stored record of `pages` pages.
+    pub fn add_record(&mut self, pages: usize) {
+        if pages == 1 {
+            self.images_count += 1;
+        } else {
+            self.documents_count += 1;
+            self.document_pages_count += pages;
+        }
+    }
+
+    /// Count the records among stored media `rows`, given as each row's id
+    /// and the record it is a page of. A page whose record is not among the
+    /// rows still counts toward that record.
+    pub fn of_rows(rows: impl IntoIterator<Item = (Uuid, Option<Uuid>)>) -> Self {
+        let mut pages: std::collections::HashMap<Uuid, usize> = std::collections::HashMap::new();
+        for (id, record) in rows {
+            match record {
+                None => {
+                    pages.entry(id).or_default();
+                }
+                Some(record) => *pages.entry(record).or_default() += 1,
+            }
+        }
+        let mut counts = Self::default();
+        for count in pages.into_values() {
+            counts.add_record(count);
+        }
+        counts
+    }
 }
 
 /// Server-side stages of a file-backed GEDZIP import.
@@ -333,7 +390,12 @@ async fn persist_import_result_in_with_progress(
         families_count: result.families.len(),
         events_count: result.events.len(),
         sources_count: result.sources.len(),
-        media_count: result.media.len(),
+        media: MediaCounts::of_rows(
+            result
+                .media
+                .iter()
+                .map(|media| (media.id, media.parent_media_id)),
+        ),
         places_count: result.places.len(),
         notes_count: result.notes.len(),
         warnings: result.warnings,

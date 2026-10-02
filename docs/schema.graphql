@@ -1135,7 +1135,18 @@ type GqlGeneanetImportResult {
 	sourcesCount: Int!
 	placesCount: Int!
 	notesCount: Int!
-	mediaCount: Int!
+	"""
+	As `ImportResult.imagesCount`.
+	"""
+	imagesCount: Int!
+	"""
+	As `ImportResult.documentsCount`.
+	"""
+	documentsCount: Int!
+	"""
+	As `ImportResult.documentPagesCount`.
+	"""
+	documentPagesCount: Int!
 	linksCount: Int!
 	portraitsCount: Int!
 	isolatedCount: Int!
@@ -1331,7 +1342,18 @@ type GqlImportResult {
 	familiesCount: Int!
 	eventsCount: Int!
 	sourcesCount: Int!
-	mediaCount: Int!
+	"""
+	Media records of a single page: photographs, single scans.
+	"""
+	imagesCount: Int!
+	"""
+	Media records of any other number of pages.
+	"""
+	documentsCount: Int!
+	"""
+	The pages of those documents.
+	"""
+	documentPagesCount: Int!
 	placesCount: Int!
 	notesCount: Int!
 	warnings: [String!]!

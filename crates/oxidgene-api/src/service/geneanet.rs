@@ -35,7 +35,7 @@ use uuid::Uuid;
 
 use crate::media::{self, MediaStore};
 
-use super::gedcom::persist_import_result_with_progress;
+use super::gedcom::{ImportSummary, persist_import_result_with_progress};
 
 /// How many names each expandable list in the preview carries.
 ///
@@ -486,20 +486,14 @@ pub struct IsolatedPerson {
 /// What an import actually did.
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct GeneanetImportSummary {
-    /// People of the `.gw`; those created for identifications outside it
-    /// are `isolated_count`.
-    pub persons_count: usize,
-    pub families_count: usize,
-    pub events_count: usize,
-    pub sources_count: usize,
-    /// Places created, the `.gw`'s and those the media name.
-    pub places_count: usize,
-    pub notes_count: usize,
-    /// Pictures stored: each photograph once, each page of a document once.
-    /// A document's own row holds no file of its own and is not one.
-    pub media_count: usize,
-    /// Media links written, to people, couples and events; higher than
-    /// `media_count` when a photo shows several people.
+    /// What every import reports. Its persons are the `.gw`'s, those
+    /// created for identifications outside it being `isolated_count`; its
+    /// places include those the media name; its media are the `.gw`'s
+    /// records and the deposits stored, each deposit one record.
+    #[serde(flatten)]
+    pub receipt: ImportSummary,
+    /// Media links written, to people, couples and events; higher than the
+    /// records when a photo shows several people.
     pub links_count: usize,
     /// Links marked as the person's profile photo, from the `.gw`'s `#image`.
     pub portraits_count: usize,
@@ -515,7 +509,6 @@ pub struct GeneanetImportSummary {
     /// that photo and no more: the tree is already imported, and losing one
     /// scan is not a reason to throw away ten thousand people.
     pub skipped: Vec<String>,
-    pub warnings: Vec<String>,
 }
 
 /// Imports the tree, then attaches every photo that joins onto it.
@@ -602,13 +595,7 @@ pub async fn import(
     .await?;
 
     let mut summary = GeneanetImportSummary {
-        persons_count: people.persons_count,
-        families_count: people.families_count,
-        events_count: people.events_count,
-        sources_count: people.sources_count,
-        places_count: people.places_count,
-        notes_count: people.notes_count,
-        warnings: people.warnings,
+        receipt: people,
         ..GeneanetImportSummary::default()
     };
 
@@ -801,6 +788,7 @@ async fn place_keys(
             .collect(),
         Err(err) => {
             summary
+                .receipt
                 .warnings
                 .push(format!("could not list places: {err}"));
             HashMap::new()
@@ -1463,13 +1451,15 @@ async fn prepare_single_pages(
                 summary.skipped.push(format!("deposit {deposit_id}: {err}"));
                 continue;
             }
+            // The record is stored from here on, with its page or without.
             if let Err(err) =
                 update_media_metadata(db, document_id, *classification, *privacy, metadata).await
             {
+                summary.receipt.media.add_record(0);
                 summary.skipped.push(format!("deposit {deposit_id}: {err}"));
                 continue;
             }
-            if let Some(id) = write_media(
+            let page = write_media(
                 db,
                 tree_id,
                 MediaWrite {
@@ -1483,9 +1473,12 @@ async fn prepare_single_pages(
                 },
                 summary,
             )
-            .await
-            {
-                summary.media_count += 1;
+            .await;
+            summary
+                .receipt
+                .media
+                .add_record(usize::from(page.is_some()));
+            if let Some(id) = page {
                 import_transcript(
                     db,
                     tree_id,
@@ -1539,6 +1532,8 @@ async fn document(
             if let Err(err) =
                 update_media_metadata(db, document_id, classification, privacy, &metadata).await
             {
+                // Stored, without a page.
+                summary.receipt.media.add_record(0);
                 summary
                     .skipped
                     .push(format!("deposit {}: {err}", deposit.id));
@@ -1584,6 +1579,7 @@ async fn document(
     };
     let prepared_pages =
         write_pages(db, store, tree_id, &resolved, describe, progress, summary).await;
+    summary.receipt.media.add_record(prepared_pages.len());
 
     // The pages were written already attached, in the deposit's own page
     // order, so their indices are settled; the document only needs its count
@@ -1595,7 +1591,6 @@ async fn document(
         return Some((document_id, pages));
     }
     for (view_id, _, page_id) in &prepared_pages {
-        summary.media_count += 1;
         pages.insert(*view_id, *page_id);
         import_transcript(
             db,
@@ -2304,7 +2299,7 @@ async fn import_transcript(
     )
     .await
     {
-        Ok(_) => summary.notes_count += 1,
+        Ok(_) => summary.receipt.notes_count += 1,
         // Geneanet's deposit, view and transcript identifiers are external
         // archive references, and the error text may quote the transcript:
         // only the failure's category is logged.
@@ -2358,11 +2353,12 @@ async fn media_metadata(
                 {
                     Ok(place) => {
                         places.insert(key, place.id);
-                        summary.places_count += 1;
+                        summary.receipt.places_count += 1;
                         Some(place.id)
                     }
                     Err(err) => {
                         summary
+                            .receipt
                             .warnings
                             .push(format!("deposit {} place {name:?}: {err}", deposit.id));
                         None
@@ -2651,6 +2647,33 @@ mod tests {
     use super::*;
     use oxidgene_geneanet::model::ManifestView;
 
+    /// A job stores its receipt and its status reads it back: the shared
+    /// counts flattened into it must survive the trip.
+    #[test]
+    fn a_stored_receipt_reads_back_whole() {
+        let mut summary = GeneanetImportSummary {
+            links_count: 3,
+            isolated_count: 1,
+            isolated_people: vec![IsolatedPerson {
+                person_id: Uuid::now_v7(),
+                surname: "BRANCH_C".into(),
+                given_names: "person_c".into(),
+            }],
+            skipped: vec!["deposit 1: fixture".into()],
+            ..GeneanetImportSummary::default()
+        };
+        summary.receipt.persons_count = 2;
+        summary.receipt.media.add_record(1);
+        summary.receipt.media.add_record(3);
+        summary.receipt.warnings.push("fixture".into());
+        let stored = serde_json::to_value(&summary).unwrap();
+        let read: GeneanetImportSummary = serde_json::from_value(stored.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&read).unwrap(), stored);
+        assert_eq!(stored["images_count"], 1);
+        assert_eq!(stored["documents_count"], 1);
+        assert_eq!(stored["document_pages_count"], 3);
+    }
+
     fn view(id: i64, page: Option<i64>) -> ManifestView {
         ManifestView {
             id,
@@ -2894,7 +2917,7 @@ mod tests {
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].media_id, Some(media_id));
         assert_eq!(notes[0].text, "Page transcript");
-        assert_eq!(summary.notes_count, 1);
+        assert_eq!(summary.receipt.notes_count, 1);
     }
 
     /// A photograph whose only identification is "hors de l'arbre" was once
@@ -2944,12 +2967,20 @@ mod tests {
         .await
         .expect("imports");
 
-        assert_eq!(summary.persons_count, 2);
+        assert_eq!(summary.receipt.persons_count, 2);
         assert_eq!(summary.isolated_count, 1);
         assert_eq!(summary.isolated_people.len(), 1);
         assert_eq!(summary.isolated_people[0].surname, "BRANCH_C");
         assert_eq!(summary.isolated_people[0].given_names, "person_c");
-        assert_eq!(summary.media_count, 1, "skipped: {:?}", summary.skipped);
+        assert_eq!(
+            summary.receipt.media,
+            crate::service::gedcom::MediaCounts {
+                images_count: 1,
+                ..Default::default()
+            },
+            "skipped: {:?}",
+            summary.skipped
+        );
         assert_eq!(summary.links_count, 1);
 
         let links = MediaLinkRepo::list_for_tree(&db, tree_id)
@@ -3037,7 +3068,21 @@ mod tests {
             .expect("lists media");
         let pictures = media.iter().filter(|row| row.storage_key.is_some()).count();
         assert_eq!((media.len(), pictures), (3, 2), "a document and its pages");
-        assert_eq!(summary.media_count, pictures);
+        let stored = crate::service::gedcom::MediaCounts::of_rows(
+            media.iter().map(|row| (row.id, row.parent_media_id)),
+        );
+        assert_eq!(
+            summary.receipt.media, stored,
+            "the receipt counts what is stored"
+        );
+        assert_eq!(
+            stored,
+            crate::service::gedcom::MediaCounts {
+                images_count: 0,
+                documents_count: 1,
+                document_pages_count: 2,
+            }
+        );
 
         let links = MediaLinkRepo::list_for_tree(&db, tree_id)
             .await
@@ -3049,7 +3094,7 @@ mod tests {
             .await
             .expect("lists places");
         assert_eq!(places.len(), 1, "the deposit's place");
-        assert_eq!(summary.places_count, places.len());
+        assert_eq!(summary.receipt.places_count, places.len());
     }
 
     #[test]

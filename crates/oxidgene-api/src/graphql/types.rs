@@ -2087,7 +2087,12 @@ pub struct GqlImportResult {
     pub families_count: i32,
     pub events_count: i32,
     pub sources_count: i32,
-    pub media_count: i32,
+    /// Media records of a single page: photographs, single scans.
+    pub images_count: i32,
+    /// Media records of any other number of pages.
+    pub documents_count: i32,
+    /// The pages of those documents.
+    pub document_pages_count: i32,
     pub places_count: i32,
     pub notes_count: i32,
     pub warnings: Vec<String>,
@@ -2158,7 +2163,9 @@ impl From<crate::service::gedcom::ImportSummary> for GqlImportResult {
             families_count: summary.families_count as i32,
             events_count: summary.events_count as i32,
             sources_count: summary.sources_count as i32,
-            media_count: summary.media_count as i32,
+            images_count: summary.media.images_count as i32,
+            documents_count: summary.media.documents_count as i32,
+            document_pages_count: summary.media.document_pages_count as i32,
             places_count: summary.places_count as i32,
             notes_count: summary.notes_count as i32,
             warnings: summary.warnings,
@@ -2315,7 +2322,12 @@ pub struct GqlGeneanetImportResult {
     pub sources_count: i64,
     pub places_count: i64,
     pub notes_count: i64,
-    pub media_count: i64,
+    /// As `ImportResult.imagesCount`.
+    pub images_count: i64,
+    /// As `ImportResult.documentsCount`.
+    pub documents_count: i64,
+    /// As `ImportResult.documentPagesCount`.
+    pub document_pages_count: i64,
     pub links_count: i64,
     pub portraits_count: i64,
     pub isolated_count: i64,
@@ -2328,14 +2340,17 @@ pub struct GqlGeneanetImportResult {
 
 impl From<crate::service::geneanet::GeneanetImportSummary> for GqlGeneanetImportResult {
     fn from(summary: crate::service::geneanet::GeneanetImportSummary) -> Self {
+        let receipt = summary.receipt;
         Self {
-            persons_count: summary.persons_count as i64,
-            families_count: summary.families_count as i64,
-            events_count: summary.events_count as i64,
-            sources_count: summary.sources_count as i64,
-            places_count: summary.places_count as i64,
-            notes_count: summary.notes_count as i64,
-            media_count: summary.media_count as i64,
+            persons_count: receipt.persons_count as i64,
+            families_count: receipt.families_count as i64,
+            events_count: receipt.events_count as i64,
+            sources_count: receipt.sources_count as i64,
+            places_count: receipt.places_count as i64,
+            notes_count: receipt.notes_count as i64,
+            images_count: receipt.media.images_count as i64,
+            documents_count: receipt.media.documents_count as i64,
+            document_pages_count: receipt.media.document_pages_count as i64,
             links_count: summary.links_count as i64,
             portraits_count: summary.portraits_count as i64,
             isolated_count: summary.isolated_count as i64,
@@ -2346,7 +2361,7 @@ impl From<crate::service::geneanet::GeneanetImportSummary> for GqlGeneanetImport
                 .collect(),
             vignettes_count: summary.vignettes_count as i64,
             skipped: summary.skipped,
-            warnings: summary.warnings,
+            warnings: receipt.warnings,
         }
     }
 }

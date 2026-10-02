@@ -3284,9 +3284,12 @@ async fn test_geneanet_import_resumes_from_projection_checkpoint() {
             .expect("queued job");
     assert_eq!(claimed.id, job_id);
     let summary = oxidgene_api::service::geneanet::GeneanetImportSummary {
-        persons_count: 7,
-        families_count: 3,
-        warnings: vec!["checkpoint restored".to_string()],
+        receipt: oxidgene_api::service::gedcom::ImportSummary {
+            persons_count: 7,
+            families_count: 3,
+            warnings: vec!["checkpoint restored".to_string()],
+            ..Default::default()
+        },
         ..Default::default()
     };
     assert!(

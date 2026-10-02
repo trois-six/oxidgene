@@ -1902,17 +1902,13 @@ pub struct ImportProgress {
     pub total: usize,
 }
 
-/// What the Geneanet import actually did.
+/// What the Geneanet import actually did: what every import reports, and
+/// what only it does.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct GeneanetImportResult {
-    pub persons_count: usize,
-    pub families_count: usize,
-    pub events_count: usize,
-    pub sources_count: usize,
-    pub places_count: usize,
-    pub notes_count: usize,
-    pub media_count: usize,
-    /// Higher than `media_count` when a photo shows several people.
+    #[serde(flatten)]
+    pub receipt: ImportResult,
+    /// Higher than the media records when a photo shows several people.
     pub links_count: usize,
     /// Links marked as a person's profile photo.
     pub portraits_count: usize,
@@ -1924,7 +1920,6 @@ pub struct GeneanetImportResult {
     /// Identification boxes kept as regions on the stored pictures.
     pub vignettes_count: usize,
     pub skipped: Vec<String>,
-    pub warnings: Vec<String>,
 }
 
 /// A person the Geneanet import created for an identification outside the
@@ -1943,7 +1938,12 @@ pub struct ImportResult {
     pub families_count: usize,
     pub events_count: usize,
     pub sources_count: usize,
-    pub media_count: usize,
+    /// Media records of a single page: photographs, single scans.
+    pub images_count: usize,
+    /// Media records of any other number of pages.
+    pub documents_count: usize,
+    /// The pages of those documents.
+    pub document_pages_count: usize,
     pub places_count: usize,
     pub notes_count: usize,
     pub warnings: Vec<String>,

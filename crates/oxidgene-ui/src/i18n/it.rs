@@ -911,7 +911,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("import.stat_events", "eventi"),
         ("import.stat_sources", "fonti"),
         ("import.stat_places", "luoghi"),
-        ("import.stat_media", "media"),
+        ("import.stat_images", "immagini"),
+        ("import.stat_documents", "documenti"),
+        ("import.stat_documents_pages_one", "documenti ({count} pagina)"),
+        ("import.stat_documents_pages_other", "documenti ({count} pagine)"),
         ("import.warning_count_one", "{count} avviso"),
         ("import.warning_count_other", "{count} avvisi"),
         // ── Geneanet import wizard ──────────────────────────────────

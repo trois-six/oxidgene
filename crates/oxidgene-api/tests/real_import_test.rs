@@ -507,6 +507,13 @@ async fn count_media(
     let linked: HashSet<Uuid> = links.iter().map(|link| link.media_id).collect();
 
     counts.insert("media", rows.len() as u64);
+    // The receipt's own definition, applied to what is stored.
+    let records = oxidgene_api::service::gedcom::MediaCounts::of_rows(
+        rows.iter().map(|row| (row.id, row.parent_media_id)),
+    );
+    counts.insert("images", records.images_count as u64);
+    counts.insert("documents", records.documents_count as u64);
+    counts.insert("document_pages", records.document_pages_count as u64);
     let held = rows.iter().filter(|row| row.storage_key.is_some());
     counts.insert("media_stored", held.count() as u64);
     let pages = rows.iter().filter(|row| row.parent_media_id.is_some());
@@ -674,14 +681,16 @@ fn compare_receipt(
     }
 }
 
-const RECEIPT_COUNTS: [(&str, &str); 7] = [
+const RECEIPT_COUNTS: [(&str, &str); 9] = [
     ("persons_count", "persons"),
     ("families_count", "families"),
     ("events_count", "events"),
     ("sources_count", "sources"),
     ("places_count", "places"),
     ("notes_count", "notes"),
-    ("media_count", "media"),
+    ("images_count", "images"),
+    ("documents_count", "documents"),
+    ("document_pages_count", "document_pages"),
 ];
 
 // ── Scenarios ───────────────────────────────────────────────────────────
@@ -992,8 +1001,8 @@ fn check_geneanet_receipt(
     counts: &Counts,
     failures: &mut Failures,
 ) {
-    // Its persons are the `.gw`'s, the isolated ones counted apart, and its
-    // media the pictures stored, not the documents holding them.
+    // Its persons are the `.gw`'s, the isolated ones counted apart; its
+    // media are counted as every import's are.
     compare_receipt(
         "geneanet",
         receipt,
@@ -1004,7 +1013,9 @@ fn check_geneanet_receipt(
             ("sources_count", "sources"),
             ("places_count", "places"),
             ("notes_count", "notes"),
-            ("media_count", "media_stored"),
+            ("images_count", "images"),
+            ("documents_count", "documents"),
+            ("document_pages_count", "document_pages"),
             ("links_count", "media_links"),
             ("vignettes_count", "vignettes"),
         ],
