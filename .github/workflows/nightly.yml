@@ -49,6 +49,33 @@ jobs:
       - name: Time the tree-wide computations
         run: cargo nextest run --locked --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
 
+  # `just import-memory`: a Geneanet import of a generated tree against its
+  # peak and retained memory budgets.
+  import-memory:
+    name: Import memory
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Measure an import's memory
+        run: |
+          mkdir -p target/import-memory
+          TMPDIR="$PWD/target/import-memory" cargo nextest run --locked --release -p oxidgene-api --test import_memory_test --run-ignored only --no-capture
+
   # The size of every shipped binary and the crates it links, against
   # scripts/budgets.json.
   budgets:

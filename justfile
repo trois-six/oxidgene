@@ -119,6 +119,19 @@ real-import *args:
       cargo nextest run --release -p oxidgene-api --test real_import_test \
         --run-ignored only --no-capture {{ args }}
 
+# Measure the memory of a Geneanet import of a generated, fictitious tree, in
+# release mode, and fail over its budget (see docs/development.md). The
+# fixture and the job's files are staged under target/, on disk rather than
+# in a RAM-backed /tmp.
+import-memory:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work="$PWD/target/import-memory"
+    trap 'rm -rf "$work"' EXIT
+    mkdir -p "$work"
+    TMPDIR="$work" cargo nextest run --release -p oxidgene-api --test import_memory_test \
+      --run-ignored only --no-capture
+
 # Fail when the share of duplicated Rust code grows past its budget
 # (scripts/duplication.py); `just duplication --report` lists the blocks.
 duplication *args:

@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:12:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:13:07Z }
 ---
 
 # Development Environment and Workflows
@@ -73,6 +73,7 @@ the repository root.
 | `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, and tests. |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
+| `just import-memory` | Import a generated, fictitious Geneanet tree in release mode and fail when its peak or retained memory exceeds its budget (§2.8). |
 | `just bench` | Run the opt-in benchmarks of the profile service and the person search, in release mode. |
 | `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down. |
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
@@ -303,6 +304,7 @@ and the Wikidata query service.
 | Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database, repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
+| Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
 | End-to-end | The Playwright suite of `e2e/`, driving the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
 
 `just test`, and through it `just check`, runs the unit and functional tests.
@@ -312,8 +314,8 @@ binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS, or
 only time something; each one's ignore reason names the `just` recipe that
 runs it (`just bench`, `just test-postgres`, `just test-s3`,
 `just session-check`, `just geneanet-harness`, `just theme-preview`,
-`just real-import`, `just scaling`), and a guard fails on a reason that names
-none.
+`just real-import`, `just scaling`, `just import-memory`), and a guard fails
+on a reason that names none.
 
 The opt-in tests and the golden checks read these variables:
 
@@ -427,6 +429,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Trace continuity | 3 | `just e2e tests/trace-continuity.spec.ts` | Nightly: E2E | Every page display's API requests share one trace of their own |
 | Binary budgets | 3 | `python3 scripts/budgets.py binaries` after the release builds | Nightly: Binary budgets | The size of the desktop, server, worker and web bundle, and the crates each links, within `scripts/budgets.json` |
 | Scaling | 3 | `just scaling` | Nightly: Scaling | No tree-wide computation grows faster than linear |
+| Import memory | 3 | `just import-memory` | Nightly: Import memory | A Geneanet import of a generated tree peaks, and keeps once done, within the budgets of `import_memory_test.rs` |
 | udeps | 3 | `cargo +nightly udeps --workspace --all-targets` | Nightly: Unused dependencies (udeps) | No dependency the compiler finds unused |
 | Reports | 3 | `cargo update --dry-run --verbose`, `scc` | Nightly: Reports | The pending and held-back updates, the size of the code (artifacts, never failing) |
 | Next toolchains | 3 | `cargo +beta clippy …`, `cargo +nightly clippy …`, `cargo +beta check --future-incompat-report` | Nightly: Next toolchain | Lints and warnings of the next Rust releases, seen before they break the pinned one (reported, never failing) |
@@ -446,6 +449,10 @@ commit that makes it, whose message says why:
   reason in `scripts/budgets.json`;
 - duplication: lower `BUDGET` in `scripts/duplication.py` when a
   refactoring brings the rate down;
+- import memory: `PEAK_BUDGET_MIB` and `RETAINED_BUDGET_MIB` in
+  `crates/oxidgene-api/tests/import_memory_test.rs`, set about a quarter
+  above what `just import-memory` measures, with that measurement in their
+  comments;
 - GraphQL schema and projection shape: `just graphql-schema`, and
   `OXIDGENE_BLESS=1` on `projection_shape_test` with the version bump.
 
@@ -554,6 +561,17 @@ on disk rather than in a RAM-backed `/tmp`, and deletes it on exit. The tests
 print aggregates only — timings, the peak resident memory of each phase and
 what the process still holds after it, counts and error codes — never a row,
 a name or an error message, which can quote the file.
+
+**Import memory check.** `just import-memory` measures the same Geneanet
+import on a tree it generates itself, so it runs anywhere and every night:
+ten thousand fictitious people, 160 photographs (a group photo every eighth,
+an identification box on every other one) matched in the archive by size,
+and two scanned documents of 48 and 8 pages matched by the content of their
+renditions. It stages the fixture and the job's files under
+`target/import-memory`, runs the job with the worker's own loop step, and
+reports each import phase's time and peak resident memory, by the tracing
+span it runs under. It fails when the job's peak, or what the process keeps
+once the job has ended, exceeds its budget (§2.8, *Updating a budget*).
 
 The Compose stack includes an OpenTelemetry Collector. It receives OTLP on
 loopback ports `4317` (gRPC) and `4318` (HTTP), exposes its health endpoint on
