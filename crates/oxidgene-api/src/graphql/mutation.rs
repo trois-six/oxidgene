@@ -1,9 +1,8 @@
 //! GraphQL mutation root with all write operations.
 //!
-//! Every resolver is a thin adapter over a `service` function. Those whose
-//! futures are large are awaited through `Box::pin`: async-graphql resolves
-//! a field inside one future sized for the largest resolver, and with the
-//! media writes inlined it outgrew a test thread's 2 MiB stack.
+//! Every resolver is a thin adapter over a `service` function, its body run
+//! from the heap through [`boxed`] so the dispatch over every mutation stays
+//! small on the stack.
 
 use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self};
@@ -29,7 +28,7 @@ use super::inputs::{
     UpdateSourceRepositoryInput, UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput,
     UploadMediaInput, geneanet_deposit_sizes, geneanet_media_paths,
 };
-use super::scope::{live_tree, opt_uuid, uuid, uuids};
+use super::scope::{boxed, live_tree, opt_uuid, uuid, uuids};
 use super::types::{
     GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
     GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
@@ -86,9 +85,12 @@ impl MutationRoot {
 
     /// Create a new tree. A blank name is refused.
     async fn create_tree(&self, ctx: &Context<'_>, input: CreateTreeInput) -> Result<GqlTree> {
-        Ok(tree::create_tree(db_from_ctx(ctx), input.into())
-            .await?
-            .into())
+        boxed(async move {
+            Ok(tree::create_tree(db_from_ctx(ctx), input.into())
+                .await?
+                .into())
+        })
+        .await
     }
 
     /// Duplicate a tree through a lossless GEDCOM round trip.
@@ -102,15 +104,18 @@ impl MutationRoot {
         tree_id: ID,
         name: String,
     ) -> Result<GqlTree> {
-        let source_tree_id = live_tree(ctx, &tree_id).await?;
-        let tree = tree::duplicate_tree(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            source_tree_id,
-            name,
-        )
-        .await?;
-        Ok(tree.into())
+        boxed(async move {
+            let source_tree_id = live_tree(ctx, &tree_id).await?;
+            let tree = tree::duplicate_tree(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                source_tree_id,
+                name,
+            )
+            .await?;
+            Ok(tree.into())
+        })
+        .await
     }
 
     /// Update an existing tree. A blank name is refused, and a SOSA root or
@@ -121,9 +126,12 @@ impl MutationRoot {
         id: ID,
         input: UpdateTreeInput,
     ) -> Result<GqlTree> {
-        let id = live_tree(ctx, &id).await?;
-        let tree = tree::update_tree(db_from_ctx(ctx), id, input.try_into()?).await?;
-        Ok(tree.into())
+        boxed(async move {
+            let id = live_tree(ctx, &id).await?;
+            let tree = tree::update_tree(db_from_ctx(ctx), id, input.try_into()?).await?;
+            Ok(tree.into())
+        })
+        .await
     }
 
     /// Delete a tree.
@@ -132,9 +140,12 @@ impl MutationRoot {
     /// projections are removed by the background purge worker. See
     /// [`crate::service::purge`].
     async fn delete_tree(&self, ctx: &Context<'_>, id: ID) -> Result<bool> {
-        let id = uuid(&id)?;
-        tree::delete_tree(db_from_ctx(ctx), purge_from_ctx(ctx), id).await?;
-        Ok(true)
+        boxed(async move {
+            let id = uuid(&id)?;
+            tree::delete_tree(db_from_ctx(ctx), purge_from_ctx(ctx), id).await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Person Mutations ─────────────────────────────────────────────
@@ -146,15 +157,18 @@ impl MutationRoot {
         tree_id: ID,
         input: CreatePersonInput,
     ) -> Result<GqlPerson> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let person = person::create_person(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            input.into(),
-        )
-        .await?;
-        Ok(person.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let person = person::create_person(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                input.into(),
+            )
+            .await?;
+            Ok(person.into())
+        })
+        .await
     }
 
     /// Update a person.
@@ -165,29 +179,35 @@ impl MutationRoot {
         id: ID,
         input: UpdatePersonInput,
     ) -> Result<GqlPerson> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let person = person::update_person(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-            input.into(),
-        )
-        .await?;
-        Ok(person.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let person = person::update_person(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.into(),
+            )
+            .await?;
+            Ok(person.into())
+        })
+        .await
     }
 
     /// Delete a person (soft delete).
     async fn delete_person(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        person::delete_person(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            person::delete_person(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Record that a person differs from each of `otherPersonIds`, so those
@@ -199,12 +219,15 @@ impl MutationRoot {
         person_id: ID,
         other_person_ids: Vec<ID>,
     ) -> Result<bool> {
-        let db = db_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let pid = uuid(&person_id)?;
-        let others = uuids(&other_person_ids)?;
-        duplicates::mark_distinct(db, tid, pid, &others).await?;
-        Ok(true)
+        boxed(async move {
+            let db = db_from_ctx(ctx);
+            let tid = live_tree(ctx, &tree_id).await?;
+            let pid = uuid(&person_id)?;
+            let others = uuids(&other_person_ids)?;
+            duplicates::mark_distinct(db, tid, pid, &others).await?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Merge `duplicateId` into `personId`, which is kept; the duplicate is
@@ -218,15 +241,18 @@ impl MutationRoot {
         duplicate_id: ID,
         #[graphql(default)] choices: MergeChoicesInput,
     ) -> Result<GqlPerson> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let kept = uuid(&person_id)?;
-        let duplicate = uuid(&duplicate_id)?;
-        let choices = choices.into_choices()?;
-        let person =
-            duplicates::merge_persons(db, profiles, tid, kept, duplicate, &choices).await?;
-        Ok(person.into())
+        boxed(async move {
+            let db = db_from_ctx(ctx);
+            let profiles = profiles_from_ctx(ctx);
+            let tid = live_tree(ctx, &tree_id).await?;
+            let kept = uuid(&person_id)?;
+            let duplicate = uuid(&duplicate_id)?;
+            let choices = choices.into_choices()?;
+            let person =
+                duplicates::merge_persons(db, profiles, tid, kept, duplicate, &choices).await?;
+            Ok(person.into())
+        })
+        .await
     }
 
     // ── PersonName Mutations ─────────────────────────────────────────
@@ -239,16 +265,19 @@ impl MutationRoot {
         person_id: ID,
         input: PersonNameInput,
     ) -> Result<GqlPersonName> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let name = person_name::create_person_name(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&person_id)?,
-            input.into(),
-        )
-        .await?;
-        Ok(name.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let name = person_name::create_person_name(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&person_id)?,
+                input.into(),
+            )
+            .await?;
+            Ok(name.into())
+        })
+        .await
     }
 
     /// Update a name of a person; a name of somebody else is not found.
@@ -260,17 +289,20 @@ impl MutationRoot {
         id: ID,
         input: UpdatePersonNameInput,
     ) -> Result<GqlPersonName> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let name = person_name::update_person_name(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&person_id)?,
-            uuid(&id)?,
-            input.into(),
-        )
-        .await?;
-        Ok(name.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let name = person_name::update_person_name(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&person_id)?,
+                uuid(&id)?,
+                input.into(),
+            )
+            .await?;
+            Ok(name.into())
+        })
+        .await
     }
 
     /// Delete a name of a person (hard delete); a name of somebody else is
@@ -282,26 +314,32 @@ impl MutationRoot {
         person_id: ID,
         id: ID,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        person_name::delete_person_name(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&person_id)?,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            person_name::delete_person_name(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&person_id)?,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Family Mutations ─────────────────────────────────────────────
 
     /// Create a new family in a tree.
     async fn create_family(&self, ctx: &Context<'_>, tree_id: ID) -> Result<GqlFamily> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(family::create_family(db_from_ctx(ctx), tree_id)
-            .await?
-            .into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(family::create_family(db_from_ctx(ctx), tree_id)
+                .await?
+                .into())
+        })
+        .await
     }
 
     /// Update a family: its privacy, and `updatedAt` either way.
@@ -312,23 +350,29 @@ impl MutationRoot {
         id: ID,
         input: UpdateFamilyInput,
     ) -> Result<GqlFamily> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let family =
-            family::update_family(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
-        Ok(family.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let family =
+                family::update_family(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
+            Ok(family.into())
+        })
+        .await
     }
 
     /// Delete a family (soft delete).
     async fn delete_family(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        family::delete_family(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            family::delete_family(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Add a spouse to a family.
@@ -339,16 +383,19 @@ impl MutationRoot {
         family_id: ID,
         input: AddSpouseInput,
     ) -> Result<GqlFamilySpouse> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let spouse = family::add_spouse(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&family_id)?,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(spouse.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let spouse = family::add_spouse(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&family_id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(spouse.into())
+        })
+        .await
     }
 
     /// Remove a spouse link from a family (hard delete); a link of another
@@ -360,16 +407,19 @@ impl MutationRoot {
         family_id: ID,
         id: ID,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        family::remove_spouse(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&family_id)?,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            family::remove_spouse(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&family_id)?,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Add a child to a family.
@@ -380,16 +430,19 @@ impl MutationRoot {
         family_id: ID,
         input: AddChildInput,
     ) -> Result<GqlFamilyChild> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let child = family::add_child(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&family_id)?,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(child.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let child = family::add_child(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&family_id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(child.into())
+        })
+        .await
     }
 
     /// Remove a child link from a family (hard delete); a link of another
@@ -401,16 +454,19 @@ impl MutationRoot {
         family_id: ID,
         id: ID,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        family::remove_child(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&family_id)?,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            family::remove_child(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&family_id)?,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Event Mutations ──────────────────────────────────────────────
@@ -422,15 +478,18 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateEventInput,
     ) -> Result<GqlEvent> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let event = event::create_event(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(event.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let event = event::create_event(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(event.into())
+        })
+        .await
     }
 
     /// Update an event. A place of another tree is not found.
@@ -441,29 +500,35 @@ impl MutationRoot {
         id: ID,
         input: UpdateEventInput,
     ) -> Result<GqlEvent> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let event = event::update_event(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(event.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let event = event::update_event(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(event.into())
+        })
+        .await
     }
 
     /// Delete an event (soft delete).
     async fn delete_event(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        event::delete_event(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            event::delete_event(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Add a witness to an event.
@@ -474,15 +539,18 @@ impl MutationRoot {
         event_id: ID,
         input: AddEventWitnessInput,
     ) -> Result<GqlEventWitness> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let witness = event::add_witness(
-            db_from_ctx(ctx),
-            tree_id,
-            uuid(&event_id)?,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(witness.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let witness = event::add_witness(
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&event_id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(witness.into())
+        })
+        .await
     }
 
     /// Remove a witness from an event (hard delete). With `eventId`, a
@@ -494,9 +562,13 @@ impl MutationRoot {
         id: ID,
         event_id: Option<ID>,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        event::remove_witness(db_from_ctx(ctx), tree_id, opt_uuid(event_id)?, uuid(&id)?).await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            event::remove_witness(db_from_ctx(ctx), tree_id, opt_uuid(event_id)?, uuid(&id)?)
+                .await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Place Mutations ──────────────────────────────────────────────
@@ -508,10 +580,13 @@ impl MutationRoot {
         tree_id: ID,
         input: CreatePlaceInput,
     ) -> Result<GqlPlace> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(place::create_place(db_from_ctx(ctx), tree_id, input.into())
-            .await?
-            .into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(place::create_place(db_from_ctx(ctx), tree_id, input.into())
+                .await?
+                .into())
+        })
+        .await
     }
 
     /// Update a place. A blank name is refused.
@@ -522,29 +597,35 @@ impl MutationRoot {
         id: ID,
         input: UpdatePlaceInput,
     ) -> Result<GqlPlace> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let place = place::update_place(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-            input.into(),
-        )
-        .await?;
-        Ok(place.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let place = place::update_place(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.into(),
+            )
+            .await?;
+            Ok(place.into())
+        })
+        .await
     }
 
     /// Delete a place (hard delete).
     async fn delete_place(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        place::delete_place(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            place::delete_place(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Source Mutations ─────────────────────────────────────────────
@@ -556,12 +637,15 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateSourceInput,
     ) -> Result<GqlSource> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(
-            source::create_source(db_from_ctx(ctx), tree_id, input.into())
-                .await?
-                .into(),
-        )
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(
+                source::create_source(db_from_ctx(ctx), tree_id, input.into())
+                    .await?
+                    .into(),
+            )
+        })
+        .await
     }
 
     /// Update a source. A blank title is refused.
@@ -572,10 +656,13 @@ impl MutationRoot {
         id: ID,
         input: UpdateSourceInput,
     ) -> Result<GqlSource> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let source =
-            source::update_source(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
-        Ok(source.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let source =
+                source::update_source(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into()).await?;
+            Ok(source.into())
+        })
+        .await
     }
 
     /// Delete a source (soft delete).
@@ -588,8 +675,14 @@ impl MutationRoot {
         id: ID,
         #[graphql(default = false)] only_if_unused: bool,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(source::delete_source(db_from_ctx(ctx), tree_id, uuid(&id)?, only_if_unused).await?)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(
+                source::delete_source(db_from_ctx(ctx), tree_id, uuid(&id)?, only_if_unused)
+                    .await?,
+            )
+        })
+        .await
     }
 
     // ── Repository Mutations ─────────────────────────────────────────
@@ -601,12 +694,15 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateRepositoryInput,
     ) -> Result<GqlRepository> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(
-            repository::create_repository(db_from_ctx(ctx), tree_id, input.into())
-                .await?
-                .into(),
-        )
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(
+                repository::create_repository(db_from_ctx(ctx), tree_id, input.into())
+                    .await?
+                    .into(),
+            )
+        })
+        .await
     }
 
     /// Update a repository. A blank name is refused.
@@ -617,12 +713,15 @@ impl MutationRoot {
         id: ID,
         input: UpdateRepositoryInput,
     ) -> Result<GqlRepository> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(
-            repository::update_repository(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into())
-                .await?
-                .into(),
-        )
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(
+                repository::update_repository(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into())
+                    .await?
+                    .into(),
+            )
+        })
+        .await
     }
 
     /// Delete a repository (soft delete). With `onlyIfUnused`, a repository
@@ -635,11 +734,19 @@ impl MutationRoot {
         id: ID,
         #[graphql(default = false)] only_if_unused: bool,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(
-            repository::delete_repository(db_from_ctx(ctx), tree_id, uuid(&id)?, only_if_unused)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(
+                repository::delete_repository(
+                    db_from_ctx(ctx),
+                    tree_id,
+                    uuid(&id)?,
+                    only_if_unused,
+                )
                 .await?,
-        )
+            )
+        })
+        .await
     }
 
     /// Record that a source is held at a repository, under a call number.
@@ -650,15 +757,18 @@ impl MutationRoot {
         source_id: ID,
         input: AddSourceRepositoryInput,
     ) -> Result<GqlSourceRepository> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let link = repository::add_source_repository(
-            db_from_ctx(ctx),
-            tree_id,
-            uuid(&source_id)?,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(link.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let link = repository::add_source_repository(
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&source_id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(link.into())
+        })
+        .await
     }
 
     /// Update a source's link to a repository; a link of another source is
@@ -671,16 +781,19 @@ impl MutationRoot {
         id: ID,
         input: UpdateSourceRepositoryInput,
     ) -> Result<GqlSourceRepository> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let link = repository::update_source_repository(
-            db_from_ctx(ctx),
-            tree_id,
-            uuid(&source_id)?,
-            uuid(&id)?,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(link.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let link = repository::update_source_repository(
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&source_id)?,
+                uuid(&id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(link.into())
+        })
+        .await
     }
 
     /// Remove a source's link to a repository; a link of another source is
@@ -692,15 +805,18 @@ impl MutationRoot {
         source_id: ID,
         id: ID,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        repository::remove_source_repository(
-            db_from_ctx(ctx),
-            tree_id,
-            uuid(&source_id)?,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            repository::remove_source_repository(
+                db_from_ctx(ctx),
+                tree_id,
+                uuid(&source_id)?,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Citation Mutations ───────────────────────────────────────────
@@ -712,19 +828,23 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateCitationInput,
     ) -> Result<GqlCitation> {
-        let tid = live_tree(ctx, &tree_id).await?;
-        let new = NewCitation {
-            source_id: uuid(&input.source_id)?,
-            person_id: opt_uuid(input.person_id)?,
-            event_id: opt_uuid(input.event_id)?,
-            family_id: opt_uuid(input.family_id)?,
-            page: input.page,
-            confidence: input.confidence.map(Into::into),
-            text: input.text,
-        };
-        let citation =
-            citation::create_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new).await?;
-        Ok(citation.into())
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let new = NewCitation {
+                source_id: uuid(&input.source_id)?,
+                person_id: opt_uuid(input.person_id)?,
+                event_id: opt_uuid(input.event_id)?,
+                family_id: opt_uuid(input.family_id)?,
+                page: input.page,
+                confidence: input.confidence.map(Into::into),
+                text: input.text,
+            };
+            let citation =
+                citation::create_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new)
+                    .await?;
+            Ok(citation.into())
+        })
+        .await
     }
 
     /// Update a citation.
@@ -735,26 +855,32 @@ impl MutationRoot {
         id: ID,
         input: UpdateCitationInput,
     ) -> Result<GqlCitation> {
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let patch = CitationPatch {
-            source_id: opt_uuid(input.source_id)?,
-            page: patch(input.page),
-            confidence: patch(input.confidence).map(|c| c.map(Into::into)),
-            text: patch(input.text),
-        };
-        let citation =
-            citation::update_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id, patch)
-                .await?;
-        Ok(citation.into())
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let id = uuid(&id)?;
+            let patch = CitationPatch {
+                source_id: opt_uuid(input.source_id)?,
+                page: patch(input.page),
+                confidence: patch(input.confidence).map(|c| c.map(Into::into)),
+                text: patch(input.text),
+            };
+            let citation =
+                citation::update_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id, patch)
+                    .await?;
+            Ok(citation.into())
+        })
+        .await
     }
 
     /// Delete a citation (hard delete).
     async fn delete_citation(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        citation::delete_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
-        Ok(true)
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let id = uuid(&id)?;
+            citation::delete_citation(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Media Mutations ──────────────────────────────────────────────
@@ -767,15 +893,18 @@ impl MutationRoot {
         tree_id: ID,
         input: UploadMediaInput,
     ) -> Result<GqlMedia> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let page = Box::pin(media::create_page(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            input.try_into()?,
-        ))
-        .await?;
-        Ok(page.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let page = media::create_page(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(page.into())
+        })
+        .await
     }
 
     /// Upload a file's bytes, base64-encoded.
@@ -790,38 +919,41 @@ impl MutationRoot {
         tree_id: ID,
         input: UploadMediaFileInput,
     ) -> Result<GqlMedia> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let _intake = crate::service::intake::slot().await?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&input.content_base64)
-            .map_err(|_| {
-                oxidgene_core::OxidGeneError::Validation("contentBase64 is not base64".into())
-            })?;
-        let target = match (opt_uuid(input.media_id)?, opt_uuid(input.document_id)?) {
-            (Some(media_id), _) => UploadTarget::Attach { media_id },
-            (None, Some(document_id)) => UploadTarget::NewPage { document_id },
-            (None, None) => {
-                return Err(oxidgene_core::OxidGeneError::Validation(
-                    "documentId is required".into(),
-                )
-                .into());
-            }
-        };
-        let (page, _) = Box::pin(media::upload(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            &**media_from_ctx(ctx),
-            tree_id,
-            NewUpload {
-                file_name: input.file_name,
-                bytes,
-                title: input.title,
-                description: input.description,
-                target,
-            },
-        ))
-        .await?;
-        Ok(page.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let _intake = crate::service::intake::slot().await?;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&input.content_base64)
+                .map_err(|_| {
+                    oxidgene_core::OxidGeneError::Validation("contentBase64 is not base64".into())
+                })?;
+            let target = match (opt_uuid(input.media_id)?, opt_uuid(input.document_id)?) {
+                (Some(media_id), _) => UploadTarget::Attach { media_id },
+                (None, Some(document_id)) => UploadTarget::NewPage { document_id },
+                (None, None) => {
+                    return Err(oxidgene_core::OxidGeneError::Validation(
+                        "documentId is required".into(),
+                    )
+                    .into());
+                }
+            };
+            let (page, _) = media::upload(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                &**media_from_ctx(ctx),
+                tree_id,
+                NewUpload {
+                    file_name: input.file_name,
+                    bytes,
+                    title: input.title,
+                    description: input.description,
+                    target,
+                },
+            )
+            .await?;
+            Ok(page.into())
+        })
+        .await
     }
 
     /// Update media metadata.
@@ -832,16 +964,19 @@ impl MutationRoot {
         id: ID,
         input: UpdateMediaInput,
     ) -> Result<GqlMedia> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let media = Box::pin(media::update_media(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-            input.try_into()?,
-        ))
-        .await?;
-        Ok(media.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let media = media::update_media(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(media.into())
+        })
+        .await
     }
 
     /// Atomically add a tag without replacing the media's other tags.
@@ -852,12 +987,13 @@ impl MutationRoot {
         id: ID,
         tag: String,
     ) -> Result<GqlMedia> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(
-            Box::pin(media::add_tag(db_from_ctx(ctx), tree_id, uuid(&id)?, &tag))
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(media::add_tag(db_from_ctx(ctx), tree_id, uuid(&id)?, &tag)
                 .await?
-                .into(),
-        )
+                .into())
+        })
+        .await
     }
 
     /// Atomically remove one tag without replacing the media's other tags.
@@ -868,15 +1004,12 @@ impl MutationRoot {
         id: ID,
         tag: String,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Box::pin(media::remove_tag(
-            db_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-            &tag,
-        ))
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            media::remove_tag(db_from_ctx(ctx), tree_id, uuid(&id)?, &tag).await?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Permanently delete media and its associated data.
@@ -893,26 +1026,30 @@ impl MutationRoot {
         #[graphql(default = false)] only_if_unreferenced_elsewhere: bool,
         allowed_link_id: Option<ID>,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let allowed_link_id = match (only_if_unreferenced_elsewhere, opt_uuid(allowed_link_id)?) {
-            (false, _) => None,
-            (true, Some(link_id)) => Some(link_id),
-            (true, None) => {
-                return Err(oxidgene_core::OxidGeneError::Validation(
-                    "allowedLinkId is required for conditional media deletion".into(),
-                )
-                .into());
-            }
-        };
-        Ok(Box::pin(media::delete_media(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            &**media_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-            allowed_link_id,
-        ))
-        .await?)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let allowed_link_id = match (only_if_unreferenced_elsewhere, opt_uuid(allowed_link_id)?)
+            {
+                (false, _) => None,
+                (true, Some(link_id)) => Some(link_id),
+                (true, None) => {
+                    return Err(oxidgene_core::OxidGeneError::Validation(
+                        "allowedLinkId is required for conditional media deletion".into(),
+                    )
+                    .into());
+                }
+            };
+            Ok(media::delete_media(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                &**media_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+                allowed_link_id,
+            )
+            .await?)
+        })
+        .await
     }
 
     /// Choose what represents a person: a whole media, a region of one, or
@@ -928,19 +1065,22 @@ impl MutationRoot {
         media_id: Option<ID>,
         vignette_id: Option<ID>,
     ) -> Result<GqlPerson> {
-        let choice = crate::service::portrait::PortraitChoice {
-            media_id: opt_uuid(media_id)?,
-            vignette_id: opt_uuid(vignette_id)?,
-        };
-        let person = crate::service::portrait::set_person_portrait(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            live_tree(ctx, &tree_id).await?,
-            uuid(&person_id)?,
-            choice,
-        )
-        .await?;
-        Ok(person.into())
+        boxed(async move {
+            let choice = crate::service::portrait::PortraitChoice {
+                media_id: opt_uuid(media_id)?,
+                vignette_id: opt_uuid(vignette_id)?,
+            };
+            let person = crate::service::portrait::set_person_portrait(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                live_tree(ctx, &tree_id).await?,
+                uuid(&person_id)?,
+                choice,
+            )
+            .await?;
+            Ok(person.into())
+        })
+        .await
     }
 
     /// Create an empty multi-page document.
@@ -950,12 +1090,13 @@ impl MutationRoot {
         tree_id: ID,
         title: Option<String>,
     ) -> Result<GqlMedia> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Ok(
-            Box::pin(media::create_document(db_from_ctx(ctx), tree_id, title))
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            Ok(media::create_document(db_from_ctx(ctx), tree_id, title)
                 .await?
-                .into(),
-        )
+                .into())
+        })
+        .await
     }
 
     /// Set a document's page order. The list must name exactly its pages.
@@ -966,16 +1107,19 @@ impl MutationRoot {
         document_id: ID,
         page_ids: Vec<ID>,
     ) -> Result<Vec<GqlMedia>> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let pages = Box::pin(media::reorder_pages(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&document_id)?,
-            &uuids(&page_ids)?,
-        ))
-        .await?;
-        Ok(pages.into_iter().map(Into::into).collect())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let pages = media::reorder_pages(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&document_id)?,
+                &uuids(&page_ids)?,
+            )
+            .await?;
+            Ok(pages.into_iter().map(Into::into).collect())
+        })
+        .await
     }
 
     /// Remove a page from its document, permanently.
@@ -989,17 +1133,20 @@ impl MutationRoot {
         document_id: ID,
         page_id: ID,
     ) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        Box::pin(media::delete_page(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            &**media_from_ctx(ctx),
-            tree_id,
-            uuid(&document_id)?,
-            uuid(&page_id)?,
-        ))
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            media::delete_page(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                &**media_from_ctx(ctx),
+                tree_id,
+                uuid(&document_id)?,
+                uuid(&page_id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Vignette Mutations ───────────────────────────────────────────
@@ -1011,12 +1158,15 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateVignetteInput,
     ) -> Result<GqlVignette> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let media_id = uuid(&input.media_id)?;
-        let vignette =
-            vignette::create_vignette(db_from_ctx(ctx), tree_id, media_id, input.try_into()?)
-                .await?;
-        Ok(vignette.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let media_id = uuid(&input.media_id)?;
+            let vignette =
+                vignette::create_vignette(db_from_ctx(ctx), tree_id, media_id, input.try_into()?)
+                    .await?;
+            Ok(vignette.into())
+        })
+        .await
     }
 
     /// Move or re-attribute a vignette.
@@ -1027,24 +1177,30 @@ impl MutationRoot {
         id: ID,
         input: UpdateVignetteInput,
     ) -> Result<GqlVignette> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let vignette =
-            vignette::update_vignette(db_from_ctx(ctx), tree_id, uuid(&id)?, input.try_into()?)
-                .await?;
-        Ok(vignette.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let vignette =
+                vignette::update_vignette(db_from_ctx(ctx), tree_id, uuid(&id)?, input.try_into()?)
+                    .await?;
+            Ok(vignette.into())
+        })
+        .await
     }
 
     /// Delete a vignette. The media it cropped is untouched.
     async fn delete_vignette(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        vignette::delete_vignette(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            vignette::delete_vignette(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Create a media link.
@@ -1054,28 +1210,34 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateMediaLinkInput,
     ) -> Result<GqlMediaLink> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let link = media_link::create_media_link(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            input.try_into()?,
-        )
-        .await?;
-        Ok(link.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let link = media_link::create_media_link(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                input.try_into()?,
+            )
+            .await?;
+            Ok(link.into())
+        })
+        .await
     }
 
     /// Delete a media link (hard delete).
     async fn delete_media_link(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        media_link::delete_media_link(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            uuid(&id)?,
-        )
-        .await?;
-        Ok(true)
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            media_link::delete_media_link(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                uuid(&id)?,
+            )
+            .await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Note Mutations ───────────────────────────────────────────────
@@ -1087,18 +1249,22 @@ impl MutationRoot {
         tree_id: ID,
         input: CreateNoteInput,
     ) -> Result<GqlNote> {
-        let tid = live_tree(ctx, &tree_id).await?;
-        let new = NewNote {
-            text: input.text,
-            person_id: opt_uuid(input.person_id)?,
-            event_id: opt_uuid(input.event_id)?,
-            family_id: opt_uuid(input.family_id)?,
-            source_id: opt_uuid(input.source_id)?,
-            media_id: opt_uuid(input.media_id)?,
-            repository_id: opt_uuid(input.repository_id)?,
-        };
-        let note = note::create_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new).await?;
-        Ok(note.into())
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let new = NewNote {
+                text: input.text,
+                person_id: opt_uuid(input.person_id)?,
+                event_id: opt_uuid(input.event_id)?,
+                family_id: opt_uuid(input.family_id)?,
+                source_id: opt_uuid(input.source_id)?,
+                media_id: opt_uuid(input.media_id)?,
+                repository_id: opt_uuid(input.repository_id)?,
+            };
+            let note =
+                note::create_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new).await?;
+            Ok(note.into())
+        })
+        .await
     }
 
     /// Update a note.
@@ -1109,25 +1275,31 @@ impl MutationRoot {
         id: ID,
         input: UpdateNoteInput,
     ) -> Result<GqlNote> {
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        let note = note::update_note(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tid,
-            id,
-            NotePatch { text: input.text },
-        )
-        .await?;
-        Ok(note.into())
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let id = uuid(&id)?;
+            let note = note::update_note(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tid,
+                id,
+                NotePatch { text: input.text },
+            )
+            .await?;
+            Ok(note.into())
+        })
+        .await
     }
 
     /// Delete a note (soft delete).
     async fn delete_note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
-        let tid = live_tree(ctx, &tree_id).await?;
-        let id = uuid(&id)?;
-        note::delete_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
-        Ok(true)
+        boxed(async move {
+            let tid = live_tree(ctx, &tree_id).await?;
+            let id = uuid(&id)?;
+            note::delete_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, id).await?;
+            Ok(true)
+        })
+        .await
     }
 
     // ── Import Mutations ──────────────────────────────────────────────
@@ -1141,15 +1313,18 @@ impl MutationRoot {
         tree_id: ID,
         input: SetFamilyNameParticleInput,
     ) -> Result<GqlFamilyNameParticleUpdate> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let update = family_names::set_particle(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            input.into(),
-        )
-        .await?;
-        Ok(update.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let update = family_names::set_particle(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                input.into(),
+            )
+            .await?;
+            Ok(update.into())
+        })
+        .await
     }
 
     /// Give every person whose primary name carries one surname another one,
@@ -1161,15 +1336,18 @@ impl MutationRoot {
         tree_id: ID,
         input: RenameFamilyNameInput,
     ) -> Result<GqlFamilyNameRename> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let renamed = family_names::rename(
-            db_from_ctx(ctx),
-            profiles_from_ctx(ctx),
-            tree_id,
-            input.into(),
-        )
-        .await?;
-        Ok(renamed.into())
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let renamed = family_names::rename(
+                db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
+                tree_id,
+                input.into(),
+            )
+            .await?;
+            Ok(renamed.into())
+        })
+        .await
     }
 
     /// Queue a durable GEDZIP export. The artifact is downloaded through the
@@ -1186,21 +1364,24 @@ impl MutationRoot {
         include_notes_and_sources: Option<bool>,
         include_media: Option<bool>,
     ) -> Result<GqlBackgroundJobStarted> {
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let job_id = crate::service::background_job::start_export_job(
-            db_from_ctx(ctx),
-            tree_id,
-            crate::service::gedcom::export_choices(
-                merge_occupations,
-                merge_names,
-                include_notes_and_sources,
-                include_media,
-            ),
-        )
-        .await?;
-        Ok(GqlBackgroundJobStarted {
-            job_id: ID(job_id.to_string()),
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let job_id = crate::service::background_job::start_export_job(
+                db_from_ctx(ctx),
+                tree_id,
+                crate::service::gedcom::export_choices(
+                    merge_occupations,
+                    merge_names,
+                    include_notes_and_sources,
+                    include_media,
+                ),
+            )
+            .await?;
+            Ok(GqlBackgroundJobStarted {
+                job_id: ID(job_id.to_string()),
+            })
         })
+        .await
     }
 
     // ── Geneanet import wizard ───────────────────────────────────────
@@ -1211,29 +1392,33 @@ impl MutationRoot {
         ctx: &Context<'_>,
         input: GeneanetSessionEncodeInput,
     ) -> Result<GqlGeneanetSessionArchive> {
-        require_local_file_access(ctx)?;
-        let media = input
-            .media
-            .iter()
-            .filter_map(|entry| {
-                std::fs::read(&entry.path).ok().map(|bytes| {
-                    (
-                        entry.url.clone(),
-                        base64::engine::general_purpose::STANDARD.encode(bytes),
-                    )
+        boxed(async move {
+            require_local_file_access(ctx)?;
+            let media = input
+                .media
+                .iter()
+                .filter_map(|entry| {
+                    std::fs::read(&entry.path).ok().map(|bytes| {
+                        (
+                            entry.url.clone(),
+                            base64::engine::general_purpose::STANDARD.encode(bytes),
+                        )
+                    })
                 })
+                .collect();
+            let archive =
+                oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
+                    collection: input.collection,
+                    deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
+                    account: input.account,
+                    media,
+                })
+                .map_err(|error| oxidgene_core::OxidGeneError::Validation(error.to_string()))?;
+            Ok(GqlGeneanetSessionArchive {
+                archive_base64: base64::engine::general_purpose::STANDARD.encode(archive),
             })
-            .collect();
-        let archive = oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
-            collection: input.collection,
-            deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
-            account: input.account,
-            media,
         })
-        .map_err(|error| oxidgene_core::OxidGeneError::Validation(error.to_string()))?;
-        Ok(GqlGeneanetSessionArchive {
-            archive_base64: base64::engine::general_purpose::STANDARD.encode(archive),
-        })
+        .await
     }
 
     /// Delete the staged media of a decoded session the wizard closed or
@@ -1244,9 +1429,12 @@ impl MutationRoot {
         ctx: &Context<'_>,
         paths: Vec<String>,
     ) -> Result<bool> {
-        require_local_file_access(ctx)?;
-        crate::service::session_media::remove_owned(paths.iter().map(String::as_str));
-        Ok(true)
+        boxed(async move {
+            require_local_file_access(ctx)?;
+            crate::service::session_media::remove_owned(paths.iter().map(String::as_str));
+            Ok(true)
+        })
+        .await
     }
 
     /// Decode a saved Geneanet session. Its media are staged as local files
@@ -1256,43 +1444,48 @@ impl MutationRoot {
         ctx: &Context<'_>,
         archive_base64: String,
     ) -> Result<GqlGeneanetSession> {
-        require_local_file_access(ctx)?;
-        let permit = crate::service::intake::slot().await?;
-        let work_dir = super::types::work_dir_from_ctx(ctx).clone();
-        let session = crate::service::blocking::spawn(move || {
-            let _permit = permit;
-            let mut reader = base64::read::DecoderReader::new(
-                archive_base64.as_bytes(),
-                &base64::engine::general_purpose::STANDARD,
-            );
-            let mut upload = work_dir.anonymous_file()?;
-            std::io::copy(&mut reader, &mut upload)?;
-            std::io::Seek::rewind(&mut upload)?;
-            crate::service::session_media::decode(upload, &work_dir)
+        boxed(async move {
+            require_local_file_access(ctx)?;
+            let permit = crate::service::intake::slot().await?;
+            let work_dir = super::types::work_dir_from_ctx(ctx).clone();
+            let session = crate::service::blocking::spawn(move || {
+                let _permit = permit;
+                let mut reader = base64::read::DecoderReader::new(
+                    archive_base64.as_bytes(),
+                    &base64::engine::general_purpose::STANDARD,
+                );
+                let mut upload = work_dir.anonymous_file()?;
+                std::io::copy(&mut reader, &mut upload)?;
+                std::io::Seek::rewind(&mut upload)?;
+                crate::service::session_media::decode(upload, &work_dir)
+            })
+            .await
+            .map_err(|_| {
+                oxidgene_core::OxidGeneError::Internal("session decoding failed".into())
+            })??;
+            let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
+                .map(|manifest| manifest.view_count as i64)
+                .unwrap_or(0);
+            Ok(GqlGeneanetSession {
+                collection: session.collection,
+                deposit_sizes: session
+                    .deposit_sizes
+                    .into_iter()
+                    .map(|(deposit_id, size)| GqlGeneanetDepositSize {
+                        deposit_id,
+                        size: size as i64,
+                    })
+                    .collect(),
+                account: session.account,
+                photo_count,
+                media: session
+                    .media
+                    .into_iter()
+                    .map(|(url, path)| GqlGeneanetMediaPath { url, path })
+                    .collect(),
+            })
         })
         .await
-        .map_err(|_| oxidgene_core::OxidGeneError::Internal("session decoding failed".into()))??;
-        let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
-            .map(|manifest| manifest.view_count as i64)
-            .unwrap_or(0);
-        Ok(GqlGeneanetSession {
-            collection: session.collection,
-            deposit_sizes: session
-                .deposit_sizes
-                .into_iter()
-                .map(|(deposit_id, size)| GqlGeneanetDepositSize {
-                    deposit_id,
-                    size: size as i64,
-                })
-                .collect(),
-            account: session.account,
-            photo_count,
-            media: session
-                .media
-                .into_iter()
-                .map(|(url, path)| GqlGeneanetMediaPath { url, path })
-                .collect(),
-        })
     }
 
     /// Queue a Geneanet tree import with media collected by the desktop window.
@@ -1302,33 +1495,36 @@ impl MutationRoot {
         tree_id: ID,
         input: GeneanetImportInput,
     ) -> Result<GqlBackgroundJobStarted> {
-        require_local_file_access(ctx)?;
-        let db = db_from_ctx(ctx);
-        let media = media_from_ctx(ctx);
-        let tree_id = live_tree(ctx, &tree_id).await?;
-        let gw = base64::engine::general_purpose::STANDARD
-            .decode(&input.gw_base64)
-            .map_err(|error| {
-                oxidgene_core::OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
-            })?;
-        let _intake = crate::service::intake::slot().await?;
-        let job_id = crate::service::background_job::stage_geneanet_import(
-            db,
-            &**media,
-            super::types::work_dir_from_ctx(ctx),
-            tree_id,
-            &gw,
-            input.file_name,
-            input.collection,
-            geneanet_deposit_sizes(&input.deposit_sizes)?,
-            &input.archive_paths,
-            &geneanet_media_paths(&input.fetched),
-            input.media_fidelity.into(),
-        )
-        .await?;
-        Ok(GqlBackgroundJobStarted {
-            job_id: ID(job_id.to_string()),
+        boxed(async move {
+            require_local_file_access(ctx)?;
+            let db = db_from_ctx(ctx);
+            let media = media_from_ctx(ctx);
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let gw = base64::engine::general_purpose::STANDARD
+                .decode(&input.gw_base64)
+                .map_err(|error| {
+                    oxidgene_core::OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
+                })?;
+            let _intake = crate::service::intake::slot().await?;
+            let job_id = crate::service::background_job::stage_geneanet_import(
+                db,
+                &**media,
+                super::types::work_dir_from_ctx(ctx),
+                tree_id,
+                &gw,
+                input.file_name,
+                input.collection,
+                geneanet_deposit_sizes(&input.deposit_sizes)?,
+                &input.archive_paths,
+                &geneanet_media_paths(&input.fetched),
+                input.media_fidelity.into(),
+            )
+            .await?;
+            Ok(GqlBackgroundJobStarted {
+                job_id: ID(job_id.to_string()),
+            })
         })
+        .await
     }
 
     // ── History Mutations ────────────────────────────────────────────
@@ -1344,12 +1540,16 @@ impl MutationRoot {
         record_id: ID,
         version: i32,
     ) -> Result<GqlAuditEntry> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let rid = uuid(&record_id)?;
-        let entry = history::restore(db, profiles, tid, record_type.into(), rid, version).await?;
-        Ok(entry.into())
+        boxed(async move {
+            let db = db_from_ctx(ctx);
+            let profiles = profiles_from_ctx(ctx);
+            let tid = live_tree(ctx, &tree_id).await?;
+            let rid = uuid(&record_id)?;
+            let entry =
+                history::restore(db, profiles, tid, record_type.into(), rid, version).await?;
+            Ok(entry.into())
+        })
+        .await
     }
 
     // ── Projection Admin Mutations ───────────────────────────────────
@@ -1360,14 +1560,17 @@ impl MutationRoot {
         ctx: &Context<'_>,
         tree_id: ID,
     ) -> Result<GqlProfileRebuildResult> {
-        let db = db_from_ctx(ctx);
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let count = profiles.rebuild_tree_full(db, tid).await?;
-        Ok(GqlProfileRebuildResult {
-            rebuilt: true,
-            persons_count: count as i32,
+        boxed(async move {
+            let db = db_from_ctx(ctx);
+            let profiles = profiles_from_ctx(ctx);
+            let tid = live_tree(ctx, &tree_id).await?;
+            let count = profiles.rebuild_tree_full(db, tid).await?;
+            Ok(GqlProfileRebuildResult {
+                rebuilt: true,
+                persons_count: count as i32,
+            })
         })
+        .await
     }
 
     /// Rebuild the projection of a single person.
@@ -1377,21 +1580,27 @@ impl MutationRoot {
         tree_id: ID,
         person_id: ID,
     ) -> Result<GqlProfileRebuildResult> {
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        let pid = uuid(&person_id)?;
-        profiles.rebuild_one(tid, pid).await?;
-        Ok(GqlProfileRebuildResult {
-            rebuilt: true,
-            persons_count: 1,
+        boxed(async move {
+            let profiles = profiles_from_ctx(ctx);
+            let tid = live_tree(ctx, &tree_id).await?;
+            let pid = uuid(&person_id)?;
+            profiles.rebuild_one(tid, pid).await?;
+            Ok(GqlProfileRebuildResult {
+                rebuilt: true,
+                persons_count: 1,
+            })
         })
+        .await
     }
 
     /// Drop every projection of a tree. For debugging or after bulk operations.
     async fn drop_tree_profiles(&self, ctx: &Context<'_>, tree_id: ID) -> Result<bool> {
-        let profiles = profiles_from_ctx(ctx);
-        let tid = live_tree(ctx, &tree_id).await?;
-        profiles.drop_tree(tid).await?;
-        Ok(true)
+        boxed(async move {
+            let profiles = profiles_from_ctx(ctx);
+            let tid = live_tree(ctx, &tree_id).await?;
+            profiles.drop_tree(tid).await?;
+            Ok(true)
+        })
+        .await
     }
 }

@@ -1,7 +1,11 @@
 //! What every resolver does with the identifiers it receives: parse them, and
-//! check that the tree they are scoped to is live.
+//! check that the tree they are scoped to is live; and how a root resolver
+//! runs its body, from the heap.
+
+use std::future::Future;
 
 use async_graphql::{Context, ID, Result};
+use futures_util::future::BoxFuture;
 use oxidgene_core::OxidGeneError;
 use uuid::Uuid;
 
@@ -36,4 +40,20 @@ pub(crate) async fn live_tree(ctx: &Context<'_>, id: &ID) -> Result<Uuid> {
     let tree_id = uuid(id)?;
     require_live_tree(reader_from_ctx(ctx), tree_id).await?;
     Ok(tree_id)
+}
+
+/// Run a root resolver's body from the heap: every resolver of
+/// [`QueryRoot`](super::query::QueryRoot) and
+/// [`MutationRoot`](super::mutation::MutationRoot) is
+/// `boxed(async move { … }).await`.
+///
+/// async-graphql dispatches a root field through one generated `match` over
+/// every field of the root, and a debug build gives each arm's future its own
+/// slot in the frame that polls it: unboxed, that frame grew with the sum of
+/// all the resolvers' futures — the whole service call each one awaits — and
+/// a mutation needed nearly 2 MiB of stack, all a tokio worker or a test
+/// thread has. Boxed, each arm holds a pointer, and the stack holds only the
+/// frames of the resolver that runs.
+pub(crate) fn boxed<'a, T>(body: impl Future<Output = T> + Send + 'a) -> BoxFuture<'a, T> {
+    Box::pin(body)
 }
