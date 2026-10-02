@@ -375,7 +375,13 @@ pub async fn download_archive(
     let archive_span = tracing::info_span!("media.archive", page.count = pages.len());
     let (file, permit) =
         crate::service::blocking::spawn_in(archive_span, move || -> Result<_, OxidGeneError> {
-            let file = write_page_archive(&pages, &*state.media, &runtime, &mut cancelled)?;
+            let file = write_page_archive(
+                &pages,
+                &*state.media,
+                &state.work_dir,
+                &runtime,
+                &mut cancelled,
+            )?;
             Ok((file, permit))
         })
         .await
@@ -404,18 +410,20 @@ pub async fn download_archive(
     Ok((headers, Body::from_stream(stream)).into_response())
 }
 
-/// Writes `pages` into an anonymous temporary ZIP, rewound; blocking.
+/// Writes `pages` into an anonymous ZIP staged in `work_dir`, rewound;
+/// blocking.
 ///
 /// The file is removed on error, disconnect or EOF. It is finished before any
 /// header is sent, so a failed page cannot become a partial ZIP.
 fn write_page_archive(
     pages: &[Media],
     media: &dyn crate::media::MediaStore,
+    work_dir: &crate::workdir::WorkDir,
     runtime: &tokio::runtime::Handle,
     cancelled: &mut tokio::sync::oneshot::Receiver<()>,
 ) -> Result<std::fs::File, OxidGeneError> {
     use std::io::{Seek, Write};
-    let mut writer = zip::ZipWriter::new(tempfile::tempfile()?);
+    let mut writer = zip::ZipWriter::new(work_dir.anonymous_file()?);
     let digits = pages.len().to_string().len().max(3);
     let entry_failed = |_| OxidGeneError::Internal("archive entry creation failed".into());
     for (index, page) in pages.iter().enumerate() {

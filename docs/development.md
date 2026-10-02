@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:37:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
 ---
 
 # Development Environment and Workflows
@@ -342,8 +342,9 @@ Chromium when missing, and runs the suite; extra arguments go to Playwright
 `E2E_WEB_PORT` move them. Playwright starts two servers and refuses to reuse
 one already listening on those ports:
 
-- `e2e/scripts/backend.mjs` runs `oxidgene-server` on a SQLite database and a
-   media root inside a fresh temporary directory, removed when it stops, with
+- `e2e/scripts/backend.mjs` runs `oxidgene-server` on a SQLite database, a
+   media root and a working directory (`OXIDGENE_WORK_DIR`) inside a fresh
+   temporary directory, removed when it stops, with
    the web origin as its CORS origin. The suite never sees a developer's data.
 - `e2e/scripts/static-server.mjs` serves `target/dx/oxidgene-web/debug/web/public`,
    answering client-side routes with `index.html`, plus the web image's
@@ -665,9 +666,15 @@ or protocol constraints and must account for existing large genealogy exports.
 
 ### 5.3 Temporary files and ownership
 
-- Use `tempfile::NamedTempFile`, `TempPath`, or `TempDir` for private,
-   collision-resistant creation. Do not construct predictable names under
-   `/tmp` and then open them separately.
+- Stage every working file through `oxidgene_api::workdir::WorkDir`
+   (`job_scratch`, `staged_file`, `staged_directory`, `anonymous_file`),
+   never `std::env::temp_dir()` or a bare `tempfile::tempfile()`: the system
+   temporary directory is often a RAM-backed `tmpfs`, and an import stages
+   files as large as its archives ([Architecture §8.3](architecture.md#83-local-files)).
+   Those helpers create private, collision-resistant `tempfile` entries; do
+   not construct predictable names and then open them separately. Tests may
+   use `tempfile::tempdir()` for small fixtures; anything large goes under
+   `target/`, as `just real-import` does.
 - Transfer ownership explicitly when a temporary input moves from a request or
    WebView session into a durable background job. A worker must not depend on a
    login window or request-owned temporary directory remaining alive.

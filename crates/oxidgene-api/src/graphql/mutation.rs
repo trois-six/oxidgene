@@ -1258,16 +1258,17 @@ impl MutationRoot {
     ) -> Result<GqlGeneanetSession> {
         require_local_file_access(ctx)?;
         let permit = crate::service::intake::slot().await?;
+        let work_dir = super::types::work_dir_from_ctx(ctx).clone();
         let session = crate::service::blocking::spawn(move || {
             let _permit = permit;
             let mut reader = base64::read::DecoderReader::new(
                 archive_base64.as_bytes(),
                 &base64::engine::general_purpose::STANDARD,
             );
-            let mut upload = tempfile::tempfile()?;
+            let mut upload = work_dir.anonymous_file()?;
             std::io::copy(&mut reader, &mut upload)?;
             std::io::Seek::rewind(&mut upload)?;
-            crate::service::session_media::decode(upload)
+            crate::service::session_media::decode(upload, &work_dir)
         })
         .await
         .map_err(|_| oxidgene_core::OxidGeneError::Internal("session decoding failed".into()))??;
@@ -1314,6 +1315,7 @@ impl MutationRoot {
         let job_id = crate::service::background_job::stage_geneanet_import(
             db,
             &**media,
+            super::types::work_dir_from_ctx(ctx),
             tree_id,
             &gw,
             input.file_name,

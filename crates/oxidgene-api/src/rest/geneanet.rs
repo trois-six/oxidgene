@@ -193,7 +193,8 @@ pub async fn decode_session_handler(
 
     state.local_file_access.require()?;
     let permit = crate::service::intake::slot().await?;
-    let mut upload = tokio::fs::File::from_std(tempfile::tempfile().map_err(OxidGeneError::Io)?);
+    let mut upload =
+        tokio::fs::File::from_std(state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?);
     let mut chunks = body.into_data_stream();
     while let Some(chunk) = chunks.next().await {
         let chunk = chunk
@@ -202,9 +203,10 @@ pub async fn decode_session_handler(
     }
     upload.rewind().await.map_err(OxidGeneError::Io)?;
     let upload = upload.into_std().await;
+    let work_dir = state.work_dir.clone();
     let restored = crate::service::blocking::spawn(move || {
         let _permit = permit;
-        crate::service::session_media::decode(upload)
+        crate::service::session_media::decode(upload, &work_dir)
     })
     .await
     .map_err(|_| OxidGeneError::Internal("session decoding failed".into()))??;
@@ -291,6 +293,7 @@ pub async fn import_handler(
     let job_id = crate::service::background_job::stage_geneanet_import(
         &state.db,
         &*state.media,
+        &state.work_dir,
         tree_id,
         &gw,
         body.file_name,

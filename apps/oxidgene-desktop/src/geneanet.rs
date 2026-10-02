@@ -42,6 +42,7 @@ use dioxus::desktop::tao::window::Window;
 use dioxus::desktop::wry::{WebView, WebViewBuilder};
 use dioxus::desktop::{LogicalSize, WindowBuilder};
 use futures_channel::mpsc::UnboundedSender;
+use oxidgene_api::workdir::WorkDir;
 use oxidgene_geneanet::{is_geneanet_host, script};
 use oxidgene_ui::geneanet::{
     Collect, GeneanetBridge, GeneanetCollector, GeneanetEvent, WindowStrings,
@@ -194,6 +195,8 @@ struct Session {
     queued_fetch: Vec<String>,
     /// Where this run's media are being written, once anything has been.
     staging: Option<Staging>,
+    /// The working directory `staging` is created in.
+    work_dir: WorkDir,
     /// How many have been written, which is also how they are named.
     written: usize,
 }
@@ -201,10 +204,9 @@ struct Session {
 struct Staging(tempfile::TempDir);
 
 impl Staging {
-    fn create() -> Result<Self, String> {
-        tempfile::Builder::new()
-            .prefix("oxidgene-geneanet-")
-            .tempdir()
+    fn create(work_dir: &WorkDir) -> Result<Self, String> {
+        work_dir
+            .staged_directory("geneanet-")
             .map(Self)
             .map_err(|error| format!("could not create Geneanet staging directory: {error}"))
     }
@@ -253,11 +255,11 @@ impl Session {
 
     /// The directory this run's media are written to, created on first use.
     ///
-    /// Under the OS temp directory rather than the app's data directory: these
+    /// In the working directory rather than the app's data directory: these
     /// are working files that exist only until the import has read them.
     fn staging(&mut self) -> Result<&std::path::Path, String> {
         if self.staging.is_none() {
-            self.staging = Some(Staging::create()?);
+            self.staging = Some(Staging::create(&self.work_dir)?);
         }
         Ok(self.staging.as_ref().expect("staging was created").path())
     }
@@ -368,7 +370,9 @@ impl Session {
 ///
 /// Generic over the loop's user-event type: this handler never looks at one,
 /// and `dioxus-desktop` does not export the type it uses.
-pub fn install<T: 'static>() -> (
+pub fn install<T: 'static>(
+    work_dir: WorkDir,
+) -> (
     GeneanetBridge,
     impl FnMut(&Event<'_, T>, &EventLoopWindowTarget<T>) + 'static,
 ) {
@@ -398,7 +402,14 @@ pub fn install<T: 'static>() -> (
                         ));
                         continue;
                     }
-                    session = open(target, events, strings, collect, Arc::clone(&handler_inbox));
+                    session = open(
+                        target,
+                        events,
+                        strings,
+                        collect,
+                        Arc::clone(&handler_inbox),
+                        work_dir.clone(),
+                    );
                 }
                 // Dropping the session is what closes the window.
                 Request::Close => drop(session.take()),
@@ -676,6 +687,7 @@ fn open<T: 'static>(
     strings: WindowStrings,
     collect: Collect,
     inbox: Inbox,
+    work_dir: WorkDir,
 ) -> Option<Session> {
     let window = WindowBuilder::new()
         .with_title("Geneanet")
@@ -773,6 +785,7 @@ fn open<T: 'static>(
         fetching: None,
         queued_fetch: Vec::new(),
         staging: None,
+        work_dir,
         written: 0,
     })
 }
@@ -783,9 +796,12 @@ mod tests {
 
     #[test]
     fn staging_is_removed_when_its_owner_is_dropped() {
+        let root = tempfile::tempdir().expect("a working directory");
+        let work_dir = WorkDir::new(root.path());
         let path = {
-            let staging = Staging::create().expect("staging directory");
+            let staging = Staging::create(&work_dir).expect("staging directory");
             let path = staging.path().to_path_buf();
+            assert!(path.starts_with(work_dir.staging()));
             std::fs::write(path.join("00000.jpg"), b"temporary media").unwrap();
             assert!(path.exists());
             path

@@ -60,6 +60,8 @@ use oxidgene_db::repo::Connections;
 use std::sync::Arc;
 
 use mutation::MutationRoot;
+
+use crate::workdir::WorkDir;
 use query::QueryRoot;
 
 use self::error::SafeErrors;
@@ -80,7 +82,14 @@ pub fn build_schema(
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
 ) -> OxidGeneSchema {
-    build_schema_with_local_file_access(db.into(), profiles, purge, media, LocalFileAccess(false))
+    build_schema_with_local_file_access(
+        db.into(),
+        profiles,
+        purge,
+        media,
+        WorkDir::temporary(),
+        LocalFileAccess(false),
+    )
 }
 
 /// Queries read through the reader ([`types::reader_from_ctx`]), mutations
@@ -90,6 +99,7 @@ pub(crate) fn build_schema_with_local_file_access(
     profiles: Arc<ProfileService>,
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
+    work_dir: WorkDir,
     local_file_access: LocalFileAccess,
 ) -> OxidGeneSchema {
     Schema::build(QueryRoot, MutationRoot, EmptySubscription)
@@ -103,6 +113,7 @@ pub(crate) fn build_schema_with_local_file_access(
         .data(profiles)
         .data(purge)
         .data(media)
+        .data(work_dir)
         .data(local_file_access)
         .finish()
 }

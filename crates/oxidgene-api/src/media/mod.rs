@@ -31,11 +31,10 @@ pub use store::{S3Store, S3StoreConfig};
 ///
 /// The server overrides it with `OXIDGENE_MEDIA_ROOT`, which is what a
 /// container deployment mounting a volume will do. Falling back to `./media`
-/// only happens when the platform reports no data directory at all.
+/// only happens when the platform reports no user directories at all (see
+/// [`crate::app_dirs`]).
 pub fn default_root() -> PathBuf {
-    dirs::data_dir()
-        .map(|dir| dir.join("oxidgene").join("media"))
-        .unwrap_or_else(|| PathBuf::from("media"))
+    crate::app_dirs::AppDirs::resolve().map_or_else(|| PathBuf::from("media"), |dirs| dirs.media())
 }
 
 /// Largest single upload accepted, in bytes (128 MiB).

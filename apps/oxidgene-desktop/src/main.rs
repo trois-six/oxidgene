@@ -5,33 +5,48 @@
 //! frontend. The server answers only requests carrying a token generated at
 //! launch and known to this process alone.
 //!
-//! The SQLite database is stored in the platform data directory:
-//! - Linux:   `~/.local/share/oxidgene/oxidgene.db`
-//! - macOS:   `~/Library/Application Support/oxidgene/oxidgene.db`
-//! - Windows: `C:\Users\<user>\AppData\Roaming\oxidgene\oxidgene.db`
+//! Every file it writes goes to one of four directories, by kind, resolved
+//! once by `oxidgene_api::app_dirs::AppDirs` (the XDG Base Directory
+//! convention on Linux, the platform's equivalents elsewhere):
 //!
-//! There is no separate cache directory: the denormalized person projections
-//! live in the same SQLite file (`person_denorm`), written as part of each
-//! mutation, so nothing has to be warmed at startup or flushed at exit.
+//! - **data** (`~/.local/share/oxidgene`): `oxidgene.db` and `media/`, the
+//!   user's genealogy. There is no separate projection cache: the
+//!   denormalized person projections live in the same SQLite file
+//!   (`person_denorm`), written as part of each mutation.
+//! - **config** (`~/.config/oxidgene`): `themes/`, the custom themes the
+//!   user writes by hand.
+//! - **state** (`~/.local/state/oxidgene`): `webview/`, the window's web
+//!   profile — cookies, local storage holding the UI preferences such as the
+//!   language, media keys. Not a cache: clearing it resets the preferences.
+//! - **cache** (`~/.cache/oxidgene`): the working directory of jobs and
+//!   staged inputs (`jobs/`, `staging/`, see `oxidgene_api::workdir`), and
+//!   WebKitGTK's HTTP cache.
 //!
-//! The WebView data directory (`Config::with_data_directory`, set to
-//! `<data_dir>/webview/`) is honored very differently per platform — wry
-//! only forwards it to the OS webview engine on some of them:
+//! The WebView data directory (`Config::with_data_directory`, set to the
+//! state directory's `webview/`) is honored very differently per platform —
+//! wry only forwards it to the OS webview engine on some of them:
 //!
 //! - **Windows (WebView2):** fully honored. Cookies, cache, IndexedDB, and
 //!   WebView2's HSTS-equivalent network security state all live under
-//!   `<data_dir>/webview/`.
-//! - **Linux/BSD (WebKitGTK):** mostly honored via `WebsiteDataManager`'s
-//!   `base-data-directory`, but a few legacy properties — notably HSTS
-//!   storage — ignore it and fall back to `$XDG_DATA_HOME/<prgname>/`,
-//!   where `prgname` is set by GTK from the binary name
-//!   (`oxidgene-desktop`). We override it to `oxidgene` at startup so those
-//!   fallbacks land in the same namespace too.
+//!   `webview/`.
+//! - **Linux/BSD (WebKitGTK):** wry hands it to the `WebsiteDataManager` as
+//!   its `base-data-directory` and sets no `base-cache-directory`. Everything
+//!   derived from the former — local storage, IndexedDB, media keys, the
+//!   general `storage/`, and the cookie file wry places there — lands under
+//!   `webview/`. The disk cache and `CacheStorage` follow the unset cache
+//!   base to WebKit's default, `$XDG_CACHE_HOME/<prgname>`; the HSTS store
+//!   (`hsts-storage.sqlite`) also ignores the data base and falls back to
+//!   `$XDG_DATA_HOME/<prgname>/`, the only file of the web profile that does
+//!   not follow `webview/`. `prgname` is set by GTK from the binary name
+//!   (`oxidgene-desktop`); we override it to `oxidgene` at startup so those
+//!   fallbacks land in the application's own directories. Neither dioxus
+//!   nor wry lets the application set the HSTS directory itself, and it is a
+//!   disposable cache of servers' HTTPS policies.
 //! - **macOS/iOS (WKWebView):** *not* honored at all — wry's `WebContext`
 //!   is a no-op stub on this backend (see `wry::web_context`), so cookies,
 //!   DOM storage, and HSTS are all managed by WebKit's own
 //!   `WKWebsiteDataStore::defaultDataStore()`, entirely outside
-//!   `<data_dir>/webview/`. In a properly bundled `.app` this is still
+//!   `webview/`. In a properly bundled `.app` this is still
 //!   namespaced per-app via `CFBundleIdentifier`; there is currently no
 //!   macOS bundle/`Info.plist` in this repo, so that namespacing isn't
 //!   wired up yet. Revisit when macOS packaging is added — wry's
@@ -52,9 +67,11 @@ use std::sync::{Arc, Mutex};
 use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::access::{AllowedHosts, LocalToken, allowed_hosts, require_local_token};
+use oxidgene_api::app_dirs::AppDirs;
 use oxidgene_api::startup::{
     ReferenceWarmup, open_database, spawn_background_worker, with_health_check,
 };
+use oxidgene_api::workdir::WorkDir;
 use oxidgene_api::{AppState, build_router, request_context};
 #[cfg(feature = "telemetry")]
 use oxidgene_observability::{
@@ -281,24 +298,22 @@ fn main() {
     #[cfg(feature = "telemetry")]
     let telemetry = Arc::new(Mutex::new(Some(init_telemetry(&cli))));
 
-    // ── Resolve data directory (SQLite) ──────────────────────────────
-    let data_dir = dirs::data_dir()
-        .expect("could not determine platform data directory")
-        .join("oxidgene");
+    // ── Resolve the application's directories ────────────────────────
+    let app_dirs = app_dirs_or_exit();
 
     if cli.mcp {
-        let status = mcp::run(&data_dir.join("oxidgene.db"));
+        let status = mcp::run(&app_dirs.database());
         #[cfg(feature = "telemetry")]
         shutdown_telemetry(&telemetry);
         std::process::exit(status);
     }
 
-    std::fs::create_dir_all(&data_dir).unwrap_or_else(|_| {
-        error!(error = "data_directory", "Failed to create data directory");
-        std::process::exit(1);
-    });
+    create_data_dir_or_exit(&app_dirs);
 
-    let db_path = data_dir.join("oxidgene.db");
+    let db_path = app_dirs.database();
+    let media_root = app_dirs.media();
+    let work_dir = WorkDir::new(app_dirs.work());
+    let server_work_dir = work_dir.clone();
     let database_url = format!("sqlite://{}?mode=rwc", db_path.display());
     info!("Using local SQLite database");
 
@@ -320,9 +335,12 @@ fn main() {
 
             // Same platform data directory the web server defaults to, so a
             // desktop tree exported and re-imported on the server finds its
-            // files in the expected place.
-            let state =
-                AppState::new(db, oxidgene_api::media::default_root()).with_local_file_access();
+            // files in the expected place. The worker's maintenance passes,
+            // the first at start, sweep what a crashed run left in the
+            // working directory.
+            let state = AppState::new(db, media_root)
+                .with_work_dir(server_work_dir)
+                .with_local_file_access();
             // This process is the only worker of its SQLite database.
             spawn_background_worker(&state, true, "desktop").await;
             // Outside the token and host checks, so a refused request still
@@ -395,9 +413,10 @@ fn main() {
     // The Geneanet import wizard's step 3 needs a second browser window on
     // geneanet.org, which only the event loop can create — so the bridge the
     // UI talks to and the handler that services it are installed together.
-    let (geneanet_bridge, mut geneanet_handler) = geneanet::install();
-    let theme_loader = CustomThemeLoader::new(themes::DesktopThemeSource::install(&data_dir));
-    let cfg = window_config(&data_dir);
+    let (geneanet_bridge, mut geneanet_handler) = geneanet::install(work_dir);
+    let theme_loader =
+        CustomThemeLoader::new(themes::DesktopThemeSource::install(&app_dirs.themes()));
+    let cfg = window_config(&app_dirs.webview());
     let mut launch = dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_context(geneanet_bridge)
@@ -430,6 +449,26 @@ fn main() {
             }
         }))
         .launch(media_assets::DesktopApp);
+}
+
+/// The application's directories, or the end of the process when the
+/// platform knows no home for them.
+fn app_dirs_or_exit() -> AppDirs {
+    AppDirs::resolve().unwrap_or_else(|| {
+        error!(
+            error = "data_directory",
+            "Could not determine the user's directories"
+        );
+        std::process::exit(1);
+    })
+}
+
+/// Create the data directory the database opens in, or end the process.
+fn create_data_dir_or_exit(app_dirs: &AppDirs) {
+    std::fs::create_dir_all(&app_dirs.data).unwrap_or_else(|_| {
+        error!(error = "data_directory", "Failed to create data directory");
+        std::process::exit(1);
+    });
 }
 
 /// Wait for the embedded server to report its port, then build the client
@@ -499,8 +538,8 @@ fn shutdown_telemetry(telemetry: &Mutex<Option<TelemetryGuard>>) {
 }
 
 /// The main window's configuration: its title, size and icon, and the
-/// webview's data directory under `data_dir`.
-fn window_config(data_dir: &std::path::Path) -> Config {
+/// webview's data directory, `webview_dir`.
+fn window_config(webview_dir: &std::path::Path) -> Config {
     let mut cfg = Config::new()
         // The window's page loads no plugin and resolves no URL against a
         // `<base>` some markup could slip in. Scripts and styles stay as the
@@ -510,7 +549,7 @@ fn window_config(data_dir: &std::path::Path) -> Config {
             r#"<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'">"#
                 .to_string(),
         )
-        .with_data_directory(data_dir.join("webview"))
+        .with_data_directory(webview_dir)
         .with_menu(None::<dioxus::desktop::muda::Menu>)
         .with_window(
             WindowBuilder::new()

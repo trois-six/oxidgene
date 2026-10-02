@@ -22,6 +22,7 @@ use crate::error_contract::error_kind;
 use crate::media::MediaStore;
 use crate::media::store::{job_blob_key, job_input_blob_key};
 use crate::profile::ProfileService;
+use crate::workdir::WorkDir;
 
 pub const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(30);
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -152,6 +153,7 @@ pub struct BackgroundJobWorker {
     worker_id: String,
     lease_duration: Duration,
     poll_interval: Duration,
+    work_dir: WorkDir,
 }
 
 impl std::fmt::Debug for BackgroundJobWorker {
@@ -185,7 +187,21 @@ impl BackgroundJobWorker {
             worker_id: worker_id.into(),
             lease_duration,
             poll_interval: DEFAULT_POLL_INTERVAL,
+            work_dir: WorkDir::temporary(),
         }
+    }
+
+    /// Keep job scratch under `work_dir` (see [`crate::workdir`]).
+    #[must_use]
+    pub fn with_work_dir(mut self, work_dir: WorkDir) -> Self {
+        self.work_dir = work_dir;
+        self
+    }
+
+    /// A scratch directory for job `job_id`, removed when dropped: when
+    /// the job ends, completed or failed.
+    fn scratch(&self, job_id: Uuid) -> Result<tempfile::TempDir, OxidGeneError> {
+        self.work_dir.job_scratch(job_id).map_err(OxidGeneError::Io)
     }
 
     /// Claim and execute at most one job. Returns whether work was claimed.
@@ -300,10 +316,19 @@ impl BackgroundJobWorker {
     /// Bound what ended jobs leave behind, as of `now`: delete the
     /// artifacts of exports completed more than [`EXPORT_ARTIFACT_TTL`] ago,
     /// the rows (and any objects) of jobs ended more than
-    /// [`ENDED_JOB_RETENTION`] ago, and the objects under `jobs/` that no job
-    /// needs any more, once older than a day. Failures are logged; the next
-    /// pass retries.
+    /// [`ENDED_JOB_RETENTION`] ago, the objects under `jobs/` that no job
+    /// needs any more, once older than a day, and the working files a
+    /// crashed run left (see [`WorkDir::sweep`]). Failures are logged; the
+    /// next pass retries.
     pub async fn maintain(&self, now: chrono::DateTime<chrono::Utc>) {
+        let work_dir = self.work_dir.clone();
+        let swept = tokio::task::spawn_blocking(move || work_dir.sweep(now.into())).await;
+        log_maintenance_failure(
+            "working_file_sweep",
+            swept
+                .map(drop)
+                .map_err(|error| OxidGeneError::Internal(error.to_string())),
+        );
         let media = &*self.media;
         log_maintenance_failure(
             "export_artifact_expiry",
@@ -350,7 +375,7 @@ impl BackgroundJobWorker {
             self.finish_import(job, source_key, summary).await?;
             return Ok(());
         }
-        let scratch = ScratchDirectory::new(job.id).await?;
+        let scratch = self.scratch(job.id)?;
         let source = scratch.path().join(format!("source.{}", job.format));
         self.progress(job.id, "staging", 0, 0).await?;
         self.media.get_to_file(source_key, &source).await?;
@@ -441,7 +466,7 @@ impl BackgroundJobWorker {
             return Ok(());
         }
 
-        let scratch = ScratchDirectory::new(job.id).await?;
+        let scratch = self.scratch(job.id)?;
         self.progress(job.id, "staging", 0, 0).await?;
         let source = scratch.path().join("source.gw");
         self.media.get_to_file(source_key, &source).await?;
@@ -617,7 +642,7 @@ impl BackgroundJobWorker {
         if job.format != "gedzip" {
             return Err(OxidGeneError::Validation("unknown export format".into()));
         }
-        let scratch = ScratchDirectory::new(job.id).await?;
+        let scratch = self.scratch(job.id)?;
         self.progress(job.id, "loading", 0, 0).await?;
         let data = self
             .with_heartbeat(
@@ -1230,22 +1255,6 @@ mod tests {
     }
 }
 
-struct ScratchDirectory(tempfile::TempDir);
-
-impl ScratchDirectory {
-    async fn new(job_id: Uuid) -> Result<Self, OxidGeneError> {
-        tempfile::Builder::new()
-            .prefix(&format!("oxidgene-job-{job_id}-"))
-            .tempdir()
-            .map(Self)
-            .map_err(OxidGeneError::Io)
-    }
-
-    fn path(&self) -> &Path {
-        self.0.path()
-    }
-}
-
 fn safe_origin_file(filename: Option<&str>) -> String {
     filename
         .and_then(|name| Path::new(name).file_name())
@@ -1372,6 +1381,7 @@ pub async fn stage_import(
 pub async fn stage_geneanet_import(
     db: &DatabaseConnection,
     media: &dyn MediaStore,
+    work_dir: &WorkDir,
     tree_id: Uuid,
     gw: &[u8],
     file_name: String,
@@ -1383,7 +1393,7 @@ pub async fn stage_geneanet_import(
 ) -> Result<Uuid, OxidGeneError> {
     TreeRepo::get(db, tree_id).await?;
     let job_id = Uuid::now_v7();
-    let scratch = ScratchDirectory::new(job_id).await?;
+    let scratch = work_dir.job_scratch(job_id)?;
     let source_path = scratch.path().join("source.gw");
     tokio::fs::write(&source_path, gw).await?;
 

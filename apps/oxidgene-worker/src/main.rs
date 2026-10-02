@@ -40,7 +40,10 @@ async fn main() {
     let profiles = Arc::new(ProfileService::new(db.clone()));
     let worker_id = format!("worker-{}", uuid::Uuid::now_v7());
     info!("Starting OxidGene background worker");
-    let worker = BackgroundJobWorker::new(db, profiles, media, worker_id);
+    // Its maintenance passes, the first at start, sweep what a crashed run
+    // left in the working directory.
+    let worker =
+        BackgroundJobWorker::new(db, profiles, media, worker_id).with_work_dir(config.work_dir());
     tokio::select! {
         () = worker.run() => {}
         () = shutdown_signal() => {}

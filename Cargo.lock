@@ -5109,7 +5109,6 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "dioxus",
- "dirs",
  "embed-resource",
  "futures-channel",
  "glib",

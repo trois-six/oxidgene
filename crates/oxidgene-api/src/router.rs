@@ -555,6 +555,7 @@ pub fn build_router(state: AppState) -> Router {
         state.profiles.clone(),
         state.purge.clone(),
         state.media.clone(),
+        state.work_dir.clone(),
         state.local_file_access,
     );
 

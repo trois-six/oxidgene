@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:42Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -32,17 +32,19 @@ live there too)
 >
 > Files are stored on the filesystem, content-addressed and scoped per tree,
 > behind `MediaStore`. During Geneanet import, the login WebView first writes
-> gathered media to a temporary directory. The embedded backend copies those
+> gathered media to a staging directory. The embedded backend copies those
 > files into durable, job-owned `MediaStore` keys before returning the job id;
 > media bytes do not pass through REST or GraphQL. A shared photo is stored once
 > and linked many times, while multi-page documents preserve their page
 > structure.
 
-The staging directory is created lazily under the operating system's temporary
-directory and belongs to the desktop login-window session. The session remains
+The staging directory is created lazily in the application's working
+directory (`~/.cache/oxidgene/staging/`, [Architecture §8.3](architecture.md#83-local-files)),
+never the operating system's temporary directory, and belongs to the desktop
+login-window session. The session remains
 alive, with its window hidden after gathering, only until the embedded backend
 has durably copied every staged path and accepted the job. The UI then destroys
-the session and removes its temporary directory while the worker runs
+the session and removes its staging directory while the worker runs
 independently. When archives cover every required medium, no gathered-media
 directory is needed.
 
@@ -718,9 +720,10 @@ prevents decompression amplification without imposing an absolute session-size
 limit. The deflated JSON manifest is read through a separate bounded path.
 
 Loading a session in the desktop streams its bytes to a private backend
-temporary file. Media are extracted sequentially to staging files, not held as
-an in-memory base64 album. There is no fixed total session-size limit; temporary
-disk capacity must cover both the archive and extracted media. At most two
+file in the working directory's `staging/`. Media are extracted sequentially
+to staging files there, not held as an in-memory base64 album. There is no
+fixed total session-size limit; the working directory's disk must cover both
+the archive and extracted media. At most two
 session uploads/extractions run concurrently. The collection and entry metadata
 remain in memory; media memory does not grow with album size. Invalid archives
 discard all files staged by that attempt.

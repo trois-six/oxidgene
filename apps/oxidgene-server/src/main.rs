@@ -64,7 +64,11 @@ async fn main() {
     );
     let uses_sqlite = cfg.database_url.starts_with("sqlite:");
     let embedded_worker = uses_sqlite || cfg.media_backend == MediaBackend::Filesystem;
-    let state = AppState::with_media_store(db, media);
+    let work_dir = cfg.work_dir();
+    // Before any job or upload: what a crashed run left.
+    let sweep = work_dir.clone();
+    tokio::task::spawn_blocking(move || sweep.sweep(std::time::SystemTime::now()));
+    let state = AppState::with_media_store(db, media).with_work_dir(work_dir);
     if embedded_worker {
         // SQLite has no separate worker: this process was the only one
         // running the jobs a previous run left marked as running.

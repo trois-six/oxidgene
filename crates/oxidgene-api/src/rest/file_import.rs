@@ -16,17 +16,16 @@ use super::dto::{FileImportStartedResponse, StartFileImportQuery};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::background_job::{self, ImportJobStatus};
+use crate::workdir::WorkDir;
 
 pub const FILE_IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
 
+/// An upload staged in the working directory, removed when dropped.
 struct TemporaryUpload(tempfile::NamedTempFile);
 
 impl TemporaryUpload {
-    fn new() -> Result<Self, std::io::Error> {
-        tempfile::Builder::new()
-            .prefix("oxidgene-import-")
-            .tempfile()
-            .map(Self)
+    fn new(work_dir: &WorkDir) -> Result<Self, std::io::Error> {
+        work_dir.staged_file("import-").map(Self)
     }
 
     fn path(&self) -> &FilePath {
@@ -51,7 +50,7 @@ pub async fn start(
     let _intake = crate::service::intake::slot().await?;
 
     let job_id = Uuid::now_v7();
-    let upload = TemporaryUpload::new().map_err(OxidGeneError::Io)?;
+    let upload = TemporaryUpload::new(&state.work_dir).map_err(OxidGeneError::Io)?;
     stream_to_file(body, upload.reopen().map_err(OxidGeneError::Io)?).await?;
     background_job::stage_import(
         &state.db,
@@ -111,7 +110,10 @@ mod tests {
 
     #[test]
     fn dropping_an_upload_removes_its_private_file() {
-        let upload = TemporaryUpload::new().expect("creates private upload");
+        let root = tempfile::tempdir().expect("a working directory");
+        let work_dir = WorkDir::new(root.path());
+        let upload = TemporaryUpload::new(&work_dir).expect("creates private upload");
+        assert!(upload.path().starts_with(work_dir.staging()));
         std::fs::write(upload.path(), b"partial").expect("writes upload");
         let path = upload.path().to_path_buf();
 

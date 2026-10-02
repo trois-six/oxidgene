@@ -74,6 +74,10 @@ spec:
                   key: {{ include "oxidgene.s3SecretKeyKey" . }}
             - name: TMPDIR
               value: /tmp
+            # Job scratch and staged uploads: disk-backed, never the
+            # container's /tmp.
+            - name: OXIDGENE_WORK_DIR
+              value: /var/cache/oxidgene
             {{- with .Values.worker.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -82,8 +86,12 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: work
+              mountPath: /var/cache/oxidgene
       volumes:
         - name: tmp
+          emptyDir: {}
+        - name: work
           emptyDir: {}
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:

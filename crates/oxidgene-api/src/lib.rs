@@ -6,6 +6,7 @@
 //! - A router builder to wire up all routes
 
 pub mod access;
+pub mod app_dirs;
 mod embedded;
 mod error_contract;
 #[cfg(feature = "graphql")]
@@ -21,6 +22,7 @@ pub mod rest;
 pub mod router;
 pub mod service;
 pub mod startup;
+pub mod workdir;
 
 #[cfg(feature = "graphql")]
 pub use graphql::{OxidGeneSchema, build_schema};

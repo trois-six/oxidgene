@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
 use crate::service::purge::{self, PurgeQueue};
+use crate::workdir::WorkDir;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LocalFileAccess(pub(crate) bool);
@@ -41,6 +42,8 @@ pub struct AppState {
     pub purge: PurgeQueue,
     /// Where uploaded files and their thumbnails live.
     pub media: Arc<dyn MediaStore>,
+    /// Where requests stage the files they hand to a job.
+    pub work_dir: WorkDir,
     pub(crate) local_file_access: LocalFileAccess,
 }
 
@@ -79,8 +82,17 @@ impl AppState {
             profiles,
             purge,
             media,
+            work_dir: WorkDir::temporary(),
             local_file_access: LocalFileAccess(false),
         }
+    }
+
+    /// Stage working files under `work_dir` rather than the system's
+    /// temporary directory, which every binary does (see [`crate::workdir`]).
+    #[must_use]
+    pub fn with_work_dir(mut self, work_dir: WorkDir) -> Self {
+        self.work_dir = work_dir;
+        self
     }
 
     /// The writer and the reader, for the GraphQL schema.
@@ -94,7 +106,7 @@ impl AppState {
     /// Allow handlers to consume filesystem paths supplied by the local desktop UI.
     ///
     /// That is also what lets this backend stage a Geneanet session's media
-    /// in temporary files, so it starts what bounds their life (see
+    /// in working files, so it starts what bounds their life (see
     /// [`crate::service::session_media`]).
     pub fn with_local_file_access(mut self) -> Self {
         self.local_file_access = LocalFileAccess(true);

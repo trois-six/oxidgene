@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
 ---
 
 # OxidGene Quickstart
@@ -210,6 +210,7 @@ the Helm chart set these for you; a server run by hand reads:
 | `OXIDGENE_GRAPHIQL` | `false` | Serve GraphiQL at `GET /graphql`. Its page loads scripts from a public CDN, so it is meant for development; Compose and `just dev-web` turn it on. |
 | `OXIDGENE_MEDIA_BACKEND` | `filesystem` | `filesystem` or `s3`. |
 | `OXIDGENE_MEDIA_ROOT` | Platform data directory | Filesystem media root. |
+| `OXIDGENE_WORK_DIR` | The user's cache directory (`~/.cache/oxidgene`); `/var/cache/oxidgene` in the images | Disposable working files: job scratch and staged uploads ([Architecture §8.3](architecture.md#83-local-files)). Keep it on disk, not on a RAM-backed `/tmp`: an import stages files as large as its archives. |
 | `OXIDGENE_S3_BUCKET`, `OXIDGENE_S3_REGION` | `oxidgene-media`, `us-east-1` | S3 bucket and signing region. |
 | `OXIDGENE_S3_ENDPOINT` | Unset (AWS) | S3-compatible endpoint. A plain `http://` endpoint is meant for development: beyond loopback the server starts with an `s3_plain_http` warning, since media and signed requests then cross the network unencrypted. |
 | `OXIDGENE_S3_ACCESS_KEY_ID`, `OXIDGENE_S3_SECRET_ACCESS_KEY` | Unset | S3 credentials; the secret never reaches a log. |
@@ -218,7 +219,8 @@ the Helm chart set these for you; a server run by hand reads:
 
 The chart deploys the static frontend and Axum backend as PVC-free workloads.
 In production, PostgreSQL and object storage hold all durable web data, while
-import scratch files use ephemeral `/tmp` volumes. For local evaluation, the
+import scratch files use an ephemeral `emptyDir` working directory mounted at
+`/var/cache/oxidgene` (`OXIDGENE_WORK_DIR`). For local evaluation, the
 backend can instead keep SQLite and media in ephemeral pod filesystems. The
 chart supports:
 

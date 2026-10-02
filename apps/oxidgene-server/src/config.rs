@@ -14,6 +14,7 @@
 //! | `OXIDGENE_GRAPHIQL`              | `false`                                    | Serve GraphiQL at `GET /graphql` |
 //! | `OXIDGENE_MEDIA_BACKEND`         | `filesystem`                               | `filesystem` or `s3`        |
 //! | `OXIDGENE_MEDIA_ROOT`            | platform data dir (see below)              | Filesystem media root       |
+//! | `OXIDGENE_WORK_DIR`              | user cache dir (see below)                 | Job scratch, staged uploads |
 //! | `OXIDGENE_S3_BUCKET`             | `oxidgene-media`                            | S3 bucket                   |
 //! | `OXIDGENE_S3_REGION`             | `us-east-1`                                | S3 signing region           |
 //! | `OXIDGENE_S3_ENDPOINT`           | unset                                      | S3-compatible endpoint      |
@@ -28,6 +29,12 @@
 //! `~/.local/share/oxidgene/media` on Linux. A containerised deployment
 //! normally overrides it with the mount point of a persistent volume.
 //!
+//! `OXIDGENE_WORK_DIR` holds the disposable working files of jobs and
+//! uploads (see `oxidgene_api::workdir`). It defaults to the user's cache
+//! directory — `~/.cache/oxidgene` on Linux — and to the system's temporary
+//! directory only without one. It must be on disk: an import stages files
+//! as large as the archives it reads, which a RAM-backed `/tmp` cannot hold.
+//!
 //! An optional config file can be placed at `oxidgene.toml` in the working
 //! directory. Environment variables always override file values.
 
@@ -37,6 +44,7 @@ use std::sync::Arc;
 use config::{Config, Environment, File};
 use oxidgene_api::access::AllowedHosts;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
+use oxidgene_api::workdir::WorkDir;
 use oxidgene_observability::{InvalidLogFormat, LogFormat};
 use serde::Deserialize;
 
@@ -103,6 +111,11 @@ pub struct ServerConfig {
     #[serde(default = "default_media_root")]
     pub media_root: PathBuf,
 
+    /// Where jobs and uploads keep their disposable working files; the
+    /// user's cache directory when unset.
+    #[serde(default)]
+    pub work_dir: Option<PathBuf>,
+
     /// Media storage implementation selected at startup.
     #[serde(default)]
     pub media_backend: MediaBackend,
@@ -140,6 +153,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("allowed_hosts", &self.allowed_hosts)
             .field("graphiql", &self.graphiql)
             .field("media_root", &self.media_root)
+            .field("work_dir", &self.work_dir)
             .field("media_backend", &self.media_backend)
             .field("s3_bucket", &self.s3_bucket)
             .field("s3_region", &self.s3_region)
@@ -249,6 +263,13 @@ impl ServerConfig {
         self.log_format.parse()
     }
 
+    /// The working directory `OXIDGENE_WORK_DIR` names, or the default.
+    pub fn work_dir(&self) -> WorkDir {
+        self.work_dir
+            .clone()
+            .map_or_else(WorkDir::user_default, WorkDir::new)
+    }
+
     pub fn media_store(&self) -> Result<Arc<dyn MediaStore>, String> {
         match self.media_backend {
             MediaBackend::Filesystem => Ok(Arc::new(FsStore::new(&self.media_root))),
@@ -291,6 +312,24 @@ mod tests {
             .and_then(Config::try_deserialize)
             .expect("every field has a default");
         assert!(!config.graphiql);
+    }
+
+    #[test]
+    fn the_work_dir_is_the_one_configured_or_the_users_cache() {
+        let configured: ServerConfig = Config::builder()
+            .set_override("work_dir", "/srv/oxidgene-work")
+            .and_then(|builder| builder.build())
+            .and_then(Config::try_deserialize)
+            .expect("a configured work directory");
+        assert_eq!(
+            configured.work_dir().root(),
+            std::path::Path::new("/srv/oxidgene-work")
+        );
+        let unset: ServerConfig = Config::builder()
+            .build()
+            .and_then(Config::try_deserialize)
+            .expect("every field has a default");
+        assert_eq!(unset.work_dir(), WorkDir::user_default());
     }
 
     #[test]

@@ -22,7 +22,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid 1000 oxidgene && \
-    useradd --uid 1000 --gid oxidgene --create-home oxidgene
+    useradd --uid 1000 --gid oxidgene --create-home oxidgene && \
+    install -d -o oxidgene -g oxidgene /var/cache/oxidgene
 
 COPY --from=builder /app/target/release/oxidgene-worker /usr/local/bin/oxidgene-worker
 
@@ -31,5 +32,8 @@ WORKDIR /home/oxidgene
 
 ENV OXIDGENE_LOG_LEVEL=info
 ENV OXIDGENE_LOG_FORMAT=json
+# Job scratch, on disk: an import stages files as large as the archives it
+# reads. Mount a volume here to keep them off the container's writable layer.
+ENV OXIDGENE_WORK_DIR=/var/cache/oxidgene
 
 ENTRYPOINT ["oxidgene-worker"]

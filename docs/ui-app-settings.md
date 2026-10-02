@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:13:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
 ---
 
 
@@ -114,7 +114,7 @@ theme as a tile:
 |                                                            |
 |  Themes are JSON files. Drop one into this folder and      |
 |  open this page again to see it here.                      |
-|  `/home/<user>/.local/share/oxidgene/themes`               |
+|  `/home/<user>/.config/oxidgene/themes`                    |
 +-----------------------------------------------------------+
 ```
 
@@ -146,7 +146,8 @@ restoring the file restores the choice.
 
 ### Custom themes
 
-Custom themes are read from `<data directory>/themes/*.json` and are a desktop
+Custom themes are read from `<config directory>/themes/*.json` —
+`~/.config/oxidgene/themes/` on Linux ([Architecture §8.3](architecture.md#83-local-files)) — and are a desktop
 capability: the browser build has no folder to read and shows a note saying so
 instead of a path. The folder is created on launch so that the path shown is
 one the user can open.

@@ -3263,6 +3263,7 @@ async fn test_geneanet_import_resumes_from_projection_checkpoint() {
     let job_id = oxidgene_api::service::background_job::stage_geneanet_import(
         &state.db,
         &*state.media,
+        &state.work_dir,
         tree_id,
         b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n",
         "family.gw".to_string(),
@@ -3498,7 +3499,8 @@ async fn job_maintenance_bounds_what_ended_jobs_leave_behind() {
         std::sync::Arc::clone(&state.profiles),
         std::sync::Arc::clone(&state.media),
         "rest-test-maintenance-worker",
-    );
+    )
+    .with_work_dir(oxidgene_api::workdir::WorkDir::new(media_root.join("work")));
     let app = build_router(state.clone());
     let tree_id = create_tree_via_api(&app).await;
     let (_, started) = send(
@@ -3513,6 +3515,23 @@ async fn job_maintenance_bounds_what_ended_jobs_leave_behind() {
     let artifact = media_root.join("jobs").join(&job_id);
     assert!(artifact.exists());
 
+    // The job packed its archive in the configured working directory, and
+    // removed its scratch when it ended.
+    let scratch = media_root.join("work").join("jobs");
+    assert_eq!(
+        std::fs::read_dir(&scratch)
+            .expect("the job's scratch root")
+            .count(),
+        0
+    );
+    // What a crashed run left: a job's scratch and a staged upload.
+    let crashed = scratch.join(format!("{}-crashed", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&crashed).unwrap();
+    std::fs::write(crashed.join("artifact.gdz"), b"fixture").unwrap();
+    let staged = media_root.join("work").join("staging").join("upload-left");
+    std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
+    std::fs::write(&staged, b"fixture").unwrap();
+
     // An object no job row points at: inputs stored by a crashed request.
     let orphan = uuid::Uuid::now_v7();
     let input = media_root.join("orphan-input");
@@ -3526,6 +3545,10 @@ async fn job_maintenance_bounds_what_ended_jobs_leave_behind() {
     let now = chrono::Utc::now();
     worker.maintain(now).await;
     assert!(artifact.exists(), "a fresh artifact waits for its download");
+    assert!(
+        crashed.exists() && staged.exists(),
+        "recent working files stay"
+    );
     assert!(media_root.join("jobs").join(orphan.to_string()).exists());
 
     worker.maintain(now + chrono::Duration::hours(2)).await;
@@ -3540,6 +3563,8 @@ async fn job_maintenance_bounds_what_ended_jobs_leave_behind() {
     let (status, _) = send(&app, Method::GET, &status_uri, None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "an ended job is pruned");
     assert!(!media_root.join("jobs").join(orphan.to_string()).exists());
+    assert!(!crashed.exists(), "a crashed job's scratch is swept");
+    assert!(!staged.exists(), "a stale staged input is swept");
     let _ = std::fs::remove_dir_all(&media_root);
 }
 

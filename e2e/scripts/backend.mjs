@@ -24,6 +24,7 @@ const server = spawn("cargo", ["run", "--locked", "--quiet", "--package", "oxidg
         OXIDGENE_DATABASE_URL: `sqlite://${join(scratch, "e2e.db")}?mode=rwc`,
         OXIDGENE_MEDIA_BACKEND: "filesystem",
         OXIDGENE_MEDIA_ROOT: join(scratch, "media"),
+        OXIDGENE_WORK_DIR: join(scratch, "work"),
         OXIDGENE_CORS_ORIGIN: `http://127.0.0.1:${webPort}`,
         OXIDGENE_LOG_LEVEL: process.env.OXIDGENE_LOG_LEVEL ?? "warn",
     },

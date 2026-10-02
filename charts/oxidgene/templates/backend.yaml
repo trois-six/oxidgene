@@ -124,6 +124,10 @@ spec:
             {{- end }}
             - name: TMPDIR
               value: /tmp
+            # Job scratch and staged uploads: disk-backed, never the
+            # container's /tmp.
+            - name: OXIDGENE_WORK_DIR
+              value: /var/cache/oxidgene
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -148,6 +152,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: work
+              mountPath: /var/cache/oxidgene
             {{- if eq .Values.database.mode "disabled" }}
             - name: database
               mountPath: {{ required "database.sqlite.directory is required" .Values.database.sqlite.directory | quote }}
@@ -158,6 +164,8 @@ spec:
             {{- end }}
       volumes:
         - name: tmp
+          emptyDir: {}
+        - name: work
           emptyDir: {}
         {{- if eq .Values.database.mode "disabled" }}
         - name: database

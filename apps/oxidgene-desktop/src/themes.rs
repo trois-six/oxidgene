@@ -1,4 +1,5 @@
-//! Reading the themes a user wrote, from a folder next to the database.
+//! Reading the themes a user wrote, from a folder in the configuration
+//! directory (see `oxidgene_api::app_dirs`).
 //!
 //! `oxidgene-ui` compiles to WebAssembly and cannot touch a filesystem, so it
 //! declares [`CustomThemeSource`] and this module supplies it — the same seam
@@ -19,23 +20,23 @@ use oxidgene_ui::theme::{
 };
 use tracing::{debug, warn};
 
-/// Folder name under the application data directory.
+/// The folder's name, which also labels an error reading the folder itself.
 const THEMES_DIR: &str = "themes";
 
-/// Reads `*.json` from `<data_dir>/themes/`.
+/// Reads `*.json` from `<config_dir>/themes/`.
 pub struct DesktopThemeSource {
     dir: PathBuf,
 }
 
 impl DesktopThemeSource {
-    /// Point a source at `<data_dir>/themes/`, creating the folder.
+    /// Point a source at the folder `dir`, creating it.
     ///
     /// The folder is created even when empty so that the path shown in
     /// settings is one the user can actually open: telling someone to drop a
     /// file into a directory that does not exist is a worse first step than
     /// finding it already there and empty.
-    pub fn install(data_dir: &std::path::Path) -> Arc<Self> {
-        let dir = data_dir.join(THEMES_DIR);
+    pub fn install(dir: &std::path::Path) -> Arc<Self> {
+        let dir = dir.to_path_buf();
         if let Err(error) = std::fs::create_dir_all(&dir) {
             // Not fatal: the built-in themes still work, and the settings
             // page will simply report an empty folder.
@@ -229,7 +230,7 @@ mod tests {
     #[test]
     fn install_creates_the_folder_so_the_path_shown_in_settings_exists() {
         let root = tempfile::tempdir().expect("tempdir");
-        let source = DesktopThemeSource::install(root.path());
+        let source = DesktopThemeSource::install(&root.path().join(THEMES_DIR));
         assert!(root.path().join(THEMES_DIR).is_dir());
         assert!(source.location().ends_with(THEMES_DIR));
     }

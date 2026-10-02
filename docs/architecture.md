@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:19:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
 ---
 
 
@@ -154,8 +154,11 @@ and flow — are listed in the [specification index](index.md).
 - A long-lived Rust worker claims jobs with expiring leases. PostgreSQL and S3
     permit independent scalable worker pods; SQLite and filesystem storage use
     the same worker code embedded in the single desktop or local backend.
-- Import sources and export artifacts use job-scoped object keys. Worker-local
-    `emptyDir` files are scratch space only and may be discarded at any time.
+- Import sources and export artifacts use job-scoped object keys. A
+    worker's local files live in its working directory
+    ([§8.3](#83-local-files)) and are scratch space only: removed when their
+    job ends, swept once stale, and safe to discard whenever the worker is
+    stopped.
 - Staged Geneanet jobs record an explicit `media_fidelity`; workers reject
     incomplete payloads rather than infer a mode from a previous job format.
 - ZIP creation and parsing run as bounded blocking work. Media are copied one at
@@ -303,9 +306,11 @@ bundle would weigh more than it saves.
     persistent volume.
 - Large GEDCOM, GEDZIP, and GeneWeb uploads are staged in the selected durable
     object store before their job is queued. Workers copy sources to their
-    system temporary directory while processing; those local files are deleted
-    after the attempt and swept at startup. Media extracted from GEDZIP and
-    completed export artifacts are persisted through the selected `MediaStore`.
+    working directory (`OXIDGENE_WORK_DIR`, [§8.3](#83-local-files)) while
+    processing — never to the system temporary directory, often a RAM-backed
+    `tmpfs`; those local files are deleted when the attempt ends and swept
+    once stale. Media extracted from GEDZIP and completed export artifacts
+    are persisted through the selected `MediaStore`.
 - Development Compose provisions the static frontend, Axum, PostgreSQL,
     RustFS, Redis, and an OpenTelemetry Collector and publishes their ports on
     host loopback only. Redis is
@@ -442,6 +447,49 @@ but authenticated session storage is not implemented yet.
     ([§7.1](#71-embedded-data)); place suggestions need no download.
 - Release artifacts and their platform verification are tracked in
     [Roadmap §8](roadmap.md).
+
+### 8.3 Local Files
+
+Every file a process writes on the machine it runs on goes to one of four
+directories, by kind, which one module resolves (`oxidgene_api::app_dirs`)
+following the XDG Base Directory convention: the `XDG_DATA_HOME`,
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` variables when set,
+their defaults otherwise. macOS and Windows get their platform's equivalents;
+lacking a state directory, they keep state in the local application-data
+directory.
+
+| Kind | Linux path | Contents | Safe to delete? |
+|---|---|---|---|
+| Data | `~/.local/share/oxidgene/` | `oxidgene.db` (with its `-wal` and `-shm`), `media/` | No: the user's genealogy, irreplaceable |
+| Config | `~/.config/oxidgene/` | `themes/`, the custom themes ([App Settings](ui-app-settings.md)) | No: written by the user |
+| State | `~/.local/state/oxidgene/` | `webview/`: the desktop window's cookies, local storage (the UI preferences: language, theme, pedigree defaults), media keys, storage | While the application is closed; the UI preferences reset |
+| Cache | `~/.cache/oxidgene/` | `jobs/` (each running job's scratch: staged source, a Geneanet import's archives and pages, an export's media and archive), `staging/` (uploads, a decoded Geneanet session's media, the pages the Geneanet window fetched, a media archive being streamed), and WebKitGTK's `WebKitCache/` and `CacheStorage/` | Yes, while the application is closed |
+
+One file does not follow: WebKitGTK writes its HSTS store,
+`hsts-storage.sqlite`, at the root of the data directory, and neither Dioxus
+nor wry lets the application move it. It is a disposable cache of the HTTPS
+policies servers announced.
+
+The working directory (`jobs/`, `staging/`) is the desktop's cache directory.
+The server and the worker take it from `OXIDGENE_WORK_DIR`, by default the
+user's cache directory; only a process with no user directory at all falls
+back to the system temporary directory. The container images set
+`/var/cache/oxidgene`, which the Helm chart backs with an `emptyDir`. A job
+removes its scratch when it ends, completed or failed; staged inputs go once
+their job has copied them. What a crashed process left is swept when it is
+more than a day old — the longest job lease, that of the desktop's SQLite
+worker — at each worker maintenance pass, the first at start, and when the
+server starts.
+
+The application migrates none of these files between versions. A desktop
+installation that predates this layout keeps its database and media where
+they were; its custom themes must be moved from
+`~/.local/share/oxidgene/themes/` to `~/.config/oxidgene/themes/`, and its
+web profile starts empty under the state directory, so the UI preferences
+(language, theme) are chosen again. The Geneanet window is incognito and never
+kept its sign-in ([Import §9.5](ui-import.md#95-step-3-authenticated-collection)),
+so a Geneanet import asks for it as it always did; the old
+`~/.local/share/oxidgene/webview/` can be deleted.
 
 ---
 
