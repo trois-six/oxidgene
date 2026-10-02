@@ -203,13 +203,17 @@ impl PersonRepo {
             .into_iter()
             .map(|vignette| vignette.id)
             .collect();
+        // An empty `IN` renders as a constant comparison, and an `OR` with a
+        // constant keeps SQLite off both indexes: it would read every person
+        // of every tree. Without crops, the media branch alone.
+        let mut portrayed =
+            Condition::any().add(Column::PortraitMediaId.is_in(media_ids.iter().copied()));
+        if !crops.is_empty() {
+            portrayed = portrayed.add(Column::PortraitVignetteId.is_in(crops));
+        }
         let models = Entity::find()
             .filter(Column::DeletedAt.is_null())
-            .filter(
-                Condition::any()
-                    .add(Column::PortraitMediaId.is_in(media_ids.iter().copied()))
-                    .add(Column::PortraitVignetteId.is_in(crops)),
-            )
+            .filter(portrayed)
             .all(db)
             .await
             .map_err(db_err)?;
