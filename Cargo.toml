@@ -8,6 +8,7 @@ members = [
     "crates/oxidgene-geneanet",
     "crates/oxidgene-observability",
     "crates/oxidgene-ui",
+    "crates/oxidgene-guards",
     "apps/oxidgene-server",
     "apps/oxidgene-worker",
     "apps/oxidgene-desktop",

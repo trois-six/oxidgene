@@ -167,6 +167,27 @@ impl ProfileService {
         self.rebuild_person(&self.writer, tree_id, person_id).await
     }
 
+    /// [`Self::rebuild_person`] in a transaction of its own on the writer:
+    /// the projection admin operation of REST and GraphQL.
+    pub async fn rebuild_one(
+        &self,
+        tree_id: Uuid,
+        person_id: Uuid,
+    ) -> Result<PersonProfile, OxidGeneError> {
+        let txn = self.writer.begin().await.map_err(db_err)?;
+        let profile = self.rebuild_person(&txn, tree_id, person_id).await?;
+        txn.commit().await.map_err(db_err)?;
+        Ok(profile)
+    }
+
+    /// [`Self::invalidate_tree`] in a transaction of its own on the writer:
+    /// the projection admin operation of REST and GraphQL.
+    pub async fn drop_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
+        let txn = self.writer.begin().await.map_err(db_err)?;
+        self.invalidate_tree(&txn, tree_id).await?;
+        txn.commit().await.map_err(db_err)
+    }
+
     /// Rebuild one person's projection and its search row.
     #[instrument(skip_all)]
     pub async fn rebuild_person(

@@ -21,7 +21,6 @@ use super::dto::{
 };
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{begin_tx, commit_tx};
 
 /// GET /api/v1/trees/:tree_id/persons
 ///
@@ -108,9 +107,7 @@ pub async fn mark_persons_distinct(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MarkPersonsDistinctRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let txn = begin_tx(&state.db).await?;
-    duplicates::mark_distinct(&txn, tree_id, person_id, &body.person_ids).await?;
-    commit_tx(txn).await?;
+    duplicates::mark_distinct(&state.db, tree_id, person_id, &body.person_ids).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -123,9 +120,8 @@ pub async fn merge_persons(
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<MergePersonRequest>,
 ) -> Result<Json<Person>, ApiError> {
-    let txn = begin_tx(&state.db).await?;
     let person = duplicates::merge_persons(
-        &txn,
+        &state.db,
         &state.profiles,
         tree_id,
         person_id,
@@ -133,7 +129,6 @@ pub async fn merge_persons(
         &body.choices.into(),
     )
     .await?;
-    commit_tx(txn).await?;
     Ok(Json(person))
 }
 

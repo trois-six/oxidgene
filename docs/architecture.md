@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:19:07Z }
 ---
 
 
@@ -471,7 +471,8 @@ oxidgene/
 │   ├── oxidgene-gedcom/    # GEDCOM import/export + GeneWeb .gw import
 │   ├── oxidgene-geneanet/  # Geneanet person↔photo recovery (join, key, archives)
 │   ├── oxidgene-observability/  # Shared OpenTelemetry initialization
-│   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
+│   ├── oxidgene-ui/        # Dioxus components (shared web/desktop)
+│   └── oxidgene-guards/    # Repository guards: tests reading the sources
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
 │   ├── oxidgene-worker/    # Web background-job worker
@@ -502,6 +503,7 @@ oxidgene-web              oxidgene-ui
 oxidgene-desktop          oxidgene-api, oxidgene-db, oxidgene-ui,
                           oxidgene-geneanet, oxidgene-observability?
 oxidgene-place-dictionary oxidgene-core
+oxidgene-guards           (no deps: tests that read the repository's files)
 ```
 
 `oxidgene-observability` is reached through the `telemetry-context` feature

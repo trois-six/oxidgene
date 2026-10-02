@@ -132,6 +132,7 @@ crates/
   oxidgene-observability/ Shared OpenTelemetry initialization
   oxidgene-api/           Axum REST, GraphQL, MCP, services, media, and profiles
   oxidgene-ui/            Dioxus components and pages
+  oxidgene-guards/        Repository guards: tests that read the sources (no product code)
 apps/
   oxidgene-server/        Web server binary
   oxidgene-worker/        Web background-job worker

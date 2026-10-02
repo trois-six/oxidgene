@@ -23,13 +23,14 @@ use oxidgene_db::repo::{
     PersonMergeRepo, PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo,
     display_names,
 };
-use sea_orm::ConnectionTrait;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 use uuid::Uuid;
 
 use crate::profile::builder::build_search_entry;
 use crate::profile::invalidation;
 use crate::profile::service::{ProfileService, SEARCH_MAX_LIMIT};
 use crate::service::history::Change;
+use crate::service::scope::{begin_tx, commit_tx};
 
 /// Record that `person_id` is a different person from each of `others`.
 ///
@@ -42,6 +43,17 @@ use crate::service::history::Change;
 /// `person_id` is among `others`, or `others` is empty or longer than
 /// [`SEARCH_MAX_LIMIT`] — the most homonyms a single answer can concern.
 pub async fn mark_distinct(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    person_id: Uuid,
+    others: &[Uuid],
+) -> Result<(), OxidGeneError> {
+    let txn = begin_tx(db).await?;
+    mark_distinct_in(&txn, tree_id, person_id, others).await?;
+    commit_tx(txn).await
+}
+
+async fn mark_distinct_in(
     conn: &impl ConnectionTrait,
     tree_id: Uuid,
     person_id: Uuid,
@@ -112,6 +124,23 @@ pub struct MergeChoices {
 /// from, themselves; and if `choices` leaves out an event that is neither
 /// person's own, or a media link that is not the duplicate's own.
 pub async fn merge_persons(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    kept: Uuid,
+    duplicate: Uuid,
+    choices: &MergeChoices,
+) -> Result<Person, OxidGeneError> {
+    let txn = begin_tx(db).await?;
+    let person = Box::pin(merge_persons_in(
+        &txn, profiles, tree_id, kept, duplicate, choices,
+    ))
+    .await?;
+    commit_tx(txn).await?;
+    Ok(person)
+}
+
+async fn merge_persons_in(
     conn: &impl ConnectionTrait,
     profiles: &ProfileService,
     tree_id: Uuid,

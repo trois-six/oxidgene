@@ -11,7 +11,6 @@ use super::dto::{AuditQuery, PaginationQuery, RevertRecordRequest};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::history;
-use crate::service::scope::{begin_tx, commit_tx};
 
 /// GET /api/v1/trees/:tree_id/audit
 ///
@@ -99,9 +98,8 @@ pub async fn revert_record(
     Path((tree_id, record_type, record_id)): Path<(Uuid, RecordType, Uuid)>,
     Json(body): Json<RevertRecordRequest>,
 ) -> Result<Json<AuditEntry>, ApiError> {
-    let txn = begin_tx(&state.db).await?;
-    let entry = history::revert(
-        &txn,
+    let entry = history::restore(
+        &state.db,
         &state.profiles,
         tree_id,
         record_type,
@@ -109,6 +107,5 @@ pub async fn revert_record(
         body.version,
     )
     .await?;
-    commit_tx(txn).await?;
     Ok(Json(entry))
 }

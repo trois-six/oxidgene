@@ -464,6 +464,127 @@ mod parity_tests {
         assert!(missing.is_empty(), "keys missing from en.rs: {missing:#?}");
     }
 
+    /// Key families the code builds at run time in a way the scan below
+    /// cannot read from a single token, with where.
+    const RUNTIME_FAMILIES: &[&str] = &[
+        // `concat!("name_type.", $label)` in utils.rs's `name_types!` table.
+        "name_type.{}",
+        // `concat!("event.type.", $label)` in utils.rs's `event_types!` table.
+        "event.type.{}",
+    ];
+
+    /// Every key of the tables is used somewhere.
+    ///
+    /// Drift it prevents: a screen removed or reworded leaves its strings
+    /// behind in eight tables, translated and maintained for nothing. A key
+    /// counts as used when the crate's sources (the tables aside) hold it as a
+    /// token — its plural stem for a `_one`/`_other` form — or when a format
+    /// string builds it: `"tools.tab.{}"` covers every
+    /// `tools.tab.<word>`. Fixing a failure: delete the key from all eight
+    /// tables; a family built some other way goes in `RUNTIME_FAMILIES`.
+    #[test]
+    fn every_key_is_used() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let tables = root.join("i18n");
+        let mut literals = std::collections::HashSet::new();
+        let mut families: Vec<String> = RUNTIME_FAMILIES.iter().map(|f| f.to_string()).collect();
+        for path in rust_sources(&root) {
+            if path.parent() == Some(tables.as_path()) && !path.ends_with("mod.rs") {
+                continue;
+            }
+            let full = std::fs::read_to_string(&path).unwrap();
+            // Production code only: a key a test mentions is not used.
+            let source = full.split("#[cfg(test)]").next().unwrap_or_default();
+            // Tokens rather than string literals: a key quoted inside an
+            // `rsx!` string (`"{i18n.t(\"…\")}"`) is still a key.
+            let tokens = source.split(|c: char| {
+                !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '{' | '}'))
+            });
+            for literal in tokens.filter(|token| token.contains('.')) {
+                if literal.contains('{') {
+                    let stem = &literal[..literal.find('{').unwrap()];
+                    if stem.contains('.')
+                        && stem.chars().all(|c| {
+                            c.is_ascii_lowercase() || c.is_ascii_digit() || "._".contains(c)
+                        })
+                    {
+                        families.push(literal.to_string());
+                    }
+                } else {
+                    literals.insert(literal.to_string());
+                }
+            }
+        }
+        let stem = |key: &str| {
+            ["_one", "_other", "_few", "_many"]
+                .iter()
+                .find_map(|suffix| key.strip_suffix(suffix))
+                .map(str::to_string)
+        };
+        let mut unused: Vec<_> = en::translations()
+            .keys()
+            .filter(|key| {
+                let stem = stem(key);
+                let candidates = std::iter::once(key.as_str()).chain(stem.as_deref());
+                !candidates.clone().any(|k| literals.contains(k))
+                    && !families
+                        .iter()
+                        .any(|family| candidates.clone().any(|k| family_matches(family, k)))
+            })
+            .cloned()
+            .collect();
+        unused.sort();
+        assert!(unused.is_empty(), "keys no code uses: {unused:#?}");
+    }
+
+    /// Whether `key` is one of the keys format string `family` builds: each
+    /// `{…}` stands for one or more of `[a-z0-9_]`.
+    fn family_matches(family: &str, key: &str) -> bool {
+        let mut parts = Vec::new();
+        let mut rest = family;
+        while let Some(open) = rest.find('{') {
+            parts.push(&rest[..open]);
+            let Some(close) = rest[open..].find('}') else {
+                return false;
+            };
+            rest = &rest[open + close + 1..];
+        }
+        parts.push(rest);
+        matches_parts(&parts, key)
+    }
+
+    fn matches_parts(parts: &[&str], key: &str) -> bool {
+        let Some((first, others)) = parts.split_first() else {
+            return key.is_empty();
+        };
+        let Some(after) = key.strip_prefix(first) else {
+            return false;
+        };
+        if others.is_empty() {
+            return after.is_empty();
+        }
+        // A placeholder: one or more word characters, then the next part.
+        let word = after
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(after.len());
+        (1..=word).any(|n| matches_parts(others, &after[n..]))
+    }
+
+    #[test]
+    fn a_family_covers_the_keys_it_builds() {
+        assert!(family_matches("tools.tab.{}", "tools.tab.anomalies"));
+        assert!(family_matches(
+            "tools.{key}.intro",
+            "tools.duplicates.intro"
+        ));
+        assert!(family_matches(
+            "kinship.rel.{key}_{}",
+            "kinship.rel.cousin_2"
+        ));
+        assert!(!family_matches("tools.tab.{}", "tools.tab."));
+        assert!(!family_matches("tools.tab.{}", "tools.title"));
+    }
+
     /// Every `.rs` file under `dir`.
     fn rust_sources(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
         let mut files = Vec::new();

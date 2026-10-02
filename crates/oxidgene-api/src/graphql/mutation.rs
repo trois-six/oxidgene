@@ -9,7 +9,6 @@ use crate::service::citation::{self, CitationPatch, NewCitation};
 use crate::service::history::{self};
 use crate::service::media::{NewUpload, UploadTarget};
 use crate::service::note::{self, NewNote, NotePatch};
-use crate::service::scope::{begin_tx, commit_tx};
 use crate::service::{
     duplicates, event, family, family_names, media, media_link, person, person_name, place,
     repository, source, tree, vignette,
@@ -204,9 +203,7 @@ impl MutationRoot {
         let tid = live_tree(ctx, &tree_id).await?;
         let pid = uuid(&person_id)?;
         let others = uuids(&other_person_ids)?;
-        let txn = begin_tx(db).await?;
-        duplicates::mark_distinct(&txn, tid, pid, &others).await?;
-        commit_tx(txn).await?;
+        duplicates::mark_distinct(db, tid, pid, &others).await?;
         Ok(true)
     }
 
@@ -227,12 +224,8 @@ impl MutationRoot {
         let kept = uuid(&person_id)?;
         let duplicate = uuid(&duplicate_id)?;
         let choices = choices.into_choices()?;
-        let txn = begin_tx(db).await?;
-        let person = Box::pin(duplicates::merge_persons(
-            &txn, profiles, tid, kept, duplicate, &choices,
-        ))
-        .await?;
-        commit_tx(txn).await?;
+        let person =
+            duplicates::merge_persons(db, profiles, tid, kept, duplicate, &choices).await?;
         Ok(person.into())
     }
 
@@ -1353,9 +1346,7 @@ impl MutationRoot {
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let rid = uuid(&record_id)?;
-        let txn = begin_tx(db).await?;
-        let entry = history::revert(&txn, profiles, tid, record_type.into(), rid, version).await?;
-        commit_tx(txn).await?;
+        let entry = history::restore(db, profiles, tid, record_type.into(), rid, version).await?;
         Ok(entry.into())
     }
 
@@ -1384,13 +1375,10 @@ impl MutationRoot {
         tree_id: ID,
         person_id: ID,
     ) -> Result<GqlProfileRebuildResult> {
-        let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
         let pid = uuid(&person_id)?;
-        let txn = begin_tx(db).await?;
-        profiles.rebuild_person(&txn, tid, pid).await?;
-        commit_tx(txn).await?;
+        profiles.rebuild_one(tid, pid).await?;
         Ok(GqlProfileRebuildResult {
             rebuilt: true,
             persons_count: 1,
@@ -1399,12 +1387,9 @@ impl MutationRoot {
 
     /// Drop every projection of a tree. For debugging or after bulk operations.
     async fn drop_tree_profiles(&self, ctx: &Context<'_>, tree_id: ID) -> Result<bool> {
-        let db = db_from_ctx(ctx);
         let profiles = profiles_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
-        let txn = begin_tx(db).await?;
-        profiles.invalidate_tree(&txn, tid).await?;
-        commit_tx(txn).await?;
+        profiles.drop_tree(tid).await?;
         Ok(true)
     }
 }

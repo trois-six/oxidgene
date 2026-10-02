@@ -60,6 +60,7 @@ use oxidgene_db::sea_orm::{
 use uuid::Uuid;
 
 use crate::profile::{ProfileService, invalidation};
+use crate::service::scope::{begin_tx, commit_tx};
 
 /// The versioned record types, in the order a change stores them.
 const RECORD_TYPES: [RecordType; 5] = [
@@ -828,6 +829,22 @@ pub async fn recently_modified_persons_of_trees(
         }
     }
     Ok(out)
+}
+
+/// [`revert`] in a transaction of its own: what the REST and GraphQL restore
+/// operations run.
+pub async fn restore(
+    db: &DatabaseConnection,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    record_type: RecordType,
+    record_id: Uuid,
+    version: i32,
+) -> Result<AuditEntry, OxidGeneError> {
+    let txn = begin_tx(db).await?;
+    let entry = revert(&txn, profiles, tree_id, record_type, record_id, version).await?;
+    commit_tx(txn).await?;
+    Ok(entry)
 }
 
 /// Put a record back as one of its versions had it.

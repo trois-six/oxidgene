@@ -1324,6 +1324,45 @@ struct GeneanetFetchedInput {
     key: String,
 }
 
+/// Put an uploaded genealogy file into job storage and queue its import job.
+///
+/// The staged source is deleted again when the job row cannot be written, so
+/// a failed start leaves nothing behind.
+pub async fn stage_import(
+    db: &impl sea_orm::ConnectionTrait,
+    media: &dyn MediaStore,
+    job_id: Uuid,
+    tree_id: Uuid,
+    format: &str,
+    filename: Option<String>,
+    path: &Path,
+) -> Result<(), OxidGeneError> {
+    let source_key = job_blob_key(job_id, "source", format)?;
+    media.put_file(&source_key, path).await?;
+    let created = BackgroundJobRepo::create(
+        db,
+        NewBackgroundJob {
+            id: job_id,
+            tree_id,
+            kind: BackgroundJobKind::Import,
+            format: format.to_string(),
+            source_key: Some(source_key.clone()),
+            payload_json: None,
+            original_filename: filename,
+            merge_occupations: false,
+            merge_names: false,
+            include_notes_and_sources: true,
+            include_media: true,
+        },
+    )
+    .await;
+    if let Err(error) = created {
+        let _ = media.delete(&source_key).await;
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"

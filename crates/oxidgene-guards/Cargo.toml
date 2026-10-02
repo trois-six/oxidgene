@@ -1,0 +1,16 @@
+[package]
+name = "oxidgene-guards"
+description = "OxidGene repository guards: tests that read the sources and fail when the codebase drifts from its rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# No dependencies: the guards read text with the standard library, so the
+# crate builds in seconds and `just check` stays fast.
+[dependencies]

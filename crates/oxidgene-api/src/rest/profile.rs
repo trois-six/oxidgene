@@ -19,7 +19,6 @@ use super::dto::{
 };
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::scope::{begin_tx, commit_tx};
 
 /// `GET /api/v1/trees/{tree_id}/persons/{person_id}/detail-bundle`
 ///
@@ -89,12 +88,7 @@ pub async fn rebuild_person_profile(
     State(state): State<AppState>,
     Path((tree_id, person_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ProfileRebuildResponse>, ApiError> {
-    let txn = begin_tx(&state.db).await?;
-    state
-        .profiles
-        .rebuild_person(&txn, tree_id, person_id)
-        .await?;
-    commit_tx(txn).await?;
+    state.profiles.rebuild_one(tree_id, person_id).await?;
 
     Ok(Json(ProfileRebuildResponse {
         rebuilt: true,
@@ -110,9 +104,7 @@ pub async fn drop_tree_profiles(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<ProfileDropResponse>, ApiError> {
-    let txn = begin_tx(&state.db).await?;
-    state.profiles.invalidate_tree(&txn, tree_id).await?;
-    commit_tx(txn).await?;
+    state.profiles.drop_tree(tree_id).await?;
 
     Ok(Json(ProfileDropResponse { dropped: true }))
 }

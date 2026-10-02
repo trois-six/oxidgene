@@ -8,14 +8,13 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use futures_util::StreamExt;
 use oxidgene_core::OxidGeneError;
-use oxidgene_db::repo::{BackgroundJobKind, BackgroundJobRepo, NewBackgroundJob, TreeRepo};
+use oxidgene_db::repo::TreeRepo;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use super::dto::{FileImportStartedResponse, StartFileImportQuery};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::media::store::job_blob_key;
 use crate::service::background_job::{self, ImportJobStatus};
 
 pub const FILE_IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
@@ -54,7 +53,7 @@ pub async fn start(
     let job_id = Uuid::now_v7();
     let upload = TemporaryUpload::new().map_err(OxidGeneError::Io)?;
     stream_to_file(body, upload.reopen().map_err(OxidGeneError::Io)?).await?;
-    stage_import(
+    background_job::stage_import(
         &state.db,
         &*state.media,
         job_id,
@@ -69,41 +68,6 @@ pub async fn start(
         StatusCode::ACCEPTED,
         Json(FileImportStartedResponse { job_id }),
     ))
-}
-
-async fn stage_import(
-    db: &impl sea_orm::ConnectionTrait,
-    media: &dyn crate::media::MediaStore,
-    job_id: Uuid,
-    tree_id: Uuid,
-    format: &str,
-    filename: Option<String>,
-    path: &FilePath,
-) -> Result<(), OxidGeneError> {
-    let source_key = job_blob_key(job_id, "source", format)?;
-    media.put_file(&source_key, path).await?;
-    let created = BackgroundJobRepo::create(
-        db,
-        NewBackgroundJob {
-            id: job_id,
-            tree_id,
-            kind: BackgroundJobKind::Import,
-            format: format.to_string(),
-            source_key: Some(source_key.clone()),
-            payload_json: None,
-            original_filename: filename,
-            merge_occupations: false,
-            merge_names: false,
-            include_notes_and_sources: true,
-            include_media: true,
-        },
-    )
-    .await;
-    if let Err(error) = created {
-        let _ = media.delete(&source_key).await;
-        return Err(error);
-    }
-    Ok(())
 }
 
 /// GET /api/v1/trees/:tree_id/import-jobs/:job_id
