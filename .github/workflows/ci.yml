@@ -1,7 +1,18 @@
 name: CI
 
+# Tiers 1 and 2 of the guards (docs/development.md §2.8): every check here
+# blocks a merge through the `CI` job at the end. The heavy tier 3 — end to
+# end, budgets, timing, reports, next toolchains — runs in nightly.yml, every
+# night and on demand; release.yml runs both as gates.
+
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      all:
+        description: Run every job whatever changed (a release)
+        type: boolean
+        default: false
   push:
     branches: [main]
   pull_request:
@@ -24,9 +35,8 @@ jobs:
       pull-requests: read
     outputs:
       ci_image: ${{ steps.filter.outputs.ci_image }}
-      code: ${{ steps.filter.outputs.code }}
+      code: ${{ inputs.all && 'true' || steps.filter.outputs.code }}
       containers: ${{ steps.filter.outputs.containers }}
-      e2e: ${{ steps.filter.outputs.e2e }}
       helm: ${{ steps.filter.outputs.helm }}
     steps:
       - uses: actions/checkout@v7
@@ -41,6 +51,7 @@ jobs:
           filters: |
             ci_image:
               - 'docker/Dockerfile.ci'
+              - 'rust-toolchain.toml'
               - '.github/workflows/build-ci-image.yml'
             containers:
               - 'docker/**'
@@ -51,29 +62,19 @@ jobs:
               - '**'
               - '!docs/**'
               - '!**/*.md'
-            # What the browser application runs on, end to end.
-            e2e:
-              - 'apps/oxidgene-server/**'
-              - 'apps/oxidgene-web/**'
-              - 'crates/oxidgene-api/**'
-              - 'crates/oxidgene-core/**'
-              - 'crates/oxidgene-db/**'
-              - 'crates/oxidgene-gedcom/**'
-              - 'crates/oxidgene-ui/**'
-              - 'e2e/**'
-              - 'Cargo.lock'
-              - '.github/workflows/e2e.yml'
 
   build-image:
     name: Rebuild CI image
     needs: changes
     # Only ever rebuilds on a real push to main (post-merge) — never on pull_request,
     # so a PR (even from a fork with a restricted token) can never push to :latest.
-    if: github.event_name == 'push' && needs.changes.outputs.ci_image == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.ci_image == 'true'
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/build-ci-image.yml
+
+  # ── Tier 1 ────────────────────────────────────────────────────────────
 
   check:
     name: Check
@@ -117,10 +118,27 @@ jobs:
         run: cargo fmt --all -- --check
 
   clippy:
-    name: Clippy
+    name: Clippy (${{ matrix.name }})
     needs: [changes, build-image]
     if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `just clippy`: every native target with every default feature.
+          - name: workspace
+            args: --workspace --all-targets
+          # `just wasm`: the browser binary, the only build of the shared UI
+          # for WebAssembly.
+          - name: wasm
+            args: -p oxidgene-web --target wasm32-unknown-unknown --all-targets
+          # The desktop without telemetry, the build whose `cfg`s differ most.
+          - name: desktop without default features
+            args: -p oxidgene-desktop --no-default-features --all-targets
+          # The API alone, as the desktop links it: without GraphQL.
+          - name: api without graphql
+            args: -p oxidgene-api --all-targets
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
@@ -137,9 +155,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
+          key: ${{ matrix.name }}
 
       - name: Clippy
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked ${{ matrix.args }} -- -D warnings
 
   unit:
     name: Unit tests
@@ -170,6 +189,70 @@ jobs:
       - name: Run the documentation examples
         run: cargo test --locked --workspace --doc
 
+  # The guards that read the repository rather than run it, specifications
+  # included, so it runs on documentation-only changes too. On a pull
+  # request it also checks that every edited specification carries a new
+  # `generated.at`.
+  specs:
+    name: Repository guards
+    needs: [changes, build-image]
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Run the source guards
+        env:
+          OXIDGENE_SPEC_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [ -z "$OXIDGENE_SPEC_BASE" ]; then unset OXIDGENE_SPEC_BASE; fi
+          cargo nextest run --locked -p oxidgene-guards --no-fail-fast
+
+  machete:
+    name: Unused dependencies
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # A prebuilt binary; the version of mise.toml.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.9.2
+
+      - name: Look for unused dependencies
+        run: cargo machete
+
+  cyclomatic:
+    name: Cyclomatic complexity
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.12.20"
+
+      # `just cyclomatic`: no function above a cyclomatic complexity of 15.
+      - name: Check the cyclomatic complexity
+        run: uv run --quiet scripts/cyclomatic.py -l rust -C 15 -w crates apps -x "*/target/*"
+
+  # ── Tier 2 ────────────────────────────────────────────────────────────
+
+  # The integration test targets, the database guards of `guards_test`
+  # included: cross-tree access, pagination, purge, history, log privacy,
+  # REST/GraphQL parity, and the statement counts of `query_scaling_test`.
   functional:
     name: Functional tests
     needs: [changes, build-image]
@@ -196,26 +279,8 @@ jobs:
       - name: Run the functional tests
         run: cargo nextest run --locked --workspace --test '*' --no-fail-fast
 
-  ui-js:
-    name: UI JavaScript tests
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      # `just ui-js`: the browser glue, without dependencies.
-      - name: Run the JavaScript unit tests
-        run: node --test crates/oxidgene-ui/tests/*.test.mjs
-
-  # The performance tests. Timing on a shared runner is noisy, so this job
-  # reports without gating: `ci-ok` does not wait for it.
-  scaling:
-    name: Scaling
+  sql-plans:
+    name: SQL plans
     needs: [changes, build-image]
     if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
     runs-on: ubuntu-latest
@@ -236,12 +301,36 @@ jobs:
         with:
           cache-targets: false
 
-      # The timed tests of `just scaling`, one at a time in release mode.
-      - name: Time the tree-wide computations
-        run: cargo nextest run --locked --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
+      # `just sql-plans`: no statement scans a large table without an index.
+      - name: Read the query plans
+        run: cargo nextest run --locked -p oxidgene-api --features graphql --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
 
-  cyclomatic:
-    name: Cyclomatic complexity
+  dependencies:
+    name: Dependencies
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Advisories, licences, bans and sources, as deny.toml sets them.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: Audit the lockfile
+        run: cargo audit
+
+      # The duplicated crates of the graph against their budget.
+      - name: Check the duplicate budget
+        run: python3 scripts/budgets.py dependencies
+
+  duplication:
+    name: Code duplication
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
@@ -252,17 +341,24 @@ jobs:
         with:
           version: "0.12.20"
 
-      # `just cyclomatic`: no function above a cyclomatic complexity of 15.
-      - name: Check the cyclomatic complexity
-        run: uv run --quiet scripts/cyclomatic.py -l rust -C 15 -w crates apps -x "*/target/*"
+      - name: Check the duplicate rate
+        run: uv run --quiet scripts/duplication.py
 
-  # Not gated by `ci-ok` until the suite has proven stable; it also runs
-  # nightly and on demand from its own workflow.
-  e2e:
-    name: E2E
+  ui-js:
+    name: UI JavaScript tests
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
-    uses: ./.github/workflows/e2e.yml
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      # `just ui-js`: the browser glue, without dependencies.
+      - name: Run the JavaScript unit tests
+        run: node --test crates/oxidgene-ui/tests/*.test.mjs
 
   containers:
     name: Build ${{ matrix.name }} image
@@ -327,22 +423,32 @@ jobs:
   # would leave every documentation pull request unmergeable. This one always
   # runs, and passes when each of them either succeeded or was legitimately
   # skipped. Point branch protection at this, not at the jobs it gathers.
-  # Scaling and E2E report on their own and are deliberately left out.
   ci-ok:
     name: CI
     if: always()
-    needs: [check, fmt, clippy, cyclomatic, unit, functional, ui-js, containers, helm]
+    needs:
+      - check
+      - fmt
+      - clippy
+      - unit
+      - specs
+      - machete
+      - cyclomatic
+      - functional
+      - sql-plans
+      - dependencies
+      - duplication
+      - ui-js
+      - containers
+      - helm
     runs-on: ubuntu-latest
     steps:
       - name: Verify that nothing failed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          results="${{ needs.check.result }} ${{ needs.fmt.result }} \
-                   ${{ needs.clippy.result }} ${{ needs.cyclomatic.result }} \
-                   ${{ needs.unit.result }} ${{ needs.functional.result }} \
-                   ${{ needs.ui-js.result }} ${{ needs.containers.result }} \
-                   ${{ needs.helm.result }}"
-          echo "results: $results"
-          for result in $results; do
+          echo "results: $RESULTS"
+          for result in $RESULTS; do
             case "$result" in
               success|skipped) ;;
               *) echo "a required job reported '$result'"; exit 1 ;;

@@ -1,0 +1,181 @@
+name: Nightly
+
+# Tier 3 of the guards (docs/development.md §2.8): the checks too slow or
+# too noisy for every pull request. They run every night, on demand, and as
+# required gates of a release (release.yml). A failure here does not block a
+# merge; it is the nightly report the maintainer reads.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # The Playwright suite, with the request budgets and trace continuity.
+  e2e:
+    name: E2E
+    uses: ./.github/workflows/e2e.yml
+
+  # `just scaling`: the tree-wide computations timed on two tree sizes.
+  scaling:
+    name: Scaling
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Time the tree-wide computations
+        run: cargo nextest run --locked --release -p oxidgene-api --test algorithm_scaling_test --run-ignored only --no-capture
+
+  # The size of every shipped binary and the crates it links, against
+  # scripts/budgets.json.
+  budgets:
+    name: Binary budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          key: release
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: dioxus-cli@0.7.10
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.12.20"
+
+      - name: Build the native binaries
+        run: cargo build --locked --release -p oxidgene-desktop -p oxidgene-server -p oxidgene-worker
+
+      - name: Build the web bundle
+        run: scripts/dx.sh build --package oxidgene-web --platform web --release
+
+      - name: Compare with the budgets
+        run: uv run --no-project scripts/budgets.py binaries | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Dependencies declared and never used, which only a nightly compiler can
+  # tell (cargo-udeps).
+  udeps:
+    name: Unused dependencies (udeps)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the nightly toolchain
+        run: rustup toolchain install nightly --profile minimal
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-udeps@0.1.61
+
+      - name: Look for unused dependencies
+        run: cargo +nightly udeps --locked --workspace --all-targets
+
+  # Reports, never failures: the updates waiting in the lockfile and the
+  # major releases our requirements hold back, and the size of the code.
+  reports:
+    name: Reports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: aqua:boyter/scc
+
+      - name: Report the dependency updates
+        run: |
+          rustup toolchain install
+          cargo update --dry-run --verbose 2>&1 | tee cargo-update.txt
+          {
+            echo '## Dependency updates'
+            echo '```'
+            grep -E 'Updating|Unchanged .*available' cargo-update.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Count the code
+        run: |
+          scc --exclude-dir target,node_modules --format html-table --output scc.html crates apps e2e scripts
+          scc --exclude-dir target,node_modules --by-file --format csv --output scc.csv crates apps e2e scripts
+          { echo '## Code size'; echo '```'; scc --exclude-dir target,node_modules crates apps e2e scripts; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reports
+          path: |
+            cargo-update.txt
+            scc.html
+            scc.csv
+          retention-days: 90
+
+  # Clippy and the future-incompatibility report on the next Rust releases,
+  # weeks before a new lint or a warning turned error breaks the pinned
+  # stable toolchain's jobs. Reported, never blocking.
+  next-toolchains:
+    name: Next toolchain (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [beta, nightly]
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the toolchain
+        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component clippy
+
+      - name: Clippy
+        run: cargo +${{ matrix.toolchain }} clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Future incompatibilities
+        if: matrix.toolchain == 'beta'
+        run: cargo +beta check --locked --workspace --all-targets --future-incompat-report

@@ -1,17 +1,16 @@
 name: E2E
 
 # The Playwright suite of `e2e/` (`just e2e`): the web bundle and the server,
-# driven in Chromium on a throwaway SQLite database.
+# driven in Chromium on a throwaway SQLite database. It includes the tier 3
+# guards of the browser — the request budgets of every page and the trace
+# continuity of every display (docs/development.md §2.8).
 #
-# CI calls it on the changes that can break the browser application, and it
-# also runs every night and on demand. It is not one of the checks the CI
-# gate requires until it has proven stable (see docs/development.md).
+# nightly.yml calls it every night and on demand, release.yml before a
+# release; it also runs on its own on demand.
 
 on:
   workflow_call:
   workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * *"
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,17 +26,16 @@ jobs:
   e2e:
     name: E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@v7
 
-      # The CI image has neither the WebAssembly target nor the Dioxus CLI.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
+      # The toolchain of rust-toolchain.toml, with its WebAssembly target.
+      - name: Install Rust
+        run: rustup toolchain install
 
       - uses: mozilla-actions/sccache-action@v0.0.11
 
@@ -71,6 +69,17 @@ jobs:
       - name: Run the end-to-end tests
         working-directory: e2e
         run: npx playwright test
+
+      # The time each page took to show its content, under 50 ms of added
+      # latency: a trend to follow, never a gate.
+      - name: Upload the request report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: request-report
+          path: e2e/test-results/request-report.json
+          if-no-files-found: ignore
+          retention-days: 90
 
       - name: Upload the Playwright report
         if: failure()

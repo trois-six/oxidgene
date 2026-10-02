@@ -225,6 +225,17 @@ Use focused tests while iterating, then run `just check` before committing code
 changes. For documentation and infrastructure-only changes, use the focused
 validation described under Git and delivery.
 
+Guards enforce several rules of this file mechanically: the layering, the
+REST/GraphQL parity table, the migration and lint policies, the
+specification format, dead CSS and i18n keys, cross-tree access, pagination,
+purge completeness, log privacy, SQL plans, dependency and size budgets.
+They run in three tiers — every pull request, every code pull request, and
+nightly and before a release — listed with their commands in
+`development.md` §2.8. A failing guard says what drifted and how to fix it;
+do not weaken a guard to make it pass. After a change touching the web
+application, also run `just wasm`, `just deps` after one touching
+dependencies, and `just sql-plans` after one touching queries.
+
 ## Assets
 
 The application logo is available as `assets/brand/OxidGene.png` and

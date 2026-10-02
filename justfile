@@ -119,6 +119,11 @@ real-import *args:
       cargo nextest run --release -p oxidgene-api --test real_import_test \
         --run-ignored only --no-capture {{ args }}
 
+# Fail when the share of duplicated Rust code grows past its budget
+# (scripts/duplication.py); `just duplication --report` lists the blocks.
+duplication *args:
+    uv run --quiet scripts/duplication.py {{ args }}
+
 # Check the dependency graph: no unused dependency (cargo-machete), no
 # advisory, licence, ban or source deny.toml refuses (cargo-deny), no known
 # vulnerability (cargo-audit), and no more duplicated crates than the budget

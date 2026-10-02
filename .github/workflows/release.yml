@@ -1,9 +1,16 @@
 name: Release
 
+# A release passes every guard first: tiers 1 and 2 (ci.yml, every job
+# whatever changed) and tier 3 (nightly.yml) are required gates here
+# (docs/development.md §2.8). A push to a `release/**` branch runs the gates
+# alone, to rehearse a release; a `v*` tag runs them, then publishes.
+
 on:
   push:
     tags:
       - "v*"
+    branches:
+      - "release/**"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -14,8 +21,37 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  ci:
+    name: Tiers 1 and 2
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      all: true
+
+  nightly:
+    name: Tier 3
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/nightly.yml
+
+  # Tier 3 reports its next-toolchain jobs without failing; everything else
+  # it runs must have passed.
+  gates:
+    name: Release gates
+    needs: [ci, nightly]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every gate passed
+        run: echo "tiers 1 to 3 passed"
+
   metadata:
     name: Validate release version
+    needs: gates
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -162,8 +198,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The toolchain of rust-toolchain.toml.
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        run: rustup toolchain install
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -222,7 +259,7 @@ jobs:
 
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum * > SHA256SUMS
+        run: sha256sum -- * > SHA256SUMS
 
       - name: Create release
         env:
