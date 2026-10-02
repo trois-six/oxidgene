@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::dto::{ExportJobStartedResponse, StartExportJobQuery};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::background_job::{self, ExportJobStatus};
+use crate::service::background_job::{self, DownloadableExport, ExportJobStatus};
 
 /// POST /api/v1/trees/:tree_id/export-jobs
 pub async fn start(
@@ -22,6 +22,18 @@ pub async fn start(
     Ok((
         StatusCode::ACCEPTED,
         Json(ExportJobStartedResponse { job_id }),
+    ))
+}
+
+/// GET /api/v1/trees/:tree_id/export-jobs/downloadable
+///
+/// The tree's most recent export that can still be downloaded, or `null`.
+pub async fn downloadable(
+    State(state): State<AppState>,
+    Path(tree_id): Path<Uuid>,
+) -> Result<Json<Option<DownloadableExport>>, ApiError> {
+    Ok(Json(
+        background_job::downloadable_export(&state.reader, &*state.media, tree_id).await?,
     ))
 }
 

@@ -2112,8 +2112,39 @@ pub struct GqlExportJobStatus {
     /// When the archive stops being downloadable, set exactly when
     /// `download_url` is.
     pub expires_at: Option<DateTime<Utc>>,
+    /// The archive's size in bytes, once the export has completed.
+    pub size_bytes: Option<i64>,
     pub warnings: Vec<String>,
     pub error: Option<String>,
+}
+
+/// A completed export of a tree whose archive can still be downloaded.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlDownloadableExport {
+    pub job_id: ID,
+    /// The archive's format: `gedzip`.
+    pub format: String,
+    pub download_url: String,
+    /// When the archive stops being downloadable.
+    pub expires_at: DateTime<Utc>,
+    /// The archive's size in bytes.
+    pub size_bytes: Option<i64>,
+    pub include_notes_and_sources: bool,
+    pub include_media: bool,
+}
+
+impl From<crate::service::background_job::DownloadableExport> for GqlDownloadableExport {
+    fn from(export: crate::service::background_job::DownloadableExport) -> Self {
+        Self {
+            job_id: ID(export.job_id.to_string()),
+            format: export.format,
+            download_url: export.download_url,
+            expires_at: export.expires_at,
+            size_bytes: export.size_bytes,
+            include_notes_and_sources: export.include_notes_and_sources,
+            include_media: export.include_media,
+        }
+    }
 }
 
 impl From<crate::service::gedcom::ImportSummary> for GqlImportResult {
@@ -2139,6 +2170,7 @@ impl From<crate::service::background_job::ExportJobStatus> for GqlExportJobStatu
             total: status.total,
             download_url: status.download_url,
             expires_at: status.expires_at,
+            size_bytes: status.size_bytes,
             warnings: status.warnings,
             error: status.error,
         }

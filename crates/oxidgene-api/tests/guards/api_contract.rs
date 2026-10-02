@@ -282,6 +282,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
     ),
     (
         "GET",
+        "/api/v1/trees/{tree_id}/export-jobs/downloadable",
+        Gql(&["Query.downloadableExport"]),
+    ),
+    (
+        "GET",
         "/api/v1/trees/{tree_id}/export-jobs/{job_id}",
         Gql(&["Query.exportJobStatus"]),
     ),

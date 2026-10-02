@@ -390,6 +390,25 @@ impl BackgroundJobRepo {
             .map_err(db_err)
     }
 
+    /// Tree `tree_id`'s most recently completed export that finished after
+    /// `since` and still records an artifact.
+    pub async fn latest_artifact_in_tree(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        since: DateTimeUtc,
+    ) -> Result<Option<BackgroundJob>, OxidGeneError> {
+        Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::Kind.eq(BackgroundJobKind::Export.as_str()))
+            .filter(Column::Status.eq(BackgroundJobStatus::Completed.as_str()))
+            .filter(Column::ArtifactKey.is_not_null())
+            .filter(Column::FinishedAt.gt(since))
+            .order_by_desc(Column::FinishedAt)
+            .one(db)
+            .await
+            .map_err(db_err)
+    }
+
     /// Forget job `id`'s artifact once its object is gone. `false` when the
     /// job no longer records `key`.
     pub async fn clear_artifact(

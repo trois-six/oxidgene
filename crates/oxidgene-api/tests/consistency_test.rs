@@ -2513,6 +2513,136 @@ async fn export_choices_travel_alike_on_both_surfaces() {
     assert_eq!(rest_archive, rest, "the same GEDCOM as the plain export");
 }
 
+/// The tree's export still to download, as both surfaces report it: `null`
+/// or the same fields.
+async fn downloadable_export_on_both(app: &axum::Router, tree_id: &str) -> serde_json::Value {
+    let rest = common::ok(
+        app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/export-jobs/downloadable"),
+        None,
+    )
+    .await;
+    let data = common::gql_ok(
+        app,
+        "query($t: ID!) { downloadableExport(treeId: $t) { jobId format downloadUrl expiresAt sizeBytes includeNotesAndSources includeMedia } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    let gql = &data["downloadableExport"];
+    if rest.is_null() {
+        assert!(gql.is_null(), "{gql}");
+        return rest;
+    }
+    let instant = |value: &serde_json::Value| {
+        value
+            .as_str()
+            .expect("an expiry")
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .expect("RFC 3339")
+    };
+    assert_eq!(instant(&rest["expires_at"]), instant(&gql["expiresAt"]));
+    for (rest_field, gql_field) in [
+        ("job_id", "jobId"),
+        ("format", "format"),
+        ("download_url", "downloadUrl"),
+        ("size_bytes", "sizeBytes"),
+        ("include_notes_and_sources", "includeNotesAndSources"),
+        ("include_media", "includeMedia"),
+    ] {
+        assert_eq!(rest[rest_field], gql[gql_field], "{rest_field}");
+    }
+    rest
+}
+
+/// A reloaded page finds the export it can download again: the tree's
+/// latest, while its archive is kept, and nothing once it has expired or
+/// is gone.
+#[tokio::test]
+async fn the_downloadable_export_reads_alike_on_both_surfaces() {
+    use oxidgene_db::entities::background_job;
+    use oxidgene_db::sea_orm::{ActiveModelTrait as _, ActiveValue::Set};
+
+    let db = common::setup_db().await;
+    let app = common::app_on(db.clone());
+    let worker = common::worker_on(&db);
+    let tree_id = common::new_tree(&app, "Kept export").await;
+    assert!(downloadable_export_on_both(&app, &tree_id).await.is_null());
+
+    let mut job_ids = Vec::new();
+    for query in ["", "?include_notes_and_sources=false&include_media=false"] {
+        let started = common::ok(
+            &app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/export-jobs{query}"),
+            None,
+        )
+        .await;
+        job_ids.push(started["job_id"].as_str().unwrap().to_owned());
+        assert!(worker.run_once().await.expect("runs the export job"));
+    }
+    let export = downloadable_export_on_both(&app, &tree_id).await;
+    assert_eq!(
+        export["job_id"],
+        job_ids[1].as_str(),
+        "the latest: {export}"
+    );
+    assert_eq!(export["format"], "gedzip");
+    assert_eq!(export["include_notes_and_sources"], false);
+    assert_eq!(export["include_media"], false);
+    let status = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/export-jobs/{}", job_ids[1]),
+        None,
+    )
+    .await;
+    assert_eq!(export["download_url"], status["download_url"]);
+    assert_eq!(export["expires_at"], status["expires_at"]);
+    assert_eq!(export["size_bytes"], status["size_bytes"]);
+    let artifact = std::fs::metadata(
+        std::env::temp_dir()
+            .join("oxidgene-test-media/jobs")
+            .join(&job_ids[1])
+            .join("artifact.gdz"),
+    )
+    .expect("the stored archive");
+    assert_eq!(export["size_bytes"], artifact.len());
+
+    // Past its hour, the latest is no longer offered, and the earlier one
+    // is not offered in its place.
+    for job_id in &job_ids {
+        background_job::ActiveModel {
+            id: Set(job_id.parse().unwrap()),
+            finished_at: Set(Some(chrono::Utc::now() - chrono::Duration::minutes(61))),
+            ..Default::default()
+        }
+        .update(&db)
+        .await
+        .expect("backdates the export");
+    }
+    assert!(downloadable_export_on_both(&app, &tree_id).await.is_null());
+
+    // An archive missing from the store is not offered either.
+    let started = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/export-jobs"),
+        None,
+    )
+    .await;
+    let job_id = started["job_id"].as_str().unwrap();
+    assert!(worker.run_once().await.expect("runs the export job"));
+    assert!(!downloadable_export_on_both(&app, &tree_id).await.is_null());
+    std::fs::remove_dir_all(
+        std::env::temp_dir()
+            .join("oxidgene-test-media/jobs")
+            .join(job_id),
+    )
+    .expect("removes the archive");
+    assert!(downloadable_export_on_both(&app, &tree_id).await.is_null());
+}
+
 #[tokio::test]
 async fn job_status_reads_alike_on_both_surfaces() {
     let app = setup_app().await;

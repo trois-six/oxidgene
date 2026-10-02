@@ -3390,6 +3390,10 @@ async fn test_async_export_job_downloads_the_completed_archive() {
 
     let artifact = media_root.join("jobs").join(job_id);
     assert!(artifact.exists());
+    let archive_size = std::fs::metadata(artifact.join("artifact.gdz"))
+        .unwrap()
+        .len();
+    assert_eq!(completed["size_bytes"], archive_size);
 
     // Downloaded any number of times within its hour: a save that went
     // wrong can be downloaded again.

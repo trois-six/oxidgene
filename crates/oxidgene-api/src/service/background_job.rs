@@ -634,17 +634,19 @@ impl BackgroundJobWorker {
         self.package_gedzip(job.id, data.gedcom, staged_media, &artifact_path)
             .await?;
         let artifact_key = job_blob_key(job.id, "artifact", "gdz")?;
-        self.with_heartbeat(job.id, "publishing", async {
-            self.media.put_file(&artifact_key, &artifact_path).await
-        })
-        .instrument(tracing::info_span!(
-            "export.publish",
-            export.format = "gedzip"
-        ))
-        .await?;
+        let stored = self
+            .with_heartbeat(job.id, "publishing", async {
+                self.media.put_file(&artifact_key, &artifact_path).await
+            })
+            .instrument(tracing::info_span!(
+                "export.publish",
+                export.format = "gedzip"
+            ))
+            .await?;
         history::record_export(&self.db, job.tree_id, &job.format, None).await?;
-        let result = serde_json::to_string(&ExportJobResult {
+        let result = serde_json::to_string(&ExportReceipt {
             warnings: data.warnings,
+            size_bytes: Some(stored.size),
         })
         .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
         if !BackgroundJobRepo::complete(
@@ -1465,11 +1467,6 @@ pub async fn stage_geneanet_import(
     Ok(job_id)
 }
 
-#[derive(Serialize)]
-struct ExportJobResult {
-    warnings: Vec<String>,
-}
-
 // ── Job status, as both surfaces report it ─────────────────────────────
 
 /// Where an export job stands.
@@ -1487,6 +1484,9 @@ pub struct ExportJobStatus {
     /// exactly when `download_url` is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The archive's size in bytes, once the export has completed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<i64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
     /// A stable error code, once the job has failed.
@@ -1572,13 +1572,16 @@ pub async fn export_job_status(
             total: count(progress.total),
             download_url: None,
             expires_at: None,
+            size_bytes: None,
             warnings: Vec::new(),
             error: None,
         });
     }
     let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
-    let warnings = receipt::<ExportReceipt>(job.result_json.as_deref())?
-        .map_or_else(Vec::new, |receipt| receipt.warnings);
+    let (warnings, size_bytes) = receipt::<ExportReceipt>(job.result_json.as_deref())?
+        .map_or((Vec::new(), None), |receipt| {
+            (receipt.warnings, receipt.size_bytes)
+        });
     // An expired artifact is gone, or about to be, and so is its link.
     let expires_at = downloadable_until(&job);
     let download_url =
@@ -1589,6 +1592,7 @@ pub async fn export_job_status(
         total: count(job.total),
         download_url,
         expires_at,
+        size_bytes,
         warnings,
         error: job.error_code,
     })
@@ -1625,6 +1629,59 @@ pub async fn import_job_status(
         geneanet_result,
         error: job.error_code,
     })
+}
+
+/// A completed export of a tree whose archive can still be downloaded.
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadableExport {
+    pub job_id: Uuid,
+    /// The archive's format: `gedzip`, the only one exports run as jobs.
+    pub format: String,
+    /// Where to download the archive, until `expires_at`.
+    pub download_url: String,
+    /// When the archive stops being downloadable: [`EXPORT_ARTIFACT_TTL`]
+    /// after the export completed.
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    /// The archive's size in bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<i64>,
+    pub include_notes_and_sources: bool,
+    pub include_media: bool,
+}
+
+/// Tree `tree_id`'s most recent completed export whose archive can still be
+/// downloaded: not past [`EXPORT_ARTIFACT_TTL`], and still in `media`.
+/// `None` when there is none, which is no error: a page asks on load whether
+/// there is one to offer again.
+pub async fn downloadable_export(
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+) -> Result<Option<DownloadableExport>, OxidGeneError> {
+    crate::service::scope::require_live_tree(db, tree_id).await?;
+    let since = chrono::Utc::now()
+        - chrono::Duration::from_std(EXPORT_ARTIFACT_TTL).unwrap_or(chrono::TimeDelta::MAX);
+    let Some(job) = BackgroundJobRepo::latest_artifact_in_tree(db, tree_id, since).await? else {
+        return Ok(None);
+    };
+    let (Some(expires_at), Some(key)) = (downloadable_until(&job), job.artifact_key.as_deref())
+    else {
+        return Ok(None);
+    };
+    if !media.exists(key).await {
+        return Ok(None);
+    }
+    let size_bytes = receipt::<ExportReceipt>(job.result_json.as_deref())?
+        .and_then(|receipt| receipt.size_bytes);
+    Ok(Some(DownloadableExport {
+        job_id: job.id,
+        download_url: format!("/api/v1/trees/{tree_id}/export-jobs/{}/download", job.id),
+        format: job.format,
+        expires_at,
+        size_bytes,
+        include_notes_and_sources: job.include_notes_and_sources,
+        include_media: job.include_media,
+    }))
 }
 
 /// The export artifact of completed job `job_id` of tree `tree_id`: its
@@ -1681,9 +1738,12 @@ async fn job_of_kind(
 }
 
 /// What a completed export job records about itself.
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct ExportReceipt {
     warnings: Vec<String>,
+    /// The archive's size in bytes.
+    #[serde(default)]
+    size_bytes: Option<i64>,
 }
 
 /// A job's stored receipt, read back.

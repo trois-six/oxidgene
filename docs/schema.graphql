@@ -723,6 +723,28 @@ enum GqlDocumentCategory {
 }
 
 """
+A completed export of a tree whose archive can still be downloaded.
+"""
+type GqlDownloadableExport {
+	jobId: ID!
+	"""
+	The archive's format: `gedzip`.
+	"""
+	format: String!
+	downloadUrl: String!
+	"""
+	When the archive stops being downloadable.
+	"""
+	expiresAt: DateTime!
+	"""
+	The archive's size in bytes.
+	"""
+	sizeBytes: Int
+	includeNotesAndSources: Boolean!
+	includeMedia: Boolean!
+}
+
+"""
 Two records of a tree that may be one person.
 """
 type GqlDuplicatePair {
@@ -961,6 +983,10 @@ type GqlExportJobStatus {
 	`download_url` is.
 	"""
 	expiresAt: DateTime
+	"""
+	The archive's size in bytes, once the export has completed.
+	"""
+	sizeBytes: Int
 	warnings: [String!]!
 	error: String
 }
@@ -3550,6 +3576,11 @@ type QueryRoot {
 	Poll a durable GEDZIP export created by `startExportJob`.
 	"""
 	exportJobStatus(treeId: ID!, jobId: ID!): GqlExportJobStatus!
+	"""
+	The tree's most recent GEDZIP export whose archive can still be
+	downloaded, or `null`.
+	"""
+	downloadableExport(treeId: ID!): GqlDownloadableExport
 	"""
 	Poll a durable genealogy file import created by `startFileImportJob`.
 	"""

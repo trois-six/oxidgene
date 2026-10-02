@@ -10,7 +10,7 @@ use oxidgene_core::enums::{
 use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
-use crate::api::{ApiClient, ApiError, ExportChoices, UpdateTreeBody};
+use crate::api::{ApiClient, ApiError, DownloadableExport, ExportChoices, UpdateTreeBody};
 use crate::components::audit_log::AuditLogSection;
 use crate::components::date_input::{
     calendar_from_value, calendar_value, format_date, format_example, input_format_label,
@@ -32,30 +32,17 @@ use crate::ui_observability::{
     use_traced_resource, use_ui_load_trace,
 };
 
-/// A completed GEDZIP export, downloadable again until it expires.
-#[derive(Debug, Clone, PartialEq)]
-struct CompletedExport {
-    /// The API path of the archive.
-    download_path: String,
-    /// When the server stops serving it, an hour after completion.
-    expires_at: chrono::DateTime<chrono::Utc>,
-    /// The name the save dialog proposes.
-    file_name: String,
+/// Whether a completed GEDZIP export can still be downloaded.
+fn is_live(export: &DownloadableExport) -> bool {
+    chrono::Utc::now() < export.expires_at
 }
 
-impl CompletedExport {
-    /// Whether the archive can still be downloaded.
-    fn is_live(&self) -> bool {
-        chrono::Utc::now() < self.expires_at
-    }
-}
-
-/// Queue a GEDZIP export and wait for it: its download path and expiry.
+/// Queue a GEDZIP export and wait for it: the archive to download.
 async fn wait_for_export(
     api: &ApiClient,
     tree_id: Uuid,
     choices: ExportChoices,
-) -> Result<(String, chrono::DateTime<chrono::Utc>), ApiError> {
+) -> Result<DownloadableExport, ApiError> {
     let started = trace_ui_action_step(
         UiActionStep::ExportQueue,
         api.start_export_job(tree_id, choices),
@@ -66,12 +53,20 @@ async fn wait_for_export(
             let status = api.export_job_status(tree_id, started.job_id).await?;
             match status.phase.as_str() {
                 "completed" => {
-                    return status.download_url.zip(status.expires_at).ok_or_else(|| {
-                        ApiError::Api {
+                    let size_bytes = status.size_bytes;
+                    return status
+                        .download_url
+                        .zip(status.expires_at)
+                        .map(|(download_url, expires_at)| DownloadableExport {
+                            format: "gedzip".to_string(),
+                            download_url,
+                            expires_at,
+                            size_bytes,
+                        })
+                        .ok_or_else(|| ApiError::Api {
                             status: 500,
                             body: "completed export has no artifact".to_string(),
-                        }
-                    });
+                        });
                 }
                 "failed" => {
                     return Err(ApiError::Api {
@@ -135,30 +130,27 @@ fn save_target(_file_name: &str, _is_gedzip: bool) -> SaveTarget {
 type ExportOutcome = Result<Option<String>, String>;
 
 /// Exports the tree as a GEDZIP, packed by a server job, into the save
-/// picker opened on the click, and keeps it in `completed` for downloading
-/// again.
+/// picker opened on the click — which already proposed the file name — and
+/// keeps it in `completed` for downloading again.
 #[cfg(target_arch = "wasm32")]
 async fn export_gedzip(
     api: &ApiClient,
     tid: Uuid,
     choices: ExportChoices,
-    file_name: &str,
+    _file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
-    mut completed: Signal<Option<CompletedExport>>,
+    mut completed: Signal<Option<DownloadableExport>>,
 ) -> ExportOutcome {
     // The picker comes first: cancelling it starts no job.
     let Some(destination) = ready_destination(target, i18n).await? else {
         return Ok(None);
     };
-    let (download_path, expires_at) = wait_for_export(api, tid, choices)
+    let export = wait_for_export(api, tid, choices)
         .await
         .map_err(|error| error.to_string())?;
-    completed.set(Some(CompletedExport {
-        download_path: download_path.clone(),
-        expires_at,
-        file_name: file_name.to_string(),
-    }));
+    let download_path = export.download_url.clone();
+    completed.set(Some(export));
     download_to_destination(api, destination, &download_path, i18n).await
 }
 
@@ -172,18 +164,13 @@ async fn export_gedzip(
     file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
-    mut completed: Signal<Option<CompletedExport>>,
+    mut completed: Signal<Option<DownloadableExport>>,
 ) -> ExportOutcome {
-    let (download_path, expires_at) = wait_for_export(api, tid, choices)
+    let export = wait_for_export(api, tid, choices)
         .await
         .map_err(|error| error.to_string())?;
-    let export = CompletedExport {
-        download_path,
-        expires_at,
-        file_name: file_name.to_string(),
-    };
     completed.set(Some(export.clone()));
-    save_gedzip(api, &export, i18n, target).await
+    save_gedzip(api, &export, file_name, i18n, target).await
 }
 
 /// Downloads a completed GEDZIP export again, into the save picker opened
@@ -191,14 +178,15 @@ async fn export_gedzip(
 #[cfg(target_arch = "wasm32")]
 async fn save_gedzip(
     api: &ApiClient,
-    export: &CompletedExport,
+    export: &DownloadableExport,
+    _file_name: &str,
     i18n: &I18n,
     target: SaveTarget,
 ) -> ExportOutcome {
     let Some(destination) = ready_destination(target, i18n).await? else {
         return Ok(None);
     };
-    download_to_destination(api, destination, &export.download_path, i18n).await
+    download_to_destination(api, destination, &export.download_url, i18n).await
 }
 
 /// The save picker opened on the click, once the user has chosen where to
@@ -234,13 +222,14 @@ async fn download_to_destination(
 #[cfg(not(target_arch = "wasm32"))]
 async fn save_gedzip(
     api: &ApiClient,
-    export: &CompletedExport,
+    export: &DownloadableExport,
+    file_name: &str,
     i18n: &I18n,
     _target: SaveTarget,
 ) -> ExportOutcome {
     let Some(file) = rfd::AsyncFileDialog::new()
         .set_title(i18n.t("gedcom.save_file"))
-        .set_file_name(&export.file_name)
+        .set_file_name(file_name)
         .add_filter("GEDZIP", &["gdz"])
         .add_filter("All files", &["*"])
         .save_file()
@@ -251,7 +240,7 @@ async fn save_gedzip(
     let path = file.path().to_path_buf();
     trace_ui_action_step(
         UiActionStep::ExportSave,
-        api.download_to_file(&export.download_path, &path),
+        api.download_to_file(&export.download_url, &path),
     )
     .await
     .map_err(|error| error.to_string())?;
@@ -329,6 +318,67 @@ async fn save_gedcom(bytes: Vec<u8>, file_name: &str, i18n: &I18n) -> ExportOutc
     )))
 }
 
+/// The tree's GEDZIP export that can be downloaded again: the one this
+/// page made, or, whenever the export section opens, the latest the server
+/// still keeps, so that a reloaded page offers it too. It is dropped when it
+/// expires, even while the page stays open.
+fn use_kept_export(
+    api: &ApiClient,
+    tree_id: Option<Uuid>,
+    active_section: Signal<String>,
+) -> Signal<Option<DownloadableExport>> {
+    let mut kept = use_signal(|| None::<DownloadableExport>);
+    let api = api.clone();
+    use_effect(move || {
+        let (Some(tree_id), true) = (tree_id, active_section() == "export") else {
+            return;
+        };
+        let api = api.clone();
+        spawn(async move {
+            // Without an answer, there is simply nothing to offer again.
+            let Ok(Some(found)) = api.downloadable_export(tree_id).await else {
+                return;
+            };
+            let newer = kept
+                .peek()
+                .as_ref()
+                .is_none_or(|current| current.expires_at < found.expires_at);
+            if newer {
+                kept.set(Some(found));
+            }
+        });
+    });
+    use_effect(move || {
+        let Some(export) = kept() else {
+            return;
+        };
+        spawn(async move {
+            let left = (export.expires_at - chrono::Utc::now()).num_milliseconds();
+            crate::utils::sleep_ms(u32::try_from(left.max(0)).unwrap_or(u32::MAX)).await;
+            if kept.peek().as_ref() == Some(&export) {
+                kept.set(None);
+            }
+        });
+    });
+    kept
+}
+
+/// What the export that can be downloaded again is, and until when.
+fn kept_export_label(i18n: &I18n, export: &DownloadableExport) -> String {
+    let time = format_timestamp(i18n, export.expires_at);
+    match export.size_bytes {
+        Some(size) => i18n.t_args(
+            "settings.export_available_archive",
+            &[
+                ("format", &export.format.to_uppercase()),
+                ("size", &crate::utils::human_size(size)),
+                ("time", &time),
+            ],
+        ),
+        None => i18n.t_args("settings.export_available_until", &[("time", &time)]),
+    }
+}
+
 /// Settings page for a tree.
 #[component]
 pub fn Settings(tree_id: String) -> Element {
@@ -348,9 +398,8 @@ pub fn Settings(tree_id: String) -> Element {
     let export_merge_names = use_signal(|| false);
     let export_notes_and_sources = use_signal(|| true);
     let export_media = use_signal(|| true);
-    let mut last_export = use_signal(|| None::<CompletedExport>);
-
     let tree_id_parsed = tree_id.parse::<Uuid>().ok();
+    let mut last_export = use_kept_export(&api, tree_id_parsed, active_section);
 
     let page = use_tree_page(&tree_id);
     let tree_resource = page.resource;
@@ -359,6 +408,7 @@ pub fn Settings(tree_id: String) -> Element {
     // Export handler
     let api_export = api.clone();
     let export_base_name = safe_export_file_name(&tree_name);
+    let base_name = export_base_name.clone();
     let on_export = move |_| {
         let Some(tid) = tree_id_parsed else {
             return;
@@ -373,7 +423,7 @@ pub fn Settings(tree_id: String) -> Element {
             include_media: !is_gedzip || export_media(),
         };
         let extension = if is_gedzip { "gdz" } else { "ged" };
-        let file_name = format!("{export_base_name}.{extension}");
+        let file_name = format!("{base_name}.{extension}");
         export_loading.set(true);
         export_error.set(None);
         export_success.set(None);
@@ -397,23 +447,25 @@ pub fn Settings(tree_id: String) -> Element {
 
     // Download the last GEDZIP export again, while the server keeps it.
     let api_again = api.clone();
+    let again_base_name = export_base_name.clone();
     let on_download_again = move |_| {
         let Some(export) = last_export() else {
             return;
         };
         export_error.set(None);
         export_success.set(None);
-        if !export.is_live() {
+        if !is_live(&export) {
             last_export.set(None);
             export_error.set(Some(i18n.t("settings.export_expired")));
             return;
         }
         let api = api_again.clone();
         export_loading.set(true);
+        let file_name = format!("{again_base_name}.gdz");
         // Opened during the click, before any network await.
-        let target = save_target(&export.file_name, true);
+        let target = save_target(&file_name, true);
         spawn(trace_ui_action(UiAction::Export("gedzip"), async move {
-            match save_gedzip(&api, &export, &i18n, target).await {
+            match save_gedzip(&api, &export, &file_name, &i18n, target).await {
                 Ok(Some(message)) => export_success.set(Some(message)),
                 Ok(None) => {}
                 Err(message) => export_error.set(Some(message)),
@@ -421,9 +473,9 @@ pub fn Settings(tree_id: String) -> Element {
             export_loading.set(false);
         }));
     };
-    let downloadable_until = last_export()
-        .filter(CompletedExport::is_live)
-        .map(|export| format_timestamp(&i18n, export.expires_at));
+    let downloadable = last_export()
+        .filter(is_live)
+        .map(|export| kept_export_label(&i18n, &export));
 
     let sec = active_section();
 
@@ -476,7 +528,7 @@ pub fn Settings(tree_id: String) -> Element {
                             tree_resource,
                             on_export,
                             on_download_again,
-                            downloadable_until: downloadable_until.clone(),
+                            downloadable: downloadable.clone(),
                             loading: export_loading(),
                             error: export_error(),
                             success: export_success(),
@@ -1229,9 +1281,9 @@ fn ExportSection(
     tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
     on_export: EventHandler<MouseEvent>,
     on_download_again: EventHandler<MouseEvent>,
-    /// When the last GEDZIP export stops being downloadable, formatted;
-    /// `None` when there is none to download again.
-    downloadable_until: Option<String>,
+    /// The GEDZIP export that can be downloaded again, described; `None`
+    /// when there is none.
+    downloadable: Option<String>,
     loading: bool,
     error: Option<String>,
     success: Option<String>,
@@ -1314,10 +1366,10 @@ fn ExportSection(
                         description: "settings.export_merge_names_desc",
                     }
                 }
-                if let Some(until) = &downloadable_until {
+                if let Some(description) = &downloadable {
                     div { class: "settings-export-row settings-feedback",
                         p { class: "settings-card-desc settings-export-info",
-                            {i18n.t_args("settings.export_available_until", &[("time", until)])}
+                            "{description}"
                         }
                         button {
                             class: "btn btn-outline",

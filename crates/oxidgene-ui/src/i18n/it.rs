@@ -877,6 +877,7 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         ("settings.export_saved_to", "Esportazione salvata in {path}."),
         ("settings.export_download_again", "Scarica di nuovo"),
         ("settings.export_available_until", "Disponibile fino al {time}."),
+        ("settings.export_available_archive", "Archivio {format} di {size}, disponibile fino al {time}."),
         ("settings.export_expired", "Questa esportazione è scaduta. Esporta di nuovo l'albero."),
         ("settings.export_write_error", "Impossibile salvare il file di esportazione: {error}"),
         // ── 404 page ────────────────────────────────────────────────

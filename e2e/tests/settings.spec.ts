@@ -126,3 +126,33 @@ test("the tree's date display settings reach the person page and the pedigree", 
     await page.getByRole("button", { name: "Tree view" }).click();
     await expect(page.locator("g.ped-card").filter({ hasText: /Anchor\s*ASHDOWN/ }).first()).toContainText("* 1900");
 });
+
+test("a GEDZIP export can be downloaded again after the page is reloaded", async ({ page, tree }) => {
+    // Playwright cannot drive Chromium's save picker: without it, the page
+    // falls back to a browser download, which it can.
+    await page.addInitScript(() => {
+        Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true });
+    });
+    const openExport = () => page.getByRole("button", { name: "Export Tree", exact: true }).click();
+    await page.goto(`/trees/${tree.treeId}/settings`);
+    await openExport();
+    await page.locator(".settings-export-format").selectOption("gedzip");
+    let download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download .gdz" }).click();
+    expect((await download).suggestedFilename()).toMatch(/\.gdz$/);
+    const again = page.getByRole("button", { name: "Download again" });
+    await expect(again).toBeVisible();
+
+    // A reload forgets what the page did; the server still keeps the archive.
+    await page.reload();
+    await openExport();
+    await expect(again).toBeVisible();
+    await expect(page.locator(".settings-export-info", { hasText: "available until" })).toContainText(
+        /GEDZIP archive of [\d.]+ [KM]?B/,
+    );
+    download = page.waitForEvent("download");
+    await again.click();
+    const saved = await download;
+    expect(saved.suggestedFilename()).toMatch(/\.gdz$/);
+    expect(await saved.failure()).toBeNull();
+});

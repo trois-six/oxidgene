@@ -473,6 +473,34 @@ pub fn truncate_text_to_fit(text: &str, max_width_px: f32, font_size_px: f32) ->
     }
 }
 
+/// A byte count in the largest unit that leaves it above one.
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[0])
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::human_size;
+
+    #[test]
+    fn sizes_read_in_the_largest_unit_above_one() {
+        assert_eq!(human_size(512), "512 B");
+        assert_eq!(human_size(2048), "2.0 KB");
+        assert_eq!(human_size(5 * 1024 * 1024), "5.0 MB");
+    }
+}
+
 #[cfg(test)]
 mod preview_tests {
     use super::html_to_preview;

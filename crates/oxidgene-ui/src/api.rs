@@ -1995,9 +1995,25 @@ pub struct ExportJobStatus {
     /// When `download_url` stops working, set exactly when it is.
     #[serde(default)]
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The archive's size in bytes, once it is complete.
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
     #[serde(default)]
     pub warnings: Vec<String>,
     pub error: Option<String>,
+}
+
+/// A completed export of a tree whose archive can still be downloaded.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DownloadableExport {
+    /// The archive's format, `gedzip`.
+    pub format: String,
+    pub download_url: String,
+    /// When `download_url` stops working.
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    /// The archive's size in bytes, when the export recorded it.
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -4937,6 +4953,22 @@ impl ApiClient {
                 "GET",
                 self.client
                     .get(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}"))),
+            )
+            .await?;
+        Self::handle_response("GET", response).await
+    }
+
+    /// The tree's most recent export that can still be downloaded, if any;
+    /// never cached, since it expires.
+    pub async fn downloadable_export(
+        &self,
+        tree_id: Uuid,
+    ) -> Result<Option<DownloadableExport>, ApiError> {
+        let response = self
+            .send_request(
+                "GET",
+                self.client
+                    .get(self.url(&format!("/api/v1/trees/{tree_id}/export-jobs/downloadable"))),
             )
             .await?;
         Self::handle_response("GET", response).await

@@ -342,7 +342,7 @@ fn FileTab(tree_id: Uuid, busy: Signal<bool>, on_imported: EventHandler<ImportOu
                     div { class: "import-drop-icon", "📄" }
                     div { class: "import-drop-name", {last_path_segment(&file.name()).to_string()} }
                     div { class: "import-drop-hint",
-                        {i18n.t_args("import.file_size", &[("size", &human_size(file.size().try_into().unwrap_or(usize::MAX)))])}
+                        {i18n.t_args("import.file_size", &[("size", &crate::utils::human_size(file.size()))])}
                     }
                 } else {
                     div { class: "import-drop-icon", "📄" }
@@ -2527,22 +2527,6 @@ fn group_digits(value: usize) -> String {
     out
 }
 
-/// A byte count in the largest unit that leaves it above one.
-fn human_size(bytes: usize) -> String {
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut size = bytes as f64;
-    let mut unit = 0;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} {}", UNITS[0])
-    } else {
-        format!("{size:.1} {}", UNITS[unit])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2565,13 +2549,6 @@ mod tests {
         assert_eq!(group_digits(613), "613");
         assert_eq!(group_digits(10_254), "10\u{202F}254");
         assert_eq!(group_digits(1_234_567), "1\u{202F}234\u{202F}567");
-    }
-
-    #[test]
-    fn sizes_read_in_the_largest_unit_above_one() {
-        assert_eq!(human_size(512), "512 B");
-        assert_eq!(human_size(2048), "2.0 KB");
-        assert_eq!(human_size(5 * 1024 * 1024), "5.0 MB");
     }
 
     #[test]

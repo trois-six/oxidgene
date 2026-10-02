@@ -29,9 +29,9 @@ use super::inputs::{
 };
 use super::scope::{live_tree, opt_uuid, uuid, uuids};
 use super::types::{
-    GqlCitationConnection, GqlDictionaryEntry, GqlEvent, GqlEventConnection, GqlEventType,
-    GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection, GqlGalleryBundle,
-    GqlGeneanetArchiveIndex, GqlGeneanetIndexedArchive, GqlGeneanetInspection,
+    GqlCitationConnection, GqlDictionaryEntry, GqlDownloadableExport, GqlEvent, GqlEventConnection,
+    GqlEventType, GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection,
+    GqlGalleryBundle, GqlGeneanetArchiveIndex, GqlGeneanetIndexedArchive, GqlGeneanetInspection,
     GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference, GqlGivenNameReferenceMatch,
     GqlImportJobStatus, GqlKinship, GqlMedia, GqlMediaConnection, GqlMediaDownload, GqlMediaFacets,
     GqlMediaLink, GqlMediaWithLink, GqlNote, GqlNoteConnection, GqlOccupationReference,
@@ -1434,6 +1434,22 @@ impl QueryRoot {
         )
         .await?;
         Ok(status.into())
+    }
+
+    /// The tree's most recent GEDZIP export whose archive can still be
+    /// downloaded, or `null`.
+    async fn downloadable_export(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+    ) -> Result<Option<GqlDownloadableExport>> {
+        let export = crate::service::background_job::downloadable_export(
+            reader_from_ctx(ctx),
+            &**media_from_ctx(ctx),
+            uuid(&tree_id)?,
+        )
+        .await?;
+        Ok(export.map(Into::into))
     }
 
     /// Poll a durable genealogy file import created by `startFileImportJob`.

@@ -484,6 +484,12 @@ pub fn build_router(state: AppState) -> Router {
 
     let import_export_routes = Router::new()
         .route("/{tree_id}/export-jobs", post(file_export::start))
+        // A fixed segment, which the router matches before the `{job_id}`
+        // beside it.
+        .route(
+            "/{tree_id}/export-jobs/downloadable",
+            get(file_export::downloadable),
+        )
         .route("/{tree_id}/export-jobs/{job_id}", get(file_export::status))
         .route(
             "/{tree_id}/export-jobs/{job_id}/download",
