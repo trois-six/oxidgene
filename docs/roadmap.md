@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -27,14 +27,14 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
 |---|---|---|---|
 | A | Foundation, persistence, APIs, server, desktop | Complete | [Architecture](architecture.md), [Data](data-model.md), [API](api.md) |
 | B | GEDCOM, GEDZIP, and GeneWeb | Complete | [API](api.md), [Import](ui-import.md) |
-| C | Tree browsing and editing | Complete; the kinship page traces how any two persons are related; the tree view can also be drawn as an ancestor or descendant wheel, an ancestor or descendant fan, a Gramps-style lineage or descendant lineage, an hourglass or a bowtie | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Kinship](ui-kinship.md), [Person Edit](ui-person-edit-modal.md) |
-| D | Shared UX, themes, languages, runtime settings, printing | Complete; every content page prints, the pedigree on one landscape sheet | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md) |
-| E | Read projections, search, dictionary | Complete except dictionary descent; search results now name each person's close relatives, the topbar suggests matches as you type, `relevance` ranks, and the dictionary renames and merges family names | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
+| C | Tree browsing and editing, kinship, alternative charts | Complete | [Tree](ui-genealogy-tree.md), [Person](ui-person-profile.md), [Couple](ui-couple-profile.md), [Kinship](ui-kinship.md), [Person Edit](ui-person-edit-modal.md) |
+| D | Shared UX, themes, languages, runtime settings, printing | In progress: the Date Display and Entry Options sections of Tree Settings are being built | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md), [Settings](ui-settings.md) |
+| E | Read projections, search, dictionary | Complete except dictionary descent (§7) | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
 | G | Security, privacy enforcement, deployment | Planned | [General](general.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
-| H | Asynchronous and large-scale processing | Post-MVP | [Architecture](architecture.md), [API](api.md) |
+| H | Asynchronous and large-scale processing | Durable import and export jobs delivered; the rest post-MVP (§12) | [Architecture](architecture.md), [API](api.md) |
 | I | Assistant access through MCP | First delivery complete; later phases planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
-| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; home tree cards list the persons modified most recently; entries record no author until EPIC G | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#11-section-history), [Homepage](ui-home.md) |
+| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; entries record no author until EPIC G | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#11-section-history), [Homepage](ui-home.md) |
 
 ## 3. Active: media completion
 
@@ -172,6 +172,12 @@ refactor):
 - [ ] Add the recursive view to the existing Dictionary page and specification.
 - [ ] Cover SOSA badges, limits, empty states, and large surname groups.
 
+## 7b. Planned: subtree export
+
+- [ ] Export a selected subtree — a person's ancestors, descendants, or both,
+  to a chosen depth — as GEDCOM or GEDZIP, on REST and GraphQL alike, from
+  the export section of [Settings](ui-settings.md).
+
 ## 8. Planned: security, release, and deployment
 
 - [ ] Implement authentication and session management.
@@ -225,8 +231,8 @@ tool but `list_trees`.
 - [x] Implement `list_trees` and the tree-scoped read-only tools of
   [Assistant Access §5](mcp.md).
 - [x] Add the AI assistant entry to the App Settings API section: warning,
-  command, JSON configuration, desktop capability injection, and
-  English/French keys.
+  command, JSON configuration, desktop capability injection, and its
+  translation keys.
 - [x] Test every tool over an in-process transport, including a missing
   `tree_id`, cross-tree IDs, a tree deleted mid-session, and output-stream
   cleanliness.
@@ -273,12 +279,19 @@ processed locally only, desktop first.
 Before phase 2 and 3: confirm the licences of PhyloTree Build 17 and of the
 HapMap genetic map.
 
-## 12. Post-MVP: asynchronous processing
+## 12. Asynchronous processing
 
-- [ ] Define queue and worker architecture without a second source of truth.
+The durable job queue is delivered: imports and exports run as background
+jobs held in the database, claimed under expiring leases by the worker
+(`apps/oxidgene-worker` on the web, embedded in the desktop), and resumed
+after a restart ([Architecture §6](architecture.md)). Post-MVP:
+
+- [x] Define queue and worker architecture without a second source of truth.
+- [x] Move imports and exports to durable background jobs.
+- [x] Recover interrupted jobs after a restart.
+- [ ] Let the user cancel a queued or running job.
+- [ ] Add processing notifications.
 - [ ] Add chunked and resumable media uploads.
-- [ ] Move large imports and processing to cancellable background jobs.
-- [ ] Add processing notifications and restart recovery.
 - [ ] Validate 100,000-person trees and large media libraries.
 - [x] Give file-backed SQLite one writer connection and a small read-only
   pool, routing read-only handlers to the pool, so that the application stays
@@ -287,7 +300,8 @@ HapMap genetic map.
 ## 13. Definition of done
 
 An item is complete only when implementation and specifications agree; i18n
-keys have English/French parity; examples and artifacts are anonymized; REST
+keys exist in all eight languages (English, French, German, Spanish,
+Italian, Dutch, Polish, Portuguese) at exact parity; examples and artifacts are anonymized; REST
 and GraphQL behavior and tests match; obsolete code, CSS, endpoints,
 translations, flags, and dependencies are removed; dependency cost is
 justified; and `just check` passes before a detailed Conventional Commit.

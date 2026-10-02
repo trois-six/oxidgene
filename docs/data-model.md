@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 
@@ -38,7 +38,7 @@ independent of this schema reset (see §4.1).
 | `entry_suggestions` | bool | Whether entry fields suggest values as the user types ([Common UI §4.4](ui-common.md)); `true` by default, set in [Settings](ui-settings.md) §10 |
 | `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
 | `self_person_id` | UUID v7? | FK → Person — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
-| `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §18 |
+| `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §12 |
 | `submitter_email` | String? | The submitter's email (`SUBM.EMAIL`), written only when set |
 | `submitter_address` | Text? | The submitter's postal address over several lines (`SUBM.ADDR`), written only when set |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |
@@ -55,6 +55,8 @@ Displayed in: [Homepage](ui-home.md) (tree cards) · [Settings](ui-settings.md) 
 | `tree_id` | UUID v7 | FK → Tree |
 | `sex` | Sex | Enum |
 | `privacy` | Privacy | Enum — per-person privacy override (default `Default`) |
+| `portrait_media_id` | UUID v7? | The media representing the person, when their portrait is a whole media (see [Media](#media), "Which image represents a person") |
+| `portrait_vignette_id` | UUID v7? | The vignette representing the person, when their portrait is a crop; never set together with `portrait_media_id` |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -149,7 +151,7 @@ exposes `surname_prefix` as its own input instead. GEDCOM/GeneWeb import does th
 same when the file carries no `SPFX`. Display always rejoins the two parts
 (`PersonName::full_surname`), so a name entered as "de la Cruz" still reads
 "de la Cruz" — only *filing* changes. Whether the particle counts when sorting is
-a per-viewer preference (`/app-settings` → Noms), defaulting to "included".
+a per-viewer preference ([App Settings](ui-app-settings.md), route `/settings`, Names section), defaulting to "included".
 
 ### Family
 
@@ -245,7 +247,7 @@ Join table mirroring GEDCOM's `ASSO`/`RELA` associations — a witness, godparen
 | `relation` | String? | Free text (e.g. "Godmother", "Witness") |
 | `sort_order` | i32 | For ordering |
 
-Exposed via `GET/POST /events/{id}/witnesses` (REST) and `addEventWitness`/`removeEventWitness` (GraphQL). Round-trips through GEDCOM import/export as a top-level `ASSO` on the INDI record (see [API Contract](api.md) §3).
+Exposed via `GET/POST /events/{id}/witnesses` (REST) and `addEventWitness`/`removeEventWitness` (GraphQL). Round-trips through GEDCOM import/export as a top-level `ASSO` on the INDI record (see [API Contract §4](api.md#4-gedcom-compatibility-reference)).
 
 ### Place
 
@@ -349,15 +351,20 @@ restoring it brings them back.
 | `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation. Decoded at upload for a file we hold; for a page held only as a URL, recorded from the browser that first displayed it |
 | `height` | i32? | Intrinsic pixel height |
 | `page_count` | i32 | Pages in the document; `1` for photos and single-page files |
+| `parent_media_id` | UUID v7? | The document this row is a page of; null when the row is a document itself |
+| `page_index` | i32 | Zero-based position of the page within its document |
 | `file_size` | i64 | Bytes |
 | `title` | String? | |
 | `description` | String? | |
 | `date_value` | String? | Date of the media (GEDCOM date phrase, same format as Event) |
 | `date_sort` | Date? | Normalized date for sorting |
+| `date_qualifier` | DateQualifier | Same as Event |
+| `date_value2` | String? | Second bound of a range, same as Event |
+| `calendar` | Calendar | Same as Event |
 | `source_media_type` | Enum | What the medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`. Default `other` |
 | `document_category` | Enum? | What kind of *record* it is. Null when unclassified |
-| `tags` | String[] | Free-form labels. On a multi-page document, they belong to the document, not its pages |
-| `place_id` | UUID v7? | FK → Place — where the media was created/taken |
+| `place_id` | UUID v7? | Application-managed reference to Place — where the media was created/taken |
+| `privacy` | Privacy | Enum — per-media privacy override (default `Default`), see **Privacy** below |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete. Deleting a medium purges it instead — its rows, and the stored files no other medium of the tree uses — so nothing sets it, but every read still excludes a flagged row |
@@ -389,15 +396,10 @@ answered GEDCOM's question directly and that answer is not ours to discard.
 scans and PDFs as readily as photographs, and a default that guessed would
 mislabel every existing row instead of admitting it does not know.
 
-**Tags.** `tags` is an ordered list of free-form labels for grouping scans and
-documents, materialized from `media_tag` rows. Its compound key
-`(media_id, normalized_tag)` makes concurrent additions idempotent, while a
-single row deletion cannot overwrite another editor's tags. Values are trimmed;
-`normalized_tag` is the tag folded as every word of the application is
-([Cross-cutting Rules §3.6](cross-cutting.md)), so tags differing only by case,
-accents or punctuation are one, spelled as first entered. A multi-page document owns one list; its
-page rows do not copy it, so every page always presents the document's same
-labels.
+**Tags.** A media's free-form labels for grouping scans and documents are
+[MediaTag](#mediatag) rows, which the API returns as the media's ordered
+`tags` list. A multi-page document owns one list; its page rows do not copy
+it, so every page always presents the document's same labels.
 
 **Storage.** Files live on the filesystem, content-addressed under
 `{tree_id}/{aa}/{bb}/{sha256}.{ext}` beneath `OXIDGENE_MEDIA_ROOT` (default: the
@@ -431,6 +433,20 @@ there are no viewers until authentication lands. What the column buys now is
 that the *intent* is recorded: a user classifying their tree today does not have
 to do it again later, and enforcement becomes a read-path change rather than a
 schema change plus a data-entry campaign. Every picker that sets it says so.
+
+### MediaTag
+
+| Column | Type | Notes |
+|---|---|---|
+| `media_id` | UUID v7 | PK (with `normalized_tag`), FK → Media |
+| `normalized_tag` | String | PK (with `media_id`) — the tag folded as every word of the application is ([Cross-cutting Rules §3.6](cross-cutting.md)) |
+| `tag` | String | The trimmed spelling entered by whoever first created the tag |
+| `created_at` | DateTime | Auto |
+
+The compound key makes concurrent additions of one tag idempotent, and since
+each tag is its own row, removing one cannot overwrite another editor's tags.
+Tags differing only by case, accents or punctuation are one, spelled as first
+entered.
 
 ### Vignette
 
@@ -577,140 +593,61 @@ query behavior.
 
 ## 2. Enums
 
-Defined in `crates/oxidgene-core/src/enums.rs`; DB string representations in `crates/oxidgene-db/src/entities/sea_enums.rs`.
+The enums and their variants are defined in
+`crates/oxidgene-core/src/enums.rs`, which is authoritative; this section
+does not copy them. `Sex`, `NameType`, `SpouseRole`, `ChildType`, `Privacy`,
+`TreeDefaultPrivacy`, `DateQualifier`, `Calendar`, `EventType`,
+`Confidence`, `SourceMediaType`, `DocumentCategory` and `MediaFileKind` live
+there.
 
-```rust
-enum Sex {
-    Male,
-    Female,
-    Unknown,
-}
+**Representation.** Every variant has one stable English `snake_case`
+value (`also_known_as`, `from_age`, `marriage_bann`), used in REST JSON and
+in the database's string columns (`crates/oxidgene-db/src/entities/sea_enums.rs`).
+GraphQL writes the same value in upper case (`ALSO_KNOWN_AS`). Clients
+localize the values; they are never stored translated.
 
-enum NameType {
-    Birth,
-    Married,
-    AlsoKnownAs,
-    Maiden,
-    Religious,
-    // Refinements of "also known as". GEDCOM's NAME.TYPE enumeration has no
-    // equivalent, so all four export as `aka` — the distinction is internal.
-    // They exist because the UI lets the user pick between them, and
-    // collapsing them onto AlsoKnownAs made the choice unrecoverable.
-    GivenName,
-    Alias,
-    Byname,
-    Sobriquet,
-    Other,
-}
+**GEDCOM mapping.** The conversions live in `oxidgene-gedcom`: `import.rs`
+reads GEDCOM into the enums, `export.rs` writes them back, and `date.rs`
+handles dates. They follow these rules:
 
-enum SpouseRole {
-    Husband,
-    Wife,
-    Partner,
-}
+- **Event types.** A type with its own GEDCOM tag is written with it: events
+  (`BIRT`, `CHR`, `MARR`, `DIVF`, `ADOP`, …) as events, and the individual
+  attributes (`CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `OCCU`,
+  `PROP`, `RELI`, `SSN`, `TITL`, `FACT`) as attributes, an occupation's title
+  in its value. A type GEDCOM has no tag for is a generic `EVEN` whose `TYPE`
+  names it with a fixed label (`Funeral`, `SLGC`, `nomen`, the labels GeneWeb
+  uses), which import reads back as the same type. `CivilUnion` and `Other`
+  are generic `EVEN`s whose `TYPE` is the event's description, and so are
+  `Confirmation`, `FirstCommunion`, `BarBatMitzvah` and `MilitaryService`,
+  which import also reads from `CONF`, `FCOM`, `BARM`/`BASM` and `MILI`.
+  `Adoption` is an individual event, never a family one: `ADOP` may name the
+  adoptive family through a nested `FAMC`.
+- **Date qualifiers.** `About` is `ABT`, `Calculated` `CAL`, `Estimated`
+  `EST`, `Before` `BEF`, `After` `AFT`, and `Between` `BET … AND …`; on
+  import, `FROM … TO …` is a `Between` and a lone `TO` a `Before`. GEDCOM has
+  no form for three of them: `Perhaps` (a GeneWeb reading) is written `EST`
+  and returns as `Estimated`, `Or` is written `BET … AND …` and returns as
+  `Between`, and `FromAge` writes the date bare. `Or` and `Between` hold two
+  dates; the others one.
+- **Calendars.** Each calendar is GEDCOM's escape (`@#DJULIAN@`,
+  `@#DHEBREW@`, `@#DFRENCH R@`), written after the qualifier and before each
+  date; a calendar OxidGene does not keep is dropped on import.
+- **Name types.** `Birth`, `Married`, `Maiden`, `Religious` and
+  `AlsoKnownAs` are GEDCOM's `NAME.TYPE` values (`aka` for the last).
+  `GivenName`, `Alias`, `Byname` and `Sobriquet` refine "also known as" for
+  the UI and are written `aka` as well, so the refinement does not survive a
+  round trip. `Other` has no type; GEDCOM's `immigrant`, `professional` and
+  free values import as `Other`.
+- **Child types.** `Biological`, `Adopted` and `Foster` are `PEDI` `birth`,
+  `adopted` and `foster`; `Step` and `Unknown` write no `PEDI`.
+- **Confidence.** A citation's `Confidence` is `QUAY` `0` (`VeryLow`) to `3`
+  (`High`); `VeryHigh` is written `3` too, as GEDCOM has no higher level, and
+  a citation without a confidence is written without `QUAY`.
+- **Media types.** `SourceMediaType` is GEDCOM's source media type vocabulary
+  and nothing else ([Media](#media) explains `DocumentCategory` beside it).
 
-enum ChildType {
-    Biological,
-    Adopted,
-    Foster,
-    Step,
-    Unknown,
-}
-
-/// Per-person privacy override (see ui-person-edit-modal.md §7).
-enum Privacy {
-    Default,   // Follows the tree-level privacy settings
-    Public,    // Always visible regardless of tree settings
-    Private,   // Hidden once viewer-aware enforcement is implemented
-}
-
-/// Precision/shape of a date entry (see ui-person-edit-modal.md §5).
-/// `Or` and `Between` use two date values; the rest use a single one.
-enum DateQualifier {
-    Exact,     // default
-    About,     // GEDCOM ABT
-    Perhaps,   // GEDCOM EST
-    Before,    // GEDCOM BEF
-    After,     // GEDCOM AFT
-    Or,        // app-specific (two dates)
-    Between,   // GEDCOM BET ... AND ...
-    FromAge,   // app-specific
-}
-
-/// Calendar system used to record a date.
-enum Calendar {
-    Gregorian, // default
-    Julian,
-    Hebrew,
-    FrenchRepublican,
-}
-
-// GEDCOM tag mapping shown per variant. Variants without a native tag
-// export as EVEN + TYPE subrecord.
-enum EventType {
-    // Individual events
-    Birth,               // BIRT
-    Death,               // DEAT
-    Baptism,             // BAPM
-    Confirmation,        // (EVEN + TYPE)
-    FirstCommunion,      // (EVEN + TYPE)
-    BarBatMitzvah,       // (EVEN + TYPE)
-    MilitaryService,     // (EVEN + TYPE)
-    Burial,              // BURI
-    Cremation,           // CREM
-    Graduation,          // GRAD
-    Immigration,         // IMMI
-    Emigration,          // EMIG
-    Naturalization,      // NATU
-    Census,              // CENS
-    Occupation,          // OCCU (description holds the title)
-    Residence,           // RESI
-    Retirement,          // RETI
-    Will,                // WILL
-    Probate,             // PROB
-    Adoption,            // ADOP — individual-level, may reference the
-                         //        adoptive family via a nested FAMC
-    // Individual attributes (GEDCOM 5.5.1 "attribute" tags)
-    CasteName,           // CAST
-    PhysicalDescription, // DSCR
-    Education,           // EDUC
-    NationalId,          // IDNO
-    NationalOrigin,      // NATI
-    ChildrenCount,       // NCHI
-    MarriagesCount,      // NMR
-    Property,            // PROP
-    Religion,            // RELI
-    SocialSecurityNumber,// SSN
-    NobilityTitle,       // TITL (as an individual attribute)
-    Fact,                // FACT
-    // Family events
-    Marriage,            // MARR
-    Divorce,             // DIV
-    Annulment,           // ANUL
-    Engagement,          // ENGA
-    MarriageBann,        // MARB
-    MarriageContract,    // MARC
-    MarriageLicense,     // MARL
-    MarriageSettlement,  // MARS
-    CivilUnion,          // (EVEN family tag) — PACS / cohabitation
-    Separation,          // SEP (GEDCOM 7.0)
-    DivorceFiled,        // DIVF
-    // Generic
-    Other,               // EVEN + TYPE
-}
-
-// GEDCOM QUAY (Certainty Assessment). A citation without a confidence is not
-// assessed and is written without QUAY.
-enum Confidence {
-    VeryLow,   // QUAY 0 (Unreliable)
-    Low,       // QUAY 1 (Questionable)
-    Medium,    // QUAY 2 (Secondary evidence)
-    High,      // QUAY 3 (Direct and primary evidence)
-    VeryHigh,  // written as QUAY 3: GEDCOM has no higher level
-}
-```
-
-`Adoption` is an individual event, never a family one: GEDCOM `ADOP` may name the adoptive family through a nested `FAMC`.
+`Privacy` is a per-record override whose `Default` follows the tree, and
+`TreeDefaultPrivacy` the tree's own answer ([Media](#media), "Privacy").
 
 ---
 
@@ -797,7 +734,7 @@ their schema version changes. The same design is used by SQLite and PostgreSQL.
 | `tree_id` | Tree scoping and whole-tree rebuild selection. |
 | `payload` | Serialized `oxidgene_core::projection::PersonProfile`. |
 | `schema_version` | Version of the payload shape written by the current build. |
-| `built_at` | Time the projection was derived. |
+| `updated_at` | Time the projection was derived. |
 
 The payload contains the person's primary and alternate names, sex, complete
 birth/death/baptism/burial events, other events, family links, portrait
@@ -815,7 +752,7 @@ rebuilding one person on demand never stands for the whole tree, so the first
 tree-wide read after a bump rebuilds every row.
 The initial schema defaults `schema_version` to `0`, so a row without an
 explicit current version is stale rather than assumed to contain a current
-payload. Consolidating SQL migrations does not remove this runtime version check.
+payload. The schema migrations never replace this runtime version check.
 
 ### 4.2 Pedigree assembly
 

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: human:maintainer, at: 2026-10-01T19:16:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 
@@ -22,8 +22,11 @@ generated: { by: human:maintainer, at: 2026-10-01T19:16:14Z }
 
 The project aims to develop a multiplatform genealogy application, built entirely in Rust, based on:
 
-- a **Dioxus** frontend compiled to WebAssembly (WASM) for web and desktop, and
-- a backend powered by **Axum** exposing an API simultaneously in REST (JSON) and GraphQL, with all features available through both protocols.
+- a **Dioxus** frontend compiled to WebAssembly (WASM) for the web and natively
+  for the desktop, and
+- a backend powered by **Axum** exposing every feature through REST (JSON) and,
+  in the web deployment, through a strictly symmetric GraphQL API; the
+  desktop's embedded backend serves REST only.
 
 The application is designed to be:
 
@@ -32,7 +35,7 @@ The application is designed to be:
     - frontend container (static WASM assets served by a lightweight HTTP server),
     - backend container (Axum server),
     - database container (PostgreSQL),
-    - optional worker infrastructure for EPIC H asynchronous processing.
+    - worker container running the durable import and export jobs.
 
 For technical details, see [Architecture](architecture.md).
 
@@ -101,7 +104,8 @@ access control.
 ### 3.2 GEDCOM Import/Export
 
 - Import GEDCOM 5.5.1 and 7.0 with automatic version detection through
-    `ged_io`; export the whole tree or a selected subtree.
+    `ged_io`; export the whole tree (a selected subtree is planned, see
+    [Roadmap](roadmap.md)).
 - Import GeneWeb `.gw` files through `geneweb`, converted into the same domain
     mapping as GEDCOM.
 - Import and export GEDZIP `.gdz` archives. Embedded media use the ordinary
@@ -153,7 +157,7 @@ access control.
 - Identify someone in a subpart of an image: the reader draws a region, chooses the person through search, and sees the identification as a linked vignette in the viewer and the person's media gallery.
 - A vignette's context menu can remove that identification immediately; if it was a portrait, the person falls back to no portrait rather than retaining a stale region.
 - A profile gallery can permanently delete an unshared media after confirmation; the viewer can force-delete it with all associated information. REST and GraphQL expose the same conditional-deletion contract.
-- Async upload pipeline (post-MVP).
+- Chunked and resumable media uploads (post-MVP).
 - → see [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
 ### 3.9 Statistics & Reports
@@ -177,7 +181,7 @@ hide it from reads, searches, exports, media downloads, or the UI.
 
 The following behavior is planned for EPIC G:
 
-- Mask contemporary individuals (< 100 years old) for guest users. → see [Settings](ui-settings.md) (privacy section)
+- Mask contemporary individuals (born less than an age threshold ago, 80 years by default, with no known death) for guest users. → see [Settings](ui-settings.md) (privacy section)
 - Optional last/first name masking.
 - Authentication and per-tree authorization.
 - Privacy enforcement across REST, GraphQL, exports, media, and UI views.
@@ -194,7 +198,7 @@ See [Roadmap](roadmap.md) for delivery status.
     → see [Data Model](data-model.md) §4
 - Recursive CTE over the family links for ancestor/descendant queries. → see [Data Model](data-model.md) (Ancestry traversal)
 - Streaming GEDCOM parser for large files.
-- Cursor-based pagination to avoid expensive offset scans. → see [API Contract](api.md) (pagination)
+- Cursor-based pagination of collections to avoid expensive offset scans; ranked person search pages by offset. → see [API Contract](api.md) (pagination)
 - Desktop window remapping preserves every page's mounted state. Duplicate GTK
     geometry events are discarded before they can reallocate the WebView; real
     size, position and display-scale changes still propagate normally.
@@ -224,7 +228,7 @@ The MVP covers EPICs A through D (see [Roadmap](roadmap.md)):
 - REST + GraphQL API. → [API Contract](api.md)
 - Desktop and web deployment. → [Architecture](architecture.md)
 
-**Not in MVP**: authentication, access control, collaborative editing, tree matching, async pipeline.
+**Not in MVP**: authentication, access control, collaborative editing, tree matching. Imports and exports already run as durable background jobs ([Architecture §6](architecture.md)).
 
 ---
 

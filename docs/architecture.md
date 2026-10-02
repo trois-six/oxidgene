@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:51:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
 ---
 
 
@@ -74,8 +74,8 @@ For full entity definitions, see [Data Model](data-model.md).
 - GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `ged_io` model, so both formats share one conversion into the domain.
 - Denormalized read projections materialized in the database and maintained by
     `oxidgene-api::profile`. See [Data Model §4](data-model.md).
-- Application crates provide the web server, browser frontend, and desktop
-    application. There is no CLI.
+- Application crates provide the web server, its background-job worker, the
+    browser frontend, and the desktop application. There is no CLI.
 
 API endpoints are documented in [API Contract](api.md).
 
@@ -111,7 +111,8 @@ connection.
 
 - Dioxus components crate (`oxidgene-ui`).
 - Shared between web and desktop targets.
-- Communicates with the backend via REST/GraphQL.
+- Communicates with the backend through REST, with its typed `ApiClient`;
+    GraphQL serves other clients of the web deployment.
 - In the browser, `oxidgene-web` compiles the shared UI to WebAssembly and
     injects the separately deployed Axum API URL.
 - On desktop: points to `http://127.0.0.1:<port>` served by the embedded Axum server,
@@ -134,20 +135,18 @@ connection.
     is enabled only by the embedded desktop backend; the standalone server
     cannot consume or materialize client-supplied filesystem paths.
 
-UI specifications:
-- [Common UI](ui-common.md) — shared layout, tokens, and components
-- [Homepage](ui-home.md) — tree dashboard
-- [Genealogy Tree](ui-genealogy-tree.md) — pedigree canvas
-- [Person Edit Modal](ui-person-edit-modal.md) — edit forms
-- [Settings](ui-settings.md) — tree configuration
+The UI specifications — [Common UI](ui-common.md), then one per page, modal
+and flow — are listed in the [specification index](index.md).
 
 ---
 
 ## 6. Asynchronous Processing
 
 - Imports and exports are durable background jobs. The database is the source
-    of truth for job state, progress, results, cancellation and worker leases;
-    Redis remains reserved for authenticated sessions and is not a job queue.
+    of truth for job state, progress, results and worker leases (its
+    `cancel_requested` column is reserved for cancellation, which no operation
+    offers); Redis remains reserved for authenticated sessions and is not a
+    job queue.
 - The Axum API receives import files into durable staging storage, creates jobs,
     reports their status, and serves or redirects completed export artifacts. It
     never performs parsing, media ingestion, projection rebuilding or archive
@@ -471,6 +470,7 @@ oxidgene/
 │   ├── oxidgene-api/       # Axum handlers + GraphQL resolvers
 │   ├── oxidgene-gedcom/    # GEDCOM import/export + GeneWeb .gw import
 │   ├── oxidgene-geneanet/  # Geneanet person↔photo recovery (join, key, archives)
+│   ├── oxidgene-observability/  # Shared OpenTelemetry initialization
 │   └── oxidgene-ui/        # Dioxus components (shared web/desktop)
 ├── apps/
 │   ├── oxidgene-server/    # Web backend binary
@@ -483,24 +483,31 @@ oxidgene/
 
 ### 9.2 Crate Dependency Graph
 
-```
-oxidgene-core (no internal deps)
-    ↑
-oxidgene-db (depends on: oxidgene-core)
-    ↑
-oxidgene-gedcom (depends on: oxidgene-core)
-oxidgene-geneanet (no internal deps)
-    ↑
-oxidgene-api (depends on: oxidgene-core, oxidgene-db, oxidgene-gedcom, oxidgene-geneanet)
-    ↑
-oxidgene-server (depends on: oxidgene-api, oxidgene-db)
-oxidgene-worker (depends on: oxidgene-api, oxidgene-db)
-oxidgene-web (depends on: oxidgene-ui)
-oxidgene-desktop (depends on: oxidgene-api, oxidgene-db, oxidgene-ui, oxidgene-geneanet)
-oxidgene-place-dictionary (no internal deps)
+The internal dependencies, as the Cargo manifests declare them (`?` marks
+one a feature enables):
 
-oxidgene-ui (depends on: oxidgene-core)
 ```
+oxidgene-core             (no internal deps)
+oxidgene-observability    (no internal deps)
+oxidgene-db               oxidgene-core, oxidgene-observability?
+oxidgene-gedcom           oxidgene-core
+oxidgene-geneanet         oxidgene-core
+oxidgene-api              oxidgene-core, oxidgene-db, oxidgene-gedcom,
+                          oxidgene-geneanet, oxidgene-observability?
+oxidgene-ui               oxidgene-core
+
+oxidgene-server           oxidgene-api, oxidgene-observability
+oxidgene-worker           oxidgene-server, oxidgene-api, oxidgene-observability
+oxidgene-web              oxidgene-ui
+oxidgene-desktop          oxidgene-api, oxidgene-db, oxidgene-ui,
+                          oxidgene-geneanet, oxidgene-observability?
+oxidgene-place-dictionary oxidgene-core
+```
+
+`oxidgene-observability` is reached through the `telemetry-context` feature
+of `oxidgene-api` and `oxidgene-db`, which the server and the worker enable,
+and through the desktop's default `telemetry` feature. The worker links the
+server crate to reuse its configuration and shutdown handling.
 
 **`oxidgene-ui` stays platform-free.** It is compiled for wasm as well as for
 the desktop, so it depends on neither `dioxus-desktop` nor `oxidgene-geneanet`.
@@ -513,8 +520,8 @@ explanation instead of the control.
 The workspace keeps libraries under `crates/` and application entry points
 under `apps/`. `oxidgene-place-dictionary` is a development tool rather than a
 shipped application: it generates the [place dictionary](place-dictionary.md)
-from open data and is never linked into a product binary. A former CLI was removed after its workflows moved into the
-desktop application.
+from open data and is never linked into a product binary. There is no
+separate command-line application.
 
 **Migrations.** While the product is unreleased, the schema is one
 consolidated initial migration

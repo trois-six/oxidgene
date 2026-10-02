@@ -125,24 +125,31 @@ All specifications live in `docs/`. Start with
 
 ```text
 crates/
-  oxidgene-core/     Domain types, enums, errors, and projections
-  oxidgene-db/       SeaORM entities, migrations, and repositories
-  oxidgene-gedcom/   GEDCOM and GeneWeb conversion into the domain
-  oxidgene-geneanet/ Geneanet join, key folding, archive indexing, and hashing
-  oxidgene-api/      Axum REST, GraphQL, services, media, and profiles
-  oxidgene-ui/       Dioxus components and pages
+  oxidgene-core/          Domain types, enums, errors, and projections
+  oxidgene-db/            SeaORM entities, migrations, and repositories
+  oxidgene-gedcom/        GEDCOM and GeneWeb conversion into the domain
+  oxidgene-geneanet/      Geneanet join, key folding, archive indexing, and hashing
+  oxidgene-observability/ Shared OpenTelemetry initialization
+  oxidgene-api/           Axum REST, GraphQL, MCP, services, media, and profiles
+  oxidgene-ui/            Dioxus components and pages
 apps/
-  oxidgene-server/   Web server binary
-  oxidgene-desktop/  Desktop binary with embedded Axum, SQLite, and WebView
+  oxidgene-server/        Web server binary
+  oxidgene-worker/        Web background-job worker
+  oxidgene-web/           Browser frontend (WASM)
+  oxidgene-desktop/       Desktop binary with embedded Axum, SQLite, and WebView
+  oxidgene-place-dictionary/ Place dictionary generator (development tool)
 ```
 
-Dependency direction:
+Dependency direction (`architecture.md` §9.2 has the full graph):
 
 ```text
-core <- db <- api <- server/desktop
+core <- db <- api <- server <- worker
 core <- gedcom <- api
-geneanet <- api/desktop
-core <- ui
+core <- geneanet <- api/desktop
+api <- desktop
+core <- ui <- web/desktop
+core <- place-dictionary
+observability <- db/api (feature), server/worker/desktop
 ```
 
 ### Architecture invariants
@@ -155,8 +162,14 @@ core <- ui
 - There is no cache tier. Durable read models live in `person_denorm` and
   `person_search_fts`; pedigrees are assembled per request from family links and
   denormalized profiles.
+- Until the first release, the schema is the single initial migration
+  (`m20250101_000001_initial.rs`): a schema change edits it, with no dated
+  migration and no data conversion, and existing databases are recreated and
+  reimported. The migration mechanism stays for the incremental migrations
+  that follow the release.
 - All primary keys use UUID v7.
-- List endpoints use cursor-based pagination.
+- Collection list endpoints use cursor-based pagination; the exceptions,
+  such as offset-paged person search, are listed in `api.md` (Pagination).
 - Domain records use soft deletion and are excluded by default.
 - Persons exist independently; families connect spouses and children.
 - Authentication is not part of the current MVP.
