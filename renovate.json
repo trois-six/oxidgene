@@ -23,6 +23,15 @@
       "datasourceTemplate": "crate",
       "depNameTemplate": "dioxus-cli",
       "versioningTemplate": "cargo"
+    },
+    {
+      "customType": "regex",
+      "description": "The pinned Rust release (see docs/development.md before merging)",
+      "managerFilePatterns": ["/^rust-toolchain\\.toml$/"],
+      "matchStrings": ["channel = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\""],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "rust-lang/rust",
+      "versioningTemplate": "semver"
     }
   ],
   "timezone": "Europe/Paris",

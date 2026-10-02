@@ -1,0 +1,11 @@
+# The Rust release every build uses: local recipes, the CI image, the E2E and
+# release workflows. Pinned so that a new stable release, with its new lints
+# and warnings, cannot break the blocking CI jobs overnight; the nightly
+# Next toolchains job runs Clippy on beta and nightly to see them coming.
+# Renovate proposes the bump (renovate.json); docs/development.md says how to
+# take it.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

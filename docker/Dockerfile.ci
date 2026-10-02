@@ -13,5 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zstd \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rustup component add rustfmt clippy \
+# The toolchain of rust-toolchain.toml, with its components and targets, so a
+# job does not download it again; the image is rebuilt when the file changes.
+COPY rust-toolchain.toml /opt/oxidgene/rust-toolchain.toml
+RUN cd /opt/oxidgene && rustup toolchain install \
+    && rustup default "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" \
     && curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin
