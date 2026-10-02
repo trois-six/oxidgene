@@ -1458,11 +1458,23 @@ fn to_ged_name(pn: &PersonName) -> GedName {
     }
 }
 
-fn convert_event_type(et: EventType) -> GedEvent {
+/// The GEDCOM tag an event type is written under: its own wherever GEDCOM
+/// 5.5.1 and 7.0 define one, else the generic `EVEN`, which
+/// [`even_type_label`] names. `sex` picks between `BARM` and `BASM`, the one
+/// pair of tags a single OxidGene type covers.
+///
+/// Neither version defines `MILI` (an extension some software writes) nor
+/// `SEP` (which `ged_io` reads, but no specification lists), so a military
+/// service and a separation are an `EVEN` any reader understands.
+fn convert_event_type(et: EventType, sex: Option<Sex>) -> GedEvent {
     match et {
         EventType::Birth => GedEvent::Birth,
         EventType::Death => GedEvent::Death,
         EventType::Baptism => GedEvent::Baptism,
+        EventType::Confirmation => GedEvent::Confirmation,
+        EventType::FirstCommunion => GedEvent::FirstCommunion,
+        EventType::BarBatMitzvah if sex == Some(Sex::Female) => GedEvent::BasMitzvah,
+        EventType::BarBatMitzvah => GedEvent::BarMitzvah,
         EventType::Burial => GedEvent::Burial,
         EventType::Cremation => GedEvent::Cremation,
         EventType::Graduation => GedEvent::Graduation,
@@ -1482,26 +1494,16 @@ fn convert_event_type(et: EventType) -> GedEvent {
         EventType::MarriageContract => GedEvent::MarriageContract,
         EventType::MarriageLicense => GedEvent::MarriageLicense,
         EventType::MarriageSettlement => GedEvent::MarriageSettlement,
-        EventType::Separation => GedEvent::Separated,
         EventType::DivorceFiled => GedEvent::DivorceFiled,
-        // No dedicated GEDCOM tag exists for civil unions/PACS/cohabitation —
-        // written back as a generic EVEN with the TYPE sub-tag set from
-        // `description` (see `to_ged_detail`).
-        EventType::CivilUnion => GedEvent::Event,
         EventType::Adoption => GedEvent::Adoption,
         EventType::Blessing => GedEvent::Blessing,
         EventType::Ordination => GedEvent::Ordination,
         EventType::Christening => GedEvent::Christening,
         EventType::AdultChristening => GedEvent::AdultChristening,
-        EventType::Other | EventType::Occupation => GedEvent::Other,
-        // The individual-attribute variants (CasteName, PhysicalDescription,
-        // Education, ...) always round-trip through `to_ged_attribute_detail`
-        // instead (see the per-person event/attribute split in
-        // `export_gedcom`) — this arm only exists for exhaustiveness.
-        EventType::Confirmation
-        | EventType::FirstCommunion
-        | EventType::BarBatMitzvah
-        | EventType::MilitaryService
+        // The individual-attribute variants (Occupation, CasteName, ...) are
+        // written by `to_ged_attribute_detail` under their own attribute tag
+        // (see `individual_events`); this arm only exists for exhaustiveness.
+        EventType::Occupation
         | EventType::CasteName
         | EventType::PhysicalDescription
         | EventType::Education
@@ -1514,9 +1516,15 @@ fn convert_event_type(et: EventType) -> GedEvent {
         | EventType::SocialSecurityNumber
         | EventType::NobilityTitle
         | EventType::Fact => GedEvent::Other,
-        // GeneWeb's vocabulary: no GEDCOM tag, so a generic EVEN whose TYPE
-        // names the event (see `gedcom_type_label`).
-        EventType::Accomplishment
+        // No tag in either version: a generic `EVEN` that `even_type_label`
+        // names. The LDS ordinances do have tags (`BAPL`, `CONL`, `ENDL`,
+        // `SLGC`, `SLGS`), but `ged_io` holds no place, description or media
+        // for them and OxidGene's import does not read them, so they stay
+        // events that GEDCOM readers and OxidGene both read whole.
+        EventType::MilitaryService
+        | EventType::CivilUnion
+        | EventType::Separation
+        | EventType::Accomplishment
         | EventType::Acquisition
         | EventType::Membership
         | EventType::ChangeName
@@ -1544,19 +1552,21 @@ fn convert_event_type(et: EventType) -> GedEvent {
         | EventType::NoMarriage
         | EventType::LdsBaptism
         | EventType::LdsConfirmation
-        | EventType::NoMention => GedEvent::Event,
+        | EventType::NoMention
+        | EventType::Other => GedEvent::Event,
     }
 }
 
-/// The `TYPE` label a generic `EVEN` must carry to name this event type.
+/// The `TYPE` that names this event type on a generic `EVEN`; `None` for a
+/// type written under a tag of its own.
 ///
-/// `None` for types that are a GEDCOM tag of their own, and for `Other` and
-/// `CivilUnion`, whose classification lives in the event's description.
-///
-/// This is the inverse of the table `oxidgene_gedcom::import` reads, so an
-/// event exported here is recognised as the same type when read back.
-fn gedcom_type_label(et: EventType) -> Option<&'static str> {
+/// The import reads each of these back as the type it names, and as nothing
+/// more: the label is the type, not a description of the event.
+pub(crate) fn even_type_label(et: EventType) -> Option<&'static str> {
     match et {
+        EventType::MilitaryService => Some("Military service"),
+        EventType::CivilUnion => Some("Civil union"),
+        EventType::Separation => Some("Separation"),
         EventType::Accomplishment => Some("Accomplishment"),
         EventType::Acquisition => Some("Acquisition"),
         EventType::Membership => Some("Membership"),
@@ -1586,7 +1596,25 @@ fn gedcom_type_label(et: EventType) -> Option<&'static str> {
         EventType::LdsBaptism => Some("BAPL"),
         EventType::LdsConfirmation => Some("CONL"),
         EventType::NoMention => Some("nomen"),
+        EventType::Other => Some("Other"),
         _ => None,
+    }
+}
+
+/// The line value and `TYPE` of an event written as a generic `EVEN`.
+///
+/// GEDCOM classifies an `EVEN` by its `TYPE`, which 7.0 requires, and lets
+/// its line value describe it. A description that reads back as this very
+/// type — "PACS" for a civil union, "Land lease" for an event of no other
+/// type — is the `TYPE`, as other software writes it. Any other description
+/// goes on the line under the type's own label, so that neither the type nor
+/// the description changes on the way back in.
+fn even_value_and_type(et: EventType, description: Option<&str>) -> (Option<String>, String) {
+    let label = even_type_label(et).unwrap_or("Other");
+    match description.filter(|d| !d.trim().is_empty()) {
+        None => (None, label.to_owned()),
+        Some(d) if crate::import::type_text_reads_as(d, et) => (None, d.to_owned()),
+        Some(d) => (Some(d.to_owned()), label.to_owned()),
     }
 }
 
@@ -1640,7 +1668,19 @@ fn to_ged_note(text: &str) -> GedNote {
 }
 
 fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -> GedDetail {
-    let event = convert_event_type(evt.event_type);
+    let sex = evt
+        .person_id
+        .and_then(|id| index.sex_by_person.get(&id).copied());
+    let event = convert_event_type(evt.event_type, sex);
+    // A tag of its own says what the event is, and its `TYPE` refines it
+    // with the description ("College" under a `GRAD`); a generic `EVEN`
+    // needs its `TYPE` to say what it is.
+    let (value, event_type) = if event == GedEvent::Event {
+        let (value, type_text) = even_value_and_type(evt.event_type, evt.description.as_deref());
+        (value, Some(type_text))
+    } else {
+        (None, evt.description.clone())
+    };
     let EventParts {
         date,
         place,
@@ -1661,19 +1701,13 @@ fn to_ged_detail(evt: &Event, index: &ExportIndex, warnings: &mut Vec<String>) -
     // elsewhere), so there's nothing to round-trip into `family_link` here.
     GedDetail {
         event,
-        value: None,
+        value,
         date,
         place,
         note,
         family_link: None,
         family_event_details: Vec::new(),
-        // Round-trips the classification back into the GEDCOM TYPE sub-tag it
-        // was read from. A type that names itself writes its own label; the
-        // rest (Other, CivilUnion) fall back to the free-text description,
-        // which is where their classification lives.
-        event_type: gedcom_type_label(evt.event_type)
-            .map(str::to_owned)
-            .or_else(|| evt.description.clone()),
+        event_type,
         citations,
         multimedia,
         sort_date: None,

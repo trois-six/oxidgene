@@ -649,7 +649,8 @@ pub enum EventType {
     /// Civil union / PACS / cohabitation — an unmarried partnership recorded
     /// via GEDCOM's generic `EVEN` family tag (no dedicated tag exists).
     CivilUnion,
-    /// Legal separation, not yet a divorce (GEDCOM 7.0 `SEP` tag).
+    /// Legal separation, not yet a divorce. No GEDCOM version has a tag for
+    /// it: a generic `EVEN` typed `Separation`, though a `SEP` is read too.
     Separation,
     /// Divorce petition filed but not finalized (GEDCOM `DIVF` tag).
     DivorceFiled,

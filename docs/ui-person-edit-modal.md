@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:30:35Z }
 ---
 
 
@@ -382,13 +382,13 @@ An **"+ Add an event"** button opens a small inline picker listing available eve
 
 ### Available event types
 
-Event types are organized by category. Types marked with **⟷** have a direct GEDCOM tag mapping (lossless round-trip via `ged_io`). Types without the marker are app-specific and export as GEDCOM `EVEN` with a TYPE subrecord.
+Event types are organized by category. Types marked with **⟷** have a direct GEDCOM tag mapping (lossless round-trip via `ged_io`). Types without the marker have no GEDCOM tag and export as a generic `EVEN` whose `TYPE` names the type (see [Data Model](data-model.md) §2).
 
 **Sacraments & religious**
 - Baptism ⟷ `BAPM`
-- Confirmation
-- First communion
-- Bar/Bat Mitzvah
+- Confirmation ⟷ `CONF`
+- First communion ⟷ `FCOM`
+- Bar/Bat Mitzvah ⟷ `BARM` (`BASM` for a woman)
 
 **Civil & life**
 - Census ⟷ `CENS`
@@ -410,10 +410,10 @@ Event types are organized by category. Types marked with **⟷** have a direct G
 **Family** (also available as union events in the [couple edit modal](#16-couple-edit-modal))
 - Engagement ⟷ `ENGA`
 - Divorce / Separation ⟷ `DIV`
-- Adoption
+- Adoption ⟷ `ADOP`
 
 **Other**
-- Custom event (free label) → exports as GEDCOM `EVEN` with TYPE
+- Custom event (free label) → exports as GEDCOM `EVEN` with the label as its `TYPE`
 
 ### Event block structure
 

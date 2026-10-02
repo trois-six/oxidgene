@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:31:31Z }
 ---
 
 
@@ -610,18 +610,35 @@ localize the values; they are never stored translated.
 reads GEDCOM into the enums, `export.rs` writes them back, and `date.rs`
 handles dates. They follow these rules:
 
-- **Event types.** A type with its own GEDCOM tag is written with it: events
-  (`BIRT`, `CHR`, `MARR`, `DIVF`, `ADOP`, …) as events, and the individual
-  attributes (`CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `OCCU`,
-  `PROP`, `RELI`, `SSN`, `TITL`, `FACT`) as attributes, an occupation's title
-  in its value. A type GEDCOM has no tag for is a generic `EVEN` whose `TYPE`
-  names it with a fixed label (`Funeral`, `SLGC`, `nomen`, the labels GeneWeb
-  uses), which import reads back as the same type. `CivilUnion` and `Other`
-  are generic `EVEN`s whose `TYPE` is the event's description, and so are
-  `Confirmation`, `FirstCommunion`, `BarBatMitzvah` and `MilitaryService`,
-  which import also reads from `CONF`, `FCOM`, `BARM`/`BASM` and `MILI`.
-  `Adoption` is an individual event, never a family one: `ADOP` may name the
-  adoptive family through a nested `FAMC`.
+- **Event types.** A type GEDCOM 5.5.1 and 7.0 give a tag is written and
+  read with it, in a `.ged` of either version and in a GEDZIP alike: events
+  (`BIRT`, `CHR`, `CONF`, `FCOM`, `MARR`, `DIVF`, `ADOP`, …) as events —
+  `BarBatMitzvah` as `BARM`, or `BASM` for a woman — with the description as
+  the `TYPE` refining the tag (`1 GRAD` / `2 TYPE College`), and the
+  individual attributes (`CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`,
+  `NMR`, `OCCU`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT`) as attributes, the
+  description in their value. `Adoption` is an individual event, never a
+  family one: `ADOP` may name the adoptive family through a nested `FAMC`.
+- **Generic events.** Every other type is a generic `EVEN`, classified by a
+  `TYPE`, which 7.0 requires: a fixed label naming the type — `Military
+  service`, `Civil union`, `Separation`, `Other`, and the labels GeneWeb uses
+  (`Funeral`, `SLGC`, `nomen`) — kept in `export.rs`'s `even_type_label`.
+  Neither version defines `MILI` or `SEP`. A description that reads back as
+  this very type (`PACS` for a civil union, `Land lease` for `Other`) is
+  written as the `TYPE` itself, as other software writes it; any other
+  description goes on the `EVEN` line, GEDCOM's event descriptor (`1 EVEN
+  Sample detail` / `2 TYPE Military service`). So every type keeps its type
+  and description through a round trip. The LDS ordinances have tags
+  (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`) but stay generic events: `ged_io`
+  holds no place, description or media for those structures, and the import
+  does not read them.
+- **Reading a generic event.** Its `TYPE` gives its type: a tag name
+  (`CONF`, `MILI`), a label above, or a phrase naming a type in English or
+  French; anything else is `Other`. Its description is the line value and the
+  `TYPE` together (`Civic appointment: Appointed chair`), else the one given,
+  the `TYPE` counting only when it says more than the type. On a tag of its
+  own the line value is the `Y` asserting the event, never a description.
+  `SEP`, which `ged_io` reads, is still a `Separation`.
 - **Date qualifiers.** `About` is `ABT`, `Calculated` `CAL`, `Estimated`
   `EST`, `Before` `BEF`, `After` `AFT`, and `Between` `BET … AND …`; on
   import, `FROM … TO …` is a `Between` and a lone `TO` a `Before`. GEDCOM has

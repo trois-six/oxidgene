@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use oxidgene_core::types::{Note, Person, PersonName};
-use oxidgene_core::{NameType, Privacy, Sex};
+use oxidgene_core::{EventType, NameType, Privacy, Sex};
 use oxidgene_gedcom::export::{ExportOptions, ExportRecords, SubmitterSettings, export_gedcom};
 use oxidgene_gedcom::import::import_gedcom;
 
@@ -2513,6 +2513,386 @@ fn test_import_an_aka_name_adding_only_a_nickname_is_a_byname() {
             (NameType::Byname, None, Some("Jay")),
             // A name of its own, with a nickname on it.
             (NameType::AlsoKnownAs, Some("Poe"), Some("Jo")),
+        ]
+    );
+}
+
+/// Every `EventType` there is, read from `serde`'s own list of the enum's
+/// variants: a variant added later is in it without anyone remembering to
+/// add it here, so the round trip below covers it too.
+fn every_event_type() -> Vec<EventType> {
+    let unknown =
+        serde_json::from_str::<EventType>("\"__no_such_event_type__\"").expect_err("not a variant");
+    let message = unknown.to_string();
+    let (_, listed) = message
+        .split_once("expected one of")
+        .unwrap_or_else(|| panic!("serde lists the variants: {message}"));
+    let all: Vec<EventType> = listed
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(|name| serde_json::from_value(serde_json::Value::from(name)).expect("a variant"))
+        .collect();
+    assert!(all.len() > 70, "{all:?}");
+    all
+}
+
+/// Whether GEDCOM records an event of this type on the couple's `FAM`
+/// record rather than on a person. Exhaustive on purpose: a new variant does
+/// not compile until somebody decides where it belongs.
+fn is_family_event(event_type: EventType) -> bool {
+    match event_type {
+        EventType::Marriage
+        | EventType::Divorce
+        | EventType::Annulment
+        | EventType::Engagement
+        | EventType::MarriageBann
+        | EventType::MarriageContract
+        | EventType::MarriageLicense
+        | EventType::MarriageSettlement
+        | EventType::CivilUnion
+        | EventType::Separation
+        | EventType::DivorceFiled
+        | EventType::SealingSpouse
+        | EventType::NoMarriage
+        | EventType::NoMention => true,
+        EventType::Birth
+        | EventType::Death
+        | EventType::Baptism
+        | EventType::Confirmation
+        | EventType::FirstCommunion
+        | EventType::BarBatMitzvah
+        | EventType::MilitaryService
+        | EventType::Burial
+        | EventType::Cremation
+        | EventType::Graduation
+        | EventType::Immigration
+        | EventType::Emigration
+        | EventType::Naturalization
+        | EventType::Census
+        | EventType::Occupation
+        | EventType::Residence
+        | EventType::Retirement
+        | EventType::Will
+        | EventType::Probate
+        | EventType::Adoption
+        | EventType::CasteName
+        | EventType::PhysicalDescription
+        | EventType::Education
+        | EventType::NationalId
+        | EventType::NationalOrigin
+        | EventType::ChildrenCount
+        | EventType::MarriagesCount
+        | EventType::Property
+        | EventType::Religion
+        | EventType::SocialSecurityNumber
+        | EventType::NobilityTitle
+        | EventType::Fact
+        | EventType::Blessing
+        | EventType::Ordination
+        | EventType::Christening
+        | EventType::AdultChristening
+        | EventType::Accomplishment
+        | EventType::Acquisition
+        | EventType::Membership
+        | EventType::ChangeName
+        | EventType::Circumcision
+        | EventType::Award
+        | EventType::MilitaryDischarge
+        | EventType::Degree
+        | EventType::Distinction
+        | EventType::Election
+        | EventType::Excommunication
+        | EventType::Funeral
+        | EventType::Hospitalization
+        | EventType::Illness
+        | EventType::PassengerList
+        | EventType::MilitaryDistinction
+        | EventType::MilitaryPromotion
+        | EventType::MilitaryMobilization
+        | EventType::PropertySale
+        | EventType::Endowment
+        | EventType::LdsDotation
+        | EventType::SealingChild
+        | EventType::SealingParent
+        | EventType::FamilyLinkLds
+        | EventType::LdsBaptism
+        | EventType::LdsConfirmation
+        | EventType::Other => false,
+    }
+}
+
+const COUPLE_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 SEX M
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Beta /Sample/
+1 SEX F
+1 FAMS @F1@
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+0 TRLR
+";
+
+/// An imported event's type, description and place name.
+type EventShape = (EventType, Option<String>, Option<String>);
+
+/// What each imported event came back as, keyed by its date, which no two
+/// events of the round trip share.
+fn events_by_date(result: &oxidgene_gedcom::ImportResult) -> HashMap<String, EventShape> {
+    let place_name: HashMap<Uuid, &str> = result
+        .places
+        .iter()
+        .map(|p| (p.id, p.name.as_str()))
+        .collect();
+    result
+        .events
+        .iter()
+        .map(|e| {
+            (
+                e.date_value.clone().expect("every event is dated"),
+                (
+                    e.event_type,
+                    e.description.clone(),
+                    e.place_id.map(|id| place_name[&id].to_owned()),
+                ),
+            )
+        })
+        .collect()
+}
+
+/// Adds a dated event, at a place of its own, to `tree`, and returns the
+/// date that identifies it with what it must come back as.
+fn add_event(
+    tree: &mut oxidgene_gedcom::ImportResult,
+    event_type: EventType,
+    owner: (Option<Uuid>, Option<Uuid>),
+    description: Option<&str>,
+) -> (String, EventShape) {
+    let now = Utc::now();
+    let n = tree.events.len();
+    let date = format!("{} JAN {}", n % 28 + 1, 1700 + n);
+    let place = oxidgene_core::types::Place {
+        id: Uuid::now_v7(),
+        tree_id: tree.tree_id,
+        name: format!("Sampletown {n}"),
+        latitude: None,
+        longitude: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let (person_id, family_id) = owner;
+    tree.events.push(oxidgene_core::types::Event {
+        id: Uuid::now_v7(),
+        tree_id: tree.tree_id,
+        event_type,
+        date_value: Some(date.clone()),
+        date_sort: None,
+        date_qualifier: Default::default(),
+        date_value2: None,
+        calendar: Default::default(),
+        cause: None,
+        age: None,
+        agency: None,
+        spouse_ages: Vec::new(),
+        place_id: Some(place.id),
+        person_id,
+        family_id,
+        description: description.map(str::to_owned),
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    });
+    let shape = (
+        event_type,
+        description.map(str::to_owned),
+        Some(place.name.clone()),
+    );
+    tree.places.push(place);
+    (date, shape)
+}
+
+/// Every generic `EVEN` of `gedcom` with no `TYPE` saying what it is.
+fn untyped_generic_events(gedcom: &str) -> Vec<&str> {
+    let mut untyped = Vec::new();
+    let mut lines = gedcom.lines().peekable();
+    while let Some(line) = lines.next() {
+        if !line.starts_with("1 EVEN") {
+            continue;
+        }
+        let mut typed = false;
+        while let Some(child) = lines.next_if(|l| !l.starts_with("0 ") && !l.starts_with("1 ")) {
+            typed |= child.starts_with("2 TYPE ");
+        }
+        if !typed {
+            untyped.push(line);
+        }
+    }
+    untyped
+}
+
+/// Every event type survives an export and a re-import under its own type,
+/// with its date, place and description — as GEDCOM 5.5.1, read as GEDCOM
+/// 7.0, and inside a GEDZIP. Each type travels twice, described and not; a
+/// civil union, an untyped event and a military service also with a
+/// description that names what they are or something else.
+#[test]
+fn every_event_type_survives_a_round_trip() {
+    let mut tree = import_gedcom(COUPLE_GEDCOM, Uuid::now_v7()).expect("imports");
+    let husband = (Some(tree.persons[0].id), None);
+    let wife = (Some(tree.persons[1].id), None);
+    let couple = (None, Some(tree.families[0].id));
+    let mut expected = HashMap::new();
+    for event_type in every_event_type() {
+        let owner = if is_family_event(event_type) {
+            couple
+        } else {
+            husband
+        };
+        let description = format!("Sample detail {}", tree.events.len());
+        expected.extend([
+            add_event(&mut tree, event_type, owner, Some(&description)),
+            add_event(&mut tree, event_type, owner, None),
+        ]);
+    }
+    expected.extend([
+        add_event(&mut tree, EventType::BarBatMitzvah, wife, None),
+        add_event(&mut tree, EventType::CivilUnion, couple, Some("PACS")),
+        add_event(&mut tree, EventType::Other, couple, Some("Land lease")),
+        add_event(
+            &mut tree,
+            EventType::Other,
+            husband,
+            Some("Military parade"),
+        ),
+        add_event(
+            &mut tree,
+            EventType::MilitaryService,
+            husband,
+            Some("Military service"),
+        ),
+    ]);
+
+    let gedcom = reexport(&tree);
+    for line in [
+        "1 CONF\n",
+        "1 FCOM\n",
+        "1 BARM\n",
+        "1 BASM\n",
+        "2 TYPE Military service\n",
+        "2 TYPE Separation\n",
+        "2 TYPE PACS\n",
+        "2 TYPE Land lease\n",
+        "1 EVEN Military parade\n",
+    ] {
+        assert!(gedcom.contains(line), "{line:?} missing from\n{gedcom}");
+    }
+    for tag in ["1 MILI", "1 SEP"] {
+        assert!(!gedcom.contains(tag), "{tag} in\n{gedcom}");
+    }
+    // GEDCOM 7.0 requires the `TYPE` of a generic event.
+    assert_eq!(untyped_generic_events(&gedcom), Vec::<&str>::new());
+
+    let as_gedcom_7 = gedcom.replacen("2 VERS 5.5.1", "2 VERS 7.0", 1);
+    assert_ne!(as_gedcom_7, gedcom, "the header names the version");
+    let archive = oxidgene_gedcom::export::export_gedzip(&gedcom, &[]).expect("writes a GEDZIP");
+    for (format, back) in [
+        (
+            "GEDCOM 5.5.1",
+            import_gedcom(&gedcom, Uuid::now_v7()).expect("imports"),
+        ),
+        (
+            "GEDCOM 7.0",
+            import_gedcom(&as_gedcom_7, Uuid::now_v7()).expect("imports"),
+        ),
+        (
+            "GEDZIP",
+            oxidgene_gedcom::import::import_gedzip(&archive, Uuid::now_v7())
+                .expect("imports")
+                .result,
+        ),
+    ] {
+        assert_eq!(back.events.len(), tree.events.len(), "{format}");
+        let actual = events_by_date(&back);
+        for (date, want) in &expected {
+            assert_eq!(actual.get(date), Some(want), "{format}, event dated {date}");
+        }
+    }
+}
+
+/// The standard tags of a confirmation, a first communion and a bar or bat
+/// mitzvah — which other software and the `geneweb` crate write — import as
+/// those events, not as untyped ones.
+#[test]
+fn standard_religious_event_tags_import_as_their_types() {
+    let gedcom = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 CONF
+2 DATE 1700
+1 FCOM
+2 DATE 1701
+1 BARM
+2 DATE 1702
+1 BASM
+2 DATE 1703
+0 TRLR
+";
+    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let types: Vec<EventType> = result.events.iter().map(|e| e.event_type).collect();
+    assert_eq!(
+        types,
+        [
+            EventType::Confirmation,
+            EventType::FirstCommunion,
+            EventType::BarBatMitzvah,
+            EventType::BarBatMitzvah,
+        ]
+    );
+}
+
+/// A generic event's line value is GEDCOM's event descriptor: it describes
+/// the event alongside the `TYPE` that classifies it. A tag's own `Y` only
+/// asserts that the event happened.
+#[test]
+fn a_generic_events_descriptor_is_part_of_its_description() {
+    let gedcom = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 EVEN Appointed committee chair
+2 TYPE Civic appointment
+1 EVEN Sample assignment
+2 TYPE Military service
+1 DEAT Y
+0 TRLR
+";
+    let result = import_gedcom(gedcom, Uuid::now_v7()).expect("imports");
+    let events: Vec<(EventType, Option<&str>)> = result
+        .events
+        .iter()
+        .map(|e| (e.event_type, e.description.as_deref()))
+        .collect();
+    assert_eq!(
+        events,
+        [
+            (
+                EventType::Other,
+                Some("Civic appointment: Appointed committee chair")
+            ),
+            (EventType::MilitaryService, Some("Sample assignment")),
+            (EventType::Death, None),
         ]
     );
 }

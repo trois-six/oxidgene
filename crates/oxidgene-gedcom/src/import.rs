@@ -2003,6 +2003,9 @@ fn convert_event_type(evt: &GedEvent, type_text: Option<&str>) -> EventType {
         GedEvent::Birth => EventType::Birth,
         GedEvent::Death => EventType::Death,
         GedEvent::Baptism => EventType::Baptism,
+        GedEvent::Confirmation => EventType::Confirmation,
+        GedEvent::FirstCommunion => EventType::FirstCommunion,
+        GedEvent::BarMitzvah | GedEvent::BasMitzvah => EventType::BarBatMitzvah,
         GedEvent::Burial => EventType::Burial,
         GedEvent::Cremation => EventType::Cremation,
         GedEvent::Graduation => EventType::Graduation,
@@ -2031,7 +2034,7 @@ fn convert_event_type(evt: &GedEvent, type_text: Option<&str>) -> EventType {
         GedEvent::AdultChristening => EventType::AdultChristening,
         // A generic `EVEN` carries its meaning in its free-text `TYPE`.
         GedEvent::Event => event_type_from_type_text(type_text).unwrap_or(EventType::Other),
-        _ => EventType::Other,
+        GedEvent::Other | GedEvent::SourceData(_) => EventType::Other,
     }
 }
 
@@ -2191,6 +2194,8 @@ fn type_name_phrase(t: &str) -> Option<EventType> {
         ("last will", EventType::Will),
         ("testament", EventType::Will),
         ("adoption", EventType::Adoption),
+        ("separation", EventType::Separation),
+        ("séparation", EventType::Separation),
     ];
     GENEWEB_LABELS
         .iter()
@@ -2215,7 +2220,39 @@ fn type_name_phrase(t: &str) -> Option<EventType> {
 /// service in Algeria" carries a fact the type does not.
 fn type_text_restates_event_type(type_text: &str, event_type: EventType) -> bool {
     let t = type_text.trim().to_lowercase();
-    event_type_from_gedcom_tag(&t) == Some(event_type) || type_name_phrase(&t) == Some(event_type)
+    event_type_from_gedcom_tag(&t) == Some(event_type)
+        || type_name_phrase(&t) == Some(event_type)
+        || crate::export::even_type_label(event_type).is_some_and(|label| label.to_lowercase() == t)
+}
+
+/// Whether a generic `EVEN` typed `type_text` reads back as `event_type`,
+/// with `type_text` as its description — what the export asks before
+/// writing a description as the `TYPE` itself.
+pub(crate) fn type_text_reads_as(type_text: &str, event_type: EventType) -> bool {
+    event_type_from_type_text(Some(type_text)).unwrap_or(EventType::Other) == event_type
+        && !type_text_restates_event_type(type_text, event_type)
+}
+
+/// An event's description: the `TYPE` unless it only restates the event
+/// type, and the line value of a generic `EVEN` — GEDCOM's event descriptor,
+/// as in `1 EVEN Appointed chairperson` / `2 TYPE Civic appointment`. When
+/// the file gives both, the description keeps both.
+///
+/// Only an `EVEN` line describes the event: on a tag of its own the value is
+/// the `Y` asserting that the event happened.
+fn event_description(
+    detail: &ged_io::types::event::detail::Detail,
+    event_type: EventType,
+) -> Option<String> {
+    let type_text = detail
+        .event_type
+        .clone()
+        .filter(|t| !type_text_restates_event_type(t, event_type));
+    let descriptor = non_blank(detail.value.as_deref()).filter(|_| detail.event == GedEvent::Event);
+    match (type_text, descriptor) {
+        (Some(type_text), Some(descriptor)) => Some(format!("{}: {descriptor}", type_text.trim())),
+        (type_text, descriptor) => descriptor.or(type_text),
+    }
 }
 
 /// Reads a generic `EVEN`'s free-text `TYPE` sub-tag as an [`EventType`].
@@ -2455,12 +2492,9 @@ fn import_event_detail(
     // The GEDCOM `TYPE` sub-tag classifies a generic `EVEN`/`FACT` event
     // (e.g. "PACS", "Concubinage") — preserve it as the description so the
     // original wording survives even when several TYPE values map to the
-    // same EventType (see `is_civil_union_type`). Unless it only restates the
-    // type it was just read as, which is not wording anyone chose.
-    let description = detail
-        .event_type
-        .clone()
-        .filter(|t| !type_text_restates_event_type(t, event_type));
+    // same EventType. Unless it only restates the type it was just read as,
+    // which is not wording anyone chose.
+    let description = event_description(detail, event_type);
 
     // An individual `ADOP` event may carry its own nested `FAMC`, pointing
     // at the adoptive family. It is NOT captured: `Event.family_id` is used

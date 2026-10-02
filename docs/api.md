@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:14:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:30:35Z }
 ---
 
 
@@ -1398,12 +1398,12 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 |------|--------|--------|-------|
 | Persons (INDI) | Full | Full | All names (multiple `NAME` records), sex, events |
 | Families (FAM) | Full | Full | Spouses, children, events, `FAMS`/`FAMC` back-links. GEDCOM 5.5.1 has two spouse slots, `HUSB` and `WIFE`: a husband and a wife take their own, a partner (or a second husband or wife) the one their sex points to, else the free one, and import reads them back as husband and wife. A third spouse cannot be written and is an export warning |
-| Events with native tags | Lossless | Lossless | See EventType enum for tag list |
+| Events with native tags | Lossless | Lossless | Every type GEDCOM 5.5.1 and 7.0 give a tag is written under it — `CONF`, `FCOM`, `BARM` (`BASM` for a woman) included — and read from it; [Data Model](data-model.md) §2 states the rules |
 | Individual attributes | Lossless | Lossless | `CAST`, `DSCR`, `EDUC`, `IDNO`, `NATI`, `NCHI`, `NMR`, `PROP`, `RELI`, `SSN`, `TITL`, `FACT` each map to a dedicated EventType. A `TITL` keeps its text as the event's description, its `DATE` (a `FROM … TO …` period as a range), its `PLAC` and its `NOTE` |
 | Occupation (`OCCU`) | Split | One tag per profession, or merged | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` (each part trimmed) into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event unless `merge_occupations=true`, which collapses them back into a single comma-separated tag for importers that only support one profession field |
 | Name aliases (`SURN`) | Split | One `NAME` per alias, or merged | The primary `PersonName` takes its surname from the `NAME` line, not `SURN` — Geneanet packs every surname alias it knows into a single `SURN` sub-tag (e.g. `"LE NADEN,NADAM"`) instead of matching `NAME`. That value is split on `,` (each part trimmed, primary excluded) into one `AlsoKnownAs` `PersonName` per alias. Export writes one `NAME`/`SURN` structure per name unless `merge_names=true`, which collapses non-primary names back into the primary name's comma-separated `SURN` tag for importers that only read the first `NAME` structure |
 | Adoption (`ADOP`) | Full | Full | Individual-level event. The nested `FAMC` is not read: the child's own `FAMC` with `PEDI adopted` makes them an adopted child of the adoptive family |
-| App-specific event types | N/A | As `EVEN` + `TYPE` | Confirmation, Military service, Civil union, etc. |
+| Event types without a tag | `EVEN` + `TYPE` | As `EVEN` + `TYPE` | Military service, civil union, separation (`SEP` and the `MILI` extension are in no GEDCOM version), GeneWeb's vocabulary and `Other`. The `TYPE` is the type's label, or the description when it reads back as the same type (`PACS`); any other description is the `EVEN` line value. On import, the `TYPE` gives the type and the line value joins it in the description. Every type keeps its type, date, place and description through a 5.5.1, 7.0 or GEDZIP round trip |
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import; a level-1 `ASSO` to an individual goes to the owner's baptism, else birth, else first event, after the witnesses nested in it |
 | Sources (SOUR) | Full | Full | Title, author, publisher (`PUBL`, which `ged_io` does not write and the export adds itself), abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
@@ -1459,6 +1459,11 @@ the next block for a `fam`, and reported as one warning naming its line.
   attribute is imported, see above)
 - Custom/vendor tags (`_CUSTOM`), OxidGene's own `_OXIDGENE_*` media
   extensions excepted
+- LDS ordinance structures (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`), unlike
+  the generic events naming them (`1 EVEN` / `2 TYPE BAPL`)
+- Event tags no GEDCOM version defines, such as `1 MILI`: `ged_io` skips the
+  line, and reads what sits beneath it (a `NOTE`, a `SOUR`) as belonging to
+  the person
 
 Skipping them emits no warning, except one counting the other submitter
 records: the import warnings name only what the import repaired, could not
