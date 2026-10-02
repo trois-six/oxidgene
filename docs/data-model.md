@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:31:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T03:00:09Z }
 ---
 
 
@@ -629,9 +629,9 @@ handles dates. They follow these rules:
   description goes on the `EVEN` line, GEDCOM's event descriptor (`1 EVEN
   Sample detail` / `2 TYPE Military service`). So every type keeps its type
   and description through a round trip. The LDS ordinances have tags
-  (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`) but stay generic events: `ged_io`
-  holds no place, description or media for those structures, and the import
-  does not read them.
+  (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`) but are written as generic events:
+  `ged_io` holds no place for those structures, nor GEDCOM a description or
+  media.
 - **Reading a generic event.** Its `TYPE` gives its type: a tag name
   (`CONF`, `MILI`), a label above, or a phrase naming a type in English or
   French; anything else is `Other`. Its description is the line value and the
@@ -639,6 +639,18 @@ handles dates. They follow these rules:
   the `TYPE` counting only when it says more than the type. On a tag of its
   own the line value is the `Y` asserting the event, never a description.
   `SEP`, which `ged_io` reads, is still a `Separation`.
+- **Structures `ged_io` would lose.** Before parsing, the import rewrites
+  them as generic events, keeping everything beneath them. An LDS ordinance
+  (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`, and 7.0's `INIL`) becomes an
+  `EVEN` typed by its tag, so it keeps its place and imports as its LDS type
+  (`INIL`, which no type matches, as `Other`), its temple and status in the
+  description in GEDCOM's words (`TEMP SLAKE, STAT COMPLETED 2 JAN 1950`).
+  A person's or family's tag that no GEDCOM version defines and `ged_io`
+  skips, while reading what sits beneath it as the person's own, becomes an
+  `EVEN` typed `Military service` for `MILI` and typed by the tag itself
+  otherwise, a `TYPE` beneath it joining the line value; its date, place,
+  notes, citations and media are the event's. A custom `_` tag, a standard
+  one (`SUBM`, `CREA`) and a tag with nothing beneath it are left alone.
 - **Date qualifiers.** `About` is `ABT`, `Calculated` `CAL`, `Estimated`
   `EST`, `Before` `BEF`, `After` `AFT`, and `Between` `BET … AND …`; on
   import, `FROM … TO …` is a `Between` and a lone `TO` a `Before`. GEDCOM has

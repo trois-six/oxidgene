@@ -21,7 +21,12 @@
 //! - the spaces opening a `CONC` value, which GEDCOM keeps beyond the one
 //!   delimiting it but `ged_io` trims — gluing together the words a writer
 //!   split between, as earlier OxidGene exports did — move to the end of the
-//!   line it continues, where they are read.
+//!   line it continues, where they are read;
+//! - an LDS ordinance (`BAPL`, `CONL`, `ENDL`, `INIL`, `SLGC`, `SLGS`),
+//!   which `ged_io` reads without its place, and an event tag no GEDCOM
+//!   version defines (`MILI`), whose substructures `ged_io` would read as
+//!   the person's own, become a generic `EVEN` typed by them, their whole
+//!   subtree kept.
 //!
 //! The pass works one level-0 record at a time and leaves every record it does
 //! not need to touch byte for byte as it was. A file with nothing to repair is
@@ -226,6 +231,7 @@ fn repair_record(
 ) -> Option<(usize, usize, String)> {
     let (first, last) = (record.first()?, record.last()?);
     let mut edits: Vec<Option<Edit>> = record.iter().map(|_| None).collect();
+    rewrite_unread_events(gedcom, record, &mut edits);
     repair_ages(gedcom, record, &mut edits, warnings);
     rewrite_notes(record, notes, &mut edits, warnings);
     shift_conc_spaces(gedcom, record, &mut edits);
@@ -253,6 +259,148 @@ fn repair_record(
         }
     }
     Some((first.start, last.next, text))
+}
+
+/// The level-1 tags `ged_io` 0.16 reads under an `INDI`. It skips any other
+/// one line at a time, then reads the substructures of the line it skipped
+/// as the person's own.
+const INDI_TAGS: &[&str] = &[
+    "NAME", "SEX", "ADOP", "BIRT", "BAPM", "BARM", "BASM", "BLES", "BURI", "CENS", "CHR", "CHRA",
+    "CONF", "CREM", "DEAT", "EMIG", "FCOM", "GRAD", "IMMI", "NATU", "ORDN", "RETI", "PROB", "WILL",
+    "EVEN", "MARR", "CAST", "DSCR", "EDUC", "IDNO", "NATI", "NCHI", "NMR", "OCCU", "PROP", "RELI",
+    "RESI", "SSN", "TITL", "FACT", "FAMC", "FAMS", "CHAN", "SOUR", "OBJE", "NOTE", "NO", "ASSO",
+    "UID", "RESN", "REFN", "RIN", "AFN", "ALIA", "ANCI", "DESI", "EXID",
+];
+
+/// The level-1 tags `ged_io` 0.16 reads under a `FAM`; see [`INDI_TAGS`].
+const FAM_TAGS: &[&str] = &[
+    "MARR", "ANUL", "CENS", "DIV", "DIVF", "ENGA", "MARB", "MARC", "MARL", "MARS", "RESI", "EVEN",
+    "SEP", "HUSB", "WIFE", "CHIL", "NCHI", "CHAN", "SOUR", "NOTE", "OBJE", "NO", "UID", "RESN",
+    "REFN", "RIN", "EXID",
+];
+
+/// Standard tags `ged_io` skips, none of them an event: a creation date, a
+/// submitter, a record file number, a shared-note pointer (see
+/// [`rewrite_notes`]). Left as they are.
+const SKIPPED_STANDARD_TAGS: &[&str] = &["CREA", "SUBM", "RFN", "SNOTE"];
+
+/// The LDS ordinances of a person — 7.0 adds `INIL` — and of a couple.
+const LDS_INDI_TAGS: &[&str] = &["BAPL", "CONL", "ENDL", "INIL", "SLGC"];
+const LDS_FAM_TAGS: &[&str] = &["SLGS"];
+
+/// Rewrites, as a generic `EVEN`, each structure of a person or a family
+/// that `ged_io` would lose or misread, keeping its whole subtree:
+///
+/// - an LDS ordinance, which `ged_io` reads without its place, and OxidGene's
+///   import not at all: an `EVEN` typed by the ordinance's tag, its temple
+///   and status (`TEMP`, `STAT`) in the line value, GEDCOM's own words;
+/// - an event tag no GEDCOM version defines, such as `MILI`, which `ged_io`
+///   skips while reading what sits beneath it — a `NOTE`, a `SOUR`, an
+///   `OBJE` — as the person's own: an `EVEN` typed `Military service` for a
+///   `MILI` and by the tag itself for any other, a `TYPE` beneath it joining
+///   the line value. A tag with nothing beneath it has nothing to misread
+///   and is left alone.
+///
+/// The import reads each back as the type its `TYPE` names, and nothing
+/// beneath it is lost: a `DATE`, a `PLAC`, a `NOTE`, a `SOUR` are now the
+/// event's.
+fn rewrite_unread_events(gedcom: &str, record: &[Line<'_>], edits: &mut [Option<Edit>]) {
+    let (read, lds) = match record.first().map(|line| line.tag) {
+        Some("INDI") => (INDI_TAGS, LDS_INDI_TAGS),
+        Some("FAM") => (FAM_TAGS, LDS_FAM_TAGS),
+        _ => return,
+    };
+    for index in 1..record.len() {
+        let line = record[index];
+        let is_lds = lds.contains(&line.tag);
+        let unread = line.level == Some(1)
+            && !line.tag.starts_with('_')
+            && !read.contains(&line.tag)
+            && !SKIPPED_STANDARD_TAGS.contains(&line.tag)
+            && (is_lds || subtree(record, index).next().is_some());
+        if !unread {
+            continue;
+        }
+        let mut words = folded_children(record, index, is_lds, edits);
+        words.extend(
+            line.value
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned),
+        );
+        let descriptor = words.join(if is_lds { ", " } else { ": " });
+        let type_text = match line.tag {
+            "MILI" => crate::export::even_type_label(oxidgene_core::EventType::MilitaryService)
+                .unwrap_or(line.tag),
+            tag => tag,
+        };
+        edits[index] = Some(Edit::Retext(even_lines(
+            gedcom,
+            line,
+            &descriptor,
+            type_text,
+        )));
+    }
+}
+
+/// The indexes of the lines beneath the line at `index`.
+fn subtree<'r>(record: &'r [Line<'_>], index: usize) -> impl Iterator<Item = usize> + 'r {
+    let level = record[index].level.unwrap_or(0);
+    (index + 1..record.len()).take_while(move |&i| record[i].level.is_none_or(|l| l > level))
+}
+
+/// The substructures of the line at `index` that move into its `EVEN`'s line
+/// value, left out where they were: an ordinance's `TEMP` and `STAT` (the
+/// date of its status included), or any other structure's own `TYPE`, which
+/// the `EVEN`'s takes the place of.
+fn folded_children(
+    record: &[Line<'_>],
+    index: usize,
+    is_lds: bool,
+    edits: &mut [Option<Edit>],
+) -> Vec<String> {
+    let mut words = Vec::new();
+    for child in subtree(record, index) {
+        let line = record[child];
+        let folds = line.level == Some(2)
+            && match line.tag {
+                "TEMP" | "STAT" => is_lds,
+                "TYPE" => !is_lds,
+                _ => false,
+            };
+        if !folds {
+            continue;
+        }
+        let mut text: Vec<&str> = Vec::new();
+        if is_lds {
+            text.push(line.tag);
+        }
+        text.extend(line.value.map(str::trim));
+        text.extend(
+            subtree(record, child)
+                .map(|i| record[i])
+                .filter(|date| is_lds && date.level == Some(3) && date.tag == "DATE")
+                .filter_map(|date| date.value.map(str::trim)),
+        );
+        let text = text.join(" ");
+        if !text.is_empty() {
+            words.push(text);
+        }
+        edits[child] = Some(Edit::Drop);
+    }
+    words
+}
+
+/// The `EVEN` and `TYPE` lines a level-1 line is rewritten as, ended the way
+/// the file ends its lines.
+fn even_lines(gedcom: &str, line: Line<'_>, descriptor: &str, type_text: &str) -> String {
+    let raw = &gedcom[line.start..line.next];
+    let terminator = match &raw[raw.trim_end_matches(['\r', '\n']).len()..] {
+        "" => "\n",
+        terminator => terminator,
+    };
+    let separator = if descriptor.is_empty() { "" } else { " " };
+    format!("1 EVEN{separator}{descriptor}{terminator}2 TYPE {type_text}{terminator}")
 }
 
 /// Moves the spaces opening each `CONC` value to the end of the line it
@@ -645,6 +793,36 @@ mod tests {
             "0 @I1@ INDI\r\n1 NOTE abc \r\n2 CONC def  \r\n2 CONC ghi\r\n\
              2 CONT jkl\t\r\n2 CONC mno\r\n0 @S1@ SOUR\n1 TITL A \n2 CONC B\n\
              1 NOTE\n2 CONC  bare\n"
+        );
+    }
+
+    #[test]
+    fn an_event_tag_no_version_defines_becomes_a_typed_event() {
+        let gedcom = "0 @I1@ INDI\n1 MILI Sergeant\n2 TYPE Army\n2 DATE 1900\n2 NOTE A\n\
+                      1 XYZZ Value\n2 SOUR @S1@\n1 XYZZ\n1 SUBM @U1@\n1 CREA\n2 DATE 1 JAN 2000\n\
+                      1 _MILT Custom\n2 DATE 1901\n0 @S1@ SOUR\n1 MILI\n2 DATE 1902\n";
+        let sanitized = sanitize(gedcom);
+        // A tag with nothing beneath it, a standard one, a custom one and
+        // anything outside a person or a family stay as they were.
+        assert_eq!(
+            sanitized.text,
+            "0 @I1@ INDI\n1 EVEN Army: Sergeant\n2 TYPE Military service\n2 DATE 1900\n\
+             2 NOTE A\n1 EVEN Value\n2 TYPE XYZZ\n2 SOUR @S1@\n1 XYZZ\n1 SUBM @U1@\n1 CREA\n\
+             2 DATE 1 JAN 2000\n1 _MILT Custom\n2 DATE 1901\n0 @S1@ SOUR\n1 MILI\n2 DATE 1902\n"
+        );
+        assert!(sanitized.warnings.is_empty());
+    }
+
+    #[test]
+    fn an_lds_ordinance_becomes_a_typed_event_keeping_its_place() {
+        let gedcom = "0 @I1@ INDI\r\n1 BAPL\r\n2 DATE 1900\r\n2 TEMP SLAKE\r\n\
+                      2 STAT COMPLETED\r\n3 DATE 2 JAN 1950\r\n2 PLAC Sampletown\r\n\
+                      0 @F1@ FAM\r\n1 SLGS\r\n0 TRLR";
+        let sanitized = sanitize(gedcom);
+        assert_eq!(
+            sanitized.text,
+            "0 @I1@ INDI\r\n1 EVEN TEMP SLAKE, STAT COMPLETED 2 JAN 1950\r\n2 TYPE BAPL\r\n\
+             2 DATE 1900\r\n2 PLAC Sampletown\r\n0 @F1@ FAM\r\n1 EVEN\r\n2 TYPE SLGS\r\n0 TRLR"
         );
     }
 

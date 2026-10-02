@@ -2896,3 +2896,183 @@ fn a_generic_events_descriptor_is_part_of_its_description() {
         ]
     );
 }
+
+/// The name of the place an event happened at.
+fn place_of<'r>(
+    result: &'r oxidgene_gedcom::ImportResult,
+    event: &oxidgene_core::types::Event,
+) -> Option<&'r str> {
+    let id = event.place_id?;
+    result
+        .places
+        .iter()
+        .find(|p| p.id == id)
+        .map(|p| p.name.as_str())
+}
+
+const UNDEFINED_EVENT_TAGS_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 MILI Sergeant
+2 TYPE Army
+2 DATE 1 MAR 1900
+2 PLAC Sampletown
+2 NOTE Sample service note
+2 SOUR @S1@
+3 PAGE folio 3
+2 OBJE @M1@
+1 XYZZ Sample value
+2 DATE 1901
+2 NOTE Sample other note
+0 @S1@ SOUR
+1 TITL Sample register
+0 @M1@ OBJE
+1 FILE sample.jpg
+2 FORM jpg
+0 TRLR
+";
+
+/// A `MILI` — an extension no GEDCOM version defines, which `ged_io` skips
+/// while reading its substructures as the person's own — imports as a
+/// military service holding its date, place, note, citation and media; any
+/// other such tag as a described event of its own.
+#[test]
+fn an_event_tag_no_version_defines_keeps_its_substructures() {
+    let result = import_gedcom(UNDEFINED_EVENT_TAGS_GEDCOM, Uuid::now_v7()).expect("imports");
+    assert_eq!(result.events.len(), 2, "{:?}", result.events);
+
+    let service = event_of(&result, EventType::MilitaryService);
+    assert_eq!(service.date_value.as_deref(), Some("1 MAR 1900"));
+    assert_eq!(place_of(&result, service), Some("Sampletown"));
+    assert_eq!(service.description.as_deref(), Some("Army: Sergeant"));
+    assert_eq!(
+        note_texts(&result, |n| n.event_id == Some(service.id)),
+        ["Sample service note"]
+    );
+    let citation = result
+        .citations
+        .iter()
+        .find(|c| c.event_id == Some(service.id))
+        .expect("the citation is the event's");
+    assert_eq!(citation.page.as_deref(), Some("folio 3"));
+    assert!(
+        result
+            .media_links
+            .iter()
+            .any(|l| l.event_id == Some(service.id)),
+        "{:?}",
+        result.media_links
+    );
+
+    let other = event_of(&result, EventType::Other);
+    assert_eq!(other.description.as_deref(), Some("XYZZ: Sample value"));
+    assert_eq!(other.date_value.as_deref(), Some("1901"));
+    assert_eq!(
+        note_texts(&result, |n| n.event_id == Some(other.id)),
+        ["Sample other note"]
+    );
+
+    // Nothing beneath either tag became the person's.
+    assert!(note_texts(&result, |n| n.person_id.is_some()).is_empty());
+    assert!(result.citations.iter().all(|c| c.person_id.is_none()));
+    assert!(result.media_links.iter().all(|l| l.person_id.is_none()));
+}
+
+const LDS_ORDINANCES_GEDCOM: &str = "\
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME Alpha /Sample/
+1 FAMC @F1@
+1 BAPL
+2 DATE 1 JAN 1900
+2 TEMP SLAKE
+2 PLAC Sampletown 1
+1 CONL
+2 DATE 2 JAN 1900
+2 STAT COMPLETED
+3 DATE 3 FEB 1950
+2 PLAC Sampletown 2
+1 ENDL
+2 DATE 3 JAN 1900
+2 PLAC Sampletown 3
+2 NOTE Sample ordinance note
+1 SLGC
+2 DATE 4 JAN 1900
+2 FAMC @F1@
+2 PLAC Sampletown 4
+0 @F1@ FAM
+1 CHIL @I1@
+1 SLGS
+2 DATE 5 JAN 1900
+2 TEMP SLAKE
+2 PLAC Sampletown 5
+0 TRLR
+";
+
+/// The LDS ordinances other software writes as GEDCOM's own structures
+/// import as their types, with their date, place, temple and status, and
+/// survive an export and a re-import as they came.
+#[test]
+fn lds_ordinances_import_with_their_place() {
+    let expected: [(EventType, &str, &str, Option<&str>); 5] = [
+        (
+            EventType::LdsBaptism,
+            "1 JAN 1900",
+            "Sampletown 1",
+            Some("TEMP SLAKE"),
+        ),
+        (
+            EventType::LdsConfirmation,
+            "2 JAN 1900",
+            "Sampletown 2",
+            Some("STAT COMPLETED 3 FEB 1950"),
+        ),
+        (EventType::Endowment, "3 JAN 1900", "Sampletown 3", None),
+        (EventType::SealingChild, "4 JAN 1900", "Sampletown 4", None),
+        (
+            EventType::SealingSpouse,
+            "5 JAN 1900",
+            "Sampletown 5",
+            Some("TEMP SLAKE"),
+        ),
+    ];
+    let imported = import_gedcom(LDS_ORDINANCES_GEDCOM, Uuid::now_v7()).expect("imports");
+    let reimported = import_gedcom(&reexport(&imported), Uuid::now_v7()).expect("re-imports");
+    for (pass, result) in [("import", &imported), ("round trip", &reimported)] {
+        assert_eq!(result.events.len(), expected.len(), "{pass}");
+        for (event_type, date, place, description) in expected {
+            let event = event_of(result, event_type);
+            assert_eq!(
+                event.date_value.as_deref(),
+                Some(date),
+                "{pass} {event_type:?}"
+            );
+            assert_eq!(
+                place_of(result, event),
+                Some(place),
+                "{pass} {event_type:?}"
+            );
+            assert_eq!(
+                event.description.as_deref(),
+                description,
+                "{pass} {event_type:?}"
+            );
+            assert_eq!(
+                event.family_id.is_some(),
+                event_type == EventType::SealingSpouse,
+                "{pass} {event_type:?}"
+            );
+        }
+        let endowment = event_of(result, EventType::Endowment);
+        assert_eq!(
+            note_texts(result, |n| n.event_id == Some(endowment.id)),
+            ["Sample ordinance note"],
+            "{pass}"
+        );
+    }
+}

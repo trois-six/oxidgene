@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:30:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T03:00:09Z }
 ---
 
 
@@ -1403,7 +1403,9 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Occupation (`OCCU`) | Split | One tag per profession, or merged | A value with multiple professions (e.g. Geneanet's `"Presales, Trainer"`) is split on `,` (each part trimmed) into one `Occupation` event per profession, with its first letter uppercased (rest left as written). Export writes one `OCCU` tag per event unless `merge_occupations=true`, which collapses them back into a single comma-separated tag for importers that only support one profession field |
 | Name aliases (`SURN`) | Split | One `NAME` per alias, or merged | The primary `PersonName` takes its surname from the `NAME` line, not `SURN` — Geneanet packs every surname alias it knows into a single `SURN` sub-tag (e.g. `"LE NADEN,NADAM"`) instead of matching `NAME`. That value is split on `,` (each part trimmed, primary excluded) into one `AlsoKnownAs` `PersonName` per alias. Export writes one `NAME`/`SURN` structure per name unless `merge_names=true`, which collapses non-primary names back into the primary name's comma-separated `SURN` tag for importers that only read the first `NAME` structure |
 | Adoption (`ADOP`) | Full | Full | Individual-level event. The nested `FAMC` is not read: the child's own `FAMC` with `PEDI adopted` makes them an adopted child of the adoptive family |
-| Event types without a tag | `EVEN` + `TYPE` | As `EVEN` + `TYPE` | Military service, civil union, separation (`SEP` and the `MILI` extension are in no GEDCOM version), GeneWeb's vocabulary and `Other`. The `TYPE` is the type's label, or the description when it reads back as the same type (`PACS`); any other description is the `EVEN` line value. On import, the `TYPE` gives the type and the line value joins it in the description. Every type keeps its type, date, place and description through a 5.5.1, 7.0 or GEDZIP round trip |
+| Event types without a tag | `EVEN` + `TYPE`; a `MILI` as a military service | As `EVEN` + `TYPE` | Military service, civil union, separation (`SEP` and the `MILI` extension are in no GEDCOM version), GeneWeb's vocabulary and `Other`. The `TYPE` is the type's label, or the description when it reads back as the same type (`PACS`); any other description is the `EVEN` line value. On import, the `TYPE` gives the type and the line value joins it in the description. Every type keeps its type, date, place and description through a 5.5.1, 7.0 or GEDZIP round trip |
+| LDS ordinances (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`) | Full, place included | As `EVEN` + `TYPE` | Imported as `LdsBaptism`, `LdsConfirmation`, `Endowment`, `SealingChild` and `SealingSpouse` with their date, place, notes and citations; the temple and status join the description (`TEMP SLAKE, STAT COMPLETED 2 JAN 1950`). `ged_io` reads these structures without their place, so the import rewrites each as a generic event first. Exported as the generic event (`2 TYPE BAPL`), which round-trips |
+| Event tags no version defines (`MILI`, …) | As events | As `EVEN` + `TYPE` | `ged_io` skips such a tag and reads what sits beneath it as the person's own, so the import first rewrites a person's or family's unknown tag that has substructures as a generic event: `MILI` as a military service, any other as an `Other` event described by its tag and value. Its date, place, notes, citations and media stay the event's. Custom `_` tags are untouched |
 | Associations (`ASSO`/`RELA`) | Full | Full | Imported as `EventWitness` rows; exported as top-level `ASSO` on the INDI record (GEDCOM 5.5.1 nesting — Gramps rejects event-nested `ASSO`). Both Gramps encodings captured and deduplicated on import; a level-1 `ASSO` to an individual goes to the owner's baptism, else birth, else first event, after the witnesses nested in it |
 | Sources (SOUR) | Full | Full | Title, author, publisher (`PUBL`, which `ged_io` does not write and the export adds itself), abbreviation; free-text `SOUR` citations preserved |
 | Citations (with QUAY) | Full | Lossless | Page, the text quoted from the source (`DATA.TEXT`, over several lines too), confidence level. `QUAY` 0, 1, 2 and 3 are `VeryLow`, `Low`, `Medium` and `High`; a citation without `QUAY` is not assessed (no confidence) and is written without one, so no assessment is invented. `VeryHigh` has no `QUAY` of its own and is written as `3` |
@@ -1459,11 +1461,6 @@ the next block for a `fam`, and reported as one warning naming its line.
   attribute is imported, see above)
 - Custom/vendor tags (`_CUSTOM`), OxidGene's own `_OXIDGENE_*` media
   extensions excepted
-- LDS ordinance structures (`BAPL`, `CONL`, `ENDL`, `SLGC`, `SLGS`), unlike
-  the generic events naming them (`1 EVEN` / `2 TYPE BAPL`)
-- Event tags no GEDCOM version defines, such as `1 MILI`: `ged_io` skips the
-  line, and reads what sits beneath it (a `NOTE`, a `SOUR`) as belonging to
-  the person
 
 Skipping them emits no warning, except one counting the other submitter
 records: the import warnings name only what the import repaired, could not
