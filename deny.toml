@@ -1,0 +1,58 @@
+# cargo-deny: the dependency guard of the CI Dependencies job
+# (docs/development.md, guards). `cargo deny check` runs every section.
+
+[graph]
+all-features = true
+
+[advisories]
+# Every RustSec advisory affecting the graph fails the check, unmaintained and
+# unsound crates included. An advisory nothing here can fix yet is listed in
+# `ignore` with why and the issue that tracks it — never silenced wholesale.
+ignore = [
+    # Each one below is pulled in by a framework, not by us; it goes when the
+    # framework moves on (docs/development.md §5.8 on triaging advisories).
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, unmaintained: a build-time macro of the GTK 0.18 bindings dioxus-desktop's WebView needs on Linux" },
+    { id = "RUSTSEC-2024-0429", reason = "glib 0.18 VariantStrIter unsoundness: GTK bindings of dioxus-desktop on Linux; we call no glib API" },
+    { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained: a build-time macro of rav1e and pulp, which dioxus-desktop's image features pull in" },
+    { id = "RUSTSEC-2025-0057", reason = "fxhash, unmaintained: a hasher inside the selectors crate of dioxus's HTML layer" },
+]
+
+[licenses]
+# The licences the dependency graph may carry: permissive ones, the weak
+# copyleft MPL-2.0 (file-level, compatible with AGPL-3.0-only), and our own.
+# A crate under any other licence fails until it is reviewed and added here.
+allow = [
+    "0BSD",
+    "AGPL-3.0-only",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "NCSA",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions are reported, not failed here: most come from
+# frameworks we do not control. The duplicates we can align are held by the
+# budget of `scripts/budgets.py dependencies`.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+# Dependencies come from crates.io only: no git dependency, no other registry.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

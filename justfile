@@ -71,9 +71,11 @@ clippy:
 #
 # `clippy --workspace` only ever builds the host target, so a dependency that
 # exists on desktop but not on the web — tokio, say — breaks the web build
-# without any native check noticing. `oxidgene-ui` is platform-independent by
-# contract (see AGENTS.md); run this before touching its dependencies.
-# Deliberately not part of `check` — the web target is not a current priority.
+# without any native check noticing; and the browser binary declares its
+# dependencies for wasm32 alone, so natively it compiles to an empty shell.
+# `oxidgene-ui` is platform-independent by contract (see AGENTS.md); run this
+# after touching the UI or its dependencies. The CI Clippy matrix runs it on
+# every change; it is kept out of `check` for the time it takes.
 wasm:
     cargo clippy -p oxidgene-web --target wasm32-unknown-unknown --all-targets -- -D warnings
 
@@ -116,6 +118,16 @@ real-import *args:
     TMPDIR="$work/tmp" OXIDGENE_REAL_WORKDIR="$work" \
       cargo nextest run --release -p oxidgene-api --test real_import_test \
         --run-ignored only --no-capture {{ args }}
+
+# Check the dependency graph: no unused dependency (cargo-machete), no
+# advisory, licence, ban or source deny.toml refuses (cargo-deny), no known
+# vulnerability (cargo-audit), and no more duplicated crates than the budget
+# of scripts/budgets.json allows.
+deps:
+    cargo machete
+    cargo deny check
+    cargo audit
+    python3 scripts/budgets.py dependencies
 
 # Read the query plan of every statement the API runs over a populated tree
 # and fail on a full scan of a large table (docs/development.md, guards).

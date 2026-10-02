@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "duplicated_crates": 74,
+    "direct_duplicates": {
+      "base64": "the frameworks are split between 0.22 (axum, async-graphql, sqlx, dioxus-desktop, tonic, wry) and 0.23 (reqwest, hyper-util, object_store): every binary links both whichever we pick",
+      "getrandom": "the browser binary turns on the wasm_js feature of 0.3, the release rand uses; 0.1, 0.2 and 0.4 come with other crates",
+      "sha2": "sqlx-postgres has moved to 0.11 while sqlx-core stays on 0.10: the server links both; we use 0.10 like sqlx-core and wry, so the desktop links one",
+      "syn": "the API build script uses 3, the current release; proc-macro crates of the frameworks are still on 1 and 2",
+      "thiserror": "we use 2; crates of the GTK and image stacks are still on 1",
+      "tower-http": "the server uses 0.7; reqwest still depends on 0.6",
+      "windows-sys": "the desktop uses 0.61 like mio and rustix; older crates of the Windows stack pin earlier releases"
+    }
+  },
+  "binaries": {}
+}

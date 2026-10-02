@@ -40,6 +40,8 @@ edition = "2024"
 license = "AGPL-3.0-only"
 authors = ["Pierre Erraud"]
 repository = "https://github.com/trois-six/oxidgene"
+# An application, not a library: no member goes to crates.io.
+publish = false
 
 [workspace.dependencies]
 # Internal crates
@@ -138,7 +140,9 @@ base64 = "0.23"
 
 # Media storage (Sprint F.1)
 # Content addressing: the SHA-256 of a file is both its store key and its ETag.
-sha2 = "0.11"
+# 0.10, the release sqlx-core and wry depend on, so the desktop links one;
+# move with them.
+sha2 = "0.10"
 # S3-compatible storage for the standalone web server. Kept optional in the API
 # crate so desktop builds retain their filesystem-only dependency graph.
 object_store = { version = "0.14", default-features = false, features = ["aws"] }
@@ -190,8 +194,9 @@ reqwest = { version = "0.13", default-features = false, features = [
     "system-proxy",
 ] }
 
-# Platform directories
-dirs = "7"
+# Platform directories. 6, the release wry and tray-icon depend on, so the
+# desktop links one; move with them.
+dirs = "6"
 
 # Model Context Protocol server (assistant access, desktop only). Defaults are
 # off: they add base64 and nothing we call. `server` is the handler and tool

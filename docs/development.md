@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:48:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:09:56Z }
 ---
 
 # Development Environment and Workflows
@@ -26,6 +26,9 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:48:06Z }
 - `cargo-nextest` for the workspace test recipes.
 - `cargo-watch` for backend hot reload; optional unless using `just dev-web-watch`.
 - `cargo-xwin` for cross-compiling the desktop application to Windows X64.
+- `cargo-deny`, `cargo-machete` and `cargo-audit` for `just deps`;
+   `cargo-udeps`, `scc` and `actionlint` for the scheduled reports and the
+   workflow checks.
 - [uv](https://docs.astral.sh/uv/) for the cyclomatic complexity check.
 - [Node.js](https://nodejs.org/) 24 for the browser JavaScript tests and the
    end-to-end suite, which installs Playwright and its Chromium on first run.
@@ -61,7 +64,8 @@ the repository root.
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy for all workspace targets and deny warnings. |
-| `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. Not part of `just check`. |
+| `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. The browser binary declares its dependencies for `wasm32` only, so the native `just clippy` does not see its code. Not part of `just check`; the CI Clippy matrix runs it. |
+| `just deps` | Check the dependency graph: no unused dependency (`cargo machete`), nothing `deny.toml` refuses (`cargo deny check`: advisories, licences, bans, sources), no known vulnerability (`cargo audit`), and no more duplicated crates than `scripts/budgets.json` allows. |
 | `just cyclomatic` | Fail on any function above a cyclomatic complexity of 15 (§2.1). |
 | `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, and tests. |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
