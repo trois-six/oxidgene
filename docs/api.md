@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:15:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:22:11Z }
 ---
 
 
@@ -1954,15 +1954,18 @@ conversion produces, and so what a `.gw` imports as:
 Reading is lenient: a malformed block is skipped whole, up to its end marker or
 the next block for a `fam`, and reported as one warning naming its line.
 
-### Not currently imported (silently skipped)
+### Not currently imported
 
-- Submitter records other than the one `HEAD.SUBM` points at (a warning
-  counts them), and the `SUBM` pointers of individual and family records
-  (`INDI.SUBM`, `FAM.SUBM`), which `ged_io` does not parse
+- Submitter records other than the one `HEAD.SUBM` points at, and the `SUBM`
+  pointers of individual and family records (`INDI.SUBM`, `FAM.SUBM`), which
+  `ged_io` does not parse
+- A note on a source's repository citation (`SOUR.REPO.NOTE`) that has a
+  pointer: the link keeps its call number and medium only
 - Religion of a single event (`RELI` under an event; `RELI` as an individual
   attribute is imported, see above)
 - Custom/vendor tags (`_CUSTOM`), OxidGene's own `_OXIDGENE_*` media
   extensions excepted
 
-Skipping them emits no warning: the import warnings name only what the import
-repaired or could not resolve.
+Skipping them emits no warning, except one counting the other submitter
+records: the import warnings name only what the import repaired, could not
+resolve, or left of the file's own description of itself.
