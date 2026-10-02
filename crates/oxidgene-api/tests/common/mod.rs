@@ -11,6 +11,9 @@
     reason = "each integration-test binary compiles this module and uses only some helpers"
 )]
 
+pub mod capture;
+pub mod populated;
+
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
@@ -39,7 +42,7 @@ pub async fn setup_db() -> DatabaseConnection {
 ///
 /// A throwaway directory: `AppState` needs a root and it must not be the
 /// developer's.
-fn test_media_root() -> std::path::PathBuf {
+pub fn test_media_root() -> std::path::PathBuf {
     std::env::temp_dir().join("oxidgene-test-media")
 }
 

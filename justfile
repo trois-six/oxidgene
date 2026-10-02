@@ -117,6 +117,11 @@ real-import *args:
       cargo nextest run --release -p oxidgene-api --test real_import_test \
         --run-ignored only --no-capture {{ args }}
 
+# Read the query plan of every statement the API runs over a populated tree
+# and fail on a full scan of a large table (docs/development.md, guards).
+sql-plans:
+    cargo nextest run -p oxidgene-api --features graphql --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+
 # Every `#[ignore]`d test names the recipe below that runs it; the
 # `lint_discipline` guard fails on a reason naming no existing recipe.
 

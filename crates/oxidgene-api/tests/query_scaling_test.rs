@@ -8,6 +8,13 @@
 //! suite; the timing checks of the in-memory algorithms are the opt-in
 //! `scaling_*` tests of each crate.
 //!
+//! Both trees carry a note, a citation, a media link and a portrait crop on
+//! every person, so the reads that gather them are measured too. The same
+//! survey runs over GraphQL, whose nested lists must cost one query per list
+//! rather than one per record; and the batch reads (pedigrees, portraits,
+//! image data, gallery bundles, relation labels) are measured with 4 and with
+//! 64 ids, which must cost the same.
+//!
 //! SeaORM opens one `sea_orm.*` span per statement (its `tracing-spans`
 //! feature); a thread-local subscriber counts them for the request under test.
 
@@ -18,7 +25,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
 use axum::http::Method;
-use common::{app_on, family_blocks_tree, ok, setup_db};
+use common::populated::{png, upload_page};
+use common::{all_profiles, app_on, family_blocks_tree, ok, setup_db};
 use serde_json::{Value, json};
 use tracing::Subscriber;
 use tracing::span::{Attributes, Id};
@@ -140,6 +148,68 @@ async fn statements(
     counter.load(Ordering::Relaxed)
 }
 
+/// A note, a citation, a media link and a portrait crop on every person of
+/// `tree`, all on one source and one scanned page.
+async fn enrich(app: &Router, tree: &str) {
+    let t = |path: &str| format!("/api/v1/trees/{tree}{path}");
+    let source = ok(
+        app,
+        Method::POST,
+        &t("/sources"),
+        Some(json!({ "title": "Register" })),
+    )
+    .await;
+    let document = ok(
+        app,
+        Method::POST,
+        &t("/media/document"),
+        Some(json!({ "title": "Scan" })),
+    )
+    .await;
+    let document = document["id"].as_str().unwrap();
+    let page = upload_page(app, tree, document, &png(64, 48)).await;
+    for profile in all_profiles(app, tree).await {
+        let person = profile["person_id"].as_str().unwrap();
+        let note = json!({ "text": "Fictitious note", "person_id": person });
+        ok(app, Method::POST, &t("/notes"), Some(note)).await;
+        let citation = json!({ "source_id": source["id"], "person_id": person });
+        ok(app, Method::POST, &t("/citations"), Some(citation)).await;
+        let link = json!({ "media_id": document, "person_id": person });
+        ok(app, Method::POST, &t("/media-links"), Some(link)).await;
+        let crop = json!({ "x": 2, "y": 2, "width": 20, "height": 20, "person_id": person });
+        let vignette = ok(
+            app,
+            Method::POST,
+            &t(&format!(
+                "/media/{}/vignettes",
+                page["id"].as_str().unwrap()
+            )),
+            Some(crop),
+        )
+        .await;
+        let portrait = json!({ "vignette_id": vignette["id"] });
+        ok(
+            app,
+            Method::PUT,
+            &t(&format!("/persons/{person}/portrait")),
+            Some(portrait),
+        )
+        .await;
+    }
+}
+
+/// A small and a large enriched tree in one router: `(tree, anchor)` each.
+async fn trees(
+    app: &Router,
+    db: &oxidgene_db::sea_orm::DatabaseConnection,
+) -> [(String, String); 2] {
+    let small = family_blocks_tree(app, db, 4).await;
+    let large = family_blocks_tree(app, db, 16).await;
+    enrich(app, &small.0).await;
+    enrich(app, &large.0).await;
+    [small, large]
+}
+
 #[tokio::test]
 async fn no_request_issues_statements_per_record() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -149,8 +219,7 @@ async fn no_request_issues_statements_per_record() {
 
     let db = setup_db().await;
     let app = app_on(db.clone());
-    let small = family_blocks_tree(&app, &db, 4).await;
-    let large = family_blocks_tree(&app, &db, 16).await;
+    let [small, large] = trees(&app, &db).await;
 
     let mut grows = Vec::new();
     for case in cases() {
@@ -168,6 +237,192 @@ async fn no_request_issues_statements_per_record() {
             grows.push(format!(
                 "{} {}: {at_small} statements for 40 persons, {at_large} for 160",
                 case.method, case.uri
+            ));
+        }
+    }
+    assert!(grows.is_empty(), "{}", grows.join("\n"));
+}
+
+/// The ids of the first `n` persons, families and portrait crops of `tree`.
+async fn ids(app: &Router, tree: &str, n: usize) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let profiles = all_profiles(app, tree).await;
+    let take = |key: &str| -> Vec<String> {
+        profiles
+            .iter()
+            .filter_map(|p| p.pointer(key).and_then(Value::as_str).map(str::to_string))
+            .take(n)
+            .collect()
+    };
+    let mut families: Vec<String> = take("/families_as_spouse/0/family_id");
+    families.dedup();
+    (
+        take("/person_id"),
+        families,
+        take("/primary_media/vignette_id"),
+    )
+}
+
+/// Batch reads whose cost is per item by design, with why: for these the
+/// test holds the cost of one item constant instead of the batch's.
+const PER_ITEM: &[(&str, &str)] = &[(
+    "/pedigrees",
+    "each pedigree is its own generation-by-generation walk, run concurrently \
+     (ASSEMBLY_CONCURRENCY) and bounded by MAX_PEDIGREES_PER_REQUEST: the batch \
+     saves round trips, not statements",
+)];
+
+#[tokio::test]
+async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let [_, (tree, _)] = trees(&app, &db).await;
+
+    let mut grows = Vec::new();
+    let mut counts = Vec::new();
+    for n in [4, 64] {
+        let (persons, families, crops) = ids(&app, &tree, n).await;
+        assert!(
+            persons.len() == n && crops.len() == n,
+            "the tree holds {n} portraits"
+        );
+        let sources: Vec<Value> = crops
+            .iter()
+            .map(|id| json!({ "kind": "crop", "vignette_id": id }))
+            .collect();
+        let batches = [
+            (
+                "/pedigrees",
+                json!({ "root_person_ids": persons, "ancestor_depth": 2, "descendant_depth": 1 }),
+            ),
+            ("/portrait-images", json!({ "person_ids": persons })),
+            ("/image-data", json!({ "sources": sources })),
+            (
+                "/gallery-bundle",
+                json!({ "media_ids": [], "vignette_ids": crops }),
+            ),
+            (
+                "/relation-labels",
+                json!({ "person_ids": persons, "family_ids": families }),
+            ),
+        ];
+        let mut row = Vec::new();
+        for (path, body) in batches {
+            counter.store(0, Ordering::Relaxed);
+            ok(
+                &app,
+                Method::POST,
+                &format!("/api/v1/trees/{tree}{path}"),
+                Some(body),
+            )
+            .await;
+            row.push((path, counter.load(Ordering::Relaxed)));
+        }
+        counts.push(row);
+    }
+    for ((path, four), (_, sixty_four)) in counts[0].iter().zip(&counts[1]) {
+        let grew = match PER_ITEM.iter().find(|(p, _)| p == path) {
+            // A declared per-item batch: the cost of each item must not grow.
+            Some(_) => sixty_four * 4 > four * 64,
+            None => sixty_four > four,
+        };
+        if grew {
+            grows.push(format!(
+                "POST {path}: {four} statements for 4 ids, {sixty_four} for 64"
+            ));
+        }
+    }
+    assert!(grows.is_empty(), "{}", grows.join("\n"));
+}
+
+/// The GraphQL survey: the tree-wide reads and the connections with their
+/// nested lists, `$tree` and `$anchor` bound.
+#[cfg(feature = "graphql")]
+const GRAPHQL_CASES: &[&str] = &[
+    "query($tree: ID!) { persons(treeId: $tree, first: 100) { edges { node { id names { surname } events { eventType } families { id } citations { id } media { id } notes { id } } } } }",
+    "query($tree: ID!) { families(treeId: $tree, first: 100) { edges { node { id spouses { id person { id } } children { id person { id } } events { id } } } } }",
+    "query($tree: ID!) { events(treeId: $tree, first: 100) { edges { node { id place { id } citations { id } media { id } notes { id } witnesses { personId } } } } }",
+    "query($tree: ID!) { citations(treeId: $tree, first: 100) { edges { node { id } } } }",
+    "query($tree: ID!) { notes(treeId: $tree, first: 100) { edges { node { id } } } }",
+    "query($tree: ID!) { personProfiles(treeId: $tree, first: 100) { edges { node { personId } } } }",
+    "query($tree: ID!) { treeMediaLinks(treeId: $tree) { __typename } }",
+    "query($tree: ID!) { portraits(treeId: $tree) { __typename } }",
+    "query($tree: ID!) { tree(id: $tree) { personCount familyCount } }",
+    "query($tree: ID!) { treeStatistics(treeId: $tree, language: \"en\") { __typename } }",
+    "query($tree: ID!) { treeAnomalies(treeId: $tree) { __typename } }",
+    "query($tree: ID!) { potentialDuplicates(treeId: $tree) { __typename } }",
+    "query($tree: ID!) { searchPersons(treeId: $tree, query: \"Anchor\") { totalCount } }",
+    "query($tree: ID!, $anchor: ID!) { personDetailBundle(treeId: $tree, personId: $anchor) { __typename } }",
+    "query($tree: ID!, $anchor: ID!) { pedigree(treeId: $tree, rootPersonId: $anchor, ancestorDepth: 5, descendantDepth: 3) { __typename } }",
+    "query($tree: ID!, $anchor: ID!) { ancestors(treeId: $tree, personId: $anchor) { __typename } }",
+    "query($tree: ID!) { dictionaryFamilyNames(treeId: $tree) { __typename } }",
+    "query($tree: ID!) { dictionaryPlaces(treeId: $tree) { __typename } }",
+];
+
+/// Connections whose nested lists are resolved record by record, with why:
+/// for these the test holds the cost of one record constant instead of the
+/// page's. A DataLoader would batch them; until then each nested list is one
+/// query per record, as docs/api.md (GraphQL, nested records) states.
+#[cfg(feature = "graphql")]
+const PER_RECORD: &[(&str, &str)] = &[
+    (
+        "persons(",
+        "names, events, families, citations, media and notes per person",
+    ),
+    ("families(", "spouses, children and events per family"),
+    (
+        "events(",
+        "place, citations, media, notes and witnesses per event",
+    ),
+];
+
+/// The number of nodes of the connection `data` answers, or 1.
+#[cfg(feature = "graphql")]
+fn nodes(data: &Value) -> usize {
+    data.as_object()
+        .and_then(|fields| fields.values().next())
+        .and_then(|field| field["edges"].as_array())
+        .map_or(1, |edges| edges.len().max(1))
+}
+
+#[cfg(feature = "graphql")]
+#[tokio::test]
+async fn no_graphql_query_issues_statements_per_record() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let [small, large] = trees(&app, &db).await;
+
+    let mut grows = Vec::new();
+    for query in GRAPHQL_CASES {
+        let mut counts = Vec::new();
+        let mut sizes = Vec::new();
+        for (tree, anchor) in [&small, &large] {
+            counter.store(0, Ordering::Relaxed);
+            let response =
+                common::gql(&app, query, json!({ "tree": tree, "anchor": anchor })).await;
+            assert!(response.get("errors").is_none(), "{query}: {response}");
+            counts.push(counter.load(Ordering::Relaxed));
+            sizes.push(nodes(&response["data"]));
+        }
+        assert!(counts[0] > 0, "{query}: no statement counted");
+        let per_record = PER_RECORD.iter().any(|(field, _)| query.contains(field));
+        // Per record, a tenth of slack for the page's fixed statements.
+        let grew = if per_record {
+            counts[1] * sizes[0] * 10 > counts[0] * sizes[1] * 11
+        } else {
+            counts[1] > counts[0]
+        };
+        if grew {
+            grows.push(format!(
+                "{query}: {} statements for 40 persons, {} for 160",
+                counts[0], counts[1]
             ));
         }
     }

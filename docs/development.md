@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:34:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:48:06Z }
 ---
 
 # Development Environment and Workflows
@@ -107,10 +107,17 @@ Algorithmic complexity is tested at three levels.
 - **SQL statements.** `crates/oxidgene-api/tests/query_scaling_test.rs`, in
   the normal suite, runs a survey of REST requests — the tree-wide reads,
   a person's pages, the lists, the dictionaries, and representative
-  mutations — against a generated tree and one four times larger, counting
-  the statements SeaORM issues. A request that runs more on the larger one
-  queries per person, family or event, an N+1 to batch. Add a new tree-wide
-  or per-person route to the survey.
+  mutations — against a generated tree and one four times larger, both with
+  a note, a citation, a media link and a portrait crop on every person,
+  counting the statements SeaORM issues. A request that runs more on the
+  larger one queries per person, family or event, an N+1 to batch. The same
+  survey runs over GraphQL; the connections whose nested lists are resolved
+  record by record (persons, families, events) are declared, and for them
+  the cost of one record must stay constant. The batch reads (pedigrees,
+  portrait images, image data, gallery bundles, relation labels) are asked
+  for 4 and for 64 ids and must cost the same, except the pedigrees, which
+  assemble one walk per root and must keep the cost of one root constant.
+  Add a new tree-wide or per-person route to the survey.
 - **Counted work.** Where an in-memory computation risks quadratic work on
   a common case, a unit test counts that work deterministically: the
   potential duplicates compare each record only with the homonyms born
