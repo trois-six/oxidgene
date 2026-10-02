@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:26:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:05:17Z }
 ---
 
 
@@ -100,7 +100,7 @@ The expanded panel reuses the person form's visual and interaction patterns:
 | Filter | Type | Options / Format |
 |---|---|---|
 | **Surname / given names** | Text inputs suggesting the tree's values ([Common UI §4.4](ui-common.md)) | Case- and accent-insensitive partial matching |
-| **Gender** | Dropdown | All (default) / Male / Female / Unknown |
+| **Gender** | Segmented buttons | All (default) / Male / Female / Unknown |
 | **Occupation** | Text input suggesting the tree's occupations | Matches occupation-event descriptions |
 | **Born between** | Two year inputs | Inclusive start and end years |
 | **Died between** | Two year inputs | Inclusive start and end years |

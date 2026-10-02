@@ -172,9 +172,13 @@ When a SOSA root is set, all direct ancestors visible in the tree view display a
 Second person picker to designate the current user's own person in the tree. Used to display relationship labels in profile views. Displayed as a separate card below the SOSA card, with the same picker UI and responsive identity/action layout.
 
 The picker saves immediately, can be changed or cleared, and has no effect on
-the genealogy data or SOSA numbering. It is a local display preference: the
-selected person receives the blue badge in the pedigree view. Changing or
-clearing it invalidates the tree metadata so the badge updates immediately.
+the genealogy data or SOSA numbering. It is stored on the tree
+(`tree.self_person_id`), so everyone using the tree sees the same person: the
+selected person receives the blue badge in the pedigree view, is offered as a
+shortcut of the [kinship](ui-kinship.md) search, and names the GEDCOM
+submitter when none is set (§12). Changing or clearing it invalidates the tree
+metadata so the badge updates immediately, and is a *Settings* entry of the
+history.
 
 ---
 
@@ -214,7 +218,13 @@ why it is not a `Privacy` value itself.
 | Private tree | The tree is hidden from all other members |
 | Show SOSA 1 ancestors to visitors | Non-authenticated visitors can only see the direct lineage of the root person |
 
-### Contemporary persons
+### Contemporary persons (planned)
+
+Like the tree's visibility, this waits for authentication and authorization
+([Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)): with
+nobody to hide a record from, a rule hiding contemporaries could only lie about
+what a viewer sees. Nothing below is built or stored yet, and the section shows
+none of it.
 
 **Age threshold slider** — range 50-120 years, default 80. Persons born less than N years ago without a known death date are treated as contemporary.
 

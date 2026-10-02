@@ -471,13 +471,16 @@ displayed. All icons use a consistent style: `stroke: currentColor`,
 
 | Icon | SVG description | Action |
 |---|---|---|
-| Org-chart | 3 small rectangles connected by lines (sitemap) | Tree view (active by default) |
 | Person silhouette | Circle head + body path | Detailed profile view |
 | Two silhouettes | Two heads + bodies, side by side | [Couple view](ui-couple-profile.md) of the selected person's earliest couple; absent when the person has no known spouse |
+| Org-chart | 3 small rectangles connected by lines (sitemap) | Tree view (active on this page) |
+| **separator** | Thin horizontal line | Visual divider |
 | Stacked layers | 3 horizontal paths with decreasing width | Depth selector |
+| **separator** | Thin horizontal line | Visual divider |
 | Magnifying glass + | Magnifying glass with plus sign | Zoom in |
-| Four corners | 4 corner arrows pointing outward (maximize) | Fit to screen |
 | Magnifying glass - | Magnifying glass with minus sign | Zoom out |
+| Four corners | 4 corner arrows pointing outward (maximize) | Fit to screen |
+| **separator** | Thin horizontal line | Visual divider |
 | Person + plus | Person silhouette with a small plus | Add a person |
 | **separator** | Thin horizontal line | Visual divider |
 | Book/index | Open book (two overlapping page shapes) | Opens [Dictionary](ui-dictionary.md) for this tree |
