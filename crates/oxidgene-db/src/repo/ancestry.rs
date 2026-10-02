@@ -7,6 +7,9 @@
 //! parent relation is read straight from the family links:
 //! a person's parents are the spouses of the family in which they are a child.
 
+use std::collections::HashMap;
+
+use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
@@ -111,17 +114,21 @@ impl AncestryRepo {
         person_id: Uuid,
         max_depth: Option<i32>,
     ) -> Result<Vec<AncestryLink>, OxidGeneError> {
-        // Step upwards: from a person, to the families they are a child of,
-        // to the spouses of those families.
-        Self::walk(
-            db,
-            person_id,
-            max_depth,
-            "JOIN family_child  fc ON fc.person_id = step.person_id \
-             JOIN family_spouse fs ON fs.family_id = fc.family_id",
-            "fs.person_id",
-        )
-        .await
+        Ok(Self::walk(db, &[person_id], max_depth, Step::UP)
+            .await?
+            .remove(&person_id)
+            .unwrap_or_default())
+    }
+
+    /// [`Self::ancestors`] of each of `person_ids`, in one statement: by
+    /// person, those without any absent.
+    #[tracing::instrument(name = "pedigree.ancestors", skip_all, fields(max_depth, persons = person_ids.len()))]
+    pub async fn ancestors_of_many(
+        db: &impl ConnectionTrait,
+        person_ids: &[Uuid],
+        max_depth: Option<i32>,
+    ) -> Result<HashMap<Uuid, Vec<AncestryLink>>, OxidGeneError> {
+        Self::walk(db, person_ids, max_depth, Step::UP).await
     }
 
     /// Every descendant of `person_id`, each at its shortest distance.
@@ -133,15 +140,21 @@ impl AncestryRepo {
         person_id: Uuid,
         max_depth: Option<i32>,
     ) -> Result<Vec<AncestryLink>, OxidGeneError> {
-        Self::walk(
-            db,
-            person_id,
-            max_depth,
-            "JOIN family_spouse fs ON fs.person_id = step.person_id \
-             JOIN family_child  fc ON fc.family_id = fs.family_id",
-            "fc.person_id",
-        )
-        .await
+        Ok(Self::walk(db, &[person_id], max_depth, Step::DOWN)
+            .await?
+            .remove(&person_id)
+            .unwrap_or_default())
+    }
+
+    /// [`Self::descendants`] of each of `person_ids`, in one statement: by
+    /// person, those without any absent.
+    #[tracing::instrument(name = "pedigree.descendants", skip_all, fields(max_depth, persons = person_ids.len()))]
+    pub async fn descendants_of_many(
+        db: &impl ConnectionTrait,
+        person_ids: &[Uuid],
+        max_depth: Option<i32>,
+    ) -> Result<HashMap<Uuid, Vec<AncestryLink>>, OxidGeneError> {
+        Self::walk(db, person_ids, max_depth, Step::DOWN).await
     }
 
     /// Every spouse and child membership of a tree's active families, less
@@ -198,61 +211,117 @@ impl AncestryRepo {
             .collect()
     }
 
-    /// Shared recursive walk; the two directions differ only in how one step
-    /// joins through the family tables and which column it yields.
+    /// Shared recursive walk from each of `roots`, by root; the two
+    /// directions differ only in how one step joins through the family
+    /// tables and which column it yields.
     async fn walk(
         db: &impl ConnectionTrait,
-        person_id: Uuid,
+        roots: &[Uuid],
         max_depth: Option<i32>,
-        joins: &str,
-        next_person: &str,
-    ) -> Result<Vec<AncestryLink>, OxidGeneError> {
+        step: Step,
+    ) -> Result<HashMap<Uuid, Vec<AncestryLink>>, OxidGeneError> {
         let depth_limit = max_depth.unwrap_or(MAX_GENERATIONS).min(MAX_GENERATIONS);
         if depth_limit < 1 {
-            return Ok(vec![]);
+            return Ok(HashMap::new());
         }
+        let rows = in_chunks(roots, |chunk| {
+            Self::walk_chunk(db, chunk, depth_limit, step)
+        })
+        .await?;
+        let mut walks: HashMap<Uuid, Vec<AncestryLink>> = HashMap::new();
+        for (root, link) in rows {
+            walks.entry(root).or_default().push(link);
+        }
+        Ok(walks)
+    }
 
+    /// [`Self::walk`] from a bounded set of roots: each person reached, with
+    /// the root they were reached from, in order of distance.
+    async fn walk_chunk(
+        db: &impl ConnectionTrait,
+        roots: Vec<Uuid>,
+        depth_limit: i32,
+        step: Step,
+    ) -> Result<Vec<(Uuid, AncestryLink)>, OxidGeneError> {
         let backend = db.get_database_backend();
-        let (root, limit) = match backend {
-            DbBackend::Sqlite => ("?", "?"),
-            _ => ("$1", "$2"),
+        let placeholder = |n: usize| match backend {
+            DbBackend::Sqlite => "?".to_string(),
+            _ => format!("${n}"),
         };
+        let seeds = (1..=roots.len())
+            .map(placeholder)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let limit = placeholder(roots.len() + 1);
+        let Step { joins, next_person } = step;
 
+        // Each root seeds the walk with itself, and every step carries the
+        // root it started from: one statement walks from all of them.
         // `UNION` (not UNION ALL) keeps the walk finite over the diamond
-        // shapes that pedigree implex produces: a (person, depth) pair reached
-        // by two different paths is only expanded once. MIN(depth) then
-        // reports each person at their closest generation.
+        // shapes that pedigree implex produces: a (root, person, depth)
+        // triple reached by two different paths is only expanded once.
+        // MIN(depth) then reports each person at their closest generation.
         let sql = format!(
-            "WITH RECURSIVE step(person_id, depth) AS ( \
-                 SELECT {root}, 0 \
+            "WITH RECURSIVE step(root, person_id, depth) AS ( \
+                 SELECT id, id, 0 FROM person WHERE id IN ({seeds}) \
                  UNION \
-                 SELECT {next_person}, step.depth + 1 \
+                 SELECT step.root, {next_person}, step.depth + 1 \
                  FROM step {joins} \
                  WHERE step.depth < {limit} \
              ) \
-             SELECT person_id, MIN(depth) AS depth \
+             SELECT root, person_id, MIN(depth) AS depth \
              FROM step \
              WHERE depth > 0 \
-             GROUP BY person_id \
-             ORDER BY depth, person_id"
+             GROUP BY root, person_id \
+             ORDER BY root, depth, person_id"
         );
+        let values = roots
+            .into_iter()
+            .map(Value::from)
+            .chain(std::iter::once(Value::from(depth_limit)));
 
         let rows = db
-            .query_all_raw(Statement::from_sql_and_values(
-                backend,
-                &sql,
-                [Value::from(person_id), Value::from(depth_limit)],
-            ))
+            .query_all_raw(Statement::from_sql_and_values(backend, &sql, values))
             .await
             .map_err(db_err)?;
 
         rows.iter()
             .map(|row| {
-                Ok(AncestryLink {
-                    person_id: row.try_get::<Uuid>("", "person_id").map_err(db_err)?,
-                    depth: row.try_get::<i32>("", "depth").map_err(db_err)?,
-                })
+                Ok((
+                    row.try_get::<Uuid>("", "root").map_err(db_err)?,
+                    AncestryLink {
+                        person_id: row.try_get::<Uuid>("", "person_id").map_err(db_err)?,
+                        depth: row.try_get::<i32>("", "depth").map_err(db_err)?,
+                    },
+                ))
             })
             .collect()
     }
+}
+
+/// One step of a walk through the family links.
+#[derive(Debug, Clone, Copy)]
+struct Step {
+    /// From a person of the walk to the families the step goes through.
+    joins: &'static str,
+    /// The column of the person the step reaches.
+    next_person: &'static str,
+}
+
+impl Step {
+    /// Upwards: from a person, to the families they are a child of, to the
+    /// spouses of those families.
+    const UP: Self = Self {
+        joins: "JOIN family_child  fc ON fc.person_id = step.person_id \
+                JOIN family_spouse fs ON fs.family_id = fc.family_id",
+        next_person: "fs.person_id",
+    };
+
+    /// Downwards: from a person, to the families they are a spouse in, to
+    /// the children of those families.
+    const DOWN: Self = Self {
+        joins: "JOIN family_spouse fs ON fs.person_id = step.person_id \
+                JOIN family_child  fc ON fc.family_id = fs.family_id",
+        next_person: "fc.person_id",
+    };
 }

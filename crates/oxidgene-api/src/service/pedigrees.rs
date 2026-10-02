@@ -9,7 +9,6 @@
 
 use std::sync::Arc;
 
-use futures_util::{StreamExt as _, stream};
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::projection::{Pedigree, PedigreeDelta, PedigreeDirection};
 use serde::Serialize;
@@ -123,10 +122,6 @@ pub async fn expand_pedigree(
 /// other batch operation so one request can never ask for a whole tree.
 pub const MAX_PEDIGREES_PER_REQUEST: usize = 64;
 
-/// How many pedigrees are assembled at once. They each hit the database, so
-/// this bounds the connection pressure one request can create.
-const ASSEMBLY_CONCURRENCY: usize = 8;
-
 /// One requested pedigree, paired with the root it was asked for.
 #[derive(Debug, Clone, Serialize)]
 pub struct PedigreeEntry {
@@ -134,11 +129,13 @@ pub struct PedigreeEntry {
     pub pedigree: Pedigree,
 }
 
-/// Assemble several pedigrees in one operation.
+/// Assemble several pedigrees in one operation, sharing their reads: the
+/// batch costs the statements of one pedigree, whatever its number of roots.
 ///
-/// Request order is preserved. A root that cannot be assembled — deleted, or
-/// belonging to another tree — is omitted rather than failing the batch: a grid
-/// of twenty cards should not go blank because one of them is stale.
+/// Request order is preserved, a root asked twice answered twice. A root
+/// that is not a live person of the tree — deleted, unknown, or belonging to
+/// another tree — is omitted rather than failing the batch: a grid of twenty
+/// cards should not go blank because one of them is stale.
 pub async fn load_pedigrees(
     profiles: &Arc<ProfileService>,
     tree_id: Uuid,
@@ -156,41 +153,25 @@ pub async fn load_pedigrees(
     // batch rather than once per pedigree.
     profiles.ensure_tree_materialized(tree_id).await?;
 
-    let assembled = stream::iter(root_person_ids.iter().copied().enumerate())
-        .map(|(index, root_person_id)| {
-            let profiles = Arc::clone(profiles);
-            async move {
-                let pedigree = profiles
-                    .assemble_pedigree(tree_id, root_person_id, ancestor_depth, descendant_depth)
-                    .await;
-                (index, root_person_id, pedigree)
-            }
+    let pedigrees = profiles
+        .assemble_pedigrees(tree_id, root_person_ids, ancestor_depth, descendant_depth)
+        .await?;
+    let entries: Vec<PedigreeEntry> = root_person_ids
+        .iter()
+        .filter_map(|&root_person_id| {
+            Some(PedigreeEntry {
+                root_person_id,
+                pedigree: pedigrees.get(&root_person_id)?.clone(),
+            })
         })
-        .buffer_unordered(ASSEMBLY_CONCURRENCY)
-        .collect::<Vec<_>>()
-        .await;
-
-    let mut kept = assembled
-        .into_iter()
-        .filter_map(|(index, root_person_id, pedigree)| match pedigree {
-            Ok(pedigree) => Some((
-                index,
-                PedigreeEntry {
-                    root_person_id,
-                    pedigree,
-                },
-            )),
-            Err(error) => {
-                // A person's ID identifies a person, and a domain error's
-                // message may quote one: only the category is logged.
-                tracing::warn!(
-                    error.kind = crate::error_contract::error_kind(&error),
-                    "pedigree could not be assembled"
-                );
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    kept.sort_by_key(|(index, _)| *index);
-    Ok(kept.into_iter().map(|(_, entry)| entry).collect())
+        .collect();
+    let omitted = root_person_ids.len() - entries.len();
+    if omitted > 0 {
+        // A person's ID identifies a person: only the count is logged.
+        tracing::warn!(
+            omitted,
+            "pedigree roots that are not live persons of the tree were left out"
+        );
+    }
+    Ok(entries)
 }

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:25:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T11:38:49Z }
 ---
 
 
@@ -809,6 +809,11 @@ The API:
 Nodes carry whole projected birth and death events rather than extracted year
 and place strings. A missing birth date may fall back to baptism; a missing
 death date may fall back to burial. Each event retains its own precision.
+
+A batch of pedigrees runs these steps once for all its roots: one recursive
+traversal per direction seeded with every root, then one batch read per
+step for the union of the windows, each window then assembled from what was
+read. Its cost follows the depth, never the number of roots.
 
 Expansion returns only nodes and edges beyond the depth already held by the
 client. The opposite loaded depth is part of the request so crossing edges are

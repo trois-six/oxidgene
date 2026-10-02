@@ -2055,6 +2055,45 @@ async fn ancestry_walks_the_family_links() {
     );
 }
 
+/// One walk from several persons gives each what a walk from them alone
+/// does, with persons reached from two roots under both, and nothing for a
+/// person without links or an unknown id.
+#[tokio::test]
+async fn ancestry_walks_from_several_persons_at_once() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let grandparent = create_person(&db, tree_id).await;
+    let parent = create_person(&db, tree_id).await;
+    let child = create_person(&db, tree_id).await;
+    let sibling = create_person(&db, tree_id).await;
+    let orphan = create_person(&db, tree_id).await;
+    link_parents(&db, tree_id, &[grandparent], parent).await;
+    link_parents(&db, tree_id, &[parent], child).await;
+    link_parents(&db, tree_id, &[parent], sibling).await;
+
+    let roots = [child, sibling, parent, grandparent, orphan, Uuid::now_v7()];
+    let ancestors = AncestryRepo::ancestors_of_many(&db, &roots, None)
+        .await
+        .unwrap();
+    let descendants = AncestryRepo::descendants_of_many(&db, &roots, Some(1))
+        .await
+        .unwrap();
+    for root in roots {
+        assert_eq!(
+            ancestors.get(&root).cloned().unwrap_or_default(),
+            AncestryRepo::ancestors(&db, root, None).await.unwrap(),
+        );
+        assert_eq!(
+            descendants.get(&root).cloned().unwrap_or_default(),
+            AncestryRepo::descendants(&db, root, Some(1)).await.unwrap(),
+        );
+    }
+    assert_eq!(ancestors[&child].len(), 2);
+    assert_eq!(ancestors[&sibling].len(), 2);
+    assert_eq!(descendants[&parent].len(), 2);
+    assert!(!ancestors.contains_key(&orphan) && !descendants.contains_key(&orphan));
+}
+
 /// Both parents of a couple are ancestors at the same depth.
 #[tokio::test]
 async fn ancestry_reports_both_parents() {

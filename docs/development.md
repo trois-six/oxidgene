@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T11:00:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T11:38:49Z }
 ---
 
 # Development Environment and Workflows
@@ -121,10 +121,9 @@ Algorithmic complexity is tested at three levels.
   survey runs over GraphQL, the connections with their nested fields among
   it, which must cost the same for a page of 40 records and one of 100: the
   nested fields are read in batches, one query per relation for the whole
-  page (`graphql/loaders.rs`). The batch reads (pedigrees,
+  page (`graphql/loaders.rs`). The batch reads (pedigrees at three depths,
   portrait images, image data, gallery bundles, relation labels) are asked
-  for 4 and for 64 ids and must cost the same, except the pedigrees, which
-  assemble one walk per root and must keep the cost of one root constant.
+  for 4 and for 64 ids and must cost the same.
   Add a new tree-wide or per-person route to the survey.
 - **Counted work.** Where an in-memory computation risks quadratic work on
   a common case, a unit test counts that work deterministically: the

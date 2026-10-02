@@ -10,10 +10,11 @@
 //!
 //! Both trees carry a note, a citation, a media link and a portrait crop on
 //! every person, so the reads that gather them are measured too. The same
-//! survey runs over GraphQL, whose nested lists must cost one query per list
-//! rather than one per record; and the batch reads (pedigrees, portraits,
-//! image data, gallery bundles, relation labels) are measured with 4 and with
-//! 64 ids, which must cost the same.
+//! survey runs over GraphQL, whose nested fields must cost one query per
+//! relation for a whole page rather than one per record; and the batch reads
+//! (pedigrees at three depths, portraits, image data, gallery bundles,
+//! relation labels) are measured with 4 and with 64 ids, which must cost the
+//! same.
 //!
 //! SeaORM opens one `sea_orm.*` span per statement (its `tracing-spans`
 //! feature); a thread-local subscriber counts them for the request under test.
@@ -262,15 +263,6 @@ async fn ids(app: &Router, tree: &str, n: usize) -> (Vec<String>, Vec<String>, V
     )
 }
 
-/// Batch reads whose cost is per item by design, with why: for these the
-/// test holds the cost of one item constant instead of the batch's.
-const PER_ITEM: &[(&str, &str)] = &[(
-    "/pedigrees",
-    "each pedigree is its own generation-by-generation walk, run concurrently \
-     (ASSEMBLY_CONCURRENCY) and bounded by MAX_PEDIGREES_PER_REQUEST: the batch \
-     saves round trips, not statements",
-)];
-
 #[tokio::test]
 async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
     let counter = Arc::new(AtomicUsize::new(0));
@@ -293,11 +285,15 @@ async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
             .iter()
             .map(|id| json!({ "kind": "crop", "vignette_id": id }))
             .collect();
-        let batches = [
-            (
-                "/pedigrees",
-                json!({ "root_person_ids": persons, "ancestor_depth": 2, "descendant_depth": 1 }),
-            ),
+        // The pedigrees at three depths: the roots of a batch share its walks
+        // and reads, so its cost may follow the depth, never the roots.
+        let pedigrees = [(2, 1), (5, 3), (10, 10)].map(|(up, down)| {
+            let body = json!({
+                "root_person_ids": persons, "ancestor_depth": up, "descendant_depth": down
+            });
+            (format!("/pedigrees at {up}/{down} generations"), body)
+        });
+        let others = [
             ("/portrait-images", json!({ "person_ids": persons })),
             ("/image-data", json!({ "sources": sources })),
             (
@@ -309,9 +305,15 @@ async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
                 json!({ "person_ids": persons, "family_ids": families }),
             ),
         ];
+        let batches = pedigrees.into_iter().chain(
+            others
+                .into_iter()
+                .map(|(path, body)| (path.to_string(), body)),
+        );
         let mut row = Vec::new();
-        for (path, body) in batches {
+        for (label, body) in batches {
             counter.store(0, Ordering::Relaxed);
+            let path = label.split(' ').next().unwrap_or_default();
             ok(
                 &app,
                 Method::POST,
@@ -319,19 +321,14 @@ async fn a_batch_of_64_costs_what_a_batch_of_4_does() {
                 Some(body),
             )
             .await;
-            row.push((path, counter.load(Ordering::Relaxed)));
+            row.push((label, counter.load(Ordering::Relaxed)));
         }
         counts.push(row);
     }
-    for ((path, four), (_, sixty_four)) in counts[0].iter().zip(&counts[1]) {
-        let grew = match PER_ITEM.iter().find(|(p, _)| p == path) {
-            // A declared per-item batch: the cost of each item must not grow.
-            Some(_) => sixty_four * 4 > four * 64,
-            None => sixty_four > four,
-        };
-        if grew {
+    for ((label, four), (_, sixty_four)) in counts[0].iter().zip(&counts[1]) {
+        if sixty_four > four {
             grows.push(format!(
-                "POST {path}: {four} statements for 4 ids, {sixty_four} for 64"
+                "POST {label}: {four} statements for 4 ids, {sixty_four} for 64"
             ));
         }
     }

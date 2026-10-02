@@ -302,23 +302,38 @@ impl ProfileService {
         self.ensure_materialized(tree_id).await
     }
 
-    /// Assemble a pedigree of a tree whose projections are known to be
-    /// materialized: [`Self::get_or_build_pedigree`] without the check.
-    pub(crate) async fn assemble_pedigree(
+    /// Assemble together the pedigrees of `roots`, in a tree whose
+    /// projections are known to be materialized: each root that is a live
+    /// person of the tree gets the pedigree [`Self::get_or_build_pedigree`]
+    /// would give it, the others none.
+    ///
+    /// The batch shares its reads: one walk up and one down from all the
+    /// roots, then one read per step of the assembly for all the windows,
+    /// so it costs what one pedigree does, whatever the number of roots.
+    pub(crate) async fn assemble_pedigrees(
         &self,
         tree_id: Uuid,
-        root_person_id: Uuid,
+        roots: &[Uuid],
         ancestor_depth: u32,
         descendant_depth: u32,
-    ) -> Result<Pedigree, OxidGeneError> {
-        self.build_pedigree(
-            &self.reader,
-            tree_id,
-            root_person_id,
-            ancestor_depth,
-            descendant_depth,
-        )
-        .await
+    ) -> Result<HashMap<Uuid, Pedigree>, OxidGeneError> {
+        let live = sorted_unique(
+            PersonRepo::get_many(&self.reader, roots)
+                .await?
+                .into_iter()
+                .filter(|person| person.tree_id == tree_id)
+                .map(|person| person.id),
+        );
+        let pedigrees = self
+            .build_pedigrees(
+                &self.reader,
+                tree_id,
+                &live,
+                ancestor_depth,
+                descendant_depth,
+            )
+            .await?;
+        Ok(live.into_iter().zip(pedigrees).collect())
     }
 
     /// Compute the nodes and edges a pedigree gains when expanded from
@@ -781,53 +796,63 @@ impl ProfileService {
         Ok(found)
     }
 
-    /// The projections of `person_ids`, persons outside the pedigree window
-    /// fetched for display: `what` names them in the log.
-    async fn projections_outside(
+    /// Read into `profiles` the projections of those of `person_ids` it
+    /// lacks. `outside` names the persons outside the pedigree windows that
+    /// they are, for the log.
+    async fn fetch_profiles(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
+        profiles: &mut HashMap<Uuid, PersonProfile>,
         person_ids: &[Uuid],
-        what: &str,
-    ) -> Result<Vec<PersonProfile>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        debug!(
-            count = person_ids.len(),
-            "Pedigree build: fetching {what} outside the pedigree window"
+        outside: Option<&str>,
+    ) -> Result<(), OxidGeneError> {
+        let wanted = sorted_unique(
+            person_ids
+                .iter()
+                .copied()
+                .filter(|id| !profiles.contains_key(id)),
         );
-        self.projections_for(conn, tree_id, person_ids).await
+        if wanted.is_empty() {
+            return Ok(());
+        }
+        if let Some(what) = outside {
+            debug!(
+                count = wanted.len(),
+                "Pedigree build: fetching {what} outside the pedigree window"
+            );
+        }
+        // Boxed: the rebuild of missing projections it may run is a deep
+        // future, which every step of the assembly would otherwise hold
+        // inline, and a debug build's stack a copy of at every level.
+        let found = Box::pin(self.projections_for(conn, tree_id, &wanted)).await?;
+        profiles.extend(found.into_iter().map(|p| (p.person_id, p)));
+        Ok(())
     }
 
-    /// Give each node of a window its portrait and whether it is a SOSA
-    /// ancestor: two queries for the whole window, so the client neither
+    /// Give each node of the windows its portrait and whether it is a SOSA
+    /// ancestor: two queries for all the windows, so the client neither
     /// asks whose portrait is what nor loads the tree's whole ancestry.
     async fn decorate_nodes(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
-        nodes: &mut HashMap<Uuid, PedigreeNode>,
+        windows: &mut [HashMap<Uuid, PedigreeNode>],
     ) -> Result<(), OxidGeneError> {
-        let ids: Vec<Uuid> = nodes.keys().copied().collect();
-        let mut portraits = crate::service::portrait::portrait_refs(conn, tree_id, &ids).await?;
+        let ids = sorted_unique(windows.iter().flat_map(|nodes| nodes.keys().copied()));
+        let portraits = crate::service::portrait::portrait_refs(conn, tree_id, &ids).await?;
         let sosa =
             crate::service::person_detail::sosa_ancestors_among(conn, tree_id, ids.iter().copied())
                 .await?;
-        for (id, node) in nodes.iter_mut() {
-            node.portrait = portraits.remove(id);
+        for (id, node) in windows.iter_mut().flat_map(|nodes| nodes.iter_mut()) {
+            node.portrait = portraits.get(id).cloned();
             node.sosa_ancestor = sosa.contains(id);
         }
         Ok(())
     }
 
-    /// Assemble a pedigree window for a root person from family links
-    /// and the stored projections.
-    #[instrument(
-        name = "pedigree.build",
-        skip_all,
-        fields(ancestor_depth, descendant_depth)
-    )]
+    /// Assemble the pedigree window of a root person from family links and
+    /// the stored projections.
     async fn build_pedigree(
         &self,
         conn: &impl ConnectionTrait,
@@ -836,82 +861,174 @@ impl ProfileService {
         ancestor_depth: u32,
         descendant_depth: u32,
     ) -> Result<Pedigree, OxidGeneError> {
-        debug!(ancestor_depth, descendant_depth, "Building pedigree");
+        self.build_pedigrees(
+            conn,
+            tree_id,
+            &[root_person_id],
+            ancestor_depth,
+            descendant_depth,
+        )
+        .await?
+        .pop()
+        .ok_or(OxidGeneError::NotFound {
+            entity: "Person",
+            id: root_person_id,
+        })
+    }
 
-        // Walk the family links for ancestor and descendant IDs.
-        let (ancestors, descendants) = tokio::try_join!(
-            AncestryRepo::ancestors(conn, root_person_id, Some(ancestor_depth as i32)),
-            AncestryRepo::descendants(conn, root_person_id, Some(descendant_depth as i32)),
-        )?;
-        let mut person_ids = sorted_unique(
-            std::iter::once(root_person_id)
-                .chain(ancestors.iter().map(|a| a.person_id))
-                .chain(descendants.iter().map(|d| d.person_id)),
-        );
-        let mut depths = pedigree::generations(root_person_id, &ancestors, &descendants);
-
-        // The projections in the window, and the spouses outside it, which
-        // take their partner's generation.
-        let window_persons = self.projections_for(conn, tree_id, &person_ids).await?;
-        let mut persons: HashMap<Uuid, &PersonProfile> =
-            window_persons.iter().map(|p| (p.person_id, p)).collect();
-        let spouse_persons = self
-            .projections_outside(
+    /// Assemble the pedigree windows of `roots`, distinct, in their order,
+    /// from family links and the stored projections: each step reads what
+    /// all the windows need at once.
+    #[instrument(
+        name = "pedigree.build",
+        skip_all,
+        fields(roots = roots.len(), ancestor_depth, descendant_depth)
+    )]
+    async fn build_pedigrees(
+        &self,
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+        roots: &[Uuid],
+        ancestor_depth: u32,
+        descendant_depth: u32,
+    ) -> Result<Vec<Pedigree>, OxidGeneError> {
+        debug!(ancestor_depth, descendant_depth, "Building pedigrees");
+        if roots.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut profiles = HashMap::new();
+        let windows = self
+            .windows(
                 conn,
                 tree_id,
-                &pedigree::spouses_outside(&persons),
-                "spouses",
+                roots,
+                (ancestor_depth, descendant_depth),
+                &mut profiles,
             )
             .await?;
-        for p in &spouse_persons {
-            let generation = pedigree::partner_generation(p, &depths);
-            depths.entry(p.person_id).or_insert(generation);
-            persons.insert(p.person_id, p);
-            person_ids.push(p.person_id);
-        }
-
-        let mut nodes = pedigree::nodes(&person_ids, &persons, &depths, root_person_id);
+        let mut nodes: Vec<_> = windows.iter().map(|w| w.nodes(&profiles)).collect();
         self.decorate_nodes(conn, tree_id, &mut nodes).await?;
-        let edges = pedigree::edges(&persons, &nodes);
-        let family_events = pedigree::family_events(&persons);
-
-        // The family memberships (spouse and children IDs per family), which
-        // capture childless couples, who produce no edge, and the parental
-        // families needed for sibling events.
-        let mut families: HashMap<Uuid, PedigreeFamily> = HashMap::new();
-        for person in persons.values() {
-            pedigree::record_membership(&mut families, person, false);
-        }
-        let parents = pedigree::parents_to_fetch(&families, &persons);
-        let parents = self
-            .projections_outside(conn, tree_id, &parents, "parents for sibling data")
+        let families = self
+            .family_units(conn, tree_id, &windows, &nodes, &mut profiles)
             .await?;
-        pedigree::adopt_children_lists(&mut families, &parents);
-        let members = pedigree::members_outside(&families, &nodes);
-        let members = self
-            .projections_outside(conn, tree_id, &members, "family members")
-            .await?;
-        pedigree::add_members_outside(&mut families, &members);
 
-        let pedigree = Pedigree {
-            tree_id,
-            root_person_id,
-            persons: nodes,
-            edges,
-            family_events,
-            families,
-            ancestor_depth_loaded: ancestor_depth,
-            descendant_depth_loaded: descendant_depth,
-            built_at: chrono::Utc::now(),
-        };
-
+        let built_at = chrono::Utc::now();
+        let pedigrees: Vec<Pedigree> = windows
+            .iter()
+            .zip(nodes)
+            .zip(families)
+            .map(|((window, nodes), families)| {
+                let persons = window.persons(&profiles);
+                Pedigree {
+                    tree_id,
+                    root_person_id: window.root,
+                    edges: pedigree::edges(&persons, &nodes),
+                    family_events: pedigree::family_events(&persons),
+                    persons: nodes,
+                    families,
+                    ancestor_depth_loaded: ancestor_depth,
+                    descendant_depth_loaded: descendant_depth,
+                    built_at,
+                }
+            })
+            .collect();
         debug!(
-            nodes = pedigree.persons.len(),
-            edges = pedigree.edges.len(),
-            families = pedigree.families.len(),
-            "Built pedigree"
+            nodes = pedigrees.iter().map(|p| p.persons.len()).sum::<usize>(),
+            "Built pedigrees"
         );
+        Ok(pedigrees)
+    }
 
-        Ok(pedigree)
+    /// The windows of `roots` — walked `depths.0` generations up and
+    /// `depths.1` down — with the projections of their persons read into
+    /// `profiles`, and the spouses outside them, who take their partner's
+    /// generation.
+    async fn windows(
+        &self,
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+        roots: &[Uuid],
+        depths: (u32, u32),
+        profiles: &mut HashMap<Uuid, PersonProfile>,
+    ) -> Result<Vec<pedigree::Window>, OxidGeneError> {
+        let (mut ancestors, mut descendants) = tokio::try_join!(
+            AncestryRepo::ancestors_of_many(conn, roots, Some(depths.0 as i32)),
+            AncestryRepo::descendants_of_many(conn, roots, Some(depths.1 as i32)),
+        )?;
+        let mut windows: Vec<pedigree::Window> = roots
+            .iter()
+            .map(|root| {
+                let up = ancestors.remove(root).unwrap_or_default();
+                let down = descendants.remove(root).unwrap_or_default();
+                pedigree::Window::new(*root, &up, &down)
+            })
+            .collect();
+        let inside: Vec<Uuid> = windows
+            .iter()
+            .flat_map(|w| w.person_ids().iter().copied())
+            .collect();
+        self.fetch_profiles(conn, tree_id, profiles, &inside, None)
+            .await?;
+
+        // In id order, the order the projections come from the database in.
+        let spouses: Vec<Vec<Uuid>> = windows
+            .iter()
+            .map(|w| sorted_unique(pedigree::spouses_outside(&w.persons(profiles))))
+            .collect();
+        self.fetch_profiles(conn, tree_id, profiles, &spouses.concat(), Some("spouses"))
+            .await?;
+        for (window, spouses) in windows.iter_mut().zip(&spouses) {
+            window.add_spouses(spouses, profiles);
+        }
+        Ok(windows)
+    }
+
+    /// The family memberships of each window (spouse and children IDs per
+    /// family), which capture childless couples, who produce no edge, and
+    /// the parental families needed for sibling events — with the parents
+    /// and family members outside the windows read into `profiles`.
+    async fn family_units(
+        &self,
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+        windows: &[pedigree::Window],
+        nodes: &[HashMap<Uuid, PedigreeNode>],
+        profiles: &mut HashMap<Uuid, PersonProfile>,
+    ) -> Result<Vec<HashMap<Uuid, PedigreeFamily>>, OxidGeneError> {
+        let mut families: Vec<_> = windows.iter().map(|w| w.families(profiles)).collect();
+        let parents: Vec<Vec<Uuid>> = windows
+            .iter()
+            .zip(&families)
+            .map(|(w, families)| pedigree::parents_to_fetch(families, &w.persons(profiles)))
+            .collect();
+        self.fetch_profiles(
+            conn,
+            tree_id,
+            profiles,
+            &parents.concat(),
+            Some("parents for sibling data"),
+        )
+        .await?;
+        for (families, parents) in families.iter_mut().zip(&parents) {
+            pedigree::adopt_children_lists(families, &pedigree::picked(profiles, parents));
+        }
+
+        let members: Vec<Vec<Uuid>> = families
+            .iter()
+            .zip(nodes)
+            .map(|(families, nodes)| pedigree::members_outside(families, nodes))
+            .collect();
+        self.fetch_profiles(
+            conn,
+            tree_id,
+            profiles,
+            &members.concat(),
+            Some("family members"),
+        )
+        .await?;
+        for (families, members) in families.iter_mut().zip(&members) {
+            pedigree::add_members_outside(families, &pedigree::picked(profiles, members));
+        }
+        Ok(families)
     }
 }

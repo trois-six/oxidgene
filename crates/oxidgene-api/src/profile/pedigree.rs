@@ -3,9 +3,12 @@
 //! family memberships drawn from the projections, and which persons outside
 //! the window still have to be fetched.
 //!
-//! [`super::ProfileService`] runs the queries between these steps.
+//! [`super::ProfileService`] runs the queries between these steps, for all
+//! the windows of a batch at once.
 
 use std::collections::HashMap;
+
+use oxidgene_core::collections::sorted_unique;
 
 use oxidgene_core::enums::ChildType;
 use oxidgene_core::projection::{
@@ -16,13 +19,105 @@ use uuid::Uuid;
 
 use super::builder::build_pedigree_node;
 
+/// One root's pedigree window while it is assembled: whom it holds, and at
+/// which generation.
+pub(super) struct Window {
+    pub(super) root: Uuid,
+    /// The persons the walks reached, then the spouses fetched from outside
+    /// the window.
+    person_ids: Vec<Uuid>,
+    depths: HashMap<Uuid, i32>,
+}
+
+impl Window {
+    /// The window of `root`, from its walks up and down.
+    pub(super) fn new(
+        root: Uuid,
+        ancestors: &[AncestryLink],
+        descendants: &[AncestryLink],
+    ) -> Self {
+        let person_ids = sorted_unique(
+            std::iter::once(root)
+                .chain(ancestors.iter().map(|a| a.person_id))
+                .chain(descendants.iter().map(|d| d.person_id)),
+        );
+        Self {
+            root,
+            person_ids,
+            depths: generations(root, ancestors, descendants),
+        }
+    }
+
+    /// The persons the window holds.
+    pub(super) fn person_ids(&self) -> &[Uuid] {
+        &self.person_ids
+    }
+
+    /// The projections of the window's persons, among `profiles`.
+    pub(super) fn persons<'a>(
+        &self,
+        profiles: &'a HashMap<Uuid, PersonProfile>,
+    ) -> HashMap<Uuid, &'a PersonProfile> {
+        picked(profiles, &self.person_ids)
+    }
+
+    /// Add `spouses`, fetched from outside the window, each at their
+    /// partner's generation.
+    pub(super) fn add_spouses(
+        &mut self,
+        spouses: &[Uuid],
+        profiles: &HashMap<Uuid, PersonProfile>,
+    ) {
+        for spouse in spouses.iter().filter_map(|id| profiles.get(id)) {
+            let generation = partner_generation(spouse, &self.depths);
+            self.depths.entry(spouse.person_id).or_insert(generation);
+            self.person_ids.push(spouse.person_id);
+        }
+    }
+
+    /// A node for each of the window's persons with a projection.
+    pub(super) fn nodes(
+        &self,
+        profiles: &HashMap<Uuid, PersonProfile>,
+    ) -> HashMap<Uuid, PedigreeNode> {
+        nodes(
+            &self.person_ids,
+            &self.persons(profiles),
+            &self.depths,
+            self.root,
+        )
+    }
+
+    /// The families of the window's persons, as spouses and as children.
+    pub(super) fn families(
+        &self,
+        profiles: &HashMap<Uuid, PersonProfile>,
+    ) -> HashMap<Uuid, PedigreeFamily> {
+        let mut families = HashMap::new();
+        for person in self.persons(profiles).values() {
+            record_membership(&mut families, person, false);
+        }
+        families
+    }
+}
+
+/// The projections of those of `ids` that `profiles` holds.
+pub(super) fn picked<'a>(
+    profiles: &'a HashMap<Uuid, PersonProfile>,
+    ids: &[Uuid],
+) -> HashMap<Uuid, &'a PersonProfile> {
+    ids.iter()
+        .filter_map(|id| Some((*id, profiles.get(id)?)))
+        .collect()
+}
+
 /// Each person's generation from `root`: negative for ancestors, positive for
 /// descendants, 0 for the root.
 ///
 /// The walk already reports each person at their shortest distance, but
 /// someone can be both an ancestor and a descendant (implex), so the one
 /// closest to the root wins between the two lists.
-pub(super) fn generations(
+fn generations(
     root: Uuid,
     ancestors: &[AncestryLink],
     descendants: &[AncestryLink],
@@ -63,7 +158,7 @@ pub(super) fn spouses_outside(persons: &HashMap<Uuid, &PersonProfile>) -> Vec<Uu
 
 /// The generation of a spouse fetched from outside the window: their
 /// partner's.
-pub(super) fn partner_generation(spouse: &PersonProfile, depths: &HashMap<Uuid, i32>) -> i32 {
+fn partner_generation(spouse: &PersonProfile, depths: &HashMap<Uuid, i32>) -> i32 {
     spouse
         .families_as_spouse
         .iter()
@@ -77,7 +172,7 @@ pub(super) fn partner_generation(spouse: &PersonProfile, depths: &HashMap<Uuid, 
 /// Sosa numbering depends on the path from the root, which ancestor
 /// membership alone does not give, so only the root carries one here; the UI
 /// derives the rest from the layout.
-pub(super) fn nodes(
+fn nodes(
     person_ids: &[Uuid],
     persons: &HashMap<Uuid, &PersonProfile>,
     depths: &HashMap<Uuid, i32>,
@@ -155,7 +250,7 @@ pub(super) fn family_events(
 /// children, so it replaces the list rather than extends it: families are
 /// met in the order of a map, and a child seeded first from their own
 /// `family_as_child` would otherwise stay ahead of elder siblings.
-pub(super) fn record_membership(
+fn record_membership(
     families: &mut HashMap<Uuid, PedigreeFamily>,
     person: &PersonProfile,
     with_partner: bool,
@@ -191,7 +286,7 @@ fn push_new(ids: &mut Vec<Uuid>, id: Uuid) {
 }
 
 /// An empty family unit, filled in as members are discovered.
-pub(super) fn empty_family(family_id: Uuid) -> PedigreeFamily {
+fn empty_family(family_id: Uuid) -> PedigreeFamily {
     PedigreeFamily {
         family_id,
         spouse_ids: Vec::new(),
@@ -230,9 +325,8 @@ pub(super) fn parents_to_fetch(
 /// the eldest.
 pub(super) fn adopt_children_lists(
     families: &mut HashMap<Uuid, PedigreeFamily>,
-    parents: &[PersonProfile],
+    parents: &HashMap<Uuid, &PersonProfile>,
 ) {
-    let parents: HashMap<Uuid, &PersonProfile> = parents.iter().map(|p| (p.person_id, p)).collect();
     for family in families.values_mut() {
         let lists: Vec<Vec<Uuid>> = family
             .spouse_ids
@@ -271,9 +365,8 @@ pub(super) fn members_outside(
 /// only, never fetched — for the hidden-relations indicator of their card.
 pub(super) fn add_members_outside(
     families: &mut HashMap<Uuid, PedigreeFamily>,
-    outside: &[PersonProfile],
+    outside: &HashMap<Uuid, &PersonProfile>,
 ) {
-    let outside: HashMap<Uuid, &PersonProfile> = outside.iter().map(|p| (p.person_id, p)).collect();
     for family in families.values_mut() {
         let members: Vec<PedigreeFamilyMember> = family
             .children_ids

@@ -134,6 +134,89 @@ async fn pedigree_nodes_carry_their_portrait_and_sosa_mark() {
     );
 }
 
+/// `pedigree` without what may differ between two assemblies of the same
+/// window: when it was built, and the order spouses were met in.
+fn comparable(mut pedigree: Value) -> Value {
+    pedigree.as_object_mut().unwrap().remove("built_at");
+    for family in pedigree["families"].as_object_mut().unwrap().values_mut() {
+        family["spouse_ids"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by_key(Value::to_string);
+    }
+    pedigree
+}
+
+/// A batch of pedigrees shares its walks and reads between its roots, whose
+/// windows overlap here — parents, siblings, spouses — and still gives each
+/// root what it gets asked alone: request order kept, a root asked twice
+/// answered twice, a deleted root and another tree's person left out.
+#[tokio::test]
+async fn a_batch_of_pedigrees_draws_each_as_alone() {
+    let f = fixture().await;
+    remote_portrait(&f.app, &f.tree, &f.anchor).await;
+    let other_tree = common::new_tree(&f.app, "Other").await;
+    let stranger = common::new_person(&f.app, &other_tree).await;
+    let deleted = common::new_person(&f.app, &f.tree).await;
+    let tree = |path: &str| format!("/api/v1/trees/{}{path}", f.tree);
+    ok(
+        &f.app,
+        Method::DELETE,
+        &tree(&format!("/persons/{deleted}")),
+        None,
+    )
+    .await;
+
+    let persons: Vec<String> = f
+        .profiles
+        .iter()
+        .map(|p| p["person_id"].as_str().unwrap().to_string())
+        .collect();
+    let mut roots = persons.clone();
+    roots.insert(3, deleted);
+    roots.insert(5, stranger);
+    roots.push(f.anchor.clone());
+    for (up, down) in [(2, 1), (5, 3), (0, 0)] {
+        let batch = ok(
+            &f.app,
+            Method::POST,
+            &tree("/pedigrees"),
+            Some(
+                json!({ "root_person_ids": roots, "ancestor_depth": up, "descendant_depth": down }),
+            ),
+        )
+        .await;
+        let batch = batch.as_array().unwrap();
+        let answered: Vec<&str> = batch
+            .iter()
+            .map(|entry| entry["root_person_id"].as_str().unwrap())
+            .collect();
+        let expected: Vec<&str> = persons
+            .iter()
+            .chain([&f.anchor])
+            .map(String::as_str)
+            .collect();
+        assert_eq!(answered, expected, "depth {up}/{down}");
+        for entry in batch {
+            let root = entry["root_person_id"].as_str().unwrap();
+            let alone = ok(
+                &f.app,
+                Method::GET,
+                &tree(&format!(
+                    "/pedigree/{root}?ancestor_depth={up}&descendant_depth={down}"
+                )),
+                None,
+            )
+            .await;
+            assert_eq!(
+                comparable(entry["pedigree"].clone()),
+                comparable(alone),
+                "{root} at depth {up}/{down}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn the_default_pedigree_is_drawn_around_the_sosa_root() {
     let f = fixture().await;
