@@ -15,6 +15,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 
+use futures_util::future::BoxFuture;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::EventType;
 use oxidgene_db::repo::{
@@ -614,36 +615,42 @@ impl ServerHandler for OxidGeneMcp {
 /// Logs the tool name, duration and outcome code only: parameters and results
 /// hold names, places and dates. The call runs under an `mcp.tool` span named
 /// after the tool, the root of its database calls.
-async fn respond<T: Serialize>(
+///
+/// The call runs from the heap: it holds the whole service call, and every
+/// tool awaiting it inline made a future past Clippy's `large_futures`
+/// threshold.
+fn respond<'a, T: Serialize>(
     tool: &'static str,
-    call: impl Future<Output = Result<T, OxidGeneError>>,
-) -> CallToolResult {
-    let started = Instant::now();
-    let span = tool_span(tool);
-    let outcome = call.instrument(span.clone()).await.and_then(to_value);
-    if outcome
-        .as_ref()
-        .is_err_and(|error| classify(error).unexpected)
-    {
-        span.record("otel.status_code", "ERROR");
-    }
-    let elapsed_ms = started.elapsed().as_millis();
-    let code = match &outcome {
-        Ok(_) => "ok",
-        Err(error) => classify(error).code,
-    };
-    info!(tool, outcome = code, elapsed_ms, "MCP tool call");
-    match outcome {
-        Ok(value) => CallToolResult::structured(match value {
-            Value::Object(_) => value,
-            items => serde_json::json!({ "items": items }),
-        }),
-        Err(error) => {
-            let body = serde_json::to_value(ErrorBody::from_error(&error))
-                .expect("an envelope of strings and a UUID always serializes");
-            CallToolResult::structured_error(body)
+    call: impl Future<Output = Result<T, OxidGeneError>> + Send + 'a,
+) -> BoxFuture<'a, CallToolResult> {
+    Box::pin(async move {
+        let started = Instant::now();
+        let span = tool_span(tool);
+        let outcome = call.instrument(span.clone()).await.and_then(to_value);
+        if outcome
+            .as_ref()
+            .is_err_and(|error| classify(error).unexpected)
+        {
+            span.record("otel.status_code", "ERROR");
         }
-    }
+        let elapsed_ms = started.elapsed().as_millis();
+        let code = match &outcome {
+            Ok(_) => "ok",
+            Err(error) => classify(error).code,
+        };
+        info!(tool, outcome = code, elapsed_ms, "MCP tool call");
+        match outcome {
+            Ok(value) => CallToolResult::structured(match value {
+                Value::Object(_) => value,
+                items => serde_json::json!({ "items": items }),
+            }),
+            Err(error) => {
+                let body = serde_json::to_value(ErrorBody::from_error(&error))
+                    .expect("an envelope of strings and a UUID always serializes");
+                CallToolResult::structured_error(body)
+            }
+        }
+    })
 }
 
 /// The `mcp.tool` span of one call, named after its tool.

@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:58:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T15:20:06Z }
 ---
 
 
@@ -71,6 +71,16 @@ For full entity definitions, see [Data Model](data-model.md).
   ownership checks, validation, the repository write, the projection refresh
   and the audit record — so the two surfaces cannot drift. Services never
   depend on `rest` or `graphql`.
+- Every operation fits well inside a tokio worker's 2 MiB stack, in a debug
+  build too, where each awaited future takes a slot of its own in the frame
+  that polls it, so an operation's stack is the sum of its futures along the
+  call. A GraphQL root resolver runs its body boxed
+  (`boxed(async move { … })`), which keeps async-graphql's generated
+  dispatch over every root field small; a future of 16 KiB or more is boxed
+  where it is created (Clippy's `large_futures`, enabled workspace-wide); and
+  the stack guard runs every REST route, GraphQL root field and background
+  job on half a worker's stack
+  ([Development §2.8](development.md#28-guards)).
 - GEDCOM crate (`oxidgene-gedcom`) wrapping `ged_io` with domain conversion logic, and `geneweb` for reading GeneWeb `.gw` files — the `.gw` reader emits an `ged_io` model, so both formats share one conversion into the domain.
 - Denormalized read projections materialized in the database and maintained by
     `oxidgene-api::profile`. See [Data Model §4](data-model.md).

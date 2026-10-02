@@ -236,7 +236,7 @@ impl BackgroundJobWorker {
             job.trace_state.as_deref(),
         );
         async {
-            if let Err(error) = self.execute(&job).await {
+            if let Err(error) = Box::pin(self.execute(&job)).await {
                 let code = match error {
                     OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
                     _ => "job_failed",
@@ -354,8 +354,8 @@ impl BackgroundJobWorker {
     )]
     async fn execute(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
         match job.kind.as_str() {
-            "import" => self.execute_import(job).await,
-            "export" => self.execute_export(job).await,
+            "import" => Box::pin(self.execute_import(job)).await,
+            "export" => Box::pin(self.execute_export(job)).await,
             _ => Err(OxidGeneError::Validation("unknown job kind".into())),
         }
     }
@@ -367,7 +367,7 @@ impl BackgroundJobWorker {
     )]
     async fn execute_import(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
         if job.format == "geneanet" {
-            return self.execute_geneanet_import(job).await;
+            return Box::pin(self.execute_geneanet_import(job)).await;
         }
         let source_key = job
             .source_key
@@ -385,10 +385,14 @@ impl BackgroundJobWorker {
 
         let progress = Arc::new(gedcom::FileImportProgress::default());
         let summary = self
-            .with_progress(job.id, self.import_file(job, &source, &progress), || {
-                let (phase, done, total, _, _) = progress.read();
-                (import_phase(phase), done, total)
-            })
+            .with_progress(
+                job.id,
+                Box::pin(self.import_file(job, &source, &progress)),
+                || {
+                    let (phase, done, total, _, _) = progress.read();
+                    (import_phase(phase), done, total)
+                },
+            )
             .await?;
         self.finish_import(job, source_key, summary).await
     }
@@ -493,7 +497,7 @@ impl BackgroundJobWorker {
             &progress,
         );
         let summary = self
-            .with_progress(job.id, import, || {
+            .with_progress(job.id, Box::pin(import), || {
                 let (phase, done, total) = progress.read();
                 (geneanet_phase(phase), done, total)
             })

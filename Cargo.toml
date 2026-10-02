@@ -33,6 +33,7 @@ members = [
 cognitive_complexity = "warn"
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+large_futures = "warn"
 
 [workspace.package]
 version = "0.1.0"

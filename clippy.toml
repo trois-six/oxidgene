@@ -1,3 +1,7 @@
 # Keep every function within the conventional cognitive complexity range.
 # The lint itself is enabled in the workspace `Cargo.toml`.
 cognitive-complexity-threshold = 15
+
+# The size from which an awaited future must be boxed (`large_futures`,
+# enabled in the workspace `Cargo.toml`): Clippy's default, 16 KiB.
+future-size-threshold = 16384

@@ -53,7 +53,8 @@ pub(crate) async fn live_tree(ctx: &Context<'_>, id: &ID) -> Result<Uuid> {
 /// all the resolvers' futures — the whole service call each one awaits — and
 /// a mutation needed nearly 2 MiB of stack, all a tokio worker or a test
 /// thread has. Boxed, each arm holds a pointer, and the stack holds only the
-/// frames of the resolver that runs.
+/// frames of the resolver that runs. The `stack` guard (`guards_test`) keeps
+/// it so.
 pub(crate) fn boxed<'a, T>(body: impl Future<Output = T> + Send + 'a) -> BoxFuture<'a, T> {
     Box::pin(body)
 }

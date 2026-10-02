@@ -89,7 +89,7 @@ impl ProfileService {
     ) -> Result<usize, OxidGeneError> {
         info!("Starting full projection rebuild");
 
-        let tree_data = self.fetch_tree_data(conn, tree_id).await?;
+        let tree_data = Box::pin(self.fetch_tree_data(conn, tree_id)).await?;
         let persons = build_all_persons(tree_id, &tree_data);
         debug!(count = persons.len(), "Built projections");
 
@@ -114,7 +114,7 @@ impl ProfileService {
     ) -> Result<usize, OxidGeneError> {
         info!("Starting transactional full projection rebuild");
 
-        let tree_data = self.fetch_tree_data(conn, tree_id).await?;
+        let tree_data = Box::pin(self.fetch_tree_data(conn, tree_id)).await?;
         let persons = build_all_persons(tree_id, &tree_data);
         debug!(count = persons.len(), "Built projections");
 
@@ -226,7 +226,7 @@ impl ProfileService {
 
         let built: Vec<PersonProfile> = if person_ids.len() >= FULL_FETCH_THRESHOLD {
             let wanted: HashSet<Uuid> = person_ids.iter().copied().collect();
-            let tree_data = self.fetch_tree_data(conn, tree_id).await?;
+            let tree_data = Box::pin(self.fetch_tree_data(conn, tree_id)).await?;
             build_all_persons(tree_id, &tree_data)
                 .into_iter()
                 .filter(|p| wanted.contains(&p.person_id))
@@ -598,7 +598,7 @@ impl ProfileService {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonProfile>, OxidGeneError> {
-        let data = self.fetch_persons_data(conn, tree_id, person_ids).await?;
+        let data = Box::pin(self.fetch_persons_data(conn, tree_id, person_ids)).await?;
         builder::build_persons(tree_id, person_ids, &data).map_err(|id| OxidGeneError::NotFound {
             entity: "Person",
             id,
@@ -608,6 +608,11 @@ impl ProfileService {
     /// Fetch only what the given projections need: the persons, their family
     /// memberships, all members of those families (for spouse / parent /
     /// child denormalization), their events + places, media and notes.
+    ///
+    /// Callers box this future, as they do [`Self::fetch_tree_data`]'s: the
+    /// reads it runs at once make it the largest of a projection rebuild, and
+    /// awaited inline it would be copied into the frame of every caller above
+    /// it — every mutation's stack.
     async fn fetch_persons_data(
         &self,
         conn: &impl ConnectionTrait,
@@ -710,7 +715,8 @@ impl ProfileService {
         })
     }
 
-    /// Fetch everything needed to build every projection of a tree.
+    /// Fetch everything needed to build every projection of a tree. Boxed
+    /// by its callers, like [`Self::fetch_persons_data`].
     async fn fetch_tree_data(
         &self,
         conn: &impl ConnectionTrait,

@@ -9,4 +9,5 @@ mod log_privacy;
 mod pagination;
 mod purge;
 mod sql_plans;
+mod stack;
 mod surface;

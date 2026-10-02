@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T14:58:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T15:20:06Z }
 ---
 
 # Development Environment and Workflows
@@ -442,6 +442,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Clippy matrix | 1 | `just clippy`, `just wasm`, Clippy of `-p oxidgene-desktop --no-default-features` and of `-p oxidgene-api` | Clippy (4 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL |
 | Cyclomatic complexity | 1 | `just cyclomatic` | Cyclomatic complexity | No function above 15 paths |
 | Unused dependencies | 1 | `cargo machete` (in `just deps`) | Unused dependencies | No dependency declared and unused |
+| Stack depth | 2 | `just test` (`guards_test`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |
 | Cross-tree access | 2 | `just test` (`guards_test`) | Functional tests | No REST route or GraphQL field reaches a record of another tree |
 | Pagination | 2 | `just test` (`guards_test`) | Functional tests | Every collection clamps `first` to 1–100 and pages by cursor; every whole list is declared |
 | Purge completeness | 2 | `just test` (`guards_test`) | Functional tests | A purged tree leaves no row in any table and no file in the media store |
