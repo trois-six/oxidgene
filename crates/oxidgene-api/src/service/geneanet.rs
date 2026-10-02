@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
-use futures_util::stream::{FuturesUnordered, StreamExt};
+use futures_util::stream::StreamExt;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::{EventType, Privacy};
 use oxidgene_core::types::Portrait;
@@ -1343,13 +1343,14 @@ async fn add_vignette(
 /// Stores every one-page deposit, several at a time.
 ///
 /// Decoding and thumbnailing is what an import spends its minutes on, and each
-/// deposit is independent of the others — so they are resolved and ingested in
-/// batches the width of the machine, and only the database writes are
-/// sequential.
+/// deposit is independent of the others — so they are read and ingested the
+/// width of the machine at a time, and only the database writes are
+/// sequential, in deposit order.
 ///
-/// Batched rather than all at once because every medium in flight holds a
-/// full-size decoded image: a few hundred scans read at once would be
-/// gigabytes.
+/// A bounded window rather than all at once because every medium in flight
+/// holds its file and a full-size decoded image: a few hundred scans read at
+/// once would be gigabytes. The window slides — the next deposit is read as
+/// soon as one is written — so a slow scan holds back no batch behind it.
 ///
 /// Returns `deposit id → (media id, view id → media id)`, the same shape
 /// [`document`] returns, so the caller does not care which kind it was.
@@ -1372,130 +1373,167 @@ async fn prepare_single_pages(
     places: &mut HashMap<String, Uuid>,
     summary: &mut GeneanetImportSummary,
 ) -> HashMap<i64, (Uuid, HashMap<i64, Uuid>)> {
-    let single: Vec<(i64, &ManifestDeposit, &str)> = by_deposit
+    let single: Vec<(&ManifestDeposit, &ManifestView, &str)> = by_deposit
         .iter()
         .filter_map(|(deposit_id, attachments)| {
             let deposit = deposits.get(deposit_id)?;
-            (deposit.views.len() == 1).then(|| {
-                let extension = attachments.first().map_or("jpg", |a| a.extension.as_str());
-                (*deposit_id, *deposit, extension)
-            })
+            let [view] = deposit.views.as_slice() else {
+                return None;
+            };
+            let extension = attachments.first().map_or("jpg", |a| a.extension.as_str());
+            Some((*deposit, view, extension))
         })
         .collect();
 
+    let sources = ByteSources {
+        deposit_sizes,
+        archives,
+        hashes,
+        fetched,
+    };
     let mut prepared = HashMap::with_capacity(single.len());
+    let mut ingests = futures_util::stream::iter(single)
+        .map(|(deposit, view, extension)| {
+            let name = photo_file_name(deposit, view, extension);
+            sources.ingest(store, tree_id, deposit, view, name)
+        })
+        .buffered(ingest_width())
+        // Boxed, or the compiler cannot prove the worker's future `Send`
+        // through the stream's closure (rust-lang/rust#102211).
+        .boxed();
 
-    for batch in single.chunks(ingest_width()) {
-        let mut resolved = Vec::with_capacity(batch.len());
-        for (deposit_id, deposit, extension) in batch {
-            let Some(view) = deposit.views.first() else {
-                progress.advance();
-                continue;
-            };
-            match resolve_bytes(deposit, view, deposit_sizes, archives, hashes, fetched).await {
-                Ok(bytes) => {
-                    let metadata = media_metadata(db, tree_id, deposit, places, summary).await;
-                    resolved.push((
-                        *deposit_id,
-                        view.id,
-                        photo_file_name(deposit, view, extension),
-                        deposit.title.clone(),
-                        media_classification(deposit),
-                        geneanet_privacy(deposit),
-                        geneanet_created_at(deposit),
-                        metadata,
-                        bytes,
-                    ));
-                }
-                Err(err) => {
-                    summary.skipped.push(format!("deposit {deposit_id}: {err}"));
-                    progress.advance();
-                }
-            }
-        }
-
-        let mut pending = FuturesUnordered::new();
-        for (index, (_, _, name, _, _, _, _, _, bytes)) in resolved.iter().enumerate() {
-            pending.push(async move {
-                let outcome = media::ingest(store, tree_id, name, bytes.clone()).await;
-                (index, outcome)
-            });
-        }
-        let mut ingested = Vec::with_capacity(resolved.len());
-        while let Some(outcome) = pending.next().await {
-            progress.advance();
-            ingested.push(outcome);
-        }
-        ingested.sort_unstable_by_key(|(index, _)| *index);
-
-        for (
-            (deposit_id, view_id, name, title, classification, privacy, created_at, metadata, _),
-            (_, outcome),
-        ) in resolved.iter().zip(ingested)
-        {
-            let ingested = match outcome {
-                Ok(ingested) => ingested,
-                Err(err) => {
-                    summary.skipped.push(format!("{name}: {err}"));
-                    continue;
-                }
-            };
-
-            // A one-view deposit is still a document, holding a single page:
-            // a photograph is not a different kind of thing from a register.
-            let document_id = Uuid::now_v7();
-            if let Err(err) =
-                MediaRepo::create_document(db, document_id, tree_id, title.clone(), *created_at)
-                    .await
-            {
-                summary.skipped.push(format!("deposit {deposit_id}: {err}"));
+    while let Some((deposit, view, name, outcome)) = ingests.next().await {
+        progress.advance();
+        let ingested = match outcome {
+            Ok(Ok(ingested)) => ingested,
+            Ok(Err(err)) => {
+                summary.skipped.push(format!("{name}: {err}"));
                 continue;
             }
-            // The record is stored from here on, with its page or without.
-            if let Err(err) =
-                update_media_metadata(db, document_id, *classification, *privacy, metadata).await
-            {
-                summary.receipt.media.add_record(0);
-                summary.skipped.push(format!("deposit {deposit_id}: {err}"));
+            Err(err) => {
+                summary
+                    .skipped
+                    .push(format!("deposit {}: {err}", deposit.id));
                 continue;
             }
-            let page = write_media(
-                db,
-                tree_id,
-                MediaWrite {
-                    document_id,
-                    ingested,
-                    title: title.clone(),
-                    classification: *classification,
-                    privacy: *privacy,
-                    created_at: *created_at,
-                    metadata,
-                },
-                summary,
-            )
-            .await;
-            summary
-                .receipt
-                .media
-                .add_record(usize::from(page.is_some()));
-            if let Some(id) = page {
-                import_transcript(
-                    db,
-                    tree_id,
-                    id,
-                    deposits
-                        .get(deposit_id)
-                        .and_then(|deposit| deposit.views.first())
-                        .and_then(|view| view.last_transcript.as_ref()),
-                    summary,
-                )
-                .await;
-                prepared.insert(*deposit_id, (id, HashMap::from([(*view_id, id)])));
-            }
+        };
+        if let Some(id) = store_single_page(db, tree_id, deposit, ingested, places, summary).await {
+            prepared.insert(deposit.id, (id, HashMap::from([(view.id, id)])));
         }
     }
 
     prepared
+}
+
+/// Writes one-page `deposit`, its picture `ingested`: the document, its
+/// page and the page's transcript. The page's id, or `None` when it could not
+/// be written.
+async fn store_single_page(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    deposit: &ManifestDeposit,
+    ingested: media::IngestedMedia,
+    places: &mut HashMap<String, Uuid>,
+    summary: &mut GeneanetImportSummary,
+) -> Option<Uuid> {
+    let metadata = media_metadata(db, tree_id, deposit, places, summary).await;
+    let classification = media_classification(deposit);
+    let privacy = geneanet_privacy(deposit);
+    let created_at = geneanet_created_at(deposit);
+
+    // A one-view deposit is still a document, holding a single page:
+    // a photograph is not a different kind of thing from a register.
+    let document_id = Uuid::now_v7();
+    if let Err(err) =
+        MediaRepo::create_document(db, document_id, tree_id, deposit.title.clone(), created_at)
+            .await
+    {
+        summary
+            .skipped
+            .push(format!("deposit {}: {err}", deposit.id));
+        return None;
+    }
+    // The record is stored from here on, with its page or without.
+    if let Err(err) =
+        update_media_metadata(db, document_id, classification, privacy, &metadata).await
+    {
+        summary.receipt.media.add_record(0);
+        summary
+            .skipped
+            .push(format!("deposit {}: {err}", deposit.id));
+        return None;
+    }
+    let write = MediaWrite {
+        document_id,
+        ingested,
+        title: deposit.title.clone(),
+        classification,
+        privacy,
+        created_at,
+        metadata: &metadata,
+    };
+    let page = write_media(db, tree_id, write, summary).await;
+    summary
+        .receipt
+        .media
+        .add_record(usize::from(page.is_some()));
+    let id = page?;
+    let transcript = deposit
+        .views
+        .first()
+        .and_then(|view| view.last_transcript.as_ref());
+    import_transcript(db, tree_id, id, transcript, summary).await;
+    Some(id)
+}
+
+/// A view of a deposit, the name it was ingested under, and how that went:
+/// see [`ByteSources::ingest`].
+type IngestOutcome<'d> = (
+    &'d ManifestDeposit,
+    &'d ManifestView,
+    String,
+    Result<Result<media::IngestedMedia, OxidGeneError>, String>,
+);
+
+/// Where the bytes of a medium come from: the archives, by size or by
+/// content, or what the login window fetched.
+#[derive(Clone, Copy)]
+struct ByteSources<'a> {
+    deposit_sizes: &'a HashMap<i64, u64>,
+    archives: &'a ArchiveSet,
+    hashes: Option<&'a ContentIndex>,
+    fetched: &'a HashMap<String, String>,
+}
+
+impl ByteSources<'_> {
+    /// `view` of `deposit` read, then ingested as `name`, handed back with
+    /// its outcome: `Err` when it could not be read, the ingest's outcome
+    /// otherwise. The bytes live no longer than this call, which is what bounds
+    /// an import's memory by the number of media in flight rather than by the
+    /// size of a deposit.
+    async fn ingest<'d>(
+        self,
+        store: &dyn MediaStore,
+        tree_id: Uuid,
+        deposit: &'d ManifestDeposit,
+        view: &'d ManifestView,
+        name: String,
+    ) -> IngestOutcome<'d> {
+        let outcome = match resolve_bytes(
+            deposit,
+            view,
+            self.deposit_sizes,
+            self.archives,
+            self.hashes,
+            self.fetched,
+        )
+        .await
+        {
+            Ok(bytes) => Ok(media::ingest(store, tree_id, &name, bytes).await),
+            Err(err) => Err(err),
+        };
+        (deposit, view, name, outcome)
+    }
 }
 
 /// Stores a multi-page deposit as a document with every page beneath it.
@@ -1548,62 +1586,80 @@ async fn document(
         }
     }
 
-    // Resolve every page first, then ingest them together. Decoding and
+    // Pages are read and ingested several at a time. Decoding and
     // thumbnailing is what an import spends its minutes on — a 144-page
     // dossier is 144 full-size decodes — and each page is independent of the
-    // others, so one at a time wastes every core but one.
+    // others, so one at a time wastes every core but one. Only a window of
+    // them is in flight: reading the whole document first would hold every
+    // page's bytes at once, and a dossier of scans is hundreds of megabytes.
     //
     // The *writes* stay sequential and in page order: a page is indexed by
     // how many pages are already there, so racing them would shuffle the
     // document.
-    let resolved = resolve_pages(
-        deposit,
+    let sources = ByteSources {
         deposit_sizes,
         archives,
         hashes,
         fetched,
-        progress,
-        summary,
-    )
-    .await;
-
-    let mut pages: HashMap<i64, Uuid> = HashMap::new();
-    let describe = |ingested| MediaWrite {
-        document_id,
-        ingested,
-        title: None,
-        classification,
-        privacy,
-        created_at,
-        metadata: &metadata,
     };
-    let prepared_pages =
-        write_pages(db, store, tree_id, &resolved, describe, progress, summary).await;
+    let mut ingests = futures_util::stream::iter(pages_in_order(deposit))
+        .map(|view| {
+            let name = photo_file_name(deposit, view, "jpg");
+            sources.ingest(store, tree_id, deposit, view, name)
+        })
+        .buffered(ingest_width())
+        // Boxed, or the compiler cannot prove the worker's future `Send`
+        // through the stream's closure (rust-lang/rust#102211).
+        .boxed();
+    let mut prepared_pages = Vec::new();
+    while let Some((_, view, name, outcome)) = ingests.next().await {
+        progress.advance();
+        let ingested = match outcome {
+            Ok(Ok(ingested)) => ingested,
+            Ok(Err(err)) => {
+                summary.skipped.push(format!("{name}: {err}"));
+                continue;
+            }
+            // A page that cannot be fetched leaves a gap, and the pages after
+            // it move up one — so the number is recorded, or the document
+            // would silently claim to be complete.
+            Err(err) => {
+                let page = view.page.unwrap_or(0);
+                summary
+                    .skipped
+                    .push(format!("deposit {} page {page}: {err}", deposit.id));
+                continue;
+            }
+        };
+        let write = MediaWrite {
+            document_id,
+            ingested,
+            title: None,
+            classification,
+            privacy,
+            created_at,
+            metadata: &metadata,
+        };
+        if let Some(page_id) = write_media(db, tree_id, write, summary).await {
+            prepared_pages.push((view, page_id));
+        }
+    }
     summary.receipt.media.add_record(prepared_pages.len());
 
     // The pages were written already attached, in the deposit's own page
     // order, so their indices are settled; the document only needs its count
     // brought in line with what it holds.
+    let mut pages: HashMap<i64, Uuid> = HashMap::new();
     if let Err(err) = MediaRepo::refresh_page_count(db, document_id).await {
         summary
             .skipped
             .push(format!("deposit {} pages: {err}", deposit.id));
         return Some((document_id, pages));
     }
-    for (view_id, _, page_id) in &prepared_pages {
-        pages.insert(*view_id, *page_id);
-        import_transcript(
-            db,
-            tree_id,
-            *page_id,
-            deposit
-                .views
-                .iter()
-                .find(|view| view.id == *view_id)
-                .and_then(|view| view.last_transcript.as_ref()),
-            summary,
-        )
-        .await;
+    for (view, page_id) in &prepared_pages {
+        pages.insert(view.id, *page_id);
+        let transcript = view.last_transcript.as_ref();
+        import_transcript(db, tree_id, *page_id, transcript, summary).await;
     }
 
     if prepared_pages.is_empty() {
@@ -1615,88 +1671,6 @@ async fn document(
     }
 
     Some((document_id, pages))
-}
-
-/// Reads the bytes of each page of a deposit, in page order.
-///
-/// A page that cannot be read is noted as skipped and counted as done.
-async fn resolve_pages(
-    deposit: &ManifestDeposit,
-    deposit_sizes: &HashMap<i64, u64>,
-    archives: &ArchiveSet,
-    hashes: Option<&ContentIndex>,
-    fetched: &HashMap<String, String>,
-    progress: &ImportProgress,
-    summary: &mut GeneanetImportSummary,
-) -> Vec<(i64, i64, String, Vec<u8>)> {
-    let mut resolved: Vec<(i64, i64, String, Vec<u8>)> = Vec::new();
-    for view in pages_in_order(deposit) {
-        let page = view.page.unwrap_or(0);
-        match resolve_bytes(deposit, view, deposit_sizes, archives, hashes, fetched).await {
-            Ok(bytes) => {
-                resolved.push((view.id, page, photo_file_name(deposit, view, "jpg"), bytes))
-            }
-            Err(err) => {
-                // A page that cannot be fetched leaves a gap, and the pages
-                // after it move up one — so the number is recorded, or the
-                // document would silently claim to be complete.
-                summary
-                    .skipped
-                    .push(format!("deposit {} page {page}: {err}", deposit.id));
-                progress.advance();
-            }
-        }
-    }
-    resolved
-}
-
-/// Ingests the resolved pages of a document several at a time and writes
-/// their `media` rows one by one, in page order, each as `describe` has
-/// it. Returns the view, page number and media id of each page written.
-async fn write_pages<'m>(
-    db: &DatabaseConnection,
-    store: &dyn MediaStore,
-    tree_id: Uuid,
-    resolved: &[(i64, i64, String, Vec<u8>)],
-    describe: impl Fn(crate::media::IngestedMedia) -> MediaWrite<'m>,
-    progress: &ImportProgress,
-    summary: &mut GeneanetImportSummary,
-) -> Vec<(i64, i64, Uuid)> {
-    let mut prepared_pages: Vec<(i64, i64, Uuid)> = Vec::new();
-
-    for chunk in resolved.chunks(ingest_width()) {
-        let mut pending = FuturesUnordered::new();
-        for (index, (_, _, name, bytes)) in chunk.iter().enumerate() {
-            pending.push(async move {
-                let outcome = media::ingest(store, tree_id, name, bytes.clone()).await;
-                (index, outcome)
-            });
-        }
-        let mut ingested = Vec::with_capacity(chunk.len());
-        while let Some(outcome) = pending.next().await {
-            progress.advance();
-            ingested.push(outcome);
-        }
-        ingested.sort_unstable_by_key(|(index, _)| *index);
-
-        for ((view_id, page, name, _), (_, outcome)) in chunk.iter().zip(ingested) {
-            let ingested = match outcome {
-                Ok(ingested) => ingested,
-                Err(err) => {
-                    summary.skipped.push(format!("{name}: {err}"));
-                    continue;
-                }
-            };
-
-            let Some(page_id) = write_media(db, tree_id, describe(ingested), summary).await else {
-                continue;
-            };
-
-            prepared_pages.push((*view_id, *page, page_id));
-        }
-    }
-
-    prepared_pages
 }
 
 /// Creates a `Person` for each identification Geneanet marks as outside the
@@ -2204,17 +2178,14 @@ fn persisted_entity_count(result: &oxidgene_gedcom::ImportResult) -> usize {
         + result.notes.len()
 }
 
-/// How many media to decode at once.
+/// How many media to read and decode at once.
 ///
 /// Decoding and thumbnailing is CPU-bound and each medium is independent, so
 /// this is the machine's parallelism — capped, because every one in flight
-/// holds a full-size decoded image in memory and a scanned page is tens of
-/// megabytes decoded.
-///
-/// Shared with the GEDZIP importer, which ingests the same way from a
-/// different source and has no reason to pick a different width.
-pub(crate) fn ingest_width() -> usize {
-    oxidgene_core::resources::cpu_worker_limit().min(8)
+/// holds its file and a full-size decoded image in memory, and a scanned page
+/// is tens of megabytes decoded.
+fn ingest_width() -> usize {
+    oxidgene_core::resources::decode_worker_limit()
 }
 
 struct MediaWrite<'a> {
@@ -3095,6 +3066,98 @@ mod tests {
             .expect("lists places");
         assert_eq!(places.len(), 1, "the deposit's place");
         assert_eq!(summary.receipt.places_count, places.len());
+    }
+
+    #[tokio::test]
+    async fn a_document_longer_than_the_ingest_window_keeps_its_page_order() {
+        // Pages go through a window of `ingest_width()` at a time, and finish
+        // in whatever order their decodes do; the document must still read in
+        // page order across every window. Page `n` is `n` pixels wider than
+        // the first, listed in reverse, and one page cannot be read.
+        use oxidgene_db::sea_orm::{ColumnTrait as _, EntityTrait as _, QueryFilter as _};
+
+        let db = oxidgene_db::repo::connect("sqlite::memory:")
+            .await
+            .expect("connects");
+        oxidgene_db::repo::run_migrations(&db)
+            .await
+            .expect("migrates");
+        let tree_id = Uuid::now_v7();
+        TreeRepo::create(&db, tree_id, "Sample tree".to_string(), None)
+            .await
+            .expect("creates tree");
+
+        let pages = 2 * ingest_width() as i64 + 3;
+        let missing = 5;
+        let dir = tempfile::tempdir().expect("scratch directory");
+        let mut fetched = HashMap::new();
+        let mut views = Vec::new();
+        for page in (1..=pages).rev() {
+            let url = format!("https://example.invalid/deposit/page{page}.png");
+            if page != missing {
+                let path = dir.path().join(format!("page{page}.png"));
+                std::fs::write(&path, png_bytes(20 + page as u32, 10)).expect("writes a page");
+                fetched.insert(url.clone(), path.to_string_lossy().into_owned());
+            }
+            views.push(
+                serde_json::json!({"id": 100 + page, "page": page, "files": {"normal": url}}),
+            );
+        }
+        let collection = serde_json::json!({
+            "deposits": [{"id": 1, "title": "t", "type": "civil", "views": views}],
+            "references": [],
+            "view_references": {"1:101": [{
+                "lastname": "BRANCH_A", "firstname": "person_a",
+                "reference_extra_geneweb": {"ref": "branch a|person a|"},
+            }]},
+        })
+        .to_string();
+        let store = crate::media::store::FsStore::new(dir.path().join("store"));
+
+        let summary = import(
+            &db,
+            &store,
+            tree_id,
+            b"encoding: utf-8\n\nfam BRANCH_A person_a.0 + BRANCH_B person_b.0\n",
+            "family.gw",
+            &collection,
+            &HashMap::new(),
+            &[],
+            &fetched,
+            MediaFidelity::Renditions,
+            &ImportProgress::default(),
+        )
+        .await
+        .expect("imports");
+
+        assert_eq!(
+            summary.skipped,
+            [format!(
+                "deposit 1 page {missing}: not in the archives, and the Geneanet window fetched no copy of it"
+            )]
+        );
+        assert_eq!(
+            summary.receipt.media.document_pages_count,
+            pages as usize - 1
+        );
+        let document = oxidgene_db::entities::media::Entity::find()
+            .filter(oxidgene_db::entities::media::Column::TreeId.eq(tree_id))
+            .filter(oxidgene_db::entities::media::Column::ParentMediaId.is_null())
+            .one(&db)
+            .await
+            .expect("reads the document")
+            .expect("one document");
+        let widths: Vec<i32> = MediaRepo::list_pages(&db, document.id)
+            .await
+            .expect("lists the pages")
+            .iter()
+            .filter_map(|page| page.width)
+            .collect();
+        let expected: Vec<i32> = (1..=pages)
+            .filter(|page| *page != missing)
+            .map(|page| 20 + page as i32)
+            .collect();
+        assert_eq!(widths, expected);
     }
 
     #[test]

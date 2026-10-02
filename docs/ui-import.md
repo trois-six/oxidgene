@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T08:14:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:58:15Z }
 ---
 
 
@@ -497,19 +497,22 @@ The genealogy uses the shared GeneWeb persistence path. Media use the ordinary
 storage path, preserving validation, deduplication, type detection, thumbnails,
 and projection refresh.
 
-The final media bar advances as each decode and thumbnail operation completes,
-including skipped media, and the UI refreshes often enough to expose those
-individual completions rather than only the boundaries between processing
-batches. Multi-page document results are reordered before database writes, so
-this granular progress never changes page order. Media metadata is included in
+The final media bar advances as each medium is stored, including skipped
+media, and the UI refreshes often enough to expose those individual
+completions. Media are read and decoded through a sliding window as wide as
+the decoding cap below: the next one is read as soon as one is written, and a
+multi-page document is never read whole before its pages are stored. Results
+are written in deposit and page order whatever order their decodes finish in,
+so this granular progress never changes page order. Media metadata is included in
 the initial row insert, and each multi-page document is attached as one ordered
 repository batch. Projection rebuilding is then shown as the indeterminate
 finalisation phase rather than leaving the completed media bar visible.
 
 CPU-intensive import work uses at most 75% of the available logical processors,
 rounded down, and keeps at least one processor available on multi-processor
-machines. Concurrent media decoding is additionally capped at eight images to
-bound peak memory usage.
+machines. Concurrent image decoding — media ingestion and the archive's
+perceptual index alike — is additionally capped at eight images to bound peak
+memory usage.
 
 The genealogy phase uses its own determined progress total. It advances after
 each successfully inserted database batch, while the media phase advances per

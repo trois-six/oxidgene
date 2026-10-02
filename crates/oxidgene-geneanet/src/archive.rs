@@ -415,11 +415,13 @@ impl PhashIndex {
     ) -> Self {
         // Decoding is the whole cost here — a data archive is several hundred
         // full-size photographs — and each entry is independent of every
-        // other, so the work is split across the machine's cores. Reading is
+        // other, so the work is split across the machine's cores — as many
+        // workers as hold a decoded image each without the memory growing
+        // with the core count (`decode_worker_limit`). Reading is
         // grouped by archive within each worker so a ZIP's central directory
         // is parsed once per worker rather than once per entry: on a 725 MB
         // archive of 600 entries that difference is 600 parses against 8.
-        let workers = oxidgene_core::resources::cpu_worker_limit().min(positions.len().max(1));
+        let workers = oxidgene_core::resources::decode_worker_limit().min(positions.len().max(1));
 
         let chunk = positions.len().div_ceil(workers.max(1));
         if chunk == 0 {
