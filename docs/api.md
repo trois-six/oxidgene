@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:23:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:14:37Z }
 ---
 
 
@@ -932,9 +932,10 @@ in the interface languages where they differ, its position in tenths of a
 degree, the web map zoom it is named from in tenths, and its population in
 thousands, ordered by zoom then population. From Natural Earth (public
 domain), embedded and Brotli-compressed like the place dictionary. Only a
-release changes it, so it is served with `Cache-Control: public,
-max-age=604800, immutable` and a strong `ETag` (a digest of the embedded
-data) that answers `If-None-Match` with `304`.
+release changes it, but its URL carries no version, so it is served with
+`Cache-Control: public, no-cache` and a strong `ETag` (a digest of the
+embedded data): browsers keep it and revalidate it on each use, and an
+unchanged map answers `If-None-Match` with a bodiless `304`.
 
 ### Import / export
 

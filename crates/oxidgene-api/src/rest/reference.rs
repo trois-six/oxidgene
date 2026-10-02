@@ -117,6 +117,7 @@ pub async fn basemap(headers: axum::http::HeaderMap) -> axum::response::Response
     (cache, Json(reference::basemap())).into_response()
 }
 
-/// How long the base map may be reused without asking: a week, and never
-/// revalidated meanwhile — only a release changes it.
-const BASEMAP_CACHE_CONTROL: &str = "public, max-age=604800, immutable";
+/// The base map is stored but revalidated on every use: its URL carries no
+/// version, so a release that changes it must reach browsers at once. The
+/// `ETag` makes the revalidation a bodiless `304`.
+const BASEMAP_CACHE_CONTROL: &str = "public, no-cache";

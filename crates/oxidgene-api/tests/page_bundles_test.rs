@@ -455,7 +455,7 @@ async fn the_base_map_is_cacheable_and_revalidated_without_a_body() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.headers()[header::CACHE_CONTROL],
-        "public, max-age=604800, immutable"
+        "public, no-cache"
     );
     let etag = response.headers()[header::ETAG]
         .to_str()
