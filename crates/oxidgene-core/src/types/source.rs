@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A bibliographic source.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Source {
     pub id: Uuid,
     pub tree_id: Uuid,
@@ -11,7 +11,6 @@ pub struct Source {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     /// The organisation responsible for the source's data (GEDCOM
     /// `SOUR.DATA.AGNC`).
     #[serde(default)]

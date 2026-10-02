@@ -10,8 +10,9 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{
     AncestryRepo, BackgroundJobKind, BackgroundJobRepo, CitationRepo, DictionaryRepo, EventFilter,
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaPatch, MediaRepo,
-    NewBackgroundJob, NoteRepo, PaginationParams, PersonDistinctRepo, PersonMergeRepo,
-    PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
+    NewBackgroundJob, NoteFilter, NoteRepo, PaginationParams, PersonDistinctRepo, PersonMergeRepo,
+    PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceRepo,
+    RepositoryFields, RepositoryRepo, SourceRepo, SourceRepositoryFields, SourceRepositoryRepo,
     TreeChanges, TreeRepo, UploadedMedia, UploadedMediaMetadata, connect, run_migrations,
 };
 use sea_orm::DatabaseConnection;
@@ -554,6 +555,87 @@ async fn tree_delete_cascades_to_children() {
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 }
 
+/// A purge takes a tree's repositories, their links and their notes with
+/// it; a soft-deleted repository hides its links until it is restored.
+#[tokio::test]
+async fn repositories_follow_their_tree_and_hide_their_links_while_deleted() {
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let source_id = Uuid::now_v7();
+    SourceRepo::create(
+        &db,
+        source_id,
+        tree_id,
+        "Register".into(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let repository_id = Uuid::now_v7();
+    RepositoryRepo::create(
+        &db,
+        repository_id,
+        tree_id,
+        RepositoryFields {
+            name: "Sample Archives".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let link = SourceRepositoryRepo::create(
+        &db,
+        Uuid::now_v7(),
+        source_id,
+        repository_id,
+        SourceRepositoryFields::default(),
+    )
+    .await
+    .unwrap();
+    NoteRepo::create(
+        &db,
+        Uuid::now_v7(),
+        tree_id,
+        "Closed on Mondays".into(),
+        &NoteFilter {
+            repository_id: Some(repository_id),
+            ..NoteFilter::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    RepositoryRepo::delete(&db, repository_id).await.unwrap();
+    assert!(
+        SourceRepositoryRepo::list_by_source(&db, source_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        SourceRepositoryRepo::get(&db, link.id).await.is_ok(),
+        "kept"
+    );
+
+    TreeRepo::purge(&db, tree_id).await.unwrap();
+    assert!(SourceRepositoryRepo::get(&db, link.id).await.is_err());
+    let notes = NoteRepo::list(
+        &db,
+        tree_id,
+        &NoteFilter {
+            repository_id: Some(repository_id),
+            ..NoteFilter::default()
+        },
+        &PaginationParams::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(notes.total_count, 0);
+}
+
 #[tokio::test]
 async fn tree_list_pagination() {
     let db = setup_db().await;
@@ -961,7 +1043,6 @@ async fn source_and_citation_lifecycle() {
         None,
         Some("PR".into()),
         None,
-        None,
     )
     .await
     .unwrap();
@@ -975,7 +1056,6 @@ async fn source_and_citation_lifecycle() {
         Some("Updated Title".into()),
         None,
         Some(Some("Publisher X".into())),
-        None,
         None,
         None,
     )
@@ -1050,7 +1130,6 @@ async fn source_and_citation_lifecycle() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -1097,7 +1176,7 @@ async fn source_is_only_collected_once_nothing_points_at_it() {
 
     let new_source = async |title: &str| {
         let id = Uuid::now_v7();
-        SourceRepo::create(&db, id, tree_id, title.into(), None, None, None, None, None)
+        SourceRepo::create(&db, id, tree_id, title.into(), None, None, None, None)
             .await
             .unwrap();
         id
@@ -1133,11 +1212,10 @@ async fn source_is_only_collected_once_nothing_points_at_it() {
         note_id,
         tree_id,
         "transcription".into(),
-        None,
-        None,
-        None,
-        Some(noted),
-        None,
+        &NoteFilter {
+            source_id: Some(noted),
+            ..NoteFilter::default()
+        },
     )
     .await
     .unwrap();
@@ -1782,11 +1860,10 @@ async fn note_crud() {
         note_id,
         tree_id,
         "Some important note".into(),
-        Some(person_id),
-        None,
-        None,
-        None,
-        None,
+        &NoteFilter {
+            person_id: Some(person_id),
+            ..NoteFilter::default()
+        },
     )
     .await
     .unwrap();
@@ -2841,7 +2918,6 @@ async fn dictionary_sources_with_usage_counts_citations() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -2852,7 +2928,6 @@ async fn dictionary_sources_with_usage_counts_citations() {
         uncited_id,
         tree_id,
         "Census".into(),
-        None,
         None,
         None,
         None,
@@ -2948,7 +3023,6 @@ async fn dictionary_source_group_counts_drives_smart_drill_down() {
             None,
             None,
             None,
-            None,
         )
         .await
         .unwrap();
@@ -3034,7 +3108,6 @@ async fn dictionary_resolve_source_drill_down_skips_forced_single_choice_levels(
             Uuid::now_v7(),
             tree_id,
             title.into(),
-            None,
             None,
             None,
             None,
@@ -3324,7 +3397,6 @@ async fn restoring_a_version_sanitizes_its_notes() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -3336,7 +3408,7 @@ async fn restoring_a_version_sanitizes_its_notes() {
         author: None,
         publisher: None,
         abbreviation: None,
-        repository_name: None,
+        repositories: Vec::new(),
         agency: None,
         notes: vec![NoteSnapshot {
             id: note_id,

@@ -21,8 +21,8 @@ use uuid::Uuid;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media,
-    MediaLink, Note, Person, PersonName, Place, Source, Vignette, is_remote_url, last_path_segment,
-    normalize_mime, split_surname_particle, split_surname_with,
+    MediaLink, Note, Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
+    is_remote_url, last_path_segment, normalize_mime, split_surname_particle, split_surname_with,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
@@ -373,7 +373,6 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
             author: None,
             publisher: None,
             abbreviation: None,
-            repository_name: None,
             agency: None,
             created_at: now,
             updated_at: now,
@@ -382,7 +381,8 @@ pub fn import_gedcom_data(data: &GedcomData, tree_id: Uuid) -> Result<ImportResu
         id
     };
 
-    import_sources(data, &ctx, &mut result);
+    let mut repositories = import_repositories(data, &ctx, &mut result);
+    import_sources(data, &ctx, &mut repositories, &mut result);
     let page_map = import_multimedia(data, &ctx, &mut result);
     for indi in &data.individuals {
         import_individual(
@@ -448,8 +448,185 @@ fn allocate_ids<'a>(xrefs: impl Iterator<Item = Option<&'a String>>) -> HashMap<
         .collect()
 }
 
-/// Import the `SOUR` records and their notes.
-fn import_sources(data: &GedcomData, ctx: &ImportContext, result: &mut ImportResult) {
+/// The repositories an import knows: the `REPO` records by xref, and the
+/// ones synthesised from the text of pointerless `SOUR.REPO` citations.
+struct RepositoryIndex {
+    by_xref: HashMap<String, Uuid>,
+    by_text: HashMap<String, Uuid>,
+}
+
+/// Import the `REPO` records and their notes.
+fn import_repositories(
+    data: &GedcomData,
+    ctx: &ImportContext,
+    result: &mut ImportResult,
+) -> RepositoryIndex {
+    let mut index = RepositoryIndex {
+        by_xref: HashMap::new(),
+        by_text: HashMap::new(),
+    };
+    for repo in &data.repositories {
+        let Some(xref) = &repo.xref else {
+            result
+                .warnings
+                .push("Skipping repository without xref".into());
+            continue;
+        };
+        let id = Uuid::now_v7();
+        index.by_xref.insert(xref.clone(), id);
+        let first_note = repo
+            .notes
+            .iter()
+            .find_map(|n| non_blank(n.value.as_deref()));
+        let name = non_blank(repo.name.as_deref())
+            .or_else(|| first_note.map(|n| n.lines().next().unwrap_or_default().to_string()))
+            .unwrap_or_else(|| xref.trim_matches('@').to_string());
+        result.repositories.push(Repository {
+            id,
+            tree_id: ctx.tree_id,
+            name,
+            address: repo.address.as_ref().and_then(address_text),
+            phone: first_non_blank(&repo.phone),
+            email: first_non_blank(&repo.email),
+            website: first_non_blank(&repo.website),
+            created_at: ctx.now,
+            updated_at: ctx.now,
+            deleted_at: None,
+        });
+        for note in &repo.notes {
+            let Some(text) = non_blank(note.value.as_deref()) else {
+                continue;
+            };
+            result.notes.push(Note {
+                id: Uuid::now_v7(),
+                tree_id: ctx.tree_id,
+                text,
+                person_id: None,
+                event_id: None,
+                family_id: None,
+                source_id: None,
+                media_id: None,
+                repository_id: Some(id),
+                created_at: ctx.now,
+                updated_at: ctx.now,
+                deleted_at: None,
+            });
+        }
+    }
+    index
+}
+
+/// An address as one text over several lines: its free text, else its
+/// structured parts.
+fn address_text(address: &ged_io::types::address::Address) -> Option<String> {
+    if let Some(text) = non_blank(address.value.as_deref()) {
+        return Some(text);
+    }
+    let city_line = [address.post.as_deref(), address.city.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let lines: Vec<String> = [
+        address.adr1.as_deref(),
+        address.adr2.as_deref(),
+        address.adr3.as_deref(),
+        Some(city_line.as_str()),
+        address.state.as_deref(),
+        address.country.as_deref(),
+    ]
+    .into_iter()
+    .filter_map(non_blank)
+    .collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// The first of `values` that says something.
+fn first_non_blank(values: &[String]) -> Option<String> {
+    values.iter().find_map(|v| non_blank(Some(v)))
+}
+
+/// The links of source `source_id` to the repositories its `SOUR.REPO`
+/// citations name. A pointer to a record the file does not hold is a
+/// warning; a citation without a pointer names a repository by its text —
+/// the line's own, else its notes' — created once per distinct text.
+fn import_repository_citations(
+    src: &ged_io::types::source::Source,
+    source_id: Uuid,
+    ctx: &ImportContext,
+    repositories: &mut RepositoryIndex,
+    result: &mut ImportResult,
+) {
+    for (order, citation) in src.repo_citations.iter().enumerate() {
+        let pointer = citation.xref.trim();
+        let repository_id = if pointer.starts_with('@') {
+            let Some(&id) = repositories.by_xref.get(pointer) else {
+                result.warnings.push(format!(
+                    "Source {}: REPO {pointer} not found",
+                    src.xref.as_deref().unwrap_or_default()
+                ));
+                continue;
+            };
+            id
+        } else {
+            let text = non_blank(Some(pointer)).or_else(|| {
+                let notes: Vec<String> = citation
+                    .notes
+                    .iter()
+                    .filter_map(|n| non_blank(n.value.as_deref()))
+                    .collect();
+                (!notes.is_empty()).then(|| notes.join("\n"))
+            });
+            let Some(text) = text else { continue };
+            text_repository(&text, ctx, repositories, result)
+        };
+        result.source_repositories.push(SourceRepository {
+            id: Uuid::now_v7(),
+            source_id,
+            repository_id,
+            call_number: non_blank(citation.call_number.as_deref()),
+            media_type: non_blank(citation.media_type.as_deref())
+                .map(|m| SourceMediaType::parse(&m).unwrap_or(SourceMediaType::Other)),
+            sort_order: order as i32,
+        });
+    }
+}
+
+/// The repository a pointerless citation's `text` names, created on first
+/// use.
+fn text_repository(
+    text: &str,
+    ctx: &ImportContext,
+    repositories: &mut RepositoryIndex,
+    result: &mut ImportResult,
+) -> Uuid {
+    if let Some(&id) = repositories.by_text.get(text) {
+        return id;
+    }
+    let id = Uuid::now_v7();
+    repositories.by_text.insert(text.to_string(), id);
+    result.repositories.push(Repository {
+        id,
+        tree_id: ctx.tree_id,
+        name: text.to_string(),
+        address: None,
+        phone: None,
+        email: None,
+        website: None,
+        created_at: ctx.now,
+        updated_at: ctx.now,
+        deleted_at: None,
+    });
+    id
+}
+
+/// Import the `SOUR` records, their notes and the repositories holding them.
+fn import_sources(
+    data: &GedcomData,
+    ctx: &ImportContext,
+    repositories: &mut RepositoryIndex,
+    result: &mut ImportResult,
+) {
     for src in &data.sources {
         let Some(xref) = &src.xref else {
             result.warnings.push("Skipping source without xref".into());
@@ -463,7 +640,6 @@ fn import_sources(data: &GedcomData, ctx: &ImportContext, result: &mut ImportRes
             author: src.author.clone(),
             publisher: src.publication_facts.clone(),
             abbreviation: src.abbreviation.clone(),
-            repository_name: None, // repo_citations not directly mappable to a single name
             agency: non_blank(src.data.agency.as_deref()),
             created_at: ctx.now,
             updated_at: ctx.now,
@@ -483,6 +659,7 @@ fn import_sources(data: &GedcomData, ctx: &ImportContext, result: &mut ImportRes
                 result,
             );
         }
+        import_repository_citations(src, id, ctx, repositories, result);
     }
 }
 
@@ -1266,6 +1443,7 @@ fn import_media_metadata_extensions(gedcom: &str, result: &mut ImportResult) {
                 family_id: None,
                 source_id: None,
                 media_id: Some(media_id),
+                repository_id: None,
                 created_at,
                 updated_at: note.updated_at.unwrap_or(created_at),
                 deleted_at: None,
@@ -1499,6 +1677,7 @@ fn apply_document_metadata(
             family_id: None,
             source_id: None,
             media_id: Some(document_id),
+            repository_id: None,
             created_at,
             updated_at: note.updated_at.unwrap_or(created_at),
             deleted_at: None,
@@ -2674,6 +2853,7 @@ fn import_note(
             source_id,
             // GEDCOM attaches a NOTE to a record, never to an OBJE's bytes.
             media_id: None,
+            repository_id: None,
             created_at: now,
             updated_at: now,
             deleted_at: None,

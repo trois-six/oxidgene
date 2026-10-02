@@ -16,7 +16,8 @@ use super::scope::uuid;
 
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaLinkTarget, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, PortraitRow,
+    MediaLinkTarget, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, PortraitRow, RepositoryRepo,
+    SourceRepo, SourceRepositoryRepo,
 };
 
 // ── GraphQL Enums ────────────────────────────────────────────────────
@@ -1400,7 +1401,6 @@ pub struct GqlSource {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     /// The organisation responsible for the source's data.
     pub agency: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -1416,6 +1416,112 @@ impl GqlSource {
         let cits = CitationRepo::list_by_source(db, id).await?;
         Ok(cits.into_iter().map(GqlCitation::from).collect())
     }
+
+    /// The repositories holding this source, each under one call number.
+    async fn repositories(&self, ctx: &Context<'_>) -> Result<Vec<GqlSourceRepository>> {
+        let links =
+            SourceRepositoryRepo::list_by_source(reader_from_ctx(ctx), uuid(&self.id)?).await?;
+        Ok(links.into_iter().map(GqlSourceRepository::from).collect())
+    }
+}
+
+// ── Repository ───────────────────────────────────────────────────────
+
+/// A place holding sources: an archive, a library, a registry office.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(complex)]
+pub struct GqlRepository {
+    pub id: ID,
+    pub tree_id: ID,
+    pub name: String,
+    /// The postal address, over several lines.
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub website: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[ComplexObject]
+impl GqlRepository {
+    /// The live sources this repository holds, one link per call number.
+    async fn sources(&self, ctx: &Context<'_>) -> Result<Vec<GqlSourceRepository>> {
+        let links =
+            SourceRepositoryRepo::list_by_repository(reader_from_ctx(ctx), uuid(&self.id)?).await?;
+        Ok(links.into_iter().map(GqlSourceRepository::from).collect())
+    }
+}
+
+impl From<oxidgene_core::types::Repository> for GqlRepository {
+    fn from(r: oxidgene_core::types::Repository) -> Self {
+        Self {
+            id: ID(r.id.to_string()),
+            tree_id: ID(r.tree_id.to_string()),
+            name: r.name,
+            address: r.address,
+            phone: r.phone,
+            email: r.email,
+            website: r.website,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+connection!(
+    GqlRepositoryEdge,
+    GqlRepositoryConnection,
+    GqlRepository,
+    oxidgene_core::types::Repository
+);
+
+/// That a source is held at a repository, under one call number.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(complex)]
+pub struct GqlSourceRepository {
+    pub id: ID,
+    pub source_id: ID,
+    pub repository_id: ID,
+    pub call_number: Option<String>,
+    /// The medium the source is kept on there.
+    pub media_type: Option<GqlSourceMediaType>,
+    pub sort_order: i32,
+}
+
+#[ComplexObject]
+impl GqlSourceRepository {
+    /// The repository, unless it was deleted.
+    async fn repository(&self, ctx: &Context<'_>) -> Result<Option<GqlRepository>> {
+        let id = uuid(&self.repository_id)?;
+        Ok(RepositoryRepo::get_many(reader_from_ctx(ctx), &[id])
+            .await?
+            .into_iter()
+            .next()
+            .map(GqlRepository::from))
+    }
+
+    /// The source, unless it was deleted.
+    async fn source(&self, ctx: &Context<'_>) -> Result<Option<GqlSource>> {
+        match SourceRepo::get(reader_from_ctx(ctx), uuid(&self.source_id)?).await {
+            Ok(source) => Ok(Some(source.into())),
+            Err(oxidgene_core::OxidGeneError::NotFound { .. }) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
+impl From<oxidgene_core::types::SourceRepository> for GqlSourceRepository {
+    fn from(l: oxidgene_core::types::SourceRepository) -> Self {
+        Self {
+            id: ID(l.id.to_string()),
+            source_id: ID(l.source_id.to_string()),
+            repository_id: ID(l.repository_id.to_string()),
+            call_number: l.call_number,
+            media_type: l.media_type.map(Into::into),
+            sort_order: l.sort_order,
+        }
+    }
 }
 
 impl From<oxidgene_core::types::Source> for GqlSource {
@@ -1427,7 +1533,6 @@ impl From<oxidgene_core::types::Source> for GqlSource {
             author: s.author,
             publisher: s.publisher,
             abbreviation: s.abbreviation,
-            repository_name: s.repository_name,
             agency: s.agency,
             created_at: s.created_at,
             updated_at: s.updated_at,
@@ -2488,6 +2593,8 @@ impl From<oxidgene_db::repo::PersonUsageEntry> for GqlPersonUsageEntry {
 pub struct GqlSourceDictionaryEntry {
     pub source: GqlSource,
     pub count: i64,
+    /// The names of the repositories holding the source, each once.
+    pub repositories: Vec<String>,
 }
 
 /// A place paired with its event and media usage count.

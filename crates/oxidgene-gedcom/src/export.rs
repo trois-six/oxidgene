@@ -30,6 +30,7 @@ use ged_io::types::multimedia::file::Reference;
 use ged_io::types::multimedia::format::Format;
 use ged_io::types::note::Note as GedNote;
 use ged_io::types::place::{MapCoordinates, Place as GedPlace};
+use ged_io::types::repository::Repository as GedRepository;
 use ged_io::types::source::Source as GedSource;
 use ged_io::types::source::citation::Citation as GedCitation;
 use ged_io::types::source::citation::CitationSource;
@@ -42,7 +43,7 @@ use uuid::Uuid;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source, Vignette,
+    Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
 };
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, SpouseRole};
 
@@ -51,9 +52,41 @@ use crate::{
     MediaNoteExtension, MediaPlaceExtension,
 };
 
+/// Every record of one tree an export writes.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ExportRecords<'a> {
+    pub persons: &'a [Person],
+    pub person_names: &'a [PersonName],
+    pub families: &'a [Family],
+    pub family_spouses: &'a [FamilySpouse],
+    pub family_children: &'a [FamilyChild],
+    pub events: &'a [Event],
+    pub event_witnesses: &'a [EventWitness],
+    pub places: &'a [Place],
+    pub sources: &'a [Source],
+    pub repositories: &'a [Repository],
+    pub source_repositories: &'a [SourceRepository],
+    pub citations: &'a [Citation],
+    pub media: &'a [Media],
+    pub media_links: &'a [MediaLink],
+    pub vignettes: &'a [Vignette],
+    pub notes: &'a [Note],
+}
+
+/// How an export writes the records: see [`export_gedcom`].
+#[derive(Debug, Clone, Copy)]
+pub struct ExportOptions<'a> {
+    pub merge_occupations: bool,
+    pub merge_names: bool,
+    /// The archive entry each media held in a GEDZIP is written as.
+    pub media_paths: &'a HashMap<Uuid, String>,
+    /// The tree's "Who am I?" person.
+    pub self_person_id: Option<Uuid>,
+}
+
 /// Export domain model entities to a GEDCOM 5.5.1 string.
 ///
-/// All entity slices should belong to the same tree.
+/// All records should belong to the same tree.
 ///
 /// `merge_occupations` collapses every `EventType::Occupation` event for a
 /// person back into a single `OCCU` tag (values joined with `", "`) instead
@@ -75,27 +108,34 @@ use crate::{
 /// # Errors
 ///
 /// Returns `Err` if the GEDCOM writer encounters an I/O error.
-#[allow(clippy::too_many_arguments)]
 pub fn export_gedcom(
-    persons: &[Person],
-    person_names: &[PersonName],
-    families: &[Family],
-    family_spouses: &[FamilySpouse],
-    family_children: &[FamilyChild],
-    events: &[Event],
-    event_witnesses: &[EventWitness],
-    places: &[Place],
-    sources: &[Source],
-    citations: &[Citation],
-    media: &[Media],
-    media_links: &[MediaLink],
-    vignettes: &[Vignette],
-    notes: &[Note],
-    merge_occupations: bool,
-    merge_names: bool,
-    media_paths: &HashMap<Uuid, String>,
-    self_person_id: Option<Uuid>,
+    records: &ExportRecords<'_>,
+    options: &ExportOptions<'_>,
 ) -> Result<ExportResult, String> {
+    let ExportRecords {
+        persons,
+        person_names,
+        families,
+        family_spouses,
+        family_children,
+        events,
+        event_witnesses,
+        places,
+        sources,
+        repositories,
+        source_repositories,
+        citations,
+        media,
+        media_links,
+        vignettes,
+        notes,
+    } = *records;
+    let ExportOptions {
+        merge_occupations,
+        merge_names,
+        media_paths,
+        self_person_id,
+    } = *options;
     let mut warnings: Vec<String> = Vec::new();
     let build_span = tracing::info_span!(
         "export.build_model",
@@ -108,7 +148,7 @@ pub fn export_gedcom(
     );
     let build_guard = build_span.enter();
 
-    let xrefs = Xrefs::new(persons, families, sources, media);
+    let xrefs = Xrefs::new(persons, families, sources, repositories, media);
     let assoc_by_person = associations(events, event_witnesses, &xrefs);
     let index = ExportIndex {
         place_map: places.iter().map(|p| (p.id, p)).collect(),
@@ -129,6 +169,14 @@ pub fn export_gedcom(
         notes_by_source: group_by(notes, |note| note.source_id),
         notes_by_event: group_by(notes, |note| note.event_id),
         notes_by_media: group_by(notes, |note| note.media_id),
+        notes_by_repository: group_by(notes, |note| note.repository_id),
+        repos_by_source: {
+            let mut links = group_by(source_repositories, |l| Some(l.source_id));
+            for links in links.values_mut() {
+                links.sort_by_key(|l| (l.sort_order, l.id));
+            }
+            links
+        },
         mlinks_by_person: group_by(media_links, |ml| ml.person_id),
         mlinks_by_event: group_by(media_links, |ml| ml.event_id),
         mlinks_by_family: group_by(media_links, |ml| ml.family_id),
@@ -150,6 +198,10 @@ pub fn export_gedcom(
     };
     data.submitters = vec![index.submitter(self_person_id)];
     data.sources = sources.iter().map(|src| index.source(src)).collect();
+    data.repositories = repositories
+        .iter()
+        .map(|repo| index.repository(repo))
+        .collect();
     data.multimedia = media
         .iter()
         // Dissolved into its pages, which carry the bytes; see `pages_of`.
@@ -171,7 +223,7 @@ pub fn export_gedcom(
     let gedcom = crate::finish::finish(
         &gedcom,
         |owner| index.notes_of(owner),
-        &index.additions(persons, families, sources),
+        &index.additions(persons, families, sources, repositories),
     );
     let (gedcom, extension_warnings) = inject_extensions(gedcom, media, vignettes, &index);
     warnings.extend(extension_warnings);
@@ -184,15 +236,23 @@ struct Xrefs {
     person: HashMap<Uuid, String>,
     family: HashMap<Uuid, String>,
     source: HashMap<Uuid, String>,
+    repository: HashMap<Uuid, String>,
     media: HashMap<Uuid, String>,
 }
 
 impl Xrefs {
-    fn new(persons: &[Person], families: &[Family], sources: &[Source], media: &[Media]) -> Self {
+    fn new(
+        persons: &[Person],
+        families: &[Family],
+        sources: &[Source],
+        repositories: &[Repository],
+        media: &[Media],
+    ) -> Self {
         Self {
             person: numbered("I", persons.iter().map(|p| p.id)),
             family: numbered("F", families.iter().map(|f| f.id)),
             source: numbered("S", sources.iter().map(|s| s.id)),
+            repository: numbered("R", repositories.iter().map(|r| r.id)),
             // Only pages become records: a document holds no bytes and is
             // dissolved into them. Numbering just the pages keeps the xrefs
             // contiguous rather than leaving a gap wherever a document sat in
@@ -386,6 +446,8 @@ struct ExportIndex<'a> {
     notes_by_source: HashMap<Uuid, Vec<&'a Note>>,
     notes_by_event: HashMap<Uuid, Vec<&'a Note>>,
     notes_by_media: HashMap<Uuid, Vec<&'a Note>>,
+    notes_by_repository: HashMap<Uuid, Vec<&'a Note>>,
+    repos_by_source: HashMap<Uuid, Vec<&'a SourceRepository>>,
     mlinks_by_person: HashMap<Uuid, Vec<&'a MediaLink>>,
     mlinks_by_event: HashMap<Uuid, Vec<&'a MediaLink>>,
     mlinks_by_family: HashMap<Uuid, Vec<&'a MediaLink>>,
@@ -411,6 +473,16 @@ impl ExportIndex<'_> {
         Submitter {
             xref: Some(SUBMITTER_XREF.to_string()),
             name: Some(name),
+            ..Default::default()
+        }
+    }
+
+    /// A `REPO` record, of which `ged_io` writes the name: `additions`
+    /// adds the address, the contact details and the notes.
+    fn repository(&self, repo: &Repository) -> GedRepository {
+        GedRepository {
+            xref: self.xrefs.repository.get(&repo.id).cloned(),
+            name: Some(repo.name.clone()),
             ..Default::default()
         }
     }
@@ -443,6 +515,7 @@ impl ExportIndex<'_> {
         persons: &[Person],
         families: &[Family],
         sources: &[Source],
+        repositories: &[Repository],
     ) -> HashMap<String, Vec<crate::finish::Addition>> {
         let mut additions: HashMap<String, Vec<crate::finish::Addition>> = HashMap::new();
         let private = persons
@@ -474,6 +547,15 @@ impl ExportIndex<'_> {
                     crate::finish::Addition::new("DATA", "")
                         .with(crate::finish::Addition::new("AGNC", agency)),
                 );
+            }
+            entry.extend(self.repository_citations(src.id));
+        }
+        for repo in repositories {
+            if let Some(xref) = self.xrefs.repository.get(&repo.id) {
+                additions
+                    .entry(xref.clone())
+                    .or_default()
+                    .extend(self.repository_details(repo));
             }
         }
         additions
@@ -637,6 +719,53 @@ impl ExportIndex<'_> {
             )
         });
         self.multimedia_refs(ordered.into_iter().copied())
+    }
+
+    /// A source's `REPO` citations, each with its call number and medium —
+    /// `ged_io` writes neither `CALN` nor `MEDI`, so the whole structure is
+    /// added. GEDCOM 5.5.1 puts `MEDI` under `CALN`: a medium without a call
+    /// number is written under an empty one.
+    fn repository_citations(&self, source_id: Uuid) -> Vec<crate::finish::Addition> {
+        use crate::finish::Addition;
+        self.repos_by_source
+            .get(&source_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|link| {
+                let xref = self.xrefs.repository.get(&link.repository_id)?;
+                let call_number = link.call_number.as_deref().unwrap_or_default();
+                let mut citation = Addition::new("REPO", xref.clone());
+                if !call_number.is_empty() || link.media_type.is_some() {
+                    let mut caln = Addition::new("CALN", call_number);
+                    if let Some(medium) = link.media_type {
+                        caln = caln.with(Addition::new("MEDI", medium.as_str()));
+                    }
+                    citation = citation.with(caln);
+                }
+                Some(citation)
+            })
+            .collect()
+    }
+
+    /// What `ged_io` leaves out of a `REPO` record: the address over several
+    /// lines, the phone, the email, the website and the notes.
+    fn repository_details(&self, repo: &Repository) -> Vec<crate::finish::Addition> {
+        use crate::finish::Addition;
+        let mut details = Vec::new();
+        for (tag, value) in [
+            ("ADDR", &repo.address),
+            ("PHON", &repo.phone),
+            ("EMAIL", &repo.email),
+            ("WWW", &repo.website),
+        ] {
+            if let Some(value) = value.as_deref().filter(|v| !v.trim().is_empty()) {
+                details.push(Addition::new(tag, value));
+            }
+        }
+        for note in self.notes_by_repository.get(&repo.id).into_iter().flatten() {
+            details.push(Addition::new("NOTE", note.text.clone()));
+        }
+        details
     }
 
     /// A `FAM` record.
@@ -1888,7 +2017,6 @@ mod tests {
             author: None,
             publisher: None,
             abbreviation: None,
-            repository_name: None,
             agency: None,
             created_at: now,
             updated_at: now,
@@ -1908,24 +2036,18 @@ mod tests {
         };
 
         let export = export_gedcom(
-            &[],
-            &[],
-            std::slice::from_ref(&family),
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            std::slice::from_ref(&source),
-            std::slice::from_ref(&citation),
-            &[],
-            &[],
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                families: std::slice::from_ref(&family),
+                sources: std::slice::from_ref(&source),
+                citations: std::slice::from_ref(&citation),
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
 
@@ -1979,24 +2101,16 @@ mod tests {
         let rows = [document, m];
 
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            &[],
-            &[],
-            &[],
-            false,
-            false,
-            &paths,
-            None,
+            &ExportRecords {
+                media: &rows,
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &paths,
+                self_person_id: None,
+            },
         )
         .expect("exports");
         // The FILE line points into the archive, not at the Windows path the
@@ -2056,24 +2170,16 @@ mod tests {
         document.source_media_type = SourceMediaType::Tombstone;
         let m = [document, page];
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &m,
-            &[],
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                media: &m,
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(
@@ -2186,6 +2292,7 @@ mod tests {
             family_id: None,
             source_id: None,
             media_id: Some(document.id),
+            repository_id: None,
             created_at: document.created_at,
             updated_at: document.updated_at,
             deleted_at: None,
@@ -2196,24 +2303,18 @@ mod tests {
         let rows = [document, page];
 
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            std::slice::from_ref(&place),
-            &[],
-            &[],
-            &rows,
-            &[],
-            &[],
-            std::slice::from_ref(&note),
-            false,
-            false,
-            &media_paths,
-            None,
+            &ExportRecords {
+                places: std::slice::from_ref(&place),
+                media: &rows,
+                notes: std::slice::from_ref(&note),
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &media_paths,
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(export.gedcom.contains("1 _OXIDGENE_MEDIA {"));
@@ -2255,24 +2356,16 @@ mod tests {
         document.document_category = Some(DocumentCategory::Census);
         let m = [document, page];
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &m,
-            &[],
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                media: &m,
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(export.gedcom.contains("MANUSCRIPT"), "{}", export.gedcom);
@@ -2285,24 +2378,16 @@ mod tests {
         document.document_category = Some(DocumentCategory::CivilRecord);
         document.source_media_type = SourceMediaType::Fiche;
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[document, page],
-            &[],
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                media: &[document, page],
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(export.gedcom.contains("FICHE"), "{}", export.gedcom);
@@ -2327,24 +2412,18 @@ mod tests {
         };
 
         let export = export_gedcom(
-            std::slice::from_ref(&person),
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            std::slice::from_ref(&link),
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                persons: std::slice::from_ref(&person),
+                media: &rows,
+                media_links: std::slice::from_ref(&link),
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(export.gedcom.contains("1 OBJE @M1@"), "{}", export.gedcom);
@@ -2401,24 +2480,19 @@ mod tests {
         paths.insert(page.id, path.clone());
 
         let export = export_gedcom(
-            std::slice::from_ref(&person),
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            std::slice::from_ref(&link),
-            std::slice::from_ref(&vignette),
-            &[],
-            false,
-            false,
-            &paths,
-            None,
+            &ExportRecords {
+                persons: std::slice::from_ref(&person),
+                media: &rows,
+                media_links: std::slice::from_ref(&link),
+                vignettes: std::slice::from_ref(&vignette),
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &paths,
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(
@@ -2493,24 +2567,19 @@ mod tests {
         };
 
         let export = export_gedcom(
-            std::slice::from_ref(&person),
-            &[],
-            &[],
-            &[],
-            &[],
-            std::slice::from_ref(&event),
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            std::slice::from_ref(&link),
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                persons: std::slice::from_ref(&person),
+                events: std::slice::from_ref(&event),
+                media: &rows,
+                media_links: std::slice::from_ref(&link),
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(export.gedcom.contains("2 OBJE @M1@"), "{}", export.gedcom);
@@ -2568,24 +2637,19 @@ mod tests {
         };
 
         let export = export_gedcom(
-            std::slice::from_ref(&person),
-            &[],
-            &[],
-            &[],
-            &[],
-            std::slice::from_ref(&occupation),
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            std::slice::from_ref(&link),
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                persons: std::slice::from_ref(&person),
+                events: std::slice::from_ref(&occupation),
+                media: &rows,
+                media_links: std::slice::from_ref(&link),
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(export.gedcom.contains("1 OCCU"), "{}", export.gedcom);
@@ -2639,26 +2703,21 @@ mod tests {
             })
             .collect();
         let again = export_gedcom(
-            std::slice::from_ref(&person),
-            &[],
-            &[],
-            &[],
-            &[],
-            &events,
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            &links,
-            &[],
-            &[],
-            // Merging the professions back into one OCCU is the case under
+            &ExportRecords {
+                persons: std::slice::from_ref(&person),
+                events: &events,
+                media: &rows,
+                media_links: &links,
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: // Merging the professions back into one OCCU is the case under
             // test: it is what has to not multiply the scan.
             true,
-            false,
-            &HashMap::new(),
-            None,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
 
@@ -2697,6 +2756,7 @@ mod tests {
                 family_id: None,
                 source_id: None,
                 media_id: Some(first_page.id),
+                repository_id: None,
                 created_at: first_page.created_at,
                 updated_at: first_page.updated_at,
                 deleted_at: None,
@@ -2710,6 +2770,7 @@ mod tests {
                 family_id: None,
                 source_id: None,
                 media_id: Some(second_page.id),
+                repository_id: None,
                 created_at: second_page.created_at,
                 updated_at: second_page.updated_at,
                 deleted_at: None,
@@ -2718,24 +2779,17 @@ mod tests {
         let rows = [document, second_page, first_page];
 
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            &[],
-            &[],
-            &notes,
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                media: &rows,
+                notes: &notes,
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
 
@@ -2791,29 +2845,23 @@ mod tests {
             .collect();
 
         let export = export_gedcom(
-            std::slice::from_ref(&person),
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[
-                other.clone(),
-                other_page.clone(),
-                chosen.clone(),
-                chosen_page.clone(),
-            ],
-            &links,
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                persons: std::slice::from_ref(&person),
+                media: &[
+                    other.clone(),
+                    other_page.clone(),
+                    chosen.clone(),
+                    chosen_page.clone(),
+                ],
+                media_links: &links,
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
 
@@ -2881,24 +2929,18 @@ mod tests {
         rows.push(document.clone());
 
         let export = export_gedcom(
-            std::slice::from_ref(&person),
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &rows,
-            std::slice::from_ref(&link),
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                persons: std::slice::from_ref(&person),
+                media: &rows,
+                media_links: std::slice::from_ref(&link),
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
 
@@ -2940,24 +2982,16 @@ mod tests {
         let (document, cover) = document_with_page("page1.jpg", "image/jpeg", true);
 
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[document, cover],
-            &[],
-            &[],
-            &[],
-            false,
-            false,
-            &HashMap::new(),
-            None,
+            &ExportRecords {
+                media: &[document, cover],
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: &HashMap::new(),
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert_eq!(
@@ -2978,25 +3012,17 @@ mod tests {
     fn a_plain_gedcom_export_still_references_the_producers_own_path() {
         let (document, page) = document_with_page("photo.jpg", "image/jpeg", true);
         let export = export_gedcom(
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[document, page],
-            &[],
-            &[],
-            &[],
-            false,
-            false,
-            // No archive: nothing to point into.
+            &ExportRecords {
+                media: &[document, page],
+                ..Default::default()
+            },
+            &ExportOptions {
+                merge_occupations: false,
+                merge_names: false,
+                media_paths: // No archive: nothing to point into.
             &HashMap::new(),
-            None,
+                self_person_id: None,
+            },
         )
         .expect("exports");
         assert!(export.gedcom.contains("C:\\Photos\\original.jpg"));

@@ -1081,7 +1081,6 @@ fn into_source(m: source::Model) -> Source {
         author: m.author,
         publisher: m.publisher,
         abbreviation: m.abbreviation,
-        repository_name: m.repository_name,
         agency: m.agency,
         created_at: m.created_at,
         updated_at: m.updated_at,

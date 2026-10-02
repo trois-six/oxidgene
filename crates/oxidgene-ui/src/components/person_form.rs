@@ -769,6 +769,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
             }
             let body = CreateNoteBody {
                 media_id: None,
+                repository_id: None,
                 text,
                 person_id: Some(pid),
                 event_id: None,
@@ -2800,7 +2801,6 @@ async fn resolve_source(
                 author: None,
                 publisher: None,
                 abbreviation: None,
-                repository_name: None,
                 agency: None,
             },
         )
@@ -2907,6 +2907,7 @@ pub(crate) async fn save_notes_source(
                 tree_id,
                 &CreateNoteBody {
                     media_id: None,
+                    repository_id: None,
                     text: notes.to_string(),
                     person_id: owner,
                     event_id,

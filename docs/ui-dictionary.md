@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:43:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
 ---
 
 
@@ -79,12 +79,13 @@ Uses the shared `td-topbar` + `td-bc` breadcrumb component. No search fields her
 
 ## 4. Tabs
 
-Five tabs, text-labeled (icons alone are ambiguous at five items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as `.sr-view-btn.active`):
+Six tabs, text-labeled (icons alone are ambiguous at six items), styled as a segmented control (`.dict-tabs` / `.dict-tab`, active state same visual language as `.sr-view-btn.active`):
 
 | Tab | Source field | Default active |
 |---|---|---|
 | Family Names | `PersonName.surname_prefix` + `PersonName.surname`, exact spelling | Yes |
 | Sources | `Source.title` | |
+| Repositories | `Repository.name`, with the sources each holds ([§19](#19-repositories-tab)) | |
 | Places | `Place.name` | |
 | Occupations | `Event.description` where `event_type = Occupation` | |
 | Media | `Media` documents, pages folded into their document ([§18](#18-media-tab)) | |
@@ -235,9 +236,27 @@ AD44 - Church registers (1700–1850)       70 citations  →
 
 Each row shows:
 - Source title
-- Author / Repository (secondary muted text, if present)
+- Author, then the names of the repositories holding the source (secondary muted text, if present; the list endpoint returns them as `repositories`)
 - Usage count badge: number of `Citation` rows referencing this source
+- Edit (✎) — opens the source editor ([§8.11](#811-source-editor))
 - Chevron — clicking **expands the row inline** to show full metadata and drill-down to citing persons/events
+
+### 8.11 Source Editor
+
+A dialog editing one source: **Title** (required), **Author**,
+**Abbreviation** and **Publication** in the open; the rarer fields behind the
+shared **More details** disclosure ([Person Edit Modal](ui-person-edit-modal.md)
+uses the same control), which starts open when the source has any of them:
+
+- **Responsible agency** (`SOUR.DATA.AGNC`);
+- **Repositories**: one row per repository holding the source — "name — call
+  number · medium" — each removable, and a row adding one: a repository of
+  the tree, or **New repository…** with its name, then an optional call number
+  and medium (the media types of [Data Model](data-model.md)). A source held
+  under two call numbers at one repository has two rows.
+
+The fields wait for **Save**; a repository row is written the moment it is
+added or removed, like an event's witnesses. Saving refreshes the list.
 
 ### 8.6 Behavior: Breadcrumb & Back Button
 
@@ -656,3 +675,25 @@ Tags, titles and file names are user content and are not translated.
 | `dictionary.media.invalid_range` | A range ends before it starts. | Une plage se termine avant de commencer. |
 | `dictionary.media.page` | Page {page} of {pages} | Page {page} sur {pages} |
 | `dictionary.media.previous_page` / `next_page` | Previous page / Next page | Page précédente / Page suivante |
+
+---
+
+## 19. Repositories Tab
+
+Every repository of the tree — the archives, libraries and offices holding
+its sources — sorted by name, narrowed by the quick filter, without the
+alphabet index or pagination. Each row shows the name and, muted, the first
+address line, the phone and the website; **Edit** (✎) opens the repository
+editor, and the chevron unfolds the live sources it holds, "title — call
+number · medium", sorted by title. **Add a repository** opens the editor
+empty.
+
+The repository editor holds the **Name** (required), the **Address** over
+several lines, **Phone**, **Email**, **Website** and a **Notes** field (the
+repository's first note; the others stay as imported). An existing
+repository's editor ends with a delete confirmation: the sources it held stay
+in the tree, no longer listed as held there (the links are kept and come back
+if the deletion is undone from the history).
+
+The tab is its own module (`pages/dictionary_repositories.rs`), like the Media
+tab, and loads the repositories the first time it opens.

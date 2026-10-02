@@ -7,7 +7,7 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::AuditAction;
 use oxidgene_core::types::Note;
-use oxidgene_db::repo::NoteRepo;
+use oxidgene_db::repo::{NoteFilter, NoteRepo};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -27,6 +27,9 @@ pub struct NewNote {
     /// The media this note is about — distinct from the media's own
     /// description, which is the caption shown under its tile.
     pub media_id: Option<Uuid>,
+    /// The repository this note is about.
+    #[serde(default)]
+    pub repository_id: Option<Uuid>,
 }
 
 /// What a note update changes: `None` keeps the text.
@@ -64,6 +67,7 @@ pub async fn create_note(
         (TreeResource::Family, new.family_id),
         (TreeResource::Source, new.source_id),
         (TreeResource::Media, new.media_id),
+        (TreeResource::Repository, new.repository_id),
     ] {
         if let Some(id) = id {
             require_tree_resource(&txn, tree_id, resource, id).await?;
@@ -76,6 +80,7 @@ pub async fn create_note(
         family_id: new.family_id,
         source_id: new.source_id,
         media_id: new.media_id,
+        repository_id: new.repository_id,
     };
     let pending = history::note_change(tree_id, AuditAction::Create, id, target)
         .prepare(&txn)
@@ -85,11 +90,14 @@ pub async fn create_note(
         id,
         tree_id,
         new.text,
-        new.person_id,
-        new.event_id,
-        new.family_id,
-        new.source_id,
-        new.media_id,
+        &NoteFilter {
+            person_id: new.person_id,
+            event_id: new.event_id,
+            family_id: new.family_id,
+            source_id: new.source_id,
+            media_id: new.media_id,
+            repository_id: new.repository_id,
+        },
     )
     .await?;
     if let Some(person_id) = note.person_id {

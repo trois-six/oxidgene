@@ -26,6 +26,7 @@ pub struct NoteFilter {
     pub family_id: Option<Uuid>,
     pub source_id: Option<Uuid>,
     pub media_id: Option<Uuid>,
+    pub repository_id: Option<Uuid>,
 }
 
 /// Repository for note CRUD operations.
@@ -57,6 +58,9 @@ impl NoteRepo {
         }
         if let Some(media_id) = filter.media_id {
             query = query.filter(Column::MediaId.eq(media_id));
+        }
+        if let Some(repository_id) = filter.repository_id {
+            query = query.filter(Column::RepositoryId.eq(repository_id));
         }
 
         paginate(db, query, Column::Id, params, |model| {
@@ -139,29 +143,25 @@ impl NoteRepo {
         .await
     }
 
-    /// Create a new note.
-    #[allow(clippy::too_many_arguments)]
+    /// Create a new note about what `owner` names — each record it sets.
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
         tree_id: Uuid,
         text: String,
-        person_id: Option<Uuid>,
-        event_id: Option<Uuid>,
-        family_id: Option<Uuid>,
-        source_id: Option<Uuid>,
-        media_id: Option<Uuid>,
+        owner: &NoteFilter,
     ) -> Result<Note, OxidGeneError> {
         let now = Utc::now();
         let model = note::ActiveModel {
             id: Set(id),
             tree_id: Set(tree_id),
             text: Set(sanitize_note_html(&text)),
-            person_id: Set(person_id),
-            event_id: Set(event_id),
-            family_id: Set(family_id),
-            source_id: Set(source_id),
-            media_id: Set(media_id),
+            person_id: Set(owner.person_id),
+            event_id: Set(owner.event_id),
+            family_id: Set(owner.family_id),
+            source_id: Set(owner.source_id),
+            media_id: Set(owner.media_id),
+            repository_id: Set(owner.repository_id),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -209,6 +209,7 @@ fn into_domain(m: note::Model) -> Note {
         family_id: m.family_id,
         source_id: m.source_id,
         media_id: m.media_id,
+        repository_id: m.repository_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

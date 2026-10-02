@@ -12,7 +12,6 @@ pub struct Model {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     pub agency: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

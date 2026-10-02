@@ -23,6 +23,7 @@ pub mod person_name;
 pub mod place;
 pub mod profile;
 pub mod reference;
+pub mod repository;
 pub mod source;
 pub mod state;
 pub mod statistics;

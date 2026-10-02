@@ -55,7 +55,9 @@ impl MigrationTrait for Migration {
             MediaLink::Table.into_table_ref(),
             Media::Table.into_table_ref(),
             Citation::Table.into_table_ref(),
+            SourceRepository::Table.into_table_ref(),
             Source::Table.into_table_ref(),
+            Repository::Table.into_table_ref(),
             EventSpouseAge::Table.into_table_ref(),
             EventWitness::Table.into_table_ref(),
             Event::Table.into_table_ref(),
@@ -222,11 +224,36 @@ enum Source {
     Author,
     Publisher,
     Abbreviation,
-    RepositoryName,
     Agency,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum Repository {
+    Table,
+    Id,
+    TreeId,
+    Name,
+    Address,
+    Phone,
+    Email,
+    Website,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum SourceRepository {
+    Table,
+    Id,
+    SourceId,
+    RepositoryId,
+    CallNumber,
+    MediaType,
+    SortOrder,
 }
 
 #[derive(DeriveIden)]
@@ -300,6 +327,7 @@ enum Note {
     FamilyId,
     SourceId,
     MediaId,
+    RepositoryId,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -875,7 +903,6 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Source::Author))
                 .col(string_null(Source::Publisher))
                 .col(string_null(Source::Abbreviation))
-                .col(string_null(Source::RepositoryName))
                 .col(string_null(Source::Agency))
                 .col(timestamp_with_time_zone(Source::CreatedAt))
                 .col(timestamp_with_time_zone(Source::UpdatedAt))
@@ -956,6 +983,97 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    create_repositories(manager).await
+}
+
+/// Repositories, and the links saying which sources each holds.
+async fn create_repositories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    // 12. repository (FK → tree)
+    manager
+        .create_table(
+            Table::create()
+                .table(Repository::Table)
+                .if_not_exists()
+                .col(uuid(Repository::Id).primary_key())
+                .col(uuid(Repository::TreeId))
+                .col(string(Repository::Name))
+                .col(text_null(Repository::Address))
+                .col(string_null(Repository::Phone))
+                .col(string_null(Repository::Email))
+                .col(string_null(Repository::Website))
+                .col(timestamp_with_time_zone(Repository::CreatedAt))
+                .col(timestamp_with_time_zone(Repository::UpdatedAt))
+                .col(timestamp_with_time_zone_null(Repository::DeletedAt))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_repository_tree")
+                        .from(Repository::Table, Repository::TreeId)
+                        .to(Tree::Table, Tree::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_repository_tree_id")
+                .table(Repository::Table)
+                .col(Repository::TreeId)
+                .to_owned(),
+        )
+        .await?;
+
+    // 13. source_repository (FK → source, repository): one row per call
+    // number a source has at a repository.
+    manager
+        .create_table(
+            Table::create()
+                .table(SourceRepository::Table)
+                .if_not_exists()
+                .col(uuid(SourceRepository::Id).primary_key())
+                .col(uuid(SourceRepository::SourceId))
+                .col(uuid(SourceRepository::RepositoryId))
+                .col(string_null(SourceRepository::CallNumber))
+                .col(string_len_null(SourceRepository::MediaType, 20))
+                .col(integer(SourceRepository::SortOrder))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_source_repository_source")
+                        .from(SourceRepository::Table, SourceRepository::SourceId)
+                        .to(Source::Table, Source::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_source_repository_repository")
+                        .from(SourceRepository::Table, SourceRepository::RepositoryId)
+                        .to(Repository::Table, Repository::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    for (name, column) in [
+        (
+            "idx_source_repository_source_id",
+            SourceRepository::SourceId,
+        ),
+        (
+            "idx_source_repository_repository_id",
+            SourceRepository::RepositoryId,
+        ),
+    ] {
+        manager
+            .create_index(
+                Index::create()
+                    .name(name)
+                    .table(SourceRepository::Table)
+                    .col(column)
+                    .to_owned(),
+            )
+            .await?;
+    }
     Ok(())
 }
 
@@ -1126,6 +1244,7 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .col(uuid_null(Note::FamilyId))
                 .col(uuid_null(Note::SourceId))
                 .col(uuid_null(Note::MediaId))
+                .col(uuid_null(Note::RepositoryId))
                 .col(timestamp_with_time_zone(Note::CreatedAt))
                 .col(timestamp_with_time_zone(Note::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Note::DeletedAt))
@@ -1164,6 +1283,13 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                         .to(Source::Table, Source::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_note_repository")
+                        .from(Note::Table, Note::RepositoryId)
+                        .to(Repository::Table, Repository::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
                 .to_owned(),
         )
         .await?;
@@ -1182,6 +1308,15 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .name("idx_note_media_id")
                 .table(Note::Table)
                 .col(Note::MediaId)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_note_repository_id")
+                .table(Note::Table)
+                .col(Note::RepositoryId)
                 .to_owned(),
         )
         .await?;

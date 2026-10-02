@@ -514,7 +514,6 @@ pub struct CreateSourceInput {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     /// The organisation responsible for the source's data.
     pub agency: Option<String>,
 }
@@ -526,7 +525,6 @@ pub struct UpdateSourceInput {
     pub author: MaybeUndefined<String>,
     pub publisher: MaybeUndefined<String>,
     pub abbreviation: MaybeUndefined<String>,
-    pub repository_name: MaybeUndefined<String>,
     pub agency: MaybeUndefined<String>,
 }
 
@@ -537,7 +535,6 @@ impl From<CreateSourceInput> for crate::service::source::NewSource {
             author: input.author,
             publisher: input.publisher,
             abbreviation: input.abbreviation,
-            repository_name: input.repository_name,
             agency: input.agency,
         }
     }
@@ -550,9 +547,100 @@ impl From<UpdateSourceInput> for crate::service::source::SourcePatch {
             author: patch(input.author),
             publisher: patch(input.publisher),
             abbreviation: patch(input.abbreviation),
-            repository_name: patch(input.repository_name),
             agency: patch(input.agency),
         }
+    }
+}
+
+// ── Repository Inputs ────────────────────────────────────────────────
+
+/// Input for creating a repository.
+#[derive(Debug, InputObject)]
+pub struct CreateRepositoryInput {
+    pub name: String,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub website: Option<String>,
+}
+
+/// Input for updating a repository.
+#[derive(Debug, InputObject)]
+pub struct UpdateRepositoryInput {
+    pub name: Option<String>,
+    pub address: MaybeUndefined<String>,
+    pub phone: MaybeUndefined<String>,
+    pub email: MaybeUndefined<String>,
+    pub website: MaybeUndefined<String>,
+}
+
+impl From<CreateRepositoryInput> for crate::service::repository::NewRepository {
+    fn from(input: CreateRepositoryInput) -> Self {
+        Self {
+            name: input.name,
+            address: input.address,
+            phone: input.phone,
+            email: input.email,
+            website: input.website,
+        }
+    }
+}
+
+impl From<UpdateRepositoryInput> for crate::service::repository::RepositoryPatch {
+    fn from(input: UpdateRepositoryInput) -> Self {
+        Self {
+            name: input.name,
+            address: patch(input.address),
+            phone: patch(input.phone),
+            email: patch(input.email),
+            website: patch(input.website),
+        }
+    }
+}
+
+/// Input for recording that a source is held at a repository.
+#[derive(Debug, InputObject)]
+pub struct AddSourceRepositoryInput {
+    pub repository_id: ID,
+    pub call_number: Option<String>,
+    pub media_type: Option<GqlSourceMediaType>,
+    /// Where it goes among the source's links; after them when omitted.
+    pub sort_order: Option<i32>,
+}
+
+/// Input for updating a source's link to a repository.
+#[derive(Debug, InputObject)]
+pub struct UpdateSourceRepositoryInput {
+    /// Points the link at another repository.
+    pub repository_id: Option<ID>,
+    pub call_number: MaybeUndefined<String>,
+    pub media_type: MaybeUndefined<GqlSourceMediaType>,
+    pub sort_order: Option<i32>,
+}
+
+impl TryFrom<AddSourceRepositoryInput> for crate::service::repository::NewSourceRepository {
+    type Error = Error;
+
+    fn try_from(input: AddSourceRepositoryInput) -> Result<Self> {
+        Ok(Self {
+            repository_id: uuid(&input.repository_id)?,
+            call_number: input.call_number,
+            media_type: input.media_type.map(Into::into),
+            sort_order: input.sort_order,
+        })
+    }
+}
+
+impl TryFrom<UpdateSourceRepositoryInput> for crate::service::repository::SourceRepositoryPatch {
+    type Error = Error;
+
+    fn try_from(input: UpdateSourceRepositoryInput) -> Result<Self> {
+        Ok(Self {
+            repository_id: opt_uuid(input.repository_id)?,
+            call_number: patch(input.call_number),
+            media_type: patch(input.media_type).map(|m| m.map(Into::into)),
+            sort_order: input.sort_order,
+        })
     }
 }
 
@@ -801,6 +889,8 @@ pub struct CreateNoteInput {
     /// The media this note is about — distinct from the media's own
     /// description, which is the caption shown under its tile.
     pub media_id: Option<String>,
+    /// The repository this note is about.
+    pub repository_id: Option<String>,
 }
 
 /// Input for updating a note.

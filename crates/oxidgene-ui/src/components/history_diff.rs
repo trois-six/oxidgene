@@ -5,8 +5,8 @@
 use dioxus::prelude::*;
 use oxidgene_core::history::{
     AuditAction, AuditEntity, AuditEntry, CitationSnapshot, EventSnapshot, NameSnapshot,
-    NoteSnapshot, PersonSnapshot, PlaceSnapshot, RecordSnapshot, RecordVersion, SourceSnapshot,
-    TreeSnapshot, align,
+    NoteSnapshot, PersonSnapshot, PlaceSnapshot, RecordSnapshot, RecordVersion, RepositorySnapshot,
+    SourceSnapshot, TreeSnapshot, align,
 };
 use oxidgene_core::types::join_surname_particle;
 use oxidgene_core::{Confidence, SpouseRole, TreeDefaultPrivacy};
@@ -179,7 +179,14 @@ pub fn diff_versions(
                 RecordSnapshot::Source(s) => Some(s),
                 _ => None,
             });
-            vec![source_section(i18n, previous, source)]
+            vec![source_section(i18n, (&old, previous), (&new, source))]
+        }
+        Some(RecordSnapshot::Repository(repository)) => {
+            let previous = previous.and_then(|s| match s {
+                RecordSnapshot::Repository(r) => Some(r),
+                _ => None,
+            });
+            vec![repository_section(i18n, previous, repository)]
         }
         Some(RecordSnapshot::Tree(tree)) => {
             let previous = previous.and_then(|s| match s {
@@ -632,8 +639,8 @@ fn place_section(
 
 fn source_section(
     i18n: &I18n,
-    before: Option<&SourceSnapshot>,
-    after: &SourceSnapshot,
+    (old, before): (&Side, Option<&SourceSnapshot>),
+    (new, after): (&Side, &SourceSnapshot),
 ) -> DiffSection {
     let mut group = GroupBuilder::new(String::new(), before.is_some(), true);
     for (key, get) in [
@@ -644,11 +651,35 @@ fn source_section(
         ("history.field.author", |s| s.author.clone()),
         ("history.field.publisher", |s| s.publisher.clone()),
         ("history.field.abbreviation", |s| s.abbreviation.clone()),
-        ("history.field.repository", |s| s.repository_name.clone()),
         ("history.field.agency", |s| s.agency.clone()),
     ] {
         group.row(i18n.t(key), before.and_then(get), get(after));
     }
+    // "Archives (AD 12/3, microfilm)": the repository as the version named
+    // it, with the call number and medium the link gives.
+    let holdings = |side: &Side, s: &SourceSnapshot| {
+        join(s.repositories.iter().map(|link| {
+            let name = side.label(i18n, link.repository_id);
+            let medium = link
+                .media_type
+                .map(|m| i18n.t(&format!("media.medium.{}", m.as_str())));
+            let detail = [link.call_number.clone(), medium]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(", ");
+            if detail.is_empty() {
+                name
+            } else {
+                format!("{name} ({detail})")
+            }
+        }))
+    };
+    group.row(
+        i18n.t("history.field.repositories"),
+        before.map(|s| holdings(old, s)),
+        Some(holdings(new, after)),
+    );
     group.row(
         i18n.t("history.section.notes"),
         before.map(|s| join_notes(&s.notes)),
@@ -656,6 +687,36 @@ fn source_section(
     );
     DiffSection {
         title: i18n.t("history.record.source"),
+        groups: vec![group.finish()],
+    }
+}
+
+fn repository_section(
+    i18n: &I18n,
+    before: Option<&RepositorySnapshot>,
+    after: &RepositorySnapshot,
+) -> DiffSection {
+    let mut group = GroupBuilder::new(String::new(), before.is_some(), true);
+    for (key, get) in [
+        (
+            "history.field.name",
+            (|r: &RepositorySnapshot| Some(r.name.clone()))
+                as fn(&RepositorySnapshot) -> Option<String>,
+        ),
+        ("history.field.address", |r| r.address.clone()),
+        ("history.field.phone", |r| r.phone.clone()),
+        ("history.field.email", |r| r.email.clone()),
+        ("history.field.website", |r| r.website.clone()),
+    ] {
+        group.row(i18n.t(key), before.and_then(get), get(after));
+    }
+    group.row(
+        i18n.t("history.section.notes"),
+        before.map(|r| join_notes(&r.notes)),
+        Some(join_notes(&after.notes)),
+    );
+    DiffSection {
+        title: i18n.t("history.record.repository"),
         groups: vec![group.finish()],
     }
 }

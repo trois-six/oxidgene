@@ -748,6 +748,7 @@ async fn write_document(
                 family_id: None,
                 source_id: None,
                 media_id: Some(document_id),
+                repository_id: None,
             },
         )
         .await

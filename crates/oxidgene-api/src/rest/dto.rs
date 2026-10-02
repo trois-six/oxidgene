@@ -196,7 +196,7 @@ pub struct PlaceListQuery {
 /// Query parameters for deleting a source.
 #[derive(Debug, Default, Deserialize)]
 pub struct DeleteSourceQuery {
-    /// Keep the source if any citation, note or media link still points at
+    /// Keep the source if any citation, note, media link or repository link still points at
     /// it. Answered by the status code: `204` deleted, `200` kept.
     #[serde(default)]
     pub only_if_unused: bool,
@@ -217,6 +217,24 @@ pub struct DeleteMediaQuery {
 #[derive(Debug, Deserialize)]
 pub struct MediaDeletionStatusQuery {
     pub allowed_link_id: uuid::Uuid,
+}
+
+/// Query parameters of a repository delete.
+#[derive(Debug, Deserialize)]
+pub struct DeleteRepositoryQuery {
+    /// Keep the repository if it still holds a source or is the subject of
+    /// a note. Answered by the status code: `204` deleted, `200` kept.
+    #[serde(default)]
+    pub only_if_unused: bool,
+}
+
+/// A source a repository holds, with the link saying under which call
+/// number.
+#[derive(Debug, Serialize)]
+pub struct HeldSource {
+    #[serde(flatten)]
+    pub link: oxidgene_core::types::SourceRepository,
+    pub source: Source,
 }
 
 /// Query parameters for listing citations by entity.
@@ -358,6 +376,7 @@ pub struct NoteListQuery {
     pub family_id: Option<uuid::Uuid>,
     pub source_id: Option<uuid::Uuid>,
     pub media_id: Option<uuid::Uuid>,
+    pub repository_id: Option<uuid::Uuid>,
     pub first: Option<u64>,
     pub after: Option<String>,
 }
@@ -571,13 +590,7 @@ impl From<oxidgene_db::repo::FamilyNameRename> for FamilyNameRenameDto {
     }
 }
 
-/// A source paired with its citation count.
-#[derive(Debug, Serialize)]
-pub struct SourceDictionaryEntry {
-    #[serde(flatten)]
-    pub source: Source,
-    pub count: i64,
-}
+pub use crate::service::source::SourceDictionaryEntry;
 
 /// A place paired with its usage count (events + media referencing it).
 #[derive(Debug, Serialize)]

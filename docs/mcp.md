@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: read-only tools that each name their tree, stdio transport, launch, consent, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T12:37:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
 ---
 
 # Assistant Access (MCP)
@@ -151,7 +151,7 @@ within that tree.
 | `get_relation_labels` | `tree_id`, `person_ids`, `family_ids` | `POST /trees/{tree_id}/relation-labels` | Names of the persons, and the spouses of the families with their names; at most 1,024 IDs |
 | `list_events` | `tree_id`, `person_id`, `family_id`, `event_type`, `first`, `after` | `GET /trees/{tree_id}/events` | Event connection |
 | `get_place` | `tree_id`, `place_id` | `GET /trees/{tree_id}/places/{place_id}` | Place |
-| `get_source` | `tree_id`, `source_id` | `GET /trees/{tree_id}/sources/{source_id}` | Source |
+| `get_source` | `tree_id`, `source_id` | `GET /trees/{tree_id}/sources/{source_id}` and `GET …/sources/{source_id}/repositories` | Source, with `repositories`: each holding repository's id and name, call number and medium |
 | `list_citations` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/citations` | Citation connection |
 | `list_notes` | `tree_id`, `person_id`, `event_id`, `family_id`, `source_id`, `first`, `after` | `GET /trees/{tree_id}/notes` | Note connection |
 | `list_dictionary` | `tree_id`, `kind` (`family_names`, `occupations`, `places`, `sources`), `prefix` (`sources` only) | `GET /trees/{tree_id}/dictionary/{kind}` | Values or records with usage counts |

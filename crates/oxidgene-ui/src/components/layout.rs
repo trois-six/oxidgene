@@ -4185,16 +4185,21 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     /* Bulk surname-particle editor, opened from a family-name row. */
-    .dict-particle-modal {
+    /* The Dictionary's editors: a family name, a source, a repository. */
+    .dict-edit-modal {
         background: var(--bg-panel);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: 20px 24px 16px;
         width: min(460px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
         box-shadow: var(--shadow-md);
     }
 
-    .dict-particle-header {
+    .dict-edit-modal.is-wide { width: min(600px, calc(100vw - 32px)); }
+
+    .dict-edit-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -4202,7 +4207,7 @@ pub const LAYOUT_STYLES: &str = r#"
         margin-bottom: 12px;
     }
 
-    .dict-particle-header h2 {
+    .dict-edit-header h2 {
         font-size: 1.05rem;
         color: var(--text-primary);
     }

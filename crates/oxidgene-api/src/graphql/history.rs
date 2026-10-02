@@ -6,14 +6,14 @@ use chrono::{DateTime, NaiveDate, Utc};
 use oxidgene_core::history::{
     AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, AuditSubject,
     ChildLinkSnapshot, CitationSnapshot, EventSnapshot, NameSnapshot, NoteSnapshot, PersonSnapshot,
-    PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, RecordVersion, SourceSnapshot,
-    SpouseAgeSnapshot, SpouseLinkSnapshot, TreeSnapshot, UnionSnapshot, VersionChange,
-    WitnessSnapshot,
+    PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, RecordVersion, RepositorySnapshot,
+    SourceRepositorySnapshot, SourceSnapshot, SpouseAgeSnapshot, SpouseLinkSnapshot, TreeSnapshot,
+    UnionSnapshot, VersionChange, WitnessSnapshot,
 };
 
 use super::types::{
     GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlEventType, GqlNameType,
-    GqlPrivacy, GqlSex, GqlSpouseRole, GqlTreeDefaultPrivacy,
+    GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
 };
 
 /// Declares a GraphQL enum mirroring a history enum, with conversions both
@@ -56,17 +56,17 @@ mirror_enum!(
     /// The kind of row a write changed.
     GqlAuditEntity => AuditEntity {
         Tree, Person, PersonName, PersonDistinct, Family, FamilySpouse, FamilyChild, Event,
-        EventWitness, Place, Source, Citation, Note, FamilyName, Media, MediaTag, MediaPage,
-        MediaLink, Vignette, Portrait,
+        EventWitness, Place, Source, SourceRepository, Repository, Citation, Note, FamilyName,
+        Media, MediaTag, MediaPage, MediaLink, Vignette, Portrait,
     }
 );
 mirror_enum!(
     /// The kind of record a write is about.
-    GqlAuditSubject => AuditSubject { Tree, Person, Family, Place, Source, Media }
+    GqlAuditSubject => AuditSubject { Tree, Person, Family, Place, Source, Repository, Media }
 );
 mirror_enum!(
     /// The kinds of record whose versions are kept.
-    GqlRecordType => RecordType { Person, Place, Source, Tree }
+    GqlRecordType => RecordType { Person, Place, Source, Repository, Tree }
 );
 
 fn id(uuid: uuid::Uuid) -> ID {
@@ -413,9 +413,9 @@ pub struct GqlSourceSnapshot {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     pub agency: Option<String>,
     pub notes: Vec<GqlNoteSnapshot>,
+    pub repositories: Vec<GqlSourceRepositorySnapshot>,
 }
 
 impl From<SourceSnapshot> for GqlSourceSnapshot {
@@ -425,9 +425,53 @@ impl From<SourceSnapshot> for GqlSourceSnapshot {
             author: s.author,
             publisher: s.publisher,
             abbreviation: s.abbreviation,
-            repository_name: s.repository_name,
             agency: s.agency,
             notes: convert(s.notes),
+            repositories: convert(s.repositories),
+        }
+    }
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSourceRepositorySnapshot {
+    pub id: ID,
+    pub repository_id: ID,
+    pub call_number: Option<String>,
+    pub media_type: Option<GqlSourceMediaType>,
+    pub sort_order: i32,
+}
+
+impl From<SourceRepositorySnapshot> for GqlSourceRepositorySnapshot {
+    fn from(l: SourceRepositorySnapshot) -> Self {
+        Self {
+            id: id(l.id),
+            repository_id: id(l.repository_id),
+            call_number: l.call_number,
+            media_type: l.media_type.map(Into::into),
+            sort_order: l.sort_order,
+        }
+    }
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlRepositorySnapshot {
+    pub name: String,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub website: Option<String>,
+    pub notes: Vec<GqlNoteSnapshot>,
+}
+
+impl From<RepositorySnapshot> for GqlRepositorySnapshot {
+    fn from(r: RepositorySnapshot) -> Self {
+        Self {
+            name: r.name,
+            address: r.address,
+            phone: r.phone,
+            email: r.email,
+            website: r.website,
+            notes: convert(r.notes),
         }
     }
 }
@@ -462,6 +506,7 @@ pub struct GqlRecordSnapshot {
     pub person: Option<GqlPersonSnapshot>,
     pub place: Option<GqlPlaceSnapshot>,
     pub source: Option<GqlSourceSnapshot>,
+    pub repository: Option<GqlRepositorySnapshot>,
     pub tree: Option<GqlTreeSnapshot>,
 }
 
@@ -472,12 +517,14 @@ impl From<RecordSnapshot> for GqlRecordSnapshot {
             person: None,
             place: None,
             source: None,
+            repository: None,
             tree: None,
         };
         match s {
             RecordSnapshot::Person(p) => snapshot.person = Some(p.into()),
             RecordSnapshot::Place(p) => snapshot.place = Some(p.into()),
             RecordSnapshot::Source(p) => snapshot.source = Some(p.into()),
+            RecordSnapshot::Repository(p) => snapshot.repository = Some(p.into()),
             RecordSnapshot::Tree(p) => snapshot.tree = Some(p.into()),
         }
         snapshot

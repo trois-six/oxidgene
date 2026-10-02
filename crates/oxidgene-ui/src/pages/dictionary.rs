@@ -18,11 +18,13 @@ use crate::components::modal::Modal;
 use crate::components::pager::Pager;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::print::PrintPageNote;
+use crate::components::source_forms::SourceEditor;
 use crate::components::suggest_input::ValueInput;
 use crate::components::tabs::Tabs;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary_media::DictionaryMedia;
+use crate::pages::dictionary_repositories::DictionaryRepositories;
 use crate::prefs::{SortParticles, use_sort_particles};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, use_traced_resource, use_ui_load_trace};
@@ -55,6 +57,7 @@ enum SourcesView {
 enum DictTab {
     FamilyNames,
     Sources,
+    Repositories,
     Places,
     Occupations,
     Media,
@@ -62,9 +65,10 @@ enum DictTab {
 
 impl DictTab {
     /// The tabs in their order, each with its label's key.
-    const ALL: [(Self, &'static str); 5] = [
+    const ALL: [(Self, &'static str); 6] = [
         (Self::FamilyNames, "dictionary.tab.family_names"),
         (Self::Sources, "dictionary.tab.sources"),
+        (Self::Repositories, "dictionary.tab.repositories"),
         (Self::Places, "dictionary.tab.places"),
         (Self::Occupations, "dictionary.tab.occupations"),
         (Self::Media, "dictionary.tab.media"),
@@ -191,7 +195,7 @@ impl OpenedTabs {
             DictTab::Sources => self.sources,
             DictTab::Places => self.places,
             DictTab::Occupations => self.occupations,
-            DictTab::Media => return,
+            DictTab::Repositories | DictTab::Media => return,
         };
         if !*opened.peek() {
             opened.set(true);
@@ -266,6 +270,7 @@ pub fn Dictionary(tree_id: String) -> Element {
     let api_fn = api.clone();
     let sort_particles = use_sort_particles();
     let mut family_name_edit = use_signal(|| None::<FamilyNameEdit>);
+    let mut source_edit = use_signal(|| None::<Uuid>);
 
     // Each tab asks for its data the first time it is opened, not when the
     // page opens: a tree's dictionary is four aggregations over all of it.
@@ -426,13 +431,33 @@ pub fn Dictionary(tree_id: String) -> Element {
                         filed: filed_occupations,
                     },
                 ),
-                DictTab::Sources => render_sources_tab(ctx, source_history, sources_view_resource),
+                DictTab::Sources => {
+                    render_sources_tab(ctx, source_history, sources_view_resource, source_edit)
+                }
+                // Its own module: a list of its own, edited in place.
+                DictTab::Repositories => match tree_id_parsed() {
+                    Some(tree_id) => rsx! { DictionaryRepositories { tree_id } },
+                    None => rsx! {},
+                },
                 DictTab::Places => render_places_tab(ctx, places_resource, filed_places),
                 // Its own module: server-paginated, with filters of its own.
                 DictTab::Media => match tree_id_parsed() {
                     Some(tree_id) => rsx! { DictionaryMedia { tree_id } },
                     None => rsx! {},
                 },
+            }
+
+            if let (Some(source_id), Some(tid)) = (source_edit(), tree_id_parsed()) {
+                SourceEditor {
+                    key: "{source_id}",
+                    tree_id: tid,
+                    source_id,
+                    on_close: move |()| source_edit.set(None),
+                    on_saved: move |()| {
+                        source_edit.set(None);
+                        sources_view_resource.restart();
+                    },
+                }
             }
 
             if let (Some(edit), Some(tid)) = (family_name_edit(), tree_id_parsed()) {
@@ -618,11 +643,11 @@ fn FamilyNameEditor(
 
     rsx! {
         Modal {
-            class: "dict-particle-modal",
+            class: "dict-edit-modal",
             label: i18n.t("dictionary.family_name.title"),
             on_close,
 
-            div { class: "dict-particle-header",
+            div { class: "dict-edit-header",
                 h2 { {i18n.t("dictionary.family_name.title")} }
                 button {
                     class: "person-form-close",
@@ -1385,13 +1410,18 @@ fn render_sources_groups(
 /// Renders the final flat list once the current prefix matches
 /// <= `SOURCES_DRILL_THRESHOLD` sources — no pagination, everything shown.
 fn render_sources_list(
-    i18n: I18n,
-    tree_id: &str,
+    ctx: TabContext,
     sources: &[SourceDictionaryEntry],
-    mut quick_filter: Signal<String>,
-    mut expanded: Signal<Option<UsageKey>>,
-    usage_people: Resource<(Option<UsageKey>, Vec<PersonUsageEntry>)>,
+    mut source_edit: Signal<Option<Uuid>>,
 ) -> Element {
+    let TabContext {
+        i18n,
+        tree_id,
+        filters,
+        mut expanded,
+        usage_people,
+    } = ctx;
+    let mut quick_filter = filters.quick;
     let quick = quick_filter();
     let filtered: Vec<&SourceDictionaryEntry> = sources
         .iter()
@@ -1431,11 +1461,16 @@ fn render_sources_list(
                     {
                         let key = UsageKey::Source(entry.source.id);
                         let is_open = expanded() == Some(key.clone());
-                        let meta = [entry.source.author.clone(), entry.source.repository_name.clone()]
-                            .into_iter()
-                            .flatten()
+                        // The author, then the repositories holding the source.
+                        let meta = entry
+                            .source
+                            .author
+                            .iter()
+                            .chain(entry.repositories.iter())
+                            .cloned()
                             .collect::<Vec<_>>()
                             .join(" \u{00B7} ");
+                        let source_id = entry.source.id;
                         rsx! {
                             div { key: "{entry.source.id}",
                                 div {
@@ -1459,6 +1494,15 @@ fn render_sources_list(
                                     span { class: "dict-row-count", {i18n.t_plural("dictionary.citation_count", entry.count as usize)} }
                                     button {
                                         class: "dict-row-action",
+                                        title: "{i18n.t(\"common.edit\")}",
+                                        onclick: move |e: Event<MouseData>| {
+                                            e.stop_propagation();
+                                            source_edit.set(Some(source_id));
+                                        },
+                                        "\u{270E}"
+                                    }
+                                    button {
+                                        class: "dict-row-action",
                                         title: "{i18n.t(\"dictionary.view_usage\")}",
                                         if is_open { "\u{25B2}" } else { "\u{25BC}" }
                                     }
@@ -1479,14 +1523,9 @@ fn render_sources_tab(
     ctx: TabContext,
     history: Signal<Vec<String>>,
     resource: TabResource<SourcesView>,
+    source_edit: Signal<Option<Uuid>>,
 ) -> Element {
-    let TabContext {
-        i18n,
-        tree_id,
-        filters,
-        expanded,
-        usage_people,
-    } = ctx;
+    let TabContext { i18n, filters, .. } = ctx;
     let quick_filter = filters.quick;
     let is_loading = !matches!(&*resource.read(), Some(Some(_)));
     let is_error = matches!(&*resource.read(), Some(Some(Err(_))));
@@ -1516,7 +1555,7 @@ fn render_sources_tab(
                     render_sources_groups(i18n, history, &prefix, total, &groups, quick_filter)
                 }
                 Some(SourcesView::List { sources, .. }) => {
-                    render_sources_list(i18n, tree_id, &sources, quick_filter, expanded, usage_people)
+                    render_sources_list(ctx, &sources, source_edit)
                 }
                 _ => rsx! {
                     div { class: "empty-state", {i18n.t("dictionary.no_entries_sources")} }

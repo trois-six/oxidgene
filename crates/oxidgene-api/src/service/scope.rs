@@ -18,6 +18,7 @@ pub(crate) enum TreeResource {
     EventWitness,
     Place,
     Source,
+    Repository,
     Citation,
     Note,
     Media,
@@ -37,6 +38,10 @@ impl TreeResource {
             ),
             Self::Place => ("place r", "r.tree_id = {tree}"),
             Self::Source => ("source r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
+            Self::Repository => (
+                "repository r",
+                "r.tree_id = {tree} AND r.deleted_at IS NULL",
+            ),
             Self::Citation => (
                 "citation r JOIN source s ON s.id = r.source_id",
                 "s.tree_id = {tree} AND s.deleted_at IS NULL",
@@ -62,6 +67,7 @@ impl TreeResource {
             Self::EventWitness => "EventWitness",
             Self::Place => "Place",
             Self::Source => "Source",
+            Self::Repository => "Repository",
             Self::Citation => "Citation",
             Self::Note => "Note",
             Self::Media => "Media",

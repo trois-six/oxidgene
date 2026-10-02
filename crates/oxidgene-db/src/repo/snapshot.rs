@@ -23,8 +23,9 @@ use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
     ChildLinkSnapshot, CitationSnapshot, EventSnapshot, NameSnapshot, NoteSnapshot, PersonSnapshot,
-    PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, SourceSnapshot, SpouseAgeSnapshot,
-    SpouseLinkSnapshot, TreeSnapshot, UnionSnapshot, WitnessSnapshot,
+    PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, RepositorySnapshot,
+    SourceRepositorySnapshot, SourceSnapshot, SpouseAgeSnapshot, SpouseLinkSnapshot, TreeSnapshot,
+    UnionSnapshot, WitnessSnapshot,
 };
 use oxidgene_core::types::join_surname_particle;
 use sea_orm::entity::prelude::*;
@@ -36,9 +37,10 @@ use super::HistoryRepo;
 use super::batch::in_chunks;
 use crate::entities::{
     citation, event, event_spouse_age, event_witness, family, family_child, family_spouse, note,
-    person, person_name, place, source, tree,
+    person, person_name, place, repository, source, source_repository, tree,
 };
 use crate::html::sanitize_note_html;
+use crate::repo::NoteFilter;
 use crate::repo::db_err;
 
 /// A record's state as its rows hold it now, ready to compare and store.
@@ -70,6 +72,7 @@ impl SnapshotRepo {
             RecordType::Person => Self::persons(db, tree_id, ids).await,
             RecordType::Place => Self::places(db, tree_id, ids).await,
             RecordType::Source => Self::sources(db, tree_id, ids).await,
+            RecordType::Repository => Self::repositories(db, tree_id, ids).await,
             RecordType::Tree if ids.contains(&tree_id) => Self::tree(db, tree_id).await,
             RecordType::Tree => Ok(Vec::new()),
         }
@@ -154,14 +157,103 @@ impl SnapshotRepo {
         })
         .await?;
         let notes_by_source = group(notes, |n| n.source_id.unwrap_or_default());
+        // Every link, the deleted repositories' included: they are the
+        // source's state, read while the repository is deleted.
+        let links = in_chunks(&ids, |chunk| async move {
+            source_repository::Entity::find()
+                .filter(source_repository::Column::SourceId.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
+        let repository_ids = sorted_unique(links.iter().map(|l| l.repository_id));
+        let repository_labels = repository_names(db, &repository_ids).await?;
+        let links_by_source = group(links, |l| l.source_id);
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let links = links_by_source.get(&row.id);
+                let labels: HashMap<Uuid, String> = links
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|l| {
+                        let label = repository_labels.get(&l.repository_id)?;
+                        Some((l.repository_id, label.clone()))
+                    })
+                    .collect();
+                BuiltSnapshot {
+                    record_id: row.id,
+                    deleted: row.deleted_at.is_some(),
+                    snapshot: RecordSnapshot::Source(SourceSnapshot {
+                        notes: sorted(
+                            notes_by_source
+                                .get(&row.id)
+                                .into_iter()
+                                .flatten()
+                                .map(note_snapshot)
+                                .collect(),
+                            |n: &NoteSnapshot| n.id,
+                        ),
+                        repositories: sorted(
+                            links
+                                .into_iter()
+                                .flatten()
+                                .map(|l| SourceRepositorySnapshot {
+                                    id: l.id,
+                                    repository_id: l.repository_id,
+                                    call_number: l.call_number.clone(),
+                                    media_type: l.media_type.map(Into::into),
+                                    sort_order: l.sort_order,
+                                })
+                                .collect(),
+                            |l: &SourceRepositorySnapshot| (l.sort_order, l.id),
+                        ),
+                        title: row.title,
+                        author: row.author,
+                        publisher: row.publisher,
+                        abbreviation: row.abbreviation,
+                        agency: row.agency,
+                    }),
+                    labels: into_labels(labels),
+                }
+            })
+            .collect())
+    }
+
+    async fn repositories(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        ids: &[Uuid],
+    ) -> Result<Vec<BuiltSnapshot>, OxidGeneError> {
+        let rows: Vec<repository::Model> = in_chunks(ids, |chunk| async move {
+            repository::Entity::find()
+                .filter(repository::Column::TreeId.eq(tree_id))
+                .filter(repository::Column::Id.is_in(chunk))
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
+        let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
+        let notes = in_chunks(&ids, |chunk| async move {
+            note::Entity::find()
+                .filter(note::Column::RepositoryId.is_in(chunk))
+                .filter(note::Column::DeletedAt.is_null())
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
+        let notes_by_repository = group(notes, |n| n.repository_id.unwrap_or_default());
         Ok(rows
             .into_iter()
             .map(|row| BuiltSnapshot {
                 record_id: row.id,
                 deleted: row.deleted_at.is_some(),
-                snapshot: RecordSnapshot::Source(SourceSnapshot {
+                snapshot: RecordSnapshot::Repository(RepositorySnapshot {
                     notes: sorted(
-                        notes_by_source
+                        notes_by_repository
                             .get(&row.id)
                             .into_iter()
                             .flatten()
@@ -169,12 +261,11 @@ impl SnapshotRepo {
                             .collect(),
                         |n: &NoteSnapshot| n.id,
                     ),
-                    title: row.title,
-                    author: row.author,
-                    publisher: row.publisher,
-                    abbreviation: row.abbreviation,
-                    repository_name: row.repository_name,
-                    agency: row.agency,
+                    name: row.name,
+                    address: row.address,
+                    phone: row.phone,
+                    email: row.email,
+                    website: row.website,
                 }),
                 labels: Vec::new(),
             })
@@ -326,13 +417,46 @@ impl SnapshotRepo {
         active.author = Set(snapshot.author.clone());
         active.publisher = Set(snapshot.publisher.clone());
         active.abbreviation = Set(snapshot.abbreviation.clone());
-        active.repository_name = Set(snapshot.repository_name.clone());
         active.agency = Set(snapshot.agency.clone());
         active.deleted_at = Set(None);
         active.updated_at = Set(now);
         active.update(db).await.map_err(db_err)?;
-        Restorer::new(db, tree_id, &[])
+        let mut restorer = Restorer::new(db, tree_id, &[]);
+        restorer
             .notes(NoteOwner::Source(source_id), &snapshot.notes)
+            .await?;
+        restorer
+            .source_repositories(source_id, &snapshot.repositories)
+            .await
+    }
+
+    /// Write a repository snapshot back, undeleting the repository.
+    pub async fn restore_repository(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        repository_id: Uuid,
+        snapshot: &RepositorySnapshot,
+    ) -> Result<(), OxidGeneError> {
+        let existing = repository::Entity::find_by_id(repository_id)
+            .filter(repository::Column::TreeId.eq(tree_id))
+            .one(db)
+            .await
+            .map_err(db_err)?
+            .ok_or(OxidGeneError::NotFound {
+                entity: "Repository",
+                id: repository_id,
+            })?;
+        let mut active = existing.into_active_model();
+        active.name = Set(snapshot.name.clone());
+        active.address = Set(snapshot.address.clone());
+        active.phone = Set(snapshot.phone.clone());
+        active.email = Set(snapshot.email.clone());
+        active.website = Set(snapshot.website.clone());
+        active.deleted_at = Set(None);
+        active.updated_at = Set(Utc::now());
+        active.update(db).await.map_err(db_err)?;
+        Restorer::new(db, tree_id, &[])
+            .notes(NoteOwner::Repository(repository_id), &snapshot.notes)
             .await
     }
 
@@ -990,6 +1114,26 @@ async fn live_persons(
     .collect())
 }
 
+async fn repository_names(
+    db: &impl ConnectionTrait,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, String>, OxidGeneError> {
+    Ok(in_chunks(ids, |chunk| async move {
+        repository::Entity::find()
+            .select_only()
+            .column(repository::Column::Id)
+            .column(repository::Column::Name)
+            .filter(repository::Column::Id.is_in(chunk))
+            .into_tuple::<(Uuid, String)>()
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?
+    .into_iter()
+    .collect())
+}
+
 async fn place_names(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
@@ -1106,6 +1250,7 @@ enum NoteOwner {
     Event(Uuid),
     Family(Uuid),
     Source(Uuid),
+    Repository(Uuid),
 }
 
 #[derive(Clone, Copy)]
@@ -1330,17 +1475,28 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         notes: &[NoteSnapshot],
     ) -> Result<(), OxidGeneError> {
         let now = Utc::now();
-        let (person_id, event_id, family_id, source_id) = match owner {
-            NoteOwner::Person(id) => (Some(id), None, None, None),
-            NoteOwner::Event(id) => (None, Some(id), None, None),
-            NoteOwner::Family(id) => (None, None, Some(id), None),
-            NoteOwner::Source(id) => (None, None, None, Some(id)),
-        };
+        let mut target = NoteFilter::default();
         let owner_filter = match owner {
-            NoteOwner::Person(id) => note::Column::PersonId.eq(id),
-            NoteOwner::Event(id) => note::Column::EventId.eq(id),
-            NoteOwner::Family(id) => note::Column::FamilyId.eq(id),
-            NoteOwner::Source(id) => note::Column::SourceId.eq(id),
+            NoteOwner::Person(id) => {
+                target.person_id = Some(id);
+                note::Column::PersonId.eq(id)
+            }
+            NoteOwner::Event(id) => {
+                target.event_id = Some(id);
+                note::Column::EventId.eq(id)
+            }
+            NoteOwner::Family(id) => {
+                target.family_id = Some(id);
+                note::Column::FamilyId.eq(id)
+            }
+            NoteOwner::Source(id) => {
+                target.source_id = Some(id);
+                note::Column::SourceId.eq(id)
+            }
+            NoteOwner::Repository(id) => {
+                target.repository_id = Some(id);
+                note::Column::RepositoryId.eq(id)
+            }
         };
         let wanted: Vec<Uuid> = notes.iter().map(|n| n.id).collect();
         note::Entity::update_many()
@@ -1361,11 +1517,12 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 // table is not a trusted source either: a restore is a note
                 // write like any other and goes through the same filter.
                 text: Set(sanitize_note_html(&snapshot.text)),
-                person_id: Set(person_id),
-                event_id: Set(event_id),
-                family_id: Set(family_id),
-                source_id: Set(source_id),
+                person_id: Set(target.person_id),
+                event_id: Set(target.event_id),
+                family_id: Set(target.family_id),
+                source_id: Set(target.source_id),
                 media_id: Set(None),
+                repository_id: Set(target.repository_id),
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
@@ -1375,6 +1532,49 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 row,
                 note::Entity::find_by_id(snapshot.id),
                 &[note::Column::CreatedAt],
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Replace a source's repository links with the snapshot's, skipping
+    /// those whose repository no longer exists at all.
+    async fn source_repositories(
+        &mut self,
+        source_id: Uuid,
+        links: &[SourceRepositorySnapshot],
+    ) -> Result<(), OxidGeneError> {
+        let wanted: Vec<Uuid> = links.iter().map(|l| l.id).collect();
+        source_repository::Entity::delete_many()
+            .filter(source_repository::Column::SourceId.eq(source_id))
+            .filter(source_repository::Column::Id.is_not_in(wanted))
+            .exec(self.db)
+            .await
+            .map_err(db_err)?;
+        for link in links {
+            let exists = repository::Entity::find_by_id(link.repository_id)
+                .filter(repository::Column::TreeId.eq(self.tree_id))
+                .one(self.db)
+                .await
+                .map_err(db_err)?
+                .is_some();
+            if !exists {
+                continue;
+            }
+            let row = source_repository::ActiveModel {
+                id: Set(link.id),
+                source_id: Set(source_id),
+                repository_id: Set(link.repository_id),
+                call_number: Set(link.call_number.clone()),
+                media_type: Set(link.media_type.map(Into::into)),
+                sort_order: Set(link.sort_order),
+            };
+            upsert(
+                self.db,
+                row,
+                source_repository::Entity::find_by_id(link.id),
+                &[],
             )
             .await?;
         }

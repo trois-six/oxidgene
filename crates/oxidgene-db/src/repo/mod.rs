@@ -32,6 +32,7 @@ mod person_merge;
 mod person_name;
 mod person_search;
 mod place;
+mod repository;
 mod snapshot;
 mod source;
 mod tree;
@@ -74,6 +75,10 @@ pub use person_search::{
     RELATIVE_SEP,
 };
 pub use place::PlaceRepo;
+pub use repository::{
+    RepositoryFields, RepositoryPatch, RepositoryRepo, SourceRepositoryFields,
+    SourceRepositoryPatch, SourceRepositoryRepo,
+};
 pub use snapshot::{BuiltSnapshot, SnapshotRepo, display_names};
 pub use source::SourceRepo;
 pub use tree::{TreeChanges, TreeRepo};

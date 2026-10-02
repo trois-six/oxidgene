@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex, SpouseRole,
-    TreeDefaultPrivacy,
+    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex,
+    SourceMediaType, SpouseRole, TreeDefaultPrivacy,
 };
 
 /// Declares a string-backed history enum: snake_case on the wire and in the
@@ -122,6 +122,9 @@ string_enum! {
         EventWitness => "event_witness",
         Place => "place",
         Source => "source",
+        /// A source's link to a repository holding it.
+        SourceRepository => "source_repository",
+        Repository => "repository",
         Citation => "citation",
         Note => "note",
         /// A surname's particle re-cut across every person bearing it.
@@ -143,6 +146,7 @@ string_enum! {
         Family => "family",
         Place => "place",
         Source => "source",
+        Repository => "repository",
         Media => "media",
     }
 }
@@ -154,7 +158,10 @@ string_enum! {
         /// notes, citations, parents, and unions.
         Person => "person",
         Place => "place",
+        /// A source with its notes and the repositories holding it.
         Source => "source",
+        /// A repository with its notes.
+        Repository => "repository",
         /// The tree's settings.
         Tree => "tree",
     }
@@ -307,6 +314,7 @@ pub enum RecordSnapshot {
     Person(PersonSnapshot),
     Place(PlaceSnapshot),
     Source(SourceSnapshot),
+    Repository(RepositorySnapshot),
     Tree(TreeSnapshot),
 }
 
@@ -317,6 +325,7 @@ impl RecordSnapshot {
             Self::Person(_) => RecordType::Person,
             Self::Place(_) => RecordType::Place,
             Self::Source(_) => RecordType::Source,
+            Self::Repository(_) => RecordType::Repository,
             Self::Tree(_) => RecordType::Tree,
         }
     }
@@ -472,9 +481,32 @@ pub struct SourceSnapshot {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     #[serde(default)]
     pub agency: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<NoteSnapshot>,
+    /// The repositories holding the source, in order.
+    #[serde(default)]
+    pub repositories: Vec<SourceRepositorySnapshot>,
+}
+
+/// A source's link to a repository, which the version's labels name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceRepositorySnapshot {
+    pub id: Uuid,
+    pub repository_id: Uuid,
+    pub call_number: Option<String>,
+    pub media_type: Option<SourceMediaType>,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepositorySnapshot {
+    pub name: String,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub website: Option<String>,
     #[serde(default)]
     pub notes: Vec<NoteSnapshot>,
 }

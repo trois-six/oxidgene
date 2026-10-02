@@ -17,6 +17,8 @@ const TABLES: &[&str] = &[
     "event_witness",
     "event_spouse_age",
     "source",
+    "repository",
+    "source_repository",
     "citation",
     "media",
     "media_link",
@@ -135,6 +137,12 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
     }
     assert!(!manager.has_table("person_ancestry").await.unwrap());
     assert!(!manager.has_column("media", "is_document").await.unwrap());
+    assert!(
+        !manager
+            .has_column("source", "repository_name")
+            .await
+            .unwrap()
+    );
 
     for (table, columns) in [
         (
@@ -149,6 +157,11 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
             "date_qualifier, date_value2, calendar, cause, age, agency",
         ),
         ("source", "agency"),
+        ("note", "repository_id"),
+        (
+            "source_repository",
+            "source_id, repository_id, call_number, media_type, sort_order",
+        ),
         (
             "media",
             "storage_key, sha256, thumbnail_key, width, height, page_count, parent_media_id, page_index, date_qualifier, date_value2, calendar, source_media_type, document_category, place_id, privacy",

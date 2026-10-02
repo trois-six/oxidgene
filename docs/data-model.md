@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
 ---
 
 
@@ -270,11 +270,51 @@ text is valid.
 | `author` | String? | |
 | `publisher` | String? | |
 | `abbreviation` | String? | |
-| `repository_name` | String? | |
 | `agency` | String? | The organisation responsible for the source's data (GEDCOM `SOUR.DATA.AGNC`) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
+
+The repositories holding a source are `SourceRepository` links, not a field
+of the source. A cleanup delete (`only_if_unused`) keeps a source a citation,
+note, media link or repository link still names.
+
+### Repository
+
+An archive, library or registry office holding sources (GEDCOM `REPO`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | FK → Tree (cascade) |
+| `name` | String | Required, never blank |
+| `address` | Text? | Postal address over several lines |
+| `phone` | String? | |
+| `email` | String? | |
+| `website` | String? | |
+| `created_at` | DateTime | Auto |
+| `updated_at` | DateTime | Auto |
+| `deleted_at` | DateTime? | Soft delete |
+
+Notes about a repository are `Note` rows carrying `repository_id`.
+
+### SourceRepository
+
+That a source is held at a repository under one call number (GEDCOM
+`SOUR.REPO` with `CALN` and `MEDI`): a source held under several call numbers
+at one repository has one row per call number.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `source_id` | UUID v7 | FK → Source (cascade) |
+| `repository_id` | UUID v7 | FK → Repository (cascade) |
+| `call_number` | String? | The repository's reference for the source |
+| `media_type` | SourceMediaType? | The medium the source is kept on there |
+| `sort_order` | i32 | Order among the source's links |
+
+A soft-deleted repository keeps its links, unread while it is deleted:
+restoring it brings them back.
 
 ### Citation
 
@@ -491,6 +531,7 @@ page number of its own: the page it belongs to is the media it points at.
 | `family_id` | UUID v7? | FK → Family |
 | `source_id` | UUID v7? | FK → Source |
 | `media_id` | UUID v7? | FK → Media — a note about one media record, distinct from `Media.description`, which is the caption under its tile. On a multi-page document, the parent id carries the general document note while a page id carries that page's transcript. |
+| `repository_id` | UUID v7? | FK → Repository (cascade) — a note about a repository |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -950,7 +991,7 @@ leaves no entry, and no entry describes a write that did not happen.
 | `action` | String | `create`, `update`, `delete`, `merge`, `import`, `export`, `revert` |
 | `entity` | String | Kind of row written: `person`, `person_name`, `event`, `event_witness`, `family_spouse`, `media_tag`, `vignette`, `portrait`, `family_name`, … |
 | `entity_id` | UUID? | The row written, when there is a single one |
-| `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `media`, `tree` |
+| `subject` | String? | Kind of record the write is about: `person`, `family`, `place`, `source`, `repository`, `media`, `tree` |
 | `subject_id` | UUID? | That record |
 | `label` | String? | The subject's display name at the time — it outlives a later rename or deletion |
 | `details` | JSON? | `AuditDetails`: `format`, `file_name`, `count`, `event_type`, `version`, `other_label`, `new_label` (the name a family-name rename gave) — only what applies |
@@ -959,7 +1000,7 @@ What is recorded:
 
 | Category | Writes |
 |---|---|
-| `data` | Persons, names, distinct-person confirmations, merges, families, spouse and child links, events, witnesses, places, sources, citations, notes, surname particle re-cuts and family-name renames |
+| `data` | Persons, names, distinct-person confirmations, merges, families, spouse and child links, events, witnesses, places, sources, repositories, sources' repository links, citations, notes, surname particle re-cuts and family-name renames |
 | `settings` | Creating, updating and deleting the tree itself |
 | `media` | Documents, pages, uploads, metadata, tags, page order, vignettes, media links, portraits, and notes about a media |
 | `import` | Completed GEDCOM, GEDZIP, GeneWeb and Geneanet imports, and the tree a duplication creates (`format: duplicate`) |
@@ -987,7 +1028,7 @@ and ends with `id`, so a page of the log is an index range in its own order.
 | `id` | UUID v7 | PK |
 | `tree_id` | UUID v7 | FK → Tree (cascade) |
 | `audit_entry_id` | UUID v7 | FK → `audit_entry` (cascade) — the write that replaced this state; its `occurred_at` is the state's end |
-| `record_type` | String | `person`, `place`, `source`, `tree` |
+| `record_type` | String | `person`, `place`, `source`, `repository`, `tree` |
 | `record_id` | UUID v7 | The record; the tree's own ID for `tree` |
 | `version` | i32 | 1 for the oldest state stored, then one more per state; unique with `(record_type, record_id)` |
 | `deleted` | bool | The record was deleted in this state |
@@ -1004,7 +1045,10 @@ privacy, all its spouses and children, and its events, notes and citations.
 Portraits, media links and notes about a media are left out: media are audited,
 never versioned. A place's snapshot is its name and coordinates; a source's,
 its fields and notes; the tree's, its name, description, default privacy, SOSA
-root and "self" person.
+root and "self" person. A source's snapshot also lists its repository links —
+repository, call number, medium, order — with the repositories' names in
+`labels`; a repository's holds its name, address, contact details and notes. A
+family event's snapshot lists the spouses' ages, by membership.
 
 **References are IDs.** A snapshot names places, sources, witnesses, spouses,
 children and parent families by ID only, and their display labels travel beside

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:50:47Z }
 ---
 
 
@@ -354,7 +354,31 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/sources` | Create a source; a blank `title` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
-| `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note or media link still points at it — `204` deleted, `200` kept |
+| `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note, media link or repository link still points at it — `204` deleted, `200` kept |
+
+### Repositories
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/trees/{tree_id}/repositories` | List repositories (cursor-paginated) |
+| `POST` | `/trees/{tree_id}/repositories` | Create a repository; a blank `name` is a `validation_error`; `address`, `phone`, `email`, `website` optional |
+| `GET` | `/trees/{tree_id}/repositories/{repository_id}` | Get a repository |
+| `PUT` | `/trees/{tree_id}/repositories/{repository_id}` | Update a repository: omitted keeps, `null` clears; a blank `name` is a `validation_error` |
+| `DELETE` | `/trees/{tree_id}/repositories/{repository_id}` | Soft-delete a repository. With `?only_if_unused=true` it is kept while a live source is held there or a note is about it — `204` deleted, `200` kept |
+| `GET` | `/trees/{tree_id}/repositories/{repository_id}/sources` | The live sources it holds: each link with its `source` |
+| `GET` | `/trees/{tree_id}/sources/{source_id}/repositories` | A source's links to the live repositories holding it, in order |
+| `POST` | `/trees/{tree_id}/sources/{source_id}/repositories` | Link a source to a repository of the tree: `repository_id`, optional `call_number`, `media_type` (`SourceMediaType`), `sort_order` (after the others when omitted). One link per call number |
+| `PUT` | `/trees/{tree_id}/sources/{source_id}/repositories/{link_id}` | Update a link (`repository_id`, `call_number`, `media_type`, `sort_order`); a link of another source is `not_found` |
+| `DELETE` | `/trees/{tree_id}/sources/{source_id}/repositories/{link_id}` | Remove a link; a link of another source is `not_found` |
+
+GraphQL: `repositories`, `repository`, `Source.repositories`
+(`SourceRepository { callNumber mediaType sortOrder repository source }`),
+`Repository.sources`, `createRepository`, `updateRepository`,
+`deleteRepository(onlyIfUnused)`, `addSourceRepository`,
+`updateSourceRepository`, `removeSourceRepository` — same validation and
+errors. Notes take a `repository_id` (`repositoryId`) like the other owners,
+and list by it. Every write records a change: a repository is a versioned
+record, a link versions its source.
 
 ### Citations
 
@@ -1894,6 +1918,8 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Notes (NOTE) | Full | Full | Inline and referenced notes, as many per person, event or attribute as the file holds — `ged_io` keeps one, so the import joins them before parsing and splits them again, and the export writes each one where `ged_io` writes the first. A note, text, cause, page, or source title, author, publication or abbreviation too long for one GEDCOM line continues on `CONC` lines, never split beside a space (readers trim a `CONC` value); on import, the spaces opening a `CONC` value are kept, so files whose writer split beside a space read back word for word. A `NOTE @N1@` pointer to a 5.5.1 note record, or a 7.0 `SNOTE`, imports the text of the record it points at; a pointer to a record the file does not hold is left out with a warning naming its line |
 | Cause (CAUS) | Full | Full | On any event |
 | Age at event (`AGE`) | Full | Full | On an individual event or attribute (each profession a split `OCCU` becomes keeps it), stored in canonical form (`34y`, `< 1y 6m`, `CHILD`). A value that is not a GEDCOM age — free text such as `2 AGE majeur`, or an empty `AGE` — would make `ged_io` reject the whole file, so it is left out before parsing and reported as one warning naming its line (never its value). Written without the GEDCOM 7.0 `PHRASE` `ged_io` would emit |
+| Repositories (`REPO`) | Full | Full | Name, address (several lines), first phone, email and website, notes. `ged_io` writes only the name, so the export adds the rest |
+| Source repository citations (`SOUR.REPO`) | Full | Full | Each becomes a link with its call number (`CALN`) and medium (`MEDI`, written in 5.5.1's lower case; a medium without a call number goes under an empty `CALN`). `ged_io` writes neither, so the export writes the whole structure. A citation without a pointer names a repository by its text — the line's, else its notes' — created once per distinct text; a pointer to a record the file does not hold is a warning. Several `CALN` under one citation collapse to the last (`ged_io`); a citation's own `NOTE` is not kept |
 | Spouse ages (`HUSB.AGE`, `WIFE.AGE`) | Full | Full | On a family event, the age of the family's `HUSB` and `WIFE`; written back under the slot each spouse is exported in, a spouse without a slot being a warning |
 | Agency (`AGNC`) | Full | Full | On an individual event or attribute, and a source's `DATA.AGNC`, which `ged_io` does not write and the export adds itself |
 | Child pedigree (PEDI) | Full | Full | Biological, Adopted, Foster |
@@ -1927,7 +1953,6 @@ the next block for a `fam`, and reported as one warning naming its line.
 
 ### Not currently imported (silently skipped)
 
-- Repository records (`REPO`)
 - Submitter records (`SUBM`)
 - Religion of a single event (`RELI` under an event; `RELI` as an individual
   attribute is imported, see above)

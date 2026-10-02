@@ -24,6 +24,7 @@ pub async fn list_notes(
         family_id: query.family_id,
         source_id: query.source_id,
         media_id: query.media_id,
+        repository_id: query.repository_id,
     };
     let params = PaginationParams {
         first: query.first.unwrap_or(25),

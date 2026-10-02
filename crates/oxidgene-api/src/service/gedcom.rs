@@ -9,13 +9,14 @@ use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::entities::{
     citation, event, event_spouse_age, event_witness, family, family_child, family_spouse, media,
-    media_link, media_tag, note, person, person_name, place, sea_enums, source, vignette,
+    media_link, media_tag, note, person, person_name, place, repository, sea_enums, source,
+    source_repository, vignette,
 };
 use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
     CitationRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo,
-    MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo,
-    TreeRepo, VignetteRepo, db_err,
+    MediaLinkRepo, MediaRepo, NoteRepo, PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo,
+    SourceRepo, SourceRepositoryRepo, TreeRepo, VignetteRepo, db_err,
 };
 use oxidgene_gedcom::import::import_gedcom;
 use sea_orm::{
@@ -366,7 +367,6 @@ async fn insert_standalone_records(
                 author: Set(s.author.clone()),
                 publisher: Set(s.publisher.clone()),
                 abbreviation: Set(s.abbreviation.clone()),
-                repository_name: Set(s.repository_name.clone()),
                 agency: Set(s.agency.clone()),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -375,6 +375,10 @@ async fn insert_standalone_records(
             .collect();
         batch_insert::<source::Entity, _>(db, models, on_inserted).await?;
     }
+
+    // 2b. Repositories, then the links saying which sources each holds.
+    // Not counted: progress counts the records the summary reports.
+    insert_repositories(db, result, now).await?;
 
     // 3. Media (no FKs to other imported entities)
     if !result.media.is_empty() {
@@ -436,6 +440,44 @@ async fn insert_standalone_records(
     }
 
     Ok(())
+}
+
+/// Inserts the imported repositories and the sources' links to them.
+async fn insert_repositories(
+    db: &impl ConnectionTrait,
+    result: &oxidgene_gedcom::ImportResult,
+    now: DateTime<Utc>,
+) -> Result<(), OxidGeneError> {
+    let models: Vec<repository::ActiveModel> = result
+        .repositories
+        .iter()
+        .map(|r| repository::ActiveModel {
+            id: Set(r.id),
+            tree_id: Set(r.tree_id),
+            name: Set(r.name.clone()),
+            address: Set(r.address.clone()),
+            phone: Set(r.phone.clone()),
+            email: Set(r.email.clone()),
+            website: Set(r.website.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            deleted_at: Set(None),
+        })
+        .collect();
+    batch_insert::<repository::Entity, _>(db, models, &mut |_| {}).await?;
+    let links: Vec<source_repository::ActiveModel> = result
+        .source_repositories
+        .iter()
+        .map(|l| source_repository::ActiveModel {
+            id: Set(l.id),
+            source_id: Set(l.source_id),
+            repository_id: Set(l.repository_id),
+            call_number: Set(l.call_number.clone()),
+            media_type: Set(l.media_type.map(Into::into)),
+            sort_order: Set(l.sort_order),
+        })
+        .collect();
+    batch_insert::<source_repository::Entity, _>(db, links, &mut |_| {}).await
 }
 
 /// Inserts the imported persons and their names, then the families with
@@ -675,6 +717,7 @@ async fn insert_attached_records(
                 family_id: Set(n.family_id),
                 source_id: Set(n.source_id),
                 media_id: Set(n.media_id),
+                repository_id: Set(n.repository_id),
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
@@ -772,24 +815,13 @@ pub async fn load_and_export(
     let export_result = tracing::info_span!("export.serialize", export.format = "gedcom")
         .in_scope(|| {
             oxidgene_gedcom::export::export_gedcom(
-                &records.persons,
-                &records.person_names,
-                &records.families,
-                &records.family_spouses,
-                &records.family_children,
-                &records.events,
-                &records.event_witnesses,
-                &records.places,
-                &records.sources,
-                &records.citations,
-                &records.media,
-                &records.media_links,
-                &records.vignettes,
-                &records.notes,
-                merge_occupations,
-                merge_names,
-                &media_paths,
-                tree.self_person_id,
+                &records.export_records(),
+                &oxidgene_gedcom::export::ExportOptions {
+                    merge_occupations,
+                    merge_names,
+                    media_paths: &media_paths,
+                    self_person_id: tree.self_person_id,
+                },
             )
         })
         .map_err(OxidGeneError::Gedcom)?;
@@ -813,6 +845,8 @@ struct TreeRecords {
     event_witnesses: Vec<oxidgene_core::types::EventWitness>,
     places: Vec<oxidgene_core::types::Place>,
     sources: Vec<oxidgene_core::types::Source>,
+    repositories: Vec<oxidgene_core::types::Repository>,
+    source_repositories: Vec<oxidgene_core::types::SourceRepository>,
     citations: Vec<oxidgene_core::types::Citation>,
     media: Vec<oxidgene_core::types::Media>,
     media_links: Vec<oxidgene_core::types::MediaLink>,
@@ -821,6 +855,28 @@ struct TreeRecords {
 }
 
 impl TreeRecords {
+    /// The records as the exporter takes them.
+    fn export_records(&self) -> oxidgene_gedcom::export::ExportRecords<'_> {
+        oxidgene_gedcom::export::ExportRecords {
+            persons: &self.persons,
+            person_names: &self.person_names,
+            families: &self.families,
+            family_spouses: &self.family_spouses,
+            family_children: &self.family_children,
+            events: &self.events,
+            event_witnesses: &self.event_witnesses,
+            places: &self.places,
+            sources: &self.sources,
+            repositories: &self.repositories,
+            source_repositories: &self.source_repositories,
+            citations: &self.citations,
+            media: &self.media,
+            media_links: &self.media_links,
+            vignettes: &self.vignettes,
+            notes: &self.notes,
+        }
+    }
+
     async fn load(db: &DatabaseConnection, tree_id: Uuid) -> Result<Self, OxidGeneError> {
         let mut records = Self::default();
         records.load_lineage(db, tree_id).await?;
@@ -868,6 +924,8 @@ impl TreeRecords {
         self.sources = SourceRepo::list_all(db, tree_id).await?;
         let source_ids: Vec<_> = self.sources.iter().map(|s| s.id).collect();
         self.citations = CitationRepo::list_by_sources(db, &source_ids).await?;
+        self.repositories = RepositoryRepo::list_all(db, tree_id).await?;
+        self.source_repositories = SourceRepositoryRepo::list_by_sources(db, &source_ids).await?;
         self.media = MediaRepo::list_all(db, tree_id).await?;
         let media_ids: Vec<_> = self.media.iter().map(|m| m.id).collect();
         self.media_links = MediaLinkRepo::list_by_medias(db, &media_ids).await?;

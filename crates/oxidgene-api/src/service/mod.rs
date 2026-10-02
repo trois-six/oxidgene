@@ -30,6 +30,7 @@ pub mod place;
 pub mod portrait;
 pub mod purge;
 pub mod relation_labels;
+pub mod repository;
 pub mod scope;
 pub(crate) mod session_media;
 pub mod source;

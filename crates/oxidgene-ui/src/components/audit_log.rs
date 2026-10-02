@@ -296,6 +296,7 @@ fn record_title(i18n: &I18n, change: &VersionChange) -> String {
         Some(RecordSnapshot::Person(person)) => snapshot_name(person),
         Some(RecordSnapshot::Place(place)) => Some(place.name.clone()),
         Some(RecordSnapshot::Source(source)) => Some(source.title.clone()),
+        Some(RecordSnapshot::Repository(repository)) => Some(repository.name.clone()),
         Some(RecordSnapshot::Tree(tree)) => Some(tree.name.clone()),
         None => None,
     };

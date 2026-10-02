@@ -8,7 +8,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, S
 use uuid::Uuid;
 
 use crate::entities::source::{self, ActiveModel, Column, Entity};
-use crate::entities::{citation, media_link, note};
+use crate::entities::{citation, media_link, note, source_repository};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
@@ -90,7 +90,6 @@ impl SourceRepo {
         author: Option<String>,
         publisher: Option<String>,
         abbreviation: Option<String>,
-        repository_name: Option<String>,
         agency: Option<String>,
     ) -> Result<Source, OxidGeneError> {
         let now = Utc::now();
@@ -101,7 +100,6 @@ impl SourceRepo {
             author: Set(author),
             publisher: Set(publisher),
             abbreviation: Set(abbreviation),
-            repository_name: Set(repository_name),
             agency: Set(agency),
             created_at: Set(now),
             updated_at: Set(now),
@@ -120,7 +118,6 @@ impl SourceRepo {
         author: Option<Option<String>>,
         publisher: Option<Option<String>>,
         abbreviation: Option<Option<String>>,
-        repository_name: Option<Option<String>>,
         agency: Option<Option<String>>,
     ) -> Result<Source, OxidGeneError> {
         let existing = find_live(db, id).await?;
@@ -137,9 +134,6 @@ impl SourceRepo {
         }
         if let Some(abbreviation) = abbreviation {
             active.abbreviation = Set(abbreviation);
-        }
-        if let Some(repository_name) = repository_name {
-            active.repository_name = Set(repository_name);
         }
         if let Some(agency) = agency {
             active.agency = Set(agency);
@@ -166,9 +160,9 @@ impl SourceRepo {
     /// Free-text source entry mints a `Source` per distinct title, so a typo
     /// corrected on the next save would otherwise leave its row in the tree —
     /// and in the source dictionary — forever. A source is "unused" only when
-    /// no citation, note *and* media link reference it; a source that is
-    /// still cited anywhere is left alone, so this can never take out a
-    /// source the user is relying on.
+    /// no citation, note, media link *and* repository link reference it; a
+    /// source that is still cited, or was catalogued at a repository, is left
+    /// alone, so this can never take out a source the user is relying on.
     ///
     /// Returns `Ok(false)` for a source that is still referenced, and for one
     /// that is already gone — the caller asked for it to be absent, and it is.
@@ -208,6 +202,15 @@ impl SourceRepo {
             return Ok(false);
         }
 
+        let held = source_repository::Entity::find()
+            .filter(source_repository::Column::SourceId.eq(id))
+            .count(db)
+            .await
+            .map_err(db_err)?;
+        if referenced(held) {
+            return Ok(false);
+        }
+
         match Self::delete(db, id).await {
             Ok(()) => Ok(true),
             Err(OxidGeneError::NotFound { .. }) => Ok(false),
@@ -224,7 +227,6 @@ fn into_domain(m: source::Model) -> Source {
         author: m.author,
         publisher: m.publisher,
         abbreviation: m.abbreviation,
-        repository_name: m.repository_name,
         agency: m.agency,
         created_at: m.created_at,
         updated_at: m.updated_at,

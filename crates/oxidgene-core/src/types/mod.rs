@@ -13,6 +13,7 @@ mod note;
 mod pagination;
 mod person;
 mod place;
+mod repository;
 mod source;
 mod surname;
 mod tree;
@@ -30,6 +31,7 @@ pub use note::Note;
 pub use pagination::{Connection, Edge, PageInfo};
 pub use person::{AncestryLink, Person, PersonName};
 pub use place::Place;
+pub use repository::{Repository, SourceRepository};
 pub use source::Source;
 pub use surname::{
     join_surname_particle, split_surname_at_head, split_surname_particle, split_surname_with,

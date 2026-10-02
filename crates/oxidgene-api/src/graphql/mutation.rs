@@ -12,8 +12,8 @@ use crate::service::note::{self, NewNote, NotePatch};
 use crate::service::pedigrees::Expansion;
 use crate::service::scope::{begin_tx, commit_tx};
 use crate::service::{
-    duplicates, event, family, family_names, media, media_link, person, person_name, place, source,
-    tree, vignette,
+    duplicates, event, family, family_names, media, media_link, person, person_name, place,
+    repository, source, tree, vignette,
 };
 use async_graphql::{Context, ID, MaybeUndefined, Object, Result};
 use base64::Engine as _;
@@ -21,14 +21,15 @@ use uuid::Uuid;
 
 use super::history::{GqlAuditEntry, GqlRecordType};
 use super::inputs::{
-    AddChildInput, AddEventWitnessInput, AddSpouseInput, CreateCitationInput, CreateEventInput,
-    CreateMediaLinkInput, CreateNoteInput, CreatePersonInput, CreatePlaceInput, CreateSourceInput,
-    CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
-    MergeChoicesInput, PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput,
-    UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput,
-    UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateSourceInput, UpdateTreeInput,
-    UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
-    geneanet_media_paths,
+    AddChildInput, AddEventWitnessInput, AddSourceRepositoryInput, AddSpouseInput,
+    CreateCitationInput, CreateEventInput, CreateMediaLinkInput, CreateNoteInput,
+    CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTreeInput,
+    CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput, MergeChoicesInput,
+    PersonNameInput, RenameFamilyNameInput, SetFamilyNameParticleInput, UpdateCitationInput,
+    UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput,
+    UpdatePersonNameInput, UpdatePlaceInput, UpdateRepositoryInput, UpdateSourceInput,
+    UpdateSourceRepositoryInput, UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput,
+    UploadMediaInput, geneanet_deposit_sizes, geneanet_media_paths,
 };
 use super::scope::{live_tree, opt_uuid, uuid, uuids};
 use super::types::{
@@ -36,8 +37,8 @@ use super::types::{
     GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
     GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
     GqlNote, GqlPedigreeDelta, GqlPedigreeDirection, GqlPerson, GqlPersonName, GqlPlace,
-    GqlProfileRebuildResult, GqlSource, GqlTree, GqlVignette, db_from_ctx, media_from_ctx,
-    profiles_from_ctx, purge_from_ctx, require_local_file_access,
+    GqlProfileRebuildResult, GqlRepository, GqlSource, GqlSourceRepository, GqlTree, GqlVignette,
+    db_from_ctx, media_from_ctx, profiles_from_ctx, purge_from_ctx, require_local_file_access,
 };
 
 /// Maps a GraphQL nullable update field onto the repositories' patch shape.
@@ -228,8 +229,10 @@ impl MutationRoot {
         let duplicate = uuid(&duplicate_id)?;
         let choices = choices.into_choices()?;
         let txn = begin_tx(db).await?;
-        let person =
-            duplicates::merge_persons(&txn, profiles, tid, kept, duplicate, &choices).await?;
+        let person = Box::pin(duplicates::merge_persons(
+            &txn, profiles, tid, kept, duplicate, &choices,
+        ))
+        .await?;
         commit_tx(txn).await?;
         Ok(person.into())
     }
@@ -584,7 +587,7 @@ impl MutationRoot {
     }
 
     /// Delete a source (soft delete).
-    /// With `onlyIfUnused`, the source is kept if any citation, note or media
+    /// With `onlyIfUnused`, the source is kept if any citation, note, media link or repository
     /// link still points at it; the return value says whether it was deleted.
     async fn delete_source(
         &self,
@@ -595,6 +598,117 @@ impl MutationRoot {
     ) -> Result<bool> {
         let tree_id = live_tree(ctx, &tree_id).await?;
         Ok(source::delete_source(db_from_ctx(ctx), tree_id, uuid(&id)?, only_if_unused).await?)
+    }
+
+    // ── Repository Mutations ─────────────────────────────────────────
+
+    /// Create a repository. A blank name is refused.
+    async fn create_repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: CreateRepositoryInput,
+    ) -> Result<GqlRepository> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(
+            repository::create_repository(db_from_ctx(ctx), tree_id, input.into())
+                .await?
+                .into(),
+        )
+    }
+
+    /// Update a repository. A blank name is refused.
+    async fn update_repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        input: UpdateRepositoryInput,
+    ) -> Result<GqlRepository> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(
+            repository::update_repository(db_from_ctx(ctx), tree_id, uuid(&id)?, input.into())
+                .await?
+                .into(),
+        )
+    }
+
+    /// Delete a repository (soft delete). With `onlyIfUnused`, a repository
+    /// still holding a live source or the subject of a note is kept; the
+    /// return value says whether it was deleted.
+    async fn delete_repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+        #[graphql(default = false)] only_if_unused: bool,
+    ) -> Result<bool> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        Ok(
+            repository::delete_repository(db_from_ctx(ctx), tree_id, uuid(&id)?, only_if_unused)
+                .await?,
+        )
+    }
+
+    /// Record that a source is held at a repository, under a call number.
+    async fn add_source_repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        source_id: ID,
+        input: AddSourceRepositoryInput,
+    ) -> Result<GqlSourceRepository> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let link = repository::add_source_repository(
+            db_from_ctx(ctx),
+            tree_id,
+            uuid(&source_id)?,
+            input.try_into()?,
+        )
+        .await?;
+        Ok(link.into())
+    }
+
+    /// Update a source's link to a repository; a link of another source is
+    /// not found.
+    async fn update_source_repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        source_id: ID,
+        id: ID,
+        input: UpdateSourceRepositoryInput,
+    ) -> Result<GqlSourceRepository> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        let link = repository::update_source_repository(
+            db_from_ctx(ctx),
+            tree_id,
+            uuid(&source_id)?,
+            uuid(&id)?,
+            input.try_into()?,
+        )
+        .await?;
+        Ok(link.into())
+    }
+
+    /// Remove a source's link to a repository; a link of another source is
+    /// not found.
+    async fn remove_source_repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        source_id: ID,
+        id: ID,
+    ) -> Result<bool> {
+        let tree_id = live_tree(ctx, &tree_id).await?;
+        repository::remove_source_repository(
+            db_from_ctx(ctx),
+            tree_id,
+            uuid(&source_id)?,
+            uuid(&id)?,
+        )
+        .await?;
+        Ok(true)
     }
 
     // ── Citation Mutations ───────────────────────────────────────────
@@ -989,6 +1103,7 @@ impl MutationRoot {
             family_id: opt_uuid(input.family_id)?,
             source_id: opt_uuid(input.source_id)?,
             media_id: opt_uuid(input.media_id)?,
+            repository_id: opt_uuid(input.repository_id)?,
         };
         let note = note::create_note(db_from_ctx(ctx), profiles_from_ctx(ctx), tid, new).await?;
         Ok(note.into())

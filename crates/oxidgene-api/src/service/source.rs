@@ -6,9 +6,9 @@
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::Source;
-use oxidgene_db::repo::SourceRepo;
-use oxidgene_db::sea_orm::DatabaseConnection;
-use serde::Deserialize;
+use oxidgene_db::repo::{DictionaryRepo, SourceRepo, SourceRepositoryRepo};
+use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::service::history::Change;
@@ -22,7 +22,6 @@ pub struct NewSource {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     /// The organisation responsible for the source's data.
     #[serde(default)]
     pub agency: Option<String>,
@@ -39,8 +38,6 @@ pub struct SourcePatch {
     pub publisher: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub abbreviation: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option")]
-    pub repository_name: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub agency: Option<Option<String>>,
 }
@@ -66,7 +63,6 @@ pub async fn create_source(
         new.author,
         new.publisher,
         new.abbreviation,
-        new.repository_name,
         new.agency,
     )
     .await?;
@@ -98,7 +94,6 @@ pub async fn update_source(
         patch.author,
         patch.publisher,
         patch.abbreviation,
-        patch.repository_name,
         patch.agency,
     )
     .await?;
@@ -110,7 +105,7 @@ pub async fn update_source(
 /// Delete source `id` of `tree_id` (a soft delete); whether it was deleted.
 ///
 /// With `only_if_unused` the delete is a cleanup: a source still cited by a
-/// citation, note or media link is kept, and `false` says so.
+/// citation, note, media link or repository link is kept, and `false` says so.
 pub async fn delete_source(
     db: &DatabaseConnection,
     tree_id: Uuid,
@@ -135,6 +130,36 @@ pub async fn delete_source(
     }
     commit_tx(txn).await?;
     Ok(deleted)
+}
+
+/// The sources of `tree_id` whose title starts with `prefix`, each with its
+/// citation count and the names of the repositories holding it.
+pub async fn dictionary_sources(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    prefix: &str,
+) -> Result<Vec<SourceDictionaryEntry>, OxidGeneError> {
+    let entries = DictionaryRepo::sources_with_usage_by_prefix(db, tree_id, prefix).await?;
+    let ids: Vec<Uuid> = entries.iter().map(|(s, _)| s.id).collect();
+    let mut names = SourceRepositoryRepo::repository_names(db, &ids).await?;
+    Ok(entries
+        .into_iter()
+        .map(|(source, count)| SourceDictionaryEntry {
+            repositories: names.remove(&source.id).unwrap_or_default(),
+            source,
+            count,
+        })
+        .collect())
+}
+
+/// A source paired with its citation count and the repositories holding it.
+#[derive(Debug, Serialize)]
+pub struct SourceDictionaryEntry {
+    #[serde(flatten)]
+    pub source: Source,
+    pub count: i64,
+    /// The names of the repositories holding the source, each once.
+    pub repositories: Vec<String>,
 }
 
 fn require_title(title: &str) -> Result<(), OxidGeneError> {

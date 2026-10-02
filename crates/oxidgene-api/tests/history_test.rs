@@ -948,6 +948,98 @@ async fn spouse_ages_are_versioned() {
     );
 }
 
+/// A repository is a versioned record of its own, and a source's links to
+/// repositories are part of the source's state, labelled with the
+/// repositories' names: reverting either brings it back.
+#[tokio::test]
+async fn repositories_and_source_holdings_are_versioned() {
+    let (_db, app) = setup().await;
+    let tree = create_tree(&app).await;
+    let repository = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/repositories"),
+        Some(json!({ "name": "Sample Archives", "phone": "0100" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let repository_uri = format!("/api/v1/trees/{tree}/repositories/{repository}");
+    ok(
+        &app,
+        Method::PUT,
+        &repository_uri,
+        Some(json!({ "name": "Renamed Archives", "phone": null })),
+    )
+    .await;
+    let history = versions(&app, &tree, "repository", &repository).await;
+    assert_eq!(history[0]["snapshot"]["name"], "Renamed Archives");
+    assert_eq!(history[1]["snapshot"]["name"], "Sample Archives");
+    let first = history[1]["version"].as_i64().unwrap();
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/history/repository/{repository}/revert"),
+        Some(json!({ "version": first })),
+    )
+    .await;
+    let restored = ok(&app, Method::GET, &repository_uri, None).await;
+    assert_eq!(restored["name"], "Sample Archives");
+    assert_eq!(restored["phone"], "0100");
+
+    let source = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/sources"),
+        Some(json!({ "title": "Register" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let links = format!("/api/v1/trees/{tree}/sources/{source}/repositories");
+    let link = ok(
+        &app,
+        Method::POST,
+        &links,
+        Some(json!({ "repository_id": repository, "call_number": "E 1" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let history = versions(&app, &tree, "source", &source).await;
+    let held = history[0]["snapshot"]["repositories"][0].clone();
+    assert_eq!(held["call_number"], "E 1");
+    assert!(
+        history[0]["labels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l["label"] == "Sample Archives"),
+        "{history:?}"
+    );
+    let with_link = history[0]["version"].as_i64().unwrap();
+    ok(&app, Method::DELETE, &format!("{links}/{link}"), None).await;
+    assert!(
+        ok(&app, Method::GET, &links, None)
+            .await
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/history/source/{source}/revert"),
+        Some(json!({ "version": with_link })),
+    )
+    .await;
+    let back = ok(&app, Method::GET, &links, None).await;
+    assert_eq!(back[0]["call_number"], "E 1");
+}
+
 #[tokio::test]
 async fn reverting_a_spouse_restores_the_union() {
     let (db, app) = setup().await;

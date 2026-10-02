@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use oxidgene_core::types::{
     Citation, Event, EventWitness, Family, FamilyChild, FamilySpouse, Media, MediaLink, Note,
-    Person, PersonName, Place, Source, Vignette,
+    Person, PersonName, Place, Repository, Source, SourceRepository, Vignette,
 };
 use oxidgene_core::{Calendar, DateQualifier, DocumentCategory, Privacy, SourceMediaType};
 
@@ -33,6 +33,11 @@ pub struct ImportResult {
     pub event_witnesses: Vec<EventWitness>,
     pub places: Vec<Place>,
     pub sources: Vec<Source>,
+    /// The `REPO` records, and the repositories pointerless `SOUR.REPO`
+    /// citations name.
+    pub repositories: Vec<Repository>,
+    /// Which repositories hold each source, with the call numbers.
+    pub source_repositories: Vec<SourceRepository>,
     pub citations: Vec<Citation>,
     pub media: Vec<Media>,
     pub media_links: Vec<MediaLink>,
@@ -54,6 +59,30 @@ pub struct ImportResult {
     /// OxidGene's vignette extension uses the record xref to attach each crop
     /// to its source image after the standard GEDCOM model has been imported.
     pub media_by_xref: std::collections::HashMap<String, uuid::Uuid>,
+}
+
+impl ImportResult {
+    /// Every record the import produced, as an export takes them.
+    pub fn records(&self) -> export::ExportRecords<'_> {
+        export::ExportRecords {
+            persons: &self.persons,
+            person_names: &self.person_names,
+            families: &self.families,
+            family_spouses: &self.family_spouses,
+            family_children: &self.family_children,
+            events: &self.events,
+            event_witnesses: &self.event_witnesses,
+            places: &self.places,
+            sources: &self.sources,
+            repositories: &self.repositories,
+            source_repositories: &self.source_repositories,
+            citations: &self.citations,
+            media: &self.media,
+            media_links: &self.media_links,
+            vignettes: &self.vignettes,
+            notes: &self.notes,
+        }
+    }
 }
 
 /// The result of exporting domain model entities to a GEDCOM string.

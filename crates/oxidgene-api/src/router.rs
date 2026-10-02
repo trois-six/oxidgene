@@ -46,6 +46,7 @@ use crate::rest::person_name;
 use crate::rest::place;
 use crate::rest::profile;
 use crate::rest::reference;
+use crate::rest::repository;
 use crate::rest::source;
 use crate::rest::state::AppState;
 use crate::rest::tree;
@@ -204,6 +205,28 @@ pub fn build_router(state: AppState) -> Router {
             get(source::get_source)
                 .put(source::update_source)
                 .delete(source::delete_source),
+        )
+        .route(
+            "/{tree_id}/sources/{source_id}/repositories",
+            get(repository::list_source_repositories).post(repository::add_source_repository),
+        )
+        .route(
+            "/{tree_id}/sources/{source_id}/repositories/{link_id}",
+            put(repository::update_source_repository).delete(repository::remove_source_repository),
+        )
+        .route(
+            "/{tree_id}/repositories",
+            get(repository::list_repositories).post(repository::create_repository),
+        )
+        .route(
+            "/{tree_id}/repositories/{repository_id}",
+            get(repository::get_repository)
+                .put(repository::update_repository)
+                .delete(repository::delete_repository),
+        )
+        .route(
+            "/{tree_id}/repositories/{repository_id}/sources",
+            get(repository::list_repository_sources),
         );
 
     let citation_routes = Router::new()

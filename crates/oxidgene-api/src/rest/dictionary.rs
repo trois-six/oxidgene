@@ -47,13 +47,8 @@ pub async fn sources(
     Query(query): Query<SourcePrefixQuery>,
 ) -> Result<Json<Vec<SourceDictionaryEntry>>, ApiError> {
     let prefix = query.prefix.unwrap_or_default();
-    let entries =
-        DictionaryRepo::sources_with_usage_by_prefix(&state.reader, tree_id, &prefix).await?;
     Ok(Json(
-        entries
-            .into_iter()
-            .map(|(source, count)| SourceDictionaryEntry { source, count })
-            .collect(),
+        crate::service::source::dictionary_sources(&state.reader, tree_id, &prefix).await?,
     ))
 }
 

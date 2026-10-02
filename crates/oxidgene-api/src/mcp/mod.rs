@@ -10,6 +10,7 @@
 //! [`ProfileService`] and nothing else, so it can run in a second process
 //! beside an open desktop window. See `docs/mcp.md`.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
@@ -18,7 +19,8 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::EventType;
 use oxidgene_db::repo::{
     CitationFilter, CitationRepo, DictionaryRepo, EventFilter, EventRepo, NoteFilter, NoteRepo,
-    PaginationParams, PersonSearchFilters, PersonSearchSort, PlaceRepo, SourceRepo, TreeRepo,
+    PaginationParams, PersonSearchFilters, PersonSearchSort, PlaceRepo, RepositoryRepo, SourceRepo,
+    SourceRepositoryRepo, TreeRepo,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -38,7 +40,6 @@ use crate::profile::ProfileService;
 use crate::profile::service::SEARCH_DEFAULT_LIMIT;
 use crate::rest::dto::{
     DictionaryEntryDto, PersonDetailResponse, PersonUsageEntryDto, PlaceDictionaryEntry,
-    SourceDictionaryEntry,
 };
 use crate::rest::error::ErrorBody;
 use crate::service::relation_labels::load_relation_labels;
@@ -207,6 +208,23 @@ pub struct SourceParams {
     pub tree_id: Uuid,
     /// ID of a source of that tree.
     pub source_id: Uuid,
+}
+
+/// A source, with the repositories holding it.
+#[derive(Debug, Serialize)]
+struct SourceWithRepositories {
+    #[serde(flatten)]
+    source: oxidgene_core::types::Source,
+    repositories: Vec<HoldingRepository>,
+}
+
+/// A repository holding a source, under one call number.
+#[derive(Debug, Serialize)]
+struct HoldingRepository {
+    repository_id: Uuid,
+    repository_name: String,
+    call_number: Option<String>,
+    media_type: Option<oxidgene_core::enums::SourceMediaType>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -396,20 +414,40 @@ impl OxidGeneMcp {
         .await
     }
 
-    /// Get a source: its title, author, publisher and repository.
+    /// Get a source: its title, author, publisher and agency, and the repositories holding
+    /// it with their call numbers.
     #[tool(annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
     async fn get_source(&self, params: Parameters<SourceParams>) -> CallToolResult {
         let p = params.0;
         respond("get_source", async {
             self.tree(p.tree_id).await?;
             require_tree_resource(&self.db, p.tree_id, TreeResource::Source, p.source_id).await?;
-            SourceRepo::get(&self.db, p.source_id).await
+            let source = SourceRepo::get(&self.db, p.source_id).await?;
+            let links = SourceRepositoryRepo::list_by_source(&self.db, p.source_id).await?;
+            let ids: Vec<Uuid> = links.iter().map(|l| l.repository_id).collect();
+            let names: HashMap<Uuid, String> = RepositoryRepo::get_many(&self.db, &ids)
+                .await?
+                .into_iter()
+                .map(|r| (r.id, r.name))
+                .collect();
+            Ok::<_, OxidGeneError>(SourceWithRepositories {
+                source,
+                repositories: links
+                    .into_iter()
+                    .map(|l| HoldingRepository {
+                        repository_name: names.get(&l.repository_id).cloned().unwrap_or_default(),
+                        repository_id: l.repository_id,
+                        call_number: l.call_number,
+                        media_type: l.media_type,
+                    })
+                    .collect(),
+            })
         })
         .await
     }
 
     /// List citations: what a source says about a person, an event or a family, with its
-    /// page and confidence.
+    /// page and confidence (null when not assessed).
     #[tool(annotations(read_only_hint = true, idempotent_hint = true, open_world_hint = false))]
     async fn list_citations(&self, params: Parameters<EvidenceParams>) -> CallToolResult {
         let p = params.0;
@@ -442,6 +480,7 @@ impl OxidGeneMcp {
                 family_id: p.family_id,
                 source_id: p.source_id,
                 media_id: None,
+                repository_id: None,
             };
             NoteRepo::list(&self.db, p.tree_id, &filter, &p.page.params()).await
         })
@@ -479,15 +518,12 @@ impl OxidGeneMcp {
                         .collect::<Vec<_>>(),
                 )?,
                 DictionaryKind::Sources => to_value(
-                    DictionaryRepo::sources_with_usage_by_prefix(
+                    crate::service::source::dictionary_sources(
                         db,
                         p.tree_id,
                         p.prefix.as_deref().unwrap_or_default(),
                     )
-                    .await?
-                    .into_iter()
-                    .map(|(source, count)| SourceDictionaryEntry { source, count })
-                    .collect::<Vec<_>>(),
+                    .await?,
                 )?,
             };
             Ok(entries)

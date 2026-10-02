@@ -46,7 +46,9 @@ use oxidgene_core::history::{
 };
 use oxidgene_core::projection::SearchEntry;
 use oxidgene_core::types::Note;
-use oxidgene_db::entities::{event, family_child, family_spouse, media, place, source, tree};
+use oxidgene_db::entities::{
+    event, family_child, family_spouse, media, place, repository, source, tree,
+};
 use oxidgene_db::repo::{
     BuiltSnapshot, FamilyNameParticleUpdate, FamilyNameRename, HistoryRepo, NewRecordVersion,
     SnapshotRepo, TreeRepo, VersionHead, db_err, display_names,
@@ -60,10 +62,11 @@ use uuid::Uuid;
 use crate::profile::{ProfileService, invalidation};
 
 /// The versioned record types, in the order a change stores them.
-const RECORD_TYPES: [RecordType; 4] = [
+const RECORD_TYPES: [RecordType; 5] = [
     RecordType::Person,
     RecordType::Place,
     RecordType::Source,
+    RecordType::Repository,
     RecordType::Tree,
 ];
 
@@ -84,6 +87,7 @@ pub struct Change {
     events: BTreeSet<Uuid>,
     places: BTreeSet<Uuid>,
     sources: BTreeSet<Uuid>,
+    repositories: BTreeSet<Uuid>,
     tree: bool,
 }
 
@@ -109,6 +113,7 @@ impl Change {
             events: BTreeSet::new(),
             places: BTreeSet::new(),
             sources: BTreeSet::new(),
+            repositories: BTreeSet::new(),
             tree: false,
         }
     }
@@ -197,6 +202,11 @@ impl Change {
         self.default_subject(AuditSubject::Source, source_id)
     }
 
+    pub fn repository(mut self, repository_id: Uuid) -> Self {
+        self.repositories.insert(repository_id);
+        self.default_subject(AuditSubject::Repository, repository_id)
+    }
+
     /// Version the tree's settings, and make the tree the subject if none is
     /// set yet.
     pub fn tree_settings(mut self) -> Self {
@@ -245,6 +255,7 @@ impl Change {
             || !self.events.is_empty()
             || !self.places.is_empty()
             || !self.sources.is_empty()
+            || !self.repositories.is_empty()
     }
 
     /// Read the named records as they are before the write.
@@ -325,6 +336,7 @@ impl Change {
             RecordType::Person => self.persons.iter().copied().collect(),
             RecordType::Place => self.places.iter().copied().collect(),
             RecordType::Source => self.sources.iter().copied().collect(),
+            RecordType::Repository => self.repositories.iter().copied().collect(),
             RecordType::Tree if self.tree => vec![self.tree_id],
             RecordType::Tree => Vec::new(),
         }
@@ -403,6 +415,11 @@ impl Change {
                 .await
                 .map_err(db_err)?
                 .map(|row| row.title),
+            AuditSubject::Repository => repository::Entity::find_by_id(id)
+                .one(db)
+                .await
+                .map_err(db_err)?
+                .map(|row| row.name),
             AuditSubject::Tree => tree::Entity::find_by_id(id)
                 .one(db)
                 .await
@@ -612,6 +629,7 @@ pub struct NoteTarget {
     pub family_id: Option<Uuid>,
     pub source_id: Option<Uuid>,
     pub media_id: Option<Uuid>,
+    pub repository_id: Option<Uuid>,
 }
 
 impl From<&Note> for NoteTarget {
@@ -622,6 +640,7 @@ impl From<&Note> for NoteTarget {
             family_id: note.family_id,
             source_id: note.source_id,
             media_id: note.media_id,
+            repository_id: note.repository_id,
         }
     }
 }
@@ -634,12 +653,15 @@ pub fn note_change(
     note_id: Uuid,
     target: NoteTarget,
 ) -> Change {
-    let change = Change::new(tree_id, action, AuditEntity::Note, note_id).owner(
+    let mut change = Change::new(tree_id, action, AuditEntity::Note, note_id).owner(
         target.person_id,
         target.event_id,
         target.family_id,
         target.source_id,
     );
+    if let Some(repository_id) = target.repository_id {
+        change = change.repository(repository_id);
+    }
     match target.media_id {
         Some(media_id) => change.media(media_id).category(AuditCategory::Media),
         None => change,
@@ -836,18 +858,35 @@ async fn revert_inner(
             )
             .await
         }
+        other => revert_record(db, profiles, tree_id, record_id, other, change).await,
+    }
+}
+
+/// Puts a place, a source, a repository or the tree's settings back as
+/// `snapshot` had it, and records `change` for it.
+async fn revert_record(
+    db: &impl ConnectionTrait,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    record_id: Uuid,
+    snapshot: &RecordSnapshot,
+    change: Change,
+) -> Result<AuditEntry, OxidGeneError> {
+    match snapshot {
+        RecordSnapshot::Person(_) => Err(OxidGeneError::Internal(
+            "a person is restored by revert_person".to_string(),
+        )),
         RecordSnapshot::Place(snapshot) => {
-            let pending = change.place(record_id).prepare(db).await?;
-            SnapshotRepo::restore_place(db, tree_id, record_id, snapshot).await?;
-            let affected = invalidation::affected_persons_for_place(db, record_id).await?;
-            profiles
-                .invalidate_for_mutation(db, tree_id, &affected)
-                .await?;
-            pending.record(db).await
+            revert_place(db, profiles, tree_id, record_id, snapshot, change).await
         }
         RecordSnapshot::Source(snapshot) => {
             let pending = change.source(record_id).prepare(db).await?;
             SnapshotRepo::restore_source(db, tree_id, record_id, snapshot).await?;
+            pending.record(db).await
+        }
+        RecordSnapshot::Repository(snapshot) => {
+            let pending = change.repository(record_id).prepare(db).await?;
+            SnapshotRepo::restore_repository(db, tree_id, record_id, snapshot).await?;
             pending.record(db).await
         }
         RecordSnapshot::Tree(snapshot) => {
@@ -862,6 +901,25 @@ async fn revert_inner(
             pending.record(db).await
         }
     }
+}
+
+/// Puts a place back as `snapshot` had it, refreshes the persons whose
+/// events name it, and records `change` for it.
+async fn revert_place(
+    db: &impl ConnectionTrait,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    place_id: Uuid,
+    snapshot: &oxidgene_core::history::PlaceSnapshot,
+    change: Change,
+) -> Result<AuditEntry, OxidGeneError> {
+    let pending = change.place(place_id).prepare(db).await?;
+    SnapshotRepo::restore_place(db, tree_id, place_id, snapshot).await?;
+    let affected = invalidation::affected_persons_for_place(db, place_id).await?;
+    profiles
+        .invalidate_for_mutation(db, tree_id, &affected)
+        .await?;
+    pending.record(db).await
 }
 
 /// Puts a person back as `snapshot` had them, refreshes everyone linked to
@@ -979,6 +1037,7 @@ fn entity_of(record_type: RecordType) -> AuditEntity {
         RecordType::Person => AuditEntity::Person,
         RecordType::Place => AuditEntity::Place,
         RecordType::Source => AuditEntity::Source,
+        RecordType::Repository => AuditEntity::Repository,
         RecordType::Tree => AuditEntity::Tree,
     }
 }

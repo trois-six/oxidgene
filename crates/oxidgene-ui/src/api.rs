@@ -16,7 +16,7 @@ use oxidgene_core::projection::{Pedigree, PersonProfile, SearchEntry, SearchResu
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
     FamilySpouse, ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place,
-    QualifiedYear, Source, SpouseAge, Tree, Vignette,
+    QualifiedYear, Repository, Source, SourceRepository, SpouseAge, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -141,6 +141,9 @@ pub struct SourceDictionaryEntry {
     #[serde(flatten)]
     pub source: Source,
     pub count: i64,
+    /// The names of the repositories holding the source.
+    #[serde(default)]
+    pub repositories: Vec<String>,
 }
 
 /// A prefix group for the Sources tab's smart drill-down (see
@@ -940,8 +943,59 @@ pub struct CreateSourceBody {
     pub author: Option<String>,
     pub publisher: Option<String>,
     pub abbreviation: Option<String>,
-    pub repository_name: Option<String>,
     pub agency: Option<String>,
+}
+
+/// A source update: `None` leaves a field alone, `Some(None)` clears it.
+#[derive(Debug, Default, Serialize)]
+pub struct UpdateSourceBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abbreviation: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agency: Option<Option<String>>,
+}
+
+// ── Repository request bodies ───────────────────────────────────────
+
+#[derive(Debug, Default, Serialize)]
+pub struct CreateRepositoryBody {
+    pub name: String,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub website: Option<String>,
+}
+
+/// A repository update: every field written, a `None` one cleared.
+#[derive(Debug, Default, Serialize)]
+pub struct UpdateRepositoryBody {
+    pub name: String,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub website: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AddSourceRepositoryBody {
+    pub repository_id: Uuid,
+    pub call_number: Option<String>,
+    pub media_type: Option<SourceMediaType>,
+}
+
+/// A source held by a repository, with the link saying under which call
+/// number.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct HeldSource {
+    #[serde(flatten)]
+    pub link: SourceRepository,
+    pub source: Source,
 }
 
 // ── Citation request bodies ─────────────────────────────────────────
@@ -982,6 +1036,8 @@ pub struct CreateNoteBody {
     pub source_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3394,7 +3450,113 @@ impl ApiClient {
             .await
     }
 
-    /// Deletes a source only if no citation, note or media link still points
+    pub async fn update_source(
+        &self,
+        tree_id: Uuid,
+        id: Uuid,
+        body: &UpdateSourceBody,
+    ) -> Result<Source, ApiError> {
+        self.put(&format!("/api/v1/trees/{tree_id}/sources/{id}"), body)
+            .await
+    }
+
+    // ── Repositories ────────────────────────────────────────────────
+
+    /// Every repository of the tree, page after page.
+    pub async fn list_all_repositories(&self, tree_id: Uuid) -> Result<Vec<Repository>, ApiError> {
+        self.collect_pages(
+            &format!("/api/v1/trees/{tree_id}/repositories"),
+            500,
+            Vec::new(),
+        )
+        .await
+    }
+
+    pub async fn create_repository(
+        &self,
+        tree_id: Uuid,
+        body: &CreateRepositoryBody,
+    ) -> Result<Repository, ApiError> {
+        self.post(&format!("/api/v1/trees/{tree_id}/repositories"), body)
+            .await
+    }
+
+    pub async fn update_repository(
+        &self,
+        tree_id: Uuid,
+        id: Uuid,
+        body: &UpdateRepositoryBody,
+    ) -> Result<Repository, ApiError> {
+        self.put(&format!("/api/v1/trees/{tree_id}/repositories/{id}"), body)
+            .await
+    }
+
+    pub async fn delete_repository(&self, tree_id: Uuid, id: Uuid) -> Result<(), ApiError> {
+        self.delete_no_content(&format!("/api/v1/trees/{tree_id}/repositories/{id}"))
+            .await
+    }
+
+    /// The sources a repository holds, each with its call number.
+    pub async fn repository_sources(
+        &self,
+        tree_id: Uuid,
+        id: Uuid,
+    ) -> Result<Vec<HeldSource>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/repositories/{id}/sources"
+        ))
+        .await
+    }
+
+    /// The notes about a repository.
+    pub async fn list_repository_notes(
+        &self,
+        tree_id: Uuid,
+        repository_id: Uuid,
+    ) -> Result<Vec<Note>, ApiError> {
+        let filters = owner_filters([("repository_id", Some(repository_id))]);
+        self.collect_pages(&format!("/api/v1/trees/{tree_id}/notes"), 100, filters)
+            .await
+    }
+
+    /// The repositories holding a source, in order.
+    pub async fn source_repositories(
+        &self,
+        tree_id: Uuid,
+        source_id: Uuid,
+    ) -> Result<Vec<SourceRepository>, ApiError> {
+        self.get(&format!(
+            "/api/v1/trees/{tree_id}/sources/{source_id}/repositories"
+        ))
+        .await
+    }
+
+    pub async fn add_source_repository(
+        &self,
+        tree_id: Uuid,
+        source_id: Uuid,
+        body: &AddSourceRepositoryBody,
+    ) -> Result<SourceRepository, ApiError> {
+        self.post(
+            &format!("/api/v1/trees/{tree_id}/sources/{source_id}/repositories"),
+            body,
+        )
+        .await
+    }
+
+    pub async fn remove_source_repository(
+        &self,
+        tree_id: Uuid,
+        source_id: Uuid,
+        link_id: Uuid,
+    ) -> Result<(), ApiError> {
+        self.delete_no_content(&format!(
+            "/api/v1/trees/{tree_id}/sources/{source_id}/repositories/{link_id}"
+        ))
+        .await
+    }
+
+    /// Deletes a source only if no citation, note, media link or repository link still points
     /// at it. Returns whether it was deleted — `false` means it is still in
     /// use and was kept.
     pub async fn delete_source_if_unused(&self, tree_id: Uuid, id: Uuid) -> Result<bool, ApiError> {

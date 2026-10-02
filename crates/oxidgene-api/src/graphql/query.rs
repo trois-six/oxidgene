@@ -10,12 +10,14 @@ use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
 use crate::service::person::Lineage;
+use crate::service::repository;
 use crate::service::scope::{TreeResource, require_tree_resource};
 
 use oxidgene_db::repo::{
     AuditFilter, CitationFilter, DictionaryRepo, EventFilter, EventRepo, FamilyRepo, HistoryRepo,
     MediaLinkRepo, MediaLinkTarget, MediaRepo, NoteFilter, NoteRepo, PaginationParams, PersonRepo,
-    PersonSearchFilters, PlaceRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo, VignetteRepo,
+    PersonSearchFilters, PlaceRepo, RepositoryRepo, SOURCE_DRILL_THRESHOLD, SourceRepo, TreeRepo,
+    VignetteRepo,
 };
 
 use super::history::{
@@ -36,11 +38,11 @@ use super::types::{
     GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
     GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
     GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion,
-    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlSearchEntry, GqlSearchResult, GqlSource,
-    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree, GqlTreeConnection, GqlTreeMediaLink,
-    GqlValueSuggestion, GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx,
-    reader_from_ctx, require_local_file_access,
+    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlRepository, GqlRepositoryConnection,
+    GqlSearchEntry, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
+    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlTree,
+    GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx,
+    media_from_ctx, profiles_from_ctx, reader_from_ctx, require_local_file_access,
 };
 
 /// A read's record, or `None` when the record is not there — the shape of
@@ -531,6 +533,47 @@ impl QueryRoot {
         in_tree(db, tid, TreeResource::Source, id, SourceRepo::get(db, id)).await
     }
 
+    // ── Repositories ─────────────────────────────────────────────────
+
+    /// List repositories in a tree with cursor-based pagination.
+    async fn repositories(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        first: Option<u64>,
+        after: Option<String>,
+    ) -> Result<GqlRepositoryConnection> {
+        let db = reader_from_ctx(ctx);
+        let tid = live_tree(ctx, &tree_id).await?;
+        let params = PaginationParams {
+            first: first.unwrap_or(25),
+            after,
+        };
+        Ok(repository::list_repositories(db, tid, &params)
+            .await?
+            .into())
+    }
+
+    /// Get a single repository by ID.
+    async fn repository(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        id: ID,
+    ) -> Result<Option<GqlRepository>> {
+        let db = reader_from_ctx(ctx);
+        let tid = live_tree(ctx, &tree_id).await?;
+        let id = uuid(&id)?;
+        in_tree(
+            db,
+            tid,
+            TreeResource::Repository,
+            id,
+            RepositoryRepo::get(db, id),
+        )
+        .await
+    }
+
     /// List citations in a tree with optional entity filters and pagination.
     #[allow(clippy::too_many_arguments)]
     async fn citations(
@@ -580,6 +623,7 @@ impl QueryRoot {
         family_id: Option<ID>,
         source_id: Option<ID>,
         media_id: Option<ID>,
+        repository_id: Option<ID>,
         first: Option<u64>,
         after: Option<String>,
     ) -> Result<GqlNoteConnection> {
@@ -591,6 +635,7 @@ impl QueryRoot {
             family_id: opt_uuid(family_id)?,
             source_id: opt_uuid(source_id)?,
             media_id: opt_uuid(media_id)?,
+            repository_id: opt_uuid(repository_id)?,
         };
         let params = PaginationParams {
             first: first.unwrap_or(25),
@@ -641,7 +686,7 @@ impl QueryRoot {
         prefix: Option<String>,
     ) -> Result<Vec<GqlSourceDictionaryEntry>> {
         let db = reader_from_ctx(ctx);
-        let entries = DictionaryRepo::sources_with_usage_by_prefix(
+        let entries = crate::service::source::dictionary_sources(
             db,
             live_tree(ctx, &tree_id).await?,
             prefix.as_deref().unwrap_or_default(),
@@ -649,9 +694,10 @@ impl QueryRoot {
         .await?;
         Ok(entries
             .into_iter()
-            .map(|(source, count)| GqlSourceDictionaryEntry {
-                source: source.into(),
-                count,
+            .map(|entry| GqlSourceDictionaryEntry {
+                source: entry.source.into(),
+                count: entry.count,
+                repositories: entry.repositories,
             })
             .collect())
     }

@@ -198,6 +198,18 @@ async fn tree_scoped_reads_follow_the_rest_representation() {
             json!({ "source_id": source_id, "person_id": child, "confidence": "high" }),
         )
         .await;
+    let repository_id = harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/repositories"),
+            json!({ "name": "Sample archives" }),
+        )
+        .await;
+    harness
+        .created(
+            &format!("/api/v1/trees/{tree_id}/sources/{source_id}/repositories"),
+            json!({ "repository_id": repository_id, "call_number": "E 1" }),
+        )
+        .await;
 
     let trees = harness.ok("list_trees", json!({})).await;
     assert_eq!(trees["edges"][0]["node"]["id"], tree_id);
@@ -257,15 +269,18 @@ async fn tree_scoped_reads_follow_the_rest_representation() {
             .await["name"],
         "Sampleville"
     );
+    let source = harness
+        .ok(
+            "get_source",
+            json!({ "tree_id": tree_id, "source_id": source_id }),
+        )
+        .await;
+    assert_eq!(source["title"], "Sample register");
     assert_eq!(
-        harness
-            .ok(
-                "get_source",
-                json!({ "tree_id": tree_id, "source_id": source_id })
-            )
-            .await["title"],
-        "Sample register"
+        source["repositories"][0]["repository_name"],
+        "Sample archives"
     );
+    assert_eq!(source["repositories"][0]["call_number"], "E 1");
     let citations = harness
         .ok(
             "list_citations",

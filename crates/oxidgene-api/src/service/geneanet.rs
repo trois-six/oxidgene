@@ -22,8 +22,9 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::enums::{EventType, Privacy};
 use oxidgene_core::types::Portrait;
 use oxidgene_db::repo::{
-    MediaLinkRepo, MediaPatch, MediaRepo, NoteRepo, PersonNamePieces, PersonNameRepo, PersonRepo,
-    PlaceRepo, TreeRepo, UploadedMedia, UploadedMediaMetadata, VignetteInput, VignetteRepo,
+    MediaLinkRepo, MediaPatch, MediaRepo, NoteFilter, NoteRepo, PersonNamePieces, PersonNameRepo,
+    PersonRepo, PlaceRepo, TreeRepo, UploadedMedia, UploadedMediaMetadata, VignetteInput,
+    VignetteRepo,
 };
 use oxidgene_geneanet::Manifest;
 use oxidgene_geneanet::archive::{ArchiveSet, ContentIndex, LocalOriginals};
@@ -2284,11 +2285,10 @@ async fn import_transcript(
         Uuid::now_v7(),
         tree_id,
         content.to_string(),
-        None,
-        None,
-        None,
-        None,
-        Some(media_id),
+        &NoteFilter {
+            media_id: Some(media_id),
+            ..NoteFilter::default()
+        },
     )
     .await
     {

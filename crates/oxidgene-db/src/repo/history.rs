@@ -43,7 +43,7 @@ use uuid::Uuid;
 use super::batch::in_chunks;
 use super::pagination::{PaginationParams, encode_cursor};
 use super::{BuiltSnapshot, SnapshotRepo};
-use crate::entities::{audit_entry, person, place, record_version, source, tree};
+use crate::entities::{audit_entry, person, place, record_version, repository, source, tree};
 use crate::repo::db_err;
 
 /// Filters of the audit log.
@@ -850,6 +850,21 @@ async fn created_at(
                     .column(source::Column::CreatedAt)
                     .filter(source::Column::TreeId.eq(tree_id))
                     .filter(source::Column::Id.is_in(chunk))
+                    .into_tuple()
+                    .all(db)
+                    .await
+                    .map_err(db_err)
+            })
+            .await?
+        }
+        RecordType::Repository => {
+            in_chunks(ids, |chunk| async move {
+                repository::Entity::find()
+                    .select_only()
+                    .column(repository::Column::Id)
+                    .column(repository::Column::CreatedAt)
+                    .filter(repository::Column::TreeId.eq(tree_id))
+                    .filter(repository::Column::Id.is_in(chunk))
                     .into_tuple()
                     .all(db)
                     .await

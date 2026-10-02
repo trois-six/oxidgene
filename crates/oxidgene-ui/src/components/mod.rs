@@ -29,6 +29,7 @@ pub mod place_input;
 pub mod print;
 pub mod reference_tooltip;
 pub mod search_person;
+pub mod source_forms;
 pub mod suggest_input;
 pub mod tabs;
 pub mod topbar_search;

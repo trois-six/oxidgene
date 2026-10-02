@@ -1308,6 +1308,346 @@ async fn a_citation_confidence_is_optional_on_both_surfaces() {
     }
 }
 
+// ── Repositories ────────────────────────────────────────────────────────
+
+/// A source titled `title` in `tree_id`; its id.
+async fn new_source(app: &axum::Router, tree_id: &str, title: &str) -> String {
+    common::ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources"),
+        Some(json!({ "title": title })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// A repository is written, read and deleted alike on both surfaces: a blank
+/// name is refused, a cleanup delete keeps one still holding a source.
+#[tokio::test]
+async fn repositories_behave_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Archives").await;
+    let repositories = format!("/api/v1/trees/{tree_id}/repositories");
+
+    // REST.
+    let created = common::ok(
+        &app,
+        Method::POST,
+        &repositories,
+        Some(json!({
+            "name": " Sample Archives ",
+            "address": "1 Fixture Road\nSampleton",
+            "phone": "",
+            "website": "https://archives.example",
+        })),
+    )
+    .await;
+    assert_eq!(created["name"], "Sample Archives");
+    assert!(created["phone"].is_null(), "{created}");
+    let id = created["id"].as_str().unwrap().to_owned();
+    let uri = format!("{repositories}/{id}");
+    let updated = common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "email": "desk@archives.example", "website": null })),
+    )
+    .await;
+    assert_eq!(updated["email"], "desk@archives.example");
+    assert!(updated["website"].is_null());
+    assert_eq!(updated["address"], "1 Fixture Road\nSampleton");
+    let listed = common::ok(&app, Method::GET, &repositories, None).await;
+    assert_eq!(listed["total_count"], 1);
+    for (method, uri, body) in [
+        (Method::POST, repositories.clone(), json!({ "name": " " })),
+        (Method::PUT, uri.clone(), json!({ "name": "" })),
+    ] {
+        let (status, response) = send(&app, method, &uri, Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {response}");
+    }
+
+    // GraphQL.
+    let created = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!) { createRepository(treeId: $t, input: { name: "Parish office", phone: "0100" }) { id name phone } }"#,
+        json!({ "t": tree_id }),
+    )
+    .await;
+    let gql_id = created["createRepository"]["id"].clone();
+    assert_eq!(created["createRepository"]["phone"], "0100");
+    let vars = json!({ "t": tree_id, "r": gql_id });
+    let updated = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $r: ID!) { updateRepository(treeId: $t, id: $r, input: { phone: null, email: \"office@example.org\" }) { phone email } }",
+        vars.clone(),
+    )
+    .await;
+    assert!(updated["updateRepository"]["phone"].is_null());
+    let read = common::gql_ok(
+        &app,
+        "query($t: ID!, $r: ID!) { repository(treeId: $t, id: $r) { name email } repositories(treeId: $t) { totalCount } }",
+        vars.clone(),
+    )
+    .await;
+    assert_eq!(read["repository"]["email"], "office@example.org");
+    assert_eq!(read["repositories"]["totalCount"], 2);
+    for mutation in [
+        r#"mutation($t: ID!) { createRepository(treeId: $t, input: { name: " " }) { id } }"#,
+        r#"mutation($t: ID!, $r: ID!) { updateRepository(treeId: $t, id: $r, input: { name: "" }) { id } }"#,
+    ] {
+        let response = gql(&app, mutation, vars.clone()).await;
+        assert_eq!(
+            gql_error_code(&response),
+            "VALIDATION_ERROR",
+            "{mutation}: {response}"
+        );
+    }
+
+    // A repository holding a source survives a cleanup, on both surfaces.
+    let source = new_source(&app, &tree_id, "Register").await;
+    common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/sources/{source}/repositories"),
+        Some(json!({ "repository_id": id })),
+    )
+    .await;
+    let (status, _) = send(
+        &app,
+        Method::DELETE,
+        &format!("{uri}?only_if_unused=true"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "kept");
+    let kept = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $r: ID!) { deleteRepository(treeId: $t, id: $r, onlyIfUnused: true) }",
+        json!({ "t": tree_id, "r": id }),
+    )
+    .await;
+    assert_eq!(kept["deleteRepository"], false);
+    let deleted = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $r: ID!) { deleteRepository(treeId: $t, id: $r, onlyIfUnused: true) }",
+        vars,
+    )
+    .await;
+    assert_eq!(deleted["deleteRepository"], true);
+    let (status, _) = send(&app, Method::DELETE, &uri, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = send(&app, Method::GET, &uri, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// A source's repository links are added, updated, listed and removed alike
+/// on both surfaces; a link of another source and a repository of another
+/// tree are not found.
+#[tokio::test]
+async fn source_repository_links_behave_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Holdings").await;
+    let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let source = new_source(&app, &tree_id, "Register").await;
+    let other_source = new_source(&app, &tree_id, "Census").await;
+    let repository = |tree: String, name: &'static str| {
+        let app = app.clone();
+        async move {
+            common::ok(
+                &app,
+                Method::POST,
+                &format!("/api/v1/trees/{tree}/repositories"),
+                Some(json!({ "name": name })),
+            )
+            .await["id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+    };
+    let archives = repository(tree_id.clone(), "Sample Archives").await;
+    let foreign = repository(other_tree.clone(), "Foreign Archives").await;
+    let links = format!("/api/v1/trees/{tree_id}/sources/{source}/repositories");
+
+    // REST.
+    let link = common::ok(
+        &app,
+        Method::POST,
+        &links,
+        Some(json!({ "repository_id": archives, "call_number": "E 123", "media_type": "film" })),
+    )
+    .await;
+    assert_eq!(link["call_number"], "E 123");
+    assert_eq!(link["media_type"], "film");
+    let link_uri = format!("{links}/{}", link["id"].as_str().unwrap());
+    let updated = common::ok(
+        &app,
+        Method::PUT,
+        &link_uri,
+        Some(json!({ "media_type": null, "call_number": "E 124" })),
+    )
+    .await;
+    assert!(updated["media_type"].is_null());
+    assert_eq!(updated["call_number"], "E 124");
+    let listed = common::ok(&app, Method::GET, &links, None).await;
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    let held = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/repositories/{archives}/sources"),
+        None,
+    )
+    .await;
+    assert_eq!(held[0]["source"]["title"], "Register");
+    assert_eq!(held[0]["call_number"], "E 124");
+    let dictionary = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/dictionary/sources"),
+        None,
+    )
+    .await;
+    let register = dictionary
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["title"] == "Register")
+        .unwrap();
+    assert_eq!(register["repositories"], json!(["Sample Archives"]));
+    for (method, uri, body) in [
+        (
+            Method::POST,
+            links.clone(),
+            Some(json!({ "repository_id": foreign })),
+        ),
+        (
+            Method::PUT,
+            link_uri.replace(&source, &other_source),
+            Some(json!({ "call_number": "x" })),
+        ),
+        (
+            Method::DELETE,
+            link_uri.replace(&source, &other_source),
+            None,
+        ),
+    ] {
+        let (status, response) = send(&app, method, &uri, body).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}: {response}");
+    }
+
+    // GraphQL.
+    let vars = json!({ "t": tree_id, "s": other_source, "r": archives, "f": foreign, "o": source });
+    let added = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!, $s: ID!, $r: ID!) { addSourceRepository(treeId: $t, sourceId: $s, input: { repositoryId: $r, callNumber: "C 9", mediaType: BOOK }) { id callNumber mediaType repository { name } } }"#,
+        vars.clone(),
+    )
+    .await;
+    let added = &added["addSourceRepository"];
+    assert_eq!(added["mediaType"], "BOOK");
+    assert_eq!(added["repository"]["name"], "Sample Archives");
+    let lvars = json!({ "t": tree_id, "s": other_source, "o": source, "l": added["id"] });
+    let updated = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $s: ID!, $l: ID!) { updateSourceRepository(treeId: $t, sourceId: $s, id: $l, input: { callNumber: null }) { callNumber } }",
+        lvars.clone(),
+    )
+    .await;
+    assert!(updated["updateSourceRepository"]["callNumber"].is_null());
+    let read = common::gql_ok(
+        &app,
+        "query($t: ID!, $s: ID!) { source(treeId: $t, id: $s) { repositories { callNumber repository { name } } } dictionarySources(treeId: $t) { source { title } repositories } }",
+        json!({ "t": tree_id, "s": other_source }),
+    )
+    .await;
+    assert_eq!(read["source"]["repositories"].as_array().unwrap().len(), 1);
+    assert!(
+        read["dictionarySources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["repositories"] == json!(["Sample Archives"]))
+    );
+    for (mutation, vars) in [
+        (
+            "mutation($t: ID!, $s: ID!, $f: ID!) { addSourceRepository(treeId: $t, sourceId: $s, input: { repositoryId: $f }) { id } }",
+            vars.clone(),
+        ),
+        (
+            "mutation($t: ID!, $o: ID!, $l: ID!) { updateSourceRepository(treeId: $t, sourceId: $o, id: $l, input: { sortOrder: 2 }) { id } }",
+            lvars.clone(),
+        ),
+        (
+            "mutation($t: ID!, $o: ID!, $l: ID!) { removeSourceRepository(treeId: $t, sourceId: $o, id: $l) }",
+            lvars.clone(),
+        ),
+    ] {
+        let response = gql(&app, mutation, vars).await;
+        assert_eq!(
+            gql_error_code(&response),
+            "NOT_FOUND",
+            "{mutation}: {response}"
+        );
+    }
+    let removed = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $s: ID!, $l: ID!) { removeSourceRepository(treeId: $t, sourceId: $s, id: $l) }",
+        lvars,
+    )
+    .await;
+    assert_eq!(removed["removeSourceRepository"], true);
+    let (status, _) = send(&app, Method::DELETE, &link_uri, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+/// A note about a repository is written and listed alike on both surfaces.
+#[tokio::test]
+async fn repository_notes_are_listed_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Notes").await;
+    let repository = common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/repositories"),
+        Some(json!({ "name": "Sample Archives" })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree_id}/notes"),
+        Some(json!({ "text": "Closed on Mondays", "repository_id": repository })),
+    )
+    .await;
+    let rest = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/notes?repository_id={repository}"),
+        None,
+    )
+    .await;
+    assert_eq!(rest["edges"][0]["node"]["text"], "Closed on Mondays");
+    common::gql_ok(
+        &app,
+        r#"mutation($t: ID!, $r: String!) { createNote(treeId: $t, input: { text: "Ask for the reading room", repositoryId: $r }) { id } }"#,
+        json!({ "t": tree_id, "r": repository }),
+    )
+    .await;
+    let gql = common::gql_ok(
+        &app,
+        "query($t: ID!, $r: ID!) { notes(treeId: $t, repositoryId: $r) { totalCount } }",
+        json!({ "t": tree_id, "r": repository }),
+    )
+    .await;
+    assert_eq!(gql["notes"]["totalCount"], 2);
+}
+
 #[tokio::test]
 async fn a_citation_filter_naming_another_tree_is_not_found_on_both_surfaces() {
     let app = setup_app().await;
@@ -1961,7 +2301,6 @@ async fn graphql_nested_lists_are_complete_past_a_hundred() {
             Uuid::now_v7(),
             tree,
             format!("Register {i}"),
-            None,
             None,
             None,
             None,

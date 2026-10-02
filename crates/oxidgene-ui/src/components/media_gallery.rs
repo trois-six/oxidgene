@@ -1670,6 +1670,7 @@ async fn save_media_note(
                     family_id: None,
                     source_id: None,
                     media_id: Some(media_id),
+                    repository_id: None,
                 },
             )
             .await
