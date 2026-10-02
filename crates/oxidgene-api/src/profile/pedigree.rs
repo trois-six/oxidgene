@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use oxidgene_core::collections::sorted_unique;
 
-use oxidgene_core::enums::ChildType;
+use oxidgene_core::enums::{ChildType, SpouseRole};
 use oxidgene_core::projection::{
     PedigreeEdge, PedigreeFamily, PedigreeFamilyMember, PedigreeNode, PersonProfile, ProfileEvent,
 };
@@ -259,9 +259,10 @@ fn record_membership(
         let family = families
             .entry(link.family_id)
             .or_insert_with(|| empty_family(link.family_id));
-        let partner = link.spouse_id.filter(|_| with_partner);
-        for spouse in std::iter::once(person.person_id).chain(partner) {
-            push_new(&mut family.spouse_ids, spouse);
+        let is_husband = link.role == SpouseRole::Husband;
+        place_spouse(&mut family.spouse_ids, person.person_id, is_husband);
+        if let Some(partner) = link.spouse_id.filter(|_| with_partner) {
+            place_spouse(&mut family.spouse_ids, partner, !is_husband);
         }
         family.children_ids = link.children_ids.clone();
     }
@@ -270,12 +271,29 @@ fn record_membership(
             .entry(child_link.family_id)
             .or_insert_with(|| empty_family(child_link.family_id));
         push_new(&mut family.children_ids, person.person_id);
-        for parent in [child_link.father_id, child_link.mother_id]
-            .into_iter()
-            .flatten()
-        {
-            push_new(&mut family.spouse_ids, parent);
+        if let Some(father) = child_link.father_id {
+            place_spouse(&mut family.spouse_ids, father, true);
         }
+        if let Some(mother) = child_link.mother_id {
+            place_spouse(&mut family.spouse_ids, mother, false);
+        }
+    }
+}
+
+/// Add a spouse to a family's list: the husband first, the wife after.
+///
+/// The persons are visited in the order of a map, which changes from one
+/// process to the next. Without a fixed place, the event panel's "Marriage
+/// (…)" of a person's parents named the father on one run and the mother on
+/// the next.
+fn place_spouse(ids: &mut Vec<Uuid>, id: Uuid, husband: bool) {
+    if ids.contains(&id) {
+        return;
+    }
+    if husband {
+        ids.insert(0, id);
+    } else {
+        ids.push(id);
     }
 }
 

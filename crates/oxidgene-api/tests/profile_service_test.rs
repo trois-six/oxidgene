@@ -597,6 +597,33 @@ async fn pedigree_builds_from_stored_projections() {
     assert_eq!(again.edges.len(), pedigree.edges.len());
 }
 
+/// A family lists its husband first and its wife after, whoever the pedigree
+/// is drawn around. The persons are gathered in the order of a hash map, which
+/// changes with every map, and the spouses used to follow it: the event panel
+/// then named a person's parents' marriage after the father on one visit and
+/// after the mother on the next. Several roots and repeated builds, each with
+/// maps of their own, give a wandering order many chances to show.
+#[tokio::test]
+async fn a_pedigree_family_lists_the_husband_first() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (father, mother, child, family) = create_family_trio(&db, tree_id).await;
+
+    for _ in 0..8 {
+        for root in [child, mother, father] {
+            let pedigree = service
+                .get_or_build_pedigree(tree_id, root, 2, 1)
+                .await
+                .unwrap();
+            assert_eq!(
+                pedigree.families[&family].spouse_ids,
+                [father, mother],
+                "around {root}"
+            );
+        }
+    }
+}
+
 /// An approximate date has to survive the whole way to the pedigree node, or
 /// the card that draws it turns "about 1849" into a flat "1849" and quietly
 /// claims a precision the record never had.
