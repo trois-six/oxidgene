@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:06:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:18:24Z }
 ---
 
 # Development Environment and Workflows
@@ -66,6 +66,12 @@ the repository root.
 | `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, and tests. |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
+| `just bench` | Run the opt-in benchmarks of the profile service and the person search, in release mode. |
+| `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down. |
+| `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
+| `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
+| `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
+| `just theme-preview` | Write an HTML preview of every theme's pedigree card to `OXIDGENE_PREVIEW_DIR`. |
 | `just openapi` | Build `oxidgene-api`, whose build script regenerates from the REST router the OpenAPI document served at `/api/v1/openapi.json` ([API Contract](api.md)). |
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
@@ -287,8 +293,12 @@ and the Wikidata query service.
 `just test`, and through it `just check`, runs the unit and functional tests.
 The selection is by Cargo target (`--lib --bins`, `--doc`, `--test '*'`)
 rather than by a nextest filter, so each category builds only its own test
-binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS and
-are run by hand as described where they are introduced.
+binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS, or
+only time something; each one's ignore reason names the `just` recipe that
+runs it (`just bench`, `just test-postgres`, `just test-s3`,
+`just session-check`, `just geneanet-harness`, `just theme-preview`,
+`just real-import`, `just scaling`), and a guard fails on a reason that names
+none.
 
 The opt-in tests and the golden checks read these variables:
 
@@ -377,8 +387,7 @@ RustFS exposes its S3 API on `http://127.0.0.1:9000` and its console on
 while the stack is healthy with:
 
 ```bash
-cargo test --package oxidgene-api --features s3 \
-   s3_round_trip_deduplication_and_tree_deletion -- --ignored
+just test-s3
 ```
 
 ### Geneanet content matching
@@ -413,8 +422,7 @@ not a general guarantee.
 OXIDGENE_GENEANET_SESSION=/path/geneanet-session.zip \
 OXIDGENE_GENEANET_ARCHIVES=/path/a.zip:/path/b.zip \
 OXIDGENE_GENEANET_PAIRING_OUT=/tmp/pairing-reference.tsv \
-  cargo test --release --package oxidgene-geneanet \
-    --test phash_real_session -- --ignored --nocapture
+  just geneanet-harness phash_real_session
 ```
 
 ### Real-data import check
@@ -645,9 +653,7 @@ cargo audit
 ```
 
 For an explicit local session-load check, set `OXIDGENE_GENEANET_SESSION` to
-an absolute archive path and run `cargo test -p oxidgene-api --features graphql
---test geneanet_session_test supplied_session_archive_loads_without_logging_its_contents
--- --ignored`. The check streams the archive through REST, verifies staged files,
+an absolute archive path and run `just session-check`. The check streams the archive through REST, verifies staged files,
 and removes them without printing genealogy content. It is not part of normal CI.
 
 Run the session decoder fuzz target with synthetic libFuzzer inputs and an

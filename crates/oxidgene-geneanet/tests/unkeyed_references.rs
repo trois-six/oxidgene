@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use oxidgene_geneanet::key::geneanet_key;
 
 #[test]
-#[ignore = "needs a real .gw and a references dump; see the module docs"]
+#[ignore = "needs a real .gw and a references dump: run by `just geneanet-harness`"]
 fn unkeyed_references_can_be_joined_by_the_name_they_carry() {
     let (Ok(gw), Ok(dir)) = (
         std::env::var("OXIDGENE_GW"),

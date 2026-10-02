@@ -102,7 +102,7 @@ fn sample_entries(paths: &[PathBuf]) -> Vec<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "needs OXIDGENE_GENEANET_ARCHIVES pointing at real data archives"]
+#[ignore = "needs real data archives: run by `just geneanet-harness`"]
 fn where_a_perceptual_hash_spends_its_time() {
     let paths = archives();
     if paths.is_empty() {

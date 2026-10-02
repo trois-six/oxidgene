@@ -53,7 +53,7 @@ async fn test_migrate_up_and_down_sqlite() {
 /// ```
 #[tokio::test]
 #[cfg(feature = "postgres")]
-#[ignore = "requires an empty disposable PostgreSQL database"]
+#[ignore = "needs an empty disposable PostgreSQL database: run by `just test-postgres`"]
 async fn test_migrate_up_and_down_postgres() {
     let url = std::env::var("OXIDGENE_TEST_DATABASE_URL")
         .expect("set OXIDGENE_TEST_DATABASE_URL to an empty disposable PostgreSQL database");

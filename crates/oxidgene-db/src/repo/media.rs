@@ -167,7 +167,10 @@ impl MediaRepo {
     /// itself arrives. Use [`MediaRepo::create_uploaded`] when there are bytes.
     ///
     /// `parent_media_id` must name a live document in the same tree.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per column the statement writes, already validated by the calling service"
+    )]
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,

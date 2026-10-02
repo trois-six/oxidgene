@@ -882,7 +882,7 @@ async fn preview_and_plan(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs the maintainer's private samples; see the module docs"]
+#[ignore = "needs your own exports: run by `just real-import`"]
 async fn geneanet_wizard_import_survives_a_gedzip_round_trip() {
     let (Some(gw_path), Some(session_path)) = (
         path_var("OXIDGENE_REAL_GW"),
@@ -1032,7 +1032,7 @@ fn check_geneanet_receipt(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs the maintainer's private samples; see the module docs"]
+#[ignore = "needs your own exports: run by `just real-import`"]
 async fn gedcom_files_import_whole() {
     let files = list_var("OXIDGENE_REAL_GED");
     if files.is_empty() {
@@ -1049,7 +1049,7 @@ async fn gedcom_files_import_whole() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs the maintainer's private samples; see the module docs"]
+#[ignore = "needs your own exports: run by `just real-import`"]
 async fn gedzip_file_imports_whole_and_round_trips() {
     let Some(path) = path_var("OXIDGENE_REAL_GDZ") else {
         report("gedzip", SKIP);

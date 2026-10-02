@@ -461,7 +461,10 @@ impl QueryRoot {
     // ── Events ───────────────────────────────────────────────────────
 
     /// List events in a tree with optional filters and cursor-based pagination.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
+    )]
     async fn events(
         &self,
         ctx: &Context<'_>,
@@ -498,9 +501,9 @@ impl QueryRoot {
     // ── Places ───────────────────────────────────────────────────────
 
     /// List places in a tree with optional filters and cursor-based pagination.
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
-        reason = "one argument per GraphQL field argument"
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
     async fn places(
         &self,
@@ -609,7 +612,10 @@ impl QueryRoot {
     }
 
     /// List citations in a tree with optional entity filters and pagination.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
+    )]
     async fn citations(
         &self,
         ctx: &Context<'_>,
@@ -647,7 +653,10 @@ impl QueryRoot {
     }
 
     /// List notes in a tree with optional entity filters and pagination.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
+    )]
     async fn notes(
         &self,
         ctx: &Context<'_>,
@@ -1065,7 +1074,10 @@ impl QueryRoot {
     /// reference terms the tree does not hold yet. `limit` defaults to 10.
     /// `surname` and `givenNames` scope a name field to the persons the
     /// person search's filters of the same names find.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
+    )]
     async fn value_suggestions(
         &self,
         ctx: &Context<'_>,
@@ -1575,7 +1587,10 @@ impl QueryRoot {
     ///
     /// Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL)
     /// with accent-folded, normalised matching. Returns paginated results.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
+    )]
     async fn search_persons(
         &self,
         ctx: &Context<'_>,
@@ -1780,9 +1795,9 @@ impl QueryRoot {
     ///
     /// `otherDepth` is the depth already loaded in the opposite direction —
     /// pass it so the returned `*DepthLoaded` values match what you hold.
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
-        reason = "one argument per GraphQL field argument"
+        reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
     async fn expand_pedigree(
         &self,

@@ -553,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs OXIDGENE_PHASH_JPEG pointing to a JPEG or ZIP"]
+    #[ignore = "needs OXIDGENE_PHASH_JPEG: run by `just geneanet-harness`"]
     fn compare_jpeg_phash_decode_strategies() -> Result<()> {
         let Some(bytes) = jpeg_sample()? else {
             eprintln!("OXIDGENE_PHASH_JPEG unset; skipping");

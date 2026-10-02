@@ -184,7 +184,10 @@ enum Place {
 }
 
 #[derive(DeriveIden)]
-#[allow(clippy::enum_variant_names)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "each identifier names a column of the event table: event_type, date_value, …"
+)]
 enum Event {
     Table,
     Id,

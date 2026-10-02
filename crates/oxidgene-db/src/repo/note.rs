@@ -90,7 +90,6 @@ impl NoteRepo {
 
     /// List notes for a specific entity (person, event, family, source, or
     /// media) in a tree.
-    #[allow(clippy::too_many_arguments)]
     pub async fn list_by_entity(
         db: &impl ConnectionTrait,
         tree_id: Uuid,

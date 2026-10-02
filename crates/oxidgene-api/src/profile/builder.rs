@@ -32,7 +32,6 @@ pub struct TreeData {
     /// Only the ones a projection needs: the crops that *are* somebody's
     /// portrait. Every vignette in the tree would be a large slice to carry
     /// for a field that is usually null.
-    #[allow(clippy::struct_field_names)]
     pub portrait_vignettes: Vec<Vignette>,
     pub citations: Vec<Citation>,
     pub notes: Vec<Note>,

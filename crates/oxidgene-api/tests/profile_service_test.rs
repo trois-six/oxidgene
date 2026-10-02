@@ -1128,7 +1128,7 @@ async fn expand_pedigree_returns_only_the_new_generation() {
 /// the interactive budget (< 100 ms in debug builds; release is ~10× faster).
 /// Ignored by default — run with `cargo test -p oxidgene-api -- --ignored`.
 #[tokio::test]
-#[ignore = "benchmark — run manually"]
+#[ignore = "benchmark: run by `just bench` in release mode"]
 async fn person_load_and_search_performance() {
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;
@@ -1187,7 +1187,7 @@ async fn person_load_and_search_performance() {
 /// Large-tree benchmark approximating a big GEDCOM import (20K persons).
 /// Ignored by default — run with `cargo test -p oxidgene-api -- --ignored`.
 #[tokio::test]
-#[ignore = "benchmark — run manually"]
+#[ignore = "benchmark: run by `just bench` in release mode"]
 async fn bench_large_tree_20k() {
     let (db, service) = setup().await;
     let tree_id = create_tree(&db).await;

@@ -972,7 +972,7 @@ mod tests {
 
     #[cfg(feature = "s3")]
     #[tokio::test]
-    #[ignore = "requires the RustFS service from docker/docker-compose.yml"]
+    #[ignore = "needs the RustFS service of docker/docker-compose.yml: run by `just test-s3`"]
     async fn s3_round_trip_deduplication_and_tree_deletion() {
         let store = S3Store::new(S3StoreConfig {
             bucket: "oxidgene-media".to_string(),

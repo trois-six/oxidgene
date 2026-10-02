@@ -181,7 +181,10 @@ impl CitationRepo {
     }
 
     /// Create a new citation.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per column the statement writes, already validated by the calling service"
+    )]
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -211,7 +214,6 @@ impl CitationRepo {
     }
 
     /// Update a citation.
-    #[allow(clippy::too_many_arguments)]
     /// Updates a citation in place. `source_id` can be repointed at another
     /// source: a citation carries which record backs a fact, and correcting
     /// that record is an edit of the same citation — deleting and recreating

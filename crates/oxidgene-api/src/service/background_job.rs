@@ -1324,7 +1324,10 @@ struct GeneanetFetchedInput {
     key: String,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
+)]
 pub async fn stage_geneanet_import(
     db: &DatabaseConnection,
     media: &dyn MediaStore,

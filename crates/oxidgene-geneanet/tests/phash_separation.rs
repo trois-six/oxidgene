@@ -188,7 +188,7 @@ fn evaluate(
 }
 
 #[test]
-#[ignore = "needs a real Geneanet data archive; see the module docs"]
+#[ignore = "needs a real Geneanet data archive: run by `just geneanet-harness`"]
 fn a_rendition_is_never_matched_to_the_wrong_original() {
     let entries = load();
     if entries.is_empty() {
@@ -240,7 +240,7 @@ fn a_rendition_is_never_matched_to_the_wrong_original() {
 }
 
 #[test]
-#[ignore = "needs a real Geneanet data archive; see the module docs"]
+#[ignore = "needs a real Geneanet data archive: run by `just geneanet-harness`"]
 fn compare_full_and_reduced_decode() {
     let entries = load();
     if entries.is_empty() {

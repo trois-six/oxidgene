@@ -181,7 +181,7 @@ async fn check_archive(body: Body, expected_media_size: Option<usize>, graphql: 
 }
 
 #[tokio::test]
-#[ignore = "requires an explicitly supplied private session archive"]
+#[ignore = "needs a private session archive: run by `just session-check`"]
 async fn supplied_session_archive_loads_without_logging_its_contents() {
     let path = std::env::var_os("OXIDGENE_GENEANET_SESSION")
         .expect("set OXIDGENE_GENEANET_SESSION to a session archive");

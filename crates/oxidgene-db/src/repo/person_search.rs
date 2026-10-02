@@ -354,7 +354,6 @@ impl PersonSearchRepo {
     }
 
     /// Search persons with filters, sorting, and pagination applied in SQL.
-    #[allow(clippy::too_many_arguments)]
     pub async fn search_filtered(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -505,7 +504,6 @@ impl PersonSearchRepo {
 
     // ── Statement builders ──────────────────────────────────────────────
 
-    #[allow(clippy::too_many_arguments)]
     fn filtered_statement(
         backend: DbBackend,
         tree_id: Uuid,

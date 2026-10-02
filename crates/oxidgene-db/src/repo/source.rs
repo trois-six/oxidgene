@@ -96,7 +96,10 @@ impl SourceRepo {
     }
 
     /// Create a new source.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per column the statement writes, already validated by the calling service"
+    )]
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -125,7 +128,6 @@ impl SourceRepo {
     }
 
     /// Update an existing source.
-    #[allow(clippy::too_many_arguments)]
     pub async fn update(
         db: &impl ConnectionTrait,
         id: Uuid,

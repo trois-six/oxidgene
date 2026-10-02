@@ -540,7 +540,10 @@ pub struct GeneanetImportSummary {
 /// Returns `Err` if the tree does not exist, the `.gw` cannot be parsed, or the
 /// person import fails. Once the persons are in, a photo that cannot be fetched
 /// is recorded in [`GeneanetImportSummary::skipped`] rather than failing the run.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
+)]
 #[tracing::instrument(name = "import.geneanet", skip_all)]
 pub async fn import(
     db: &DatabaseConnection,
@@ -664,7 +667,10 @@ pub async fn import(
 /// Errors are collected rather than propagated: by the time this runs the tree
 /// is already in the database, so aborting would leave the user with people and
 /// no photos and no way to tell why.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
+)]
 #[tracing::instrument(name = "import.media", skip_all, fields(import.format = "geneanet"))]
 async fn attach_media(
     db: &DatabaseConnection,
@@ -1359,7 +1365,10 @@ async fn add_vignette(
 ///
 /// Returns `deposit id → (media id, view id → media id)`, the same shape
 /// [`document`] returns, so the caller does not care which kind it was.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
+)]
 #[tracing::instrument(name = "import.media.prepare", skip_all)]
 async fn prepare_single_pages(
     db: &DatabaseConnection,
@@ -1501,7 +1510,10 @@ async fn prepare_single_pages(
 /// Page order is the deposit's own, not the order the pages happen to arrive
 /// in: a page is indexed by how many pages are already there, so the pages
 /// are sorted by their Geneanet page number before any of them is written.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
+)]
 async fn document(
     db: &DatabaseConnection,
     store: &dyn MediaStore,

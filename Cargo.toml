@@ -19,8 +19,19 @@ members = [
 # Clippy with `-D warnings`, so a warning here fails the build. The
 # cognitive complexity threshold (15, the conventional range) lives in
 # `clippy.toml`.
+#
+# An exception to a lint is an `#[expect(lint, reason = "…")]`: it states why,
+# and it fails once the code no longer needs it, where an `allow` would stay
+# behind, silent. `allow_attributes` bans an outer `#[allow]` outright;
+# `allow_attributes_without_reason` requires a reason on an inner
+# `#![allow]`, the one form left for an exception an `expect` cannot state
+# (`dead_code` in a module each test binary compiles and uses in part). The
+# `lint_discipline` guard of `oxidgene-guards` checks that every member opts
+# in and that none caps or allows a lint crate-wide.
 [workspace.lints.clippy]
 cognitive_complexity = "warn"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
 
 [workspace.package]
 version = "0.1.0"

@@ -2461,7 +2461,10 @@ fn non_blank(text: Option<&str>) -> Option<String> {
 // Import sub-record helpers
 // ═══════════════════════════════════════════════════════════════════════
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the GEDCOM walk threads the import's lookup tables and accumulators through each sub-record helper"
+)]
 fn import_event_detail(
     detail: &ged_io::types::event::detail::Detail,
     tree_id: Uuid,
@@ -2636,7 +2639,10 @@ fn death_cause(
 /// its value is split on common separators and case-normalized into one
 /// Occupation event per profession (see
 /// `split_occupations`/`normalize_occupation_case`).
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the GEDCOM walk threads the import's lookup tables and accumulators through each sub-record helper"
+)]
 fn import_attribute_detail(
     detail: &ged_io::types::individual::attribute::detail::AttributeDetail,
     tree_id: Uuid,
@@ -2890,7 +2896,10 @@ fn strip_geneweb_event_marker(text: &str) -> String {
         .to_string()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the GEDCOM walk threads the import's lookup tables and accumulators through each sub-record helper"
+)]
 fn import_note(
     value: &Option<String>,
     tree_id: Uuid,

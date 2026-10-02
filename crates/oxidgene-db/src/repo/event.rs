@@ -135,7 +135,10 @@ impl EventRepo {
     }
 
     /// Create a new event.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per column the statement writes, already validated by the calling service"
+    )]
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -178,7 +181,10 @@ impl EventRepo {
     }
 
     /// Update an existing event.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per column the statement writes, already validated by the calling service"
+    )]
     pub async fn update(
         db: &impl ConnectionTrait,
         id: Uuid,

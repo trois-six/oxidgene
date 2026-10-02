@@ -16,7 +16,7 @@
 //! where one is known to lurk, a deterministic count of the work done guards
 //! it in the normal suite instead (the duplicate candidates, for one). Timing
 //! depends on the machine and wants an optimised build, so these tests are
-//! opt-in: `just complexity` runs them in release mode. The SQL side of the
+//! opt-in: `just scaling` runs them in release mode. The SQL side of the
 //! same question is answered deterministically by `query_scaling_test`.
 
 mod common;
@@ -221,7 +221,7 @@ async fn scaling(what: &str, compute: impl Fn(&[PersonProfile], Uuid)) {
 }
 
 #[tokio::test]
-#[ignore = "timing: run by `just complexity` in release mode"]
+#[ignore = "timing: run by `just scaling` in release mode"]
 async fn scaling_duplicates() {
     scaling("duplicates", |profiles, _| {
         black_box(duplicates::potential_duplicates(profiles, &HashSet::new()));
@@ -230,7 +230,7 @@ async fn scaling_duplicates() {
 }
 
 #[tokio::test]
-#[ignore = "timing: run by `just complexity` in release mode"]
+#[ignore = "timing: run by `just scaling` in release mode"]
 async fn scaling_anomalies() {
     scaling("anomalies", |profiles, _| {
         black_box(anomalies::compute(profiles, &[], today()));
@@ -239,7 +239,7 @@ async fn scaling_anomalies() {
 }
 
 #[tokio::test]
-#[ignore = "timing: run by `just complexity` in release mode"]
+#[ignore = "timing: run by `just scaling` in release mode"]
 async fn scaling_statistics() {
     scaling("statistics", |profiles, _| {
         black_box(statistics::compute(
@@ -255,7 +255,7 @@ async fn scaling_statistics() {
 }
 
 #[tokio::test]
-#[ignore = "timing: run by `just complexity` in release mode"]
+#[ignore = "timing: run by `just scaling` in release mode"]
 async fn scaling_ancestry() {
     scaling("ancestry completeness", |profiles, root| {
         black_box(ancestry::compute(profiles, root, 8, today()));
@@ -296,7 +296,7 @@ async fn scaling_requests(requests: &[(Method, &str)]) {
 }
 
 #[tokio::test]
-#[ignore = "timing: run by `just complexity` in release mode"]
+#[ignore = "timing: run by `just scaling` in release mode"]
 async fn scaling_import() {
     let (app, db, small, large) = trees().await;
     let reference = reference_growth(&small, &large);
@@ -326,7 +326,7 @@ async fn scaling_import() {
 }
 
 #[tokio::test]
-#[ignore = "timing: run by `just complexity` in release mode"]
+#[ignore = "timing: run by `just scaling` in release mode"]
 async fn scaling_tree_wide_requests() {
     scaling_requests(&[
         (Method::POST, "/api/v1/trees/{tree}/profiles/rebuild"),

@@ -6788,13 +6788,9 @@ mod geometry_golden_tests {
     /// from measurements to SVG elements is written here rather than by
     /// `rsx!`, which needs a running Dioxus to produce anything.
     ///
-    /// Opt-in, and never part of `just check`:
-    ///
-    /// ```text
-    /// cargo test -p oxidgene-ui --lib theme_preview -- --ignored --nocapture
-    /// ```
+    /// Opt-in, and never part of `just check`: `just theme-preview`.
     #[test]
-    #[ignore = "writes a preview page for a human to look at"]
+    #[ignore = "writes a preview page for a human to look at: run by `just theme-preview`"]
     fn theme_preview() {
         // Colours live in the theme now, not in LAYOUT_STYLES, so the preview
         // has to carry a palette of its own or every var() resolves to

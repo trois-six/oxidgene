@@ -368,7 +368,7 @@ async fn trees_are_isolated() {
 /// measured contention rather than the query: it failed under a loaded
 /// `cargo nextest run --workspace` and passed on its own, at the same commit.
 #[tokio::test]
-#[ignore = "benchmark — run manually"]
+#[ignore = "benchmark: run by `just bench` in release mode"]
 async fn search_performance_10k() {
     let db = setup_db().await;
     let tree_id = Uuid::now_v7();
@@ -519,7 +519,7 @@ async fn search_keys_stay_in_step_with_the_rows() {
 /// under a millisecond each through the keys.
 /// Ignored by default — run with `cargo test -p oxidgene-db -- --ignored`.
 #[tokio::test]
-#[ignore = "benchmark — run manually"]
+#[ignore = "benchmark: run by `just bench` in release mode"]
 async fn person_lookups_performance_100k() {
     let db = setup_db().await;
     let trees: Vec<Uuid> = (0..4).map(|_| Uuid::now_v7()).collect();

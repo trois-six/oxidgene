@@ -174,7 +174,7 @@ impl Cli {
         // needs, where `--log-level` consumes the argument after it.
         #[cfg_attr(
             not(feature = "telemetry"),
-            allow(
+            expect(
                 clippy::never_loop,
                 clippy::while_let_on_iterator,
                 reason = "no flag is accepted without telemetry, so every arm exits"

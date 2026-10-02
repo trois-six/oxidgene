@@ -117,6 +117,42 @@ real-import *args:
       cargo nextest run --release -p oxidgene-api --test real_import_test \
         --run-ignored only --no-capture {{ args }}
 
+# Every `#[ignore]`d test names the recipe below that runs it; the
+# `lint_discipline` guard fails on a reason naming no existing recipe.
+
+# Run the opt-in benchmarks of the profile service and the person search, in
+# release mode, one at a time. They print timings and assert nothing a shared
+# machine could fail by being slow.
+bench:
+    cargo nextest run --release -p oxidgene-api -p oxidgene-db --test profile_service_test --test person_search_test --run-ignored only --no-capture
+
+# Migrate an empty, disposable PostgreSQL database up and down; the
+# OXIDGENE_TEST_DATABASE_URL variable names it (see docs/development.md).
+test-postgres:
+    cargo nextest run -p oxidgene-db --features postgres --test migration_test --run-ignored only
+
+# Round-trip media through the RustFS service of docker/docker-compose.yml,
+# which must be running (`docker compose -f docker/docker-compose.yml up -d`).
+test-s3:
+    cargo nextest run -p oxidgene-api --features s3 --lib --run-ignored only -E 'test(s3_round_trip_deduplication_and_tree_deletion)'
+
+# Stream a private Geneanet session archive, named by
+# OXIDGENE_GENEANET_SESSION, through REST without logging its contents.
+session-check:
+    cargo nextest run -p oxidgene-api --features graphql --test geneanet_session_test --run-ignored only
+
+# Run the Geneanet content-matching harnesses on your own archives, in
+# release mode (see docs/development.md, *Geneanet content matching*). Each
+# skips itself when the variables naming its files are unset. Arguments go to
+# nextest: `just geneanet-harness phash_cost`.
+geneanet-harness *args:
+    cargo nextest run --release -p oxidgene-geneanet --run-ignored only --no-capture {{ args }}
+
+# Write an HTML preview of every theme's pedigree card to OXIDGENE_PREVIEW_DIR
+# (default: the current directory).
+theme-preview:
+    cargo nextest run -p oxidgene-ui --lib --run-ignored only --no-capture -E 'test(theme_preview)'
+
 # Regenerate the place dictionary (France, United Kingdom, Germany, Italy,
 # Spain, Switzerland, Poland, United States, Portugal, Belgium, Luxembourg,
 # Netherlands) from the latest

@@ -308,7 +308,6 @@ impl ProfileService {
     /// actually holds. Both windows are assembled and diffed — cheap now that
     /// a pedigree is a family-graph traversal plus a projection batch read.
     #[instrument(skip_all)]
-    #[allow(clippy::too_many_arguments)]
     pub async fn expand_pedigree(
         &self,
         tree_id: Uuid,
@@ -387,7 +386,6 @@ impl ProfileService {
     /// Search persons with all filters, ordering, and pagination applied by
     /// the database before rows are returned. `limit` is capped at
     /// [`SEARCH_MAX_LIMIT`].
-    #[allow(clippy::too_many_arguments)]
     pub async fn search_filtered(
         &self,
         tree_id: Uuid,

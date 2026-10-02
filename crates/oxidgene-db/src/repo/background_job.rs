@@ -309,7 +309,10 @@ impl BackgroundJobRepo {
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per column a job's completion writes"
+    )]
     async fn finish(
         db: &impl ConnectionTrait,
         id: Uuid,

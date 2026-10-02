@@ -191,7 +191,7 @@ fn digest(pairs: &BTreeMap<(i64, Option<i64>), usize>) -> u64 {
 }
 
 #[test]
-#[ignore = "needs OXIDGENE_GENEANET_SESSION and OXIDGENE_GENEANET_ARCHIVES"]
+#[ignore = "needs a real session and archives: run by `just geneanet-harness`"]
 fn the_matcher_resolves_a_real_session() {
     let Some(session_path) = env_path("OXIDGENE_GENEANET_SESSION") else {
         eprintln!("skipped: set OXIDGENE_GENEANET_SESSION to replay a session");
