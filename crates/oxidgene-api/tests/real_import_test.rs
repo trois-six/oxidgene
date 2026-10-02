@@ -76,6 +76,8 @@ struct Backend {
 
 impl Backend {
     async fn start(name: &str) -> Self {
+        // As the desktop's `main` does first.
+        oxidgene_api::memory::tune();
         let base = path_var("OXIDGENE_REAL_WORKDIR").unwrap_or_else(|| {
             PathBuf::from(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -132,17 +134,22 @@ fn report(phase: &str, line: &str) {
     eprintln!("[real-import] {phase}: {line}");
 }
 
-/// The process's peak resident set since the last [`reset_peak`], in MiB.
-fn peak_rss_mib() -> u64 {
+/// A memory field of `/proc/self/status`, in MiB.
+fn status_mib(field: &str) -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|status| {
             status
                 .lines()
-                .find_map(|line| line.strip_prefix("VmHWM:"))
+                .find_map(|line| line.strip_prefix(field))
                 .and_then(|value| value.trim().trim_end_matches("kB").trim().parse().ok())
         })
         .map_or(0, |kib: u64| kib / 1024)
+}
+
+/// The process's peak resident set since the last [`reset_peak`], in MiB.
+fn peak_rss_mib() -> u64 {
+    status_mib("VmHWM:")
 }
 
 fn reset_peak() {
@@ -150,7 +157,8 @@ fn reset_peak() {
     let _ = std::fs::write("/proc/self/clear_refs", "5");
 }
 
-/// Time `work` as phase `name`, with the peak memory it reached.
+/// Time `work` as phase `name`, with the peak memory it reached and what
+/// the process still held after it.
 async fn phase<T>(name: &str, work: impl std::future::Future<Output = T>) -> T {
     reset_peak();
     let started = Instant::now();
@@ -158,9 +166,10 @@ async fn phase<T>(name: &str, work: impl std::future::Future<Output = T>) -> T {
     report(
         name,
         &format!(
-            "{:.1} s, peak RSS {} MiB",
+            "{:.1} s, peak RSS {} MiB, then RSS {} MiB",
             started.elapsed().as_secs_f64(),
-            peak_rss_mib()
+            peak_rss_mib(),
+            status_mib("VmRSS:")
         ),
     );
     value

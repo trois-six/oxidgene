@@ -15,6 +15,7 @@ pub mod limits;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod media;
+pub mod memory;
 pub mod profile;
 pub mod reference;
 pub mod request_context;

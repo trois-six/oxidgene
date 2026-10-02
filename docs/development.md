@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T11:38:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T13:12:59Z }
 ---
 
 # Development Environment and Workflows
@@ -551,9 +551,9 @@ tree, and every count that changed on the way fails the run.
 
 The recipe stages everything, `TMPDIR` included, under `target/real-import`,
 on disk rather than in a RAM-backed `/tmp`, and deletes it on exit. The tests
-print aggregates only — timings, the peak resident memory of each phase,
-counts and error codes — never a row, a name or an error message, which can
-quote the file.
+print aggregates only — timings, the peak resident memory of each phase and
+what the process still holds after it, counts and error codes — never a row,
+a name or an error message, which can quote the file.
 
 The Compose stack includes an OpenTelemetry Collector. It receives OTLP on
 loopback ports `4317` (gRPC) and `4318` (HTTP), exposes its health endpoint on

@@ -22,6 +22,10 @@ use oxidgene_server::shutdown::shutdown_signal;
 
 #[tokio::main]
 async fn main() {
+    // First, so that every buffer after it is allocated under the setting:
+    // see `oxidgene_api::memory`.
+    oxidgene_api::memory::tune();
+
     // ── Load configuration ───────────────────────────────────────────
     let cfg = ServerConfig::load().unwrap_or_else(|_| {
         eprintln!("Failed to load configuration");

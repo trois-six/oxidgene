@@ -5040,6 +5040,7 @@ dependencies = [
  "http-body-util",
  "image",
  "jpeg-decoder",
+ "libc",
  "object_store",
  "opentelemetry",
  "opentelemetry_sdk",

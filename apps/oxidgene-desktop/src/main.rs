@@ -273,6 +273,10 @@ impl Cli {
 }
 
 fn main() {
+    // First, so that every buffer after it is allocated under the setting:
+    // see `oxidgene_api::memory`.
+    oxidgene_api::memory::tune();
+
     #[cfg(all(windows, not(debug_assertions)))]
     unsafe {
         windows_sys::Win32::System::Console::AttachConsole(u32::MAX);

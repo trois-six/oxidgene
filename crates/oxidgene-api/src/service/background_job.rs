@@ -259,6 +259,9 @@ impl BackgroundJobWorker {
         }
         .instrument(span)
         .await?;
+        // A job is the most memory the process holds; what it freed goes
+        // back now rather than sitting in the allocator until the next one.
+        let _ = super::blocking::spawn(crate::memory::release_free_memory).await;
         Ok(true)
     }
 

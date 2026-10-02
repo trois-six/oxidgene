@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T07:35:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T10:58:15Z }
 ---
 
 
@@ -164,6 +164,15 @@ and flow — are listed in the [specification index](index.md).
 - ZIP creation and parsing run as bounded blocking work. Media are copied one at
     a time so memory usage is bounded by an individual file rather than the
     complete archive.
+- A job's memory goes back to the system when it ends. Every binary pins
+    glibc's mapping threshold at 1 MiB first thing in `main`, so a buffer
+    that large — a photograph's file, its decoded pixels — is unmapped when
+    freed instead of staying in a thread's arena, and the worker returns the
+    arenas' free pages (`malloc_trim`) after each job
+    (`oxidgene_api::memory`). Other platforms' allocators already return
+    large blocks. Images are decoded at most eight at a time whatever the
+    machine (`oxidgene_core::resources::decode_worker_limit`), each held only
+    while it is processed.
 - At most one import or export job is active for a tree. An expired lease makes
     interrupted work claimable again; terminal jobs release the tree and retain
     their result for a bounded period.

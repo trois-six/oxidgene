@@ -12,6 +12,10 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() {
+    // First, so that every buffer after it is allocated under the setting:
+    // see `oxidgene_api::memory`.
+    oxidgene_api::memory::tune();
+
     let config = ServerConfig::load().unwrap_or_else(|_| {
         eprintln!("Failed to load configuration");
         std::process::exit(1);

@@ -65,6 +65,11 @@ object_store = { workspace = true, optional = true }
 rmcp = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
 
+# The allocator settings of `memory`: glibc's `mallopt` and `malloc_trim`.
+# Already in the graph through tokio; no other target needs it.
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+libc = "0.2"
+
 [build-dependencies]
 brotli = { workspace = true }
 serde_json = { workspace = true }
