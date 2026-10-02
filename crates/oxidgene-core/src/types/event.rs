@@ -35,6 +35,10 @@ pub struct Event {
     /// (a parish, a registry office). Maps to GEDCOM `AGNC`.
     #[serde(default)]
     pub agency: Option<String>,
+    /// For a family event, the ages its record gives for the spouses
+    /// (GEDCOM `HUSB.AGE` / `WIFE.AGE`); empty for an individual event.
+    #[serde(default)]
+    pub spouse_ages: Vec<SpouseAge>,
     pub place_id: Option<Uuid>,
     /// Set for individual events.
     pub person_id: Option<Uuid>,
@@ -46,7 +50,28 @@ pub struct Event {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+/// The age a family event's record gives for one of the family's spouses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpouseAge {
+    pub person_id: Uuid,
+    /// Canonical GEDCOM age (`34y`, `< 1y 6m`, `CHILD`).
+    pub age: String,
+}
+
 impl Event {
+    /// The age the record gives for `person_id` at this event: the event's
+    /// own for an individual event, the spouse's for a family one.
+    pub fn age_of(&self, person_id: Uuid) -> Option<&str> {
+        if self.family_id.is_some() {
+            self.spouse_ages
+                .iter()
+                .find(|s| s.person_id == person_id)
+                .map(|s| s.age.as_str())
+        } else {
+            self.age.as_deref()
+        }
+    }
+
     /// Display year for this event: prefers the normalized `date_sort`,
     /// falling back to the first 4-digit token in the free-text
     /// `date_value` GEDCOM phrase (e.g. "ABT 1842" -> `Some(1842)`).
@@ -203,6 +228,7 @@ mod tests {
             cause: None,
             age: None,
             agency: None,
+            spouse_ages: Vec::new(),
             place_id: None,
             person_id: None,
             family_id: None,

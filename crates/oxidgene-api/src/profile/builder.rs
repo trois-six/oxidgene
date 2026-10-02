@@ -238,8 +238,9 @@ fn first_pages(media: &[Media]) -> HashMap<Uuid, Uuid> {
         .collect()
 }
 
-/// Build a `ProfileEvent` from a raw `Event` and the place index.
-fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>) -> ProfileEvent {
+/// Build person `pid`'s `ProfileEvent` from a raw `Event` and the place
+/// index.
+fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>, pid: Uuid) -> ProfileEvent {
     let place_name = event
         .place_id
         .and_then(|pid| places.get(&pid))
@@ -256,6 +257,7 @@ fn build_profile_event(event: &Event, places: &HashMap<Uuid, Place>) -> ProfileE
         place_name,
         place_id: event.place_id,
         description: event.description.clone(),
+        age: event.age_of(pid).map(str::to_owned),
     }
 }
 
@@ -426,7 +428,7 @@ impl KeyEvents {
     fn of(idx: &IndexedData, pid: Uuid) -> Self {
         let mut events = Self::default();
         for event in idx.events_by_person.get(&pid).into_iter().flatten() {
-            let cached = build_profile_event(event, &idx.places_by_id);
+            let cached = build_profile_event(event, &idx.places_by_id, pid);
             match event.event_type {
                 EventType::Birth => events.birth = Some(cached),
                 EventType::Death => events.death = Some(cached),
@@ -457,7 +459,7 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
         .get(&family_id)
         .into_iter()
         .flatten()
-        .map(|e| build_profile_event(e, &idx.places_by_id))
+        .map(|e| build_profile_event(e, &idx.places_by_id, pid))
         .collect();
     let marriage = events
         .iter()
@@ -808,6 +810,7 @@ mod tests {
             place_name: None,
             place_id: None,
             description: None,
+            age: None,
         };
         assert_eq!(extract_year(&event), Some("1842".to_string()));
 

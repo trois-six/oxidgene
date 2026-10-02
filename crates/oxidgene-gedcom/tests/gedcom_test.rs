@@ -793,6 +793,46 @@ fn ages_and_agencies_survive_a_round_trip() {
     check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
 }
 
+/// A family event's `HUSB.AGE` and `WIFE.AGE` become the ages of the
+/// husband and the wife, and are written back under the same spouse.
+#[test]
+fn spouse_ages_survive_a_round_trip() {
+    let gedcom = FAMILY_GEDCOM.replace(
+        "2 PLAC London, England\n",
+        "2 PLAC London, England\n2 HUSB\n3 AGE 30y\n2 WIFE\n3 AGE < 25y\n",
+    );
+    let check = |result: &oxidgene_gedcom::ImportResult| {
+        let given = |id| {
+            result
+                .person_names
+                .iter()
+                .find(|n| n.person_id == id)
+                .and_then(|n| n.given_names.clone())
+                .unwrap_or_default()
+        };
+        let marriage = result
+            .events
+            .iter()
+            .find(|e| e.event_type == oxidgene_core::EventType::Marriage)
+            .expect("a marriage");
+        let ages: Vec<(String, &str)> = marriage
+            .spouse_ages
+            .iter()
+            .map(|a| (given(a.person_id), a.age.as_str()))
+            .collect();
+        assert_eq!(
+            ages,
+            [("John".to_string(), "30y"), ("Jane".to_string(), "< 25y")]
+        );
+        assert_eq!(marriage.age, None);
+    };
+    let imported = import_gedcom(&gedcom, Uuid::now_v7()).expect("imports");
+    check(&imported);
+    let exported = reexport(&imported);
+    assert!(exported.contains("2 HUSB\n3 AGE 30y\n"), "{exported}");
+    check(&import_gedcom(&exported, Uuid::now_v7()).expect("re-imports"));
+}
+
 /// The text a citation quotes from its source is exported, and comes back.
 #[test]
 fn a_citation_text_survives_a_round_trip() {

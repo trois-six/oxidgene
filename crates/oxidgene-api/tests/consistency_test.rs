@@ -865,6 +865,147 @@ async fn an_event_age_and_agency_behave_alike_on_both_surfaces() {
     }
 }
 
+/// A couple: a family of `tree_id` with a husband and a wife; the family's,
+/// the husband's and the wife's ids.
+async fn couple(app: &axum::Router, tree_id: &str) -> (String, String, String) {
+    let family_id = new_family(app, tree_id).await;
+    let husband = common::new_person(app, tree_id).await;
+    let wife = common::new_person(app, tree_id).await;
+    for (person, role) in [(&husband, "husband"), (&wife, "wife")] {
+        common::ok(
+            app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree_id}/families/{family_id}/spouses"),
+            Some(json!({ "person_id": person, "role": role })),
+        )
+        .await;
+    }
+    (family_id, husband, wife)
+}
+
+/// A family event records each spouse's age, canonical, replaced as a whole
+/// by an update; a person outside the couple, an individual event and a
+/// value that is not an age are refused — on both surfaces. Each spouse's
+/// profile carries their own age.
+#[tokio::test]
+async fn spouse_ages_behave_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Couples").await;
+    let (family_id, husband, wife) = couple(&app, &tree_id).await;
+    let stranger = common::new_person(&app, &tree_id).await;
+    let events = format!("/api/v1/trees/{tree_id}/events");
+
+    // REST.
+    let created = common::ok(
+        &app,
+        Method::POST,
+        &events,
+        Some(json!({
+            "event_type": "marriage", "family_id": family_id, "date_value": "1850",
+            "spouse_ages": [
+                { "person_id": husband, "age": "25" },
+                { "person_id": wife, "age": "" },
+            ],
+        })),
+    )
+    .await;
+    assert_eq!(
+        created["spouse_ages"],
+        json!([{ "person_id": husband, "age": "25y" }])
+    );
+    let uri = format!("{events}/{}", created["id"].as_str().unwrap());
+    let read = common::ok(&app, Method::GET, &uri, None).await;
+    assert_eq!(read["spouse_ages"], created["spouse_ages"]);
+    let profile = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/profiles/{husband}"),
+        None,
+    )
+    .await;
+    assert_eq!(profile["families_as_spouse"][0]["events"][0]["age"], "25y");
+    let kept = common::ok(&app, Method::PUT, &uri, Some(json!({ "cause": "x" }))).await;
+    assert_eq!(kept["spouse_ages"], created["spouse_ages"]);
+    let replaced = common::ok(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "spouse_ages": [{ "person_id": wife, "age": "< 20y" }] })),
+    )
+    .await;
+    assert_eq!(
+        replaced["spouse_ages"],
+        json!([{ "person_id": wife, "age": "< 20y" }])
+    );
+    let birth = new_birth(&app, &tree_id, &husband).await;
+    for (method, uri, body) in [
+        (
+            Method::PUT,
+            uri.clone(),
+            json!({ "spouse_ages": [{ "person_id": stranger, "age": "30y" }] }),
+        ),
+        (
+            Method::PUT,
+            uri.clone(),
+            json!({ "spouse_ages": [{ "person_id": wife, "age": "majeur" }] }),
+        ),
+        (
+            Method::PUT,
+            format!("{events}/{birth}"),
+            json!({ "spouse_ages": [{ "person_id": husband, "age": "1d" }] }),
+        ),
+    ] {
+        let (status, response) = send(&app, method, &uri, Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {response}");
+    }
+    let cleared = common::ok(&app, Method::PUT, &uri, Some(json!({ "spouse_ages": [] }))).await;
+    assert_eq!(cleared["spouse_ages"], json!([]));
+
+    // GraphQL.
+    let vars = json!({ "t": tree_id, "f": family_id, "h": husband, "w": wife });
+    let created = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!, $f: String!, $h: ID!) { createEvent(treeId: $t, input: { eventType: MARRIAGE, familyId: $f, spouseAges: [{ personId: $h, age: "25" }] }) { id spouseAges { personId age } } }"#,
+        vars.clone(),
+    )
+    .await;
+    let event = &created["createEvent"];
+    assert_eq!(
+        event["spouseAges"],
+        json!([{ "personId": husband, "age": "25y" }])
+    );
+    let evars = json!({ "t": tree_id, "e": event["id"], "w": wife, "s": stranger, "b": birth });
+    let replaced = common::gql_ok(
+        &app,
+        r#"mutation($t: ID!, $e: ID!, $w: ID!) { updateEvent(treeId: $t, id: $e, input: { spouseAges: [{ personId: $w, age: "< 20y" }] }) { spouseAges { personId age } } }"#,
+        evars.clone(),
+    )
+    .await;
+    assert_eq!(
+        replaced["updateEvent"]["spouseAges"],
+        json!([{ "personId": wife, "age": "< 20y" }])
+    );
+    for mutation in [
+        r#"mutation($t: ID!, $e: ID!, $s: ID!) { updateEvent(treeId: $t, id: $e, input: { spouseAges: [{ personId: $s, age: "30y" }] }) { id } }"#,
+        r#"mutation($t: ID!, $e: ID!, $w: ID!) { updateEvent(treeId: $t, id: $e, input: { spouseAges: [{ personId: $w, age: "majeur" }] }) { id } }"#,
+        r#"mutation($t: ID!, $b: ID!, $w: ID!) { updateEvent(treeId: $t, id: $b, input: { spouseAges: [{ personId: $w, age: "1d" }] }) { id } }"#,
+    ] {
+        let response = gql(&app, mutation, evars.clone()).await;
+        assert_eq!(
+            gql_error_code(&response),
+            "VALIDATION_ERROR",
+            "{mutation}: {response}"
+        );
+    }
+    let cleared = common::gql_ok(
+        &app,
+        "mutation($t: ID!, $e: ID!) { updateEvent(treeId: $t, id: $e, input: { spouseAges: [] }) { spouseAges { age } } }",
+        evars,
+    )
+    .await;
+    assert_eq!(cleared["updateEvent"]["spouseAges"], json!([]));
+}
+
 /// A source's agency is set, kept and cleared alike on both surfaces.
 #[tokio::test]
 async fn a_source_agency_behaves_alike_on_both_surfaces() {

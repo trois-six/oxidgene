@@ -357,6 +357,8 @@ pub struct CreateEventInput {
     pub age: Option<String>,
     /// The authority responsible for the event's record.
     pub agency: Option<String>,
+    /// For a family event, the age its record gives for each spouse named.
+    pub spouse_ages: Option<Vec<SpouseAgeInput>>,
     pub place_id: Option<String>,
     pub person_id: Option<String>,
     pub family_id: Option<String>,
@@ -374,8 +376,32 @@ pub struct UpdateEventInput {
     pub cause: MaybeUndefined<String>,
     pub age: MaybeUndefined<String>,
     pub agency: MaybeUndefined<String>,
+    /// Replaces a family event's spouse ages when given; an empty list
+    /// clears them.
+    pub spouse_ages: Option<Vec<SpouseAgeInput>>,
     pub place_id: MaybeUndefined<String>,
     pub description: MaybeUndefined<String>,
+}
+
+/// The age a family event's record gives for one spouse.
+#[derive(Debug, InputObject)]
+pub struct SpouseAgeInput {
+    pub person_id: ID,
+    /// A GEDCOM age (`34y`, `< 1y 6m`, `CHILD`); blank leaves it out.
+    pub age: String,
+}
+
+/// `inputs` as the service takes them.
+fn spouse_ages(inputs: Vec<SpouseAgeInput>) -> Result<Vec<oxidgene_core::types::SpouseAge>> {
+    inputs
+        .into_iter()
+        .map(|input| {
+            Ok(oxidgene_core::types::SpouseAge {
+                person_id: uuid(&input.person_id)?,
+                age: input.age,
+            })
+        })
+        .collect()
 }
 
 /// Input for adding a witness to an event.
@@ -400,6 +426,7 @@ impl TryFrom<CreateEventInput> for crate::service::event::NewEvent {
             cause: input.cause,
             age: input.age,
             agency: input.agency,
+            spouse_ages: spouse_ages(input.spouse_ages.unwrap_or_default())?,
             place_id: opt_uuid(input.place_id)?,
             person_id: opt_uuid(input.person_id)?,
             family_id: opt_uuid(input.family_id)?,
@@ -421,6 +448,7 @@ impl TryFrom<UpdateEventInput> for crate::service::event::EventPatch {
             cause: patch(input.cause),
             age: patch(input.age),
             agency: patch(input.agency),
+            spouse_ages: input.spouse_ages.map(spouse_ages).transpose()?,
             place_id: patch_id(input.place_id)?,
             description: patch(input.description),
         })

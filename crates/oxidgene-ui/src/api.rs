@@ -16,7 +16,7 @@ use oxidgene_core::projection::{Pedigree, PersonProfile, SearchEntry, SearchResu
 use oxidgene_core::types::{
     AncestryLink, Citation, Connection, DOCUMENT_MIME, Event, EventWitness, Family, FamilyChild,
     FamilySpouse, ImageCrop, ImageSource, Kinship, Media, Note, Person, PersonName, Place,
-    QualifiedYear, Source, Tree, Vignette,
+    QualifiedYear, Source, SpouseAge, Tree, Vignette,
 };
 use oxidgene_core::{
     Calendar, ChildType, Confidence, DateQualifier, DocumentCategory, EventType, NameType, Privacy,
@@ -869,6 +869,8 @@ pub struct CreateEventBody {
     pub cause: Option<String>,
     pub age: Option<String>,
     pub agency: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub spouse_ages: Vec<SpouseAge>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
@@ -893,6 +895,9 @@ pub struct UpdateEventBody {
     pub age: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agency: Option<Option<String>>,
+    /// Replaces a family event's spouse ages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spouse_ages: Option<Vec<SpouseAge>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub place_id: Option<Option<Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]

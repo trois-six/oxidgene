@@ -486,6 +486,18 @@ fn event_group(
         before.and_then(|e| e.agency.clone()),
         after.and_then(|e| e.agency.clone()),
     );
+    let spouse_ages = |side: &Side, e: &EventSnapshot| {
+        join(
+            e.spouse_ages
+                .iter()
+                .map(|a| format!("{}: {}", side.label(i18n, a.person_id), a.age)),
+        )
+    };
+    group.row(
+        i18n.t("history.field.spouse_ages"),
+        before.map(|e| spouse_ages(old, e)),
+        after.map(|e| spouse_ages(new, e)),
+    );
     let witnesses = |side: &Side, e: &EventSnapshot| {
         join(e.witnesses.iter().map(|w| match w.relation.as_deref() {
             Some(relation) if !relation.trim().is_empty() => {
@@ -1091,6 +1103,7 @@ mod tests {
             place_id: place,
             description: None,
             witnesses: Vec::new(),
+            spouse_ages: Vec::new(),
             notes: Vec::new(),
             citations: Vec::new(),
         }

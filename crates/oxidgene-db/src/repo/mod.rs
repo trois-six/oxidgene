@@ -12,6 +12,7 @@ mod citation;
 mod connection;
 mod dictionary;
 mod event;
+mod event_spouse_age;
 mod event_witness;
 mod family;
 mod family_child;
@@ -50,6 +51,7 @@ pub use dictionary::{
     PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
 };
 pub use event::{EventDetails, EventDetailsPatch, EventFilter, EventRepo};
+pub use event_spouse_age::EventSpouseAgeRepo;
 pub use event_witness::EventWitnessRepo;
 pub use family::FamilyRepo;
 pub use family_child::FamilyChildRepo;

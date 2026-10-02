@@ -192,6 +192,9 @@ fn anomaly_detail(i18n: &I18n, rule: &str, anomaly: &Anomaly) -> String {
                 "tools.anomalies.detail.after_father_death",
                 &[("gap", &days())],
             ),
+            "recorded_age_mismatch" => {
+                i18n.t_args("tools.anomalies.detail.dates_give", &[("age", &years())])
+            }
             "repeated_union" => i18n.t_plural("stats.count.unions", n),
             _ => n.to_string(),
         };
@@ -201,7 +204,13 @@ fn anomaly_detail(i18n: &I18n, rule: &str, anomaly: &Anomaly) -> String {
         parts.push(event_type_label(i18n, event_type));
     }
     if let Some(text) = &anomaly.text {
-        parts.push(format!("\u{201C}{text}\u{201D}"));
+        // A recorded age reads in words; any other text as recorded.
+        match crate::utils::age_label(i18n, text).filter(|_| rule == "recorded_age_mismatch") {
+            Some(age) => {
+                parts.push(i18n.t_args("tools.anomalies.detail.recorded", &[("age", &age)]))
+            }
+            None => parts.push(format!("\u{201C}{text}\u{201D}")),
+        }
     }
     parts.join(" · ")
 }

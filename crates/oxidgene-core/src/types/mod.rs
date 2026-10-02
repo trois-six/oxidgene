@@ -19,7 +19,7 @@ mod tree;
 
 pub use age::AgeAtEvent;
 pub use citation::Citation;
-pub use event::{Event, EventWitness, QualifiedYear, year_from_date};
+pub use event::{Event, EventWitness, QualifiedYear, SpouseAge, year_from_date};
 pub use family::{Family, FamilyChild, FamilySpouse};
 pub use kinship::{Kinship, KinshipPath, KinshipSegment};
 pub use media::{

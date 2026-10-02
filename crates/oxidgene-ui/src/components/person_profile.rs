@@ -1664,9 +1664,9 @@ pub(crate) fn timeline_section(
                             let event_type_label = i18n.t(event_type_label_key(event.event_type));
                             let desc = event.description.clone().unwrap_or_default();
                             let place_display = event.place_id.map(|id| profile.place_name(id));
+                            // This person's own age at a family event.
                             let age = event
-                                .age
-                                .as_deref()
+                                .age_of(profile.person_id)
                                 .and_then(|age| crate::utils::age_label(&i18n, age));
                             let agency = event.agency.clone();
 

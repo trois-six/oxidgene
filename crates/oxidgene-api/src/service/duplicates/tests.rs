@@ -18,6 +18,7 @@ fn birth(value: &str, sort: (i32, u32, u32), place: Option<&str>) -> ProfileEven
         place_name: place.map(str::to_string),
         place_id: None,
         description: None,
+        age: None,
     }
 }
 

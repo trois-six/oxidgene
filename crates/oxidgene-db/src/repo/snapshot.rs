@@ -23,8 +23,8 @@ use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::history::{
     ChildLinkSnapshot, CitationSnapshot, EventSnapshot, NameSnapshot, NoteSnapshot, PersonSnapshot,
-    PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, SourceSnapshot, SpouseLinkSnapshot,
-    TreeSnapshot, UnionSnapshot, WitnessSnapshot,
+    PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, SourceSnapshot, SpouseAgeSnapshot,
+    SpouseLinkSnapshot, TreeSnapshot, UnionSnapshot, WitnessSnapshot,
 };
 use oxidgene_core::types::join_surname_particle;
 use sea_orm::entity::prelude::*;
@@ -35,8 +35,8 @@ use uuid::Uuid;
 use super::HistoryRepo;
 use super::batch::in_chunks;
 use crate::entities::{
-    citation, event, event_witness, family, family_child, family_spouse, note, person, person_name,
-    place, source, tree,
+    citation, event, event_spouse_age, event_witness, family, family_child, family_spouse, note,
+    person, person_name, place, source, tree,
 };
 use crate::html::sanitize_note_html;
 use crate::repo::db_err;
@@ -390,6 +390,8 @@ struct PersonRows {
     events_by_person: HashMap<Uuid, Vec<event::Model>>,
     events_by_family: HashMap<Uuid, Vec<event::Model>>,
     witnesses_by_event: HashMap<Uuid, Vec<event_witness::Model>>,
+    /// A family event's spouse ages, with the person each membership names.
+    spouse_ages_by_event: HashMap<Uuid, Vec<(event_spouse_age::Model, Uuid)>>,
     notes: Attached<note::Model>,
     citations: Attached<citation::Model>,
     place_labels: HashMap<Uuid, String>,
@@ -440,6 +442,7 @@ impl PersonRows {
                 .map_err(db_err)
         })
         .await?;
+        let spouse_ages = spouse_ages(db, &family_events, &family_spouses).await?;
         let notes = Attached::notes(db, person_ids, &event_ids, &family_ids).await?;
         let citations = Attached::citations(db, person_ids, &event_ids, &family_ids).await?;
 
@@ -472,6 +475,7 @@ impl PersonRows {
             events_by_person: group(person_events, |e| e.person_id.unwrap_or_default()),
             events_by_family: group(family_events, |e| e.family_id.unwrap_or_default()),
             witnesses_by_event: group(witnesses, |w| w.event_id),
+            spouse_ages_by_event: group(spouse_ages, |(a, _)| a.event_id),
             notes,
             citations,
             place_labels,
@@ -637,10 +641,51 @@ impl PersonRows {
                     .collect(),
                 |w| (w.sort_order, w.id),
             ),
+            spouse_ages: sorted(
+                self.spouse_ages_by_event
+                    .get(&e.id)
+                    .into_iter()
+                    .flatten()
+                    .map(|(a, person_id)| SpouseAgeSnapshot {
+                        id: a.id,
+                        family_spouse_id: a.family_spouse_id,
+                        person_id: *person_id,
+                        age: a.age.clone(),
+                    })
+                    .collect(),
+                |a| a.id,
+            ),
             notes: self.notes.of(|n| n.event_id == Some(e.id)),
             citations: self.citations.of(|c| c.event_id == Some(e.id)),
         }
     }
+}
+
+/// The spouse ages of `family_events`, each with the person its membership
+/// (one of `family_spouses`) names.
+async fn spouse_ages(
+    db: &impl ConnectionTrait,
+    family_events: &[event::Model],
+    family_spouses: &[family_spouse::Model],
+) -> Result<Vec<(event_spouse_age::Model, Uuid)>, OxidGeneError> {
+    let event_ids: Vec<Uuid> = family_events.iter().map(|e| e.id).collect();
+    let person_of: HashMap<Uuid, Uuid> =
+        family_spouses.iter().map(|s| (s.id, s.person_id)).collect();
+    let rows = in_chunks(&event_ids, |chunk| async move {
+        event_spouse_age::Entity::find()
+            .filter(event_spouse_age::Column::EventId.is_in(chunk))
+            .all(db)
+            .await
+            .map_err(db_err)
+    })
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let person_id = *person_of.get(&row.family_spouse_id)?;
+            Some((row, person_id))
+        })
+        .collect())
 }
 
 /// The links making these persons a child and a spouse, in that order.
@@ -1197,6 +1242,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             )
             .await?;
             self.witnesses(snapshot.id, &snapshot.witnesses).await?;
+            self.spouse_ages(snapshot.id, &snapshot.spouse_ages).await?;
             self.notes(NoteOwner::Event(snapshot.id), &snapshot.notes)
                 .await?;
             self.citations(CitationOwner::Event(snapshot.id), &snapshot.citations)
@@ -1232,6 +1278,45 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 self.db,
                 row,
                 event_witness::Entity::find_by_id(witness.id),
+                &[],
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Replace an event's spouse ages with the snapshot's, skipping those
+    /// whose spouse is no longer a member of the family.
+    async fn spouse_ages(
+        &mut self,
+        event_id: Uuid,
+        ages: &[SpouseAgeSnapshot],
+    ) -> Result<(), OxidGeneError> {
+        let wanted: Vec<Uuid> = ages.iter().map(|a| a.id).collect();
+        event_spouse_age::Entity::delete_many()
+            .filter(event_spouse_age::Column::EventId.eq(event_id))
+            .filter(event_spouse_age::Column::Id.is_not_in(wanted))
+            .exec(self.db)
+            .await
+            .map_err(db_err)?;
+        for age in ages {
+            let member = family_spouse::Entity::find_by_id(age.family_spouse_id)
+                .one(self.db)
+                .await
+                .map_err(db_err)?;
+            if member.is_none() {
+                continue;
+            }
+            let row = event_spouse_age::ActiveModel {
+                id: Set(age.id),
+                event_id: Set(event_id),
+                family_spouse_id: Set(age.family_spouse_id),
+                age: Set(age.age.clone()),
+            };
+            upsert(
+                self.db,
+                row,
+                event_spouse_age::Entity::find_by_id(age.id),
                 &[],
             )
             .await?;

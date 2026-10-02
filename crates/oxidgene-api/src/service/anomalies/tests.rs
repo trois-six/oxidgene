@@ -28,6 +28,7 @@ fn ev(event_type: EventType, year: i32, month: Option<u32>, day: Option<u32>) ->
         place_name: None,
         place_id: None,
         description: None,
+        age: None,
     }
 }
 
@@ -610,4 +611,76 @@ fn places_without_coordinates_the_dictionary_cannot_read_are_listed() {
         .map(|p| (p.name.as_str(), p.count))
         .collect();
     assert_eq!(names, vec![("Nowhere Hamlet", 2)]);
+}
+
+/// `event` stating `age` for its person.
+fn aged(mut event: ProfileEvent, age: &str) -> ProfileEvent {
+    event.age = Some(age.to_string());
+    event
+}
+
+#[test]
+fn a_recorded_age_must_fit_the_dates_within_two_years() {
+    // Born 1800: dies in 1850 aged 49 — a year's rounding, not reported.
+    let fits = died(
+        born(person("Fits", Sex::Male), year(EventType::Birth, 1800)),
+        aged(year(EventType::Death, 1850), "49y"),
+    );
+    // Dies in 1850 "aged 30": twenty years off.
+    let off = died(
+        born(
+            person("Off", Sex::Female),
+            day(EventType::Birth, 1800, 3, 1),
+        ),
+        aged(day(EventType::Death, 1850, 6, 1), "30y"),
+    );
+    // "Under one year" at 5: off; "over 80" at 40: off; "child" at 6: fits.
+    let mut infant = born(person("Infant", Sex::Male), year(EventType::Birth, 1800));
+    infant.burial = Some(aged(year(EventType::Burial, 1805), "< 1y"));
+    let mut elder = born(person("Elder", Sex::Female), year(EventType::Birth, 1800));
+    elder.other_events = vec![aged(year(EventType::Residence, 1840), "> 80y")];
+    let child = died(
+        born(person("Child", Sex::Male), year(EventType::Birth, 1800)),
+        aged(year(EventType::Death, 1806), "CHILD"),
+    );
+    // A date about a year widens by its slack: aged 51 about 1847 fits.
+    let mut about = born(person("About", Sex::Female), year(EventType::Birth, 1800));
+    let mut approximate = aged(year(EventType::Death, 1847), "51y");
+    approximate.date_qualifier = DateQualifier::About;
+    about.death = Some(approximate);
+    // A spouse's age at the marriage, read from the union.
+    let mut groom = born(person("Groom", Sex::Male), year(EventType::Birth, 1800));
+    let mut bride = born(person("Bride", Sex::Female), year(EventType::Birth, 1802));
+    family(
+        &mut groom,
+        &mut bride,
+        vec![year(EventType::Marriage, 1825)],
+        &mut [],
+    );
+    groom.families_as_spouse[0].events[0].age = Some("40y".to_string());
+    bride.families_as_spouse[0].events[0].age = Some("23y".to_string());
+
+    let result = run(&[fits, off, infant, elder, child, about, groom, bride]);
+    let mut names = found(&result, "recorded_age_mismatch");
+    names.sort();
+    assert_eq!(
+        names,
+        vec![vec!["Elder"], vec!["Groom"], vec!["Infant"], vec!["Off"]]
+    );
+    let rule = result
+        .rules
+        .iter()
+        .find(|r| r.rule == "recorded_age_mismatch")
+        .unwrap();
+    assert_eq!(
+        (rule.category.as_str(), rule.severity.as_str()),
+        ("dates", "warning")
+    );
+    let off = rule
+        .items
+        .iter()
+        .find(|a| a.text.as_deref() == Some("30y"))
+        .unwrap();
+    assert_eq!(off.value, Some(50));
+    assert_eq!(off.event_type.as_deref(), Some("death"));
 }

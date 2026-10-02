@@ -4,6 +4,7 @@ pub mod audit_entry;
 pub mod background_job;
 pub mod citation;
 pub mod event;
+pub mod event_spouse_age;
 pub mod event_witness;
 pub mod family;
 pub mod family_child;

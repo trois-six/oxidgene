@@ -15,6 +15,7 @@ const TABLES: &[&str] = &[
     "place",
     "event",
     "event_witness",
+    "event_spouse_age",
     "source",
     "citation",
     "media",

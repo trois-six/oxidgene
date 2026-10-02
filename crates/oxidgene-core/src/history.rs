@@ -379,10 +379,23 @@ pub struct EventSnapshot {
     pub description: Option<String>,
     #[serde(default)]
     pub witnesses: Vec<WitnessSnapshot>,
+    /// For a family event, the age it gives for each spouse.
+    #[serde(default)]
+    pub spouse_ages: Vec<SpouseAgeSnapshot>,
     #[serde(default)]
     pub notes: Vec<NoteSnapshot>,
     #[serde(default)]
     pub citations: Vec<CitationSnapshot>,
+}
+
+/// The age a family event gives for one spouse, keyed by the spouse's
+/// membership of the family; `person_id` names who it was when recorded.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SpouseAgeSnapshot {
+    pub id: Uuid,
+    pub family_spouse_id: Uuid,
+    pub person_id: Uuid,
+    pub age: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

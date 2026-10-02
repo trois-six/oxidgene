@@ -1360,6 +1360,7 @@ mod tests {
             place_name: Some("Place A".to_string()),
             place_id: None,
             description: None,
+            age: None,
         }
     }
 

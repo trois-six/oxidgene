@@ -7,10 +7,11 @@
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::history::AuditEntity;
-use oxidgene_core::types::{Connection, Event, EventWitness};
+use oxidgene_core::types::{Connection, Event, EventWitness, SpouseAge};
 use oxidgene_core::{Calendar, DateQualifier, EventType};
 use oxidgene_db::repo::{
-    EventDetails, EventDetailsPatch, EventFilter, EventRepo, EventWitnessRepo, PaginationParams,
+    EventDetails, EventDetailsPatch, EventFilter, EventRepo, EventSpouseAgeRepo, EventWitnessRepo,
+    PaginationParams,
 };
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
@@ -43,6 +44,9 @@ pub struct NewEvent {
     /// The authority responsible for the event's record.
     #[serde(default)]
     pub agency: Option<String>,
+    /// For a family event, the age its record gives for each spouse named.
+    #[serde(default)]
+    pub spouse_ages: Vec<SpouseAge>,
     pub place_id: Option<Uuid>,
     pub person_id: Option<Uuid>,
     pub family_id: Option<Uuid>,
@@ -66,6 +70,10 @@ pub struct EventPatch {
     pub age: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub agency: Option<Option<String>>,
+    /// Replaces a family event's spouse ages when given; an empty list
+    /// clears them.
+    #[serde(default)]
+    pub spouse_ages: Option<Vec<SpouseAge>>,
     #[serde(default, deserialize_with = "double_option")]
     pub place_id: Option<Option<Uuid>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -105,9 +113,9 @@ pub async fn create_event(
     db: &DatabaseConnection,
     profiles: &ProfileService,
     tree_id: Uuid,
-    new: NewEvent,
+    mut new: NewEvent,
 ) -> Result<Event, OxidGeneError> {
-    let age = canonical_age(new.age.as_deref(), new.family_id.is_some())?;
+    let (details, spouse_ages) = new_details(&mut new)?;
     // Derived here, never taken from the request — see `service::event_date`.
     let date_sort = event_date::derive(new.calendar, new.date_value.as_deref());
     let txn = begin_tx(db).await?;
@@ -141,11 +149,13 @@ pub async fn create_event(
         new.date_qualifier,
         new.date_value2,
         new.calendar,
-        EventDetails {
-            cause: new.cause,
-            age,
-            agency: blank_to_none(new.agency),
-        },
+        details,
+    )
+    .await?;
+    let event = write_spouse_ages(
+        &txn,
+        event,
+        (!spouse_ages.is_empty()).then_some(spouse_ages),
     )
     .await?;
     // A person's event or a family's.
@@ -165,7 +175,7 @@ pub async fn update_event(
     profiles: &ProfileService,
     tree_id: Uuid,
     id: Uuid,
-    patch: EventPatch,
+    mut patch: EventPatch,
 ) -> Result<Event, OxidGeneError> {
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, id).await?;
@@ -175,10 +185,7 @@ pub async fn update_event(
     // Derived from the patched state, reading whichever half the patch leaves
     // alone off the stored event — see `service::event_date`.
     let stored = EventRepo::get(&txn, id).await?;
-    let age = match patch.age {
-        Some(age) => Some(canonical_age(age.as_deref(), stored.family_id.is_some())?),
-        None => None,
-    };
+    let (details, spouse_ages) = patch_details(&mut patch, stored.family_id.is_some())?;
     let pending = Change::update(tree_id, AuditEntity::Event, id)
         .event(id)
         .prepare(&txn)
@@ -200,13 +207,10 @@ pub async fn update_event(
         patch.date_qualifier,
         patch.date_value2,
         patch.calendar,
-        EventDetailsPatch {
-            cause: patch.cause,
-            age,
-            agency: patch.agency.map(blank_to_none),
-        },
+        details,
     )
     .await?;
+    let event = write_spouse_ages(&txn, event, spouse_ages).await?;
     let affected =
         invalidation::affected_persons_for_event(&txn, event.person_id, event.family_id).await?;
     profiles
@@ -241,6 +245,58 @@ pub async fn delete_event(
     commit_tx(txn).await
 }
 
+/// The details and spouse ages `new` gives, checked and in canonical form,
+/// taken out of it.
+fn new_details(new: &mut NewEvent) -> Result<(EventDetails, Vec<SpouseAge>), OxidGeneError> {
+    let family_event = new.family_id.is_some();
+    let details = EventDetails {
+        cause: new.cause.take(),
+        age: canonical_age(new.age.as_deref(), family_event)?,
+        agency: blank_to_none(new.agency.take()),
+    };
+    let ages = canonical_spouse_ages(std::mem::take(&mut new.spouse_ages), family_event)?;
+    Ok((details, ages))
+}
+
+/// The details and spouse ages `patch` changes, checked and in canonical
+/// form, taken out of it.
+fn patch_details(
+    patch: &mut EventPatch,
+    family_event: bool,
+) -> Result<(EventDetailsPatch, Option<Vec<SpouseAge>>), OxidGeneError> {
+    let details = EventDetailsPatch {
+        cause: patch.cause.take(),
+        age: patch
+            .age
+            .take()
+            .map(|age| canonical_age(age.as_deref(), family_event))
+            .transpose()?,
+        agency: patch.agency.take().map(blank_to_none),
+    };
+    let ages = patch
+        .spouse_ages
+        .take()
+        .map(|ages| canonical_spouse_ages(ages, family_event))
+        .transpose()?;
+    Ok((details, ages))
+}
+
+/// `event` once `ages`, when given, replace its spouse ages — a family
+/// event's only.
+async fn write_spouse_ages(
+    txn: &impl oxidgene_db::sea_orm::ConnectionTrait,
+    event: Event,
+    ages: Option<Vec<SpouseAge>>,
+) -> Result<Event, OxidGeneError> {
+    match (ages, event.family_id) {
+        (Some(ages), Some(family_id)) => {
+            EventSpouseAgeRepo::replace(txn, event.id, family_id, &ages).await?;
+            EventRepo::get(txn, event.id).await
+        }
+        _ => Ok(event),
+    }
+}
+
 /// `age` in the canonical form an event stores, `None` when blank. An age
 /// that is not a GEDCOM age is refused, and so is any age on a family event:
 /// there, each spouse's age is recorded on its own.
@@ -253,6 +309,30 @@ fn canonical_age(age: Option<&str>, family_event: bool) -> Result<Option<String>
         ));
     }
     Ok(age)
+}
+
+/// `ages` with each age in canonical form and the blank ones left out. A
+/// spouse age is refused on an individual event, and so is one that is not
+/// an age.
+fn canonical_spouse_ages(
+    ages: Vec<SpouseAge>,
+    family_event: bool,
+) -> Result<Vec<SpouseAge>, OxidGeneError> {
+    let mut canonical = Vec::with_capacity(ages.len());
+    for SpouseAge { person_id, age } in ages {
+        let Some(age) = oxidgene_core::types::age::normalize(&age)
+            .map_err(|e| OxidGeneError::Validation(format!("spouse_ages: {e}")))?
+        else {
+            continue;
+        };
+        canonical.push(SpouseAge { person_id, age });
+    }
+    if !canonical.is_empty() && !family_event {
+        return Err(OxidGeneError::Validation(
+            "spouse_ages: only a family event records its spouses' ages".to_string(),
+        ));
+    }
+    Ok(canonical)
 }
 
 /// `text`, unless it is blank.

@@ -9,6 +9,8 @@
 //! date they qualify rather than in a panel of their own. Witnesses likewise
 //! live in the event's own block.
 
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
 use uuid::Uuid;
 
@@ -29,6 +31,7 @@ use crate::utils::{
     NAME_TYPES, event_type_label_key, event_type_value, name_type_label_key, name_type_value,
     opt_str, parse_event_type, parse_name_type, parse_privacy, parse_sex, resolve_name,
 };
+use oxidgene_core::types::SpouseAge;
 use oxidgene_core::types::{Event as CoreEvent, Note as CoreNote};
 use oxidgene_core::types::{split_surname_at_head, split_surname_particle};
 use oxidgene_core::{ChildType, Confidence, EventType, NameType, SpouseRole};
@@ -2357,6 +2360,8 @@ pub(crate) struct EventExtras {
     pub cause: Option<String>,
     pub age: Option<String>,
     pub agency: Option<String>,
+    /// For a family event, the age it gives for each spouse.
+    pub spouse_ages: Vec<SpouseAge>,
 }
 
 /// [`EventExtras`] as an update writes them: `None` leaves a field alone and
@@ -2366,6 +2371,8 @@ pub(crate) struct EventExtrasPatch {
     pub cause: Option<Option<String>>,
     pub age: Option<Option<String>>,
     pub agency: Option<Option<String>>,
+    /// Replaces a family event's spouse ages when set.
+    pub spouse_ages: Option<Vec<SpouseAge>>,
 }
 
 impl EventExtras {
@@ -2379,16 +2386,70 @@ impl EventExtras {
             cause: opt_str(cause.trim()),
             age,
             agency: opt_str(agency.trim()),
+            spouse_ages: Vec::new(),
         })
     }
 
     /// Every field written, a blank one cleared: what saving a form that
-    /// shows all three means.
-    pub(crate) fn into_patch(self) -> EventExtrasPatch {
+    /// shows all three means. Spouse ages are written when `spouses` names
+    /// the spouses the form showed them for.
+    pub(crate) fn into_patch(self, spouses: bool) -> EventExtrasPatch {
         EventExtrasPatch {
             cause: Some(self.cause),
             age: Some(self.age),
             agency: Some(self.agency),
+            spouse_ages: spouses.then_some(self.spouse_ages),
+        }
+    }
+}
+
+/// The ages typed for each of `spouses` (person, name), in canonical form,
+/// the blank ones left out — or the key of the message saying one is not an
+/// age.
+pub(crate) fn spouse_ages_from_form(
+    spouses: &[(Uuid, String)],
+    typed: &HashMap<Uuid, String>,
+) -> Result<Vec<SpouseAge>, &'static str> {
+    let mut ages = Vec::new();
+    for (person_id, _) in spouses {
+        let text = typed.get(person_id).map(String::as_str).unwrap_or_default();
+        if let Some(age) =
+            oxidgene_core::types::age::normalize(text).map_err(|_| "person_form.age_invalid")?
+        {
+            ages.push(SpouseAge {
+                person_id: *person_id,
+                age,
+            });
+        }
+    }
+    Ok(ages)
+}
+
+/// The ages a family event gives, by spouse, as a form edits them.
+pub(crate) fn typed_spouse_ages(ages: &[SpouseAge]) -> HashMap<Uuid, String> {
+    ages.iter().map(|a| (a.person_id, a.age.clone())).collect()
+}
+
+/// One "Age of {name}" field per spouse of a family event.
+pub(crate) fn render_spouse_age_fields(
+    i18n: &crate::i18n::I18n,
+    spouses: &[(Uuid, String)],
+    mut ages: Signal<HashMap<Uuid, String>>,
+) -> Element {
+    let spouses = spouses.to_vec();
+    rsx! {
+        for (person_id, name) in spouses {
+            div { key: "{person_id}", class: "form-group",
+                label { {i18n.t_args("person_form.age_of", &[("name", &name)])} }
+                input {
+                    r#type: "text",
+                    value: ages.read().get(&person_id).cloned().unwrap_or_default(),
+                    placeholder: i18n.t("person_form.age_placeholder"),
+                    oninput: move |e: Event<FormData>| {
+                        ages.write().insert(person_id, e.value());
+                    },
+                }
+            }
         }
     }
 }
@@ -2414,6 +2475,7 @@ pub(crate) fn create_event_body(
         cause: extras.cause,
         age: extras.age,
         agency: extras.agency,
+        spouse_ages: extras.spouse_ages,
         place_id,
         person_id,
         family_id,
@@ -2440,6 +2502,7 @@ pub(crate) fn update_event_body(
         cause: extras.cause,
         age: extras.age,
         agency: extras.agency,
+        spouse_ages: extras.spouse_ages,
         place_id: Some(place_id),
         description,
     }
@@ -2999,6 +3062,9 @@ pub fn EventEditor(
     event: CoreEvent,
     description_label: String,
     place_options: Vec<(String, String)>,
+    /// A family event's spouses (person, name): one age field each.
+    #[props(default)]
+    spouses: Vec<(Uuid, String)>,
     on_saved: EventHandler<()>,
 ) -> Element {
     let api = use_context::<ApiClient>();
@@ -3012,6 +3078,9 @@ pub fn EventEditor(
     // A family event states each spouse's age, not its own.
     let age = use_signal(|| event.age.clone().unwrap_or_default());
     let age = event.family_id.is_none().then_some(age);
+    let spouse_ages = use_signal(|| typed_spouse_ages(&event.spouse_ages));
+    let family_spouses = spouses.clone();
+    let edits_spouse_ages = event.family_id.is_some() && !spouses.is_empty();
     let agency = use_signal(|| event.agency.clone().unwrap_or_default());
     // Open from the start when it holds something, so nothing stored hides.
     let mut more = use_signal(|| event.agency.is_some());
@@ -3061,7 +3130,11 @@ pub fn EventEditor(
             &cause(),
             &age.map(|age| age()).unwrap_or_default(),
             &agency(),
-        );
+        )
+        .and_then(|mut extras| {
+            extras.spouse_ages = spouse_ages_from_form(&family_spouses, &spouse_ages.read())?;
+            Ok(extras)
+        });
         let confidence = reliability();
         let date = parts();
         let place = place_id();
@@ -3079,49 +3152,24 @@ pub fn EventEditor(
             };
             saving.set(true);
             error.set(None);
-
-            let place_id = match resolve_place(&api, tree_id, &place, i18n.0.code()).await {
-                Ok(place_id) => place_id,
-                Err(e) => {
-                    error.set(Some(format!("{e}")));
-                    saving.set(false);
-                    return;
-                }
+            let edit = EventEdit {
+                date,
+                place,
+                description: desc,
+                extras: extras.into_patch(edits_spouse_ages),
+                notes: notes_val,
+                source,
+                confidence,
             };
-            let body = update_event_body(
-                None,
-                &date,
-                place_id,
-                Some(opt_str(&desc)),
-                extras.into_patch(),
-            );
-            if let Err(e) = api.update_event(tree_id, event_id, &body).await {
-                error.set(Some(format!("{e}")));
-                saving.set(false);
-                return;
-            }
-
-            match save_notes_source(
-                &api,
-                tree_id,
-                person_id,
-                Some(event_id),
-                &notes_val,
-                &source,
-                &current,
-            )
-            .await
-            {
+            let target = (person_id, event_id);
+            match save_event_edit(&api, tree_id, target, i18n.0.code(), edit, &current).await {
                 // Adopt the state that was just written, so pressing Save
                 // again reconciles against those rows instead of creating a
                 // second set.
-                Ok(stored) => match save_reliability(&api, tree_id, stored, confidence).await {
-                    Ok(stored) => {
-                        loaded.set(Some(stored));
-                        on_saved.call(());
-                    }
-                    Err(e) => error.set(Some(format!("{e}"))),
-                },
+                Ok(stored) => {
+                    loaded.set(Some(stored));
+                    on_saved.call(());
+                }
                 Err(e) => error.set(Some(format!("{e}"))),
             }
             saving.set(false);
@@ -3159,6 +3207,11 @@ pub fn EventEditor(
                 div { class: "form-row",
                     {render_place_input(&i18n, place_id, &place_options, || {})}
                     {render_cause_age_fields(&i18n, cause, age)}
+                }
+                if edits_spouse_ages {
+                    div { class: "form-row",
+                        {render_spouse_age_fields(&i18n, &spouses, spouse_ages)}
+                    }
                 }
                 {render_notes_source_fields(&i18n, tree_id, notes, source_title, || {})}
                 MoreDetails { open: more,
@@ -3199,6 +3252,51 @@ pub fn EventEditor(
             }
         }
     }
+}
+
+/// What the event editor saves: the event's own fields, then its notes,
+/// source and the source's reliability.
+struct EventEdit {
+    date: DateParts,
+    place: String,
+    description: String,
+    extras: EventExtrasPatch,
+    notes: String,
+    source: String,
+    confidence: Option<Confidence>,
+}
+
+/// Writes `edit` to the event `target` names (its person, if any, and its
+/// id), reconciling notes and source against `current`; the notes and
+/// source state now stored.
+async fn save_event_edit(
+    api: &ApiClient,
+    tree_id: Uuid,
+    (person_id, event_id): (Option<Uuid>, Uuid),
+    lang: &str,
+    edit: EventEdit,
+    current: &NotesSource,
+) -> Result<NotesSource, ApiError> {
+    let place_id = resolve_place(api, tree_id, &edit.place, lang).await?;
+    let body = update_event_body(
+        None,
+        &edit.date,
+        place_id,
+        Some(opt_str(&edit.description)),
+        edit.extras,
+    );
+    api.update_event(tree_id, event_id, &body).await?;
+    let stored = save_notes_source(
+        api,
+        tree_id,
+        person_id,
+        Some(event_id),
+        &edit.notes,
+        &edit.source,
+        current,
+    )
+    .await?;
+    save_reliability(api, tree_id, stored, edit.confidence).await
 }
 
 /// Writes the reliability chosen for the citation `stored` holds, when it

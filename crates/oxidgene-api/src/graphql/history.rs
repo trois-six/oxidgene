@@ -7,7 +7,8 @@ use oxidgene_core::history::{
     AuditAction, AuditCategory, AuditDetails, AuditEntity, AuditEntry, AuditSubject,
     ChildLinkSnapshot, CitationSnapshot, EventSnapshot, NameSnapshot, NoteSnapshot, PersonSnapshot,
     PlaceSnapshot, RecordLabel, RecordSnapshot, RecordType, RecordVersion, SourceSnapshot,
-    SpouseLinkSnapshot, TreeSnapshot, UnionSnapshot, VersionChange, WitnessSnapshot,
+    SpouseAgeSnapshot, SpouseLinkSnapshot, TreeSnapshot, UnionSnapshot, VersionChange,
+    WitnessSnapshot,
 };
 
 use super::types::{
@@ -250,8 +251,28 @@ pub struct GqlEventSnapshot {
     pub place_id: Option<ID>,
     pub description: Option<String>,
     pub witnesses: Vec<GqlWitnessSnapshot>,
+    pub spouse_ages: Vec<GqlSpouseAgeSnapshot>,
     pub notes: Vec<GqlNoteSnapshot>,
     pub citations: Vec<GqlCitationSnapshot>,
+}
+
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSpouseAgeSnapshot {
+    pub id: ID,
+    pub family_spouse_id: ID,
+    pub person_id: ID,
+    pub age: String,
+}
+
+impl From<SpouseAgeSnapshot> for GqlSpouseAgeSnapshot {
+    fn from(a: SpouseAgeSnapshot) -> Self {
+        Self {
+            id: id(a.id),
+            family_spouse_id: id(a.family_spouse_id),
+            person_id: id(a.person_id),
+            age: a.age,
+        }
+    }
 }
 
 impl From<EventSnapshot> for GqlEventSnapshot {
@@ -270,6 +291,7 @@ impl From<EventSnapshot> for GqlEventSnapshot {
             place_id: e.place_id.map(id),
             description: e.description,
             witnesses: convert(e.witnesses),
+            spouse_ages: convert(e.spouse_ages),
             notes: convert(e.notes),
             citations: convert(e.citations),
         }

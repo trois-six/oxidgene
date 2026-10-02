@@ -1158,6 +1158,23 @@ pub struct GqlFamilyChildDetail {
 
 // ── Event ────────────────────────────────────────────────────────────
 
+/// The age a family event's record gives for one spouse.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSpouseAge {
+    pub person_id: ID,
+    /// Canonical GEDCOM age.
+    pub age: String,
+}
+
+impl From<oxidgene_core::types::SpouseAge> for GqlSpouseAge {
+    fn from(s: oxidgene_core::types::SpouseAge) -> Self {
+        Self {
+            person_id: ID(s.person_id.to_string()),
+            age: s.age,
+        }
+    }
+}
+
 /// A genealogical event.
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(complex)]
@@ -1175,6 +1192,8 @@ pub struct GqlEvent {
     pub age: Option<String>,
     /// The authority responsible for the event's record.
     pub agency: Option<String>,
+    /// For a family event, the ages its record gives for the spouses.
+    pub spouse_ages: Vec<GqlSpouseAge>,
     pub place_id: Option<ID>,
     pub person_id: Option<ID>,
     pub family_id: Option<ID>,
@@ -1273,6 +1292,7 @@ impl From<oxidgene_core::types::Event> for GqlEvent {
             cause: e.cause,
             age: e.age,
             agency: e.agency,
+            spouse_ages: e.spouse_ages.into_iter().map(GqlSpouseAge::from).collect(),
             place_id: e.place_id.map(|id| ID(id.to_string())),
             person_id: e.person_id.map(|id| ID(id.to_string())),
             family_id: e.family_id.map(|id| ID(id.to_string())),
@@ -2202,6 +2222,8 @@ pub struct GqlProfileEvent {
     pub place_name: Option<String>,
     pub place_id: Option<ID>,
     pub description: Option<String>,
+    /// The age the record gives for the profile's person at this event.
+    pub age: Option<String>,
 }
 
 /// A family link (spouse relationship).
@@ -3003,6 +3025,7 @@ impl From<oxidgene_core::projection::ProfileEvent> for GqlProfileEvent {
             place_name: e.place_name,
             place_id: e.place_id.map(|id| ID(id.to_string())),
             description: e.description,
+            age: e.age,
         }
     }
 }

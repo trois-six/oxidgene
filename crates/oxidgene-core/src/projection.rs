@@ -39,7 +39,7 @@ use crate::enums::{Calendar, ChildType, DateQualifier, NameType, Sex, SpouseRole
 /// 5: the search rows are folded with `search::fold_words` — every script
 /// unaccented, `æ` as `ae`, `ß` as `ss`, punctuation as a word break — so
 /// every tree's rows are rebuilt to meet queries folded the same way.
-pub const PROJECTION_SCHEMA_VERSION: i32 = 5;
+pub const PROJECTION_SCHEMA_VERSION: i32 = 6;
 
 // ─── Person profile ─────────────────────────────────────────────────────────
 
@@ -162,6 +162,11 @@ pub struct ProfileEvent {
     pub place_name: Option<String>,
     pub place_id: Option<Uuid>,
     pub description: Option<String>,
+    /// The age the record gives for the profile's person at this event —
+    /// the event's own for an individual event, this spouse's for a family
+    /// one — in canonical GEDCOM form.
+    #[serde(default)]
+    pub age: Option<String>,
 }
 
 /// A family in which this person is a spouse, with the other spouse's info.

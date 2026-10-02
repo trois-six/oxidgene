@@ -252,6 +252,7 @@ mod tests {
             place_name: None,
             place_id: None,
             description: None,
+            age: None,
         }
     }
 

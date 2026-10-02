@@ -885,6 +885,69 @@ async fn event_ages_and_agencies_are_versioned() {
     assert_eq!(source_history[0]["snapshot"]["agency"], "Sample archives");
 }
 
+/// A family event's spouse ages are part of each spouse's versioned union,
+/// and a revert brings them back.
+#[tokio::test]
+async fn spouse_ages_are_versioned() {
+    let (_db, app) = setup().await;
+    let tree = create_tree(&app).await;
+    let husband = create_person(&app, &tree, "Theta", "Fixture").await;
+    let wife = create_person(&app, &tree, "Iota", "Fixture").await;
+    let family = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/families"),
+        None,
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (person, role) in [(&husband, "husband"), (&wife, "wife")] {
+        ok(
+            &app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree}/families/{family}/spouses"),
+            Some(json!({ "person_id": person, "role": role })),
+        )
+        .await;
+    }
+    let event = ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/events"),
+        Some(json!({
+            "event_type": "marriage",
+            "family_id": family,
+            "spouse_ages": [{ "person_id": husband, "age": "30y" }],
+        })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let history = versions(&app, &tree, "person", &husband).await;
+    let with_ages = history[0]["version"].as_i64().unwrap();
+    let ages = &history[0]["snapshot"]["unions"][0]["events"][0]["spouse_ages"];
+    assert_eq!(ages[0]["person_id"], husband.as_str());
+    assert_eq!(ages[0]["age"], "30y");
+
+    let uri = format!("/api/v1/trees/{tree}/events/{event}");
+    ok(&app, Method::PUT, &uri, Some(json!({ "spouse_ages": [] }))).await;
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/history/person/{husband}/revert"),
+        Some(json!({ "version": with_ages })),
+    )
+    .await;
+    let restored = ok(&app, Method::GET, &uri, None).await;
+    assert_eq!(
+        restored["spouse_ages"],
+        json!([{ "person_id": husband, "age": "30y" }])
+    );
+}
+
 #[tokio::test]
 async fn reverting_a_spouse_restores_the_union() {
     let (db, app) = setup().await;

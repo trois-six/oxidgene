@@ -8,8 +8,8 @@
 use chrono::{DateTime, Utc};
 use oxidgene_core::OxidGeneError;
 use oxidgene_db::entities::{
-    citation, event, event_witness, family, family_child, family_spouse, media, media_link,
-    media_tag, note, person, person_name, place, sea_enums, source, vignette,
+    citation, event, event_spouse_age, event_witness, family, family_child, family_spouse, media,
+    media_link, media_tag, note, person, person_name, place, sea_enums, source, vignette,
 };
 use oxidgene_db::html::sanitize_note_html;
 use oxidgene_db::repo::{
@@ -579,6 +579,10 @@ async fn insert_attached_records(
         batch_insert::<event::Entity, _>(db, models, on_inserted).await?;
     }
 
+    // 9a. Family events' spouse ages (FK → event, family_spouse), not
+    // counted: progress counts the records the summary reports.
+    insert_spouse_ages(db, result).await?;
+
     // 9b. Event witnesses (FK → event, person)
     if !result.event_witnesses.is_empty() {
         let models: Vec<event_witness::ActiveModel> = result
@@ -680,6 +684,37 @@ async fn insert_attached_records(
     }
 
     Ok(())
+}
+
+/// Inserts the ages the imported family events give for their spouses,
+/// each keyed by the spouse's membership of the event's family.
+async fn insert_spouse_ages(
+    db: &impl ConnectionTrait,
+    result: &oxidgene_gedcom::ImportResult,
+) -> Result<(), OxidGeneError> {
+    let memberships: std::collections::HashMap<(Uuid, Uuid), Uuid> = result
+        .family_spouses
+        .iter()
+        .map(|s| ((s.family_id, s.person_id), s.id))
+        .collect();
+    let memberships = &memberships;
+    let models: Vec<event_spouse_age::ActiveModel> = result
+        .events
+        .iter()
+        .filter_map(|e| Some((e.id, e.family_id?, &e.spouse_ages)))
+        .flat_map(|(event_id, family_id, ages)| {
+            ages.iter().filter_map(move |age| {
+                let membership = *memberships.get(&(family_id, age.person_id))?;
+                Some(event_spouse_age::ActiveModel {
+                    id: Set(Uuid::now_v7()),
+                    event_id: Set(event_id),
+                    family_spouse_id: Set(membership),
+                    age: Set(age.age.clone()),
+                })
+            })
+        })
+        .collect();
+    batch_insert::<event_spouse_age::Entity, _>(db, models, &mut |_| {}).await
 }
 
 /// Tree `tree_id` as GEDCOM text, the export recorded in its audit log.

@@ -56,6 +56,7 @@ impl MigrationTrait for Migration {
             Media::Table.into_table_ref(),
             Citation::Table.into_table_ref(),
             Source::Table.into_table_ref(),
+            EventSpouseAge::Table.into_table_ref(),
             EventWitness::Table.into_table_ref(),
             Event::Table.into_table_ref(),
             Place::Table.into_table_ref(),
@@ -191,6 +192,15 @@ enum Event {
     CreatedAt,
     UpdatedAt,
     DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum EventSpouseAge {
+    Table,
+    Id,
+    EventId,
+    FamilySpouseId,
+    Age,
 }
 
 #[derive(DeriveIden)]
@@ -796,6 +806,55 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .name("idx_event_witness_person_id")
                 .table(EventWitness::Table)
                 .col(EventWitness::PersonId)
+                .to_owned(),
+        )
+        .await?;
+
+    // 10. event_spouse_age (FK → event, family_spouse): a family event's
+    // age of one spouse, keyed by the membership so it survives a merge.
+    manager
+        .create_table(
+            Table::create()
+                .table(EventSpouseAge::Table)
+                .if_not_exists()
+                .col(uuid(EventSpouseAge::Id).primary_key())
+                .col(uuid(EventSpouseAge::EventId))
+                .col(uuid(EventSpouseAge::FamilySpouseId))
+                .col(string(EventSpouseAge::Age))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_event_spouse_age_event")
+                        .from(EventSpouseAge::Table, EventSpouseAge::EventId)
+                        .to(Event::Table, Event::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_event_spouse_age_family_spouse")
+                        .from(EventSpouseAge::Table, EventSpouseAge::FamilySpouseId)
+                        .to(FamilySpouse::Table, FamilySpouse::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_event_spouse_age_event_spouse")
+                .table(EventSpouseAge::Table)
+                .col(EventSpouseAge::EventId)
+                .col(EventSpouseAge::FamilySpouseId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_event_spouse_age_family_spouse_id")
+                .table(EventSpouseAge::Table)
+                .col(EventSpouseAge::FamilySpouseId)
                 .to_owned(),
         )
         .await?;

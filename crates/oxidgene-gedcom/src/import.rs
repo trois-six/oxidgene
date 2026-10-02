@@ -807,6 +807,10 @@ fn import_family(
             get_or_create_text_source,
             result,
         );
+        let spouse_ages = spouse_ages(evt_detail, fam, ctx);
+        if let Some(event) = result.events.last_mut() {
+            event.spouse_ages = spouse_ages;
+        }
     }
 
     // Source citations on the family
@@ -844,6 +848,30 @@ fn import_family(
         &ctx.media_map,
         result,
     );
+}
+
+/// The ages a family event gives for the family's `HUSB` and `WIFE`
+/// (`HUSB.AGE`, `WIFE.AGE`), for the spouses the file holds.
+fn spouse_ages(
+    detail: &ged_io::types::event::detail::Detail,
+    fam: &ged_io::types::family::Family,
+    ctx: &ImportContext,
+) -> Vec<oxidgene_core::types::SpouseAge> {
+    use ged_io::types::event::spouse::Spouse;
+    detail
+        .family_event_details
+        .iter()
+        .filter_map(|member| {
+            let xref = match member.member.as_ref()? {
+                Spouse::Spouse1 => fam.individual1.as_ref()?,
+                Spouse::Spouse2 => fam.individual2.as_ref()?,
+            };
+            Some(oxidgene_core::types::SpouseAge {
+                person_id: *ctx.indi_map.get(xref)?,
+                age: import_age(member.age.as_ref())?,
+            })
+        })
+        .collect()
 }
 
 /// A family's `HUSB` and `WIFE`, in that order. A spouse the file does not
@@ -2242,6 +2270,7 @@ fn import_event_detail(
         // A family event states each spouse's age instead (`HUSB.AGE`).
         age: import_age(detail.age.as_ref()).filter(|_| family_id.is_none()),
         agency: non_blank(detail.agency.as_deref()),
+        spouse_ages: Vec::new(),
         place_id,
         person_id,
         family_id,
@@ -2423,6 +2452,7 @@ fn import_attribute_detail(
             cause: cause.clone(),
             age: age.clone(),
             agency: agency.clone(),
+            spouse_ages: Vec::new(),
             place_id,
             person_id: Some(person_id),
             family_id: None,

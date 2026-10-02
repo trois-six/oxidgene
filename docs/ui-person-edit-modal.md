@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:23:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
 ---
 
 
@@ -675,6 +675,11 @@ An **"+ Add a union event"** button appends a new event block. Each block is col
 **Date** — shorthand date field for the main union date (separate from the events list, used for display in the tree and sidebar). Same date qualifier selector as birth/death.
 
 **Place** — text input with autocomplete.
+
+**Age of {name}** — one field per spouse, the age the marriage record gives
+for them (GEDCOM `HUSB.AGE` / `WIFE.AGE`), typed and checked like an event's
+age. A saved union event's expanded panel shows the same fields beside its
+cause; a union event has no age of its own.
 
 **Note** — free text textarea.
 

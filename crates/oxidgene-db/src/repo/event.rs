@@ -12,6 +12,7 @@ use crate::entities::event::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
+use crate::repo::event_spouse_age::EventSpouseAgeRepo;
 use crate::repo::pagination::{PaginationParams, paginate};
 
 /// Optional filters for listing events.
@@ -66,7 +67,16 @@ impl EventRepo {
             query = query.filter(Column::FamilyId.eq(fid));
         }
 
-        paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
+        let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
+        let events = page.edges.iter().map(|edge| edge.node.clone()).collect();
+        for (edge, event) in page
+            .edges
+            .iter_mut()
+            .zip(EventSpouseAgeRepo::attach(db, events).await?)
+        {
+            edge.node = event;
+        }
+        Ok(page)
     }
 
     /// List all events in a tree without pagination (excludes soft-deleted).
@@ -80,7 +90,7 @@ impl EventRepo {
             .all(db)
             .await
             .map_err(db_err)?;
-        Ok(models.into_iter().map(into_domain).collect())
+        EventSpouseAgeRepo::attach(db, models.into_iter().map(into_domain).collect()).await
     }
 
     /// List all events attached to any of the given persons.
@@ -105,7 +115,7 @@ impl EventRepo {
         db: &impl ConnectionTrait,
         family_ids: &[Uuid],
     ) -> Result<Vec<Event>, OxidGeneError> {
-        in_chunks(family_ids, |chunk| async move {
+        let events = in_chunks(family_ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::FamilyId.is_in(chunk))
                 .filter(Column::DeletedAt.is_null())
@@ -114,12 +124,14 @@ impl EventRepo {
                 .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
-        .await
+        .await?;
+        EventSpouseAgeRepo::attach(db, events).await
     }
 
     /// Get a single event by ID (excludes soft-deleted).
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Event, OxidGeneError> {
-        find_live(db, id).await.map(into_domain)
+        let event = find_live(db, id).await.map(into_domain)?;
+        with_spouse_ages(db, event).await
     }
 
     /// Create a new event.
@@ -219,7 +231,7 @@ impl EventRepo {
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
-        Ok(into_domain(result))
+        with_spouse_ages(db, into_domain(result)).await
     }
 
     /// Soft-delete an event.
@@ -246,6 +258,7 @@ fn into_domain(m: event::Model) -> Event {
         cause: m.cause,
         age: m.age,
         agency: m.agency,
+        spouse_ages: Vec::new(),
         place_id: m.place_id,
         person_id: m.person_id,
         family_id: m.family_id,
@@ -254,6 +267,12 @@ fn into_domain(m: event::Model) -> Event {
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,
     }
+}
+
+/// `event` with its spouse ages, when it is a family event.
+async fn with_spouse_ages(db: &impl ConnectionTrait, event: Event) -> Result<Event, OxidGeneError> {
+    let mut events = EventSpouseAgeRepo::attach(db, vec![event]).await?;
+    Ok(events.remove(0))
 }
 
 /// Row `id`, unless it is missing or soft-deleted.

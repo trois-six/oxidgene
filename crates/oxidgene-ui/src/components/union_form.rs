@@ -18,7 +18,8 @@ use crate::components::modal::Modal;
 use crate::components::person_form::{
     DeleteSection, EventEditor, EventExtras, EventExtrasPatch, EventOwner, FormSection,
     NotesSource, PersonForm, create_event_body, focus_next_field_js, render_add_toggle,
-    render_choice_group, render_notes_source_fields, save_notes_source, update_event_body,
+    render_choice_group, render_notes_source_fields, render_spouse_age_fields, save_notes_source,
+    spouse_ages_from_form, typed_spouse_ages, update_event_body,
 };
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
@@ -27,6 +28,7 @@ use crate::ui_observability::use_ui_resource;
 use crate::utils::{
     child_type_label_key, event_type_label_key, opt_str, parse_privacy, resolve_name,
 };
+use oxidgene_core::types::SpouseAge;
 use oxidgene_core::types::{
     Connection, Event as StoredEvent, Family, FamilyChild, FamilySpouse, PersonName,
 };
@@ -203,8 +205,13 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             on_saved: props.on_saved,
         },
     };
+    let spouse_names: Vec<(Uuid, String)> = spouses
+        .iter()
+        .map(|s| (s.person_id, resolve_name(s.person_id, &names, &i18n)))
+        .collect();
     let events_section = UnionEventsSection {
         scope: scope.clone(),
+        spouses: spouse_names,
         events: &union_events,
         place_options: &place_options,
         marriage,
@@ -676,6 +683,8 @@ struct MarriageDraft {
     parts: Signal<DateParts>,
     place_id: Signal<String>,
     desc: Signal<String>,
+    /// The age typed for each spouse.
+    ages: Signal<HashMap<Uuid, String>>,
     event_id: Signal<Option<Uuid>>,
 }
 
@@ -687,6 +696,7 @@ fn use_marriage_draft(
         parts: use_signal(DateParts::default),
         place_id: use_signal(String::new),
         desc: use_signal(String::new),
+        ages: use_signal(HashMap::new),
         event_id: use_signal(|| None::<Uuid>),
     };
     let mut loaded = use_signal(|| false);
@@ -710,6 +720,7 @@ fn use_marriage_draft(
                 .place_id
                 .set(ev.place_id.map(|id| id.to_string()).unwrap_or_default());
             draft.desc.set(ev.description.clone().unwrap_or_default());
+            draft.ages.set(typed_spouse_ages(&ev.spouse_ages));
         }
         loaded.set(true);
     }
@@ -718,17 +729,29 @@ fn use_marriage_draft(
 
 impl MarriageDraft {
     /// Saves the shorthand: updates the marriage event, or creates one.
-    fn save(self, scope: &FormScope) -> impl FnMut(Event<MouseData>) + 'static {
+    fn save(
+        self,
+        scope: &FormScope,
+        spouses: &[(Uuid, String)],
+    ) -> impl FnMut(Event<MouseData>) + 'static {
         let scope = scope.clone();
+        let spouses = spouses.to_vec();
         let mut event_id = self.event_id;
         move |_| {
             let scope = scope.clone();
             let parts = (self.parts)();
             let place = (self.place_id)();
             let desc = (self.desc)().trim().to_string();
+            let ages =
+                spouse_ages_from_form(&spouses, &self.ages.read()).map_err(|key| scope.i18n.t(key));
             let existing_id = event_id();
             spawn(async move {
-                let saved = save_marriage(&scope, existing_id, &parts, &place, &desc).await;
+                let saved = match ages {
+                    Ok(ages) => {
+                        save_marriage(&scope, existing_id, &parts, &place, &desc, ages).await
+                    }
+                    Err(error) => Err(error),
+                };
                 if let Some(Some(created)) = scope.writes.settle(saved) {
                     event_id.set(Some(created));
                 }
@@ -744,6 +767,7 @@ async fn save_marriage(
     parts: &DateParts,
     place: &str,
     desc: &str,
+    spouse_ages: Vec<SpouseAge>,
 ) -> Result<Option<Uuid>, String> {
     let place_id = scope.event_place(parts, place).await?;
     let saved = match existing_id {
@@ -753,7 +777,10 @@ async fn save_marriage(
                 parts,
                 place_id,
                 Some(opt_str(desc)),
-                EventExtrasPatch::default(),
+                EventExtrasPatch {
+                    spouse_ages: Some(spouse_ages),
+                    ..Default::default()
+                },
             );
             scope
                 .api
@@ -768,7 +795,10 @@ async fn save_marriage(
                 place_id,
                 EventOwner::Family(scope.fid),
                 opt_str(desc),
-                EventExtras::default(),
+                EventExtras {
+                    spouse_ages,
+                    ..Default::default()
+                },
             );
             scope
                 .api
@@ -880,6 +910,8 @@ async fn create_union_event(
 /// adding one.
 struct UnionEventsSection<'a> {
     scope: FormScope,
+    /// The couple (person, name), whose ages a family event may give.
+    spouses: Vec<(Uuid, String)>,
     events: &'a [StoredEvent],
     place_options: &'a [(String, String)],
     marriage: MarriageDraft,
@@ -918,6 +950,7 @@ impl UnionEventsSection<'_> {
             parts,
             place_id,
             mut desc,
+            ages,
             event_id,
         } = self.marriage;
         let save_key = if event_id().is_some() {
@@ -940,10 +973,13 @@ impl UnionEventsSection<'_> {
                         oninput: move |e: Event<FormData>| desc.set(e.value()),
                     }
                 }
+                div { class: "form-row",
+                    {render_spouse_age_fields(&i18n, &self.spouses, ages)}
+                }
                 button {
                     class: "pf-confirm-btn",
                     r#type: "button",
-                    onclick: self.marriage.save(&self.scope),
+                    onclick: self.marriage.save(&self.scope, &self.spouses),
                     {i18n.t(save_key)}
                 }
             }
@@ -1005,6 +1041,7 @@ impl UnionEventsSection<'_> {
                     event: evt.clone(),
                     description_label: i18n.t("person_form.description"),
                     place_options: self.place_options.to_vec(),
+                    spouses: self.spouses.clone(),
                     // Saved, the event folds back into its row.
                     on_saved: move |_| {
                         open_event.set(None);

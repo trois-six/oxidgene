@@ -52,6 +52,9 @@ pub const MIN_UNION_AGE_YEARS: f64 = 12.0;
 pub const MAX_UNION_AGE_YEARS: f64 = 100.0;
 /// Spouses born further apart than this.
 pub const MAX_SPOUSE_GAP_YEARS: f64 = 50.0;
+/// How far an age a record gives may stray from the age its dates compute,
+/// each way: a register's age was often declared, rounded or guessed.
+pub const RECORDED_AGE_TOLERANCE_YEARS: f64 = 2.0;
 /// How far a date about, calculated or estimated may stray, each way.
 pub const APPROXIMATE_SLACK_DAYS: i64 = 2 * 365;
 /// The most items a rule lists; its count still says how many there are.
@@ -69,6 +72,7 @@ const RULES: &[(&str, &str, &str)] = &[
     ("lived_over_105", "dates", "warning"),
     ("centenarian_before_1900", "dates", "warning"),
     ("future_date", "dates", "error"),
+    ("recorded_age_mismatch", "dates", "warning"),
     ("parent_born_after_child", "filiation", "error"),
     ("ancestor_born_after_descendant", "filiation", "error"),
     ("own_ancestor", "filiation", "error"),
@@ -427,6 +431,51 @@ fn dates(me: &Life<'_>, today: NaiveDate, found: &mut Findings) {
         found.add("baptism_after_death", Anomaly::of(vec![me.at()]));
     }
     events_in_life(me, today, death, burial, found);
+    recorded_ages(me, found);
+}
+
+/// The ages records give that the dates contradict: the recorded age, widened
+/// by [`RECORDED_AGE_TOLERANCE_YEARS`] each way, shares no day with the age
+/// computed between the birth and the event — whatever days their dates
+/// stand for.
+fn recorded_ages(me: &Life<'_>, found: &mut Findings) {
+    let Some(birth) = me.birth else {
+        return;
+    };
+    // The event standing for the birth is not compared with itself.
+    let birth_event = me.profile.birth_or_baptism().map(|e| e.event_id);
+    let family_events = me
+        .profile
+        .families_as_spouse
+        .iter()
+        .flat_map(|link| link.events.iter());
+    for event in me.events().chain(family_events) {
+        let Some(recorded) = event
+            .age
+            .as_deref()
+            .and_then(|age| age.parse::<oxidgene_core::types::AgeAtEvent>().ok())
+        else {
+            continue;
+        };
+        let Some(span) = Span::of(Some(event)).filter(|_| Some(event.event_id) != birth_event)
+        else {
+            continue;
+        };
+        let tolerance = (RECORDED_AGE_TOLERANCE_YEARS * DAYS_PER_YEAR) as i64;
+        let (min, max) = recorded.bounds();
+        let too_old = i64::from(min) - tolerance > birth.most_days_to(span);
+        let too_young =
+            max.is_some_and(|max| i64::from(max) + tolerance < birth.least_days_to(span));
+        if too_old || too_young {
+            found.add(
+                "recorded_age_mismatch",
+                Anomaly::of(vec![me.at()])
+                    .with_event(event.event_type)
+                    .with_value(birth.least_years_to(span).max(0.0))
+                    .with_text(&recorded.to_string()),
+            );
+        }
+    }
 }
 
 /// A death before the birth, or a life too long.

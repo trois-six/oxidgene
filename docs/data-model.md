@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:23:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
 ---
 
 
@@ -214,6 +214,21 @@ smallest unit (`34y` is any day from the 34th birthday to the eve of the 35th),
 `Event::year()` / `oxidgene_core::types::year_from_date` provide the shared display-year logic (prefer `date_sort`, fall back to the first 4-digit token of `date_value`) used by pedigree cards, the person narrative, dictionary usage lists, and search results.
 
 Displayed in: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Modal](ui-person-edit-modal.md) (event blocks)
+
+### EventSpouseAge
+
+The age a family event's record gives for one of the family's spouses —
+GEDCOM `HUSB.AGE` / `WIFE.AGE`. Exposed on the event as `spouse_ages`, a list
+of `{ person_id, age }` that every event read fills for a family event.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID v7 | PK |
+| `event_id` | UUID v7 | FK → Event, cascade |
+| `family_spouse_id` | UUID v7 | FK → FamilySpouse, cascade: keyed by the spouse's membership, not the person, so the age follows the membership through a merge |
+| `age` | String | Canonical GEDCOM age, as for `event.age` |
+
+One row per event and membership (unique index).
 
 ### EventWitness
 
@@ -743,7 +758,9 @@ their schema version changes. The same design is used by SQLite and PostgreSQL.
 The payload contains the person's primary and alternate names, sex, complete
 birth/death/baptism/burial events, other events, family links, portrait
 reference, and aggregate citation, note, and media counts. Nested event values
-retain qualifier, both date bounds, calendar, place ID, and place display name.
+retain qualifier, both date bounds, calendar, place ID, and place display name,
+and `age`: the age the record gives for the profile's person — an individual
+event's own, or this spouse's age at a family event.
 
 `PROJECTION_SCHEMA_VERSION` is incremented whenever `PersonProfile` or any
 nested projection type changes. Reads filter by the current version. An older

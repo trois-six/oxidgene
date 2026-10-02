@@ -1026,6 +1026,7 @@ mod tests {
             cause: None,
             age: None,
             agency: None,
+            spouse_ages: Vec::new(),
             place_id: place,
             person_id: None,
             family_id: None,

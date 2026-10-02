@@ -10,6 +10,8 @@ use ged_io::types::age::{Age as GedAge, AgeModifier as GedAgeModifier};
 use ged_io::types::date::Date;
 use ged_io::types::event::Event as GedEvent;
 use ged_io::types::event::detail::Detail as GedDetail;
+use ged_io::types::event::family::FamilyEventDetail as GedFamilyEventDetail;
+use ged_io::types::event::spouse::Spouse as GedSpouse;
 use ged_io::types::family::Family as GedFamily;
 use ged_io::types::header::Header;
 use ged_io::types::header::encoding::Encoding;
@@ -657,7 +659,12 @@ impl ExportIndex<'_> {
             .get(&fam.id)
             .map(|evts| {
                 evts.iter()
-                    .map(|evt| to_ged_detail(evt, self, warnings))
+                    .map(|evt| {
+                        let mut detail = to_ged_detail(evt, self, warnings);
+                        detail.family_event_details =
+                            self.spouse_ages(evt, [husband.as_deref(), wife.as_deref()], warnings);
+                        detail
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -680,6 +687,38 @@ impl ExportIndex<'_> {
             ),
             ..Default::default()
         }
+    }
+
+    /// The `HUSB.AGE` and `WIFE.AGE` of a family event, given the xrefs of
+    /// the family's `HUSB` and `WIFE`. The age of a spouse written in neither
+    /// slot is a warning.
+    fn spouse_ages(
+        &self,
+        evt: &Event,
+        [husband, wife]: [Option<&str>; 2],
+        warnings: &mut Vec<String>,
+    ) -> Vec<GedFamilyEventDetail> {
+        evt.spouse_ages
+            .iter()
+            .filter_map(|spouse| {
+                let xref = self.xrefs.person.get(&spouse.person_id).map(String::as_str);
+                let member = if xref.is_some() && xref == husband {
+                    GedSpouse::Spouse1
+                } else if xref.is_some() && xref == wife {
+                    GedSpouse::Spouse2
+                } else {
+                    warnings.push(format!(
+                        "Event {}: the age of spouse {} has no HUSB or WIFE to be written under",
+                        evt.id, spouse.person_id
+                    ));
+                    return None;
+                };
+                Some(GedFamilyEventDetail {
+                    member: Some(member),
+                    age: Some(to_ged_age(Some(&spouse.age))?),
+                })
+            })
+            .collect()
     }
 
     /// A family's `HUSB` and `WIFE` xrefs.
@@ -2432,6 +2471,7 @@ mod tests {
             cause: None,
             age: None,
             agency: None,
+            spouse_ages: Vec::new(),
             place_id: None,
             person_id: Some(person.id),
             family_id: None,
@@ -2506,6 +2546,7 @@ mod tests {
             cause: None,
             age: None,
             agency: None,
+            spouse_ages: Vec::new(),
             place_id: None,
             person_id: Some(person.id),
             family_id: None,

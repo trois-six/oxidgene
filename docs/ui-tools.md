@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses and records with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T11:02:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:55:16Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -132,6 +132,7 @@ Thresholds are constants of `service/anomalies.rs`:
 | Youngest and oldest spouse at the union | 12 years, 100 years |
 | Spouses' birth gap | 50 years |
 | Approximate date slack | 2 years each way |
+| Recorded age tolerance | 2 years each way |
 
 The **G** column gives the number of the matching rule of Geneanet's
 consistency check, whose whole list the catalogue covers.
@@ -147,6 +148,7 @@ consistency check, whose whole list the catalogue covers.
 | `lived_over_105` | dates | Died more than 105 years after the birth | warning | implemented | 5 |
 | `centenarian_before_1900` | dates | Born before 1900 and died more than 100 years old (not over 105) | warning | implemented | 4 |
 | `future_date` | dates | An event after today | error | implemented | |
+| `recorded_age_mismatch` | dates | An age a record gives at an event (its own, or a spouse's at a family event), widened by 2 years each way, sharing no day with the age the birth and the event's dates compute; the item gives the computed age and the recorded one | warning | implemented | |
 | `parent_born_after_child` | filiation | A parent born after their child | error | implemented | 15 |
 | `ancestor_born_after_descendant` | filiation | An ancestor, from the grandparents up, born after a descendant; each ancestor once | error | implemented | 8 |
 | `own_ancestor` | filiation | A person among their own ancestors: each loop once, with its persons | error | implemented | 14 |
