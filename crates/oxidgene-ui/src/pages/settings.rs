@@ -692,8 +692,13 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
         let person_id = local().unwrap_or(stored_now());
         async move {
             let person_id = person_id?;
-            let profile = api.get_person_profile(tree_id, person_id).await.ok();
-            let portrait = api.portrait_map_for_ids(tree_id, &[person_id]).await;
+            // Side by side: the portrait does not wait for the profile.
+            let (profile, portrait) = futures_util::future::join(
+                api.get_person_profile(tree_id, person_id),
+                api.portrait_map_for_ids(tree_id, &[person_id]),
+            )
+            .await;
+            let profile = profile.ok();
             Some((
                 profile.map(PersonSearchSummary::from),
                 portrait.get(&person_id).cloned(),
