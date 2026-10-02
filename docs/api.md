@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:22:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T01:23:54Z }
 ---
 
 
@@ -1920,7 +1920,7 @@ The API handles GEDCOM import/export via the `ged_io` crate (0.16+ — see [Arch
 | Places (PLAC) | Full | Full | Name + lat/lon coordinates |
 | Notes (NOTE) | Full | Full | Inline and referenced notes, as many per person, event or attribute as the file holds — `ged_io` keeps one, so the import joins them before parsing and splits them again, and the export writes each one where `ged_io` writes the first. A note, text, cause, page, or source title, author, publication or abbreviation too long for one GEDCOM line continues on `CONC` lines, never split beside a space (readers trim a `CONC` value); on import, the spaces opening a `CONC` value are kept, so files whose writer split beside a space read back word for word. A `NOTE @N1@` pointer to a 5.5.1 note record, or a 7.0 `SNOTE`, imports the text of the record it points at; a pointer to a record the file does not hold is left out with a warning naming its line |
 | Cause (CAUS) | Full | Full | On any event |
-| Age at event (`AGE`) | Full | Full | On an individual event or attribute (each profession a split `OCCU` becomes keeps it), stored in canonical form (`34y`, `< 1y 6m`, `CHILD`). A value that is not a GEDCOM age — free text such as `2 AGE majeur`, or an empty `AGE` — would make `ged_io` reject the whole file, so it is left out before parsing and reported as one warning naming its line (never its value). Written without the GEDCOM 7.0 `PHRASE` `ged_io` would emit |
+| Age at event (`AGE`) | Full | Full | On an individual event or attribute (each profession a split `OCCU` becomes keeps it), stored in canonical form (`34y`, `< 1y 6m`, `CHILD`). A value `ged_io` cannot read would make it reject the whole file, so it is repaired before parsing: one OxidGene reads as an age (`1y6m`, `child`) is rewritten in GEDCOM's form, and anything else — free text such as `2 AGE majeur`, an empty `AGE` — is left out and reported as one warning naming its line (never its value). Written without the GEDCOM 7.0 `PHRASE` `ged_io` would emit |
 | Repositories (`REPO`) | Full | Full | Name, address (several lines), first phone, email and website, notes. `ged_io` writes only the name, so the export adds the rest |
 | Source repository citations (`SOUR.REPO`) | Full | Full | Each becomes a link with its call number (`CALN`) and medium (`MEDI`, written in 5.5.1's lower case; a medium without a call number goes under an empty `CALN`). `ged_io` writes neither, so the export writes the whole structure. A citation without a pointer names a repository by its text — the line's, else its notes' — created once per distinct text; a pointer to a record the file does not hold is a warning. Several `CALN` under one citation collapse to the last (`ged_io`); a citation's own `NOTE` is not kept |
 | Spouse ages (`HUSB.AGE`, `WIFE.AGE`) | Full | Full | On a family event, the age of the family's `HUSB` and `WIFE`; written back under the slot each spouse is exported in, a spouse without a slot being a warning |

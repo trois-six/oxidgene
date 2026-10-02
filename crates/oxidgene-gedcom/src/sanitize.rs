@@ -9,8 +9,8 @@
 //!
 //! What it repairs:
 //!
-//! - an `AGE` that is not a GEDCOM age, which would fail the whole file, is
-//!   left out;
+//! - an `AGE` that would fail the whole file is written in GEDCOM's own form
+//!   when it reads as an age (`1y6m`, `child`), and left out otherwise;
 //! - a `NOTE @N1@` pointing at a note record (GEDCOM 5.5.1), or an `SNOTE
 //!   @N1@` (7.0), which `ged_io` would keep as the literal text `@N1@`, is
 //!   replaced by the text of the record it points at;
@@ -226,7 +226,7 @@ fn repair_record(
 ) -> Option<(usize, usize, String)> {
     let (first, last) = (record.first()?, record.last()?);
     let mut edits: Vec<Option<Edit>> = record.iter().map(|_| None).collect();
-    drop_unreadable_ages(record, &mut edits, warnings);
+    repair_ages(gedcom, record, &mut edits, warnings);
     rewrite_notes(record, notes, &mut edits, warnings);
     shift_conc_spaces(gedcom, record, &mut edits);
     if edits.iter().all(Option::is_none) {
@@ -301,19 +301,40 @@ fn shift_conc_spaces(gedcom: &str, record: &[Line<'_>], edits: &mut [Option<Edit
     }
 }
 
-/// Leaves out every `AGE` `ged_io` would fail the file over.
-fn drop_unreadable_ages(
+/// Repairs every `AGE` `ged_io` would fail the file over: one OxidGene reads
+/// as an age (`1y6m`, `child`) is rewritten in GEDCOM's own form, which
+/// loses nothing; anything else is left out with a warning.
+fn repair_ages(
+    gedcom: &str,
     record: &[Line<'_>],
     edits: &mut [Option<Edit>],
     warnings: &mut Vec<String>,
 ) {
     for (line, edit) in record.iter().zip(edits) {
-        if line.tag == "AGE" && line.level.is_some() && !is_readable_age(line.value) {
-            *edit = Some(Edit::Drop);
-            warnings.push(format!(
-                "Line {}: an AGE that is not a GEDCOM age was left out",
-                line.number
-            ));
+        if line.tag != "AGE" || line.level.is_none() || is_readable_age(line.value) {
+            continue;
+        }
+        let canonical = line
+            .value
+            .and_then(|value| value.parse::<oxidgene_core::types::AgeAtEvent>().ok());
+        match canonical {
+            Some(age) => {
+                let raw = &gedcom[line.start..line.next];
+                let content = raw.trim_end_matches(['\r', '\n']);
+                let value = line.value.unwrap_or_default();
+                let prefix = &content[..content.len() - value.len()];
+                *edit = Some(Edit::Retext(format!(
+                    "{prefix}{age}{}",
+                    &raw[content.len()..]
+                )));
+            }
+            None => {
+                *edit = Some(Edit::Drop);
+                warnings.push(format!(
+                    "Line {}: an AGE that is not a GEDCOM age was left out",
+                    line.number
+                ));
+            }
         }
     }
 }
@@ -546,6 +567,20 @@ mod tests {
             assert!(!is_readable_age(Some(age)), "{age}");
         }
         assert!(!is_readable_age(None));
+    }
+
+    /// An age `ged_io` refuses but OxidGene reads is written in GEDCOM's form
+    /// rather than lost, without a warning.
+    #[test]
+    fn an_age_spelled_loosely_is_rewritten_rather_than_dropped() {
+        let gedcom =
+            "0 HEAD\r\n0 @I1@ INDI\r\n1 DEAT\r\n2 AGE 1y6m\r\n1 BURI\r\n2 AGE child\r\n0 TRLR";
+        let sanitized = sanitize(gedcom);
+        assert_eq!(
+            sanitized.text,
+            "0 HEAD\r\n0 @I1@ INDI\r\n1 DEAT\r\n2 AGE 1y 6m\r\n1 BURI\r\n2 AGE CHILD\r\n0 TRLR"
+        );
+        assert!(sanitized.warnings.is_empty(), "{:?}", sanitized.warnings);
     }
 
     #[test]
