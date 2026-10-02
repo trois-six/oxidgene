@@ -12,7 +12,7 @@ use oxidgene_core::types::join_surname_particle;
 use oxidgene_core::{Confidence, SpouseRole, TreeDefaultPrivacy};
 use uuid::Uuid;
 
-use crate::components::date_input::format_date;
+use crate::components::date_input::{format_date, format_day, format_example};
 use crate::i18n::I18n;
 use crate::utils::{child_type_label_key, event_type_label_key, name_type_label_key};
 
@@ -721,6 +721,38 @@ fn repository_section(
     }
 }
 
+/// The tree's date display settings, each named as its card names it.
+fn date_display_rows(
+    group: &mut GroupBuilder,
+    i18n: &I18n,
+    before: Option<&TreeSnapshot>,
+    after: &TreeSnapshot,
+) {
+    let format = |t: &TreeSnapshot| format_example(i18n, t.date_format);
+    group.row(
+        i18n.t("settings.date_format"),
+        before.map(format),
+        Some(format(after)),
+    );
+    let on_off = |on: bool| i18n.t(if on { "common.yes" } else { "common.no" });
+    group.row(
+        i18n.t("settings.date_symbols"),
+        before.map(|t| on_off(t.date_symbols)),
+        Some(on_off(after.date_symbols)),
+    );
+    group.row(
+        i18n.t("settings.date_circa"),
+        before.map(|t| on_off(t.date_circa)),
+        Some(on_off(after.date_circa)),
+    );
+    let calendar = |t: &TreeSnapshot| i18n.t(&format!("calendar.{}", t.date_calendar));
+    group.row(
+        i18n.t("settings.date_calendar"),
+        before.map(calendar),
+        Some(calendar(after)),
+    );
+}
+
 fn tree_section(
     i18n: &I18n,
     (old, before): (&Side, Option<&TreeSnapshot>),
@@ -754,6 +786,7 @@ fn tree_section(
         before.map(|t| on_off(t.entry_suggestions)),
         Some(on_off(after.entry_suggestions)),
     );
+    date_display_rows(&mut group, i18n, before, after);
     for (key, get) in [
         (
             "history.field.submitter_name",
@@ -919,14 +952,7 @@ pub fn entry_details(i18n: &I18n, entry: &AuditEntry) -> Option<String> {
 /// A timestamp in the reader's language: « 27 sept. 2026, 14:32 ».
 pub fn format_timestamp(i18n: &I18n, at: chrono::DateTime<chrono::Utc>) -> String {
     let local = at.with_timezone(&chrono::Local);
-    let day = local.format("%d %b %Y").to_string().to_uppercase();
-    let date = format_date(
-        i18n,
-        oxidgene_core::Calendar::Gregorian,
-        oxidgene_core::DateQualifier::Exact,
-        Some(&day),
-        None,
-    );
+    let date = format_day(i18n, local.date_naive());
     format!("{date}, {}", local.format("%H:%M"))
 }
 
@@ -1214,7 +1240,7 @@ mod tests {
 
     #[test]
     fn a_changed_field_is_the_only_changed_row() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         let before = version(1, person(vec![name(1, "Alpha")], vec![]), vec![]);
         let after = version(2, person(vec![name(1, "Beta")], vec![]), vec![]);
         let sections = diff_versions(&i18n, Some(&before), &after);
@@ -1238,7 +1264,7 @@ mod tests {
 
     #[test]
     fn places_read_through_each_version_s_own_labels() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         let place = Uuid::from_u128(99);
         let label = |text: &str| {
             vec![RecordLabel {
@@ -1268,7 +1294,7 @@ mod tests {
 
     #[test]
     fn a_renamed_place_is_not_a_change() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         let place = Uuid::from_u128(99);
         let label = |text: &str| {
             vec![RecordLabel {
@@ -1304,7 +1330,7 @@ mod tests {
 
     #[test]
     fn a_deleted_state_lists_nothing_and_reads_as_empty_against() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         let named = version(1, person(vec![name(1, "Alpha")], vec![]), vec![]);
         let mut deleted = version(2, person(vec![], vec![]), vec![]);
         deleted.deleted = true;
@@ -1327,7 +1353,7 @@ mod tests {
 
     #[test]
     fn a_first_version_shows_everything_as_added() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         let first = version(1, person(vec![name(1, "Alpha")], vec![]), vec![]);
         let sections = diff_versions(&i18n, None, &first);
         assert!(
@@ -1340,7 +1366,7 @@ mod tests {
 
     #[test]
     fn an_entry_reads_as_its_action_and_what_it_touched() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         assert_eq!(
             describe_entry(&i18n, &entry()),
             format!(

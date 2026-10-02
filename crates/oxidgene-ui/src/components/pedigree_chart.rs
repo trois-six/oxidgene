@@ -34,7 +34,7 @@ use oxidgene_core::types::{
 use oxidgene_core::{ChildType, DateQualifier, EventType, Privacy, Sex, SpouseRole};
 
 use crate::components::pedigree_view::PedigreeView;
-use crate::i18n::{I18n, use_i18n};
+use crate::i18n::{DateStyle, I18n, use_i18n};
 use crate::prefs::use_pedigree_defaults;
 use crate::shared::Shared;
 
@@ -129,29 +129,45 @@ pub fn silhouette_png(sex: Sex) -> &'static [u8] {
 /// Each year carries its own precision mark, GeneWeb-style, so a card reads
 /// `ca 1849-< 1917` — "about 1849 to before 1917" — instead of flattening two
 /// hedged dates into a pair of bare numbers that claim more than the records
-/// do. See [`DateQualifier::short_prefix`].
+/// do. See [`DateQualifier::short_prefix`]. A tree that writes event symbols
+/// reads `* ca 1849 + < 1917` instead (see [`join_lifespan`]).
 pub(crate) fn format_lifespan(
+    dates: DateStyle,
     birth: Option<QualifiedYear>,
     death: Option<QualifiedYear>,
 ) -> String {
-    join_lifespan(birth, death, QualifiedYear::wide)
+    join_lifespan(dates, birth, death, QualifiedYear::wide)
 }
 
 /// [`format_lifespan`] in the form that always spends one year per date.
 ///
 /// A range gives up its far end here but keeps the `..`/`|` mark saying it is
 /// one, so the card understates rather than misleads.
-fn format_lifespan_narrow(birth: Option<QualifiedYear>, death: Option<QualifiedYear>) -> String {
-    join_lifespan(birth, death, QualifiedYear::narrow)
+fn format_lifespan_narrow(
+    dates: DateStyle,
+    birth: Option<QualifiedYear>,
+    death: Option<QualifiedYear>,
+) -> String {
+    join_lifespan(dates, birth, death, QualifiedYear::narrow)
 }
 
 /// The `birth-death` shape both forms share. A missing year keeps its dash:
 /// "born then, and nothing is known after" is not the same as saying nothing.
+///
+/// With the tree's event symbols each year follows its own instead — `*` for
+/// the birth, `+` for the death — which say which end a lone year is without
+/// any dash.
 fn join_lifespan(
+    dates: DateStyle,
     birth: Option<QualifiedYear>,
     death: Option<QualifiedYear>,
     render: impl Fn(&QualifiedYear) -> String,
 ) -> String {
+    if dates.symbols {
+        let birth = birth.map(|b| format!("* {}", render(&b)));
+        let death = death.map(|d| format!("+ {}", render(&d)));
+        return birth.into_iter().chain(death).collect::<Vec<_>>().join(" ");
+    }
     match (birth, death) {
         (Some(b), Some(d)) => format!("{}-{}", render(&b), render(&d)),
         (Some(b), None) => format!("{}-", render(&b)),
@@ -168,16 +184,17 @@ fn join_lifespan(
 /// when it fits and the narrow one when it does not, rather than compressing
 /// glyphs to the point of illegibility. The tooltip always has the full text.
 fn fit_lifespan(
+    dates: DateStyle,
     birth: Option<QualifiedYear>,
     death: Option<QualifiedYear>,
     max_width_px: f32,
     font_size_px: f32,
 ) -> String {
-    let wide = format_lifespan(birth, death);
+    let wide = format_lifespan(dates, birth, death);
     if crate::utils::estimate_text_width_px(&wide, font_size_px) <= max_width_px {
         return wide;
     }
-    format_lifespan_narrow(birth, death)
+    format_lifespan_narrow(dates, birth, death)
 }
 
 /// The lifespan spelled out for a tooltip — « Environ 1849 – Avant 1917 » —
@@ -2360,6 +2377,8 @@ struct SceneShape {
     ancestor_levels: usize,
     descendant_levels: usize,
     theme: &'static PedigreeTheme,
+    /// How the tree writes the lifespans the wheels and fans lay out.
+    dates: DateStyle,
 }
 
 impl LayoutKey {
@@ -2460,6 +2479,7 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
                     shape.descendant_levels,
                     props.sosa_root_person_id,
                     &sosa_ancestors,
+                    shape.dates,
                 )
             }),
         )))
@@ -2479,6 +2499,7 @@ fn compute_scene(props: &PedigreeChartProps, shape: SceneShape) -> ChartScene {
                     shape.ancestor_levels,
                     props.sosa_root_person_id,
                     &no_ancestor_badges,
+                    shape.dates,
                 )
             }),
         )))
@@ -3732,6 +3753,7 @@ fn card_geometry(node: &LayoutNode, theme: &PedigreeTheme, i18n: &I18n) -> CardG
     let label_given = node.label_given.split(",").next().unwrap_or("");
     let given = truncate_text_to_fit(label_given, max_width, card.given_font_px);
     let date_text = fit_lifespan(
+        i18n.dates(),
         node.birth_year,
         node.death_year,
         max_width,
@@ -4066,7 +4088,7 @@ fn card_tooltip(node: &LayoutNode, i18n: &I18n) -> MiniPedigreeTooltipValue {
     MiniPedigreeTooltipValue {
         name,
         lifespan: if qualified_lifespan.is_empty() {
-            format_lifespan(node.birth_year, node.death_year)
+            format_lifespan(i18n.dates(), node.birth_year, node.death_year)
         } else {
             qualified_lifespan
         },
@@ -4709,6 +4731,8 @@ fn earliest_couple(data: &PedigreeData, person: Uuid) -> Option<Uuid> {
 #[component]
 pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
     let view_cache = use_view_state_cache();
+    // The wheels and fans lay their lifespans out with the rest.
+    let dates = use_i18n().dates();
     let tid_parsed = props.tree_id.parse::<Uuid>().ok();
     let saved = tid_parsed.and_then(|t| view_cache.get_untracked(t));
     let defaults = use_pedigree_defaults().unwrap_or_default();
@@ -4825,6 +4849,7 @@ pub fn PedigreeChart(props: PedigreeChartProps) -> Element {
             ancestor_levels: anc_now,
             descendant_levels: desc_now,
             theme,
+            dates,
         },
     );
     let max_zoom = scene.max_zoom();
@@ -5381,6 +5406,7 @@ mod lifespan_tests {
     fn a_card_hedges_each_year_independently() {
         assert_eq!(
             format_lifespan(
+                DateStyle::DEFAULT,
                 y(1849, DateQualifier::About),
                 y(1917, DateQualifier::Before)
             ),
@@ -5393,18 +5419,45 @@ mod lifespan_tests {
     #[test]
     fn a_half_known_life_keeps_its_dash() {
         assert_eq!(
-            format_lifespan(y(1907, DateQualifier::Before), None),
+            format_lifespan(DateStyle::DEFAULT, y(1907, DateQualifier::Before), None),
             "< 1907-"
         );
         assert_eq!(
-            format_lifespan(y(1912, DateQualifier::After), None),
+            format_lifespan(DateStyle::DEFAULT, y(1912, DateQualifier::After), None),
             "> 1912-"
         );
         assert_eq!(
-            format_lifespan(None, y(1940, DateQualifier::Exact)),
+            format_lifespan(DateStyle::DEFAULT, None, y(1940, DateQualifier::Exact)),
             "-1940"
         );
-        assert_eq!(format_lifespan(None, None), "");
+        assert_eq!(format_lifespan(DateStyle::DEFAULT, None, None), "");
+    }
+
+    /// A tree that writes event symbols puts each year behind its own, so a
+    /// lone year needs no dash to say which end of the life it is.
+    #[test]
+    fn event_symbols_name_each_end_of_a_life() {
+        let symbols = DateStyle {
+            symbols: true,
+            ..DateStyle::DEFAULT
+        };
+        assert_eq!(
+            format_lifespan(
+                symbols,
+                y(1849, DateQualifier::About),
+                y(1917, DateQualifier::Before)
+            ),
+            "* ca 1849 + < 1917"
+        );
+        assert_eq!(
+            format_lifespan(symbols, y(1849, DateQualifier::Exact), None),
+            "* 1849"
+        );
+        assert_eq!(
+            format_lifespan(symbols, None, y(1917, DateQualifier::Exact)),
+            "+ 1917"
+        );
+        assert_eq!(format_lifespan(symbols, None, None), "");
     }
 
     /// Exact dates are the common case and must stay exactly as they were
@@ -5412,7 +5465,11 @@ mod lifespan_tests {
     #[test]
     fn exact_years_are_unchanged() {
         assert_eq!(
-            format_lifespan(y(1879, DateQualifier::Exact), y(1940, DateQualifier::Exact)),
+            format_lifespan(
+                DateStyle::DEFAULT,
+                y(1879, DateQualifier::Exact),
+                y(1940, DateQualifier::Exact)
+            ),
             "1879-1940"
         );
     }
@@ -5430,11 +5487,19 @@ mod lifespan_tests {
     #[test]
     fn a_range_shows_both_of_its_years() {
         assert_eq!(
-            format_lifespan(None, range(1691, 1693, DateQualifier::Between)),
+            format_lifespan(
+                DateStyle::DEFAULT,
+                None,
+                range(1691, 1693, DateQualifier::Between)
+            ),
             "-1691..1693"
         );
         assert_eq!(
-            format_lifespan(None, range(1691, 1693, DateQualifier::Or)),
+            format_lifespan(
+                DateStyle::DEFAULT,
+                None,
+                range(1691, 1693, DateQualifier::Or)
+            ),
             "-1691|1693"
         );
     }
@@ -5449,7 +5514,13 @@ mod lifespan_tests {
             range(1745, 1750, DateQualifier::Between),
         );
         assert_eq!(
-            fit_lifespan(both.0, both.1, CLASSIC_FULL_COLUMN, CLASSIC_DATE_PX),
+            fit_lifespan(
+                DateStyle::DEFAULT,
+                both.0,
+                both.1,
+                CLASSIC_FULL_COLUMN,
+                CLASSIC_DATE_PX
+            ),
             ".. 1691-.. 1745",
             "two ranges do not fit the full card and lose their far ends"
         );
@@ -5457,11 +5528,18 @@ mod lifespan_tests {
         // A single range is 49.8px — comfortable on both card widths.
         let one = range(1691, 1693, DateQualifier::Between);
         assert_eq!(
-            fit_lifespan(None, one, CLASSIC_FULL_COLUMN, CLASSIC_DATE_PX),
+            fit_lifespan(
+                DateStyle::DEFAULT,
+                None,
+                one,
+                CLASSIC_FULL_COLUMN,
+                CLASSIC_DATE_PX
+            ),
             "-1691..1693"
         );
         assert_eq!(
             fit_lifespan(
+                DateStyle::DEFAULT,
                 None,
                 one,
                 text_max_width(true, &PedigreeTheme::CLASSIC),
@@ -5494,7 +5572,7 @@ mod lifespan_tests {
     /// is nothing to explain rather than restating the card.
     #[test]
     fn the_tooltip_is_silent_on_exact_dates() {
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
         assert_eq!(
             lifespan_tooltip(
                 &i18n,
@@ -5517,7 +5595,7 @@ mod lifespan_tests {
     /// the card had to drop comes back.
     #[test]
     fn the_tooltip_spells_out_a_range() {
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
         assert_eq!(
             lifespan_tooltip(&i18n, None, range(1691, 1693, DateQualifier::Between)),
             "Between 1691 and 1693"
@@ -6367,7 +6445,7 @@ mod geometry_golden_tests {
                 deleted_at: None,
             }],
         );
-        let unions = data.unions_for_person(id(ROOT), &I18n(crate::i18n::Language::En));
+        let unions = data.unions_for_person(id(ROOT), &I18n::new(crate::i18n::Language::En));
         let (_, _, year) = unions.iter().find(|(fid, _, _)| *fid == family).unwrap();
         assert_eq!(year, "ca 1870");
     }
@@ -6375,7 +6453,7 @@ mod geometry_golden_tests {
     #[test]
     fn culling_extents_contain_everything_a_card_or_connector_draws() {
         let data = wide_pedigree();
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
         for theme in [&PedigreeTheme::CLASSIC, &PedigreeTheme::MEDIEVAL] {
             let layout = compute_layout(
                 id(ROOT),
@@ -6475,7 +6553,7 @@ mod geometry_golden_tests {
                 n.is_sibling,
                 n.label_given,
                 n.label_surname,
-                format_lifespan(n.birth_year, n.death_year),
+                format_lifespan(DateStyle::DEFAULT, n.birth_year, n.death_year),
             ));
         };
         for (i, n) in layout.asc_nodes.iter().enumerate() {
@@ -6596,7 +6674,7 @@ mod geometry_golden_tests {
             PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::CLASSIC,
         );
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
 
         // A name past either column, and two ranges — the pair that does not
         // fit even a full card and degrades to its marks.
@@ -6766,7 +6844,7 @@ mod geometry_golden_tests {
             .expect("default theme")
             .css();
         let data = wide_pedigree();
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
         let out_dir = std::env::var("OXIDGENE_PREVIEW_DIR").unwrap_or_else(|_| ".".to_string());
         let write_page = |name: &str, page: String| {
             let path = format!("{out_dir}/{name}.html");
@@ -7037,7 +7115,7 @@ mod geometry_golden_tests {
     /// a full name and a hedged lifespan — the tallest a card ever gets.
     #[test]
     fn every_theme_leaves_its_lifespan_inside_the_card() {
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
         for (name, theme) in [
             ("classic", &PedigreeTheme::CLASSIC),
             ("medieval", &PedigreeTheme::MEDIEVAL),
@@ -7076,7 +7154,7 @@ mod geometry_golden_tests {
     /// was drawn across the bottom of the photograph.
     #[test]
     fn every_theme_starts_its_names_below_the_portrait() {
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
         for (name, theme) in [
             ("classic", &PedigreeTheme::CLASSIC),
             ("medieval", &PedigreeTheme::MEDIEVAL),
@@ -7107,7 +7185,7 @@ mod geometry_golden_tests {
     /// its bottom point. Above the crown it can land on a ruled connector.
     #[test]
     fn medieval_more_relations_badge_stays_left_of_the_bottom_point() {
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
         let theme = &PedigreeTheme::MEDIEVAL;
 
         for is_compact in [false, true] {
@@ -7168,7 +7246,7 @@ mod geometry_golden_tests {
             PedigreeLayoutOptions::full(3, 2),
             &PedigreeTheme::MEDIEVAL,
         );
-        let i18n = I18n(crate::i18n::Language::En);
+        let i18n = I18n::new(crate::i18n::Language::En);
 
         for is_compact in [false, true] {
             let classic = text_max_width(is_compact, &PedigreeTheme::CLASSIC);

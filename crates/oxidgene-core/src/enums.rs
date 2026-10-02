@@ -285,6 +285,44 @@ impl TreeDefaultPrivacy {
     }
 }
 
+/// How much of a date a tree writes, and how (`docs/ui-settings.md` §9).
+///
+/// A display choice only: the stored date keeps whatever precision it was
+/// entered with, and a qualifier is written whatever the format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DateDisplayFormat {
+    /// `12 Mar 1842`, the month named in the reader's language.
+    #[default]
+    DayMonthYear,
+    /// `12/03/1842`.
+    Numeric,
+    /// `Mar 1842`: the day is left out.
+    MonthYear,
+    /// `1842`: the day and the month are left out.
+    Year,
+}
+
+impl DateDisplayFormat {
+    /// Every format, in the order a choice offers them.
+    pub const ALL: [Self; 4] = [
+        Self::DayMonthYear,
+        Self::Numeric,
+        Self::MonthYear,
+        Self::Year,
+    ];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DayMonthYear => "day_month_year",
+            Self::Numeric => "numeric",
+            Self::MonthYear => "month_year",
+            Self::Year => "year",
+        }
+    }
+}
+
 /// What kind of thing a medium physically *is* — GEDCOM's
 /// `SOURCE_MEDIA_TYPE`.
 ///

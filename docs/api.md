@@ -584,7 +584,11 @@ projection in the same transaction.
 `PUT /trees/{id}` accepts `default_privacy` (`"public" | "private"`) — what
 `"default"` resolves to for everything in that tree — and `entry_suggestions`
 (a boolean, `updateTree`'s `entrySuggestions` in GraphQL), which turns the
-entry fields' suggestions off or on for the tree, and the GEDCOM submitter:
+entry fields' suggestions off or on for the tree, the date display settings
+`date_format` (`"day_month_year" | "numeric" | "month_year" | "year"`),
+`date_symbols`, `date_circa` (booleans) and `date_calendar` (a calendar) —
+GraphQL `dateFormat`, `dateSymbols`, `dateCirca`, `dateCalendar`, read on the
+tree and in its history snapshots — and the GEDCOM submitter:
 `submitter_name`, `submitter_email` and `submitter_address` (GraphQL
 `submitterName`, `submitterEmail`, `submitterAddress`) — omitted keeps, `null`
 or a blank value clears, on both surfaces. **Privacy** is accepted on

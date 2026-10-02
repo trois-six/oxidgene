@@ -259,7 +259,7 @@ mod tests {
 
         for view in PedigreeView::ALL {
             for language in Language::ALL {
-                let i18n = I18n(language);
+                let i18n = I18n::new(language);
                 for key in [view.label_key(), view.hint_key()] {
                     let text = i18n.t(key);
                     assert_ne!(text, key, "{view:?}: {key} is untranslated in {language:?}");

@@ -254,7 +254,7 @@ struct SlimText {
 }
 
 /// Fits a slim box's text to `width`.
-fn slim_text(node: &LayoutNode, size: BoxSize, width: f32) -> SlimText {
+fn slim_text(node: &LayoutNode, size: BoxSize, width: f32, dates: DateStyle) -> SlimText {
     let surname = node
         .label_surname
         .split(',')
@@ -267,7 +267,7 @@ fn slim_text(node: &LayoutNode, size: BoxSize, width: f32) -> SlimText {
     SlimText {
         name: truncate_text_to_fit(&name, width, SLIM_NAME_PX),
         dates: (size == BoxSize::Double)
-            .then(|| fit_lifespan(node.birth_year, node.death_year, width, SLIM_DATE_PX))
+            .then(|| fit_lifespan(dates, node.birth_year, node.death_year, width, SLIM_DATE_PX))
             .filter(|dates| !dates.is_empty()),
     }
 }
@@ -280,11 +280,11 @@ const SLIM_DATE_PX: f32 = 10.0;
 fn render_slim_box(
     entry: &AncestorEntry,
     size: BoxSize,
-    centre: (f64, f64),
-    box_w: f64,
+    (centre, box_w): ((f64, f64), f64),
     title: String,
     theme: &PedigreeTheme,
     actions: ChartActions,
+    dates: DateStyle,
 ) -> Element {
     let h = if size == BoxSize::Double {
         DOUBLE_H
@@ -297,7 +297,7 @@ fn render_slim_box(
     let Some(pid) = node.id else {
         return render_slim_slot(entry, &key, (x, y, box_w, h), actions);
     };
-    let text = slim_text(node, size, (box_w - 26.0) as f32);
+    let text = slim_text(node, size, (box_w - 26.0) as f32, dates);
     let name_y = if text.dates.is_some() {
         y + 18.0
     } else {
@@ -385,7 +385,7 @@ fn render_spouse_box(
     let spouse = node.id;
     let (name, title) = match spouse {
         Some(_) => (
-            slim_text(node, BoxSize::Single, (box_w - 30.0) as f32).name,
+            slim_text(node, BoxSize::Single, (box_w - 30.0) as f32, i18n.dates()).name,
             ancestor_tooltip(entry, false, i18n),
         ),
         None => ("?".to_string(), i18n.t("couple.unknown_spouse")),
@@ -509,11 +509,11 @@ pub(super) fn LineageCanvas(
                                 (_, size) => render_slim_box(
                                     entry,
                                     size,
-                                    layout.centres[i],
-                                    layout.box_w,
+                                    (layout.centres[i], layout.box_w),
                                     svg_title(&ancestor_tooltip(entry, numbered, &i18n)),
                                     theme,
                                     actions,
+                                    i18n.dates(),
                                 ),
                             }
                         }
@@ -545,7 +545,11 @@ pub(super) fn LineageFamilyMenu(
     let children = children_of(root_person_id, &data);
     let label = |id: Uuid| {
         let name = data.display_name(id, &i18n);
-        let dates = format_lifespan(data.qualified_birth_year(id), data.qualified_death_year(id));
+        let dates = format_lifespan(
+            i18n.dates(),
+            data.qualified_birth_year(id),
+            data.qualified_death_year(id),
+        );
         if dates.is_empty() {
             name
         } else {
@@ -956,10 +960,13 @@ mod tests {
             qualifier: DateQualifier::About,
             year2: None,
         });
-        let text = slim_text(&node, BoxSize::Double, 150.0);
+        let text = slim_text(&node, BoxSize::Double, 150.0, DateStyle::DEFAULT);
         assert!(crate::utils::estimate_text_width_px(&text.name, SLIM_NAME_PX) <= 150.0);
         assert!(text.name.starts_with("LONGBRANCH"));
         assert_eq!(text.dates.as_deref(), Some("ca 1849-"));
-        assert_eq!(slim_text(&node, BoxSize::Single, 150.0).dates, None);
+        assert_eq!(
+            slim_text(&node, BoxSize::Single, 150.0, DateStyle::DEFAULT).dates,
+            None
+        );
     }
 }

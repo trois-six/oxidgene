@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-use super::sea_enums::TreeDefaultPrivacy;
+use super::sea_enums::{Calendar, DateDisplayFormat, TreeDefaultPrivacy};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "tree")]
@@ -17,6 +17,14 @@ pub struct Model {
     pub default_privacy: TreeDefaultPrivacy,
     /// Whether entry fields suggest values as the user types.
     pub entry_suggestions: bool,
+    /// How much of a date the tree's pages write.
+    pub date_format: DateDisplayFormat,
+    /// Whether lifespans write the birth and death symbols.
+    pub date_symbols: bool,
+    /// Whether an approximate date reads « c. ».
+    pub date_circa: bool,
+    /// The calendar a date recorded in another one is also given in.
+    pub date_calendar: Calendar,
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
     #[sea_orm(column_type = "Text")]

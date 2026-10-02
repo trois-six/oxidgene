@@ -92,6 +92,10 @@ enum Tree {
     SelfPersonId,
     DefaultPrivacy,
     EntrySuggestions,
+    DateFormat,
+    DateSymbols,
+    DateCirca,
+    DateCalendar,
     SubmitterName,
     SubmitterEmail,
     SubmitterAddress,
@@ -425,6 +429,21 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 )
                 // Whether the tree's entry fields suggest values.
                 .col(boolean(Tree::EntrySuggestions).default(true))
+                // How the tree's pages write dates (Settings §9).
+                .col(
+                    ColumnDef::new(Tree::DateFormat)
+                        .string_len(20)
+                        .not_null()
+                        .default("day_month_year"),
+                )
+                .col(boolean(Tree::DateSymbols).default(false))
+                .col(boolean(Tree::DateCirca).default(false))
+                .col(
+                    ColumnDef::new(Tree::DateCalendar)
+                        .string_len(20)
+                        .not_null()
+                        .default("gregorian"),
+                )
                 // Who the tree's GEDCOM exports say they are from (`SUBM`).
                 .col(string_null(Tree::SubmitterName))
                 .col(string_null(Tree::SubmitterEmail))

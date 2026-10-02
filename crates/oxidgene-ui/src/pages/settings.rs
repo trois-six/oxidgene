@@ -4,18 +4,23 @@
 //! and GEDCOM export functionality.
 
 use dioxus::prelude::*;
-use oxidgene_core::enums::TreeDefaultPrivacy;
+use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateQualifier, TreeDefaultPrivacy};
+use oxidgene_core::types::QualifiedYear;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, UpdateTreeBody};
 use crate::components::audit_log::AuditLogSection;
+use crate::components::date_input::{
+    calendar_from_value, calendar_value, format_date, format_example,
+};
 use crate::components::history_diff::format_timestamp;
+use crate::components::pedigree_chart::format_lifespan;
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
-use crate::i18n::{I18n, Language, use_i18n};
+use crate::i18n::{DateStyle, I18n, Language, use_i18n};
 use crate::pages::app_settings::{
     AppearanceSection, LanguageSection, NamesSection, PedigreeDefaultsSection,
     SHARED_SETTINGS_STYLES,
@@ -456,6 +461,9 @@ pub fn Settings(tree_id: String) -> Element {
                     "privacy" => rsx! {
                         PrivacySection { tree_id: tree_id.clone(), tree_resource }
                     },
+                    "date-display" => rsx! {
+                        DateDisplaySection { tree_id: tree_id.clone(), tree_resource }
+                    },
                     "entry-options" => rsx! {
                         EntryOptionsSection { tree_id: tree_id.clone(), tree_resource }
                     },
@@ -481,7 +489,7 @@ pub fn Settings(tree_id: String) -> Element {
                     "history" if tree_id_parsed.is_some() => rsx! {
                         AuditLogSection { tree_id: tree_id_parsed.unwrap_or_default() }
                     },
-                    _ => rsx! { PlaceholderSection { section_name: sec.clone() } },
+                    _ => rsx! {},
                 }
             }
         }
@@ -883,20 +891,229 @@ fn PrivacySection(
     }
 }
 
-#[component]
-fn EntryOptionsSection(
-    tree_id: String,
-    tree_resource: Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>,
-) -> Element {
-    let i18n = use_i18n();
+/// The tree as its settings page loaded it.
+type TreeResource = Resource<Option<Result<oxidgene_core::types::Tree, crate::api::ApiError>>>;
+
+/// The save of one of the tree's settings, made on the click, and the error
+/// it last ended with. The stored tree goes back to the tree cache, so every
+/// page follows the setting at once.
+fn use_save_tree_setting(
+    tree_id: Option<Uuid>,
+) -> (Callback<UpdateTreeBody>, Signal<Option<String>>) {
     let api = use_context::<ApiClient>();
     let tree_cache = use_tree_cache();
-    let tree_id_parsed = tree_id.parse::<Uuid>().ok();
+    let mut error = use_signal(|| None::<String>);
+    let save = use_callback(move |body: UpdateTreeBody| {
+        let Some(tid) = tree_id else { return };
+        let api = api.clone();
+        error.set(None);
+        spawn(async move {
+            match api.update_tree(tid, &body).await {
+                Ok(tree) => tree_cache.refresh_tree(tid, tree),
+                Err(e) => error.set(Some(e.to_string())),
+            }
+        });
+    });
+    (save, error)
+}
 
-    let mut save_error = use_signal(|| None::<String>);
-    // Local override so the control answers the click, not the refetch.
+/// A tree setting that is on or off: its title, what it does, and Yes / No.
+#[component]
+fn ToggleCard(
+    title: String,
+    description: String,
+    value: bool,
+    on_change: EventHandler<bool>,
+) -> Element {
+    let i18n = use_i18n();
+    rsx! {
+        div { class: "card settings-card",
+            h3 { class: "settings-card-title", "{title}" }
+            p { class: "settings-section-subtitle", "{description}" }
+            div { class: "pf-gender-group settings-choices",
+                for (choice , label) in [(true, i18n.t("common.yes")), (false, i18n.t("common.no"))] {
+                    button {
+                        key: "{choice}",
+                        class: if value == choice { "pf-gender-btn active" } else { "pf-gender-btn" },
+                        r#type: "button",
+                        "aria-pressed": value == choice,
+                        onclick: move |_| on_change.call(choice),
+                        "{label}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// How the tree's pages write dates: the format with its preview, the event
+/// symbols, « circa », and the calendar other ones are also given in.
+#[component]
+fn DateDisplaySection(tree_id: String, tree_resource: TreeResource) -> Element {
+    let i18n = use_i18n();
+    let (save, error) = use_save_tree_setting(tree_id.parse().ok());
+    // Local override so the controls and the preview answer the click, not
+    // the save.
+    let mut local = use_signal(|| None::<DateStyle>);
+    let stored = match &*tree_resource.read() {
+        Some(Some(Ok(tree))) => DateStyle::of(tree),
+        _ => DateStyle::DEFAULT,
+    };
+    let style = local().unwrap_or(stored);
+    let mut pick = move |next: DateStyle, body: UpdateTreeBody| {
+        local.set(Some(next));
+        save.call(body);
+    };
+    rsx! {
+        div { class: "settings-section",
+            div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
+            h2 { class: "settings-section-title", {i18n.t("settings.date_display")} }
+            p { class: "settings-section-subtitle", {i18n.t("settings.date_display_desc")} }
+
+            div { class: "card settings-card",
+                h3 { class: "settings-card-title", {i18n.t("settings.date_format")} }
+                p { class: "settings-section-subtitle", {i18n.t("settings.date_format_desc")} }
+                select {
+                    class: "settings-date-select",
+                    "aria-label": i18n.t("settings.date_format"),
+                    onchange: move |e: Event<FormData>| {
+                        let value = e.value();
+                        let Some(format) = DateDisplayFormat::ALL
+                            .into_iter()
+                            .find(|format| format.as_str() == value) else { return };
+                        pick(
+                            DateStyle { format, ..style },
+                            UpdateTreeBody { date_format: Some(format), ..Default::default() },
+                        );
+                    },
+                    for format in DateDisplayFormat::ALL {
+                        option {
+                            value: format.as_str(),
+                            selected: style.format == format,
+                            {format_example(&i18n, format)}
+                        }
+                    }
+                }
+                DatePreview { style }
+            }
+            ToggleCard {
+                title: i18n.t("settings.date_symbols"),
+                description: i18n.t("settings.date_symbols_desc"),
+                value: style.symbols,
+                on_change: move |symbols| pick(
+                    DateStyle { symbols, ..style },
+                    UpdateTreeBody { date_symbols: Some(symbols), ..Default::default() },
+                ),
+            }
+            ToggleCard {
+                title: i18n.t("settings.date_circa"),
+                description: i18n.t("settings.date_circa_desc"),
+                value: style.circa,
+                on_change: move |circa| pick(
+                    DateStyle { circa, ..style },
+                    UpdateTreeBody { date_circa: Some(circa), ..Default::default() },
+                ),
+            }
+            div { class: "card settings-card",
+                h3 { class: "settings-card-title", {i18n.t("settings.date_calendar")} }
+                p { class: "settings-section-subtitle", {i18n.t("settings.date_calendar_desc")} }
+                select {
+                    class: "settings-date-select",
+                    "aria-label": i18n.t("settings.date_calendar"),
+                    onchange: move |e: Event<FormData>| {
+                        let calendar = calendar_from_value(&e.value());
+                        pick(
+                            DateStyle { calendar, ..style },
+                            UpdateTreeBody { date_calendar: Some(calendar), ..Default::default() },
+                        );
+                    },
+                    for calendar in [
+                        Calendar::Gregorian,
+                        Calendar::Julian,
+                        Calendar::FrenchRepublican,
+                        Calendar::Hebrew,
+                    ] {
+                        option {
+                            value: calendar_value(calendar),
+                            selected: style.calendar == calendar,
+                            {i18n.t(&format!("calendar.{calendar}"))}
+                        }
+                    }
+                }
+            }
+            if let Some(err) = error() {
+                div { class: "error-msg settings-feedback", "{err}" }
+            }
+        }
+    }
+}
+
+/// A fictitious person's dates as the tree would write them in `style`: a
+/// birth recorded in the Republican calendar, a marriage, a death known only
+/// roughly, and the lifespan a card would draw.
+#[component]
+fn DatePreview(style: DateStyle) -> Element {
+    let i18n = use_i18n();
+    let sample = i18n.with_dates(style);
+    let rows = [
+        (
+            i18n.t("event.type.birth"),
+            format_date(
+                &sample,
+                Calendar::FrenchRepublican,
+                DateQualifier::Exact,
+                Some("18 BRUM 8"),
+                None,
+            ),
+        ),
+        (
+            i18n.t("event.type.marriage"),
+            format_date(
+                &sample,
+                Calendar::Gregorian,
+                DateQualifier::Exact,
+                Some("12 MAR 1822"),
+                None,
+            ),
+        ),
+        (
+            i18n.t("event.type.death"),
+            format_date(
+                &sample,
+                Calendar::Gregorian,
+                DateQualifier::About,
+                Some("1867"),
+                None,
+            ),
+        ),
+        (
+            i18n.t("settings.date_preview_lifespan"),
+            format_lifespan(
+                style,
+                Some(QualifiedYear::new(1799, DateQualifier::Exact)),
+                Some(QualifiedYear::new(1867, DateQualifier::About)),
+            ),
+        ),
+    ];
+    rsx! {
+        div { class: "settings-date-preview", "aria-live": "polite",
+            div { class: "settings-date-preview-title", {i18n.t("settings.date_preview")} }
+            dl {
+                for (label , text) in rows {
+                    dt { "{label}" }
+                    dd { "{text}" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn EntryOptionsSection(tree_id: String, tree_resource: TreeResource) -> Element {
+    let i18n = use_i18n();
+    let (save, error) = use_save_tree_setting(tree_id.parse().ok());
+    // Local override so the control answers the click, not the save.
     let mut local_override = use_signal(|| None::<bool>);
-
     let current = local_override().unwrap_or_else(|| match &*tree_resource.read() {
         Some(Some(Ok(tree))) => tree.entry_suggestions,
         _ => true,
@@ -907,44 +1124,17 @@ fn EntryOptionsSection(
             div { class: "settings-section-eyebrow", {i18n.t("settings.breadcrumb")} }
             h2 { class: "settings-section-title", {i18n.t("settings.entry_options")} }
 
-            div { class: "card settings-card",
-                h3 { class: "settings-card-title",
-                    {i18n.t("settings.entry_suggestions")}
-                }
-                p { class: "settings-section-subtitle",
-                    {i18n.t("settings.entry_suggestions_desc")}
-                }
-                div { class: "pf-gender-group settings-choices",
-                    for (value , label) in [(true, i18n.t("common.yes")), (false, i18n.t("common.no"))] {
-                        button {
-                            key: "{value}",
-                            class: if current == value { "pf-gender-btn active" } else { "pf-gender-btn" },
-                            r#type: "button",
-                            onclick: {
-                                let api = api.clone();
-                                move |_| {
-                                    let api = api.clone();
-                                    local_override.set(Some(value));
-                                    spawn(async move {
-                                        let Some(tid) = tree_id_parsed else { return };
-                                        let body = UpdateTreeBody {
-                                            entry_suggestions: Some(value),
-                                            ..Default::default()
-                                        };
-                                        match api.update_tree(tid, &body).await {
-                                            Ok(_) => tree_cache.invalidate(),
-                                            Err(e) => save_error.set(Some(e.to_string())),
-                                        }
-                                    });
-                                }
-                            },
-                            "{label}"
-                        }
-                    }
-                }
-                if let Some(err) = &save_error() {
-                    div { class: "error-msg settings-feedback", "{err}" }
-                }
+            ToggleCard {
+                title: i18n.t("settings.entry_suggestions"),
+                description: i18n.t("settings.entry_suggestions_desc"),
+                value: current,
+                on_change: move |value| {
+                    local_override.set(Some(value));
+                    save.call(UpdateTreeBody { entry_suggestions: Some(value), ..Default::default() });
+                },
+            }
+            if let Some(err) = error() {
+                div { class: "error-msg settings-feedback", "{err}" }
             }
         }
     }
@@ -1185,32 +1375,6 @@ fn safe_export_file_name(tree_name: &str) -> String {
     }
 }
 
-#[component]
-fn PlaceholderSection(section_name: String) -> Element {
-    let i18n = use_i18n();
-    let display_name = match section_name.as_str() {
-        "privacy" => i18n.t("settings.privacy"),
-        "date-display" => i18n.t("settings.date_display"),
-        _ => section_name.clone(),
-    };
-
-    let group = i18n.t("settings.breadcrumb");
-
-    rsx! {
-        div { class: "settings-section",
-            div { class: "settings-section-eyebrow", "{group}" }
-            h2 { class: "settings-section-title", "{display_name}" }
-
-            div { class: "card settings-card",
-                div { class: "empty-state",
-                    h3 { {i18n.t("settings.coming_soon")} }
-                    p { {i18n.t("settings.coming_soon_desc")} }
-                }
-            }
-        }
-    }
-}
-
 const SETTINGS_STYLES: &str = r#"
     .settings-card { margin-top: 16px; }
     .settings-card-title {
@@ -1280,6 +1444,31 @@ const SETTINGS_STYLES: &str = r#"
         width: auto;
         flex-shrink: 0;
     }
+    .settings-date-select { width: auto; max-width: 100%; }
+    .settings-date-preview {
+        margin-top: 12px;
+        padding: 10px 12px;
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+    }
+    .settings-date-preview-title {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+    .settings-date-preview dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 16px;
+        row-gap: 4px;
+        margin: 0;
+        font-size: 0.85rem;
+    }
+    .settings-date-preview dt { color: var(--text-secondary); }
+    .settings-date-preview dd { margin: 0; color: var(--text-primary); }
 
     /* SOSA root person display */
     .sosa-root-display {

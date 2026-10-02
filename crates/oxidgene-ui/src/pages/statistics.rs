@@ -1689,7 +1689,7 @@ mod tests {
 
     #[test]
     fn durations_take_the_largest_whole_unit() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         assert_eq!(duration(&i18n, 1.0), "1 day");
         assert_eq!(duration(&i18n, 61.0), "2 months");
         assert_eq!(duration(&i18n, 25567.0), "70 years");
@@ -1774,7 +1774,7 @@ mod tests {
             ]
         );
         assert_eq!(periods[0].start, day(2026, 1, 1));
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         assert_eq!(granularity.label(&i18n, periods[2].start), "Mar 2026");
         assert_eq!(Granularity::Day.label(&i18n, day(2026, 3, 2)), "2 Mar");
         // An import is marked in the period that holds it.

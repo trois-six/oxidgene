@@ -31,9 +31,45 @@ pub struct TreeChanges {
     pub self_person_id: Option<Option<Uuid>>,
     pub default_privacy: Option<oxidgene_core::enums::TreeDefaultPrivacy>,
     pub entry_suggestions: Option<bool>,
+    pub date_format: Option<oxidgene_core::enums::DateDisplayFormat>,
+    pub date_symbols: Option<bool>,
+    pub date_circa: Option<bool>,
+    pub date_calendar: Option<oxidgene_core::enums::Calendar>,
     pub submitter_name: Option<Option<String>>,
     pub submitter_email: Option<Option<String>>,
     pub submitter_address: Option<Option<String>>,
+}
+
+impl TreeChanges {
+    /// Set every field these changes name on `active`.
+    fn apply(self, active: &mut ActiveModel) {
+        set(&mut active.name, self.name);
+        set(&mut active.description, self.description);
+        set(&mut active.sosa_root_person_id, self.sosa_root_person_id);
+        set(&mut active.self_person_id, self.self_person_id);
+        set(
+            &mut active.default_privacy,
+            self.default_privacy.map(Into::into),
+        );
+        set(&mut active.entry_suggestions, self.entry_suggestions);
+        set(&mut active.date_format, self.date_format.map(Into::into));
+        set(&mut active.date_symbols, self.date_symbols);
+        set(&mut active.date_circa, self.date_circa);
+        set(
+            &mut active.date_calendar,
+            self.date_calendar.map(Into::into),
+        );
+        set(&mut active.submitter_name, self.submitter_name);
+        set(&mut active.submitter_email, self.submitter_email);
+        set(&mut active.submitter_address, self.submitter_address);
+    }
+}
+
+/// Set `field` to `value`, unless there is none.
+fn set<T: Into<sea_orm::Value>>(field: &mut sea_orm::ActiveValue<T>, value: Option<T>) {
+    if let Some(value) = value {
+        *field = Set(value);
+    }
 }
 
 impl TreeRepo {
@@ -67,6 +103,10 @@ impl TreeRepo {
             self_person_id: Set(None),
             default_privacy: Set(oxidgene_core::enums::TreeDefaultPrivacy::default().into()),
             entry_suggestions: Set(true),
+            date_format: Set(oxidgene_core::enums::DateDisplayFormat::default().into()),
+            date_symbols: Set(false),
+            date_circa: Set(false),
+            date_calendar: Set(oxidgene_core::enums::Calendar::default().into()),
             submitter_name: Set(None),
             submitter_email: Set(None),
             submitter_address: Set(None),
@@ -87,33 +127,7 @@ impl TreeRepo {
         let existing = find_live(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
-        if let Some(name) = changes.name {
-            active.name = Set(name);
-        }
-        if let Some(description) = changes.description {
-            active.description = Set(description);
-        }
-        if let Some(sosa_root) = changes.sosa_root_person_id {
-            active.sosa_root_person_id = Set(sosa_root);
-        }
-        if let Some(self_person) = changes.self_person_id {
-            active.self_person_id = Set(self_person);
-        }
-        if let Some(default_privacy) = changes.default_privacy {
-            active.default_privacy = Set(default_privacy.into());
-        }
-        if let Some(entry_suggestions) = changes.entry_suggestions {
-            active.entry_suggestions = Set(entry_suggestions);
-        }
-        if let Some(name) = changes.submitter_name {
-            active.submitter_name = Set(name);
-        }
-        if let Some(email) = changes.submitter_email {
-            active.submitter_email = Set(email);
-        }
-        if let Some(address) = changes.submitter_address {
-            active.submitter_address = Set(address);
-        }
+        changes.apply(&mut active);
         active.updated_at = Set(Utc::now());
 
         let result = active.update(db).await.map_err(db_err)?;
@@ -213,6 +227,10 @@ fn into_domain(m: tree::Model) -> Tree {
         self_person_id: m.self_person_id,
         default_privacy: m.default_privacy.into(),
         entry_suggestions: m.entry_suggestions,
+        date_format: m.date_format.into(),
+        date_symbols: m.date_symbols,
+        date_circa: m.date_circa,
+        date_calendar: m.date_calendar.into(),
         submitter_name: m.submitter_name,
         submitter_email: m.submitter_email,
         submitter_address: m.submitter_address,

@@ -520,7 +520,7 @@ mod enum_table_tests {
 
     #[test]
     fn a_recorded_age_reads_in_words() {
-        let en = I18n(Language::En);
+        let en = I18n::new(Language::En);
         assert_eq!(age_label(&en, "34y").as_deref(), Some("aged 34 years"));
         assert_eq!(
             age_label(&en, "< 1y 6m").as_deref(),
@@ -532,7 +532,7 @@ mod enum_table_tests {
         );
         assert_eq!(age_label(&en, "INFANT").as_deref(), Some("infant"));
         assert_eq!(age_label(&en, "majeur"), None);
-        let pl = I18n(Language::Pl);
+        let pl = I18n::new(Language::Pl);
         assert_eq!(age_label(&pl, "22y").as_deref(), Some("w wieku 22 lat"));
         assert_eq!(age_label(&pl, "1y").as_deref(), Some("w wieku 1 roku"));
     }

@@ -703,7 +703,7 @@ mod tests {
     /// named after a place or a product is not.
     #[test]
     fn only_themes_with_a_translation_are_translated() {
-        let fr = crate::i18n::I18n(crate::i18n::Language::Fr);
+        let fr = crate::i18n::I18n::new(crate::i18n::Language::Fr);
         assert_eq!(
             builtin_theme("dark").expect("dark theme").display_name(&fr),
             "Sombre"

@@ -12,8 +12,8 @@ use oxidgene_core::history::{
 };
 
 use super::types::{
-    GqlCalendar, GqlChildType, GqlConfidence, GqlDateQualifier, GqlEventType, GqlNameType,
-    GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
+    GqlCalendar, GqlChildType, GqlConfidence, GqlDateDisplayFormat, GqlDateQualifier, GqlEventType,
+    GqlNameType, GqlPrivacy, GqlSex, GqlSourceMediaType, GqlSpouseRole, GqlTreeDefaultPrivacy,
 };
 
 /// Declares a GraphQL enum mirroring a history enum, with conversions both
@@ -482,6 +482,10 @@ pub struct GqlTreeSnapshot {
     pub description: Option<String>,
     pub default_privacy: GqlTreeDefaultPrivacy,
     pub entry_suggestions: bool,
+    pub date_format: GqlDateDisplayFormat,
+    pub date_symbols: bool,
+    pub date_circa: bool,
+    pub date_calendar: GqlCalendar,
     pub sosa_root_person_id: Option<ID>,
     pub self_person_id: Option<ID>,
     pub submitter_name: Option<String>,
@@ -496,6 +500,10 @@ impl From<TreeSnapshot> for GqlTreeSnapshot {
             description: t.description,
             default_privacy: t.default_privacy.into(),
             entry_suggestions: t.entry_suggestions,
+            date_format: t.date_format.into(),
+            date_symbols: t.date_symbols,
+            date_circa: t.date_circa,
+            date_calendar: t.date_calendar.into(),
             sosa_root_person_id: t.sosa_root_person_id.map(id),
             self_person_id: t.self_person_id.map(id),
             submitter_name: t.submitter_name,

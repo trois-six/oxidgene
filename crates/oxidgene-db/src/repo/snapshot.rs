@@ -297,6 +297,10 @@ impl SnapshotRepo {
                 description: row.description,
                 default_privacy: row.default_privacy.into(),
                 entry_suggestions: row.entry_suggestions,
+                date_format: row.date_format.into(),
+                date_symbols: row.date_symbols,
+                date_circa: row.date_circa,
+                date_calendar: row.date_calendar.into(),
                 sosa_root_person_id: row.sosa_root_person_id,
                 self_person_id: row.self_person_id,
                 submitter_name: row.submitter_name,
@@ -493,6 +497,10 @@ impl SnapshotRepo {
         active.description = Set(snapshot.description.clone());
         active.default_privacy = Set(snapshot.default_privacy.into());
         active.entry_suggestions = Set(snapshot.entry_suggestions);
+        active.date_format = Set(snapshot.date_format.into());
+        active.date_symbols = Set(snapshot.date_symbols);
+        active.date_circa = Set(snapshot.date_circa);
+        active.date_calendar = Set(snapshot.date_calendar.into());
         active.submitter_name = Set(snapshot.submitter_name.clone());
         active.submitter_email = Set(snapshot.submitter_email.clone());
         active.submitter_address = Set(snapshot.submitter_address.clone());

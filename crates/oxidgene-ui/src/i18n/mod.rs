@@ -17,6 +17,8 @@ mod pt;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use oxidgene_core::enums::{Calendar, DateDisplayFormat};
+use oxidgene_core::types::Tree;
 
 /// Supported languages.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -160,15 +162,67 @@ impl Language {
     }
 }
 
-/// Translation helper returned by [`use_i18n`].
+/// How the tree being read writes its dates (`docs/ui-settings.md` §9): set
+/// on the tree, and carried by [`I18n`] beside the language so that every
+/// date the interface writes follows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DateStyle {
+    /// How much of a date is written, and how.
+    pub format: DateDisplayFormat,
+    /// Whether a lifespan writes `* 1842 + 1907` rather than `1842-1907`.
+    pub symbols: bool,
+    /// Whether an approximate date reads « c. 1842 » rather than « about
+    /// 1842 ».
+    pub circa: bool,
+    /// The calendar a date recorded in another one is also given in.
+    pub calendar: Calendar,
+}
+
+impl DateStyle {
+    /// A new tree's: the day, the month's name and the year, a lifespan
+    /// joined by a dash, and the Gregorian equivalent of any other calendar.
+    pub const DEFAULT: Self = Self {
+        format: DateDisplayFormat::DayMonthYear,
+        symbols: false,
+        circa: false,
+        calendar: Calendar::Gregorian,
+    };
+
+    /// The style `tree` sets.
+    pub fn of(tree: &Tree) -> Self {
+        Self {
+            format: tree.date_format,
+            symbols: tree.date_symbols,
+            circa: tree.date_circa,
+            calendar: tree.date_calendar,
+        }
+    }
+}
+
+/// Translation helper returned by [`use_i18n`]: how the interface writes for
+/// its reader — the language, and the date style of the tree being read.
 ///
-/// Holds the current language and provides lookup methods.
-/// Because it reads from a reactive signal, any component using it
-/// will re-render when the language changes.
+/// Because it reads from reactive signals, any component using it re-renders
+/// when the language or the tree's date style changes.
 #[derive(Clone, Copy, PartialEq)]
-pub struct I18n(pub Language);
+pub struct I18n(pub Language, pub DateStyle);
 
 impl I18n {
+    /// Text in `language`, dates in the default style.
+    pub const fn new(language: Language) -> Self {
+        Self(language, DateStyle::DEFAULT)
+    }
+
+    /// How dates are written.
+    pub const fn dates(&self) -> DateStyle {
+        self.1
+    }
+
+    /// The same language, writing dates in `style`.
+    pub const fn with_dates(self, style: DateStyle) -> Self {
+        Self(self.0, style)
+    }
+
     /// Look up a translation key. Falls back to English, then to the key itself.
     pub fn t(&self, key: &str) -> String {
         self.try_t(key).unwrap_or_else(|| key.to_string())
@@ -221,9 +275,13 @@ impl I18n {
 /// Hook: obtain the [`I18n`] helper for the current language.
 ///
 /// Must be called inside a component whose ancestor called [`use_init_language`].
+///
+/// The date style is the one of the tree held by the
+/// [tree cache](crate::components::tree_cache), the default outside a tree.
 pub fn use_i18n() -> I18n {
     let lang: Signal<Language> = use_context();
-    I18n(lang())
+    let dates = try_use_context::<Signal<DateStyle>>().map_or(DateStyle::DEFAULT, |style| style());
+    I18n(lang(), dates)
 }
 
 /// Hook: initialise the language context (call once in `AppShell`).
@@ -497,19 +555,19 @@ mod parity_tests {
     #[test]
     fn a_single_search_result_is_counted_in_the_singular() {
         assert_eq!(
-            I18n(Language::En).t_plural("search.results_count", 1),
+            I18n::new(Language::En).t_plural("search.results_count", 1),
             "1 result"
         );
         assert_eq!(
-            I18n(Language::En).t_plural("search.results_count", 5),
+            I18n::new(Language::En).t_plural("search.results_count", 5),
             "5 results"
         );
         assert_eq!(
-            I18n(Language::Pl).t_plural("search.results_count", 3),
+            I18n::new(Language::Pl).t_plural("search.results_count", 3),
             "3 wyniki"
         );
         assert_eq!(
-            I18n(Language::Pl).t_plural("search.results_count", 5),
+            I18n::new(Language::Pl).t_plural("search.results_count", 5),
             "5 wyników"
         );
     }

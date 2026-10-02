@@ -340,7 +340,7 @@ pub(crate) fn build_profile(
     // mentioned in the family narrative (sex glyph + "birth-death" suffix,
     // matching the format shown on the pedigree cards).
     let sexes: HashMap<Uuid, Sex> = detail.persons.iter().map(|p| (p.id, p.sex)).collect();
-    let lifespans = lifespans(detail, &sexes);
+    let lifespans = lifespans(detail, &sexes, i18n.dates());
 
     let families = OwnFamilies {
         person_id,
@@ -448,7 +448,11 @@ struct OwnFamilies {
 }
 
 /// The "birth-death" suffix of every person in `sexes` who has one.
-fn lifespans(detail: &PersonDetailBundle, sexes: &HashMap<Uuid, Sex>) -> HashMap<Uuid, String> {
+fn lifespans(
+    detail: &PersonDetailBundle,
+    sexes: &HashMap<Uuid, Sex>,
+    dates: crate::i18n::DateStyle,
+) -> HashMap<Uuid, String> {
     // Years carry their qualifier so the narrative hedges the same way the
     // pedigree cards do — "ca 1849" in both places.
     let mut birth_years: HashMap<Uuid, QualifiedYear> = HashMap::new();
@@ -471,6 +475,7 @@ fn lifespans(detail: &PersonDetailBundle, sexes: &HashMap<Uuid, Sex>) -> HashMap
         .keys()
         .filter_map(|pid| {
             let lifespan = crate::components::pedigree_chart::format_lifespan(
+                dates,
                 birth_years.get(pid).copied(),
                 death_years.get(pid).copied(),
             );
@@ -1925,7 +1930,7 @@ mod tests {
 
     #[test]
     fn fallback_events_keep_their_own_gendered_label() {
-        let fr = I18n(Language::Fr);
+        let fr = I18n::new(Language::Fr);
 
         assert_eq!(
             fr.t(&vitals_event_key(EventType::Baptism, true, Sex::Male)),

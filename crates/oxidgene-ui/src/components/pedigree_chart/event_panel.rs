@@ -262,6 +262,7 @@ fn EventPanelBody(data: SharedPedigree, selected: Uuid, tree_id: String) -> Elem
     // Always the wide form here: this is HTML that wraps, so unlike the card
     // it never has to give up a range's far end.
     let dates = format_lifespan(
+        i18n.dates(),
         data.qualified_birth_year(selected),
         data.qualified_death_year(selected),
     );

@@ -237,27 +237,73 @@ why it is not a `Privacy` value itself.
 
 ## 9. Section: Date Display
 
+How the tree's pages write the dates of its records: event lists, the person,
+couple and history pages, the pedigree and its events panel, search results,
+the dictionary and tool lists, statistics, and their printed forms. The stored
+dates never change; every page writes them through the one shared formatter
+([Common UI §4.3](ui-common.md#43-dateinput)), which reads these settings from
+the tree. Each control saves on the click, like the other settings, and the
+pages follow at once.
+
+Dates the application itself records — when an audit entry was written, when a
+page was printed — keep the default form, as does the date editor's preview,
+which reads the entry back in full, and the [date converter](ui-tools.md).
+
 ### Date format
 
-Dropdown with four options:
-- `dd/mm/yyyy` — e.g. 12/03/1842
-- `dd Mmm yyyy` — e.g. 12 Mar 1842
-- `Mmm yyyy` — e.g. Mar 1842
-- `yyyy` — e.g. 1842
+A dropdown whose four options are the same day written each way:
 
-A **live preview** below the dropdown updates immediately to show how the dates will appear on a person card.
+| Option | Stored as | A day | A month | Qualified |
+|---|---|---|---|---|
+| `12 Mar 1842` (default) | `day_month_year` | 12 Mar 1842 | Mar 1842 | before 12 Mar 1842 |
+| `12/03/1842` | `numeric` | 12/03/1842 | 03/1842 | before 12/03/1842 |
+| `Mar 1842` | `month_year` | Mar 1842 | Mar 1842 | before Mar 1842 |
+| `1842` | `year` | 1842 | 1842 | before 1842 |
 
-### Toggles
+The month's name is the reader's language's. A date's qualifier is always
+written, whatever the format. The numeric format writes a Gregorian or Julian
+month as its number; a Republican or Hebrew month keeps its name, its number
+telling nobody which month it is. A sentence reporting a date written without
+its day joins it as a period (« en 1842 »).
 
-| Toggle | Description |
-|---|---|
-| Show event type symbols | Uses distinct symbols for birth (*), baptism, death (+), burial |
-| Show "circa" prefix for approximate dates | Adds "c." before dates entered as approximate — e.g. *c. 1842* |
+A **live preview** below the dropdown shows a fictitious person's dates as the
+pages will write them with every setting of the section: a birth recorded in
+the Republican calendar, a marriage, a death known only roughly, and the
+lifespan a pedigree card draws. It follows each change before the save
+returns.
 
-### Default calendar
+### Event symbols
 
-Dropdown: Gregorian (default) / Julian / Republican / Hebrew.
-Dates entered in another calendar are automatically converted for display.
+Yes / No (default No). With Yes, a lifespan — on pedigree cards, the wheels,
+fans and lineages, the events panel, the person narrative, the dictionary and
+tool lists — writes each year behind its event's symbol, `*` for the birth and
+`+` for the death (`* 1842 + 1907`, `* 1842`, `+ 1907`), instead of joining
+them with a dash (`1842-1907`, `1842-`, `-1907`). As without symbols, the
+birth year may come from a baptism and the death year from a burial; the
+symbol names the end of the life, not the record. Search results and pickers
+already mark both years with their own glyphs.
+
+### « Circa » for approximate dates
+
+Yes / No (default No). With Yes, a date entered as approximate reads with the
+short « c. » of the reader's language — *c. 1842*, *v. 1842* in French — rather
+than its qualifier's word (*about 1842*). Calculated and estimated dates keep
+their words. Year-only surfaces keep their GeneWeb marks (`ca 1842`) either way.
+
+### Display calendar
+
+Dropdown: Gregorian (default) / Julian / Republican / Hebrew. A date recorded
+in another calendar is followed by its equivalent in this one, in
+parentheses: the day, or for a year or a month alone the span it covers, which
+reads as one value when both ends write the same (a year-only format). A date
+recorded in this calendar, a range, a free-text phrase, and a date this
+calendar cannot express (anything before the Republic in the Republican
+calendar) are written as recorded, alone. Every calendar the application
+records has a converter. Years shown alone — lifespans — stay Gregorian.
+
+Stored as `tree.date_format`, `tree.date_symbols`, `tree.date_circa` and
+`tree.date_calendar` ([Data Model](data-model.md#tree)); each change is a
+*Settings* entry of the [history](#11-section-history).
 
 ---
 

@@ -594,6 +594,42 @@ impl From<DateQualifier> for enums::DateQualifier {
     }
 }
 
+/// How much of a date a tree writes — stored as a string column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
+pub enum DateDisplayFormat {
+    #[sea_orm(string_value = "day_month_year")]
+    DayMonthYear,
+    #[sea_orm(string_value = "numeric")]
+    Numeric,
+    #[sea_orm(string_value = "month_year")]
+    MonthYear,
+    #[sea_orm(string_value = "year")]
+    Year,
+}
+
+impl From<enums::DateDisplayFormat> for DateDisplayFormat {
+    fn from(v: enums::DateDisplayFormat) -> Self {
+        match v {
+            enums::DateDisplayFormat::DayMonthYear => Self::DayMonthYear,
+            enums::DateDisplayFormat::Numeric => Self::Numeric,
+            enums::DateDisplayFormat::MonthYear => Self::MonthYear,
+            enums::DateDisplayFormat::Year => Self::Year,
+        }
+    }
+}
+
+impl From<DateDisplayFormat> for enums::DateDisplayFormat {
+    fn from(v: DateDisplayFormat) -> Self {
+        match v {
+            DateDisplayFormat::DayMonthYear => Self::DayMonthYear,
+            DateDisplayFormat::Numeric => Self::Numeric,
+            DateDisplayFormat::MonthYear => Self::MonthYear,
+            DateDisplayFormat::Year => Self::Year,
+        }
+    }
+}
+
 /// What `Privacy::Default` resolves to for one tree — stored as a string
 /// column. Two variants, so "the tree follows the tree" cannot be written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]

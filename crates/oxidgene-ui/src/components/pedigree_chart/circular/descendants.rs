@@ -127,7 +127,8 @@ fn union_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel 
     let r_mid = (ring.r_in + ring.r_out) / 2.0;
     let (x, y) = polar(r_mid, mid);
     let rotate = if upright(mid) { mid } else { mid + 180.0 };
-    let text = LabelText::of(node);
+    // Only the name is written across a union's band, never a lifespan.
+    let text = LabelText::of(node, DateStyle::DEFAULT);
     let name = format!("{} {}", text.surname, text.given)
         .trim()
         .to_string();
@@ -162,11 +163,17 @@ fn union_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel 
 
 /// A person's segment: a label across if the segment has room for a
 /// straight line, along the radius otherwise.
-fn person_segment(entry: usize, node: &LayoutNode, ring: Ring, (a0, a1): (f64, f64)) -> Segment {
+fn person_segment(
+    entry: usize,
+    node: &LayoutNode,
+    ring: Ring,
+    (a0, a1): (f64, f64),
+    dates: DateStyle,
+) -> Segment {
     let label = if chord(ring.r_in, a1 - a0) >= MIN_TANGENTIAL_CHORD {
-        tangential_label(node, ring, a0, a1)
+        tangential_label(node, ring, (a0, a1), dates)
     } else {
-        radial_label(node, ring, a0, a1)
+        radial_label(node, ring, (a0, a1), dates)
     };
     Segment {
         entry,
@@ -188,7 +195,7 @@ fn union_segment(entry: usize, node: &LayoutNode, ring: Ring, (a0, a1): (f64, f6
         label: union_label(node, ring, a0, a1),
         union: true,
         band: String::new(),
-        ..person_segment(entry, node, ring, (a0, a1))
+        ..person_segment(entry, node, ring, (a0, a1), DateStyle::DEFAULT)
     }
 }
 
@@ -205,6 +212,7 @@ pub(in crate::components::pedigree_chart) fn descendant_circular_layout(
     generations: usize,
     sosa_root_id: Option<Uuid>,
     sosa_ancestors: &HashSet<Uuid>,
+    dates: DateStyle,
 ) -> CircularLayout {
     let tree = Tree::collect(root_id, data, generations as u32);
     let weights = tree.weights();
@@ -228,7 +236,7 @@ pub(in crate::components::pedigree_chart) fn descendant_circular_layout(
         let entry = push_entry(node.clone(), &mut entries);
         if person.depth > 0 {
             let ring = rings.people[person.depth as usize - 1];
-            segments.push(person_segment(entry, &node, ring, angles.people[i]));
+            segments.push(person_segment(entry, &node, ring, angles.people[i], dates));
         }
         for (union, span) in person.unions.iter().zip(&angles.unions[i]) {
             let spouse = union.spouse.map_or_else(unknown_spouse, node_of);
@@ -238,7 +246,9 @@ pub(in crate::components::pedigree_chart) fn descendant_circular_layout(
         }
     }
 
-    let root_label = entries.first().map(|entry| root_label(&entry.node, arc));
+    let root_label = entries
+        .first()
+        .map(|entry| root_label(&entry.node, arc, dates));
     let radius = rings
         .people
         .last()
@@ -295,7 +305,15 @@ mod tests {
     fn arcs_are_shared_by_descendants_and_unions_span_their_children() {
         let data = family();
         let arc = ChartArc::DESCENDANT_WHEEL;
-        let layout = descendant_circular_layout(arc, id(1), &data, 2, None, &HashSet::new());
+        let layout = descendant_circular_layout(
+            arc,
+            id(1),
+            &data,
+            2,
+            None,
+            &HashSet::new(),
+            DateStyle::DEFAULT,
+        );
         // Leaves: 20, 21 (under 10), 11, 12 — four.
         let quarter = arc.sweep / 4.0;
         let (a0, a1) = person_span(&layout, 10);
@@ -336,6 +354,7 @@ mod tests {
             1,
             None,
             &HashSet::new(),
+            DateStyle::DEFAULT,
         );
         let people: Vec<&Segment> = layout.segments.iter().filter(|s| !s.union).collect();
         assert_eq!(people.len(), 3, "the three children only");
@@ -369,6 +388,7 @@ mod tests {
             1,
             None,
             &HashSet::new(),
+            DateStyle::DEFAULT,
         );
         let (eldest, _) = person_span(&layout, 10);
         let (second, _) = person_span(&layout, 11);
@@ -384,6 +404,7 @@ mod tests {
             1,
             None,
             &HashSet::new(),
+            DateStyle::DEFAULT,
         );
         assert!(
             person_span(&wheel, 10).0 < person_span(&wheel, 11).0,
@@ -407,6 +428,7 @@ mod tests {
             10,
             None,
             &HashSet::new(),
+            DateStyle::DEFAULT,
         );
         assert_eq!(layout.segments.iter().filter(|s| !s.union).count(), 1);
     }
@@ -422,6 +444,7 @@ mod tests {
             3,
             None,
             &HashSet::new(),
+            DateStyle::DEFAULT,
         );
         assert!(layout.segments.is_empty());
         assert!(layout.root_label.is_some());

@@ -525,7 +525,7 @@ fn render_place_usage(
                         }
                         {
                             let (birth, death) = entry.lifespan_years();
-                            let lifespan = format_lifespan(birth, death);
+                            let lifespan = format_lifespan(i18n.dates(), birth, death);
                             rsx! { span { class: "dict-accordion-dates", "{lifespan}" } }
                         }
                     }

@@ -23,8 +23,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::enums::{
-    Calendar, ChildType, Confidence, DateQualifier, EventType, NameType, Privacy, Sex,
-    SourceMediaType, SpouseRole, TreeDefaultPrivacy,
+    Calendar, ChildType, Confidence, DateDisplayFormat, DateQualifier, EventType, NameType,
+    Privacy, Sex, SourceMediaType, SpouseRole, TreeDefaultPrivacy,
 };
 
 /// Declares a string-backed history enum: snake_case on the wire and in the
@@ -518,6 +518,14 @@ pub struct TreeSnapshot {
     pub default_privacy: TreeDefaultPrivacy,
     #[serde(default = "crate::types::enabled")]
     pub entry_suggestions: bool,
+    #[serde(default)]
+    pub date_format: DateDisplayFormat,
+    #[serde(default)]
+    pub date_symbols: bool,
+    #[serde(default)]
+    pub date_circa: bool,
+    #[serde(default)]
+    pub date_calendar: Calendar,
     pub sosa_root_person_id: Option<Uuid>,
     pub self_person_id: Option<Uuid>,
     #[serde(default)]

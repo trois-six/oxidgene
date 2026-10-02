@@ -922,7 +922,7 @@ mod tests {
 
         for id in PedigreeThemeId::ALL {
             for language in Language::ALL {
-                let i18n = I18n(language);
+                let i18n = I18n::new(language);
                 for key in [id.label_key(), id.hint_key()] {
                     let text = i18n.t(key);
                     assert_ne!(text, key, "{id:?}: {key} is untranslated in {language:?}");

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:28:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:59:02Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -297,18 +297,23 @@ rather than relabeling values. Invalid or unrepresentable input remains visible
 with a localized inline error.
 
 Display formatting uses the shared date formatter; year-only surfaces use
-`qualified_year()` so precision is not discarded. The formatter:
+`qualified_year()` so precision is not discarded. The formatter writes in the
+date style of the tree being read — its format, « circa », display calendar
+and lifespan symbols ([Tree Settings §9](ui-settings.md#9-section-date-display))
+— which the interface's translation helper carries beside the language, so no
+page formats a date on its own. The formatter:
 
 - reads a GEDCOM date as day, month, year, the year being its number of four
   digits or more, else its last number, so a short year after a month reads
   as a year (« BRUM 8 », « COMP 7 », a Julian « MAR 850 »);
 - writes a Republican year in Roman numerals, as the calendar's own records
   do: « an VII », « 18 brumaire an VIII »;
-- follows an event's date written in another calendar by its Gregorian
-  equivalent in parentheses: the day (« 15 mars 1582 (25 mars 1582) »), or,
-  for a year or a month alone, the span it covers (« an VII (entre 22 sept.
-  1798 et 22 sept. 1799) »). A Gregorian date, a range, a free-text phrase
-  and a month the year lacks (Adar II in a common Hebrew year) carry none.
+- follows a date written in another calendar than the tree's display
+  calendar (Gregorian by default) by its equivalent there, in parentheses:
+  the day (« 15 mars 1582 (25 mars 1582) »), or, for a year or a month alone,
+  the span it covers (« an VII (entre 22 sept. 1798 et 22 sept. 1799) »). A
+  date already in that calendar, a range, a free-text phrase and a month the
+  year lacks (Adar II in a common Hebrew year) carry none.
 
 A sentence that reports a date joins it the way its precision allows: « le »
 and the day for a full date (« Né le 8 déc. 1776 »), « en » for a year or a

@@ -359,6 +359,118 @@ async fn submitter_settings_behave_alike_on_both_surfaces() {
     assert_eq!(cleared["updateTree"]["submitterAddress"], "2 Sample Lane");
 }
 
+/// The date display settings of a tree, as both surfaces read them.
+async fn date_display(app: &axum::Router, tree_id: &str) -> serde_json::Value {
+    let rest = common::ok(app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
+    let gql = common::gql_ok(
+        app,
+        "query($t: ID!) { tree(id: $t) { dateFormat dateSymbols dateCirca dateCalendar } }",
+        json!({ "t": tree_id }),
+    )
+    .await;
+    let gql = &gql["tree"];
+    assert_eq!(
+        gql["dateFormat"].as_str().map(str::to_lowercase),
+        rest["date_format"].as_str().map(str::to_string)
+    );
+    assert_eq!(gql["dateSymbols"], rest["date_symbols"]);
+    assert_eq!(gql["dateCirca"], rest["date_circa"]);
+    assert_eq!(
+        gql["dateCalendar"].as_str().map(str::to_lowercase),
+        rest["date_calendar"].as_str().map(str::to_string)
+    );
+    json!({
+        "date_format": rest["date_format"],
+        "date_symbols": rest["date_symbols"],
+        "date_circa": rest["date_circa"],
+        "date_calendar": rest["date_calendar"],
+    })
+}
+
+#[tokio::test]
+async fn date_display_settings_behave_alike_on_both_surfaces() {
+    let app = setup_app().await;
+    let tree_id = common::new_tree(&app, "Dated").await;
+    let uri = format!("/api/v1/trees/{tree_id}");
+    assert_eq!(
+        date_display(&app, &tree_id).await,
+        json!({
+            "date_format": "day_month_year",
+            "date_symbols": false,
+            "date_circa": false,
+            "date_calendar": "gregorian",
+        })
+    );
+
+    let set = json!({
+        "date_format": "numeric",
+        "date_symbols": true,
+        "date_circa": true,
+        "date_calendar": "julian",
+    });
+    common::ok(&app, Method::PUT, &uri, Some(set.clone())).await;
+    assert_eq!(date_display(&app, &tree_id).await, set);
+    // Another setting's update leaves them alone, and a format nobody
+    // defined is refused.
+    common::ok(&app, Method::PUT, &uri, Some(json!({ "name": "Renamed" }))).await;
+    assert_eq!(date_display(&app, &tree_id).await, set);
+    let (status, _) = send(
+        &app,
+        Method::PUT,
+        &uri,
+        Some(json!({ "date_format": "roman" })),
+    )
+    .await;
+    assert!(status.is_client_error(), "{status}");
+
+    let vars = json!({ "t": tree_id });
+    common::gql_ok(
+        &app,
+        "mutation($t: ID!) { updateTree(id: $t, input: { dateFormat: YEAR, dateSymbols: false, dateCirca: false, dateCalendar: FRENCH_REPUBLICAN }) { id } }",
+        vars.clone(),
+    )
+    .await;
+    assert_eq!(
+        date_display(&app, &tree_id).await,
+        json!({
+            "date_format": "year",
+            "date_symbols": false,
+            "date_circa": false,
+            "date_calendar": "french_republican",
+        })
+    );
+    let refused = gql(
+        &app,
+        "mutation($t: ID!) { updateTree(id: $t, input: { dateFormat: ROMAN }) { id } }",
+        vars,
+    )
+    .await;
+    assert!(refused["errors"].is_array(), "{refused}");
+
+    // Each accepted write is a settings change of the audit log, whose
+    // version of the tree holds the settings it replaced.
+    let audit = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/audit?first=100&category=settings"),
+        None,
+    )
+    .await;
+    assert_eq!(audit["edges"].as_array().unwrap().len(), 4, "{audit}");
+    let versions = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree_id}/history/tree/{tree_id}?first=100"),
+        None,
+    )
+    .await;
+    let current = &versions["edges"][0]["node"]["snapshot"];
+    assert_eq!(current["date_format"], "year", "{versions}");
+    assert_eq!(current["date_calendar"], "french_republican");
+    let numeric = &versions["edges"][1]["node"]["snapshot"];
+    assert_eq!(numeric["date_format"], "numeric", "{versions}");
+}
+
 #[tokio::test]
 async fn the_tree_list_reports_a_running_import_on_both_surfaces() {
     let app = setup_app().await;

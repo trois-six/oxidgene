@@ -1012,7 +1012,7 @@ mod tests {
 
     #[test]
     fn header_names_the_page_the_tree_and_the_day() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         let day = NaiveDate::from_ymd_opt(2026, 9, 29).unwrap();
         let header = PrintHeader::new(&i18n, " Sample tree ", "Statistics", day);
         assert_eq!(header.title, "Statistics");
@@ -1022,7 +1022,7 @@ mod tests {
 
     #[test]
     fn header_date_follows_the_reader_language() {
-        let i18n = I18n(Language::Fr);
+        let i18n = I18n::new(Language::Fr);
         let day = NaiveDate::from_ymd_opt(2026, 9, 29).unwrap();
         let header = PrintHeader::new(&i18n, "", "Statistiques", day);
         assert!(header.tree.is_empty());
@@ -1040,7 +1040,7 @@ mod tests {
 
     #[test]
     fn a_printed_search_names_its_query() {
-        let i18n = I18n(Language::En);
+        let i18n = I18n::new(Language::En);
         assert_eq!(
             search_print_title(&i18n, " Doe ", "Jane"),
             "Search: Doe Jane"

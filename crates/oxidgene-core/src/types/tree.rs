@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::enums::TreeDefaultPrivacy;
+use crate::enums::{Calendar, DateDisplayFormat, TreeDefaultPrivacy};
 
 /// A genealogical tree (project).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,6 +20,20 @@ pub struct Tree {
     /// Whether entry fields suggest values as the user types.
     #[serde(default = "enabled")]
     pub entry_suggestions: bool,
+    /// How much of a date the tree's pages write, and how.
+    #[serde(default)]
+    pub date_format: DateDisplayFormat,
+    /// Whether lifespans write their years behind the birth and death
+    /// symbols (`* 1842 + 1907`) rather than joining them with a dash.
+    #[serde(default)]
+    pub date_symbols: bool,
+    /// Whether an approximate date reads with the short « c. » rather than
+    /// its qualifier's word.
+    #[serde(default)]
+    pub date_circa: bool,
+    /// The calendar a date recorded in another one is also given in.
+    #[serde(default)]
+    pub date_calendar: Calendar,
     /// Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when
     /// unset, the "Who am I?" person's name.
     #[serde(default)]

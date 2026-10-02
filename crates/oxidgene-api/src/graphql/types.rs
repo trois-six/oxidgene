@@ -214,6 +214,37 @@ impl From<GqlTreeDefaultPrivacy> for oxidgene_core::enums::TreeDefaultPrivacy {
     }
 }
 
+/// How much of a date a tree writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlDateDisplayFormat {
+    DayMonthYear,
+    Numeric,
+    MonthYear,
+    Year,
+}
+
+impl From<oxidgene_core::enums::DateDisplayFormat> for GqlDateDisplayFormat {
+    fn from(v: oxidgene_core::enums::DateDisplayFormat) -> Self {
+        match v {
+            oxidgene_core::enums::DateDisplayFormat::DayMonthYear => Self::DayMonthYear,
+            oxidgene_core::enums::DateDisplayFormat::Numeric => Self::Numeric,
+            oxidgene_core::enums::DateDisplayFormat::MonthYear => Self::MonthYear,
+            oxidgene_core::enums::DateDisplayFormat::Year => Self::Year,
+        }
+    }
+}
+
+impl From<GqlDateDisplayFormat> for oxidgene_core::enums::DateDisplayFormat {
+    fn from(v: GqlDateDisplayFormat) -> Self {
+        match v {
+            GqlDateDisplayFormat::DayMonthYear => Self::DayMonthYear,
+            GqlDateDisplayFormat::Numeric => Self::Numeric,
+            GqlDateDisplayFormat::MonthYear => Self::MonthYear,
+            GqlDateDisplayFormat::Year => Self::Year,
+        }
+    }
+}
+
 /// What a medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
 pub enum GqlSourceMediaType {
@@ -786,6 +817,14 @@ pub struct GqlTree {
     pub default_privacy: GqlTreeDefaultPrivacy,
     /// Whether entry fields suggest values as the user types.
     pub entry_suggestions: bool,
+    /// How much of a date the tree's pages write.
+    pub date_format: GqlDateDisplayFormat,
+    /// Whether lifespans write the birth and death symbols.
+    pub date_symbols: bool,
+    /// Whether an approximate date reads « c. ».
+    pub date_circa: bool,
+    /// The calendar a date recorded in another one is also given in.
+    pub date_calendar: GqlCalendar,
     /// Who the tree's GEDCOM exports say they are from.
     pub submitter_name: Option<String>,
     pub submitter_email: Option<String>,
@@ -844,6 +883,10 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             self_person_id: t.self_person_id.map(|id| ID(id.to_string())),
             default_privacy: t.default_privacy.into(),
             entry_suggestions: t.entry_suggestions,
+            date_format: t.date_format.into(),
+            date_symbols: t.date_symbols,
+            date_circa: t.date_circa,
+            date_calendar: t.date_calendar.into(),
             submitter_name: t.submitter_name,
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,

@@ -263,11 +263,13 @@ struct LabelText<'a> {
     surname: String,
     birth: Option<QualifiedYear>,
     death: Option<QualifiedYear>,
+    dates: DateStyle,
 }
 
 impl<'a> LabelText<'a> {
-    fn of(node: &'a LayoutNode) -> Self {
+    fn of(node: &'a LayoutNode, dates: DateStyle) -> Self {
         Self {
+            dates,
             given: node.label_given.split(',').next().unwrap_or("").trim(),
             surname: node
                 .label_surname
@@ -286,7 +288,7 @@ impl<'a> LabelText<'a> {
         let name = format!("{} {}", self.surname, self.given)
             .trim()
             .to_string();
-        let dates = format_lifespan(self.birth, self.death);
+        let dates = format_lifespan(self.dates, self.birth, self.death);
         let planned = match room {
             0 => Vec::new(),
             1 => vec![(LineRole::Name, name)],
@@ -331,7 +333,7 @@ fn fit_line(
     if role != LineRole::Dates {
         return (truncate_text_to_fit(text, max_width, font), None);
     }
-    let dates = fit_lifespan(text_of.birth, text_of.death, max_width, font);
+    let dates = fit_lifespan(text_of.dates, text_of.birth, text_of.death, max_width, font);
     let squeeze =
         (crate::utils::estimate_text_width_px(&dates, font) > max_width).then_some(max_width);
     (dates, squeeze)
@@ -387,7 +389,12 @@ fn tangential_half_width(distance: f64, r_out: f64, span: f64) -> f64 {
 
 /// A label written across its segment, square to the radius through the
 /// segment's middle, and turned over on the lower half so it reads upright.
-fn tangential_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel {
+fn tangential_label(
+    node: &LayoutNode,
+    ring: Ring,
+    (a0, a1): (f64, f64),
+    dates: DateStyle,
+) -> SegmentLabel {
     let mid = (a0 + a1) / 2.0;
     let span = a1 - a0;
     let r_mid = (ring.r_in + ring.r_out) / 2.0;
@@ -396,7 +403,7 @@ fn tangential_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentL
     // when turned over.
     let inward = if is_upright { 1.0 } else { -1.0 };
     let room = ((ring.r_out - ring.r_in) / TANGENTIAL_LINE).floor() as usize;
-    let text = LabelText::of(node);
+    let text = LabelText::of(node, dates);
     let lines = stack_lines(
         text.lines(room.min(3)),
         &text,
@@ -425,13 +432,18 @@ const RADIAL_LABEL_ACROSS: f64 = 3.0 * RADIAL_LINE + 2.0;
 /// do. One too narrow for them at their own size writes them smaller, in
 /// proportion, and with as many more characters as the smaller type leaves
 /// room for along the radius: zooming in on it shows the classic label.
-fn radial_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel {
+fn radial_label(
+    node: &LayoutNode,
+    ring: Ring,
+    (a0, a1): (f64, f64),
+    dates: DateStyle,
+) -> SegmentLabel {
     let mid = (a0 + a1) / 2.0;
     let r_mid = (ring.r_in + ring.r_out) / 2.0;
     let across = ring.r_in * (a1 - a0).to_radians();
     let scale = (across / RADIAL_LABEL_ACROSS).min(1.0);
     let length = ring.r_out - ring.r_in - 2.0 * LABEL_PAD;
-    let text = LabelText::of(node);
+    let text = LabelText::of(node, dates);
     let lines = stack_lines(text.lines(3), &text, LabelFlow::Radial, RADIAL_LINE, |_| {
         length / scale
     })
@@ -450,14 +462,14 @@ fn radial_label(node: &LayoutNode, ring: Ring, a0: f64, a1: f64) -> SegmentLabel
 }
 
 /// The root's label, level and centred in its disc (or half disc).
-fn root_label(node: &LayoutNode, arc: ChartArc) -> SegmentLabel {
+fn root_label(node: &LayoutNode, arc: ChartArc, dates: DateStyle) -> SegmentLabel {
     let r = arc.root_radius;
     let cy = match arc.disc {
         Disc::Full => 0.0,
         Disc::Upper => -r * 0.42,
         Disc::Lower => r * 0.42,
     };
-    let text = LabelText::of(node);
+    let text = LabelText::of(node, dates);
     let lines = stack_lines(
         text.lines(3),
         &text,
@@ -561,12 +573,18 @@ impl CircularLayout {
 }
 
 /// Builds one segment from its SOSA position.
-fn segment(index: usize, entry: &AncestorEntry, arc: ChartArc, rings: &[Ring]) -> Segment {
+fn segment(
+    index: usize,
+    entry: &AncestorEntry,
+    arc: ChartArc,
+    rings: &[Ring],
+    dates: DateStyle,
+) -> Segment {
     let ring = rings[generation_of(entry.sosa) as usize - 1];
     let (start, end) = segment_angles(entry.sosa, arc);
     let label = match ring.flow {
-        LabelFlow::Tangential => tangential_label(&entry.node, ring, start, end),
-        LabelFlow::Radial => radial_label(&entry.node, ring, start, end),
+        LabelFlow::Tangential => tangential_label(&entry.node, ring, (start, end), dates),
+        LabelFlow::Radial => radial_label(&entry.node, ring, (start, end), dates),
     };
     Segment {
         entry: index,
@@ -601,6 +619,7 @@ pub(super) fn circular_layout(
     generations: usize,
     sosa_root_id: Option<Uuid>,
     sosa_ancestors: &HashSet<Uuid>,
+    dates: DateStyle,
 ) -> CircularLayout {
     let entries = collect_ancestors(root_id, data, generations, sosa_root_id, sosa_ancestors);
     let rings = ring_radii(arc, generations as u32);
@@ -608,13 +627,13 @@ pub(super) fn circular_layout(
         .iter()
         .enumerate()
         .filter(|(_, entry)| entry.sosa > 1)
-        .map(|(i, entry)| segment(i, entry, arc, &rings))
+        .map(|(i, entry)| segment(i, entry, arc, &rings, dates))
         .collect();
     let max_zoom = max_zoom_for(&segments);
     let root_label = entries
         .first()
         .filter(|entry| entry.sosa == 1)
-        .map(|entry| root_label(&entry.node, arc));
+        .map(|entry| root_label(&entry.node, arc, dates));
     let radius = rings.last().map_or(arc.root_radius, |ring| ring.r_out);
     CircularLayout {
         entries,
@@ -1081,8 +1100,10 @@ mod tests {
                 let ring = rings[generation_of(sosa) as usize - 1];
                 let (a0, a1) = segment_angles(sosa, arc);
                 let label = match ring.flow {
-                    LabelFlow::Tangential => tangential_label(&long, ring, a0, a1),
-                    LabelFlow::Radial => radial_label(&long, ring, a0, a1),
+                    LabelFlow::Tangential => {
+                        tangential_label(&long, ring, (a0, a1), DateStyle::DEFAULT)
+                    }
+                    LabelFlow::Radial => radial_label(&long, ring, (a0, a1), DateStyle::DEFAULT),
                 };
                 assert!(!label.lines.is_empty(), "{arc:?} {sosa}: nothing written");
                 let room = match ring.flow {
@@ -1125,8 +1146,10 @@ mod tests {
                 let ring = rings[generation_of(sosa) as usize - 1];
                 let (a0, a1) = segment_angles(sosa, arc);
                 let label = match ring.flow {
-                    LabelFlow::Tangential => tangential_label(&node, ring, a0, a1),
-                    LabelFlow::Radial => radial_label(&node, ring, a0, a1),
+                    LabelFlow::Tangential => {
+                        tangential_label(&node, ring, (a0, a1), DateStyle::DEFAULT)
+                    }
+                    LabelFlow::Radial => radial_label(&node, ring, (a0, a1), DateStyle::DEFAULT),
                 };
                 // Text runs along the rotated x axis; upright means that axis
                 // never points left of straight down.
@@ -1149,7 +1172,7 @@ mod tests {
         let rings = ring_radii(ChartArc::FAN, 8);
         let sosa = 256; // first of the eighth generation
         let (a0, a1) = segment_angles(sosa, ChartArc::FAN);
-        let label = radial_label(&node, rings[7], a0, a1);
+        let label = radial_label(&node, rings[7], (a0, a1), DateStyle::DEFAULT);
         let roles: Vec<LineRole> = label.lines.iter().map(|l| l.role).collect();
         assert_eq!(
             roles,
@@ -1164,8 +1187,8 @@ mod tests {
         let wide = radial_label(
             &node,
             rings[2],
-            segment_angles(8, ChartArc::FAN).0,
-            segment_angles(8, ChartArc::FAN).1,
+            segment_angles(8, ChartArc::FAN),
+            DateStyle::DEFAULT,
         );
         assert!((wide.scale - 1.0).abs() < EPS);
     }
@@ -1176,7 +1199,15 @@ mod tests {
     fn the_zoom_reaches_the_classic_size_of_the_narrowest_label() {
         let data = full_ancestry(8);
         for arc in [ChartArc::WHEEL, ChartArc::FAN] {
-            let layout = circular_layout(arc, id(1), &data, 8, None, &HashSet::new());
+            let layout = circular_layout(
+                arc,
+                id(1),
+                &data,
+                8,
+                None,
+                &HashSet::new(),
+                DateStyle::DEFAULT,
+            );
             let smallest = layout
                 .segments
                 .iter()
@@ -1185,7 +1216,15 @@ mod tests {
             assert!(layout.max_zoom * smallest >= 1.0 - EPS || layout.max_zoom == DEEP_ZOOM_MAX);
             assert!(layout.max_zoom >= ZOOM_MAX);
         }
-        let shallow = circular_layout(ChartArc::WHEEL, id(1), &data, 2, None, &HashSet::new());
+        let shallow = circular_layout(
+            ChartArc::WHEEL,
+            id(1),
+            &data,
+            2,
+            None,
+            &HashSet::new(),
+            DateStyle::DEFAULT,
+        );
         assert_eq!(shallow.max_zoom, ZOOM_MAX);
     }
 
@@ -1231,7 +1270,7 @@ mod tests {
         });
         let rings = ring_radii(ChartArc::WHEEL, 3);
         let (a0, a1) = segment_angles(2, ChartArc::WHEEL);
-        let label = tangential_label(&node, rings[0], a0, a1);
+        let label = tangential_label(&node, rings[0], (a0, a1), DateStyle::DEFAULT);
         let dates = label
             .lines
             .iter()
@@ -1257,7 +1296,15 @@ mod tests {
     #[test]
     fn every_ancestor_lands_on_the_segment_of_its_sosa_number() {
         let data = full_ancestry(6);
-        let layout = circular_layout(ChartArc::WHEEL, id(1), &data, 6, None, &HashSet::new());
+        let layout = circular_layout(
+            ChartArc::WHEEL,
+            id(1),
+            &data,
+            6,
+            None,
+            &HashSet::new(),
+            DateStyle::DEFAULT,
+        );
         assert_eq!(layout.entries.len(), 127);
         assert_eq!(layout.segments.len(), 126);
         for segment in &layout.segments {
@@ -1280,7 +1327,15 @@ mod tests {
             .person(3, Sex::Female, "Mother_1", "Branch_B");
         f.family(100, &[3], &[1]);
         let data = f.build();
-        let layout = circular_layout(ChartArc::FAN, id(1), &data, 4, None, &HashSet::new());
+        let layout = circular_layout(
+            ChartArc::FAN,
+            id(1),
+            &data,
+            4,
+            None,
+            &HashSet::new(),
+            DateStyle::DEFAULT,
+        );
         let sosas: Vec<(u64, bool)> = layout
             .entries
             .iter()
@@ -1300,9 +1355,25 @@ mod tests {
     #[test]
     fn the_depth_limits_the_rings() {
         let data = full_ancestry(6);
-        let layout = circular_layout(ChartArc::WHEEL, id(1), &data, 3, None, &HashSet::new());
+        let layout = circular_layout(
+            ChartArc::WHEEL,
+            id(1),
+            &data,
+            3,
+            None,
+            &HashSet::new(),
+            DateStyle::DEFAULT,
+        );
         assert_eq!(layout.entries.iter().map(|e| e.sosa).max(), Some(15));
-        let none = circular_layout(ChartArc::WHEEL, id(1), &data, 0, None, &HashSet::new());
+        let none = circular_layout(
+            ChartArc::WHEEL,
+            id(1),
+            &data,
+            0,
+            None,
+            &HashSet::new(),
+            DateStyle::DEFAULT,
+        );
         assert_eq!(none.entries.len(), 1);
         assert!(none.segments.is_empty());
         assert!(none.root_label.is_some());

@@ -925,7 +925,11 @@ fn go_to_relatives(
 
     let label = |id: Uuid| {
         let name = data.display_name(id, i18n);
-        let dates = format_lifespan(data.qualified_birth_year(id), data.qualified_death_year(id));
+        let dates = format_lifespan(
+            i18n.dates(),
+            data.qualified_birth_year(id),
+            data.qualified_death_year(id),
+        );
         if dates.is_empty() {
             name
         } else {

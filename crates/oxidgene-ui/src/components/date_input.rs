@@ -12,8 +12,9 @@
 //! <year − age>` — is what gets saved. See [`DateParts::resolved`].
 //!
 //! [`format_date`] is the read-side counterpart: it turns the columns an event
-//! carries back into the same localized phrase the editor previewed, so a date
-//! reads identically wherever it is shown.
+//! carries back into a localized phrase, written in the tree's
+//! [`DateStyle`](crate::i18n::DateStyle), so a date reads identically
+//! wherever it is shown.
 
 use chrono::{Datelike, NaiveDate};
 use dioxus::html::input_data::keyboard_types::Key;
@@ -21,7 +22,7 @@ use dioxus::prelude::*;
 use oxidgene_core::calendar::{
     convert as convert_components, days_in_month, from_jdn, months_in_year, to_jdn,
 };
-use oxidgene_core::enums::{Calendar, DateQualifier};
+use oxidgene_core::enums::{Calendar, DateDisplayFormat, DateQualifier};
 use oxidgene_core::types::Event as DomainEvent;
 
 use crate::i18n::I18n;
@@ -353,14 +354,17 @@ impl DateParts {
         }
     }
 
-    /// Localized preview of the date as it will be saved and later displayed
-    /// (e.g. « vers 2012 » for an age of 14 observed in 2026).
+    /// Localized preview of the date as it will be saved (e.g. « vers 2012 »
+    /// for an age of 14 observed in 2026).
     ///
-    /// Built from the canonical values rather than the raw fields so the
-    /// preview and [`format_date`] can never disagree.
+    /// Built from the canonical values rather than the raw fields, through
+    /// [`format_date`], so the two read the same. It spells the whole date
+    /// whatever the tree's [`DateStyle`](crate::i18n::DateStyle): a preview
+    /// reads the entry back, and one written `1842` would hide the day just
+    /// typed.
     pub fn literal(&self, i18n: &I18n) -> String {
-        format_date(
-            i18n,
+        spell_date(
+            &I18n::new(i18n.0),
             self.calendar,
             self.stored_qualifier(),
             self.date_value().as_deref(),
@@ -370,10 +374,12 @@ impl DateParts {
 }
 
 /// The localized word a qualifier reads as in front of its date (« vers
-/// 1850 »), or `None` for the ones that carry no prefix.
-fn qualifier_prefix_key(q: DateQualifier) -> Option<&'static str> {
+/// 1850 »), or `None` for the ones that carry no prefix. With `circa`, an
+/// approximate date reads with the short « c. » instead.
+fn qualifier_prefix_key(q: DateQualifier, circa: bool) -> Option<&'static str> {
     match q {
         DateQualifier::Exact => None,
+        DateQualifier::About if circa => Some("date.prefix.circa"),
         DateQualifier::About => Some("date.prefix.about"),
         DateQualifier::Calculated => Some("date.prefix.calculated"),
         DateQualifier::Estimated => Some("date.prefix.estimated"),
@@ -401,12 +407,34 @@ fn literal_value(i18n: &I18n, calendar: Calendar, raw: &str) -> String {
     }
 }
 
-/// The localized phrase for an event's date columns — « vers 2012 », « avant
-/// 3 janv. 1900 », « entre 1800 et 1810 ».
+/// The localized phrase for a record's date columns — « vers 2012 », « avant
+/// 3 janv. 1900 », « entre 1800 et 1810 » — in the tree's
+/// [`DateStyle`](crate::i18n::DateStyle) that `i18n` carries.
 ///
-/// This is the one place a date becomes text for the reader; every view calls
-/// it so the same event never reads two different ways.
+/// This is the one place a recorded date becomes text for the reader; every
+/// view calls it so the same event never reads two different ways.
+///
+/// A date written in another calendar than the tree's display calendar
+/// (Gregorian unless the tree says otherwise) is followed by its equivalent
+/// there, as genealogists read it: « 2 brumaire an XIV (24 oct. 1805) », and a
+/// year or a month alone by the span it covers: « an VII (entre 22 sept. 1798
+/// et 22 sept. 1799) ».
 pub fn format_date(
+    i18n: &I18n,
+    calendar: Calendar,
+    qualifier: DateQualifier,
+    value: Option<&str>,
+    value2: Option<&str>,
+) -> String {
+    let text = spell_date(i18n, calendar, qualifier, value, value2);
+    match calendar_equivalent(i18n, calendar, qualifier, value) {
+        Some(equivalent) if !text.is_empty() => format!("{text} ({equivalent})"),
+        _ => text,
+    }
+}
+
+/// A date's columns as words, in its own calendar only.
+fn spell_date(
     i18n: &I18n,
     calendar: Calendar,
     qualifier: DateQualifier,
@@ -435,17 +463,20 @@ pub fn format_date(
         }
     };
 
-    match qualifier_prefix_key(qualifier) {
+    match qualifier_prefix_key(qualifier, i18n.dates().circa) {
         Some(key) => format!("{} {body}", i18n.t(key)),
         None => body,
     }
 }
 
-/// A calendar day as the app writes dates: `28 Sep 2026`, in the reader's
-/// language.
+/// A day the application itself recorded — when an entry was written, a page
+/// printed — as it writes dates: `28 Sep 2026`, in the reader's language.
+///
+/// The tree's [`DateStyle`](crate::i18n::DateStyle) is for the dates of its
+/// records: a day written « 2026 » alone would say nothing.
 pub fn format_day(i18n: &I18n, day: NaiveDate) -> String {
-    format_date(
-        i18n,
+    spell_date(
+        &I18n::new(i18n.0),
         Calendar::Gregorian,
         DateQualifier::Exact,
         Some(&day.format("%d %b %Y").to_string().to_uppercase()),
@@ -453,25 +484,32 @@ pub fn format_day(i18n: &I18n, day: NaiveDate) -> String {
     )
 }
 
+/// The same day — 12 March 1842 — written in `format`, which is how a choice of
+/// [`DateDisplayFormat`] is named to the reader.
+pub fn format_example(i18n: &I18n, format: DateDisplayFormat) -> String {
+    let style = crate::i18n::DateStyle {
+        format,
+        ..crate::i18n::DateStyle::DEFAULT
+    };
+    spell_date(
+        &I18n::new(i18n.0).with_dates(style),
+        Calendar::Gregorian,
+        DateQualifier::Exact,
+        Some("12 MAR 1842"),
+        None,
+    )
+}
+
 /// [`format_date`] over an event's own columns — the form every view but the
 /// editor needs. Empty when the event carries no date.
-///
-/// A date written in another calendar is followed by its Gregorian
-/// equivalent, as genealogists read it: « 2 brumaire an XIV (24 oct. 1805) »,
-/// and a year or a month alone by the span it covers: « an VII (entre 22 sept.
-/// 1798 et 22 sept. 1799) ».
 pub fn format_event_date(i18n: &I18n, event: &DomainEvent) -> String {
-    let text = format_date(
+    format_date(
         i18n,
         event.calendar,
         event.date_qualifier,
         event.date_value.as_deref(),
         event.date_value2.as_deref(),
-    );
-    match gregorian_equivalent(i18n, event) {
-        Some(equivalent) if !text.is_empty() => format!("{text} ({equivalent})"),
-        _ => text,
-    }
+    )
 }
 
 /// How a date joins the sentence that reports it: « le 8 déc. 1776 » for a
@@ -501,6 +539,10 @@ impl DatePhrase {
 
 /// [`format_event_date`] with its [`DateKind`].
 pub fn event_date_phrase(i18n: &I18n, event: &DomainEvent) -> DatePhrase {
+    let shows_day = matches!(
+        i18n.dates().format,
+        DateDisplayFormat::DayMonthYear | DateDisplayFormat::Numeric
+    );
     let kind = if event.date_qualifier != DateQualifier::Exact {
         DateKind::Qualified
     } else {
@@ -509,8 +551,8 @@ pub fn event_date_phrase(i18n: &I18n, event: &DomainEvent) -> DatePhrase {
             .as_deref()
             .map(|value| parse_components(event.calendar, value))
         {
-            Some((Some(_), _, Some(_))) => DateKind::Day,
-            Some((Some(_), _, None)) => DateKind::Period,
+            Some((Some(_), _, Some(_))) if shows_day => DateKind::Day,
+            Some((Some(_), _, _)) => DateKind::Period,
             _ => DateKind::Qualified,
         }
     };
@@ -520,42 +562,48 @@ pub fn event_date_phrase(i18n: &I18n, event: &DomainEvent) -> DatePhrase {
     }
 }
 
-/// The Gregorian day, or span of days, a single date written in another
-/// calendar stands for; `None` for a Gregorian date, a range, or a date that
-/// does not convert.
-fn gregorian_equivalent(i18n: &I18n, event: &DomainEvent) -> Option<String> {
-    if event.calendar == Calendar::Gregorian || event.date_qualifier.needs_second_date() {
+/// The day, or span of days, in the tree's display calendar that a single
+/// date written in another calendar stands for; `None` for a date already in
+/// it, a range, or a date that does not convert. A span whose two ends read
+/// the same in the tree's format — the same year, when it writes years
+/// alone — is written once.
+fn calendar_equivalent(
+    i18n: &I18n,
+    calendar: Calendar,
+    qualifier: DateQualifier,
+    value: Option<&str>,
+) -> Option<String> {
+    let target = i18n.dates().calendar;
+    if calendar == target || qualifier.needs_second_date() {
         return None;
     }
-    let (year, month, day) = parse_components(event.calendar, event.date_value.as_deref()?);
-    let (first, last) = gregorian_span(event.calendar, year?, month, day)?;
-    let text = |(y, m, d): GregorianDay| {
-        literal_components(i18n, Calendar::Gregorian, Some(y), Some(m), Some(d))
-    };
+    let (year, month, day) = parse_components(calendar, value?);
+    let (first, last) = span_in(calendar, target, year?, month, day)?;
+    let text = |(y, m, d): CalendarDay| literal_components(i18n, target, Some(y), Some(m), Some(d));
+    let (first, last) = (text(first), text(last));
     Some(if first == last {
-        text(first)
+        first
     } else {
         format!(
-            "{} {} {} {}",
+            "{} {first} {} {last}",
             i18n.t("date.prefix.between"),
-            text(first),
             i18n.t("person_form.date2_label_between"),
-            text(last)
         )
     })
 }
 
-/// A Gregorian `(year, month, day)`.
-type GregorianDay = (i32, u8, u8);
+/// A `(year, month, day)` in some calendar.
+type CalendarDay = (i32, u8, u8);
 
-/// The first and last Gregorian day of a date written in `calendar`: its day,
-/// or the first and last day of its month or year.
-fn gregorian_span(
+/// The first and last day in `target` of a date written in `calendar`: its
+/// day, or the first and last day of its month or year.
+fn span_in(
     calendar: Calendar,
+    target: Calendar,
     year: i32,
     month: Option<u8>,
     day: Option<u8>,
-) -> Option<(GregorianDay, GregorianDay)> {
+) -> Option<(CalendarDay, CalendarDay)> {
     let last_month = months_in_year(calendar);
     let (start, end) = match (month, day) {
         (Some(m), Some(d)) => ((m, d), (m, d)),
@@ -570,8 +618,8 @@ fn gregorian_span(
     if start.1 == 0 || end.1 == 0 || start.1 > days_in_month(calendar, year, start.0) {
         return None;
     }
-    let gregorian = |(m, d): (u8, u8)| from_jdn(Calendar::Gregorian, to_jdn(calendar, year, m, d)?);
-    Some((gregorian(start)?, gregorian(end)?))
+    let convert = |(m, d): (u8, u8)| from_jdn(target, to_jdn(calendar, year, m, d)?);
+    Some((convert(start)?, convert(end)?))
 }
 
 /// Parse a free-text date into `(year, month, day)`.
@@ -731,7 +779,11 @@ fn sort_date(year: Option<i32>, month: Option<u8>, day: Option<u8>) -> Option<Na
     NaiveDate::from_ymd_opt(y, m, d)
 }
 
-/// Localized literal for a component triplet (empty when no year).
+/// Localized literal for a component triplet (empty when no year), in the
+/// tree's [`DateDisplayFormat`]: the parts the format leaves out are dropped,
+/// and the numeric format writes a Gregorian or Julian month as its number.
+/// A Hebrew or Republican month keeps its name — its number tells nobody
+/// which month it is.
 fn literal_components(
     i18n: &I18n,
     calendar: Calendar,
@@ -740,10 +792,22 @@ fn literal_components(
     day: Option<u8>,
 ) -> String {
     let Some(y) = year else { return String::new() };
-    let name = month
-        .filter(|m| *m >= 1 && *m <= months_in_year(calendar))
-        .map(|m| i18n.t(&month_label_key(calendar, m)));
+    let format = i18n.dates().format;
+    let (month, day) = match format {
+        DateDisplayFormat::Year => (None, None),
+        DateDisplayFormat::MonthYear => (month, None),
+        DateDisplayFormat::DayMonthYear | DateDisplayFormat::Numeric => (month, day),
+    };
+    let month = month.filter(|m| *m >= 1 && *m <= months_in_year(calendar));
     let day = day.filter(|d| (1..=31).contains(d));
+    let numeric = format == DateDisplayFormat::Numeric && !uses_named_months(calendar);
+    let name = month.map(|m| {
+        if numeric {
+            format!("{m:02}")
+        } else {
+            i18n.t(&month_label_key(calendar, m))
+        }
+    });
     let era = if y < 0 {
         format!(" {}", i18n.t("date.bce"))
     } else {
@@ -759,6 +823,8 @@ fn literal_components(
         _ => y.abs().to_string(),
     };
     match (day, name) {
+        (Some(d), Some(month)) if numeric => format!("{d:02}/{month}/{y}{era}"),
+        (None, Some(month)) if numeric => format!("{month}/{y}{era}"),
         (Some(d), Some(name)) => format!("{d} {name} {y}{era}"),
         (None, Some(name)) => format!("{name} {y}{era}"),
         _ => format!("{y}{era}"),
@@ -809,7 +875,7 @@ fn qualifier_from_value(s: &str) -> DateQualifier {
 }
 
 /// Inverse of [`calendar_value`].
-fn calendar_from_value(s: &str) -> Calendar {
+pub fn calendar_from_value(s: &str) -> Calendar {
     match s {
         "Julian" => Calendar::Julian,
         "Hebrew" => Calendar::Hebrew,
@@ -1131,11 +1197,11 @@ mod tests {
     use crate::i18n::Language;
 
     fn en() -> I18n {
-        I18n(Language::En)
+        I18n::new(Language::En)
     }
 
     fn fr() -> I18n {
-        I18n(Language::Fr)
+        I18n::new(Language::Fr)
     }
 
     /// Most tests only care about the common calendar.
@@ -1856,5 +1922,172 @@ mod tests {
             fmt(&en(), DateQualifier::About, Some("1800"), Some("1810")),
             "about 1800"
         );
+    }
+
+    /// `en()` writing dates in `style`.
+    fn styled(style: crate::i18n::DateStyle) -> I18n {
+        en().with_dates(style)
+    }
+
+    fn format(format: DateDisplayFormat) -> crate::i18n::DateStyle {
+        crate::i18n::DateStyle {
+            format,
+            ..crate::i18n::DateStyle::DEFAULT
+        }
+    }
+
+    /// Each format writes what it keeps of a date, and a qualifier always
+    /// stays with it.
+    #[test]
+    fn a_tree_format_decides_how_much_of_a_date_is_written() {
+        let day = Some("3 FEB 1842");
+        let month = Some("FEB 1842");
+        let cases = [
+            (
+                DateDisplayFormat::DayMonthYear,
+                "3 Feb 1842",
+                "Feb 1842",
+                "before 3 Feb 1842",
+            ),
+            (
+                DateDisplayFormat::Numeric,
+                "03/02/1842",
+                "02/1842",
+                "before 03/02/1842",
+            ),
+            (
+                DateDisplayFormat::MonthYear,
+                "Feb 1842",
+                "Feb 1842",
+                "before Feb 1842",
+            ),
+            (DateDisplayFormat::Year, "1842", "1842", "before 1842"),
+        ];
+        for (style, full, partial, qualified) in cases {
+            let i18n = styled(format(style));
+            assert_eq!(
+                fmt(&i18n, DateQualifier::Exact, day, None),
+                full,
+                "{style:?}"
+            );
+            assert_eq!(
+                fmt(&i18n, DateQualifier::Exact, month, None),
+                partial,
+                "{style:?}"
+            );
+            assert_eq!(
+                fmt(&i18n, DateQualifier::Before, day, None),
+                qualified,
+                "{style:?}"
+            );
+        }
+        assert_eq!(
+            format_example(&en(), DateDisplayFormat::Numeric),
+            "12/03/1842"
+        );
+    }
+
+    /// A Republican month keeps its name in the numeric format: its number
+    /// would tell nobody which month it is.
+    #[test]
+    fn the_numeric_format_keeps_the_names_of_months_nobody_counts() {
+        let i18n = fr().with_dates(format(DateDisplayFormat::Numeric));
+        assert_eq!(
+            format_event_date(&i18n, &republican_event("18 BRUM 8", DateQualifier::Exact)),
+            "18 brumaire an VIII (09/11/1799)"
+        );
+    }
+
+    /// A format without the day turns « le » into « en » in a sentence.
+    #[test]
+    fn a_date_written_without_its_day_reads_as_a_period() {
+        let mut event = republican_event("18 BRUM 8", DateQualifier::Exact);
+        event.calendar = Calendar::Gregorian;
+        event.date_value = Some("3 FEB 1842".to_string());
+        let day = event_date_phrase(&en(), &event);
+        assert_eq!(day.kind, DateKind::Day);
+        let year = event_date_phrase(&styled(format(DateDisplayFormat::Year)), &event);
+        assert_eq!((year.text.as_str(), year.kind), ("1842", DateKind::Period));
+    }
+
+    /// « Circa » replaces the word of an approximate date, and of no other.
+    #[test]
+    fn circa_shortens_an_approximate_date_only() {
+        let circa = crate::i18n::DateStyle {
+            circa: true,
+            ..crate::i18n::DateStyle::DEFAULT
+        };
+        assert_eq!(
+            fmt(&styled(circa), DateQualifier::About, Some("1842"), None),
+            "c. 1842"
+        );
+        assert_eq!(
+            fmt(
+                &fr().with_dates(circa),
+                DateQualifier::About,
+                Some("1842"),
+                None
+            ),
+            "v. 1842"
+        );
+        assert_eq!(
+            fmt(&styled(circa), DateQualifier::Estimated, Some("1842"), None),
+            "estimated 1842"
+        );
+        // The editor's preview spells the entry in full whatever the tree.
+        let parts = DateParts {
+            qualifier: DateQualifier::About,
+            year: Some(1842),
+            ..Default::default()
+        };
+        assert_eq!(parts.literal(&styled(circa)), "about 1842");
+    }
+
+    /// A tree that reads in another calendar is given each date's equivalent
+    /// there, and a date already in it alone.
+    #[test]
+    fn the_display_calendar_gives_the_equivalent_in_it() {
+        let julian = styled(crate::i18n::DateStyle {
+            calendar: Calendar::Julian,
+            ..crate::i18n::DateStyle::DEFAULT
+        });
+        assert_eq!(
+            format_date(
+                &julian,
+                Calendar::Gregorian,
+                DateQualifier::Exact,
+                Some("25 MAR 1582"),
+                None
+            ),
+            "25 Mar 1582 (15 Mar 1582)"
+        );
+        assert_eq!(
+            format_date(
+                &julian,
+                Calendar::Julian,
+                DateQualifier::Exact,
+                Some("15 MAR 1582"),
+                None
+            ),
+            "15 Mar 1582"
+        );
+        // A span whose ends read the same in a year-only format is one year.
+        let years = styled(crate::i18n::DateStyle {
+            format: DateDisplayFormat::Year,
+            ..crate::i18n::DateStyle::DEFAULT
+        });
+        assert_eq!(
+            format_date(
+                &years,
+                Calendar::FrenchRepublican,
+                DateQualifier::Exact,
+                Some("BRUM 8"),
+                None
+            ),
+            "year VIII (1799)"
+        );
+        // The application's own days keep the default form.
+        let day = NaiveDate::from_ymd_opt(2026, 9, 28).unwrap();
+        assert_eq!(format_day(&years, day), "28 Sep 2026");
     }
 }

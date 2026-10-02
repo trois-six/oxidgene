@@ -755,6 +755,18 @@ pub struct UpdateTreeBody {
     /// Whether entry fields suggest values as the user types.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entry_suggestions: Option<bool>,
+    /// How much of a date the tree's pages write.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_format: Option<oxidgene_core::enums::DateDisplayFormat>,
+    /// Whether lifespans write the birth and death symbols.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_symbols: Option<bool>,
+    /// Whether an approximate date reads « c. ».
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_circa: Option<bool>,
+    /// The calendar a date recorded in another one is also given in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_calendar: Option<oxidgene_core::enums::Calendar>,
     /// Who the tree's GEDCOM exports say they are from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub submitter_name: Option<Option<String>>,
