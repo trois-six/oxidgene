@@ -33,6 +33,10 @@ const REPORT_FILE = join(import.meta.dirname, "..", "test-results", "request-rep
 const UPDATE = !!process.env.E2E_BUDGET_UPDATE;
 /// Response bytes vary with what the fixture's pictures compress to.
 const BYTES_MARGIN = 0.25;
+/// Scenarios whose bytes are not compared: the home page draws every tree
+/// of the database, and the other specs of the suite create trees of their
+/// own beside this one while it runs. Their requests stay compared.
+const BYTES_UNBOUNDED = new Set(["home", "home<-pedigree", "home<-appSettings"]);
 const LATENCY_MS = 50;
 
 interface Target {
@@ -167,13 +171,13 @@ async function measure(browser: Browser, tree: PicturedTree, scenario: Scenario)
     }
 }
 
-function overBudget(measured: Metrics, budget: Metrics | undefined): string[] {
+function overBudget(name: string, measured: Metrics, budget: Metrics | undefined): string[] {
     if (!budget) return ["no budget: run with E2E_BUDGET_UPDATE=1 and commit e2e/budgets/requests.json"];
     const problems: string[] = [];
     for (const key of ["requests", "depth", "duplicates"] as const) {
         if (measured[key] > budget[key]) problems.push(`${key} ${measured[key]} > ${budget[key]}`);
     }
-    if (measured.bytes > budget.bytes * (1 + BYTES_MARGIN)) {
+    if (!BYTES_UNBOUNDED.has(name) && measured.bytes > budget.bytes * (1 + BYTES_MARGIN)) {
         problems.push(`bytes ${measured.bytes} > ${budget.bytes} + ${BYTES_MARGIN * 100}%`);
     }
     return problems;
@@ -191,13 +195,13 @@ test("every page keeps within its request budget", async ({ browser, playwright 
     const report: Record<string, Measured> = {};
     for (const scenario of scenarios) {
         let measured = await measure(browser, tree, scenario);
-        let problems = UPDATE ? [] : overBudget(measured, budgets[scenario.name]);
+        let problems = UPDATE ? [] : overBudget(scenario.name, measured, budgets[scenario.name]);
         if (problems.length > 0) {
             // A request still in flight at the settle deadline, or a racing
             // refresh: measure once more and keep the smaller.
             const again = await measure(browser, tree, scenario);
             if (again.requests <= measured.requests) measured = again;
-            problems = overBudget(measured, budgets[scenario.name]);
+            problems = overBudget(scenario.name, measured, budgets[scenario.name]);
         }
         report[scenario.name] = measured;
         expect.soft(problems, `${scenario.name}: ${measured.endpoints.join(", ")}`).toEqual([]);

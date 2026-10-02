@@ -19,9 +19,9 @@ import re
 import subprocess
 import sys
 
-# Percent of duplicated code: the rate measured on 2026-10-02 (3.01 %) plus
-# a margin for unrelated churn.
-BUDGET = 3.3
+# Percent of duplicated code: the rate measured on 2026-10-02, after both fix
+# waves (2.97 %), plus a margin for unrelated churn.
+BUDGET = 3.2
 
 EXCLUDES = ["*/target/*", "*/migration/*", "*/i18n/*", "*/mod.rs", "*/fuzz/*"]
 

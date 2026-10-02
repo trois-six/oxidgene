@@ -11,5 +11,22 @@
       "windows-sys": "the desktop uses 0.61 like mio and rustix; older crates of the Windows stack pin earlier releases"
     }
   },
-  "binaries": {}
+  "binaries": {
+    "desktop": {
+      "bytes": 43564976,
+      "crates": 518
+    },
+    "server": {
+      "bytes": 32437448,
+      "crates": 376
+    },
+    "worker": {
+      "bytes": 15447304,
+      "crates": 377
+    },
+    "web": {
+      "bytes": 8282244,
+      "crates": 199
+    }
+  }
 }
