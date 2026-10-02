@@ -1,0 +1,159 @@
+{
+  "person_profile": {
+    "baptism": {
+      "age": "string",
+      "calendar": "string",
+      "date_qualifier": "string",
+      "date_sort": "string",
+      "date_value": "string",
+      "date_value2": "string",
+      "description": "string",
+      "event_id": "string",
+      "event_type": "string",
+      "place_id": "string",
+      "place_name": "string"
+    },
+    "birth": {
+      "age": "string",
+      "calendar": "string",
+      "date_qualifier": "string",
+      "date_sort": "string",
+      "date_value": "string",
+      "date_value2": "string",
+      "description": "string",
+      "event_id": "string",
+      "event_type": "string",
+      "place_id": "string",
+      "place_name": "string"
+    },
+    "built_at": "string",
+    "burial": {
+      "age": "string",
+      "calendar": "string",
+      "date_qualifier": "string",
+      "date_sort": "string",
+      "date_value": "string",
+      "date_value2": "string",
+      "description": "string",
+      "event_id": "string",
+      "event_type": "string",
+      "place_id": "string",
+      "place_name": "string"
+    },
+    "citation_count": "number",
+    "death": {
+      "age": "string",
+      "calendar": "string",
+      "date_qualifier": "string",
+      "date_sort": "string",
+      "date_value": "string",
+      "date_value2": "string",
+      "description": "string",
+      "event_id": "string",
+      "event_type": "string",
+      "place_id": "string",
+      "place_name": "string"
+    },
+    "families_as_spouse": [
+      {
+        "children_count": "number",
+        "children_ids": [
+          "string"
+        ],
+        "events": [
+          {
+            "age": "string",
+            "calendar": "string",
+            "date_qualifier": "string",
+            "date_sort": "string",
+            "date_value": "string",
+            "date_value2": "string",
+            "description": "string",
+            "event_id": "string",
+            "event_type": "string",
+            "place_id": "string",
+            "place_name": "string"
+          }
+        ],
+        "family_id": "string",
+        "marriage": {
+          "age": "string",
+          "calendar": "string",
+          "date_qualifier": "string",
+          "date_sort": "string",
+          "date_value": "string",
+          "date_value2": "string",
+          "description": "string",
+          "event_id": "string",
+          "event_type": "string",
+          "place_id": "string",
+          "place_name": "string"
+        },
+        "role": "string",
+        "spouse_display_name": "string",
+        "spouse_given_names": "string",
+        "spouse_id": "string",
+        "spouse_sex": "string",
+        "spouse_surname": "string"
+      }
+    ],
+    "family_as_child": {
+      "child_type": "string",
+      "family_id": "string",
+      "father_display_name": "string",
+      "father_given_names": "string",
+      "father_id": "string",
+      "father_surname": "string",
+      "mother_display_name": "string",
+      "mother_given_names": "string",
+      "mother_id": "string",
+      "mother_surname": "string"
+    },
+    "media_count": "number",
+    "note_count": "number",
+    "occupation": "string",
+    "other_events": [
+      {
+        "age": "string",
+        "calendar": "string",
+        "date_qualifier": "string",
+        "date_sort": "string",
+        "date_value": "string",
+        "date_value2": "string",
+        "description": "string",
+        "event_id": "string",
+        "event_type": "string",
+        "place_id": "string",
+        "place_name": "string"
+      }
+    ],
+    "other_names": [
+      {
+        "display_name": "string",
+        "given_names": "string",
+        "name_id": "string",
+        "name_type": "string",
+        "surname": "string"
+      }
+    ],
+    "person_id": "string",
+    "primary_media": {
+      "file_path": "string",
+      "media_id": "string",
+      "mime_type": "string",
+      "title": "string",
+      "vignette_id": "string"
+    },
+    "primary_name": {
+      "display_name": "string",
+      "given_names": "string",
+      "name_id": "string",
+      "name_type": "string",
+      "surname": "string"
+    },
+    "sex": "string",
+    "tree_id": "string",
+    "updated_at": "string"
+  },
+  "schema_version": 6
+}

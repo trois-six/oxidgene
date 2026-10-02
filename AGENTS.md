@@ -103,6 +103,8 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
 - Bump `PROJECTION_SCHEMA_VERSION` whenever `PersonProfile` or any nested
   projection type changes. Existing payloads use `#[serde(default)]`, so a
   version bump is required to make the change visible on existing installs.
+  `oxidgene-core`'s projection shape test fails on a shape change without
+  one; rewrite its snapshot with the bump.
 
 ## Specification Map
 
