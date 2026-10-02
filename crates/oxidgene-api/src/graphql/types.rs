@@ -2560,6 +2560,8 @@ pub enum GqlSuggestionField {
     Occupations,
     /// Source titles.
     Sources,
+    /// The tree's place names.
+    Places,
 }
 
 impl From<GqlSuggestionField> for crate::service::suggestions::SuggestionField {
@@ -2569,6 +2571,7 @@ impl From<GqlSuggestionField> for crate::service::suggestions::SuggestionField {
             GqlSuggestionField::GivenNames => Self::GivenNames,
             GqlSuggestionField::Occupations => Self::Occupations,
             GqlSuggestionField::Sources => Self::Sources,
+            GqlSuggestionField::Places => Self::Places,
         }
     }
 }

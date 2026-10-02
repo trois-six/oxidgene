@@ -781,7 +781,7 @@ async fn value_suggestions_come_from_the_tree_then_the_sheets() {
     );
 
     for uri in [
-        format!("/api/v1/trees/{tree_id}/suggestions/places?q=a&lang=fr"),
+        format!("/api/v1/trees/{tree_id}/suggestions/nothing?q=a&lang=fr"),
         format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=xx"),
         format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=fr&limit=0"),
         format!("/api/v1/trees/{tree_id}/suggestions/sources?q=a&lang=fr&limit=51"),

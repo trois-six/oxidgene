@@ -15,6 +15,18 @@ use crate::repo::pagination::{PaginationParams, paginate};
 /// Repository for place CRUD operations.
 pub struct PlaceRepo;
 
+/// What a place list may be narrowed to.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PlaceFilter<'a> {
+    /// Places whose name contains it.
+    pub search: Option<&'a str>,
+    /// Places named exactly so — trimmed, ignoring case: how an editor finds
+    /// the place a typed name names without reading every place of the tree.
+    pub name: Option<&'a str>,
+    /// These places: how an editor names the places its events sit on.
+    pub ids: Option<&'a [Uuid]>,
+}
+
 impl PlaceRepo {
     /// List places in a tree with optional search and pagination.
     pub async fn list(
@@ -23,12 +35,30 @@ impl PlaceRepo {
         search: Option<&str>,
         params: &PaginationParams,
     ) -> Result<Connection<Place>, OxidGeneError> {
-        let mut query = Entity::find().filter(Column::TreeId.eq(tree_id));
+        let filter = PlaceFilter {
+            search,
+            ..PlaceFilter::default()
+        };
+        Self::list_filtered(db, tree_id, &filter, params).await
+    }
 
-        if let Some(q) = search {
+    /// [`Self::list`] with every filter a place list takes.
+    pub async fn list_filtered(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        filter: &PlaceFilter<'_>,
+        params: &PaginationParams,
+    ) -> Result<Connection<Place>, OxidGeneError> {
+        let mut query = Entity::find().filter(Column::TreeId.eq(tree_id));
+        if let Some(q) = filter.search {
             query = query.filter(Column::Name.contains(q));
         }
-
+        if let Some(name) = filter.name {
+            query = query.filter(crate::repo::lower_trim_eq(Column::Name, name));
+        }
+        if let Some(ids) = filter.ids {
+            query = query.filter(Column::Id.is_in(ids.iter().copied()));
+        }
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 

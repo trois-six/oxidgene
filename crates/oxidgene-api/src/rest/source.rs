@@ -7,7 +7,7 @@ use oxidgene_core::types::{Connection, Source};
 use oxidgene_db::repo::{PaginationParams, SourceRepo};
 use uuid::Uuid;
 
-use super::dto::{DeleteSourceQuery, PaginationQuery};
+use super::dto::{DeleteSourceQuery, SourceListQuery};
 use super::error::ApiError;
 use super::state::AppState;
 use crate::service::scope::{TreeResource, require_tree_resource};
@@ -17,14 +17,14 @@ use crate::service::source::{self, NewSource, SourcePatch};
 pub async fn list_sources(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
-    Query(query): Query<PaginationQuery>,
+    Query(query): Query<SourceListQuery>,
 ) -> Result<Json<Connection<Source>>, ApiError> {
     let params = PaginationParams {
         first: query.first.unwrap_or(25),
         after: query.after,
     };
     Ok(Json(
-        SourceRepo::list(&state.reader, tree_id, &params).await?,
+        SourceRepo::list_titled(&state.reader, tree_id, query.title.as_deref(), &params).await?,
     ))
 }
 

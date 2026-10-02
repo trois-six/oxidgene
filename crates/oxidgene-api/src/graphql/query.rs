@@ -497,14 +497,20 @@ impl QueryRoot {
 
     // ── Places ───────────────────────────────────────────────────────
 
-    /// List places in a tree with optional search and cursor-based pagination.
+    /// List places in a tree with optional filters and cursor-based pagination.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per GraphQL field argument"
+    )]
     async fn places(
         &self,
         ctx: &Context<'_>,
         tree_id: ID,
         first: Option<u64>,
         after: Option<String>,
-        search: Option<String>,
+        #[graphql(desc = "Places whose name contains it.")] search: Option<String>,
+        #[graphql(desc = "Places named exactly so, trimmed, ignoring case.")] name: Option<String>,
+        #[graphql(desc = "These places.")] ids: Option<Vec<ID>>,
     ) -> Result<GqlPlaceConnection> {
         let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
@@ -512,7 +518,13 @@ impl QueryRoot {
             first: first.unwrap_or(25),
             after,
         };
-        let conn = PlaceRepo::list(db, tid, search.as_deref(), &params).await?;
+        let ids = ids.as_deref().map(uuids).transpose()?;
+        let filter = oxidgene_db::repo::PlaceFilter {
+            search: search.as_deref(),
+            name: name.as_deref(),
+            ids: ids.as_deref(),
+        };
+        let conn = PlaceRepo::list_filtered(db, tid, &filter, &params).await?;
         Ok(conn.into())
     }
 
@@ -533,6 +545,9 @@ impl QueryRoot {
         tree_id: ID,
         first: Option<u64>,
         after: Option<String>,
+        #[graphql(desc = "Sources titled exactly so, trimmed, ignoring case.")] title: Option<
+            String,
+        >,
     ) -> Result<GqlSourceConnection> {
         let db = reader_from_ctx(ctx);
         let tid = live_tree(ctx, &tree_id).await?;
@@ -540,7 +555,7 @@ impl QueryRoot {
             first: first.unwrap_or(25),
             after,
         };
-        let conn = SourceRepo::list(db, tid, &params).await?;
+        let conn = SourceRepo::list_titled(db, tid, title.as_deref(), &params).await?;
         Ok(conn.into())
     }
 

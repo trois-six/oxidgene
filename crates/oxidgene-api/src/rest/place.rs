@@ -4,7 +4,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use oxidgene_core::types::{Connection, Place};
-use oxidgene_db::repo::{PaginationParams, PlaceRepo};
+use oxidgene_db::repo::{PaginationParams, PlaceFilter, PlaceRepo};
 use uuid::Uuid;
 
 use super::dto::PlaceListQuery;
@@ -23,7 +23,17 @@ pub async fn list_places(
         first: query.first.unwrap_or(25),
         after: query.after,
     };
-    let places = PlaceRepo::list(&state.reader, tree_id, query.search.as_deref(), &params).await?;
+    let ids = query
+        .ids
+        .as_deref()
+        .map(super::dto::comma_separated_ids)
+        .transpose()?;
+    let filter = PlaceFilter {
+        search: query.search.as_deref(),
+        name: query.name.as_deref(),
+        ids: ids.as_deref(),
+    };
+    let places = PlaceRepo::list_filtered(&state.reader, tree_id, &filter, &params).await?;
     Ok(Json(places))
 }
 

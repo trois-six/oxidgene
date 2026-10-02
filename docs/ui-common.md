@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T00:28:45Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -346,7 +346,9 @@ Every place field is the shared `PlaceInput` (`components/place_input.rs`):
 event places in the person and couple forms, and document and media places.
 
 - **Suggestions.** One list, with no groups: the tree's places with a word
-  starting with the text come first; from three characters, the built-in
+  starting with the text come first, most used first (the `places` value
+  suggestions, asked of the server: no form reads the tree's whole place
+  list); from three characters, the built-in
   [place dictionary](place-dictionary.md) follows, best match first. Every
   row reads alike: the place's name, then the rest of its label (code,
   département or county, region, country), and for the dictionary the year
@@ -354,13 +356,16 @@ event places in the person and couple forms, and document and media places.
   and former ones (a region before 2016, a former département name); a
   dictionary label the tree already holds is offered once, as the tree's
   place.
-- **Picking.** Picking a tree place links the field to it; picking a
-  dictionary place fills in its label. Editing the text afterwards drops a
-  link.
+- **Picking.** Picking a tree place or a dictionary place fills in its name
+  or label. A field opened on a record's place shows that place's name — the
+  form reads the names of the places its record sits on, by id — and editing
+  the text drops that link.
 - **Saving.** Nothing is written while the form is open. On save, a linked
   place is used as is; text becomes the tree's place of the same name,
-  ignoring case, and that place is created when the tree has none. A place
-  created from a dictionary label takes the dictionary's coordinates.
+  trimmed and ignoring case, which the server finds (`GET /places?name=`),
+  and that place is created when the tree has none. A place created from a
+  dictionary label takes the dictionary's coordinates. A typed source title
+  is resolved the same way (`GET /sources?title=`).
 
 #### Name, occupation and source fields
 

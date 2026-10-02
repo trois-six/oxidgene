@@ -196,6 +196,8 @@ pub enum SuggestionField {
     Occupations,
     /// Source titles.
     Sources,
+    /// The tree's place names.
+    Places,
 }
 
 impl SuggestionField {
@@ -205,6 +207,7 @@ impl SuggestionField {
             Self::GivenNames => "given-names",
             Self::Occupations => "occupations",
             Self::Sources => "sources",
+            Self::Places => "places",
         }
     }
 }
@@ -3554,10 +3557,36 @@ impl ApiClient {
 
     // ── Places ──────────────────────────────────────────────────────
 
-    /// Fetch all places by paginating through all pages.
-    pub async fn list_all_places(&self, tree_id: Uuid) -> Result<Vec<Place>, ApiError> {
-        self.collect_pages(&format!("/api/v1/trees/{tree_id}/places"), 500, Vec::new())
-            .await
+    /// The tree's place named `name` — trimmed, ignoring case — if any.
+    pub async fn find_place(&self, tree_id: Uuid, name: &str) -> Result<Option<Place>, ApiError> {
+        let page: PaginatedResponse<Place> = self
+            .get_with_query(
+                &format!("/api/v1/trees/{tree_id}/places"),
+                &[("name", name.trim()), ("first", "1")],
+            )
+            .await?;
+        Ok(page.edges.into_iter().next().map(|edge| edge.node))
+    }
+
+    /// The places of `ids` in the tree, a page of ids per request.
+    pub async fn places_by_ids(&self, tree_id: Uuid, ids: &[Uuid]) -> Result<Vec<Place>, ApiError> {
+        const PER_REQUEST: usize = 100;
+        let mut places = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(PER_REQUEST) {
+            let joined = chunk
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            let page: PaginatedResponse<Place> = self
+                .get_with_query(
+                    &format!("/api/v1/trees/{tree_id}/places"),
+                    &[("ids", joined), ("first", PER_REQUEST.to_string())],
+                )
+                .await?;
+            places.extend(page.edges.into_iter().map(|edge| edge.node));
+        }
+        Ok(places)
     }
 
     pub async fn get_place(&self, tree_id: Uuid, id: Uuid) -> Result<Place, ApiError> {
@@ -3586,10 +3615,19 @@ impl ApiClient {
 
     // ── Sources ─────────────────────────────────────────────────────
 
-    /// Fetch all sources by paginating through all pages.
-    pub async fn list_all_sources(&self, tree_id: Uuid) -> Result<Vec<Source>, ApiError> {
-        self.collect_pages(&format!("/api/v1/trees/{tree_id}/sources"), 500, Vec::new())
-            .await
+    /// The tree's source titled `title` — trimmed, ignoring case — if any.
+    pub async fn find_source(
+        &self,
+        tree_id: Uuid,
+        title: &str,
+    ) -> Result<Option<Source>, ApiError> {
+        let page: PaginatedResponse<Source> = self
+            .get_with_query(
+                &format!("/api/v1/trees/{tree_id}/sources"),
+                &[("title", title.trim()), ("first", "1")],
+            )
+            .await?;
+        Ok(page.edges.into_iter().next().map(|edge| edge.node))
     }
 
     pub async fn get_source(&self, tree_id: Uuid, id: Uuid) -> Result<Source, ApiError> {

@@ -1750,11 +1750,15 @@ fn MediaEditPanel(
     let mut error = use_signal(|| None::<String>);
     let mut link_revision = use_signal(|| 0_u32);
 
+    // The name of the place the medium is filed under, the only place the
+    // panel shows without being asked; suggestions come from the server.
+    let filed_under: Vec<Uuid> = tile.media.place_id.into_iter().collect();
     let places = use_ui_resource("media_places", {
         let api = api.clone();
         move || {
             let api = api.clone();
-            async move { api.list_all_places(tree_id).await }
+            let ids = filed_under.clone();
+            async move { api.places_by_ids(tree_id, &ids).await }
         }
     });
 
@@ -1974,7 +1978,7 @@ fn MediaEditPanel(
             // on each option rather than `value` on the element, which is what
             // makes a stored place actually show as chosen when the list is
             // built by a loop.
-            {render_place_input(&i18n, place_id, &place_options, || {})}
+            {render_place_input(&i18n, tree_id, place_id, &place_options, || {})}
 
             div { class: "form-group",
                 label { {i18n.t("media.note")} }

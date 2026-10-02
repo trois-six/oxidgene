@@ -23,9 +23,24 @@ impl SourceRepo {
         tree_id: Uuid,
         params: &PaginationParams,
     ) -> Result<Connection<Source>, OxidGeneError> {
-        let query = Entity::find()
+        Self::list_titled(db, tree_id, None, params).await
+    }
+
+    /// [`Self::list`], narrowed to the sources titled `title` — trimmed,
+    /// ignoring case — when one is given: how an editor finds the source a
+    /// typed title names without reading every source of the tree.
+    pub async fn list_titled(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        title: Option<&str>,
+        params: &PaginationParams,
+    ) -> Result<Connection<Source>, OxidGeneError> {
+        let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::DeletedAt.is_null());
+        if let Some(title) = title {
+            query = query.filter(crate::repo::lower_trim_eq(Column::Title, title));
+        }
         paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await
     }
 

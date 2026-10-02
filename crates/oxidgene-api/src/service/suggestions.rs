@@ -27,6 +27,9 @@ pub enum SuggestionField {
     Occupations,
     /// Source titles.
     Sources,
+    /// The tree's place names, which a place field offers beside the
+    /// place dictionary's.
+    Places,
 }
 
 impl SuggestionField {
@@ -34,7 +37,7 @@ impl SuggestionField {
         match self {
             Self::GivenNames => Some(ReferenceKind::GivenNames),
             Self::Occupations => Some(ReferenceKind::Occupations),
-            Self::FamilyNames | Self::Sources => None,
+            Self::FamilyNames | Self::Sources | Self::Places => None,
         }
     }
 }
@@ -139,26 +142,40 @@ async fn tree_values(
         SuggestionField::FamilyNames => entries(DictionaryRepo::family_names(db, tree_id).await?),
         SuggestionField::GivenNames => entries(DictionaryRepo::given_names(db, tree_id).await?),
         SuggestionField::Occupations => entries(DictionaryRepo::occupations(db, tree_id).await?),
-        SuggestionField::Sources => {
-            // Two sources may share a title: the field offers it once.
-            let mut titles: Vec<(String, i64)> = Vec::new();
-            let mut at: HashMap<String, usize> = HashMap::new();
-            for (source, count) in DictionaryRepo::sources_with_usage(db, tree_id).await? {
-                let title = source.title.trim();
-                if title.is_empty() {
-                    continue;
-                }
-                match at.get(title) {
-                    Some(&index) => titles[index].1 += count,
-                    None => {
-                        at.insert(title.to_string(), titles.len());
-                        titles.push((title.to_string(), count));
-                    }
-                }
-            }
-            titles
-        }
+        SuggestionField::Sources => once_each(
+            DictionaryRepo::sources_with_usage(db, tree_id)
+                .await?
+                .into_iter()
+                .map(|(source, count)| (source.title, count)),
+        ),
+        SuggestionField::Places => once_each(
+            DictionaryRepo::places_with_usage(db, tree_id)
+                .await?
+                .into_iter()
+                .map(|(place, count)| (place.name, count)),
+        ),
     })
+}
+
+/// Each non-blank value once, trimmed, its counts added up: two sources may
+/// share a title and two places a name, and the field offers it once.
+fn once_each(values: impl Iterator<Item = (String, i64)>) -> Vec<(String, i64)> {
+    let mut once: Vec<(String, i64)> = Vec::new();
+    let mut at: HashMap<String, usize> = HashMap::new();
+    for (value, count) in values {
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match at.get(value) {
+            Some(&index) => once[index].1 += count,
+            None => {
+                at.insert(value.to_string(), once.len());
+                once.push((value.to_string(), count));
+            }
+        }
+    }
+    once
 }
 
 /// Each surname, or each given name, of `names` with the number of persons

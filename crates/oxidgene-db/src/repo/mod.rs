@@ -74,7 +74,7 @@ pub use person_search::{
     PersonSearchEntry, PersonSearchFilters, PersonSearchPage, PersonSearchRepo, PersonSearchSort,
     RELATIVE_SEP,
 };
-pub use place::PlaceRepo;
+pub use place::{PlaceFilter, PlaceRepo};
 pub use repository::{
     RepositoryFields, RepositoryPatch, RepositoryRepo, SourceRepositoryFields,
     SourceRepositoryPatch, SourceRepositoryRepo,
@@ -112,4 +112,20 @@ where
 /// open and commit transactions and run a few queries of their own.
 pub fn db_err(error: sea_orm::DbErr) -> oxidgene_core::error::OxidGeneError {
     oxidgene_core::error::OxidGeneError::Database(error.to_string())
+}
+
+/// `column`, trimmed, equals `value`, trimmed, ignoring case: the way an
+/// entry form's typed title or name finds the record it names. Both sides
+/// are lowered by the database, so what "case" covers is the backend's own
+/// rule (ASCII on SQLite, Unicode on PostgreSQL), identical for both sides.
+pub(crate) fn lower_trim_eq<C: sea_orm::ColumnTrait>(
+    column: C,
+    value: &str,
+) -> sea_orm::sea_query::SimpleExpr {
+    use sea_orm::sea_query::{Alias, Expr, ExprTrait, Func};
+    let trimmed = |expr: Expr| Func::lower(Func::cust(Alias::new("TRIM")).arg(expr));
+    ExprTrait::eq(
+        Expr::expr(trimmed(Expr::col(column))),
+        trimmed(Expr::val(value.to_string())),
+    )
 }

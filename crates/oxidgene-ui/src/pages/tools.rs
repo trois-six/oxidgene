@@ -423,7 +423,7 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
                             td {
                                 if editing() == Some(place.place_id) {
                                     div { class: "tools-place-edit",
-                                        PlaceInput { value: edited, options: Vec::new() }
+                                        PlaceInput { tree_id, value: edited, known: Vec::new(), tree_places: false }
                                         button {
                                             class: "btn btn-primary btn-sm",
                                             disabled: saving() || edited().trim().is_empty(),

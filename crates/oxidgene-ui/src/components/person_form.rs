@@ -281,13 +281,18 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
         }
     });
 
+    // The names of the places the person's events sit on — the only places
+    // the form shows without being asked; suggestions come from the server.
     let api_places = api.clone();
     let places_resource = use_ui_resource("form_places", move || {
         let api = api_places.clone();
-        let _tick = refresh();
-        // Every page: an event may sit on any place in the tree, and a place
-        // missing from this list has no name to show.
-        async move { api.list_all_places(tid).await }
+        let ids = match &*events_resource.read() {
+            Some(Ok(events)) => oxidgene_core::collections::sorted_unique(
+                events.edges.iter().filter_map(|edge| edge.node.place_id),
+            ),
+            _ => Vec::new(),
+        };
+        async move { api.places_by_ids(tid, &ids).await }
     });
 
     let api_notes = api.clone();
@@ -1214,7 +1219,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                 on_change: move |()| {},
                                             }
                                         }
-                                        {render_place_input(&i18n, profession_form_place_id, &place_options, || {})}
+                                        {render_place_input(&i18n, tid, profession_form_place_id, &place_options, || {})}
                                         {render_notes_source_fields(&i18n, tid, profession_form_notes, profession_form_source, || {})}
                                         button {
                                             class: "pf-confirm-btn",
@@ -1689,7 +1694,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 on_change: move |()| has_changes.set(true),
                             }
                         }
-                        {render_place_input(&i18n, birth_place_id, &place_options, move || has_changes.set(true))}
+                        {render_place_input(&i18n, tid, birth_place_id, &place_options, move || has_changes.set(true))}
                         {render_notes_source_fields(&i18n, tid, birth_notes, birth_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
@@ -1707,7 +1712,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                 on_change: move |()| has_changes.set(true),
                             }
                         }
-                        {render_place_input(&i18n, death_place_id, &place_options, move || has_changes.set(true))}
+                        {render_place_input(&i18n, tid, death_place_id, &place_options, move || has_changes.set(true))}
                         {render_notes_source_fields(&i18n, tid, death_notes, death_source, move || has_changes.set(true))}
                         div { class: "form-group",
                             label { {i18n.t("person_form.witnesses")} }
@@ -1781,7 +1786,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                     }
                                 }
                                 div { class: "form-row",
-                                    {render_place_input(&i18n, event_form_place_id, &place_options, || {})}
+                                    {render_place_input(&i18n, tid, event_form_place_id, &place_options, || {})}
                                     {render_cause_age_fields(&i18n, event_form_cause, Some(event_form_age))}
                                 }
                                 {render_notes_source_fields(&i18n, tid, event_form_notes, event_form_source, || {})}
@@ -2783,14 +2788,9 @@ async fn resolve_source(
     if title.is_empty() {
         return Ok(None);
     }
-    let needle = title.to_lowercase();
-    if let Some(existing) = api
-        .list_all_sources(tree_id)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .find(|s| s.title.trim().to_lowercase() == needle)
-    {
+    // The server finds the tree's source of that title rather than the form
+    // reading every source of the tree on each save.
+    if let Some(existing) = api.find_source(tree_id, title).await? {
         return Ok(Some(existing.id));
     }
     let created = api
@@ -3206,7 +3206,7 @@ pub fn EventEditor(
                     DateInput { parts, i18n, on_change: move |()| {} }
                 }
                 div { class: "form-row",
-                    {render_place_input(&i18n, place_id, &place_options, || {})}
+                    {render_place_input(&i18n, tree_id, place_id, &place_options, || {})}
                     {render_cause_age_fields(&i18n, cause, age)}
                 }
                 if edits_spouse_ages {

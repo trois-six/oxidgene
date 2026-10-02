@@ -362,7 +362,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/places` | List places (cursor-paginated, searchable) |
+| `GET` | `/trees/{tree_id}/places?search=&name=&ids=` | List places (cursor-paginated). `search` keeps the names containing it; `name` the places named exactly so, trimmed and ignoring case (what an entry form looks a typed place up by); `ids` the places of a comma-separated list of ids (what a form names its record's places by), a malformed id being a `validation_error`. GraphQL: `places(search, name, ids)` |
 | `POST` | `/trees/{tree_id}/places` | Create a place; a blank `name` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/places/{place_id}` | Get a place |
 | `PUT` | `/trees/{tree_id}/places/{place_id}` | Update a place; a blank `name` is a `validation_error` |
@@ -372,7 +372,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/sources` | List sources (cursor-paginated) |
+| `GET` | `/trees/{tree_id}/sources?title=` | List sources (cursor-paginated). `title` keeps the sources titled exactly so, trimmed and ignoring case — what an entry form looks a typed source up by. GraphQL: `sources(title)` |
 | `POST` | `/trees/{tree_id}/sources` | Create a source; a blank `title` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
@@ -721,7 +721,7 @@ What the free-text fields of the entry forms suggest while the user types
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/trees/{tree_id}/suggestions/{field}?q=...&lang=...&limit=...&surname=...&given_names=...` | Values for `field`: `family-names`, `given-names`, `occupations` or `sources` (titles). `lang` is an interface language code; `limit` defaults to 10, 1–50 accepted. `surname` and `given_names` scope a name field (below). An unknown field or language, an out-of-range limit and a scope on `occupations` or `sources` are 400 |
+| `GET` | `/trees/{tree_id}/suggestions/{field}?q=...&lang=...&limit=...&surname=...&given_names=...` | Values for `field`: `family-names`, `given-names`, `occupations`, `sources` (titles) or `places` (the tree's place names). `lang` is an interface language code; `limit` defaults to 10, 1–50 accepted. `surname` and `given_names` scope a name field (below). An unknown field or language, an out-of-range limit and a scope on `occupations`, `sources` or `places` are 400 |
 
 The text of `q` is normalized like the reference sheets' terms (case,
 accents and punctuation ignored) and must start a word of the value; a blank
@@ -730,7 +730,8 @@ then the most used — and, for occupations and given names, the terms a
 reference sheet answers to fill the rest of the list, in any language's
 spelling, `lang`'s own first, never repeating a value the tree already holds.
 Given names are single words: `"Jean Marie"` holds `"Jean"` and `"Marie"`.
-Two sources with the same title are offered once, their citations summed.
+Two sources with the same title, or two places with the same name, are
+offered once, their uses summed.
 Each suggestion is:
 
 ```json
@@ -750,7 +751,7 @@ once the value is picked — and no reference term fills the list.
 
 GraphQL's `valueSuggestions` takes the same arguments (`surname`,
 `givenNames`), its `SuggestionField` being `FAMILY_NAMES`, `GIVEN_NAMES`,
-`OCCUPATIONS` or `SOURCES`.
+`OCCUPATIONS`, `SOURCES` or `PLACES`.
 
 ### Audit log and versions
 
@@ -1370,11 +1371,11 @@ type Query {
   event(treeId: ID!, id: ID!): Event
 
   # Places
-  places(treeId: ID!, first: Int, after: String, search: String): PlaceConnection!
+  places(treeId: ID!, first: Int, after: String, search: String, name: String, ids: [ID!]): PlaceConnection!
   place(treeId: ID!, id: ID!): Place
 
   # Sources
-  sources(treeId: ID!, first: Int, after: String): SourceConnection!
+  sources(treeId: ID!, first: Int, after: String, title: String): SourceConnection!
   source(treeId: ID!, id: ID!): Source
 
   # Citations

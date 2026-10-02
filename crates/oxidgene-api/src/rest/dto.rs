@@ -194,12 +194,36 @@ pub struct EventListQuery {
 
 // ── Place DTOs ───────────────────────────────────────────────────────
 
-/// Query parameters for listing places (search + pagination).
+/// Query parameters for listing places (filters + pagination).
 #[derive(Debug, Deserialize)]
 pub struct PlaceListQuery {
     pub first: Option<u64>,
     pub after: Option<String>,
+    /// Places whose name contains it.
     pub search: Option<String>,
+    /// Places named exactly so, trimmed, ignoring case.
+    pub name: Option<String>,
+    /// These places, comma-separated ids (at most a page's worth).
+    pub ids: Option<String>,
+}
+
+/// Query parameters for listing sources (filter + pagination).
+#[derive(Debug, Deserialize)]
+pub struct SourceListQuery {
+    pub first: Option<u64>,
+    pub after: Option<String>,
+    /// Sources titled exactly so, trimmed, ignoring case.
+    pub title: Option<String>,
+}
+
+/// Comma-separated ids, as a list query takes them.
+pub fn comma_separated_ids(ids: &str) -> Result<Vec<uuid::Uuid>, oxidgene_core::OxidGeneError> {
+    ids.split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(uuid::Uuid::parse_str)
+        .collect::<Result<_, _>>()
+        .map_err(|_| oxidgene_core::OxidGeneError::Validation("ids must be UUIDs".into()))
 }
 
 /// Query parameters for deleting a source.

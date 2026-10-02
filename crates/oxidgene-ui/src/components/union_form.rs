@@ -134,14 +134,19 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             }
         }
     });
+    // The names of the places the union's events sit on — the only places
+    // the form shows without being asked; suggestions come from the server.
     let places_resource = use_ui_resource("places", {
         let api = api.clone();
         move || {
             let api = api.clone();
-            let _tick = refresh();
-            // Every page: an event may sit on any place in the tree, and a
-            // place missing from this list has no name to show.
-            async move { api.list_all_places(tid).await }
+            let ids = match &*events_resource.read() {
+                Some(Ok(events)) => oxidgene_core::collections::sorted_unique(
+                    events.edges.iter().filter_map(|edge| edge.node.place_id),
+                ),
+                _ => Vec::new(),
+            };
+            async move { api.places_by_ids(tid, &ids).await }
         }
     });
     // Names only for the spouses and children shown in this modal, in one
@@ -964,7 +969,7 @@ impl UnionEventsSection<'_> {
                     label { {i18n.t("person_form.date")} }
                     DateInput { parts, i18n, on_change: move |()| {} }
                 }
-                {render_place_input(&i18n, place_id, self.place_options, || {})}
+                {render_place_input(&i18n, self.scope.tid, place_id, self.place_options, || {})}
                 div { class: "form-group",
                     label { {i18n.t("person_form.description")} }
                     input {
@@ -1088,7 +1093,7 @@ impl UnionEventsSection<'_> {
                     }
                 }
                 div { class: "form-row",
-                    {render_place_input(&i18n, place, self.place_options, || {})}
+                    {render_place_input(&i18n, self.scope.tid, place, self.place_options, || {})}
                     div { class: "form-group",
                         label { {i18n.t("person_form.description")} }
                         input {

@@ -38,7 +38,6 @@ use crate::components::media_gallery::{
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::i18n::use_i18n;
-use crate::ui_observability::use_ui_resource;
 
 /// A page the user has chosen but that has not been written yet.
 #[derive(Clone, PartialEq)]
@@ -164,20 +163,9 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
     let mut progress = use_signal(|| None::<(usize, usize)>);
     let mut error = use_signal(|| None::<String>);
 
-    let places = use_ui_resource("document_form_places", {
-        let api = api.clone();
-        move || {
-            let api = api.clone();
-            async move { api.list_all_places(tree_id).await }
-        }
-    });
-    let place_options: Vec<(String, String)> = match &*places.read_unchecked() {
-        Some(Ok(places)) => places
-            .iter()
-            .map(|p| (p.id.to_string(), p.name.clone()))
-            .collect(),
-        _ => Vec::new(),
-    };
+    // A new document sits on no place yet: the field only suggests, and the
+    // server answers that.
+    let place_options: Vec<(String, String)> = Vec::new();
 
     let save = {
         let api = api.clone();
@@ -277,7 +265,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                             label { {i18n.t("media.date")} }
                             DateInput { parts: date_parts, i18n, on_change: move |()| {} }
                         }
-                        {render_place_input(&i18n, place_id, &place_options, || {})}
+                        {render_place_input(&i18n, tree_id, place_id, &place_options, || {})}
 
                         div { class: "form-group",
                             label { {i18n.t("media.note")} }
