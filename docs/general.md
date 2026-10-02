@@ -143,7 +143,7 @@ access control.
 
 ### 3.7 REST & GraphQL APIs
 
-- Full feature parity between both protocols.
+- Full feature parity between both protocols (but GraphQL is disabled on the desktop version).
 - FamilySearch-inspired structure.
 - Available from EPIC A onward.
 - → see [API Contract](api.md)
