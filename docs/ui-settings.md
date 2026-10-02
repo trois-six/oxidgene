@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, date display, entry options, tools, and export."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:20:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:30:19Z }
 ---
 
 
@@ -331,7 +331,7 @@ Three Yes / No cards:
 |---|---|
 | Entry suggestions | Yes (default) / No. Place, surname, given-name, occupation and source fields, the search filters' included, suggest what the tree holds and the built-in dictionaries. Stored as `tree.entry_suggestions`. See [Common UI §4.4](ui-common.md) |
 | Automatic uppercase for surnames | Yes (default) / No. The surname entry fields — the person form's birth name and its other names, the dictionary's family-name rename — write what is typed in capitals and suggest surnames in capitals. With No, a surname is stored as typed. Search filters never change case. Stored as `tree.surname_uppercase` |
-| Suggest existing persons | Yes (default) / No. When a parent, partner, child or sibling is added from the [tree view](ui-genealogy-tree.md)'s action picker, the panel searches the tree's persons before offering to create one. With No, it only offers to create one. Stored as `tree.suggest_persons` |
+| Suggest existing persons | Yes (default) / No. When a parent, partner, child or sibling is added from the [tree view](ui-genealogy-tree.md)'s action picker, the panel searches the tree's persons before offering to create one; the person form creating a parent from an empty slot lists the persons matching the name being typed, to link instead ([Person Edit §12](ui-person-edit-modal.md)). With No, only a new person is offered. Stored as `tree.suggest_persons` |
 
 ### Input date format
 

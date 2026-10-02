@@ -346,6 +346,10 @@ static TRANSLATIONS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         // ── Person form (modal) ─────────────────────────────────────
         ("person_form.subtitle_edit", "Modifica individuo"),
         ("person_form.tab_civil", "Stato civile"),
+        ("person_form.suggest_title", "Persone esistenti con questo nome:"),
+        ("person_form.suggest_link", "Collega questa persona"),
+        ("person_form.suggest_footer", "Oppure continua a creare una nuova persona qui sotto."),
+        ("person_form.suggest_dismiss", "Nascondi i suggerimenti"),
         ("person_form.tab_more_information", "Altre informazioni"),
         ("person_form.sex", "Sesso"),
         ("person_form.add_information", "Aggiungi informazione"),

@@ -22,6 +22,7 @@ pub mod merge_dialog;
 pub mod modal;
 pub mod paged_list;
 pub mod pager;
+pub mod parent_suggestions;
 pub mod pedigree_chart;
 pub mod pedigree_theme;
 pub mod pedigree_view;

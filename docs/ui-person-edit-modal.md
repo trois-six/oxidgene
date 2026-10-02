@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Edit Modal"
 description: "Modal to create and edit a person in every context, edit a couple, manage media, and delete."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:30:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:30:19Z }
 ---
 
 
@@ -488,34 +488,41 @@ On confirmation: the modal closes, the card is removed from the tree, and the la
 
 ---
 
-## 12. Suggest Existing Persons (create mode only)
+## 12. Suggest Existing Persons (adding a parent)
 
-When the [tree setting](ui-settings.md) "Suggest existing persons" is enabled (§10) and the modal is in create mode, the modal offers to **link to an existing person** instead of creating a new one.
+When the tree's *Suggest existing persons* is on
+([Settings §10](ui-settings.md#10-section-entry-options)) and the modal creates
+a parent — opened from an empty parent slot of the [tree view](ui-genealogy-tree.md)
+— it offers to **link a person already in the tree** instead of creating one.
+The other relatives are added through the tree view's linking panel, which
+searches the tree's persons first under the same setting.
 
 ### Behavior
 
-As the user types in the surname and first name fields, a suggestion dropdown appears below the form header:
+As the surname and given names are typed — or as soon as the modal opens, for
+a father whose surname is pre-filled from the child — a panel above the
+Civil Status section lists the matching persons:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  💡 Existing persons matching this name:        │
-│                                                  │
-│  [photo] <person B>          ✦ 1845  ✝ 1920    │
-│          Already in this tree, no family link    │
-│          [Link this person]                      │
-│                                                  │
-│  [photo] <person C>          ✦ 1850             │
-│          Already in this tree, no family link    │
-│          [Link this person]                      │
-│                                                  │
-│  Or continue creating a new person below.        │
+│  Existing persons matching this name:        ✕  │
+│  [photo] <person B>  ✦ 1845 ✝ 1920  [Link this person] │
+│  [photo] <person C>  ✦ 1850         [Link this person] │
+│  Or continue creating a new person below.       │
 └─────────────────────────────────────────────────┘
 ```
 
-- Suggestions are debounced (300ms) and filtered by name similarity
-- Only persons **not already linked** in the target relationship are shown (e.g. when adding a child, persons already children of this union are excluded)
-- Clicking **"Link this person"** links the existing person and closes the modal (no new person is created)
-- The suggestion panel can be dismissed and does not block the form
+- The search runs on the tree's search index after a 300 ms pause, at most
+  five persons, each drawn as the shared person-search row.
+- The child, the parents the family already has, and anyone of the other sex
+  (a woman for a father, a man for a mother) are left out; a person of
+  unknown sex may be either.
+- **Link this person** makes that person the child's father or mother, in the
+  child's parents' family or a new one, exactly as saving a new person would,
+  then closes the modal: no person is created. A failure is shown in the
+  panel.
+- **✕** dismisses the panel; it never blocks the form, and nothing is shown
+  when nobody matches.
 
 ---
 

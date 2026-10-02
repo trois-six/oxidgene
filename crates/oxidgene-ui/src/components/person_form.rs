@@ -23,6 +23,7 @@ use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::homonym_picker::{HomonymDecision, HomonymDialog};
 use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::modal::Modal;
+use crate::components::parent_suggestions::ParentSuggestions;
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::suggest_input::ValueInput;
 use crate::i18n::use_i18n;
@@ -48,6 +49,73 @@ pub enum PersonFormCreateContext {
         is_father: bool,
         child_surname: Option<String>,
     },
+}
+
+/// Where a parent created or picked from the form goes: the child, the
+/// family of the child's parents if there is one, and which parent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ParentLink {
+    pub child_id: Uuid,
+    pub family_id: Option<Uuid>,
+    pub is_father: bool,
+}
+
+impl ParentLink {
+    /// The parent `context` adds, if it adds one.
+    pub(crate) fn of(context: &PersonFormCreateContext) -> Option<Self> {
+        match *context {
+            PersonFormCreateContext::AddParent {
+                child_id,
+                family_id,
+                is_father,
+                ..
+            } => Some(Self {
+                child_id,
+                family_id,
+                is_father,
+            }),
+            PersonFormCreateContext::Standalone => None,
+        }
+    }
+
+    /// Make `person_id` the child's father or mother, founding the parents'
+    /// family first when there is none. The error is the reader's.
+    pub(crate) async fn link(
+        self,
+        api: &ApiClient,
+        tid: Uuid,
+        person_id: Uuid,
+        i18n: &crate::i18n::I18n,
+    ) -> Result<(), String> {
+        let fid = match self.family_id {
+            Some(fid) => fid,
+            None => {
+                let Ok(family) = api.create_family(tid).await else {
+                    return Err(i18n.t("person_form.create_failed"));
+                };
+                let child_body = AddChildBody {
+                    person_id: self.child_id,
+                    child_type: ChildType::Biological,
+                    sort_order: 0,
+                };
+                let _ = api.add_child(tid, family.id, &child_body).await;
+                family.id
+            }
+        };
+        let spouse_body = AddSpouseBody {
+            person_id,
+            role: if self.is_father {
+                SpouseRole::Husband
+            } else {
+                SpouseRole::Wife
+            },
+            sort_order: 0,
+        };
+        api.add_spouse(tid, fid, &spouse_body)
+            .await
+            .map(drop)
+            .map_err(|e| format!("{e}"))
+    }
 }
 
 impl PersonFormCreateContext {
@@ -927,46 +995,12 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                     .await;
 
                     // 5. Wire relationship.
-                    match context {
-                        PersonFormCreateContext::AddParent {
-                            child_id,
-                            family_id,
-                            is_father,
-                            ..
-                        } => {
-                            let fid = if let Some(fid) = family_id {
-                                fid
-                            } else {
-                                let Ok(family) = api.create_family(tid).await else {
-                                    save_error.set(Some(i18n.t("person_form.create_failed")));
-                                    saving.set(false);
-                                    return;
-                                };
-                                let child_body = AddChildBody {
-                                    person_id: child_id,
-                                    child_type: ChildType::Biological,
-                                    sort_order: 0,
-                                };
-                                let _ = api.add_child(tid, family.id, &child_body).await;
-                                family.id
-                            };
-                            let role = if is_father {
-                                SpouseRole::Husband
-                            } else {
-                                SpouseRole::Wife
-                            };
-                            let spouse_body = AddSpouseBody {
-                                person_id: new_pid,
-                                role,
-                                sort_order: 0,
-                            };
-                            if let Err(e) = api.add_spouse(tid, fid, &spouse_body).await {
-                                save_error.set(Some(format!("{e}")));
-                                saving.set(false);
-                                return;
-                            }
-                        }
-                        PersonFormCreateContext::Standalone => {}
+                    if let Some(link) = ParentLink::of(&context)
+                        && let Err(e) = link.link(&api, tid, new_pid, &i18n).await
+                    {
+                        save_error.set(Some(e));
+                        saving.set(false);
+                        return;
                     }
                     new_pid
                 } else {
@@ -1138,9 +1172,25 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
 
     // ── Render ──
 
+    // Adding a parent: the persons of the tree this one may already be.
+    let parent_link = props.create_context.as_ref().and_then(ParentLink::of);
+    let (on_saved_linked, on_close_linked) = (props.on_saved, props.on_close);
     let body = rsx! {
                 // ── Scrollable body ──
                 div { class: "person-form-body",
+
+                    if let Some(link) = parent_link {
+                        ParentSuggestions {
+                            tree_id: tid,
+                            link,
+                            surname: birth_surname,
+                            given_names: birth_given,
+                            on_linked: move |()| {
+                                on_saved_linked.call(());
+                                on_close_linked.call(());
+                            },
+                        }
+                    }
 
                     // ── Civil Status ──
                     FormSection { title: i18n.t("person_form.tab_civil"), open: open_civil,

@@ -1,5 +1,41 @@
 import { apiUrl, expect, test } from "./fixtures";
 
+/// The "+" of the first empty parent slot of the tree view.
+const emptySlot = (page: import("@playwright/test").Page) =>
+    page.locator("svg text.no-print").filter({ hasText: /^\+$/ }).first();
+
+test("adding a parent offers the matching persons of the tree", async ({ page, request, tree }) => {
+    const form = page.locator(".person-form-modal");
+    const suggestions = form.locator(".pf-parent-suggestions");
+    /// Opens the first empty parent slot and types a name someone of the
+    /// slot's sex bears: the fixture's women are Claras, its men Bernards.
+    const openAndType = async () => {
+        await page.goto(`/trees/${tree.treeId}`);
+        await emptySlot(page).click();
+        await expect(form).toBeVisible();
+        const given = form.locator(".form-group", { hasText: "Given Names *" }).locator("input");
+        const female = form.getByRole("button", { name: "Female", exact: true });
+        const mother = (await female.getAttribute("class"))?.includes("active");
+        await given.fill(mother ? "Clara" : "Bernard");
+        await expect(suggestions).toBeVisible();
+    };
+
+    // Dismissed, the panel leaves the form as it was.
+    await openAndType();
+    await suggestions.getByRole("button", { name: "Hide the suggestions" }).click();
+    await expect(suggestions).toBeHidden();
+    await expect(form).toBeVisible();
+
+    // Linking a suggested person creates nobody.
+    const count = async () =>
+        (await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/persons?first=100`)).json()).edges.length;
+    const before = await count();
+    await openAndType();
+    await suggestions.getByRole("button", { name: "Link this person" }).first().click();
+    await expect(form).toBeHidden();
+    expect(await count()).toBe(before);
+});
+
 test("the tree's entry options shape the person form and the linking panel", async ({ page, request, tree }) => {
     await page.goto(`/trees/${tree.treeId}/settings`);
     await page.getByRole("button", { name: "Entry Options", exact: true }).click();
@@ -26,6 +62,14 @@ test("the tree's entry options shape the person form and the linking panel", asy
     const surname = form.locator(".form-group", { hasText: "Birth name *" }).locator("input").first();
     await surname.fill("Lowcase");
     await expect(surname).toHaveValue("Lowcase");
+
+    // Creating a parent offers nobody of the tree either.
+    await page.goto(`/trees/${tree.treeId}`);
+    await emptySlot(page).click();
+    await expect(form).toBeVisible();
+    await form.locator(".form-group", { hasText: "Given Names *" }).locator("input").fill("Anchor");
+    await page.waitForTimeout(800);
+    await expect(form.locator(".pf-parent-suggestions")).toHaveCount(0);
 
     // Adding a spouse only offers a new person.
     await page.goto(`/trees/${tree.treeId}`);

@@ -2839,6 +2839,37 @@ pub const LAYOUT_STYLES: &str = r#"
         flex-shrink: 0;
     }
 
+    /* The persons a parent being created may already be
+       (components/parent_suggestions.rs). */
+    .pf-parent-suggestions {
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--orange);
+        border-radius: var(--radius);
+        background: color-mix(in srgb, var(--orange) 6%, transparent);
+    }
+    .pf-parent-suggestions-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 0.85rem;
+        color: var(--text-primary);
+    }
+    .pf-parent-suggestion {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 6px 0;
+        border-top: 1px solid var(--border);
+    }
+    .pf-parent-suggestions-foot {
+        margin: 6px 0 0;
+        font-size: 0.78rem;
+    }
+
     /* Empty-state placeholder sized like a .person-form-item row instead of
        the much taller generic .empty-state, so an empty list doesn't jump
        in height once its first entry is added. */
