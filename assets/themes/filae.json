@@ -1,0 +1,43 @@
+{
+  "id": "filae",
+  "name": "Filae",
+  "base": "light",
+  "colors": {
+    "bg-panel": "#f0f4f7",
+    "bg-card-hover": "#f3f7fa",
+    "nav-surface": "#f7f9fb",
+    "sel-bg": "#deedf7",
+    "border": "#cbd6df",
+
+    "text-primary": "#263744",
+    "text-secondary": "#516573",
+    "text-muted": "#617582",
+
+    "orange": "#006da6",
+    "orange-light": "#005b8b",
+    "green": "#36764e",
+    "green-light": "#42865a",
+    "green-accent": "#5c9563",
+    "blue": "#0079b5",
+    "pink": "#ba5477",
+    "red": "#cf503f",
+    "danger": "#bb4032",
+    "danger-text": "#a7352a",
+
+    "connector": "#8da5b5",
+    "media-frame": "#e0eaf1",
+    "media-caption": "#f0f4f7",
+
+    "pn-bg": "#f0f4f7",
+    "pn-root-bg": "#006da6",
+    "pn-border": "#8da5b5",
+    "pn-male-line": "#0079b5",
+    "pn-female-line": "#ba5477",
+    "pn-sosa": "#5c9563",
+    "pn-sosa-root": "#487b50",
+    "pn-self": "#006da6",
+    "pn-text": "#263744",
+    "pn-text-muted": "#516573",
+    "pn-hover-bg": "#deedf7"
+  }
+}

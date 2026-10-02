@@ -1,0 +1,43 @@
+{
+  "id": "myheritage",
+  "name": "MyHeritage",
+  "base": "light",
+  "colors": {
+    "bg-panel": "#f4f5f6",
+    "bg-card-hover": "#faf6f3",
+    "nav-surface": "#f7f8f9",
+    "sel-bg": "#fce8db",
+    "border": "#d5d8dc",
+
+    "text-primary": "#30343b",
+    "text-secondary": "#59616b",
+    "text-muted": "#69727e",
+
+    "orange": "#b45316",
+    "orange-light": "#98430f",
+    "green": "#38764d",
+    "green-light": "#43845a",
+    "green-accent": "#629764",
+    "blue": "#287ba0",
+    "pink": "#b84e76",
+    "red": "#c9463c",
+    "danger": "#b93730",
+    "danger-text": "#a72d27",
+
+    "connector": "#9a9fa7",
+    "media-frame": "#e4e7eb",
+    "media-caption": "#f4f5f6",
+
+    "pn-bg": "#f4f5f6",
+    "pn-root-bg": "#b45316",
+    "pn-border": "#9a9fa7",
+    "pn-male-line": "#287ba0",
+    "pn-female-line": "#b84e76",
+    "pn-sosa": "#e58b47",
+    "pn-sosa-root": "#cf7230",
+    "pn-self": "#b45316",
+    "pn-text": "#30343b",
+    "pn-text-muted": "#59616b",
+    "pn-hover-bg": "#fce8db"
+  }
+}

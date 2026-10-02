@@ -447,6 +447,11 @@ const BUILTIN_SOURCES: &[(&str, &str)] = &[
     ("omarchy", shipped_theme!("omarchy")),
     ("ayu", shipped_theme!("ayu")),
     ("catppuccin", shipped_theme!("catppuccin")),
+    ("ancestry", shipped_theme!("ancestry")),
+    ("myheritage", shipped_theme!("myheritage")),
+    ("filae", shipped_theme!("filae")),
+    ("familysearch", shipped_theme!("familysearch")),
+    ("github", shipped_theme!("github")),
 ];
 
 /// The id used when nothing is stored, and when a stored id no longer exists.
@@ -696,6 +701,22 @@ mod tests {
                     theme.id, other.id
                 );
             }
+        }
+    }
+
+    #[test]
+    fn each_site_has_its_own_builtin_theme() {
+        let state = ThemeState::default();
+        for (id, name) in [
+            ("ancestry", "Ancestry"),
+            ("myheritage", "MyHeritage"),
+            ("filae", "Filae"),
+            ("familysearch", "FamilySearch"),
+            ("github", "GitHub"),
+        ] {
+            let theme = state.themes().find(|theme| theme.id == id).expect(name);
+            assert_eq!(theme.name, name);
+            assert!(theme.builtin);
         }
     }
 

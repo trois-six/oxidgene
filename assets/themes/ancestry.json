@@ -1,0 +1,43 @@
+{
+  "id": "ancestry",
+  "name": "Ancestry",
+  "base": "light",
+  "colors": {
+    "bg-panel": "#f3f4ef",
+    "bg-card-hover": "#f6f7f2",
+    "nav-surface": "#f8f9f5",
+    "sel-bg": "#e6ecd8",
+    "border": "#ced4c2",
+
+    "text-primary": "#303426",
+    "text-secondary": "#565d49",
+    "text-muted": "#68705c",
+
+    "orange": "#526e27",
+    "orange-light": "#435c1e",
+    "green": "#53782d",
+    "green-light": "#5b8034",
+    "green-accent": "#809c40",
+    "blue": "#326b87",
+    "pink": "#b45176",
+    "red": "#bf4036",
+    "danger": "#b2342c",
+    "danger-text": "#a12c25",
+
+    "connector": "#899477",
+    "media-frame": "#e8ecde",
+    "media-caption": "#f3f4ef",
+
+    "pn-bg": "#f3f4ef",
+    "pn-root-bg": "#526e27",
+    "pn-border": "#899477",
+    "pn-male-line": "#326b87",
+    "pn-female-line": "#b45176",
+    "pn-sosa": "#809c40",
+    "pn-sosa-root": "#6b8732",
+    "pn-self": "#526e27",
+    "pn-text": "#303426",
+    "pn-text-muted": "#565d49",
+    "pn-hover-bg": "#e6ecd8"
+  }
+}

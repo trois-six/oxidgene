@@ -1,0 +1,43 @@
+{
+  "id": "familysearch",
+  "name": "FamilySearch",
+  "base": "light",
+  "colors": {
+    "bg-panel": "#f0f6f0",
+    "bg-card-hover": "#f4f9f2",
+    "nav-surface": "#f7faf5",
+    "sel-bg": "#e0efd7",
+    "border": "#c9d8c6",
+
+    "text-primary": "#263529",
+    "text-secondary": "#4b6150",
+    "text-muted": "#607563",
+
+    "orange": "#386c24",
+    "orange-light": "#2c561b",
+    "green": "#397438",
+    "green-light": "#427b36",
+    "green-accent": "#87b940",
+    "blue": "#007da5",
+    "pink": "#b94f79",
+    "red": "#c43d3d",
+    "danger": "#b83232",
+    "danger-text": "#a52b2b",
+
+    "connector": "#7e9c7b",
+    "media-frame": "#e1eddf",
+    "media-caption": "#f0f6f0",
+
+    "pn-bg": "#f0f6f0",
+    "pn-root-bg": "#386c24",
+    "pn-border": "#7e9c7b",
+    "pn-male-line": "#007da5",
+    "pn-female-line": "#b94f79",
+    "pn-sosa": "#87b940",
+    "pn-sosa-root": "#6d9a2c",
+    "pn-self": "#386c24",
+    "pn-text": "#263529",
+    "pn-text-muted": "#4b6150",
+    "pn-hover-bg": "#e0efd7"
+  }
+}
