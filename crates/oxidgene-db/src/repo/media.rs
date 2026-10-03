@@ -595,10 +595,7 @@ impl MediaRepo {
             .map_err(db_err)?
             > 0;
 
-        if has_other_link || has_vignette || has_portrait {
-            return Ok(false);
-        }
-        Ok(true)
+        Ok(!(has_other_link || has_vignette || has_portrait))
     }
 
     /// Purge only when [`Self::can_purge_if_unreferenced_elsewhere`] allows

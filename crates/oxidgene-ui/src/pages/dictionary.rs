@@ -825,10 +825,7 @@ fn matches_filters(filing: &str, display: &str, quick: &str, letter: Option<char
             return false;
         }
     }
-    if !quick.is_empty() && !display.to_lowercase().contains(&quick.to_lowercase()) {
-        return false;
-    }
-    true
+    quick.is_empty() || display.to_lowercase().contains(&quick.to_lowercase())
 }
 
 /// One tab's entries, filed and indexed once per fetch.
