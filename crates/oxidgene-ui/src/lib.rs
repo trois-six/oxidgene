@@ -9,6 +9,7 @@
 //! - [`App`] — top-level application component
 
 pub mod api;
+pub mod archive_viewer;
 pub mod assistant;
 pub mod components;
 pub mod date_words;
