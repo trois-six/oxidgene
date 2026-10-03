@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T08:55:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T09:29:39Z }
 ---
 
 
@@ -242,25 +242,66 @@ Each event shows:
 - **Source reference** if attached, with clip icon, clickable
 - **Note excerpt** if present, truncated to 2 lines with "Show more" expansion
 
-On desktop, a source title in the normalized AD44 format for births or
-baptisms opens a dedicated archive WebView. Its tooltip says that it opens the
-cited view in the departmental archives. OxidGene selects the commune, act
-category, and year on the Loire-Atlantique archive portal, opens the viewer
-when exactly one matching register is returned, and enters the cited view
-number in the viewer's page field. If the search is empty or ambiguous, the
-portal stays on its filtered results instead of opening an arbitrary register.
+#### Opening a cited register
+
+On desktop, a source title written as a normalized archive citation opens the
+cited register in a dedicated archive window:
+
+```text
+AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13
+```
+
+The fields are the archive code, the locality (which may itself contain
+` - `), one complement field, the act letter (`N` birth, `B` baptism, `M`
+marriage, `D` death, `S` burial), the year, then free fields. A final
+`vue <n>[d|g]/<count>` names the cited image; a view beyond the count is
+ignored and the register still opens.
+
+The source becomes a button only when the archive code is in the archive
+catalogue, the catalogue lists the act as searchable for that archive, and the
+desktop has a driver for the archive's portal platform. Its tooltip,
+`person.source_open_archive`, names the archive. Every other title, and every
+title on the web client, stays plain text.
+
+The catalogue is one JSON document per archive in `assets/archives/`,
+discovered at build time, so an archive on an already supported platform is
+added without code:
+
+| Field | Rule |
+|---|---|
+| `id` | Lowercase slug starting with the lowercase country code, such as `fr-ad44`. |
+| `country` | ISO 3166-1 alpha-2 code. |
+| `name` | The archive's own name, shown verbatim in the tooltip. |
+| `citation_code` | Uppercase letters and digits a citation starts with; unique. |
+| `platform` | The portal software, which selects the desktop driver. |
+| `acts` | The searchable act kinds: `birth`, `baptism`, `marriage`, `death`, `burial`. |
+| `portal` | The driver's settings: field identifiers, labels and search categories. |
+
+Tests check that every catalogued platform has a driver and that every listed
+act has driver settings. The only platform driven today is Arkothèque, used by
+the Loire-Atlantique archives (births and baptisms).
+
+The driver selects the locality, act category, and year in the portal's own
+search, opens the register viewer when exactly one row matches, and enters
+the cited view number in the viewer's page field. It waits for the page
+controls rather than for fixed delays. A banner over the portal page reports
+the lookup in the interface language (`archive_viewer.*`): searching, no
+matching register, several matching registers, view not selected, or a portal
+that did not behave as expected; it disappears once the cited view is shown.
+On no match or several matches, the portal stays on its filtered results
+instead of opening an arbitrary register.
+
 The search and the register opening each run once per window: the reader can
 then change the filters, go back, or browse the portal freely without being
-redirected. The lookup is best effort; if the portal's page structure changes,
-the window stays on the portal's search page. Other archive codes and
-unrecognized title formats remain plain source text and do not open a window;
-the web client does not open the desktop WebView.
+redirected. The lookup is best effort; when the portal's page structure
+changes, the window stays on the portal's search page with the failure banner.
 
-The search URL carries the commune, act category, and year, plus the portal's
-own collection and display identifiers. It does not send the person's name,
-citation text, or act number. The view index is entered locally in the reader
-after it opens. The reader runs as a top-level page in an ephemeral WebView
-because the archive portal disallows embedding its pages in an OxidGene frame.
+The search URL carries the locality, act category, and year, plus the
+portal's own collection and display identifiers. It does not send the
+person's name, the citation text, or the act number. The view index is
+entered locally in the reader after it opens. Each register opens as a
+top-level page in an ephemeral WebView because archive portals disallow
+embedding their pages in an OxidGene frame.
 
 Events are ordered by `date_sort`. Events without dates are grouped at the bottom under a "Date unknown" label.
 

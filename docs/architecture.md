@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: github-copilot/copilot, at: 2026-10-02T18:51:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T09:29:39Z }
 ---
 
 
@@ -315,8 +315,11 @@ runtime catalogue; neither the compressor nor the original JSON strings are
 linked into the application.
 
 The web build keeps its embedded locale JSON uncompressed and adds no Brotli
-decoder to WASM; HTTP bundle compression remains separate. Themes, portraits
-and the logo also stay uncompressed. Personal locale files remain ordinary
+decoder to WASM; HTTP bundle compression remains separate. Themes, portraits,
+the logo and the archive catalogue (`assets/archives/*.json`, discovered by
+the same build script; see
+[Person Profile](ui-person-profile.md#opening-a-cited-register)) also stay
+uncompressed. Personal locale files remain ordinary
 JSON, read by an injected desktop source rather than by `oxidgene-ui`.
 
 ---

@@ -4,31 +4,47 @@ use std::{
 };
 
 fn main() {
-    let directory =
-        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../assets/i18n");
+    let assets = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../assets");
+    let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+
+    let locales: Vec<_> = json_documents(&assets.join("i18n"))
+        .iter()
+        .map(|file| embedded_locale(file, &output))
+        .collect();
+    write_list(&output.join("locales.rs"), &locales);
+
+    // The archive catalogue weighs a few kilobytes: always embedded as text.
+    let archives: Vec<_> = json_documents(&assets.join("archives"))
+        .iter()
+        .map(|file| embedded_text(file))
+        .collect();
+    write_list(&output.join("archives.rs"), &archives);
+}
+
+/// Every `*.json` file of `directory`, sorted by name.
+fn json_documents(directory: &Path) -> Vec<PathBuf> {
     println!("cargo:rerun-if-changed={}", directory.display());
     let mut files: Vec<_> = fs::read_dir(directory)
-        .expect("locale asset directory")
-        .map(|entry| entry.expect("locale asset entry").path())
+        .unwrap_or_else(|error| panic!("{}: {error}", directory.display()))
+        .map(|entry| entry.expect("asset directory entry").path())
         .filter(|file| {
             file.extension()
                 .is_some_and(|extension| extension == "json")
         })
         .collect();
     files.sort();
-    let output = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let sources: Vec<_> = files
-        .iter()
-        .map(|file| embedded_source(file, &output))
-        .collect();
-    fs::write(
-        output.join("locales.rs"),
-        format!("&[{}]", sources.join(",")),
-    )
-    .expect("embedded locale list");
+    files
 }
 
-fn embedded_source(file: &Path, output: &Path) -> String {
+fn write_list(destination: &Path, items: &[String]) {
+    fs::write(destination, format!("&[{}]", items.join(","))).expect("embedded asset list");
+}
+
+fn embedded_text(file: &Path) -> String {
+    format!("include_str!({:?})", file.canonicalize().unwrap())
+}
+
+fn embedded_locale(file: &Path, output: &Path) -> String {
     #[cfg(feature = "compressed-locales")]
     if env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("wasm32") {
         let compressed = output.join(format!(
@@ -39,7 +55,7 @@ fn embedded_source(file: &Path, output: &Path) -> String {
         return format!("include_bytes!({:?}).as_slice()", compressed);
     }
     let _ = output;
-    format!("include_str!({:?})", file.canonicalize().unwrap())
+    embedded_text(file)
 }
 
 #[cfg(feature = "compressed-locales")]

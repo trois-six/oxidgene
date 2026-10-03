@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:08:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T09:29:39Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -56,6 +56,20 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:08:32Z }
 - [ ] Test large media libraries and close media-specific error-state gaps.
 - [ ] Run the complete Geneanet flow against an authorized test account using
   anonymized captures and committing no session or genealogy data.
+
+## 3b. Active: archive viewer
+
+The desktop opens a normalized citation at the cited register view through an
+archive catalogue and one driver per portal platform ([Person
+Profile](ui-person-profile.md#opening-a-cited-register)).
+
+- [x] Drive the Loire-Atlantique archives (Arkothèque) for births and
+  baptisms.
+- [ ] Catalogue every French departmental archive, adding a driver for each
+  portal platform they use.
+- [ ] Extend the catalogue to Swiss cantonal archives.
+- [ ] Add an opt-in check per catalogued archive against its live portal, so
+  page-structure changes are caught before users meet them.
 
 ## 4. Person merge wizard
 
