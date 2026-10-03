@@ -69,7 +69,7 @@ tower-http = { version = "0.7", features = ["catch-panic", "cors", "trace", "com
 # few megabytes of memory. The compressor runs only in build scripts and in
 # the place dictionary generator; the binaries link the decoder alone.
 brotli = { version = "8", default-features = false, features = ["std"] }
-brotli-decompressor = { version = "5", default-features = false, features = ["std"] }
+brotli-decompressor = { version = "6", default-features = false, features = ["std"] }
 
 # GraphQL (optional — only server binary enables this)
 async-graphql = { version = "7.2", features = ["chrono"] }
