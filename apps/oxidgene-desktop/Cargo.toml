@@ -30,8 +30,8 @@ windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 # (tauri-apps/wry#1767). Keep these on GTK 3 until Dioxus Desktop consumes a
 # compatible Wry release; GLib 0.22 object types are incompatible with GTK 3.
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
-glib = { version = "0.18", default-features = false }
-gtk = { version = "0.18", default-features = false }
+glib = { version = "0.22", default-features = false }
+gtk = { version = "0.19", default-features = false }
 
 [dependencies]
 oxidgene-api = { workspace = true, features = ["mcp"] }
