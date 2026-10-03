@@ -24,6 +24,7 @@ use crate::api::{
     ApiClient, ApiError, CroppedSource, GalleryBundle, GallerySources, MediaWithLink,
     PersonDetailBundle, ResolvedPictures,
 };
+use crate::archive_viewer::{ArchiveViewerBridge, ArchiveViewerRequest};
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
@@ -138,11 +139,17 @@ pub(crate) struct Profile {
     pub sexes: HashMap<Uuid, Sex>,
     /// "birth-death" suffixes, matching the pedigree cards.
     pub lifespans: HashMap<Uuid, String>,
-    /// "Source title — page", one entry per citation, keyed by event.
-    pub citations_by_event: HashMap<Uuid, Vec<String>>,
+    /// One rendered citation per source, keyed by event.
+    pub citations_by_event: HashMap<Uuid, Vec<EventCitation>>,
     /// The documents proving each event, keyed by the event they document.
     pub evidence_by_event: HashMap<Uuid, Vec<MediaWithLink>>,
     pub bundle: Arc<PersonDetailBundle>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct EventCitation {
+    pub text: String,
+    pub archive: Option<ArchiveViewerRequest>,
 }
 
 impl Profile {
@@ -753,9 +760,10 @@ fn add_parental_events(
     }
 }
 
-/// "Source title — page", one entry per citation, keyed by event.
-fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<String>> {
-    let mut citations_by_event: HashMap<Uuid, Vec<String>> = HashMap::new();
+/// "Source title — page", one entry per citation, keyed by event, with the
+/// archive view a recognized source title opens.
+fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<EventCitation>> {
+    let mut citations_by_event: HashMap<Uuid, Vec<EventCitation>> = HashMap::new();
     let source_by_id: HashMap<Uuid, &oxidgene_core::types::Source> =
         detail.sources.iter().map(|s| (s.id, s)).collect();
     for citation in &detail.citations {
@@ -767,7 +775,13 @@ fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<String>>
             Some(page) if !page.is_empty() => format!("{} \u{2014} {page}", source.title),
             _ => source.title.clone(),
         };
-        citations_by_event.entry(eid).or_default().push(text);
+        citations_by_event
+            .entry(eid)
+            .or_default()
+            .push(EventCitation {
+                text,
+                archive: ArchiveViewerRequest::from_source_title(&source.title),
+            });
     }
     citations_by_event
 }
@@ -1139,6 +1153,7 @@ pub(crate) fn refresh_button(i18n: &I18n, mut on_refresh: impl FnMut() + 'static
 pub(crate) struct SectionContext<'a> {
     pub i18n: I18n,
     pub tree_id: Uuid,
+    pub archive_viewer: Option<ArchiveViewerBridge>,
     pub sosa_ancestors: &'a HashSet<Uuid>,
     /// Bumped when a gallery changes what is attached, so the page reloads.
     pub media_revision: Signal<u32>,
@@ -1750,7 +1765,30 @@ pub(crate) fn timeline_section(
                                         if let Some(sources) = event_sources {
                                             div { class: "pd-ev-sources",
                                                 {i18n.t("person.sources_section")}
-                                                ": {sources.join(\"; \")}"
+                                                ": "
+                                                for (index, source) in sources.iter().enumerate() {
+                                                    span { key: "{index}",
+                                                        if index > 0 { "; " }
+                                                        if let (Some(archive), Some(viewer)) =
+                                                            (&source.archive, &ctx.archive_viewer)
+                                                        {
+                                                            {
+                                                                let request = archive.clone();
+                                                                let viewer = viewer.clone();
+                                                                rsx! {
+                                                                    button {
+                                                                        class: "pd-ev-source-link",
+                                                                        title: i18n.t("person.source_open_archive"),
+                                                                        onclick: move |_| viewer.open(request.clone()),
+                                                                        "{source.text}"
+                                                                    }
+                                                                }
+                                                            }
+                                                        } else {
+                                                            "{source.text}"
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                         // The documents that prove this event use the

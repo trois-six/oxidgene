@@ -55,6 +55,7 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod archives;
 mod geneanet;
 mod languages;
 mod mcp;
@@ -419,6 +420,7 @@ fn main() {
     // geneanet.org, which only the event loop can create — so the bridge the
     // UI talks to and the handler that services it are installed together.
     let (geneanet_bridge, mut geneanet_handler) = geneanet::install(work_dir);
+    let (archive_viewer, mut archive_viewer_handler) = archives::install();
     let theme_loader =
         CustomThemeLoader::new(themes::DesktopThemeSource::install(&app_dirs.themes()));
     let language_loader = oxidgene_ui::i18n::CustomLanguageLoader::new(
@@ -428,6 +430,7 @@ fn main() {
     let mut launch = dioxus::LaunchBuilder::new()
         .with_context(api_client)
         .with_context(geneanet_bridge)
+        .with_context(archive_viewer)
         .with_context(printing::bridge())
         .with_context(theme_loader)
         .with_context(language_loader);
@@ -443,6 +446,7 @@ fn main() {
     launch
         .with_cfg(cfg.with_custom_event_handler(move |event, target| {
             geneanet_handler(event, target);
+            archive_viewer_handler(event, target);
 
             if let Event::LoopDestroyed = event {
                 info!("Window closing, shutting the embedded server down…");

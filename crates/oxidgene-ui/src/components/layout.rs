@@ -1202,6 +1202,19 @@ pub const LAYOUT_STYLES: &str = r#"
         font-style: italic;
         margin-top: 2px;
     }
+    .pd-ev-source-link {
+        padding: 0;
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-decoration: underline dotted;
+        cursor: pointer;
+    }
+    .pd-ev-source-link:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+    }
     /* ── Modal / confirmation dialog ─────────────────────────────── */
 
     .modal-backdrop {

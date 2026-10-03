@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T23:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T08:55:58Z }
 ---
 
 
@@ -241,6 +241,26 @@ Each event shows:
 - **Place** if known, in muted text
 - **Source reference** if attached, with clip icon, clickable
 - **Note excerpt** if present, truncated to 2 lines with "Show more" expansion
+
+On desktop, a source title in the normalized AD44 format for births or
+baptisms opens a dedicated archive WebView. Its tooltip says that it opens the
+cited view in the departmental archives. OxidGene selects the commune, act
+category, and year on the Loire-Atlantique archive portal, opens the viewer
+when exactly one matching register is returned, and enters the cited view
+number in the viewer's page field. If the search is empty or ambiguous, the
+portal stays on its filtered results instead of opening an arbitrary register.
+The search and the register opening each run once per window: the reader can
+then change the filters, go back, or browse the portal freely without being
+redirected. The lookup is best effort; if the portal's page structure changes,
+the window stays on the portal's search page. Other archive codes and
+unrecognized title formats remain plain source text and do not open a window;
+the web client does not open the desktop WebView.
+
+The search URL carries the commune, act category, and year, plus the portal's
+own collection and display identifiers. It does not send the person's name,
+citation text, or act number. The view index is entered locally in the reader
+after it opens. The reader runs as a top-level page in an ephemeral WebView
+because the archive portal disallows embedding its pages in an OxidGene frame.
 
 Events are ordered by `date_sort`. Events without dates are grouped at the bottom under a "Date unknown" label.
 
