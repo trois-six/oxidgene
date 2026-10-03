@@ -47,14 +47,6 @@
   },
   "packageRules": [
     {
-      "description": "Track GTK binding upgrades as an explicit desktop migration",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["glib", "gtk"],
-      "groupName": "GTK bindings",
-      "dependencyDashboardApproval": true,
-      "automerge": false
-    },
-    {
       "description": "Keep Cargo manifests broad and update the resolved workspace graph",
       "matchManagers": ["cargo"],
       "rangeStrategy": "update-lockfile"
@@ -64,6 +56,28 @@
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "Rust dependencies (non-major)"
+    },
+    {
+      "description": "Track GTK binding upgrades as an explicit desktop migration. Listed after the non-major group because the last matching rule wins",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["glib", "gtk"],
+      "groupName": "GTK bindings",
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Hold crates aligned with a framework's version until it moves, so the graph gains no duplicate (scripts/budgets.json): getrandom with rand, gloo-timers with dioxus-web, sha2 with sqlx-core and wry, dirs with wry and tray-icon",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["getrandom", "gloo-timers", "sha2", "dirs"],
+      "groupName": "Framework-aligned crates",
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Each brotli release depends on one brotli-decompressor release: update them together",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["brotli", "brotli-decompressor"],
+      "groupName": "Brotli"
     },
     {
       "description": "Keep the Dioxus framework and its build CLI aligned",
