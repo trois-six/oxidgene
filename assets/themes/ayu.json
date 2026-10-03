@@ -50,5 +50,11 @@
     "pn-text": "#bfbdb6",
     "pn-text-muted": "#909baa",
     "pn-hover-bg": "#1c2733"
+  },
+  "style": {
+    "body_font": "system",
+    "heading_font": "system",
+    "elevation": "flat",
+    "density": "compact"
   }
 }

@@ -1458,7 +1458,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 input { r#type: "text", value: "{edit_name_nickname}", oninput: move |e: Event<FormData>| edit_name_nickname.set(e.value()) }
                                                             }
                                                         }
-                                                        div { style: "display:flex;gap:8px;",
+                                                        div { class: "inline-row",
                                                             button {
                                                                 class: "pf-confirm-btn",
                                                                 r#type: "button",
@@ -1642,7 +1642,7 @@ pub fn PersonForm(props: PersonFormProps) -> Element {
                                                                 oninput: move |e: Event<FormData>| edit_note_text.set(e.value()),
                                                             }
                                                         }
-                                                        div { style: "display:flex;gap:8px;",
+                                                        div { class: "inline-row",
                                                             button {
                                                                 class: "pf-confirm-btn",
                                                                 r#type: "button",

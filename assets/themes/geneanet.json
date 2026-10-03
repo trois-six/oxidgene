@@ -31,5 +31,10 @@
     "pn-text": "#222222",
     "pn-text-muted": "#666666",
     "pn-hover-bg": "#c0d9f1"
+  },
+  "style": {
+    "body_font": "system",
+    "heading_font": "system",
+    "elevation": "flat"
   }
 }

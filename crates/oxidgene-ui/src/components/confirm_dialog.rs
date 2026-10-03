@@ -69,7 +69,7 @@ pub fn ConfirmDialog(props: ConfirmDialogProps) -> Element {
             busy,
             on_close: props.on_cancel,
             h3 { "{props.title}" }
-            p { style: "margin: 12px 0;", "{props.message}" }
+            p { class: "confirm-message", "{props.message}" }
             if let Some(err) = &props.error {
                 div { class: "error-msg", "{err}" }
             }

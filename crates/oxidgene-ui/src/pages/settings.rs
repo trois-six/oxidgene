@@ -24,7 +24,7 @@ use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{DateStyle, I18n, Language, use_i18n};
 use crate::pages::app_settings::{
     AppearanceSection, LanguageSection, NamesSection, PedigreeDefaultsSection,
-    SHARED_SETTINGS_STYLES, use_settings_scroll_reset,
+    use_settings_scroll_reset,
 };
 use crate::prefs::{PedigreeDefaults, SortParticles};
 use crate::ui_observability::{
@@ -482,7 +482,6 @@ pub fn Settings(tree_id: String) -> Element {
 
     rsx! {
         style { {SETTINGS_STYLES} }
-        style { {SHARED_SETTINGS_STYLES} }
 
         ToolPageFrame {
             tree_id: tree_id.clone(),
@@ -1531,48 +1530,48 @@ fn safe_export_file_name(tree_name: &str) -> String {
 }
 
 const SETTINGS_STYLES: &str = r#"
-    .settings-card { margin-top: 16px; }
+    .settings-card { margin-top: var(--space-8); }
     .settings-card-title {
-        font-size: 0.95rem;
-        margin-bottom: 6px;
+        font-size: var(--text-95);
+        margin-bottom: var(--space-3);
         color: var(--text-primary);
     }
     .settings-card-desc {
-        font-size: 0.82rem;
+        font-size: var(--text-80);
         color: var(--text-secondary);
-        margin-bottom: 12px;
+        margin-bottom: var(--space-6);
     }
     .settings-export-row .settings-card-desc { margin-bottom: 0; }
     .settings-feedback,
-    .settings-choices { margin-top: 12px; }
-    .settings-hint { margin-top: 8px; }
+    .settings-choices { margin-top: var(--space-6); }
+    .settings-hint { margin-top: var(--space-4); }
     .settings-export-info { flex: 1; }
     .settings-check {
         display: grid;
         grid-template-columns: 20px 1fr;
-        column-gap: 8px;
+        column-gap: var(--space-4);
         align-items: start;
-        margin-top: 12px;
+        margin-top: var(--space-6);
         cursor: pointer;
     }
     .settings-check-first {
-        margin-top: 16px;
-        padding-top: 16px;
+        margin-top: var(--space-8);
+        padding-top: var(--space-8);
         border-top: 1px solid var(--border);
     }
     .settings-check input { margin: 3px 0 0 0; }
     .settings-check-label {
-        font-size: 0.85rem;
+        font-size: var(--text-85);
         color: var(--text-primary);
     }
     .settings-check-desc {
-        font-size: 0.78rem;
+        font-size: var(--text-80);
         color: var(--text-secondary);
-        margin-top: 2px;
+        margin-top: var(--space-1);
     }
     .settings-tree-name-form {
         display: flex;
-        gap: 8px;
+        gap: var(--space-4);
     }
     .settings-tree-name-form input {
         min-width: 0;
@@ -1593,7 +1592,7 @@ const SETTINGS_STYLES: &str = r#"
     .settings-export-row {
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: var(--space-8);
     }
     .settings-export-format {
         width: auto;
@@ -1601,26 +1600,26 @@ const SETTINGS_STYLES: &str = r#"
     }
     .settings-date-select { width: auto; max-width: 100%; }
     .settings-date-preview {
-        margin-top: 12px;
-        padding: 10px 12px;
+        margin-top: var(--space-6);
+        padding: var(--space-5) var(--space-6);
         background: var(--bg-deep);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: var(--radius);
     }
     .settings-date-preview-title {
-        font-size: 0.72rem;
+        font-size: var(--text-70);
         text-transform: uppercase;
         letter-spacing: 0.06em;
         color: var(--text-secondary);
-        margin-bottom: 6px;
+        margin-bottom: var(--space-3);
     }
     .settings-date-preview dl {
         display: grid;
         grid-template-columns: max-content 1fr;
-        column-gap: 16px;
-        row-gap: 4px;
+        column-gap: var(--space-8);
+        row-gap: var(--space-2);
         margin: 0;
-        font-size: 0.85rem;
+        font-size: var(--text-85);
     }
     .settings-date-preview dt { color: var(--text-secondary); }
     .settings-date-preview dd { margin: 0; color: var(--text-primary); }

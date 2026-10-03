@@ -1022,20 +1022,20 @@ const HOME_STYLES: &str = r#"
     .home-main {
         max-width: 1200px;
         margin: 0 auto;
-        padding: 3rem 24px 5rem;
+        padding: var(--space-24) var(--space-12) var(--space-40);
         width: 100%;
     }
 
     /* ── Page header ─────────────────────────────────────────────── */
 
     .home-page-header {
-        margin-bottom: 2.5rem;
+        margin-bottom: var(--space-20);
         animation: home-fade-up 0.6s ease backwards;
     }
 
     .home-page-header h1 {
         font-family: var(--font-heading);
-        font-size: 2rem;
+        font-size: var(--text-200);
         font-weight: 700;
         color: var(--text-primary);
         letter-spacing: 0.03em;
@@ -1053,7 +1053,7 @@ const HOME_STYLES: &str = r#"
         justify-content: center;
         width: 36px;
         height: 36px;
-        border-radius: 8px;
+        border-radius: var(--radius);
         color: var(--text-muted);
         background: var(--bg-card);
         border: 1px solid var(--border);
@@ -1076,9 +1076,9 @@ const HOME_STYLES: &str = r#"
     }
 
     .home-subtitle {
-        margin-top: 0.4rem;
+        margin-top: var(--space-3);
         color: var(--text-secondary);
-        font-size: 0.95rem;
+        font-size: var(--text-95);
         font-weight: 300;
     }
 
@@ -1087,8 +1087,8 @@ const HOME_STYLES: &str = r#"
     .home-toolbar {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        margin-bottom: 2rem;
+        gap: var(--space-6);
+        margin-bottom: var(--space-16);
         flex-wrap: wrap;
         animation: home-fade-up 0.6s 0.08s ease backwards;
     }
@@ -1096,11 +1096,11 @@ const HOME_STYLES: &str = r#"
     .home-search-box {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-4);
         background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 0.45rem 0.75rem;
+        border-radius: var(--radius);
+        padding: var(--space-4) var(--space-6);
         flex: 3;
         min-width: 0;
         transition: border-color 0.2s;
@@ -1120,7 +1120,7 @@ const HOME_STYLES: &str = r#"
         border: none;
         outline: none;
         color: var(--text-primary);
-        font-size: 0.85rem;
+        font-size: var(--text-85);
         font-family: var(--font-sans);
         width: 100%;
     }
@@ -1132,10 +1132,10 @@ const HOME_STYLES: &str = r#"
     .home-sort-select {
         background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 0.45rem 0.75rem;
+        border-radius: var(--radius);
+        padding: var(--space-4) var(--space-6);
         color: var(--text-secondary);
-        font-size: 0.82rem;
+        font-size: var(--text-80);
         font-family: var(--font-sans);
         cursor: pointer;
         transition: border-color 0.2s;
@@ -1151,14 +1151,14 @@ const HOME_STYLES: &str = r#"
     .home-btn-new {
         display: inline-flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-4);
         background: linear-gradient(135deg, var(--orange) 0%, var(--orange-light) 100%);
         border: none;
-        border-radius: 8px;
-        padding: 0.5rem 1.1rem;
+        border-radius: var(--radius);
+        padding: var(--space-4) var(--space-9);
         color: var(--white);
         font-family: var(--font-heading);
-        font-size: 0.8rem;
+        font-size: var(--text-80);
         font-weight: 600;
         letter-spacing: 0.05em;
         cursor: pointer;
@@ -1179,7 +1179,7 @@ const HOME_STYLES: &str = r#"
     .trees-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 1.5rem;
+        gap: var(--space-12);
         animation: home-fade-up 0.6s 0.15s ease backwards;
     }
     .trees-grid.trees-list { grid-template-columns: minmax(0, 1fr); }
@@ -1189,7 +1189,7 @@ const HOME_STYLES: &str = r#"
     .tree-card {
         background: var(--bg-card);
         border: 1px solid var(--border);
-        border-radius: 16px;
+        border-radius: var(--radius-lg);
         min-width: 0;
         cursor: pointer;
         /* Lifted by `top`, not `transform`: a transformed card becomes the
@@ -1227,13 +1227,13 @@ const HOME_STYLES: &str = r#"
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 12px;
+        gap: var(--space-6);
         border-radius: inherit;
         background: color-mix(in srgb, var(--bg-card) 88%, transparent);
         backdrop-filter: blur(2px);
         color: var(--text-primary);
         text-align: center;
-        padding: 24px;
+        padding: var(--space-12);
     }
 
     .tree-card-import-spinner {
@@ -1247,7 +1247,7 @@ const HOME_STYLES: &str = r#"
 
     .tree-card-import-title {
         font-family: var(--font-heading);
-        font-size: 0.95rem;
+        font-size: var(--text-95);
         font-weight: 600;
     }
 
@@ -1256,7 +1256,7 @@ const HOME_STYLES: &str = r#"
     }
 
     .tree-card-body {
-        padding: 1.25rem 1.4rem 1.4rem;
+        padding: var(--space-10) var(--space-11) var(--space-11);
         flex: 1;
         min-width: 0;
         display: flex;
@@ -1267,13 +1267,13 @@ const HOME_STYLES: &str = r#"
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 0.5rem;
-        margin-bottom: 0.3rem;
+        gap: var(--space-4);
+        margin-bottom: var(--space-2);
     }
 
     .tree-card-name {
         font-family: var(--font-heading);
-        font-size: 1.05rem;
+        font-size: var(--text-110);
         font-weight: 600;
         color: var(--text-primary);
         white-space: nowrap;
@@ -1290,10 +1290,10 @@ const HOME_STYLES: &str = r#"
         background: none;
         border: none;
         color: var(--text-muted);
-        font-size: 1.2rem;
+        font-size: var(--text-120);
         cursor: pointer;
-        padding: 2px 6px;
-        border-radius: 4px;
+        padding: var(--space-1) var(--space-3);
+        border-radius: var(--radius-sm);
         line-height: 1;
         transition: background 0.15s, color 0.15s;
     }
@@ -1311,9 +1311,9 @@ const HOME_STYLES: &str = r#"
     }
 
     .tree-card-desc {
-        font-size: 0.82rem;
+        font-size: var(--text-80);
         color: var(--text-secondary);
-        margin-bottom: 0.75rem;
+        margin-bottom: var(--space-6);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1328,19 +1328,19 @@ const HOME_STYLES: &str = r#"
     .tree-card-persons {
         flex: 1;
         min-width: 0;
-        margin-top: 0.5rem;
+        margin-top: var(--space-4);
     }
 
     .tree-card-persons-title {
-        font-size: 0.68rem;
+        font-size: var(--text-70);
         text-transform: uppercase;
         letter-spacing: 0.06em;
         color: var(--text-muted);
-        margin-bottom: 0.35rem;
+        margin-bottom: var(--space-3);
     }
 
     .tree-card-persons-empty {
-        font-size: 0.8rem;
+        font-size: var(--text-80);
         color: var(--text-muted);
     }
 
@@ -1352,7 +1352,7 @@ const HOME_STYLES: &str = r#"
        and the years; the relatives and the birthplace are left to the
        search results, where telling namesakes apart matters. */
     .search-person-result.tree-card-person {
-        padding: 3px 6px;
+        padding: 3px var(--space-3);
     }
 
     .tree-card-person .sp-result-rel,
@@ -1369,7 +1369,7 @@ const HOME_STYLES: &str = r#"
     .tree-card-person .sp-result-info {
         display: flex;
         align-items: baseline;
-        gap: 8px;
+        gap: var(--space-4);
     }
 
     .tree-card-person .sp-result-name {
@@ -1392,29 +1392,29 @@ const HOME_STYLES: &str = r#"
         align-items: center;
         justify-content: space-between;
         border-top: 1px solid var(--border);
-        padding-top: 1rem;
-        margin-top: 0.75rem;
+        padding-top: var(--space-8);
+        margin-top: var(--space-6);
     }
 
     .tree-card-footer-left {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
+        gap: var(--space-4);
     }
 
     .tree-last-update {
-        font-size: 0.75rem;
+        font-size: var(--text-75);
         color: var(--text-muted);
     }
 
     .tree-badge-recent {
-        font-size: 0.65rem;
+        font-size: var(--text-65);
         font-weight: 600;
         color: var(--green-light);
         background: color-mix(in srgb, var(--green-accent) 12%, transparent);
         border: 1px solid color-mix(in srgb, var(--green-accent) 30%, transparent);
-        border-radius: 10px;
-        padding: 2px 8px;
+        border-radius: var(--radius);
+        padding: var(--space-1) var(--space-4);
         text-transform: uppercase;
         letter-spacing: 0.04em;
     }
@@ -1422,11 +1422,11 @@ const HOME_STYLES: &str = r#"
     .btn-open {
         background: linear-gradient(135deg, var(--orange), var(--orange-light));
         border: none;
-        border-radius: 7px;
-        padding: 0.4rem 1rem;
+        border-radius: var(--radius);
+        padding: var(--space-3) var(--space-8);
         color: var(--white);
         font-family: var(--font-heading);
-        font-size: 0.72rem;
+        font-size: var(--text-70);
         font-weight: 600;
         letter-spacing: 0.05em;
         cursor: pointer;
@@ -1449,7 +1449,7 @@ const HOME_STYLES: &str = r#"
         align-items: center;
         justify-content: center;
         min-height: 280px;
-        gap: 1rem;
+        gap: var(--space-8);
         background: transparent;
     }
 
@@ -1480,33 +1480,33 @@ const HOME_STYLES: &str = r#"
 
     .tree-card-add-text {
         font-family: var(--font-heading);
-        font-size: 0.9rem;
+        font-size: var(--text-90);
         color: var(--green-light);
         letter-spacing: 0.04em;
     }
 
     .tree-card-add-sub {
-        font-size: 0.78rem;
+        font-size: var(--text-80);
         color: var(--text-muted);
         text-align: center;
-        padding: 0 1.5rem;
+        padding: 0 var(--space-12);
     }
 
     /* ── Empty state ─────────────────────────────────────────────── */
 
     /* The shared EmptyState, roomier and in the page's heading face. */
     .home-empty {
-        padding: 5rem 2rem;
-        gap: 1rem;
+        padding: var(--space-40) var(--space-16);
+        gap: var(--space-8);
     }
 
     .home-empty h3 {
         font-family: var(--font-heading);
-        font-size: 1.2rem;
+        font-size: var(--text-120);
     }
 
     .home-empty p {
-        font-size: 0.9rem;
+        font-size: var(--text-90);
     }
 
     /* ── Create tree modal ───────────────────────────────────────── */
@@ -1514,31 +1514,31 @@ const HOME_STYLES: &str = r#"
     .home-create-modal {
         background: var(--bg-panel);
         border: 1px solid var(--border);
-        border-radius: 16px;
+        border-radius: var(--radius-lg);
         min-width: 360px;
         max-width: 480px;
         width: 95vw;
-        box-shadow: 0 20px 60px color-mix(in srgb, var(--shadow-black) 80%, transparent);
+        box-shadow: var(--shadow-lg);
     }
 
     .home-create-modal-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 1.25rem 1.5rem;
+        padding: var(--space-10) var(--space-12);
         border-bottom: 1px solid var(--border);
     }
 
     .home-create-modal-header h2 {
         font-family: var(--font-heading);
-        font-size: 1.1rem;
+        font-size: var(--text-110);
         font-weight: 600;
         color: var(--text-primary);
         margin: 0;
     }
 
     .home-create-modal-body {
-        padding: 1.5rem;
+        padding: var(--space-12);
     }
 
     /* ── Animations ──────────────────────────────────────────────── */
@@ -1562,17 +1562,17 @@ const HOME_STYLES: &str = r#"
         left: 50%;
         transform: translateX(-50%);
         z-index: 1000;
-        padding: 0.75rem 1.5rem;
-        border-radius: 8px;
-        font-size: 0.85rem;
+        padding: var(--space-6) var(--space-12);
+        border-radius: var(--radius);
+        font-size: var(--text-85);
         max-width: 600px;
-        box-shadow: 0 4px 20px color-mix(in srgb, var(--shadow-black) 40%, transparent);
+        box-shadow: var(--shadow-md);
     }
 
     /* ── Responsive ──────────────────────────────────────────────── */
 
     @media (max-width: 640px) {
-        .home-main { padding: 2rem 1rem 4rem; }
+        .home-main { padding: var(--space-16) var(--space-8) var(--space-32); }
         .home-search-box { flex: 1 0 100%; }
         .home-sort-select {
             flex: 1 1 0;
@@ -1591,7 +1591,7 @@ const HOME_STYLES: &str = r#"
         }
         .home-btn-new-toolbar .home-btn-new-label { display: none; }
         .trees-grid { grid-template-columns: minmax(0, 1fr); }
-        .home-page-header h1 { font-size: 1.5rem; }
+        .home-page-header h1 { font-size: var(--text-150); }
     }
 "#;
 

@@ -7003,9 +7003,8 @@ mod geometry_golden_tests {
         format!(
             "<!doctype html><meta charset=\"utf-8\"><style>{palette}</style>\
              <style>{LAYOUT_STYLES}</style>\
-             <style>{}</style><body style=\"background:var(--bg-deep);padding:24px\">\
+             <body style=\"background:var(--bg-deep);padding:24px\">\
              <div class=\"theme-picker\" style=\"max-width:560px\">{row}</div>",
-            crate::pages::app_settings::SHARED_SETTINGS_STYLES,
         )
     }
 

@@ -6710,7 +6710,7 @@
     "app_settings.theme_custom_hint": "Thema’s zijn JSON-bestanden. Plaats er een in deze map en open deze pagina opnieuw om het hier te zien.",
     "app_settings.theme_custom_tag": "Aangepast",
     "app_settings.theme_dark": "Donker",
-    "app_settings.theme_hint": "De kleuren waarin de hele applicatie wordt weergegeven.",
+    "app_settings.theme_hint": "Het uiterlijk van de hele applicatie: kleuren, lettertypen, hoeken en witruimte.",
     "app_settings.theme_light": "Licht",
     "app_settings.title": "Instellingen",
     "app_settings.token_hint": "Stuur het mee als header Authorization: Bearer <token> bij elk verzoek, behalve het OpenAPI-document. Het adres en het token veranderen bij elke start van de applicatie.",

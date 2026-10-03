@@ -22,7 +22,7 @@ pub fn NotFound(segments: Vec<String>) -> Element {
                 {i18n.t("not_found.message_suffix")}
             }
             Link { to: Route::Home {},
-                button { class: "btn btn-primary", style: "margin-top: 16px;",
+                button { class: "btn btn-primary not-found-action",
                     {i18n.t("not_found.go_home")}
                 }
             }

@@ -6710,7 +6710,7 @@
     "app_settings.theme_custom_hint": "Farbschemata sind JSON-Dateien. Legen Sie eine in diesen Ordner und öffnen Sie diese Seite erneut, um sie hier zu sehen.",
     "app_settings.theme_custom_tag": "Eigenes",
     "app_settings.theme_dark": "Dunkel",
-    "app_settings.theme_hint": "Die Farben, in denen die gesamte Anwendung dargestellt wird.",
+    "app_settings.theme_hint": "Das Erscheinungsbild der gesamten Anwendung: Farben, Schriften, Ecken und Abstände.",
     "app_settings.theme_light": "Hell",
     "app_settings.title": "Einstellungen",
     "app_settings.token_hint": "Senden Sie es als Header Authorization: Bearer <token> mit jeder Anfrage außer dem OpenAPI-Dokument. Adresse und Token ändern sich bei jedem Start der Anwendung.",

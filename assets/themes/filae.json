@@ -39,5 +39,8 @@
     "pn-text": "#263744",
     "pn-text-muted": "#516573",
     "pn-hover-bg": "#deedf7"
+  },
+  "style": {
+    "heading_font": "serif"
   }
 }

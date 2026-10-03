@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "Application-level preferences page for appearance, language, pedigree, names, API connection details, and the AI assistant connection."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: github-copilot/copilot, at: 2026-10-02T19:45:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T10:19:34Z }
 ---
 
 
@@ -110,7 +110,8 @@ theme as a tile:
 ```
 +-----------------------------------------------------------+
 |  Theme                                                     |
-|  The colours the whole application is drawn in.            |
+|  How the whole application looks: its colours, typefaces,  |
+|  corners and spacing.                                      |
 |                                                            |
 |  [ swatch ] [ swatch ] [ swatch ] [ swatch ] [ swatch ]    |
 |    Light      Dark      ...          ...         ...       |
@@ -130,10 +131,11 @@ theme as a tile:
 - The grid is the shared theme picker, also used by the pedigree theme choice
   (§7). Tracks are laid out with `auto-fill` rather than `auto-fit`, so a tile
   is the same size whether the picker holds two entries or twelve.
-- Each tile shows a miniature painted in that theme's own colours — page
-  background, navigation bar, a card with two text rules and an accent. The
-  miniature uses the theme's values directly rather than `var(--token)`, so
-  every tile previews its own palette instead of the active one.
+- Each tile shows a miniature of that theme — page background, navigation
+  bar, a card with a heading-typeface specimen, two text rules and an
+  accent, with the theme's corners and shadow. The tile declares the theme's
+  custom properties on itself, so its `var(--token)` rules preview that
+  theme instead of the active one.
 - "Light" and "Dark" are translated; every other name — shipped or not —
   shows the `name` from its file verbatim. A user theme also carries a
   "Custom" tag.
@@ -168,8 +170,8 @@ Files that fail to load are listed under the picker by file name with the
 reason, rather than being silently skipped — the person who wrote the file is
 the one who can repair it.
 
-See [Common UI](ui-common.md#3-design-tokens) for the file format and the full
-token list.
+See [Common UI](ui-common.md#3-design-tokens) for the file format, the style
+presets and the full token list.
 
 ---
 

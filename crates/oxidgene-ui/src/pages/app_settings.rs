@@ -57,7 +57,6 @@ pub fn AppSettings() -> Element {
     use_settings_scroll_reset(active_section);
 
     rsx! {
-        style { {SHARED_SETTINGS_STYLES} }
         style { {APP_SETTINGS_STYLES} }
 
         div { class: "sub-page",
@@ -132,45 +131,29 @@ pub fn AppSettings() -> Element {
 
 // ── Appearance section ──────────────────────────────────────────────────────
 
-/// A miniature of the theme, painted in that theme's own colours.
+/// A miniature of the theme in its own colours, typefaces, corners and
+/// shadows.
 ///
-/// The swatch takes its values from the theme rather than from `var(--…)`,
-/// because every swatch on the page shows a *different* theme from the one
-/// currently applied — reading the cascade would paint them all alike. It
-/// also means a theme the user wrote previews correctly without this page
-/// knowing anything about it.
+/// Every swatch on the page shows a *different* theme from the one applied,
+/// so the swatch declares that theme's custom properties on itself: its
+/// stylesheet rules then resolve `var(--…)` against the theme shown. A theme
+/// the user wrote previews correctly without this page knowing anything
+/// about it.
 #[component]
 fn ThemeSwatch(theme: ReadSignal<Theme>) -> Element {
-    let theme = theme.read();
-    let colors = &theme.colors;
+    let properties = theme.read().declarations();
 
     rsx! {
-        div {
-            class: "app-theme-swatch",
-            style: "background: {colors.bg_deep}; border-color: {colors.border};",
-            div {
-                class: "app-theme-swatch-bar",
-                style: "background: {colors.nav_surface}; border-color: {colors.border};",
-                span {
-                    class: "app-theme-swatch-dot",
-                    style: "background: {colors.orange};",
-                }
+        div { class: "app-theme-swatch", style: "{properties}",
+            div { class: "app-theme-swatch-bar",
+                span { class: "app-theme-swatch-dot" }
             }
-            div {
-                class: "app-theme-swatch-card",
-                style: "background: {colors.bg_card}; border-color: {colors.border};",
-                span {
-                    class: "app-theme-swatch-line",
-                    style: "background: {colors.text_primary};",
-                }
-                span {
-                    class: "app-theme-swatch-line is-short",
-                    style: "background: {colors.text_secondary};",
-                }
-                span {
-                    class: "app-theme-swatch-accent",
-                    style: "background: {colors.green_accent};",
-                }
+            div { class: "app-theme-swatch-card",
+                // A specimen of the heading typeface, not text to read.
+                span { class: "app-theme-swatch-type", aria_hidden: "true", "Aa" }
+                span { class: "app-theme-swatch-line" }
+                span { class: "app-theme-swatch-line is-short" }
+                span { class: "app-theme-swatch-accent" }
             }
         }
     }
@@ -752,469 +735,6 @@ fn AssistantLauncherPanel(launcher: AssistantLauncher) -> Element {
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
-/// Shared settings layout and application-preference widget styles.
-///
-/// The tree [`crate::pages::settings`] page embeds the same sections under its
-/// own "Global preferences" nav group and uses this layout as the canonical
-/// visual treatment for both settings surfaces.
-pub(crate) const SHARED_SETTINGS_STYLES: &str = r#"
-    /* ── Theme pickers ──────────────────────────────────────────────
-       One grid for both the application palette and the pedigree chart
-       style: they are the same control over different things, and a
-       reader moving between the two sections should not have to work
-       out that they are. Only the swatch inside differs — a painted
-       miniature for a palette, an SVG card for a chart style. */
-    /* `auto-fill`, not `auto-fit`: fit collapses the empty tracks and lets the
-       few items that exist stretch across the row, which would give the two
-       pedigree styles tiles three times the width of the five palettes. Fill
-       keeps the tracks, so a tile is the same size in both pickers. */
-    .theme-picker {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-        gap: 0.75rem;
-    }
-
-    .theme-picker-option {
-        display: grid;
-        justify-items: center;
-        align-content: start;
-        gap: 0.4rem;
-        padding: 0.7rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: none;
-        cursor: pointer;
-        transition: border-color 0.15s, background 0.15s;
-        text-align: center;
-        color: var(--text-primary);
-        font-family: var(--font-sans);
-    }
-
-    .theme-picker-option:hover { border-color: var(--orange); }
-
-    .theme-picker-option.active {
-        border-color: var(--orange);
-        background: var(--sel-bg);
-    }
-
-    .theme-picker-label {
-        font-size: 0.9rem;
-        font-weight: 600;
-    }
-
-    .theme-picker-hint {
-        font-size: 0.78rem;
-        color: var(--text-secondary);
-        line-height: 1.35;
-    }
-
-    .theme-picker-tag {
-        font-size: 0.68rem;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--text-secondary);
-    }
-
-    /* Both swatches occupy the same box, so the two pickers line up. */
-    .app-theme-swatch,
-    .ped-theme-swatch {
-        width: 100%;
-        height: 68px;
-    }
-
-    /* The miniature is painted from inline values, so it carries no colour
-       of its own: everything here is layout. */
-    .app-theme-swatch {
-        border: 1px solid;
-        border-radius: 5px;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .app-theme-swatch-bar {
-        height: 13px;
-        border-bottom: 1px solid;
-        display: flex;
-        align-items: center;
-        padding: 0 4px;
-        flex: none;
-    }
-
-    .app-theme-swatch-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-    }
-
-    .app-theme-swatch-card {
-        margin: 6px;
-        padding: 5px;
-        border: 1px solid;
-        border-radius: 3px;
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 4px;
-    }
-
-    .app-theme-swatch-line {
-        height: 3px;
-        border-radius: 2px;
-        width: 100%;
-        opacity: 0.85;
-    }
-
-    .app-theme-swatch-line.is-short { width: 60%; }
-
-    .app-theme-swatch-accent {
-        height: 5px;
-        width: 34%;
-        border-radius: 2px;
-    }
-
-    .app-theme-source {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 0.6rem;
-    }
-
-    .app-theme-folder {
-        font-size: 0.78rem;
-        padding: 3px 7px;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        background: var(--bg-deep);
-        color: var(--text-secondary);
-        word-break: break-all;
-    }
-
-    /* A theme file that failed to load is named here rather than only in the
-       log: the person who wrote it is the one who can fix it. */
-    .app-theme-errors {
-        margin: 0;
-        padding-left: 1.1rem;
-        font-size: 0.8rem;
-        line-height: 1.45;
-        color: var(--danger-text);
-    }
-
-    /* The swatch carries the theme's own variables and uses the same ground
-       as the pedigree canvas. */
-    .ped-theme-swatch {
-        border-radius: 5px;
-        border: 1px solid var(--border);
-        /* The ground is painted by the rect inside. */
-        --pn-swatch-bg: var(--bg-deep);
-    }
-
-    .settings-layout {
-        display: flex;
-        gap: 24px;
-        min-height: 0;
-    }
-
-    .settings-nav {
-        width: 200px;
-        min-width: 200px;
-        flex-shrink: 0;
-    }
-
-    .settings-nav-group {
-        margin-bottom: 20px;
-    }
-
-    .settings-nav-group-label {
-        font-size: 0.68rem;
-        font-weight: 700;
-        color: var(--orange);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 6px;
-        padding: 0 8px;
-    }
-
-    .settings-nav-item {
-        display: block;
-        width: 100%;
-        padding: 6px 8px;
-        text-align: left;
-        background: none;
-        border: none;
-        border-radius: 5px;
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: background 0.12s, color 0.12s;
-        font-family: var(--font-sans);
-    }
-
-    .settings-nav-item:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-    }
-
-    .settings-nav-item.active {
-        background: var(--sel-bg);
-        color: var(--text-primary);
-        font-weight: 600;
-    }
-
-    .settings-content {
-        flex: 1;
-        min-width: 0;
-        max-width: 860px;
-    }
-
-    .settings-section-eyebrow {
-        font-size: 0.68rem;
-        font-weight: 700;
-        color: var(--orange);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
-    }
-
-    .settings-section-title {
-        font-family: var(--font-heading);
-        font-size: 1.2rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 4px;
-    }
-
-    .settings-section-subtitle {
-        font-size: 0.85rem;
-        color: var(--text-secondary);
-    }
-
-    .app-settings-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 1.25rem;
-    }
-
-    .app-settings-option {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-    }
-
-    /* Must stay after the rule above: both are single-class selectors, so the
-       later one wins the tie. Declared first, `align-items: center` took it
-       back and every picker grid collapsed to one centred column. */
-    .app-settings-option-stacked {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.9rem;
-    }
-
-    .app-settings-option-info {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-    }
-
-    .app-settings-option + .app-settings-option {
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border);
-    }
-
-    .settings-section + .settings-section {
-        margin-top: 1.25rem;
-    }
-
-    .pedigree-depth-stepper {
-        display: grid;
-        grid-template-columns: 2rem 2.5rem 2rem;
-        align-items: center;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
-        flex-shrink: 0;
-    }
-
-    .pedigree-depth-step {
-        width: 2rem;
-        height: 2rem;
-        border: none;
-        background: none;
-        color: var(--text-primary);
-        cursor: pointer;
-        font-size: 1rem;
-    }
-
-    .pedigree-depth-step:hover:not(:disabled) {
-        background: var(--bg-card-hover);
-    }
-
-    .pedigree-depth-step:disabled {
-        color: var(--text-muted);
-        cursor: default;
-        opacity: 0.5;
-    }
-
-    .pedigree-depth-value {
-        line-height: 2rem;
-        text-align: center;
-        border-right: 1px solid var(--border);
-        border-left: 1px solid var(--border);
-        color: var(--text-primary);
-        font-variant-numeric: tabular-nums;
-        font-weight: 600;
-    }
-
-    .app-settings-option-label {
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .app-settings-option-hint {
-        font-size: 0.8rem;
-        color: var(--text-muted);
-    }
-
-    .theme-toggle-group {
-        display: flex;
-        gap: 0;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
-    }
-
-    .theme-toggle-btn {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        padding: 0.45rem 0.85rem;
-        border: none;
-        background: none;
-        font-size: 0.85rem;
-        color: var(--text-muted);
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s;
-    }
-
-    .theme-toggle-btn:first-child {
-        border-right: 1px solid var(--border);
-    }
-
-    .theme-toggle-btn:hover {
-        background: var(--bg-card-hover);
-        color: var(--text-primary);
-    }
-
-    .theme-toggle-btn.active {
-        background: var(--orange);
-        color: var(--white);
-    }
-
-    .lang-options {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .lang-option {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem 1rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: none;
-        cursor: pointer;
-        transition: border-color 0.15s, background 0.15s;
-        width: 100%;
-        text-align: left;
-        font-size: 0.95rem;
-        color: var(--text-primary);
-    }
-
-    .lang-option:hover {
-        border-color: var(--orange);
-        background: var(--bg-card-hover);
-    }
-
-    .lang-option.active {
-        border-color: var(--orange);
-        background: color-mix(in srgb, var(--orange) 8%, transparent);
-    }
-
-    .lang-option-flag {
-        font-size: 1.3rem;
-    }
-
-    .lang-option-label {
-        flex: 1;
-        font-weight: 500;
-    }
-
-    .lang-option-check {
-        color: var(--orange);
-        font-weight: 700;
-        font-size: 1rem;
-    }
-
-    @media (max-width: 768px) {
-        .settings-layout {
-            flex-direction: column;
-        }
-        .settings-nav {
-            width: 100%;
-            min-width: 0;
-            display: flex;
-            flex-wrap: nowrap;
-            align-items: center;
-            gap: 12px;
-            overflow-x: auto;
-            padding-bottom: 4px;
-        }
-        .settings-nav-group {
-            display: flex;
-            flex: none;
-            align-items: center;
-            flex-wrap: nowrap;
-            gap: 4px;
-            margin-bottom: 0;
-        }
-        .settings-nav-group-label {
-            width: auto;
-            margin: 0 4px 0 0;
-            padding: 0 8px 0 0;
-            border-right: 1px solid var(--border);
-            white-space: nowrap;
-        }
-        .settings-nav-item {
-            width: auto;
-            flex: none;
-            white-space: nowrap;
-        }
-    }
-
-    @media (max-width: 640px) {
-        .app-settings-option {
-            flex-direction: column;
-            align-items: flex-start;
-        }
-        .app-settings-option-stacked {
-            align-items: stretch;
-        }
-    }
-
-    @media (min-width: 300px) and (max-width: 640px) {
-        .theme-picker {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-"#;
-
 // ── Names section ───────────────────────────────────────────────────────────
 
 /// How surnames carrying a particle ("de la Cruz") are filed alphabetically.
@@ -1276,8 +796,8 @@ const APP_SETTINGS_STYLES: &str = r#"
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
+        gap: var(--space-8);
+        padding: var(--space-8) var(--space-10);
         border-bottom: 1px solid var(--border);
         color: inherit;
         text-decoration: none;
@@ -1296,13 +816,13 @@ const APP_SETTINGS_STYLES: &str = r#"
         display: flex;
         min-width: 0;
         flex-direction: column;
-        gap: 0.2rem;
+        gap: var(--space-2);
     }
 
     .api-endpoint-url {
-        margin-top: 0.2rem;
+        margin-top: var(--space-2);
         color: var(--orange);
-        font-size: 0.78rem;
+        font-size: var(--text-80);
         overflow-wrap: anywhere;
     }
 
@@ -1324,10 +844,10 @@ const APP_SETTINGS_STYLES: &str = r#"
        assistant takes a warning plus several whole fields, and folding
        them into the same list would make its shortest rows the tallest. */
     .copy-card {
-        margin-top: 1rem;
+        margin-top: var(--space-8);
         display: flex;
         flex-direction: column;
-        gap: 0.9rem;
+        gap: var(--space-7);
     }
 
 "#;

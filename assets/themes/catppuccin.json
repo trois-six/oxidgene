@@ -50,5 +50,10 @@
     "pn-text": "#cdd6f4",
     "pn-text-muted": "#a6adc8",
     "pn-hover-bg": "#313244"
+  },
+  "style": {
+    "heading_font": "lato",
+    "corners": "round",
+    "density": "airy"
   }
 }

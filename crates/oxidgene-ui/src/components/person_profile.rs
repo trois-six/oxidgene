@@ -1383,12 +1383,12 @@ pub(crate) fn notes_section(
     match notes {
         Some(Ok(notes)) if !notes.is_empty() => rsx! {
             div { class: "card pd-section",
-                h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t(title_key)} }
+                h2 { class: "section-title section-title-spaced", {i18n.t(title_key)} }
                 div {
                     for note in notes.iter() {
                         div {
                             key: "{note.id}",
-                            style: "margin-bottom: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);",
+                            class: "note-entry",
                             // Note bodies carry markup — GEDCOM and GeneWeb
                             // both put some in — and are sanitized server-side
                             // on write by `oxidgene_db::html::sanitize_note_html`,
@@ -1443,7 +1443,7 @@ pub(crate) fn ProfileMediaCard(
     rsx! {
         div { class: "card pd-section",
             div { class: "pd-media-header",
-                h2 { style: "font-size: 1.1rem;", "{title}" }
+                h2 { class: "section-title", "{title}" }
                 div { class: "media-drop media-upload-icon",
                     button {
                         class: "media-upload-icon-btn",
@@ -1508,7 +1508,7 @@ pub(crate) fn family_section(
 
     rsx! {
         div { class: "card pd-family-card pd-section",
-            h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {i18n.t("person.family_connections")} }
+            h2 { class: "section-title section-title-spaced", {i18n.t("person.family_connections")} }
 
             if !parent_ids.is_empty() {
                 p { class: "pd-family-prose",
@@ -1695,7 +1695,7 @@ pub(crate) fn timeline_section(
     rsx! {
         div { class: "card pd-section",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", "{title}" }
+                h2 { class: "section-title", "{title}" }
             }
             if events.is_empty() {
                 EmptyState {
@@ -1837,7 +1837,7 @@ pub(crate) fn timeline_placeholder(i18n: &I18n, error: Option<&str>) -> Element 
     rsx! {
         div { class: "card pd-section",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", {i18n.t("person.events_section")} }
+                h2 { class: "section-title", {i18n.t("person.events_section")} }
             }
             match error {
                 Some(error) => rsx! {
@@ -1894,7 +1894,7 @@ pub(crate) fn ancestors_section(
     rsx! {
         div { class: "card pd-section",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", {i18n.t("person.ancestors")} }
+                h2 { class: "section-title", {i18n.t("person.ancestors")} }
             }
             {body}
         }

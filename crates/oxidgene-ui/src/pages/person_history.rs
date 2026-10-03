@@ -10,8 +10,7 @@ use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::empty_state::EmptyState;
 use crate::components::history_diff::{
-    HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
-    version_label,
+    VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name, version_label,
 };
 use crate::components::paged_list::use_paged_list;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
@@ -132,7 +131,6 @@ pub fn PersonHistory(tree_id: String, person_id: String) -> Element {
         .collect();
 
     rsx! {
-        style { {HISTORY_STYLES} }
         style { {PERSON_HISTORY_STYLES} }
         ToolPageFrame {
             tree_id: tree_id.clone(),
@@ -362,8 +360,8 @@ fn VersionComparison(
 }
 
 const PERSON_HISTORY_STYLES: &str = r#"
-    .ph-content { display: flex; flex-direction: column; gap: 16px; }
-    .ph-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .ph-content { display: flex; flex-direction: column; gap: var(--space-8); }
+    .ph-header { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
     .ph-title {
         font-family: var(--font-heading);
         font-size: 1.4rem;
@@ -374,7 +372,7 @@ const PERSON_HISTORY_STYLES: &str = r#"
     .ph-layout {
         display: grid;
         grid-template-columns: minmax(220px, 280px) 1fr;
-        gap: 16px;
+        gap: var(--space-8);
         align-items: start;
     }
     .ph-versions {
@@ -383,15 +381,15 @@ const PERSON_HISTORY_STYLES: &str = r#"
         padding: 0;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--space-3);
     }
     .ph-version {
         width: 100%;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: var(--space-1);
         text-align: start;
-        padding: 10px 12px;
+        padding: var(--space-5) var(--space-6);
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: var(--radius);
@@ -401,24 +399,24 @@ const PERSON_HISTORY_STYLES: &str = r#"
     }
     .ph-version:hover { background: var(--bg-card-hover); }
     .ph-version.active { border-color: var(--orange); box-shadow: var(--shadow-sm); }
-    .ph-version-number { font-weight: 700; font-size: 0.85rem; }
-    .ph-version-date { font-size: 0.75rem; color: var(--text-muted); }
-    .ph-version-what { font-size: 0.8rem; color: var(--text-secondary); }
-    .ph-version-details { font-size: 0.75rem; color: var(--text-muted); }
+    .ph-version-number { font-weight: 700; font-size: var(--text-85); }
+    .ph-version-date { font-size: var(--text-75); color: var(--text-muted); }
+    .ph-version-what { font-size: var(--text-80); color: var(--text-secondary); }
+    .ph-version-details { font-size: var(--text-75); color: var(--text-muted); }
     .ph-more { align-self: flex-start; }
-    .ph-diff { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+    .ph-diff { display: flex; flex-direction: column; gap: var(--space-7); min-width: 0; }
     .ph-toolbar {
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: var(--space-8);
         flex-wrap: wrap;
     }
     .ph-toolbar .btn { margin-inline-start: auto; }
     .ph-compare, .ph-toggle {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        font-size: 0.85rem;
+        gap: var(--space-4);
+        font-size: var(--text-85);
         color: var(--text-secondary);
         white-space: nowrap;
     }

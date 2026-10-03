@@ -6729,7 +6729,7 @@
     "app_settings.theme_custom_hint": "Motywy to pliki JSON. Umieść plik w tym folderze i ponownie otwórz tę stronę, aby go tu zobaczyć.",
     "app_settings.theme_custom_tag": "Własny",
     "app_settings.theme_dark": "Ciemny",
-    "app_settings.theme_hint": "Kolory, w jakich wyświetlana jest cała aplikacja.",
+    "app_settings.theme_hint": "Wygląd całej aplikacji: kolory, kroje pisma, narożniki i odstępy.",
     "app_settings.theme_light": "Jasny",
     "app_settings.title": "Ustawienia",
     "app_settings.token_hint": "Wysyłaj go w nagłówku Authorization: Bearer <token> z każdym żądaniem oprócz dokumentu OpenAPI. Adres i token zmieniają się przy każdym uruchomieniu aplikacji.",

@@ -196,6 +196,17 @@ fn every_custom_property_read_is_defined() {
             defined.insert(key.to_string());
         }
     }
+    // The style tokens (typefaces, radii, shadows, density) every theme
+    // emits from `ThemeStyle::TOKENS`.
+    let theme_reader = read("crates/oxidgene-ui/src/theme.rs");
+    let style = theme_reader
+        .split("pub const TOKENS: [&'static str;")
+        .nth(1)
+        .expect("ThemeStyle::TOKENS in theme.rs");
+    let style = &style[..style.find("];").expect("the end of ThemeStyle::TOKENS")];
+    for token in style.split('"').skip(1).step_by(2) {
+        defined.insert(token.to_string());
+    }
     let mut undefined = BTreeSet::new();
     for (at, _) in text.match_indices("var(--") {
         let name: String = text[at + 6..]

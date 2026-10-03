@@ -263,7 +263,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
             }
 
             if let Some(err) = save_error() {
-                div { class: "error-msg", style: "margin: 0 16px;", "{err}" }
+                div { class: "error-msg error-msg-inset", "{err}" }
             }
 
             div { class: "union-form-body",

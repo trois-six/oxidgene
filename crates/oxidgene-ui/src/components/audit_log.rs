@@ -12,7 +12,7 @@ use crate::api::ApiClient;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::empty_state::EmptyState;
 use crate::components::history_diff::{
-    HISTORY_STYLES, VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
+    VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
 use crate::components::paged_list::{PagedList, use_paged_list};
 use crate::components::tree_cache::use_tree_cache;
@@ -48,8 +48,6 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
             .collect();
 
     rsx! {
-        style { {HISTORY_STYLES} }
-        style { {AUDIT_LOG_STYLES} }
         div { class: "settings-section",
             span { class: "settings-section-eyebrow", {i18n.t("settings.tools")} }
             h2 { class: "settings-section-title", {i18n.t("settings.history")} }
@@ -306,56 +304,3 @@ fn record_title(i18n: &I18n, change: &VersionChange) -> String {
         None => kind,
     }
 }
-
-const AUDIT_LOG_STYLES: &str = r#"
-    .al-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 16px; }
-    .al-filter {
-        padding: 4px 12px;
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        background: transparent;
-        color: var(--text-secondary);
-        font-size: 0.8rem;
-        cursor: pointer;
-        font-family: var(--font-sans);
-    }
-    .al-filter:hover { background: var(--bg-card-hover); color: var(--text-primary); }
-    .al-filter.active { border-color: var(--orange); color: var(--orange); font-weight: 600; }
-    .al-entries {
-        list-style: none;
-        margin: 0 0 12px;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-    .al-entry { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
-    .al-entry-head {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px 12px;
-    }
-    .al-time { font-size: 0.78rem; color: var(--text-muted); min-width: 140px; }
-    .al-what { font-size: 0.875rem; color: var(--text-primary); }
-    .al-subject { font-size: 0.875rem; font-weight: 700; color: var(--orange); }
-    .al-toggle { margin-inline-start: auto; }
-    .al-details { font-size: 0.78rem; color: var(--text-secondary); }
-    .al-category-data { color: var(--blue); border-color: var(--blue); }
-    .al-category-settings { color: var(--text-primary); }
-    .al-category-media { color: var(--pink); border-color: var(--pink); }
-    .al-category-import, .al-category-export { color: var(--green); border-color: var(--green); }
-    .al-category-history { color: var(--orange); border-color: var(--orange); }
-    .al-changes {
-        display: flex;
-        flex-direction: column;
-        gap: 18px;
-        margin-top: 8px;
-        padding-top: 12px;
-        border-top: 1px solid var(--border);
-    }
-    .al-change { display: flex; flex-direction: column; gap: 10px; }
-    .al-change-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-    .al-change-head a.btn { text-decoration: none; }
-    .al-change-record { font-weight: 700; color: var(--text-primary); margin-inline-end: auto; }
-"#;

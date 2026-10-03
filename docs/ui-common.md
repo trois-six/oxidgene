@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: github-copilot/copilot, at: 2026-10-02T18:38:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T10:19:34Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -25,10 +25,14 @@ reference these rules instead of redefining them.
   i18n key present in every language's table.
 - Documentation, screenshots, tests, fixtures, and examples use fictitious,
   anonymized people, trees, accounts, places, and archive references.
-- Colors are defined only by the active theme (§3.1), never as literals in a
-  stylesheet. Dimensions, typography, and derived tokens are defined in
-  `crates/oxidgene-ui/src/components/layout.rs` (`LAYOUT_STYLES`). Pages do not
-  duplicate literal colors, spacing, shadows, or typography.
+- Colours, typefaces, corner radii, shadows and density come from the active
+  theme (§3.1), never from literals in a stylesheet. The scales derived from
+  them, the component dimensions, and every style shared by more than one
+  page are defined in `crates/oxidgene-ui/src/components/layout.rs`
+  (`LAYOUT_STYLES`). Pages keep only their own layout and reach sizes,
+  spacing, radii, shadows and families through the tokens of §3.3 and §3.4.
+  Hairline offsets (`1px`, odd pixel nudges) and the geometry of the chart
+  canvases and of print, which Rust computes or paper fixes, stay literal.
 - Removing a component or state also removes its CSS selectors, translations,
   tests, and obsolete API calls.
 
@@ -84,9 +88,12 @@ the family-name field when focus is not already in an editable control.
 
 ### 3.1 Themes
 
-A theme is a set of colours and nothing else. Fonts, spacing, radii and
-component geometry are the same under every theme: switching theme repaints
-the application, it never relayouts it.
+A theme sets the colours and, through a few presets, the typefaces, the
+corner radii, the elevation and the density. Component geometry — the
+structure of each page, its columns and fixed dimensions — is the same under
+every theme: a theme changes how the application looks, not how it is
+organized. Switching to a theme of another density does reflow text and
+spacing.
 
 Themes are JSON documents. The shipped set is whatever
 `assets/themes/` holds, listed in the order
@@ -116,7 +123,8 @@ An id that no longer resolves resets the selected and stored value to `light`.
   "id": "sepia",
   "name": "Sepia",
   "base": "light",
-  "colors": { "orange": "#8a5a2b", "bg-deep": "#f6f0e4" }
+  "colors": { "orange": "#8a5a2b", "bg-deep": "#f6f0e4" },
+  "style": { "heading_font": "serif", "corners": "round" }
 }
 ```
 
@@ -126,14 +134,30 @@ An id that no longer resolves resets the selected and stored value to `light`.
 | `name` | Shown in the picker, verbatim unless a translation key exists. |
 | `base` | Optional. Id of a built-in theme to inherit from. |
 | `colors` | Token name (without `--`) to colour. Unknown names are rejected. |
+| `style` | Optional. Any of the presets below; the others come from `base`, or the defaults without one. Unknown properties and values are rejected. |
+
+| Style property | Presets (default first) | Sets |
+|---|---|---|
+| `body_font` | `lato`, `cinzel`, `system`, `serif`, `mono` | `--font-sans` |
+| `heading_font` | `cinzel`, `lato`, `system`, `serif`, `mono` | `--font-heading` |
+| `corners` | `soft` (3/4/8/12px), `square` (0/2/3/4px), `round` (6/10/14/20px) | `--radius-xs`, `--radius-sm`, `--radius`, `--radius-lg` |
+| `elevation` | `soft`, `flat` (borders, overlays only), `raised` | `--shadow-sm`, `--shadow-md`, `--shadow-lg` |
+| `density` | `regular` (2px unit, text ×1), `compact` (1.75px, ×0.95), `airy` (2.3px, ×1.05) | `--space-unit`, `--text-scale` |
+
+`lato` and `cinzel` are the bundled faces; `system`, `serif` and `mono` name
+the platform's own interface, book and monospace fonts, so no theme makes the
+application fetch a font. The shipped themes each choose presets that suit
+the site or palette they are named after; `light`, the default, keeps every
+default.
 
 Without `base`, every token in §3.2 must be given. With it, only the
 differences need listing — which is how `dark` is written, and what keeps an
 existing theme working when a token is added.
 
-Values are hexadecimal only: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`. A
-theme file is user input that ends up inside a `<style>` element, so CSS
-functions, named colours and anything else are refused rather than passed
+Colour values are hexadecimal only: `#rgb`, `#rgba`, `#rrggbb` or
+`#rrggbbaa`, and style values are preset names only. A theme file is user
+input that ends up inside a `<style>` element, so CSS functions, named
+colours, free lengths and anything else are refused rather than passed
 through.
 
 Custom themes live in `<config directory>/themes/*.json` and are read by the
@@ -225,25 +249,35 @@ its own, and no rule reads a token no theme or stylesheet defines.
 
 | Token | Value | Usage |
 |---|---|---|
-| `--font-heading` | `'Cinzel', Georgia, serif` | Brand and headings |
-| `--font-sans` | `'Lato', sans-serif` | Body, controls, and metadata |
+| `--font-heading` | Theme preset, default Cinzel | Brand and headings |
+| `--font-sans` | Theme preset, default Lato | Body, controls, and metadata |
+| `--font-mono` | Platform monospace | Tokens, identifiers, code |
+| `--text-N` | `N/100 rem × --text-scale` | Font sizes |
+| `--space-N` | `N × --space-unit` (2px by default) | Padding, margins, gaps |
+| `--radius-xs` … `--radius-lg` | Theme preset | Badges, controls, cards and modals, large panels |
+| `--radius-pill` | `999px` | Pills and chips |
 | `--sb` | `46px` | Tree icon sidebar |
 | `--evw` | `275px`, then a ratio once resized | Tree events panel width |
-| `--radius` | `8px` | Cards, buttons, inputs, modals |
 
 Cinzel and Lato ship with the application: their Latin and Latin Extended
 subsets live in `assets/fonts/` with their SIL Open Font License texts and are
 embedded as `@font-face` rules over `data:` URLs (`FONT_FACES` in
 `components/layout.rs`), so neither build requests a font from a third party.
 
-Reference type scale: page title `1.3rem`, section heading `1.05rem`, card
-title `0.95rem`, body `0.85rem`, metadata `0.78rem`, small text `0.72rem`, and
-badge text `0.65rem`. Spacing follows 4, 8, 12/16, 20/24, and 32px steps.
+The type scale has fourteen steps, `--text-65` to `--text-300`: badge text
+`--text-65`, small text `--text-70`, metadata `--text-80`, body `--text-85`,
+card title `--text-95`, section heading `--text-110`, page title
+`--text-130`, display sizes above. Spacing uses the even steps of the
+2px unit — 4, 8, 12, 16, 20, 24, 32px at regular density — with
+`--space-1` to `--space-32` named after their number of units. A theme's
+density scales both together.
 
 ### 3.4 Elevation and interaction
 
 - `--shadow-sm`: cards and dropdowns.
-- `--shadow-md`: modals, popovers, and the navbar.
+- `--shadow-md`: popovers, menus, and the navbar.
+- `--shadow-lg`: modal dialogs and other overlays.
+- Accent glows and focus rings mix the accent colour and are not elevation.
 - Buttons use card background and border by default, orange focus/hover, solid
   accent for primary actions, and danger tokens for destructive actions.
 - Text inputs, selects and textareas use card background and border, orange
@@ -614,9 +648,12 @@ the pedigree chart style both use it, and any later one must. Each tile holds a
 swatch, a name, and optionally a hint line or a tag; the active tile carries an
 orange border, the selection background and `aria-pressed`.
 
-Only the swatch differs between uses — a painted miniature for a palette, an
-SVG card pair for a chart style — and both occupy the same box so the pickers
-line up. Tracks use `auto-fill`, so tile size does not depend on how many
+Only the swatch differs between uses — a miniature of the theme for the
+application theme, an SVG card pair for a chart style — and both occupy the
+same box so the pickers line up. The application swatch declares the custom
+properties of the theme it shows on itself (`Theme::declarations`), so its
+rules resolve `var(--…)` against that theme: it previews the theme's colours,
+heading typeface, corners and shadow, not the active theme's. Tracks use `auto-fill`, so tile size does not depend on how many
 themes happen to exist.
 
 ### 4.10 VersionDiff

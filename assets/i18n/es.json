@@ -6710,7 +6710,7 @@
     "app_settings.theme_custom_hint": "Los temas son archivos JSON. Coloque uno en esta carpeta y vuelva a abrir esta página para verlo aquí.",
     "app_settings.theme_custom_tag": "Personalizado",
     "app_settings.theme_dark": "Oscuro",
-    "app_settings.theme_hint": "Los colores con los que se dibuja toda la aplicación.",
+    "app_settings.theme_hint": "El aspecto de toda la aplicación: sus colores, tipografías, esquinas y espaciado.",
     "app_settings.theme_light": "Claro",
     "app_settings.title": "Ajustes",
     "app_settings.token_hint": "Envíelo en la cabecera Authorization: Bearer <token> con cada petición, salvo el documento OpenAPI. La dirección y el token cambian cada vez que se inicia la aplicación.",

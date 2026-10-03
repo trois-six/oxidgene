@@ -661,7 +661,7 @@ impl CoupleView<'_> {
             if let Some((profile, union)) = union {
                 div { class: "cp-span",
                     div { class: "card pd-family-card",
-                        h2 { style: "font-size: 1.1rem; margin-bottom: 12px;", {ctx.i18n.t("couple.union_section")} }
+                        h2 { class: "section-title section-title-spaced", {ctx.i18n.t("couple.union_section")} }
                         p { class: "pd-union-line", {union_line(ctx, profile, union, false)} }
                         {children_list(ctx, profile, &union.child_ids)}
                     }

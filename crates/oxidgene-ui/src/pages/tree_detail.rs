@@ -897,7 +897,7 @@ fn linking_panel(
     rsx! {
         div { class: "card linking-card",
             div { class: "section-header",
-                h2 { style: "font-size: 1.1rem;", {i18n.t(title_key)} }
+                h2 { class: "section-title", {i18n.t(title_key)} }
                 button {
                     class: "btn btn-outline btn-sm",
                     onclick: move |_| linking.set(None),

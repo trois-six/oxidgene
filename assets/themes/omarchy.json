@@ -50,5 +50,12 @@
     "pn-text": "#c0caf5",
     "pn-text-muted": "#a9b1d6",
     "pn-hover-bg": "#283457"
+  },
+  "style": {
+    "body_font": "mono",
+    "heading_font": "mono",
+    "corners": "square",
+    "elevation": "flat",
+    "density": "compact"
   }
 }

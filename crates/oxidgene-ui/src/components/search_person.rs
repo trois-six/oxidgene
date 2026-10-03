@@ -346,7 +346,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
             if is_loading {
                 div { class: "loading", {i18n.t("search.loading")} }
             } else if results.is_empty() {
-                div { class: "text-muted", style: "padding: 8px;",
+                div { class: "text-muted search-person-empty",
                     {i18n.t("search.no_match")}
                 }
             } else {

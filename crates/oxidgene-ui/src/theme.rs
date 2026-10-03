@@ -1,9 +1,10 @@
-//! Global colour themes — the palette every page draws from.
+//! Global themes — the palette and the style every page draws from.
 //!
-//! A theme is a set of colours and nothing else. Fonts, spacing, radii and
-//! component geometry stay in [`crate::components::layout::LAYOUT_STYLES`],
-//! which is the same for every theme: switching theme must repaint the
-//! application, never relayout it.
+//! A theme sets the colours and, through a few presets ([`ThemeStyle`]), the
+//! typefaces, the corner radii, the elevation and the density. The
+//! stylesheet in [`crate::components::layout::LAYOUT_STYLES`] reads all of
+//! them through custom properties and owns only the component geometry, so a
+//! theme changes how the application looks, not how it is organized.
 //!
 //! Themes are data, not code. Each one is a JSON document; the built-in
 //! themes are embedded at compile time and users may drop further ones into a
@@ -16,8 +17,9 @@
 //!
 //! A theme file is user input that ends up inside a `<style>` element. An
 //! unchecked value could close the declaration and append arbitrary rules, so
-//! [`Color`] accepts hexadecimal notation and nothing else, and theme
-//! identifiers are restricted to a slug. Anything else is rejected with the
+//! [`Color`] accepts hexadecimal notation and nothing else, style properties
+//! are closed sets of presets, and theme identifiers are restricted to a
+//! slug. Anything else is rejected with the
 //! file name attached rather than silently dropped.
 //!
 //! # Deriving a colour rather than adding a token
@@ -255,6 +257,219 @@ theme_tokens! {
     pn_hover_bg => "pn-hover-bg",
 }
 
+/// A typeface stack a theme may use. The bundled faces ship with the
+/// application; the others name what the platform already has, so no theme
+/// ever makes the application fetch a font.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FontChoice {
+    /// Bundled Lato.
+    Lato,
+    /// Bundled Cinzel, the engraved capitals of the default headings.
+    Cinzel,
+    /// The platform's interface font.
+    System,
+    /// The platform's book serif.
+    Serif,
+    /// The platform's monospace font.
+    Mono,
+}
+
+impl FontChoice {
+    fn stack(self) -> &'static str {
+        match self {
+            Self::Lato => {
+                "'Lato', -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif"
+            }
+            Self::Cinzel => "'Cinzel', Georgia, serif",
+            Self::System => {
+                "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif"
+            }
+            Self::Serif => {
+                "Georgia, \"Iowan Old Style\", \"Palatino Linotype\", \"Times New Roman\", serif"
+            }
+            Self::Mono => {
+                "ui-monospace, \"SFMono-Regular\", \"Cascadia Code\", Menlo, Consolas, \"DejaVu Sans Mono\", monospace"
+            }
+        }
+    }
+}
+
+/// How rounded corners are: the four steps of the radius scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Corners {
+    Square,
+    Soft,
+    Round,
+}
+
+impl Corners {
+    /// `--radius-xs`, `--radius-sm`, `--radius`, `--radius-lg`.
+    fn scale(self) -> [&'static str; 4] {
+        match self {
+            Self::Square => ["0", "2px", "3px", "4px"],
+            Self::Soft => ["3px", "4px", "8px", "12px"],
+            Self::Round => ["6px", "10px", "14px", "20px"],
+        }
+    }
+}
+
+/// How far surfaces rise from the page: the three steps of the shadow scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Elevation {
+    /// Surfaces separated by their borders; only overlays cast a shadow.
+    Flat,
+    Soft,
+    Raised,
+}
+
+impl Elevation {
+    /// `--shadow-sm`, `--shadow-md`, `--shadow-lg`, in the palette's shadow
+    /// colours.
+    fn scale(self) -> [&'static str; 3] {
+        match self {
+            Self::Flat => [
+                "none",
+                "0 1px 2px var(--shadow-weak)",
+                "0 8px 24px var(--shadow-weak)",
+            ],
+            Self::Soft => [
+                "0 1px 3px var(--shadow-weak)",
+                "0 4px 16px var(--shadow-strong)",
+                "0 20px 60px var(--shadow-strong)",
+            ],
+            Self::Raised => [
+                "0 2px 6px var(--shadow-weak)",
+                "0 8px 24px var(--shadow-strong)",
+                "0 28px 80px var(--shadow-strong)",
+            ],
+        }
+    }
+}
+
+/// How tightly the interface is set: spacing and text size together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Density {
+    Compact,
+    Regular,
+    Airy,
+}
+
+impl Density {
+    /// `--space-unit`, the step of the spacing scale, and `--text-scale`,
+    /// the factor of the type scale.
+    fn scale(self) -> [&'static str; 2] {
+        match self {
+            Self::Compact => ["1.75px", "0.95"],
+            Self::Regular => ["2px", "1"],
+            Self::Airy => ["2.3px", "1.05"],
+        }
+    }
+}
+
+/// Everything a theme sets besides its colours.
+///
+/// Each property is one of a few presets rather than a free CSS value: a
+/// theme file is user input written into a `<style>` element, and a preset
+/// keeps every scale consistent with the stylesheet's own steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThemeStyle {
+    pub body_font: FontChoice,
+    pub heading_font: FontChoice,
+    pub corners: Corners,
+    pub elevation: Elevation,
+    pub density: Density,
+}
+
+impl ThemeStyle {
+    /// The default theme's: Lato with Cinzel headings, soft corners and
+    /// shadows, regular density.
+    pub const DEFAULT: Self = Self {
+        body_font: FontChoice::Lato,
+        heading_font: FontChoice::Cinzel,
+        corners: Corners::Soft,
+        elevation: Elevation::Soft,
+        density: Density::Regular,
+    };
+
+    fn apply(&mut self, file: &StyleFile) {
+        let StyleFile {
+            body_font,
+            heading_font,
+            corners,
+            elevation,
+            density,
+        } = *file;
+        self.body_font = body_font.unwrap_or(self.body_font);
+        self.heading_font = heading_font.unwrap_or(self.heading_font);
+        self.corners = corners.unwrap_or(self.corners);
+        self.elevation = elevation.unwrap_or(self.elevation);
+        self.density = density.unwrap_or(self.density);
+    }
+
+    /// Every token the style sets, without the `--` prefix, in emission
+    /// order.
+    pub const TOKENS: [&'static str; 11] = [
+        "font-sans",
+        "font-heading",
+        "radius-xs",
+        "radius-sm",
+        "radius",
+        "radius-lg",
+        "shadow-sm",
+        "shadow-md",
+        "shadow-lg",
+        "space-unit",
+        "text-scale",
+    ];
+
+    fn write_declarations(&self, out: &mut String) {
+        let [radius_xs, radius_sm, radius, radius_lg] = self.corners.scale();
+        let [shadow_sm, shadow_md, shadow_lg] = self.elevation.scale();
+        let [space_unit, text_scale] = self.density.scale();
+        let values = [
+            self.body_font.stack(),
+            self.heading_font.stack(),
+            radius_xs,
+            radius_sm,
+            radius,
+            radius_lg,
+            shadow_sm,
+            shadow_md,
+            shadow_lg,
+            space_unit,
+            text_scale,
+        ];
+        for (token, value) in Self::TOKENS.into_iter().zip(values) {
+            out.push_str("    --");
+            out.push_str(token);
+            out.push_str(": ");
+            out.push_str(value);
+            out.push_str(";\n");
+        }
+    }
+}
+
+/// The `style` object of a theme file: each property optional, the rest
+/// taken from the base theme.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StyleFile {
+    #[serde(default)]
+    body_font: Option<FontChoice>,
+    #[serde(default)]
+    heading_font: Option<FontChoice>,
+    #[serde(default)]
+    corners: Option<Corners>,
+    #[serde(default)]
+    elevation: Option<Elevation>,
+    #[serde(default)]
+    density: Option<Density>,
+}
+
 /// A complete, usable theme.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
@@ -267,15 +482,29 @@ pub struct Theme {
     pub builtin: bool,
     /// The palette.
     pub colors: ThemeColors,
+    /// Typography, shape, elevation and density.
+    pub style: ThemeStyle,
 }
 
 impl Theme {
-    /// The `:root` block that makes this theme the active palette.
+    /// Every custom property of the theme, one declaration per line.
+    ///
+    /// Also set inline on a theme's picker swatch, so the miniature resolves
+    /// `var(--…)` against the theme it shows rather than the active one.
+    #[must_use]
+    pub fn declarations(&self) -> String {
+        let mut out = String::with_capacity(ThemeColors::TOKENS.len() * 32 + 1024);
+        self.colors.write_declarations(&mut out);
+        self.style.write_declarations(&mut out);
+        out
+    }
+
+    /// The `:root` block that makes this theme the active one.
     #[must_use]
     pub fn css(&self) -> String {
-        let mut out = String::with_capacity(ThemeColors::TOKENS.len() * 32 + 512);
+        let mut out = String::with_capacity(ThemeColors::TOKENS.len() * 32 + 1536);
         out.push_str(":root {\n");
-        self.colors.write_declarations(&mut out);
+        out.push_str(&self.declarations());
 
         // A data URI cannot read a custom property, so the arrow of every
         // native select is spelled out here from the theme's own secondary
@@ -325,6 +554,8 @@ struct ThemeFile {
     #[serde(default)]
     base: Option<String>,
     colors: BTreeMap<String, Color>,
+    #[serde(default)]
+    style: StyleFile,
 }
 
 /// Why a theme could not be loaded.
@@ -387,15 +618,17 @@ fn parse_theme(source: &str, builtin: bool, bases: &[Theme]) -> Result<Theme, Th
         return Err(ThemeError::ReservedId(file.id));
     }
 
-    let mut colors = match &file.base {
-        Some(base) => bases
-            .iter()
-            .find(|theme| theme.id == *base)
-            .ok_or_else(|| ThemeError::UnknownBase(base.clone()))?
-            .colors
-            .clone(),
-        None => ThemeColors::from_tokens(&file.colors)?,
+    let (mut colors, mut style) = match &file.base {
+        Some(base) => {
+            let base = bases
+                .iter()
+                .find(|theme| theme.id == *base)
+                .ok_or_else(|| ThemeError::UnknownBase(base.clone()))?;
+            (base.colors.clone(), base.style)
+        }
+        None => (ThemeColors::from_tokens(&file.colors)?, ThemeStyle::DEFAULT),
     };
+    style.apply(&file.style);
 
     for (token, value) in &file.colors {
         if !colors.set(token, value.clone()) {
@@ -408,6 +641,7 @@ fn parse_theme(source: &str, builtin: bool, bases: &[Theme]) -> Result<Theme, Th
         name: file.name,
         builtin,
         colors,
+        style,
     })
 }
 
@@ -819,7 +1053,10 @@ mod tests {
         assert_eq!(css.matches('{').count(), 1);
         assert_eq!(css.matches('}').count(), 1);
         // One per token, plus the select arrow.
-        assert_eq!(css.matches(";\n").count(), ThemeColors::TOKENS.len() + 1);
+        assert_eq!(
+            css.matches(";\n").count(),
+            ThemeColors::TOKENS.len() + ThemeStyle::TOKENS.len() + 1
+        );
     }
 
     #[test]
@@ -831,6 +1068,58 @@ mod tests {
         assert_eq!(theme.colors.orange.as_str(), "#8a5a2b");
         assert_eq!(theme.colors.bg_deep, light.colors.bg_deep);
         assert!(!theme.builtin);
+    }
+
+    #[test]
+    fn the_default_theme_keeps_the_default_style_and_emits_every_style_token() {
+        let light = builtin_theme("light").expect("light theme");
+        assert_eq!(light.style, ThemeStyle::DEFAULT);
+        let css = light.css();
+        for token in ThemeStyle::TOKENS {
+            assert!(css.contains(&format!("--{token}:")), "missing --{token}");
+        }
+        assert!(css.contains("--space-unit: 2px;"));
+        assert!(css.contains("--radius: 8px;"));
+    }
+
+    #[test]
+    fn a_partial_style_inherits_the_rest_of_its_base() {
+        let source = r##"{"id":"rounded","name":"Rounded","base":"omarchy","colors":{},
+            "style":{"corners":"round"}}"##;
+        let theme = parse_custom_theme(source).expect("rounded");
+        let omarchy = builtin_theme("omarchy").expect("omarchy theme");
+        assert_eq!(theme.style.corners, Corners::Round);
+        assert_eq!(theme.style.body_font, omarchy.style.body_font);
+        assert_eq!(theme.style.density, Density::Compact);
+        assert!(theme.css().contains("--radius: 14px;"));
+    }
+
+    /// A style value is a preset name, never CSS: anything else is refused
+    /// like a non-hexadecimal colour.
+    #[test]
+    fn a_style_value_or_property_outside_the_presets_is_rejected() {
+        for style in [
+            r#"{"corners":"pointy"}"#,
+            r#"{"body_font":"Comic Sans; } body { display: none"}"#,
+            r#"{"radius":"4px"}"#,
+        ] {
+            let source = format!(
+                r##"{{"id":"x","name":"X","base":"light","colors":{{}},"style":{style}}}"##
+            );
+            assert!(
+                matches!(parse_custom_theme(&source), Err(ThemeError::Syntax(_))),
+                "{style}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_swatch_carries_the_theme_it_shows() {
+        let omarchy = builtin_theme("omarchy").expect("omarchy theme");
+        let declarations = omarchy.declarations();
+        assert!(declarations.contains("--font-heading: ui-monospace"));
+        assert!(declarations.contains(&format!("--orange: {};", omarchy.colors.orange)));
+        assert!(!declarations.contains(":root"));
     }
 
     #[test]
