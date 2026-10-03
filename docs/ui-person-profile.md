@@ -303,6 +303,10 @@ entered locally in the reader after it opens. Each register opens as a
 top-level page in an ephemeral WebView because archive portals disallow
 embedding their pages in an OxidGene frame.
 
+The planned replacement, which resolves the register through each portal's
+request interface instead of its search form, is specified in
+[Archive Portals](archives.md).
+
 Events are ordered by `date_sort`. Events without dates are grouped at the bottom under a "Date unknown" label.
 
 Attached event media appear inline as compact `44 x 44 px` thumbnails without

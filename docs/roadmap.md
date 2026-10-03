@@ -65,6 +65,11 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
 
 - [x] Drive the Loire-Atlantique archives (Arkothèque) for births and
   baptisms.
+- [ ] Move the catalogue and the citation parser into `oxidgene-archives`,
+  resolve Arkothèque citations through the portal's request interface, and
+  have the archive window load the resolved view instead of driving the
+  portal's form ([Archive Portals §10](archives.md#10-delivery-phases)).
+- [ ] Add the Mnesys adapter.
 - [ ] Catalogue every French departmental archive, adding a driver for each
   portal platform they use.
 - [ ] Extend the catalogue to Swiss cantonal archives.
