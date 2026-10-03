@@ -1,9 +1,9 @@
 ---
 type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
-description: "Planned oxidgene-archives crate that resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, how desktop and web display the result, access etiquette, testing, and delivery phases."
+description: "Planned oxidgene-archives crate that resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, and delivery phases."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:33:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T13:06:11Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -50,8 +50,11 @@ instead of leaving them to repeat the portal search by hand.
 `oxidgene-archives` is the crate that knows the archives: which ones exist,
 which portal software each runs, how to recognize a citation that belongs to
 one, and how to turn that citation into the address of the cited image on the
-portal. OxidGene uses it to display sources; it never copies, stores or
-redistributes the images themselves.
+portal. OxidGene uses it to display sources, either in the portal's own viewer
+or, where the archive publishes its images over IIIF and its terms allow it,
+in OxidGene's viewer. A reader who wants to keep the cited act attaches it as a
+document whose pages are the archive's image addresses (§6.4). OxidGene never
+copies, stores or redistributes the image bytes themselves.
 
 This specification supersedes the split delivered first, where the citation
 parser and the catalogue live in `oxidgene-ui::archive_viewer` and a driver
@@ -73,10 +76,16 @@ and to display the result (§4.2, §6).
   portal page that shows the register, opened at the cited view when the
   platform allows it.
 - The desktop archive window and the web fallback that display a target.
+- Displaying a resolved view in OxidGene's shared media viewer over IIIF.
+- Attaching one or several views, at the reader's explicit request, as a
+  document of remote pages, then cropping it with the existing region tool.
 
 **Out of scope**
 
-- Downloading, caching or storing archive images in OxidGene's media store.
+- Downloading, caching or storing archive image bytes in OxidGene's media
+  store or on the server.
+- Attaching sources as media automatically: a source becomes a medium only
+  when the reader asks for it.
 - Transcription, indexing or full-text search of archive content.
 - Crawling, bulk resolution, or prefetching of any kind (§8).
 - Archives behind a login. A portal that requires an account is catalogued
@@ -103,7 +112,19 @@ that runs an already supported platform is a data change with no code.
 | `website` | The archive's home page. |
 | `platform` | The adapter that resolves its citations, or `null` when none exists yet. |
 | `portal` | The adapter's settings for this archive (§4.3). Absent when `platform` is `null`. |
+| `display` | `iiif` when OxidGene may show the archive's images in its own viewer and attach them as remote pages (§6.3, §6.4); `portal` when they are shown only in the portal's viewer. Default `portal`. |
+| `attribution` | Credit the archive's reuse terms require, written in the archive's language with `{call_number}` and `{view}` placeholders, such as `Archives départementales d'Indre-et-Loire, {call_number}, vue {view}`. Required when `display` is `iiif`; never translated. |
+| `terms` | Address of the archive's reuse terms. Required when `display` is `iiif`. |
 | `citation` | Optional overrides of the citation grammar for this archive (§5.1). |
+| `live_check` | `false` to exclude the archive from the scheduled live checks (§9.2). Default `true`. |
+
+`display: "iiif"` is set only for an archive whose terms allow reuse with
+attribution and whose images load across origins; the decision is recorded
+with the archive, not inferred. An archive whose viewer requires accepting a
+licence or passing an anti-bot challenge before showing an image stays
+`portal`: the Sarthe archives are `portal`, the Indre-et-Loire and
+Loire-Atlantique archives are candidates for `iiif` once their terms are
+confirmed.
 
 The hierarchy of the user's request — country, then level, then archive — is
 the catalogue's navigation, not the crate's module tree: archives are data,
@@ -247,8 +268,12 @@ Resolution:
 
 The viewer endpoint also lists, per image, an IIIF Image API source and a
 persistent ARK address[^iiif-image]. The ARK is recorded in the target when
-present, as the citation's durable link; the IIIF source is not used to
-display images inside OxidGene (§2, §8).
+present, as the citation's durable link. For a `display: "iiif"` archive the
+adapter also returns the image's IIIF service and reads its `info.json` for
+the pixel size (§5.2): the service is level 2, so any size can be requested,
+but it sends no CORS headers, so the size is read by the resolver rather than
+by the client, which then loads images through plain `<img>` elements. The
+images are served with `Cache-Control: public, max-age=864000`.
 
 ### 4.4 Mnesys
 
@@ -282,6 +307,13 @@ Resolution:
    opens the portal's viewer on it. Unlike Arkothèque, the view's address is a
    persistent identifier: it is also returned as `ark`.
 
+The manifest also gives each image's pixel size and IIIF service, and the
+portal sends CORS headers on the manifest, `info.json` and images. The service
+is level 0 and lists only the full size (about 1 MB per view): a request for
+any smaller size fails. The adapter therefore returns the portal's own
+thumbnail, `/images/<image id>_thumbnail.jpg` (a few kilobytes), as the
+view's thumbnail, and the full image as its picture.
+
 The portal's viewer shows its reuse conditions first; the reader accepts them
 in the window.
 
@@ -307,7 +339,7 @@ the locality:
 | `year` | The first year of the period field: `1877`, `1702-1703`, or a Republican year converted to its Gregorian start. |
 | `period` | The period field as written, kept to match portals that list registers by period text. |
 | `call_number` | A field shaped like a call number, compared without spaces or case: `3E73/14` matches `3 E 73 / 14`. |
-| `view`, `side`, `view_count` | `vue <n>[d|g]/<count>`. |
+| `views`, `side`, `view_count` | `vue <n>[d|g]/<count>`, or a range `vue <n>-<m>/<count>` for an act spanning several views, such as `vue 5d-6g/13`. |
 
 The call number is **one criterion among several**, not a requirement: many
 citations carry none, and resolution falls back to the act, the parish and
@@ -319,12 +351,42 @@ needs to find a single register resolves to the filtered search results
 
 ```rust
 pub enum ArchiveTarget {
-    /// The cited view, or the register when the citation names no view.
-    View { url: Url, view: Option<u16>, call_number: Option<String>, ark: Option<Url> },
+    /// The cited views, or the register when the citation names no view.
+    View {
+        url: Url,
+        views: Vec<ArchiveView>,
+        view_count: Option<u16>,
+        call_number: Option<String>,
+        attribution: Option<String>,
+    },
     /// Several or no registers matched: the portal's filtered results.
     Results { url: Url, matches: Option<usize> },
 }
+
+pub struct ArchiveView {
+    /// One-based view number, as cited.
+    pub view: u16,
+    /// The portal page opened on this view.
+    pub url: Url,
+    /// The image's persistent address, when the portal publishes one.
+    pub ark: Option<Url>,
+    /// Present only for a `display: "iiif"` archive.
+    pub image: Option<ArchiveImage>,
+}
+
+pub struct ArchiveImage {
+    pub picture: Url,
+    pub thumbnail: Url,
+    pub width: u32,
+    pub height: u32,
+}
 ```
+
+`views` holds every cited view, in order, so an act spanning views 5 and 6
+resolves to both. `picture` is the address the viewer loads — a size bounded to
+the screen where the service allows it, the full image otherwise — and
+`thumbnail` the smallest address the archive serves. `attribution` is the
+catalogue template filled with the call number and views.
 
 `Results` built by `results_url` without any request has no match count; it
 is what a client gets when no transport can reach the portal.
@@ -373,13 +435,63 @@ archive the tab opens on the filtered search results, from which the reader
 opens the register. The source becomes a link on both clients; only the
 window type and the precision differ.
 
+### 6.3 OxidGene's viewer
+
+For a `display: "iiif"` archive, both clients open a resolved view in the
+shared media viewer ([UI Common §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform))
+instead of the portal, as an unsaved document whose pages are the cited
+views' `picture` addresses. The viewer pages through the cited views and
+offers the previous and next views of the register, so a reader who finds
+the act continues on the following image reaches it without leaving. The
+attribution is shown under the image and links to the archive's `terms`, and
+**Open on the archive's site** opens the view's portal page as §6.1 and §6.2
+do. When the citation names a side (`d` or `g`), the viewer marks that half
+of the double page.
+
+Nothing is written while the reader only looks. Closing the viewer leaves no
+record.
+
+### 6.4 Attaching and cropping
+
+**Attach as a document** in the viewer opens the canonical `DocumentForm`
+([UI Common](ui-common.md#adding-a-document)) prefilled, and nothing is
+written before the reader saves it:
+
+- one remote page per cited view, in order, holding the view's `picture`
+  address, its pixel size, and its thumbnail address; the reader removes
+  views, or adds the previous or next view of the register, so a two-page act
+  becomes one two-page document and a single page one single-page document;
+- the title from the call number and views, and the description from the
+  attribution, which the reader may edit;
+- the kind of record from the act (`parish_record` or `civil_record`) and the
+  medium `manuscript`;
+- the event the citation documents, and the cited source as a link of the
+  document, so the archive address can be resolved again from the citation if
+  the portal moves its images.
+
+The saved document is an ordinary media record: it appears in the galleries
+of its persons, couple and event, and every viewer action applies to it.
+Keeping only the act out of a double page or a crowded view is done with the
+existing region tool ([Data Model](data-model.md#vignette)): a region drawn on
+a remote page is stored as coordinates over the page and cut by the client,
+so it needs none of the bytes; a region can serve as a portrait or be
+attributed to a person like any other. When the citation names a side, the
+region tool opens on that half of the view.
+
+Attaching requires the remote page to record its thumbnail address, which the
+data model does not yet have: phase 2 adds a nullable `thumbnail_url` to
+`Media` for pages held only as a URL, used by gallery tiles instead of the
+full picture ([Data Model](data-model.md#media)). Without it an Indre-et-Loire
+tile would load a full view.
+
 ## 7. Errors and fallbacks
 
 | Situation | Result |
 |---|---|
 | Unknown citation code, or no adapter | Plain text, no link. |
 | No register, or several | `Results`: the filtered search page. |
-| View beyond the register's image count | `View` without a view: the register's first image. |
+| View beyond the register's image count | `View` with no views: the register's first image. |
+| `iiif` image fails to load | The viewer shows the portal link in place of the picture. |
 | Portal changed shape or timed out | Error banner; the window opens the archive's `website`. |
 
 ## 8. Access etiquette
@@ -394,11 +506,17 @@ Archive portals are public services whose terms OxidGene follows:
   the reader sees.
 - Requests identify OxidGene in their `User-Agent`, time out after a short
   bound, and are never retried automatically.
-- Resolved targets may be cached in memory for the session; nothing from a
-  portal is written to the database.
-- Images are displayed only by the portal's own viewer; OxidGene does not
-  download, store, crop or redistribute them. An archive whose reuse terms
-  require accepting a licence keeps that step in its own pages.
+- Resolved targets are cached in memory for the session. The only portal data
+  written to the database is what the reader attaches (§6.4): image addresses,
+  sizes and the attribution, never image bytes.
+- Image bytes are cached only by the browser's or WebView's HTTP cache,
+  under the archive's own cache headers. The server never fetches, proxies
+  or stores them, and a cropped region is cut by the client from the
+  archive's image.
+- Images are shown in OxidGene only for a `display: "iiif"` archive, always
+  with the archive's attribution and a link to its terms. An archive whose
+  reuse terms require accepting a licence keeps that step in its own pages
+  and is displayed by its portal.
 
 ## 9. Testing
 
@@ -408,8 +526,84 @@ Archive portals are public services whose terms OxidGene follows:
   response shape.
 - Catalogue tests check unique ids and citation codes, that every `platform`
   has an adapter, and that every adapter accepts its archives' `portal`.
-- A live check per archive is opt-in, marked `#[ignore]`, and run only by an
-  explicit recipe; `just check` never contacts a portal.
+
+`just check` never contacts a portal: the tests above run offline.
+
+### 9.1 Live checks
+
+Portals change without notice, most often when the archive installs a new
+version of its vendor's software: renamed filter references, a different
+result markup, a moved viewer route. Recorded fixtures cannot see that, so
+every catalogued archive with an adapter has a live end-to-end check against
+its real portal. It is opt-in, never run by `just check` or on a commit or
+pull request, and runs on a schedule (§9.2).
+
+The check builds its citation from the portal itself rather than from a
+committed reference, so the repository holds no locality, call number or
+view chosen from anyone's research, and the check survives an archive
+renumbering its registers. For each archive, in order:
+
+1. **Search page.** The `search_path` (or the search form) loads, and the
+   engine, content, display-mode and filter references of the `portal`
+   settings are still present in it.
+2. **Discovery.** The first locality the portal's own locality filter lists,
+   with the first act kind of `acts`, returns at least one register whose row
+   yields a call number, an image count and a viewer address or ARK.
+3. **Resolution.** A citation assembled from that register — its locality,
+   act, year and call number, and a view in the middle of its image count —
+   resolves to `View` with that call number and that view. The same citation
+   without its call number resolves to the same register or to `Results`,
+   never to another register.
+4. **Opening.** The target loads in a browser and the portal's viewer shows
+   the cited view: the view number displayed by the viewer equals the cited
+   one after the reuse licence, if any, is accepted.
+5. **Images**, for a `display: "iiif"` archive: the picture and the thumbnail
+   answer with an image type, the pixel size matches the one resolved, and the
+   attribution template fills without a placeholder left.
+
+Steps 1 to 3 are Rust tests of `oxidgene-archives` marked `#[ignore]` over the
+`native` transport. Steps 4 and 5, and steps 1 to 3 of a `transport:
+"browser"` archive, run in a Playwright project of `e2e/` with its own
+configuration, which loads the portal in Chromium and runs the adapter's
+requests in the page, as the desktop window does. `just archives-live` runs
+both for every archive, and `just archives-live <archive id>` for one.
+
+Each archive ends in one of four outcomes:
+
+| Outcome | Meaning | Run result |
+|---|---|---|
+| `ok` | Every step passed. | Pass |
+| `drift` | The portal answered, but not as the adapter or its settings expect; the failing step and the expected and received shapes are reported. | Fail |
+| `unreachable` | Timeout, network error or a `5xx` answer. | Warning; fail after two consecutive scheduled runs |
+| `challenged` | An anti-bot challenge blocked the headless browser. | Warning, reported as unverified |
+
+A check never solves or works around a challenge. Reports name the archive,
+step, URL path and response shape, never response bodies beyond the fields
+compared; failure artifacts (Playwright traces) hold portal pages only and
+are kept for a short period.
+
+### 9.2 Scheduled run
+
+A dedicated workflow, `.github/workflows/archives.yml`, runs the live checks
+every week and on demand, with an optional archive id as input. It is not
+part of the nightly workflow, does not gate releases, and is not a required
+status check: a portal change is not a defect of a commit. Archives run as
+independent matrix entries without fail-fast, so one archive's drift does
+not hide another's.
+
+A `drift`, or an `unreachable` reaching its second run, opens an issue
+labelled `archive-drift` for that archive, or comments on the open one; an
+`ok` run closes it. The issue names the catalogue entry and the adapter to
+update. Fixing a drift updates the archive's `portal` settings, or the
+adapter and its recorded fixtures when the platform itself changed, so the
+offline tests learn the new shape.
+
+The checks follow §8: one archive at a time, sequential requests, a handful
+per archive and run, the identifying `User-Agent` with the repository
+address, and no retry within a run. A portal whose `robots.txt` disallows
+automated agents, Loire-Atlantique included, is checked only at this weekly
+rate; an archive that objects is marked `"live_check": false` in its
+catalogue entry and relies on the user-reported failures of §7.
 
 ## 10. Delivery phases
 
@@ -417,9 +611,14 @@ Archive portals are public services whose terms OxidGene follows:
    into it with the extended grammar (§5.1); implement the Arkothèque adapter
    with both transports; catalogue Loire-Atlantique and Sarthe; make the
    desktop window resolve and load targets; remove the injected driver
-   script.
+   script; add the live checks of both archives, `just archives-live` and the
+   weekly workflow (§9.1, §9.2), and list them in
+   [Development §2.7](development.md#27-test-categories).
+   Every later archive or adapter arrives with its live check.
 2. Add the Mnesys adapter with Indre-et-Loire; add the backend endpoint on
-   both surfaces and open targets from the web client.
+   both surfaces and open targets from the web client; add `display`, the
+   IIIF view in the shared viewer, attaching views as a remote multi-page
+   document, and `Media.thumbnail_url`.
 3. Catalogue the other departmental archives running either platform, then
    municipal and Swiss cantonal archives.
 

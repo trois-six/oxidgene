@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T09:29:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T13:06:11Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -70,11 +70,16 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   have the archive window load the resolved view instead of driving the
   portal's form ([Archive Portals §10](archives.md#10-delivery-phases)).
 - [ ] Add the Mnesys adapter.
+- [ ] Show `iiif` archives' views in the shared viewer and attach cited views
+  as a remote multi-page document that the region tool can crop
+  ([Archive Portals §6.3–6.4](archives.md#63-oxidgenes-viewer)).
 - [ ] Catalogue every French departmental archive, adding a driver for each
   portal platform they use.
 - [ ] Extend the catalogue to Swiss cantonal archives.
-- [ ] Add an opt-in check per catalogued archive against its live portal, so
-  page-structure changes are caught before users meet them.
+- [ ] Add a live end-to-end check per catalogued archive against its real
+  portal, run weekly by a dedicated workflow rather than on commits, so
+  vendor software upgrades are caught before users meet them
+  ([Archive Portals §9.1](archives.md#91-live-checks)).
 
 ## 4. Person merge wizard
 

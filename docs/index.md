@@ -18,7 +18,7 @@ okf_version: "0.2"
 * [Geneanet Media Import](geneanet-media-import.md) - Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching.
 * [Place Dictionary](place-dictionary.md) - The place dictionary of France, the United Kingdom, Germany, Italy, Spain, Switzerland, Poland, the United States, Portugal, Belgium, Luxembourg and the Netherlands: its Geneanet-compatible CSV layout, the open-data sources and licences it is generated from, and the rules that file each place under every name it has borne.
 * [Geneanet Upload API](geneanet-upload-api.md) - Reverse-engineered reference for the Geneanet Upload app's api.geneanet.org surface, Cloudflare behavior per HTTP client, originals versus renditions, and login.
-* [Archive Portals](archives.md) - Planned oxidgene-archives crate that resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, how desktop and web display the result, access etiquette, testing, and delivery phases.
+* [Archive Portals](archives.md) - Planned oxidgene-archives crate that resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, and delivery phases.
 
 # Cross-cutting
 
