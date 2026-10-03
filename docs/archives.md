@@ -1,9 +1,9 @@
 ---
 type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
-description: "Planned oxidgene-archives crate that resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, and delivery phases."
+description: "Planned oxidgene-archives crate that resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T13:06:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T14:32:54Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -29,6 +29,33 @@ sources:
   - id: iiif-presentation
     title: "IIIF Presentation API 3.0"
     url: "https://iiif.io/api/presentation/3.0/"
+  - id: arkotheque-departmental
+    title: "Arkothèque — references, departmental archives"
+    url: "https://www.arkotheque.fr/references/archives-departementales"
+  - id: naoned-references
+    title: "Naoned — Mnesys users"
+    url: "https://naoned.fr/references/"
+  - id: ligeo-references
+    title: "Ligeo (Boscop) — references"
+    url: "https://ligeo.fr/references/"
+  - id: ad21-legal
+    title: "Archives de la Côte-d'Or — legal notice naming the EidoPolis Prismia host"
+    url: "https://archinoe.net/v2/site/AD21/Mentions_legales"
+  - id: ad47-portal
+    title: "Archives de Lot-et-Garonne — new digitized-archives portal"
+    url: "https://archivesdepartementales.lotetgaronne.fr/actualites/decouvrez-notre-nouveau-portail-darchives-numerisees"
+  - id: alsace-portal
+    title: "Collectivité européenne d'Alsace — a new site for the Archives d'Alsace"
+    url: "https://www.alsace.eu/actualites/un-nouveau-site-pour-archives-d-alsace"
+  - id: ad37-credits
+    title: "Archives d'Indre-et-Loire — credits"
+    url: "https://archives.touraine.fr/page/credits"
+  - id: panorama-2014
+    title: "Petit panorama des interfaces des archives numérisées (2014)"
+    url: "https://locomat.loria.fr/other/roegel2014panorama-archives.pdf"
+  - id: anom-civil-status
+    title: "Archives nationales d'outre-mer — civil status"
+    url: "http://anom.archivesnationales.culture.gouv.fr/caomec2/"
 ---
 
 # Archive Portals — Resolving a Cited Source to Its Image
@@ -107,16 +134,36 @@ that runs an already supported platform is a data change with no code.
 | `country` | ISO 3166-1 alpha-2 code; matches the directory. |
 | `level` | `national`, `regional`, `departmental`, `cantonal`, `municipal`, or `other`. |
 | `name` | The archive's own name, shown verbatim; never translated. |
-| `jurisdiction` | Optional official code of the area served: INSEE department or commune code, Swiss canton abbreviation. |
+| `jurisdiction` | Optional official codes of the area served, as a list: INSEE department or commune codes, Swiss canton abbreviations. A service serving several departments, such as Corsica's (2A and 2B), lists them all. |
 | `citation_codes` | Uppercase codes a citation may start with, such as `["AD44"]`. Unique across the catalogue. |
 | `website` | The archive's home page. |
-| `platform` | The adapter that resolves its citations, or `null` when none exists yet. |
-| `portal` | The adapter's settings for this archive (§4.3). Absent when `platform` is `null`. |
+| `collections` | The archive's searchable collections of registers, each with its own engine (below). Empty when no adapter exists yet. |
 | `display` | `iiif` when OxidGene may show the archive's images in its own viewer and attach them as remote pages (§6.3, §6.4); `portal` when they are shown only in the portal's viewer. Default `portal`. |
 | `attribution` | Credit the archive's reuse terms require, written in the archive's language with `{call_number}` and `{view}` placeholders, such as `Archives départementales d'Indre-et-Loire, {call_number}, vue {view}`. Required when `display` is `iiif`; never translated. |
 | `terms` | Address of the archive's reuse terms. Required when `display` is `iiif`. |
 | `citation` | Optional overrides of the citation grammar for this archive (§5.1). |
 | `live_check` | `false` to exclude the archive from the scheduled live checks (§9.2). Default `true`. |
+
+**Collections.** Many archives search their parish registers and their civil
+status through different engines — two search pages, sometimes two
+platforms, and the decennial tables often a third. One archive therefore has
+one or more collections, each resolved on its own:
+
+| Field | Rule |
+|---|---|
+| `id` | Slug unique within the archive: `parish-registers`, `civil-status`, `tables`. |
+| `acts` | Act kinds the collection holds (§5.1): `B`, `M`, `S` for parish registers; `N`, `M`, `D` for civil status; table codes for tables. |
+| `period` | Optional `[first year, last year]` the collection covers; either bound may be `null`. |
+| `platform` | The adapter that searches it. |
+| `portal` | The adapter's settings for this collection (§4.3, §4.4). |
+
+Resolution picks the collections whose `acts` contain the citation's act and
+whose `period` contains its year, and tries them in catalogue order until one
+finds a register; a citation without a year tries every collection holding
+its act. A Republican-calendar or 1792–1793 register, which may sit in either
+collection, is found by the order alone. Where one engine serves every
+register, as on the Loire-Atlantique portal, the archive has a single
+collection with every act kind and no period.
 
 `display: "iiif"` is set only for an archive whose terms allow reuse with
 attribution and whose images load across origins; the decision is recorded
@@ -173,9 +220,12 @@ transport. The desktop supplies a second transport through its archive window
 Departmental, regional and municipal archives rarely build their portals:
 they license publishing software and configure it. Two products cover a large
 share of the French departmental archives: **Arkothèque**, by 1 égal 2[^arkotheque],
-which reports 29 departmental archive services among its references[^arkotheque-references],
+which reports 29 departmental archive services among its references[^arkotheque-references]
+but names 28[^arkotheque-departmental],
 and **Mnesys**, by Naoned[^naoned]. One adapter per product, configured per
-archive in the catalogue, therefore covers many archives at once.
+archive in the catalogue, therefore covers many archives at once. Two more
+products, Ligeo and Archinoë / Prismia Vision, bring three to four adapters
+to about two thirds of the departments ([§11](#11-french-departmental-portals)).
 
 ### 4.2 The adapter contract
 
@@ -183,14 +233,15 @@ archive in the catalogue, therefore covers many archives at once.
 pub trait Platform: Send + Sync {
     /// The catalogue value of `platform` this adapter answers to.
     fn id(&self) -> &'static str;
-    /// Rejects a catalogue `portal` object it cannot use, at load time.
+    /// Rejects a collection's `portal` object it cannot use, at load time.
     fn validate(&self, portal: &serde_json::Value) -> Result<(), CatalogError>;
-    /// The portal's filtered search page, built without any request.
-    fn results_url(&self, archive: &Archive, citation: &CitationParts) -> Option<Url>;
-    /// Resolves parsed citation parts to a target on this archive's portal.
+    /// The collection's filtered search page, built without any request.
+    fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<Url>;
+    /// Resolves parsed citation parts to a target in this collection.
     async fn resolve(
         &self,
         archive: &Archive,
+        collection: &Collection,
         citation: &CitationParts,
         fetch: &dyn PortalFetch,
     ) -> Result<ArchiveTarget, ResolveError>;
@@ -524,8 +575,9 @@ Archive portals are public services whose terms OxidGene follows:
 - Adapter tests replay recorded portal responses, anonymized and committed as
   fixtures, covering one match, several matches, no match, and a changed
   response shape.
-- Catalogue tests check unique ids and citation codes, that every `platform`
-  has an adapter, and that every adapter accepts its archives' `portal`.
+- Catalogue tests check unique ids and citation codes, that every
+  collection's `platform` has an adapter, and that every adapter accepts its
+  collections' `portal`.
 
 `just check` never contacts a portal: the tests above run offline.
 
@@ -541,7 +593,7 @@ pull request, and runs on a schedule (§9.2).
 The check builds its citation from the portal itself rather than from a
 committed reference, so the repository holds no locality, call number or
 view chosen from anyone's research, and the check survives an archive
-renumbering its registers. For each archive, in order:
+renumbering its registers. For each collection of each archive, in order:
 
 1. **Search page.** The `search_path` (or the search form) loads, and the
    engine, content, display-mode and filter references of the `portal`
@@ -594,7 +646,7 @@ not hide another's.
 A `drift`, or an `unreachable` reaching its second run, opens an issue
 labelled `archive-drift` for that archive, or comments on the open one; an
 `ok` run closes it. The issue names the catalogue entry and the adapter to
-update. Fixing a drift updates the archive's `portal` settings, or the
+update. Fixing a drift updates the collection's `portal` settings, or the
 adapter and its recorded fixtures when the platform itself changed, so the
 offline tests learn the new shape.
 
@@ -619,8 +671,250 @@ catalogue entry and relies on the user-reported failures of §7.
    both surfaces and open targets from the web client; add `display`, the
    IIIF view in the shared viewer, attaching views as a remote multi-page
    document, and `Media.thumbnail_url`.
-3. Catalogue the other departmental archives running either platform, then
-   municipal and Swiss cantonal archives.
+3. Add the Ligeo adapter, then Archinoë / Prismia Vision, and catalogue the
+   departmental archives running the four platforms in the order of §11.4,
+   then municipal and Swiss cantonal archives.
+
+## 11. French departmental portals
+
+A survey of the 101 departments, dated 2026-10-03, guides which adapters to
+build and which archives to catalogue. It is a starting point, not a
+catalogue: an archive enters the catalogue only after its portal has been
+opened and its platform confirmed from the portal itself (§11.4).
+
+### 11.1 Platforms
+
+| Platform | Vendor | Departments | Evidence |
+|---|---|---|---|
+| Arkothèque | 1 égal 2 (Marseille); some finding aids by Anaphore | 28 named: 03, 04, 08, 10, 15, 18, 23, 24, 28, 36, 38, 40, 43, 44, 45, 46, 49, 50, 54, 65, 71, 72, 75, 78, 83, 85, 87, 94 | Strong: the vendor's departmental references page[^arkotheque-departmental], which claims 29 services; another of its pages says 28 |
+| Mnesys Expo | Naoned (Nantes) | 18 confirmed portals: 14, 19, 25, 26, 27, 37, 39, 51, 55, 58, 59, 68, 69, 73 (older interface), 80, 90, 91, 972. Mnesys customers whose portal runs another platform: 18, 34, 93 | Strong (`/search/form/<uuid>` entry points, Mnesys Expo logos, case studies)[^naoned-references] |
+| Ligeo Diffusion | Boscop (Angers) | 29 confirmed portals: 01, 02, 05, 06, 07, 12, 13, 16, 29, 31, 33, 34, 41, 42, 48, 56, 57, 63, 67, 70, 74, 76, 79, 86, 88, 89, 92, 93, 95 | Strong (URL pattern of the civil-status page, or announcement)[^ligeo-references] |
+| Archinoë / Prismia Vision | EidoPolis (Laval) | 17, 21, 47, 60, 62; a viewer for 49; former pages for 07 | URL pattern, legal notice (21)[^ad21-legal], announcement (47)[^ad47-portal] |
+| Archives nationales d'outre-mer | National service | 973, 974, 976 | `caomec2` civil-status search[^anom-civil-status] |
+| Unidentified | — | 2A/2B, 09, 11, 22, 30, 32, 35, 38, 52, 53, 61, 64, 66, 81, 82, 84, 971; 77 disputed | Several share an engine (§11.2) |
+
+Vendor counts disagree with their own lists and are orders of magnitude.
+Naoned's "22 departmental archives" counts users of Mnesys Archives, the
+management software, not of the Mnesys Expo portal; Ligeo's references mix
+its management and dissemination products. Several departments appear with
+two vendors for that reason, one for internal management and one for the
+public portal:
+
+- Cher (18): Arkothèque and Naoned.
+- Manche (50) and Creuse (23): Arkothèque and Ligeo.
+- Sarthe (72): Arkothèque portal, Ligeo management.
+- Vendée (85): Ligeo management; the former portal was hosted by Mazedia,
+  the current one runs Arkothèque.
+- Maine-et-Loire (49): an Arkothèque site, with a civil-status viewer on
+  `archinoe.fr/v2/ad49`.
+- Ardèche (07): civil status on Ligeo, while older consultation pages remain
+  on `archinoe.net/site/AD07`.
+- Hérault (34) and Seine-Saint-Denis (93): Mnesys customers whose
+  civil-status portals run Ligeo.
+- Seine-et-Marne (77): Ligeo or Archinoë, unresolved.
+- Isère (38): listed by Arkothèque, while its online civil status runs the
+  `/mdr/` engine also used in Ariège.
+
+### 11.2 Identifying a platform
+
+Each platform leaves a distinctive address pattern, which identifies the
+portal in seconds and is the evidence required before cataloguing:
+
+| Platform | Pattern |
+|---|---|
+| Arkothèque | `?arko_default_…--ficheFocus=`, `arko_default_…` references |
+| Mnesys Expo | `/search/form/<uuid>`, `/page/…`; a credits page naming Naoned[^ad37-credits]. The older Mnesys interface routes by query: `/?id=recherche_guidee_…`, `?doc=accounts/mnesys_…` |
+| Ligeo Diffusion | `/archive/recherche/<search>/n:<id>`, `/archive/resultats/<search>/n:<id>`, `/archive/fonds/<finding aid>`, the same under `/archives/`, and `/n/<page>/n:<id>` |
+| Archinoë / Prismia Vision | `archinoe.net/v2/adXX/`, `archinoe.com/v2/adXX/`, `archinoe.fr`, `/v2/adXX/registre.html` on the archive's own domain, `/console/ir_ead_visu.php`, `/console/ir_seriel.php`, `<department>.archives.prismia.fr` |
+| Archives nationales d'outre-mer | `anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=<territory>` |
+| Unidentified | THOT, `/Internet_THOT/FrmSommaireFrame.asp` or `/thot_internet/FrmSommaireFrame.asp` (Corsica, Ille-et-Vilaine); `/mdr/index.php/rechercheTheme/…` (Ariège, Isère, Pyrénées-Orientales); `/archives/classification-scheme` on an `earchives.` or `recherche-archives.` host (Gard, Tarn, Vaucluse), and `/archives/search/default/…` on the Guadeloupe `earchives.` host, probably the same engine; `/document/<finding aid>` on a `recherche.` host (Haute-Marne, Tarn-et-Garonne); `/archives-en-ligne/etat-civil-search-form.html` (Mayenne, Pyrénées-Atlantiques); `/EC/ecx/commune.aspx` (Côtes-d'Armor); `/archives_numerisees/portail/etats_civils/…` (Gers) |
+
+### 11.3 Recent migrations and special cases
+
+Portals change often, which is why every catalogued archive has a live check
+(§9.1). Recent or announced changes:
+
+- Lot-et-Garonne (47): Prismia Vision portal online since 2025-03-11, more
+  than 2.4 million files[^ad47-portal].
+- Haut-Rhin (68): Mnesys Expo since 2023-09-18; its credits page names
+  Naoned.
+- Bas-Rhin (67): `archives.bas-rhin.fr` replaced by `archives67.alsace.eu`,
+  on Ligeo Diffusion, announced for November 2025; the two Alsace sites are
+  to converge between 2027 and 2028[^alsace-portal].
+- Lot (46): a new Arkothèque version in 2026. Haute-Marne (52): a new portal
+  at the end of November 2025. Bouches-du-Rhône (13): a new site in May 2026,
+  `www.archives13.fr`, still on Ligeo. Aisne (02) and Eure (27):
+  redesigned. Var (83): a 2026 redesign is announced but unverified.
+- Former Archinoë customers (53, 62, 79, 82, 86)[^panorama-2014] have moved
+  in several directions: Pas-de-Calais is still on Archinoë, Deux-Sèvres and
+  Vienne share a Ligeo portal, and Mayenne and Tarn-et-Garonne run engines
+  shared with other departments but not yet identified.
+
+Cases the catalogue model must express:
+
+- **Corsica.** One service, the Archives de la Collectivité de Corse, serves
+  both 2A and 2B: one catalogue entry carrying both citation codes, its
+  `jurisdiction` listing both department codes.
+- **Alsace.** One service, the Archives d'Alsace, with two technically
+  distinct portals for 67 and 68 on different platforms: two catalogue
+  entries, one per portal, under the same `name`.
+- **Rhône.** One service shared with the Métropole de Lyon, while the city of
+  Lyon publishes its own civil status: a municipal entry for Lyon beside the
+  departmental one.
+- **Bordeaux and Marseille.** Bordeaux's civil status is published by the
+  Archives Bordeaux Métropole, and Marseille's is excluded from the new
+  Bouches-du-Rhône portal: municipal entries again.
+- **Deux-Sèvres and Vienne.** One shared portal,
+  `archives-deux-sevres-vienne.fr`, serves both departments: one catalogue
+  entry carrying both citation codes, as for Corsica.
+- **Paris.** The department and the city are one; civil status before 1860
+  is a reconstitution, published as a separate collection from the civil
+  status from 1860 onwards: two collections (§3.1).
+- **Overseas.** Civil status for Guyane (973), La Réunion (974) and Mayotte
+  (976, 1844–1906) is consulted through the Archives nationales
+  d'outre-mer[^anom-civil-status] rather than through the local service: one
+  national-level entry whose search takes the territory as a parameter
+  (`territoire=GUYANE`, `REUNION`, `MAYOTTE`), carrying the territories'
+  citation codes.
+
+### 11.4 Cataloguing order
+
+1. Fetch each departmental site's home page and look for `arko`, `mnesys`,
+   `ligeo`, `archinoe` and `prismia` (§11.2). This settles most unconfirmed
+   rows and the disputed one (77).
+2. Never rely on a vendor's reference list alone: it is self-declared, mixes
+   management and dissemination, and lags. Cross-check it with the portal's
+   footer or credits page.
+3. Before cataloguing an archive, inventory every collection of registers
+   its portal publishes — parish registers, civil status, decennial tables,
+   reconstituted or duplicate series — from the portal's own navigation, not
+   from the single entry point of §11.5, and give each searched through its
+   own engine or form a collection with its acts and period. Each collection
+   gets its live check (§9.1).
+4. Catalogue the Arkothèque and Mnesys Expo archives first, then Ligeo, then
+   Archinoë / Prismia Vision; then investigate the departments with no
+   identified platform: 2A/2B, 09, 11, 22, 30, 32, 35, 38, 52, 53, 61, 64,
+   66, 81, 82, 84, 971, and the Archives nationales d'outre-mer for 973, 974
+   and 976. Engines shared by several of them (§11.2) come first.
+
+### 11.5 Survey by department
+
+The entry point is the civil-status or parish-register search page seen on
+the department's own site or supplied with this specification. Each row
+gives one entry point, usually the civil-status one, and lists a second only
+where it was supplied (Paris, Tarn-et-Garonne). The table is therefore not an
+inventory of collections: many departments publish parish registers, civil
+status, decennial tables or reconstituted series through distinct engines or
+search pages that are not listed here, and each needs its own collection in
+the catalogue entry (§3.1). Platforms marked *probable* rest on a vendor list
+only, and *unconfirmed* means no evidence was found.
+
+| No. | Department | Site | Civil-status entry point | Portal platform | Evidence |
+|---|---|---|---|---|---|
+| 01 | Ain | `www.archives.ain.fr` | `www.archives.ain.fr/archive/recherche/etatcivil/n:88` | Ligeo | Ligeo references; URL pattern |
+| 02 | Aisne | `archives.aisne.fr` | `archives.aisne.fr/archive/recherche/etatcivil/n:11` (FranceConnect for recent civil status) | Ligeo | Ligeo references; URL pattern; redesigned portal |
+| 03 | Allier | `archives.allier.fr` | `archives.allier.fr/rechercher/archives-numerisees/genealogie-histoire-des-familles/etat-civil-en-ligne` | Arkothèque | Arkothèque references; portal |
+| 04 | Alpes-de-Haute-Provence | `www.archives04.fr` | `www.archives04.fr/rechercher/archives-en-ligne/etat-civil/actes-etat-civil` | Arkothèque (since 2008) | Arkothèque references; portal |
+| 05 | Hautes-Alpes | `archives.hautes-alpes.fr` | `archives.hautes-alpes.fr/archive/fonds/FRAD005_2E` | Ligeo | Ligeo references; URL pattern |
+| 06 | Alpes-Maritimes | `archives06.fr` | `archives06.fr/archive/resultats/etatcivil2/n:101?type=etatcivil2` | Ligeo | URL pattern |
+| 07 | Ardèche | `archives.ardeche.fr` | `archives.ardeche.fr/archive/recherche/etatcivil/n:96` | Ligeo (older pages on Archinoë) | Ligeo references; URL pattern |
+| 08 | Ardennes | `archives.cd08.fr` | `archives.cd08.fr/archives-numerisees/sources-genealogiques/registres-paroissiaux-et-detat-civil` | Arkothèque | Arkothèque references; portal |
+| 09 | Ariège | `mdr-archives.ariege.fr` | `mdr-archives.ariege.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0` | Unidentified (`/mdr/index.php/rechercheTheme/…` engine) | Portal |
+| 10 | Aube | `www.archives-aube.fr` | `www.archives-aube.fr/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube` | Arkothèque | Arkothèque references; portal |
+| 11 | Aude | `archivesdepartementales.aude.fr` | `archivesdepartementales.aude.fr/letat-civil` | Unidentified | New portal reported by the press; portal |
+| 12 | Aveyron | `archives.aveyron.fr` | `archives.aveyron.fr/archive/recherche/etatcivil/n:122` | Ligeo | Ligeo references; URL pattern |
+| 13 | Bouches-du-Rhône | `www.archives13.fr` (new site, May 2026) | `www.archives13.fr/archive/recherche/etatcivil/n:64` | Ligeo | Ligeo references; URL pattern |
+| 14 | Calvados | `archives.calvados.fr` | `archives.calvados.fr/search/form/ecf01748-923d-463a-8d80-bd4142582bcd` | Mnesys Expo | Mnesys Expo logo, Naoned case study; URL pattern |
+| 15 | Cantal | `www.archives.cantal.fr` | `www.archives.cantal.fr/vos-archives/etat-civil/recherche-dans-letat-civil` | Arkothèque | Arkothèque references; portal |
+| 16 | Charente | `lasource.archives.lacharente.fr` | `lasource.archives.lacharente.fr/archive/resultats/etatcivil/n:115?type=etatcivil` | Ligeo | Ligeo references; URL pattern |
+| 17 | Charente-Maritime | — | `archinoe.com/v2/ad17/registre.html` | Archinoë | URL pattern |
+| 18 | Cher | `www.archives18.fr` | `www.archives18.fr/archives-numerisees/registres-paroissiaux-et-etat-civil` | Arkothèque (portal); Naoned customer | Both vendors' references; portal |
+| 19 | Corrèze | `www.archives.correze.fr` | `www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f` | Mnesys Expo | Mnesys Expo logo; URL pattern |
+| 2A / 2B | Corse (Archives de la Collectivité de Corse) | `archives.isula.corsica` | `archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp` | Unidentified (THOT engine) | Single site since December 2020; portal |
+| 21 | Côte-d'Or | `archives.cotedor.fr` | `archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564`; formerly `archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie` | Archinoë / Prismia | Legal notice: hosted by EidoPolis Prismia; URL pattern |
+| 22 | Côtes-d'Armor | `archives.cotesdarmor.fr` | `sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx` | Unidentified (ASP.NET "salle virtuelle") | Portal |
+| 23 | Creuse | `archives.creuse.fr` | `archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil` | Arkothèque | Arkothèque references (also listed by Ligeo); portal |
+| 24 | Dordogne | `archives.dordogne.fr` | `archives.dordogne.fr/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil` | Arkothèque | Arkothèque references; portal |
+| 25 | Doubs | `portail-archives.doubs.fr` | `portail-archives.doubs.fr/search/form/4d44dde5-4523-4384-a2da-c1169870f1b2` | Mnesys Expo | Logo, Naoned case study; URL pattern |
+| 26 | Drôme | `archives.ladrome.fr` | `archives.ladrome.fr/search/form/f6e7c1a1-9bda-40bc-a68b-13ed003eb0e5` | Mnesys Expo (since February 2020) | Naoned case study; URL pattern |
+| 27 | Eure | `archives.eure.fr` | `archives.eure.fr/search/form/a3b9883f-0939-449a-bcbf-9de4c2d49b89` | Mnesys Expo | Naoned customer list; URL pattern |
+| 28 | Eure-et-Loir | `archives28.fr` | `archives28.fr/archives-et-inventaires-en-ligne/histoire-des-individus-des-populations-et-genealogie/les-registres-paroissiaux-et-detat-civil` | Arkothèque | Arkothèque references; 2024 visual redesign; portal |
+| 29 | Finistère | `archives.finistere.fr` | `recherche.archives.finistere.fr/archive/resultats/etatcivil/n:138?type=etatcivil` | Ligeo | Ligeo references; URL pattern |
+| 30 | Gard | `archives.gard.fr` | `earchives.gard.fr/archives/classification-scheme` | Unidentified (`/archives/classification-scheme`) | Portal |
+| 31 | Haute-Garonne | `archives.haute-garonne.fr` | `archives.haute-garonne.fr/archive/recherche/etatcivil/n:97` | Ligeo | Ligeo references; URL pattern |
+| 32 | Gers | `www.archives32.fr` | `www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/` | Unidentified | Portal |
+| 33 | Gironde | `archives.gironde.fr` | `archives.gironde.fr/archive/recherche/etatcivil/n:629` | Ligeo | Ligeo references; URL pattern; Bordeaux published by the Archives Bordeaux Métropole |
+| 34 | Hérault | `archives-pierresvives.herault.fr` | `archives-pierresvives.herault.fr/archive/recherche/etatcivil/n:23` | Ligeo (portal); Mnesys customer | URL pattern; both vendors' lists |
+| 35 | Ille-et-Vilaine | `archives.ille-et-vilaine.fr` | `archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp` | Unidentified (THOT engine, as in Corsica) | Portal |
+| 36 | Indre | `www.archives36.fr` | `www.archives36.fr/fonds-numerises/etat-civil` | Arkothèque | Arkothèque references; portal |
+| 37 | Indre-et-Loire | `archives.touraine.fr` | `archives.touraine.fr/search/form/e9414896-40cc-4ec3-936c-8acdfdb11770` | Mnesys Expo | Credits page; Naoned case study; observed (§4.4) |
+| 38 | Isère | `archivesenligne.archives-isere.fr` | `archivesenligne.archives-isere.fr/mdr/index.php/rechercheTheme/` | Unidentified (`/mdr/` engine, as in Ariège); listed by Arkothèque | Arkothèque references; portal |
+| 39 | Jura | `archives39.fr` | `archives39.fr/search/form/1eb1f0a3-b7ba-4c8a-bdae-395b322800e4` | Mnesys Expo | Naoned customer list; URL pattern |
+| 40 | Landes | `archives.landes.fr` | `archives.landes.fr/faire-une-recherche/archives-numerisees/etat-civil` | Arkothèque (since 2012) | Arkothèque references; URL pattern |
+| 41 | Loir-et-Cher | `www.archives41.fr` | `www.archives41.fr/archives/recherche/etatcivil` | Ligeo Diffusion within the Culture 41 portal | Ligeo references; URL pattern; new site in 2025 |
+| 42 | Loire | `archives.loire.fr` | `archives.loire.fr/archive/recherche/etatcivil/n:92` | Ligeo (formerly Archinoë) | Press article; Ligeo references; URL pattern |
+| 43 | Haute-Loire | `www.archives43.fr` | `www.archives43.fr/archives-en-ligne/familles-et-individus-en-haute-loire/etat-civil-de-la-haute-loire` | Arkothèque | Arkothèque references; URL pattern |
+| 44 | Loire-Atlantique | — | `archives-numerisees.loire-atlantique.fr/chercher/etat-civil-et-registres-paroissiaux` | Arkothèque | Arkothèque references; observed (§4.3) |
+| 45 | Loiret | `www.archives-loiret.fr` | `www.archives-loiret.fr/faire-vos-recherches/archives-numerisees/etat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 46 | Lot | `archives.lot.fr` | `archives.lot.fr/recherche-en-ligne/archives-numerisees/registres-paroissiaux-et-detat-civil` | Arkothèque (new version in 2026; finding aids by Anaphore) | Press article; URL pattern |
+| 47 | Lot-et-Garonne | `archivesdepartementales.lotetgaronne.fr` | `lotetgaronne.archives.prismia.fr/Recherche/Etat%20civil` | Prismia Vision (since 2025-03-11) | Department announcement; URL pattern |
+| 48 | Lozère | `archives.lozere.fr` | `archives.lozere.fr/archive/recherche/etatcivil/n:88` | Ligeo | Ligeo references; URL pattern |
+| 49 | Maine-et-Loire | `recherche-archives.maine-et-loire.fr` | `recherche-archives.maine-et-loire.fr/rechercher-et-consulter/archives-consultables-en-ligne/etat-civil-et-registres-paroissiaux` | Arkothèque (an Archinoë viewer exists) | Arkothèque references; URL pattern; `archinoe.fr/v2/ad49` |
+| 50 | Manche | `www.archives-manche.fr` | `www.archives-manche.fr/recherche/registres-paroissiaux-et-detat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 51 | Marne | `archives.marne.fr` | `archives.marne.fr/search/form/6977c5eb-072c-470c-8dfa-6d6488a2d71e` | Mnesys Expo | Mnesys Expo logo; URL pattern |
+| 52 | Haute-Marne | `recherche.archives.haute-marne.fr` (new address since November 2025) | `recherche.archives.haute-marne.fr/document/FRAD052_00000001E` | Unidentified | Press article; portal |
+| 53 | Mayenne | `archives.lamayenne.fr` | `archives.lamayenne.fr/archives-en-ligne/etat-civil-search-form.html` | Unidentified (Archinoë in 2014) | 2014 panorama; portal |
+| 54 | Meurthe-et-Moselle | `archivesenligne.meurthe-et-moselle.fr` | `archivesenligne.meurthe-et-moselle.fr/archives-en-ligne/registres-paroissiaux-et-detat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 55 | Meuse | `archives.meuse.fr` | `archives.meuse.fr/search/form/32239fba-c3ac-416c-b0f7-889cfa87214a` | Mnesys Expo | Logo, Naoned case study; URL pattern |
+| 56 | Morbihan | `patrimoines-archives.morbihan.fr` | `rechercher.patrimoines-archives.morbihan.fr/archive/recherche/etatcivil/n:6` | Ligeo | Ligeo references; URL pattern |
+| 57 | Moselle | `www.archives57.com` | `www.archives57.com/archives/fonds/FRAD057_605804` | Ligeo | Ligeo references; URL pattern |
+| 58 | Nièvre | `archives.nievre.fr` | `archives.nievre.fr/search/form/9430efb3-399f-4de3-a3e7-004e232d8601` | Mnesys Expo | Naoned customer list; URL pattern |
+| 59 | Nord | `archivesdepartementales.lenord.fr` | `archivesdepartementales.lenord.fr/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8` | Mnesys Expo | Naoned case study; URL pattern |
+| 60 | Oise | `archives.oise.fr` | `ressources.archives.oise.fr/v2/ad60/registre.html` | Archinoë | URL pattern |
+| 61 | Orne | `archives.orne.fr` | `archives.orne.fr/etat-civil` | Unidentified | Portal |
+| 62 | Pas-de-Calais | `www.archivespasdecalais.fr` | `archivesenligne.pasdecalais.fr/console/ir_seriel.php?id=56&p=formulaire_etat_civil` | Archinoë | 2014 panorama; URL pattern |
+| 63 | Puy-de-Dôme | `www.archivesdepartementales.puy-de-dome.fr` | `www.archivesdepartementales.puy-de-dome.fr/archive/recherche/etatcivil/n:13` | Ligeo Diffusion (since 2001) | Ligeo references; archive's own account |
+| 64 | Pyrénées-Atlantiques | `earchives.le64.fr` | `earchives.le64.fr/archives-en-ligne/etat-civil-search-form.html` | Unidentified (same engine as Mayenne) | Portal |
+| 65 | Hautes-Pyrénées | `archivesenligne65.fr` | `archivesenligne65.fr/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-detat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 66 | Pyrénées-Orientales | `archives.cd66.fr` | `archives.cd66.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0` | Unidentified (`/mdr/` engine, as in Ariège) | Portal |
+| 67 | Bas-Rhin (Archives d'Alsace) | `archives.alsace.eu` | `archives67.alsace.eu/archive/resultats/etatcivil/n:128?type=etatcivil` | Ligeo Diffusion (November 2025) | Collectivité européenne d'Alsace announcement; URL pattern |
+| 68 | Haut-Rhin (Archives d'Alsace) | `archives.alsace.eu` | `archives68.alsace.eu/search/form/f4ed0a71-fe36-42d4-81bd-780da14c2125` | Mnesys Expo (since 2023-09-18) | Naoned case study; credits page; URL pattern |
+| 69 | Rhône and Métropole de Lyon | `archives.rhone.fr` | `archives.rhone.fr/search/form/dde23a8f-cc71-4300-9805-bda67eec1ac0` | Mnesys Expo | Naoned case study; URL pattern |
+| 70 | Haute-Saône | `archives.haute-saone.fr` | `archives.haute-saone.fr/archive/recherche/etatcivil2/n:119` | Ligeo Diffusion | Ligeo references; URL pattern |
+| 71 | Saône-et-Loire | `www.archives71.fr` | `www.archives71.fr/consulter/en-ligne/familles-et-individus/etat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 72 | Sarthe | `archives.sarthe.fr` | `archives.sarthe.fr/archives-en-ligne/registres-paroissiaux-etat-civil` | Arkothèque | Arkothèque references; observed (§4.3) |
+| 73 | Savoie | `recherche-archives.savoie.fr` | `recherche-archives.savoie.fr/?id=recherche_guidee_etat_civil_web` | Mnesys (older interface) | Mnesys Expo logo; URL pattern |
+| 74 | Haute-Savoie | `archives.hautesavoie.fr` | `archives.hautesavoie.fr/archive/recherche/etatcivil/n:139` | Ligeo | Ligeo references; URL pattern |
+| 75 | Paris | `archives.paris.fr` | `archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859` (reconstituted, 16th century–1859) and `archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860` | Arkothèque | Arkothèque references |
+| 76 | Seine-Maritime | `www.archivesdepartementales76.net` | `www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil` | Ligeo | Ligeo references; URL pattern |
+| 77 | Seine-et-Marne | `archives.seine-et-marne.fr` | `archives.seine-et-marne.fr/fr/etat-civil` | Ligeo or Archinoë (disputed) | Portal |
+| 78 | Yvelines | `archives.yvelines.fr` | `archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 79 | Deux-Sèvres | `archives-deux-sevres-vienne.fr` (shared with Vienne) | `archives-deux-sevres-vienne.fr/archive/resultats/etatcivil/n:100?type=etatcivil` | Ligeo (Archinoë in 2014) | URL pattern |
+| 80 | Somme | `archives.somme.fr` | `archives.somme.fr/search/form/cebd4a00-25b1-4b1c-a31e-8ea66d58efa2` | Mnesys Expo | Naoned customer list; URL pattern |
+| 81 | Tarn | `archives.tarn.fr` | `recherche-archives.tarn.fr/archives/classification-scheme` | Unidentified (same engine as Gard and Vaucluse) | Portal |
+| 82 | Tarn-et-Garonne | `recherche.archives82.fr` | `recherche.archives82.fr/document/FRAD082_IR_01051` and `recherche.archives82.fr/document/FRAD082_IR_00196`, two finding aids | Unidentified (same engine as Haute-Marne; Archinoë in 2014) | Portal |
+| 83 | Var | `archives.var.fr` | `archives.var.fr/rechercher-dans-les-archives-numerisees-et-les-inventaires-5/registres-paroissiaux-et-de-letat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 84 | Vaucluse | `earchives.vaucluse.fr` | `earchives.vaucluse.fr/archives/classification-scheme` | Unidentified (same engine as Gard and Tarn) | Portal |
+| 85 | Vendée | `etatcivil-archives.vendee.fr` | `etatcivil-archives.vendee.fr/consulter/etat-civil-et-recensements/etat-civil` | Arkothèque (Ligeo for management) | Both vendors' references; URL pattern |
+| 86 | Vienne | `archives-deux-sevres-vienne.fr` (shared with Deux-Sèvres) | `archives-deux-sevres-vienne.fr/archive/resultats/etatcivil/n:100?type=etatcivil` | Ligeo (Archinoë in 2014) | Shared portal; URL pattern |
+| 87 | Haute-Vienne | `archives.haute-vienne.fr` | `archives.haute-vienne.fr/rechercher/archives-en-ligne/etat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 88 | Vosges | `recherche-archives.vosges.fr` | `recherche-archives.vosges.fr/archive/recherche/etatcivil/n:2` | Ligeo | Ligeo references; URL pattern |
+| 89 | Yonne | `archives.yonne.fr` | `archives.yonne.fr/archive/recherche/etatcivil/n:157` | Ligeo | Ligeo references; URL pattern |
+| 90 | Territoire de Belfort | `archives.territoiredebelfort.fr` | `archives.territoiredebelfort.fr/search/form/ce8c3b7f-77f9-493b-81dd-d09d11bdc431` | Mnesys Expo | Naoned customer list; URL pattern |
+| 91 | Essonne | `archives.essonne.fr` | `archives.essonne.fr/search/form/f282515f-9106-4c17-a633-95f49fe7da66` | Mnesys Expo | Mnesys Expo logo; URL pattern |
+| 92 | Hauts-de-Seine | `archives.hauts-de-seine.fr` | `archives.hauts-de-seine.fr/n/archives-en-ligne/n:89` | Ligeo | Ligeo references; URL pattern |
+| 93 | Seine-Saint-Denis | `archives.seinesaintdenis.fr` | `archives.seinesaintdenis.fr/archive/resultats/etatcivil/n:217?type=etatcivil` | Ligeo (portal); Mnesys customer | URL pattern; both vendors' lists |
+| 94 | Val-de-Marne | `archives.valdemarne.fr` | `archives.valdemarne.fr/recherches/archives-en-ligne/etat-civil` | Arkothèque | Arkothèque references; URL pattern |
+| 95 | Val-d'Oise | `archives.valdoise.fr` | `archives.valdoise.fr/archive/recherche/EtatCivilNumerise/n:419` | Ligeo | Ligeo references; URL pattern |
+| 971 | Guadeloupe | `www.archivesguadeloupe.fr` | `earchives.archivesguadeloupe.fr/archives/search/default/*:*` | Unidentified (probably the Gard engine); listed by Ligeo | Ligeo references; portal |
+| 972 | Martinique (Archives territoriales) | `www.patrimoines-martinique.org` | `www.patrimoines-martinique.org/search/form/8ea80f22-2f9c-456b-94a0-adbd50d31e1c` | Mnesys Expo | Naoned case study; URL pattern |
+| 973 | Guyane (Archives territoriales) | `ctguyane.fr` | `anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=GUYANE` | Archives nationales d'outre-mer | Collectivité territoriale research guide; portal |
+| 974 | La Réunion | `departement974.fr` (directory) | `anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=REUNION` | Archives nationales d'outre-mer | Portal |
+| 976 | Mayotte | — | `anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=MAYOTTE` (1844–1906) | Archives nationales d'outre-mer | Portal |
+
+Corsica has two department codes and one service, so the table has 100 rows
+for 101 departments. *(directory)* marks a domain quoted by a third-party
+directory and not checked on the site itself.
 
 [^arkotheque]: Arkothèque, publishing software for archive services.
 [^arkotheque-references]: Arkothèque references, departmental archive count.
@@ -630,3 +924,12 @@ catalogue entry and relies on the user-reported failures of §7.
 [^ad37-portal]: Indre-et-Loire archive portal, search form, results, viewer and manifest observed 2026-10-03.
 [^iiif-image]: IIIF Image API, image sources listed by the viewer endpoint.
 [^iiif-presentation]: IIIF Presentation API 3.0, the register manifest.
+[^arkotheque-departmental]: Arkothèque departmental references, 28 services named.
+[^naoned-references]: Naoned customer map, mixing Mnesys Archives and Mnesys Expo users.
+[^ligeo-references]: Ligeo references, mixing management and dissemination.
+[^ad21-legal]: Côte-d'Or archive legal notice, hosting by EidoPolis Prismia.
+[^ad47-portal]: Lot-et-Garonne announcement of its Prismia Vision portal, 2025-03-11.
+[^alsace-portal]: Collectivité européenne d'Alsace, the Bas-Rhin portal on Ligeo Diffusion.
+[^ad37-credits]: Indre-et-Loire credits page naming Naoned.
+[^panorama-2014]: 2014 panorama of digitized-archive interfaces, former Archinoë customers.
+[^anom-civil-status]: Archives nationales d'outre-mer, overseas civil status.
