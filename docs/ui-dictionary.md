@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk family-name editor (rename, merge, particle)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T04:08:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T10:20:14Z }
 ---
 
 
@@ -405,8 +405,8 @@ titles, place names, and occupation labels are user content and are not
 translated; see [Cross-cutting Rules §3](cross-cutting.md).
 
 The keys and their values in the eight interface languages are in the
-translation tables of `crates/oxidgene-ui/src/i18n/` (`en.rs`, `fr.rs`, …),
-which are authoritative and kept at exact key parity
+locale documents of `assets/i18n/` (`en.json`, `fr.json`, …), which are
+authoritative and kept at exact key parity
 ([Cross-cutting Rules §3](cross-cutting.md)).
 
 ---

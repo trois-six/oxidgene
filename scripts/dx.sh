@@ -6,6 +6,13 @@ if ! command -v dx >/dev/null 2>&1; then
     exit 1
 fi
 
+# sccache's server needs the credentials scrubbed below (ACTIONS_RUNTIME_TOKEN
+# for the GitHub Actions cache). Start it first: the compilers dx runs then
+# reach a server that already holds them, while dx itself never sees them.
+if [[ "$(basename -- "${RUSTC_WRAPPER:-}")" == sccache ]]; then
+    sccache --start-server >/dev/null 2>&1 || true
+fi
+
 # Dioxus serializes the complete rustc environment under target/dx/.captured-args.
 # Keep credentials out of those replay files without weakening the build environment.
 while IFS= read -r variable_name; do

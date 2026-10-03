@@ -14,13 +14,13 @@ export const apiUrl = `http://127.0.0.1:${process.env.E2E_API_PORT ?? "18080"}`;
 const fixtureGedcom = readFileSync(join(import.meta.dirname, "..", "fixtures", "family-blocks.ged"), "utf8");
 
 /// The first segment of every translation key ("common", "person_form", …),
-/// read from the English table. A visible word that starts with one of these
-/// and a dot is a key that reached the page untranslated.
+/// read from the English locale document. A visible word that starts with one
+/// of these and a dot is a key that reached the page untranslated.
 const keyPrefixes = [
     ...new Set(
-        [...readFileSync(join(repository, "crates", "oxidgene-ui", "src", "i18n", "en.rs"), "utf8").matchAll(
-            /"([a-z][a-z0-9_]*)\.[a-z0-9_.]+"\s*,/g,
-        )].map((match) => match[1]),
+        Object.keys(
+            JSON.parse(readFileSync(join(repository, "assets", "i18n", "en.json"), "utf8")).translations,
+        ).map((key) => key.split(".")[0]),
     ),
 ];
 const rawKey = new RegExp(`\\b(?:${keyPrefixes.join("|")})\\.[a-z0-9_]+(?:\\.[a-z0-9_]+)*\\b`);
