@@ -208,5 +208,143 @@ write('ad44-engine.json', {
                                  ("Naissances[[arko_fiche_6a6b3d7100e74]]", 30),
                                  ("Mariages[[arko_fiche_6a6b3d7104771]]", 30),
                                  ("Sépultures[[arko_fiche_6a6b3d71061cb]]", 20),
-                                 ("Décès[[arko_fiche_6a6b3d7107318]]", 20)])}]}})
+                                 ("Décès[[arko_fiche_6a6b3d7107318]]", 20),
+                                 ("Tables décennales[[arko_fiche_6a6b3d7108c8d]]", 10)])}]}})
+
+# The shapes the other portals' engines render (Archive Portals §4.3): cells
+# named by `data-champ`, several spans of one name, bare cells read by their
+# column, titles holding a call number with the locality or the period
+# after it, rows without an image count, and pages of a long answer. Each
+# fixture serves the catalogued collection named in its comment.
+
+def generic_row(portal, r):
+    """`r['cells']`: (champ or None, text or list of texts) in column order."""
+    cells = []
+    for champ, value in r['cells']:
+        if champ is None:
+            cells.append(td(esc(value)))
+        elif isinstance(value, list):
+            items = ''.join(f'<li>{span(champ, "varchar", v)}</li>' for v in value)
+            cells.append(td(f'<ul>{items}</ul>', ''))
+        else:
+            cells.append(td(span(champ, 'varchar', value), ''))
+    if r.get('viewer', True):
+        zone = images(portal, r['record'], r['file'], r['images'])
+        if r['images'] is None:
+            zone = zone.replace('<span class="nombre_images">(None images)</span>', '')
+        cells.append(td(zone, ''))
+    return cells
+
+def generic(portal, registers, total=None):
+    rows = [row(generic_row(portal, register)) for register in registers]
+    results = [{"id": 200000 + index, "intitule": register.get('title', ''),
+                "refUnique": register['record']} for index, register in enumerate(registers)]
+    return {"refUnique": portal['engine'],
+            "resultats": {"total": len(registers) if total is None else total,
+                          "count": len(registers), "results": results,
+                          "html": table([], rows), "aggregations": [], "modeRestit": "tableau"}}
+
+def record(n):
+    return f'arko_fiche_{n:013x}'
+
+# fr-ad36 `registers`: the act filter value `Baptêmes / Naissances` serves
+# both baptisms and births, so the act cells, one span per kind, tell them
+# apart.
+AD36 = dict(engine='arko_default_61a0b234355b3', image_field='arko_default_0000000003601')
+write('ad36-shared-acts.json', generic(AD36, [
+    dict(record=record(0xd01), file=930001, images=95, title='9 E 999/1', cells=[
+        ('cote', '9 E 999/1'), ('commune', 'Exampleville'), ('type_acte', ['Baptêmes', 'Mariages', 'Sépultures']),
+        ('date', '1690-1800')]),
+    dict(record=record(0xd02), file=930002, images=284, title='9 E 999/2', cells=[
+        ('cote', '9 E 999/2'), ('commune', 'Exampleville'), ('type_acte', ['Naissances']), ('date', '1793-1802')])]))
+
+# fr-ad15 `registers`: the locality qualified by its department, a hamlet's
+# by its commune too; the acts in a bare cell, the period in the title.
+AD15 = dict(engine='arko_default_5f8ef8b61e0d4', image_field='arko_default_0000000001501')
+write('ad15-qualified.json', generic(AD15, [
+    dict(record=record(0xe01), file=940001, images=327, title='1737-1754', cells=[
+        ('isadg_unitid', '9 Mi 99/2'), (None, 'Exampleville Collection départementale Registres paroissiaux Baptêmes, mariages, sépultures'),
+        ('isadg_controlaccess_geogname', 'Exampleville (Exemple, France)')]),
+    dict(record=record(0xe02), file=940002, images=266, title='1730-1792', cells=[
+        ('isadg_unitid', '9 Mi 98/5'), (None, 'Hameau Collection départementale Registres paroissiaux Baptêmes, mariages, sépultures'),
+        ('isadg_controlaccess_geogname', 'Hameau (Exampleville, Exemple, France)')]),
+    dict(record=record(0xe03), file=940003, images=120, title='1846-1867', cells=[
+        ('isadg_unitid', '9 Mi 99/5'), (None, 'Exampleville Collection départementale Etat civil Naissances'),
+        ('isadg_controlaccess_geogname', 'Exampleville (Exemple, France)')])]))
+
+# fr-ad08 `military-registers`: no locality filter, the bureau in a cell, the
+# matricules a volume spans in two cells.
+AD08 = dict(engine='arko_default_6777a77d98594', image_field='arko_default_0000000000801')
+write('ad08-matricules.json', generic(AD08, [
+    dict(record=record(0xf01 + index), file=950001 + index, images=150, title='9R 155', cells=[
+        ('ark_fiche_cote', '9R 155'), ('ark_fiche_date', '1900'), ('bureau', bureau), ('intitule', 'Registre matricule'),
+        ('mat_debut', str(first)), ('mat_fin', str(first + 99))])
+    for index, (bureau, first) in enumerate([('Exampleville', 1), ('Exampleville', 101), ('Sampleton', 1)])]))
+
+# fr-ad10 `registers`: the call number in the title, followed by the
+# locality.
+AD10 = dict(engine='arko_default_694266c456574', image_field='arko_default_0000000001001')
+write('ad10-titles.json', generic(AD10, [
+    dict(record=record(0xa01 + index), file=960001 + index, images=count, title=f'9E{number} Bourg (Le)', cells=[
+        ('communes_aube', 'Bourg (Le)'), ('date', period), ('type_acte', ['Naissance'])])
+    for index, (number, period, count) in enumerate([(99901, '1848-1860', 304), (99902, '1861-1872', 280)])]))
+
+# fr-ad65 `civil-status`: the call number in the title, followed by the
+# period; one value of the act filter for every kind, the kinds as codes.
+AD65 = dict(engine='arko_default_636924f5785e7', image_field='arko_default_0000000006501')
+write('ad65-codes.json', generic(AD65, [
+    dict(record=record(0xb01 + index), file=970001 + index, images=count, title=f'9 E 9/{volume} 1802 - 1803', cells=[
+        ('commune', localities), ('titre_court', kind), ('fr_date_publication', 'An XI')])
+    for index, (volume, kind, count, localities) in enumerate([
+        (4, 'N', 3, ['Exampleville']), (5, 'M', 2, ['Sampleton', 'Exampleville']), (6, 'D', 4, ['Exampleville'])])]))
+
+# fr-ad72 `censuses`: several lists a year — by alphabetical part, by
+# collection —, told apart by call number and image count.
+AD72_CENSUS = dict(engine='arko_default_6319dda7da548', image_field='arko_default_0000000007201')
+write('ad72-census.json', generic(AD72_CENSUS, [
+    dict(record=record(0xc01 + index), file=980001 + index, images=count, title=cote, cells=[
+        ('commune', 'Exampleville'), ('cote', cote), ('date_affichage', period)])
+    for index, (cote, period, count) in enumerate([
+        ('9 Mi 9999_ 19', '1931 (A-H, collection communale)', 662), ('9 Mi 9999_ 20', '1931 (I-Z, collection communale)', 540),
+        ('9 M 999/2', '1931 (collection départementale)', 662), ('9 Mi 9999_ 18', '1926', 610)])]))
+
+# fr-ad72 `registers-before-1902`, a populated locality: the engine has no
+# period filter, so the cited register may be on a later page (100 rows on
+# the portal, 3 here); the text match also brings other localities.
+AD72_PAGES = dict(AD72)
+def populated(first, count, cited=None):
+    registers = []
+    for index in range(first, first + count):
+        commune = "Saint-Exemple-lès-le-Bourg" if index % 2 == 0 else "Bourg (Le)"
+        registers.append(dict(record=record(0x1000 + index), file=990000 + index, images=200 + index % 50,
+                              title=f'9Mi 999_{index}', cells=[
+                                  ('commune', commune), ('cote', f'9Mi 999_{index}'),
+                                  ('dates_extremes', f'M {1700 + index}'), ('actes_affichage', 'M')]))
+    if cited is not None:
+        at, cote, period, images_count = cited
+        registers[at] = dict(record=record(0x2000), file=999999, images=images_count, title=cote, cells=[
+            ('commune', 'Bourg (Le)'), ('cote', cote), ('dates_extremes', period), ('actes_affichage', 'M')])
+    return registers
+write('ad72-page-1.json', generic(AD72_PAGES, populated(0, 3), total=5))
+write('ad72-page-2.json', generic(AD72_PAGES, populated(3, 2, (1, '9Mi 999_374-376', 'M 1880-1882', 567)), total=5))
+
+# fr-ad24 `censuses`: the year filter takes its listed value with its key.
+AD24 = dict(engine='arko_default_6076a37360df7', image_field='arko_default_0000000002401')
+write('ad24-census-engine.json', {
+    "refUnique": AD24['engine'],
+    "filtres": [
+        {"refUnique": "arko_default_6076a4257d83d", "type": "select", "intitule": "Commune",
+         "properties": [{"fieldName": "arko_default_6076a29089cef"}]},
+        {"refUnique": "arko_default_6076a425828ef", "type": "select", "intitule": "Année de recensement",
+         "properties": [{"fieldName": "arko_default_6076a3b1d558e"}]}],
+    "restits": [{"refUnique": "arko_default_6076a524314f9", "mode": {"intituleCourt": "tableau"}}],
+    "resultats": {"total": 2, "count": 0, "results": [], "html": "", "aggregations": [{
+        "arko_default_6076a29089cef": {"buckets": [{"key": "Exampleville (Exemple, France)[[arko_fiche_0000000000c101]]", "doc_count": 20}]},
+        **terms("arko_default_6076a3b1d558e", [("1836 [[0000000000000000000000000000000000001836]]", 12),
+                                              ("1841 [[0000000000000000000000000000000000001841]]", 11)])}]}})
+write('ad24-census.json', generic(AD24, [
+    dict(record=record(0x3001), file=999101, images=11, title='FRAD099_6MI11', cells=[
+        ('lieux', 'Exampleville (Exemple, France)'), ('precision', 'Hameau'), ('date', '1836'), ('cote', 'FRAD099_6MI11')]),
+    dict(record=record(0x3002), file=999102, images=None, title='FRAD099_6MI12', cells=[
+        ('lieux', 'Exampleville (Exemple, France)'), ('date', '1841'), ('cote', 'FRAD099_6MI12')])]))
 print(sorted(p.name for p in OUT.iterdir()))

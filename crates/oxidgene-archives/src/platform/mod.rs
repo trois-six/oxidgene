@@ -72,7 +72,8 @@ pub struct PortalEndpoint {
     /// absolute address; no other origin is ever reached.
     pub other_origins: Vec<String>,
     /// The page a browser transport loads before issuing requests: the
-    /// collection's search page.
+    /// lightest page of the portal's origin that passes its checks, chosen
+    /// by the adapter.
     pub start: String,
     pub access: Access,
 }

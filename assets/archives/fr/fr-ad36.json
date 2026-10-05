@@ -1,0 +1,150 @@
+{
+  "id": "fr-ad36",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Indre",
+  "jurisdiction": ["36"],
+  "citation_codes": ["AD36"],
+  "website": "https://www.archives36.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "P", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives36.fr",
+        "transport": "browser",
+        "search_path": "/fonds-numerises/etat-civil",
+        "engine": "arko_default_61a0b234355b3",
+        "content_ids": ["387008"],
+        "display_mode": "arko_default_61a0b365ba252",
+        "fields": {
+          "locality": "arko_default_61a0b2b3cb0f3",
+          "act": "arko_default_61a0b2b3b2aa5",
+          "period": "arko_default_61a0b35a5ec80"
+        },
+        "acts": {
+          "B": "Baptêmes / Naissances",
+          "N": "Baptêmes / Naissances",
+          "M": "Mariages",
+          "S": "Sépultures / Décès",
+          "D": "Sépultures / Décès",
+          "P": "Publications de mariages",
+          "TD": "Tables"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "act": "type_acte",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives36.fr",
+        "transport": "browser",
+        "search_path": "/fonds-numerises/recensements-de-population",
+        "engine": "arko_default_61a0ae5412613",
+        "content_ids": ["388809"],
+        "display_mode": "arko_default_61a0af55b85ed",
+        "fields": {
+          "locality": "arko_default_61a0aef03216d",
+          "period": { "ref": "arko_default_61a0aef06c925", "mode": "autocomplete", "keyed": true }
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives36.fr",
+        "transport": "browser",
+        "search_path": "/fonds-numerises/registres-matricules-militaires/consultation-des-tables-et-registres",
+        "engine": "arko_default_61a0af701dbbd",
+        "content_ids": ["389787"],
+        "display_mode": "arko_default_61a0b074b396a",
+        "fields": {
+          "locality": "arko_default_61a0afd2eb0bd",
+          "act": "arko_default_61a0afd2c45d3",
+          "period": { "ref": "arko_default_61a0afd2d7545", "mode": "input" }
+        },
+        "acts": {
+          "RM": "Registre matricule"
+        },
+        "cells": {
+          "locality": "bureau_de_recrutement",
+          "act": "type_registre",
+          "period": "classe",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "conscription-lists",
+      "acts": ["CM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives36.fr",
+        "transport": "browser",
+        "search_path": "/fonds-numerises/registres-matricules-militaires/consultation-des-tables-et-registres",
+        "engine": "arko_default_61a0af701dbbd",
+        "content_ids": ["389787"],
+        "display_mode": "arko_default_61a0b074b396a",
+        "fields": {
+          "locality": "arko_default_61a0afd2eb0bd",
+          "act": "arko_default_61a0afd2c45d3",
+          "period": { "ref": "arko_default_61a0afd2d7545", "mode": "input" }
+        },
+        "acts": {
+          "CM": "Garde nationale mobile"
+        },
+        "cells": {
+          "locality": "bureau_de_recrutement",
+          "act": "type_registre",
+          "period": "classe",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives36.fr",
+        "transport": "browser",
+        "search_path": "/fonds-numerises/enregistrement-sous-serie-3-q",
+        "engine": "arko_default_620a54016cd23",
+        "content_ids": ["403809"],
+        "display_mode": "arko_default_620a64a9a3ae8",
+        "fields": {
+          "locality": "arko_default_620f7fbeeedbd",
+          "act": "arko_default_620f800c0d83a",
+          "period": "arko_default_620f8035eb5ed"
+        },
+        "acts": {
+          "TSA": "Table alphabétique des successions et absences"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "bureau",
+          "act": "typologie",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

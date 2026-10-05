@@ -1,0 +1,104 @@
+{
+  "id": "fr-ad24",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Dordogne",
+  "jurisdiction": ["24"],
+  "citation_codes": ["AD24"],
+  "website": "https://archives.dordogne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "P"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.dordogne.fr",
+        "transport": "any",
+        "search_path": "/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil",
+        "engine": "arko_default_6197500eceff4",
+        "content_ids": ["8997516"],
+        "display_mode": "arko_default_61975079d8dee",
+        "fields": {
+          "locality": "arko_default_6197504d97f6f",
+          "period": "arko_default_619cb4d2a32f7"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "lieux",
+          "parish": "precision3",
+          "act": "precision",
+          "period": "precision2",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.dordogne.fr",
+        "transport": "any",
+        "search_path": "/archives-numerisees/genealogie/tables-decennales",
+        "engine": "arko_default_6076dc317a162",
+        "content_ids": ["8998034"],
+        "display_mode": "arko_default_6076dd00e75c8",
+        "fields": {
+          "locality": "arko_default_607fcd0a8401e"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "lieux",
+          "period": "precision2"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.dordogne.fr",
+        "transport": "any",
+        "search_path": "/archives-numerisees/genealogie/denombrements-de-population",
+        "engine": "arko_default_6076a37360df7",
+        "content_ids": ["8997543"],
+        "display_mode": "arko_default_6076a524314f9",
+        "fields": {
+          "locality": "arko_default_6076a4257d83d",
+          "period": { "ref": "arko_default_6076a425828ef", "mode": "select", "keyed": true }
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "lieux",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.dordogne.fr",
+        "transport": "any",
+        "search_path": "/archives-numerisees/registres-matricules/registres-matricules-1878-1886-sans-indexation-nominative-fonds-ouvert-a-lannotation-collaborative",
+        "engine": "arko_default_6076d72382d34",
+        "content_ids": ["9026712"],
+        "display_mode": "arko_default_6076d85eabe9f",
+        "fields": {
+          "locality": "arko_default_6076d7aeda903",
+          "period": { "ref": "arko_default_6076d7aedca80", "mode": "select", "keyed": true }
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "lieux",
+          "period": "date",
+          "numbers": "precision2",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+ "refUnique": "arko_default_6076a37360df7",
+ "filtres": [
+  {
+   "refUnique": "arko_default_6076a4257d83d",
+   "type": "select",
+   "intitule": "Commune",
+   "properties": [
+    {
+     "fieldName": "arko_default_6076a29089cef"
+    }
+   ]
+  },
+  {
+   "refUnique": "arko_default_6076a425828ef",
+   "type": "select",
+   "intitule": "Année de recensement",
+   "properties": [
+    {
+     "fieldName": "arko_default_6076a3b1d558e"
+    }
+   ]
+  }
+ ],
+ "restits": [
+  {
+   "refUnique": "arko_default_6076a524314f9",
+   "mode": {
+    "intituleCourt": "tableau"
+   }
+  }
+ ],
+ "resultats": {
+  "total": 2,
+  "count": 0,
+  "results": [],
+  "html": "",
+  "aggregations": [
+   {
+    "arko_default_6076a29089cef": {
+     "buckets": [
+      {
+       "key": "Exampleville (Exemple, France)[[arko_fiche_0000000000c101]]",
+       "doc_count": 20
+      }
+     ]
+    },
+    "arko_default_6076a3b1d558e": {
+     "doc_count": 23,
+     "arko_default_6076a3b1d558e_terms": {
+      "doc_count_error_upper_bound": 0,
+      "sum_other_doc_count": 0,
+      "buckets": [
+       {
+        "key": "1836 [[0000000000000000000000000000000000001836]]",
+        "doc_count": 12
+       },
+       {
+        "key": "1841 [[0000000000000000000000000000000000001841]]",
+        "doc_count": 11
+       }
+      ]
+     }
+    }
+   }
+  ]
+ }
+}

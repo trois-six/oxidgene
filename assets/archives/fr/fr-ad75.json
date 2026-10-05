@@ -1,0 +1,43 @@
+{
+  "id": "fr-ad75",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives de Paris",
+  "jurisdiction": ["75"],
+  "citation_codes": ["AD75"],
+  "website": "https://archives.paris.fr",
+  "collections": [
+    {
+      "id": "civil-status-from-1860",
+      "acts": ["N", "M", "D"],
+      "period": [1860, null],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.paris.fr",
+        "transport": "any",
+        "search_path": "/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860/consulter-les-actes-detat-civil",
+        "engine": "arko_default_64ca19f9b29b5",
+        "content_ids": ["10873331"],
+        "display_mode": "arko_default_64ca1b2347e81",
+        "fields": {
+          "locality": "arko_default_64ca1a89a5742",
+          "act": "arko_default_64ca1a8996ae1",
+          "period": { "ref": "arko_default_64ca1a89b23b8", "mode": "input" }
+        },
+        "acts": {
+          "N": "Naissances",
+          "M": "Mariages",
+          "D": "Décès"
+        },
+        "locality_style": "district",
+        "cells": {
+          "locality": "arrondissement",
+          "act": "type_doc",
+          "period": "tranche_d_txt",
+          "numbers": ["tranche_d_txt", "tranche_f_txt"],
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

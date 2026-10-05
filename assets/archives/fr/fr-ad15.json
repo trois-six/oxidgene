@@ -1,0 +1,110 @@
+{
+  "id": "fr-ad15",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Cantal",
+  "jurisdiction": ["15"],
+  "citation_codes": ["AD15"],
+  "website": "https://www.archives.cantal.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "TD"],
+      "period": [null, 1962],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives.cantal.fr",
+        "transport": "browser",
+        "search_path": "/vos-archives/etat-civil/recherche-dans-letat-civil",
+        "engine": "arko_default_5f8ef8b61e0d4",
+        "content_ids": ["2896685"],
+        "display_mode": "arko_default_5f8ef94134942",
+        "fields": {
+          "locality": "arko_default_5f8ef8e7d58fc",
+          "act": "arko_default_5fa27b859c6ba",
+          "period": "arko_default_5f9090f420e44"
+        },
+        "acts": {
+          "B": "Baptêmes -- Naissances[[arko_fiche_5fc4d01e3fa77]]",
+          "N": "Baptêmes -- Naissances[[arko_fiche_5fc4d01e3fa77]]",
+          "M": "Mariages -- Publications de mariages[[arko_fiche_5fc4d01e40252]]",
+          "S": "Sépultures -- Décès[[arko_fiche_5fc4d01e4093d]]",
+          "D": "Sépultures -- Décès[[arko_fiche_5fc4d01e4093d]]",
+          "TD": "Tables décennales[[arko_fiche_5fc4d01e01d81]]"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "isadg_controlaccess_geogname",
+          "act": "#2",
+          "period": "#title",
+          "call_number": "isadg_unitid"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives.cantal.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/genealogie/listes-nominatives-de-recensement-numerisees",
+        "engine": "arko_default_5f9274ef15acf",
+        "content_ids": ["3040579"],
+        "display_mode": "arko_default_5f92759e26bf3",
+        "fields": {
+          "locality": "arko_default_5f92754366c4c",
+          "period": "arko_default_5f92750d63a72"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "period": "#title",
+          "call_number": "isadg_unitid"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives.cantal.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/genealogie/registres-matricules/recherche-dans-les-registres-matricules",
+        "engine": "arko_default_5fad071380c17",
+        "content_ids": ["2896695"],
+        "display_mode": "arko_default_5fad0870469ea",
+        "fields": {
+          "period": { "ref": "arko_default_5fad07a633cb7", "mode": "input" }
+        },
+        "cells": {
+          "period": "isadg_unitdate",
+          "numbers": "#title",
+          "call_number": "isadg_unitid"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives.cantal.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/genealogie/tables-des-successions-et-absences-numerisees",
+        "engine": "arko_default_5f92736d8fb73",
+        "content_ids": ["2687900"],
+        "display_mode": "arko_default_5f92748adad4b",
+        "fields": {
+          "locality": "arko_default_5f9274376bb90",
+          "period": "arko_default_5f92745481972"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "period": "#title",
+          "call_number": "isadg_unitid"
+        }
+      }
+    }
+  ]
+}

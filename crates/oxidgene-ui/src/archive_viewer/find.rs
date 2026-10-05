@@ -225,7 +225,10 @@ mod tests {
             .find(|archive| archive.id == "fr-ad72")
             .unwrap();
         let codes: Vec<String> = kinds_held(sarthe).iter().map(ToString::to_string).collect();
-        assert_eq!(codes, ["B", "M", "S", "N", "D", "TD"]);
+        assert_eq!(
+            codes,
+            ["B", "M", "S", "N", "D", "TD", "RP", "RM", "CM", "TSA"]
+        );
         let i18n = I18n::new(Language::english());
         for kind in kinds_held(sarthe) {
             let label = kind_label(&i18n, &kind);
@@ -281,7 +284,7 @@ mod tests {
         // An act the archive does not hold is refused.
         let refused = SuppliedParts {
             locality: Some("Exampleville".to_owned()),
-            act: Act::from_code("RP"),
+            act: Act::from_code("TB"),
             ..SuppliedParts::default()
         };
         assert!(find.complete(refused).is_none());

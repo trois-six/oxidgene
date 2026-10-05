@@ -1,0 +1,99 @@
+{
+  "id": "fr-ad08",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Ardennes",
+  "jurisdiction": ["08"],
+  "citation_codes": ["AD08"],
+  "website": "https://archives.cd08.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.cd08.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/sources-genealogiques/registres-paroissiaux-et-detat-civil",
+        "engine": "arko_default_6776ac3012e9d",
+        "content_ids": ["968219"],
+        "display_mode": "arko_default_6776af9fd9f6f",
+        "fields": {
+          "locality": "arko_default_6776acf636161",
+          "period": "arko_default_6776acf64bf69"
+        },
+        "cells": {
+          "locality": "#2",
+          "act": "ark_fiche_type_acte_ref_cle",
+          "period": "ark_fiche_date",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.cd08.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/sources-genealogiques/recensements-de-la-population",
+        "engine": "arko_default_6777aa916b65a",
+        "content_ids": ["946244"],
+        "display_mode": "arko_default_6777aacc785af",
+        "fields": {
+          "locality": "arko_default_6777aaf181d30",
+          "period": "arko_default_6777aaf18bb2d"
+        },
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "ark_fiche_date",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.cd08.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/sources-genealogiques/registres-matricules-du-recensement-militaire",
+        "engine": "arko_default_6777a77d98594",
+        "content_ids": ["969883"],
+        "display_mode": "arko_default_6777a86c71b25",
+        "fields": {
+          "period": "arko_default_6777a7e92688c"
+        },
+        "cells": {
+          "locality": "bureau",
+          "period": "ark_fiche_date",
+          "numbers": ["mat_debut", "mat_fin"],
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.cd08.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/sources-genealogiques/tables-des-successions-et-absences",
+        "engine": "arko_default_6769765935f76",
+        "content_ids": ["862591"],
+        "display_mode": "arko_default_6769789a9246e",
+        "fields": {
+          "locality": "arko_default_6777c2adc33eb"
+        },
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "ark_fiche_date",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    }
+  ]
+}

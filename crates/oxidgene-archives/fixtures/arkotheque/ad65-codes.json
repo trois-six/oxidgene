@@ -1,0 +1,27 @@
+{
+ "refUnique": "arko_default_636924f5785e7",
+ "resultats": {
+  "total": 3,
+  "count": 3,
+  "results": [
+   {
+    "id": 200000,
+    "intitule": "9 E 9/4 1802 - 1803",
+    "refUnique": "arko_fiche_0000000000b01"
+   },
+   {
+    "id": 200001,
+    "intitule": "9 E 9/5 1802 - 1803",
+    "refUnique": "arko_fiche_0000000000b02"
+   },
+   {
+    "id": 200002,
+    "intitule": "9 E 9/6 1802 - 1803",
+    "refUnique": "arko_fiche_0000000000b03"
+   }
+  ],
+  "html": "\n<table class=\"tableau_resultat_facettes\">\n    <caption>Tableau de résultats</caption>\n    <thead>\n        <tr></tr>\n    </thead>\n    <tbody>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <ul><li><span style=\"pointer-events: none;\" data-champ=\"commune\" data-type-champ=\"varchar\">Exampleville</span></li></ul>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"titre_court\" data-type-champ=\"varchar\">N</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"fr_date_publication\" data-type-champ=\"varchar\">An XI</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000b01&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000006501&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_636924f5785e7&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:970001,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_636924f5785e7/arko_fiche_0000000000b01/arko_default_0000000006501/image/970001\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(3 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <ul><li><span style=\"pointer-events: none;\" data-champ=\"commune\" data-type-champ=\"varchar\">Sampleton</span></li><li><span style=\"pointer-events: none;\" data-champ=\"commune\" data-type-champ=\"varchar\">Exampleville</span></li></ul>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"titre_court\" data-type-champ=\"varchar\">M</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"fr_date_publication\" data-type-champ=\"varchar\">An XI</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000b02&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000006501&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_636924f5785e7&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:970002,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_636924f5785e7/arko_fiche_0000000000b02/arko_default_0000000006501/image/970002\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(2 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <ul><li><span style=\"pointer-events: none;\" data-champ=\"commune\" data-type-champ=\"varchar\">Exampleville</span></li></ul>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"titre_court\" data-type-champ=\"varchar\">D</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"fr_date_publication\" data-type-champ=\"varchar\">An XI</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000b03&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000006501&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_636924f5785e7&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:970003,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_636924f5785e7/arko_fiche_0000000000b03/arko_default_0000000006501/image/970003\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(4 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    </tbody>\n</table>\n",
+  "aggregations": [],
+  "modeRestit": "tableau"
+ }
+}

@@ -1,12 +1,14 @@
-//! The adapter over anonymized answers of the Loire-Atlantique and Sarthe
+//! The adapter over anonymized answers shaped like those of the catalogued
 //! portals (`fixtures/arkotheque/`, written by its `generate.py`), with the
-//! catalogue's own settings for both archives.
+//! catalogue's own settings of the collection each answer stands for.
 
 use std::pin::pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
 
 use super::*;
+use crate::Access;
+use crate::citation::Act;
 use crate::transport::{FetchError, PortalRequest};
 use crate::{ArchiveRegistry, platform};
 
@@ -15,6 +17,7 @@ const AD44_SEVERAL: &str = include_str!("../../../fixtures/arkotheque/ad44-sever
 const AD44_NONE: &str = include_str!("../../../fixtures/arkotheque/ad44-none.json");
 const AD44_PERIODS: &str = include_str!("../../../fixtures/arkotheque/ad44-period-segments.json");
 const AD44_VIEWER: &str = include_str!("../../../fixtures/arkotheque/ad44-viewer.json");
+const AD44_ENGINE: &str = include_str!("../../../fixtures/arkotheque/ad44-engine.json");
 const AD44_INFO: &str = include_str!("../../../fixtures/arkotheque/ad44-info.json");
 const AD72_SEVERAL: &str = include_str!("../../../fixtures/arkotheque/ad72-several.json");
 const AD72_TEXT_MATCH: &str = include_str!("../../../fixtures/arkotheque/ad72-text-match.json");
@@ -38,6 +41,10 @@ fn block_on<F: Future>(future: F) -> F::Output {
 /// Answers each kind of request with its fixture, and records the requests.
 struct Fixtures {
     search: &'static str,
+    /// The search's next page, asked from a row other than the first.
+    next: &'static str,
+    /// The engine's bare answer, where a filter's values are read.
+    engine: &'static str,
     viewer: &'static str,
     info: &'static str,
     requests: Mutex<Vec<String>>,
@@ -47,6 +54,8 @@ impl Fixtures {
     fn new(search: &'static str) -> Self {
         Self {
             search,
+            next: AD44_NONE,
+            engine: AD44_ENGINE,
             viewer: AD44_VIEWER,
             info: AD44_INFO,
             requests: Mutex::new(Vec::new()),
@@ -66,8 +75,14 @@ impl PortalFetch for Fixtures {
         Box::pin(async move {
             self.requests.lock().unwrap().push(request.url.clone());
             let url = request.url.as_str();
-            let body = if url.starts_with("/_recherche-api/moteur?") {
+            let first_page = url.contains("--from=0&");
+            let body = if url.starts_with("/_recherche-api/moteur?") && !url.contains("ficheFocus")
+            {
+                self.engine
+            } else if url.starts_with("/_recherche-api/moteur?") && first_page {
                 self.search
+            } else if url.starts_with("/_recherche-api/moteur?") {
+                self.next
             } else if url.starts_with("/_recherche-api/visionneuse-infos/") {
                 self.viewer
             } else if url.starts_with("/_recherche-images/") && url.ends_with("/info.json") {
@@ -431,12 +446,16 @@ fn reads_the_endpoint_and_the_search_page_of_each_collection() {
         endpoint.origin,
         "https://archives-numerisees.loire-atlantique.fr"
     );
-    assert_eq!(endpoint.start, AD44_SEARCH_PAGE);
+    // The lightest page of the portal, which fetches nothing on load.
+    assert_eq!(
+        endpoint.start,
+        "https://archives-numerisees.loire-atlantique.fr/robots.txt"
+    );
     assert_eq!(endpoint.access, Access::Any);
     assert!(endpoint.other_origins.is_empty());
 
     let ad72 = registry.archive("AD72").unwrap();
-    assert_eq!(ad72.collections.len(), 2);
+    assert_eq!(ad72.collections.len(), 6);
     for collection in &ad72.collections {
         assert_eq!(
             Arkotheque.endpoint(collection).unwrap().access,
@@ -453,6 +472,9 @@ fn reads_the_endpoint_and_the_search_page_of_each_collection() {
         "https://archives.sarthe.fr/archives-en-ligne/registres-detat-civil-posterieurs-a-1902?arko_default_678f538cb2d58--"
     ));
     assert!(url.contains("D%C3%A9c%C3%A8s%5B%5Barko_fiche_6304c294c39b0%5D%5D"));
+    // The reader's page shows the portal's default 25 rows, which render
+    // faster than the 100 the adapter reads.
+    assert!(url.contains("--resultSize=25&"), "{url}");
 }
 
 fn collection_with(change: impl FnOnce(&mut serde_json::Value)) -> Collection {
@@ -469,7 +491,7 @@ fn collection_with(change: impl FnOnce(&mut serde_json::Value)) -> Collection {
 fn validates_its_settings_against_the_collection() {
     assert_eq!(Arkotheque.validate(&collection_with(|_| {})), Ok(()));
     type Change = fn(&mut serde_json::Value);
-    let cases: [(&str, Change); 8] = [
+    let cases: [(&str, Change); 10] = [
         ("unknown field", |p| p["row_label"] = "x".into()),
         ("https origin", |p| {
             p["origin"] = "http://archives.example.org".into()
@@ -477,7 +499,15 @@ fn validates_its_settings_against_the_collection() {
         ("absolute path", |p| p["search_path"] = "chercher".into()),
         ("references", |p| p["engine"] = "arko default".into()),
         ("numeric", |p| p["content_ids"] = serde_json::json!([])),
-        ("record key", |p| p["acts"]["B"] = "Baptêmes".into()),
+        ("empty filter value", |p| p["acts"]["B"] = "".into()),
+        (
+            "only the period filter has an end",
+            |p| {
+                p["fields"]["locality"] =
+                    serde_json::json!({"ref": "arko_default_1", "end": "arko_default_2"})
+            },
+        ),
+        ("is no cell", |p| p["cells"]["locality"] = "#0".into()),
         ("no filter value for `D`", |p| {
             p["acts"].as_object_mut().unwrap().remove("D");
         }),
@@ -525,11 +555,19 @@ fn an_engine_without_an_act_filter_searches_a_series_only() {
         error.to_string().contains("acts without fields.act"),
         "{error}"
     );
+    // Kinds an engine cannot filter are told apart by the act cell.
     let mut registers = census(|_| {});
-    registers.acts = vec![Act::from_code("B").unwrap()];
+    registers.acts = vec![Act::from_code("B").unwrap(), Act::from_code("N").unwrap()];
+    assert_eq!(Arkotheque.validate(&registers), Ok(()));
+    let mut registers = census(|portal| {
+        portal["cells"].as_object_mut().unwrap().remove("act");
+    });
+    registers.acts = vec![Act::from_code("B").unwrap(), Act::from_code("N").unwrap()];
     let error = Arkotheque.validate(&registers).unwrap_err();
     assert!(
-        error.to_string().contains("`B` needs the act filter"),
+        error
+            .to_string()
+            .contains("several document kinds without an act filter need cells.act"),
         "{error}"
     );
     // With its act filter, a series needs its value like any act.
@@ -577,4 +615,278 @@ fn reads_a_locality_of_the_portal_back_as_cited() {
     assert_eq!(suffixed.locality_style.cited("Bourg (Le)"), "Le Bourg");
     let plain = Settings::read(&registry.archive("AD44").unwrap().collections[0]).unwrap();
     assert_eq!(plain.locality_style.cited("Bourg (Le)"), "Bourg (Le)");
+}
+
+// The shapes of the other portals' engines, over the catalogue's settings
+// of the collection each fixture names (`generate.py`).
+
+const AD08_MATRICULES: &str = include_str!("../../../fixtures/arkotheque/ad08-matricules.json");
+const AD10_TITLES: &str = include_str!("../../../fixtures/arkotheque/ad10-titles.json");
+const AD15_QUALIFIED: &str = include_str!("../../../fixtures/arkotheque/ad15-qualified.json");
+const AD24_CENSUS: &str = include_str!("../../../fixtures/arkotheque/ad24-census.json");
+const AD24_CENSUS_ENGINE: &str =
+    include_str!("../../../fixtures/arkotheque/ad24-census-engine.json");
+const AD36_SHARED_ACTS: &str = include_str!("../../../fixtures/arkotheque/ad36-shared-acts.json");
+const AD65_CODES: &str = include_str!("../../../fixtures/arkotheque/ad65-codes.json");
+const AD72_CENSUS: &str = include_str!("../../../fixtures/arkotheque/ad72-census.json");
+const AD72_PAGE_1: &str = include_str!("../../../fixtures/arkotheque/ad72-page-1.json");
+const AD72_PAGE_2: &str = include_str!("../../../fixtures/arkotheque/ad72-page-2.json");
+
+/// The record a fixture names by its number.
+fn fixture_record(number: u32) -> String {
+    format!("arko_fiche_{number:013x}")
+}
+
+#[test]
+fn a_filter_value_shared_by_two_kinds_is_told_apart_by_the_act_cells() {
+    // `Baptêmes / Naissances` finds both kinds; one span per kind says
+    // which register holds births.
+    let (target, fetch) = embedded("AD36 - Exampleville - (aucun) - N - 1795", AD36_SHARED_ACTS);
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0xd02));
+    let search = &fetch.requests()[0];
+    assert!(
+        search.contains("%5Bq%5D%5B%5D=Bapt%C3%AAmes%20%2F%20Naissances&"),
+        "{search}"
+    );
+    let (target, _) = embedded("AD36 - Exampleville - (aucun) - B - 1795", AD36_SHARED_ACTS);
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0xd01));
+}
+
+#[test]
+fn a_qualified_locality_is_its_commune_and_never_one_of_its_hamlets() {
+    let (target, fetch) = embedded("AD15 - Exampleville - (aucun) - B - 1750", AD15_QUALIFIED);
+    let target = target.unwrap();
+    assert_eq!(opened_record(&target), fixture_record(0xe01));
+    // The call number is the named cell's: the title holds the period.
+    let ArchiveTarget::View { call_number, .. } = &target else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(call_number.as_deref(), Some("9 Mi 99/2"));
+    // The locality is searched by its name alone.
+    assert!(fetch.requests()[0].contains("%5Bq%5D%5B%5D=Exampleville&"));
+    // The births of the commune, read from the acts of a bare cell.
+    let (target, _) = embedded("AD15 - Exampleville - (aucun) - N - 1850", AD15_QUALIFIED);
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0xe03));
+    // The hamlet is not the commune it names: its call number is on none of
+    // the commune's rows.
+    let (target, _) = embedded(
+        "AD15 - Exampleville - (aucun) - B - 1785 - 9 Mi 98/5",
+        AD15_QUALIFIED,
+    );
+    assert!(matches!(
+        target,
+        Ok(ArchiveTarget::Results {
+            matches: Some(2),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn several_values_of_one_kind_are_searched_together() {
+    let registry = ArchiveRegistry::embedded();
+    let citation = registry
+        .parse("AD44 - Exampleville - Liste du contingent - 1870 - vue 3/40")
+        .unwrap();
+    assert_eq!(citation.act, Act::Series(crate::Series::ConscriptionList));
+    let (_, collections) = registry.candidates(&citation).unwrap();
+    let url = Arkotheque.results_url(collections[0], &citation).unwrap();
+    for expected in [
+        "%5Bop%5D=OR&",
+        "%5Bq%5D%5B%5D=Liste%20d%C3%A9partementale%20du%20contingent&",
+        "%5Bq%5D%5B%5D=Liste%20de%20la%20garde%20nationale%20mobile&",
+        // The class is typed, the bureau chosen.
+        "%5Bq%5D%5B%5D=1870&",
+        "%5Bextras%5D%5Bmode%5D=autocomplete&",
+        "%5Bextras%5D%5Bmode%5D=select&",
+    ] {
+        assert!(url.contains(expected), "{expected} in {url}");
+    }
+}
+
+#[test]
+fn matricules_shown_in_two_cells_single_out_a_volume() {
+    let title = "AD08 - Exampleville - Registres matricules - 1900 - matricule 150 - vue 3/150";
+    let (target, fetch) = embedded(title, AD08_MATRICULES);
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0xf02));
+    // The engine has no locality filter: the bureau is read from the rows.
+    let search = &fetch.requests()[0];
+    assert!(!search.contains("Exampleville"), "{search}");
+    assert!(search.contains("%5Bq%5D%5B%5D=1900%7C1900&"), "{search}");
+}
+
+#[test]
+fn a_title_holds_the_call_number_before_the_locality_or_the_period() {
+    let (target, _) = embedded(
+        "AD10 - Le Bourg - (aucun) - N - 1850 - 9E99901",
+        AD10_TITLES,
+    );
+    let target = target.unwrap();
+    assert_eq!(opened_record(&target), fixture_record(0xa01));
+    let ArchiveTarget::View { call_number, .. } = &target else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(call_number.as_deref(), Some("9E99901"));
+
+    // A row naming several localities is each one's; the kinds are codes,
+    // and the period is searched by its first and last year.
+    let (target, fetch) = embedded(
+        "AD65 - Exampleville - (aucun) - M - an XI - 9 E 9/5",
+        AD65_CODES,
+    );
+    let target = target.unwrap();
+    assert_eq!(opened_record(&target), fixture_record(0xb02));
+    let ArchiveTarget::View { call_number, .. } = &target else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(call_number.as_deref(), Some("9 E 9/5"));
+    let search = &fetch.requests()[0];
+    for end in ["arko_default_63692b66ded44", "arko_default_63bd8f04715bc"] {
+        assert!(
+            search.contains(&format!("%5B{end}%5D%5Bq%5D%5B%5D=1802&")),
+            "{end} in {search}"
+        );
+    }
+}
+
+#[test]
+fn a_census_of_several_lists_a_year_is_told_apart_by_call_number_and_images() {
+    let title = "AD72 - Exampleville - Recensement - 1931 (A-H, collection communale) - 9 Mi 9999_ 19 - vue 490d/662";
+    let (target, _) = embedded(title, AD72_CENSUS);
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0xc01));
+    let (target, _) = embedded(
+        "AD72 - Exampleville - Recensement - 1931 - vue 12/540",
+        AD72_CENSUS,
+    );
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0xc02));
+    // Two lists of that year have as many images: the citation needs its
+    // call number.
+    let (target, _) = embedded(
+        "AD72 - Exampleville - Recensement - 1931 - vue 490/662",
+        AD72_CENSUS,
+    );
+    assert!(matches!(
+        target,
+        Ok(ArchiveTarget::Results {
+            matches: Some(2),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_cited_call_number_missing_from_the_first_page_is_looked_for_on_the_next() {
+    // A populated locality without a period filter: 3 rows of 5 on the
+    // first page, the cited register on the second.
+    let title =
+        "AD72 - Le Bourg - (aucun) - M - 1880-1882 - 9Mi 999_374-376 - acte 238 - vue 289d/564";
+    let mut fetch = Fixtures::new(AD72_PAGE_1);
+    fetch.next = AD72_PAGE_2;
+    let target = resolve(ArchiveRegistry::embedded(), title, &fetch).unwrap();
+    assert_eq!(opened_record(&target), fixture_record(0x2000));
+    let requests = fetch.requests();
+    assert_eq!(requests.len(), 3, "{requests:?}");
+    assert!(requests[0].contains("--from=0&"));
+    assert!(requests[1].contains("--from=3&"));
+    assert!(requests[2].starts_with("/_recherche-api/visionneuse-infos/"));
+
+    // One microfilm of the cited range is that register too.
+    let fetch = Fixtures {
+        next: AD72_PAGE_2,
+        ..Fixtures::new(AD72_PAGE_1)
+    };
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD72 - Le Bourg - (aucun) - M - 1881 - 9Mi 999_375",
+        &fetch,
+    );
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0x2000));
+
+    // A citation without a call number reads the first page only.
+    let fetch = Fixtures {
+        next: AD72_PAGE_2,
+        ..Fixtures::new(AD72_PAGE_1)
+    };
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD72 - Le Bourg - (aucun) - M - 1881",
+        &fetch,
+    );
+    assert!(target.is_ok());
+    let searches = fetch
+        .requests()
+        .iter()
+        .filter(|request| request.starts_with("/_recherche-api/moteur?"))
+        .count();
+    assert_eq!(searches, 1);
+}
+
+#[test]
+fn a_keyed_value_is_read_from_the_engine_lists_first() {
+    let mut fetch = Fixtures::new(AD24_CENSUS);
+    fetch.engine = AD24_CENSUS_ENGINE;
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD24 - Exampleville - Recensement - 1836 - vue 3/3",
+        &fetch,
+    );
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0x3001));
+    let requests = fetch.requests();
+    assert!(!requests[0].contains("ficheFocus"), "{}", requests[0]);
+    assert!(
+        requests[1]
+            .contains("%5Bq%5D%5B%5D=1836%20%5B%5B0000000000000000000000000000000000001836%5D%5D&"),
+        "{}",
+        requests[1]
+    );
+    // A register its row shows without an image count opens all the same.
+    let mut fetch = Fixtures::new(AD24_CENSUS);
+    fetch.engine = AD24_CENSUS_ENGINE;
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD24 - Exampleville - Recensement - 1841 - vue 3/3",
+        &fetch,
+    );
+    assert_eq!(opened_record(&target.unwrap()), fixture_record(0x3002));
+}
+
+#[test]
+fn reads_act_words_cells_and_titles() {
+    for (text, code) in [
+        ("Baptêmes, Mariages, Sépultures", Some("BMS")),
+        ("1850 (naissances)", Some("N")),
+        ("Sépultures puis décès", Some("SD")),
+        ("Publications de mariages", Some("MP")),
+        (
+            "Tables décennales des naissances, mariages, décès",
+            Some("TD"),
+        ),
+        ("Table alphabétique", None),
+        ("Liste nominative", None),
+    ] {
+        assert_eq!(page::act_code(text).as_deref(), code, "{text}");
+    }
+    for (setting, cell) in [
+        ("cote", Some(page::Cell::Champ("cote".to_owned()))),
+        ("#3", Some(page::Cell::Column(3))),
+        ("#title", Some(page::Cell::Title)),
+        ("#none", Some(page::Cell::Nowhere)),
+        ("#0", None),
+        ("bad cell", None),
+    ] {
+        assert_eq!(
+            page::Cell::try_from(setting.to_owned()).ok(),
+            cell,
+            "{setting}"
+        );
+    }
+}
+
+#[test]
+fn reads_image_paths_written_on_the_portal_host() {
+    let answer = r#"{"medias": [{"sources": [{"src": "https://www.archives.example.org/_recherche-images/show/1/image/2/0"}]}]}"#;
+    let sources = page::viewer_sources(answer, "https://archives.example.org").unwrap();
+    assert_eq!(sources[0].src, "/_recherche-images/show/1/image/2/0");
+    let elsewhere = r#"{"medias": [{"sources": [{"src": "https://elsewhere.example.org/_recherche-images/show/1/image/2/0"}]}]}"#;
+    assert!(page::viewer_sources(elsewhere, "https://archives.example.org").is_err());
 }

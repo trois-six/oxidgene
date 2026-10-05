@@ -11,7 +11,7 @@
   "collections": [
     {
       "id": "registers",
-      "acts": ["B", "N", "M", "S", "D"],
+      "acts": ["B", "N", "M", "S", "D", "TD"],
       "period": [null, 1925],
       "platform": "arkotheque",
       "portal": {
@@ -31,14 +31,115 @@
           "N": "Naissances[[arko_fiche_6a6b3d7100e74]]",
           "M": "Mariages[[arko_fiche_6a6b3d7104771]]",
           "S": "Sépultures[[arko_fiche_6a6b3d71061cb]]",
-          "D": "Décès[[arko_fiche_6a6b3d7107318]]"
+          "D": "Décès[[arko_fiche_6a6b3d7107318]]",
+          "TD": "Tables décennales[[arko_fiche_6a6b3d7108c8d]]"
         },
-        "locality_style": "plain",
+        "locality_style": "article_comma",
         "cells": {
           "locality": "liaison_commune",
           "parish": "paroisse",
           "act": "type_actes_affichage",
           "period": "date"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives-numerisees.loire-atlantique.fr",
+        "transport": "any",
+        "search_path": "/chercher/recensement-de-population",
+        "engine": "arko_default_6a8ea1dc1691b",
+        "content_ids": ["1251023"],
+        "display_mode": "arko_default_6a97d754a8fec",
+        "fields": {
+          "locality": "arko_default_6a97d12d8019d",
+          "period": "arko_default_6a97d12d886a2"
+        },
+        "locality_style": "article_comma",
+        "cells": {
+          "locality": "liaison_commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives-numerisees.loire-atlantique.fr",
+        "transport": "any",
+        "search_path": "/chercher/conscrits-militaires-recherche-chronologique",
+        "engine": "arko_default_6a687245cf833",
+        "content_ids": ["1251077"],
+        "display_mode": "arko_default_6a6873dd4107f",
+        "fields": {
+          "locality": { "ref": "arko_default_6a6872bb77049", "mode": "select" },
+          "act": "arko_default_6a6872bb8c9f4",
+          "period": { "ref": "arko_default_6a6872bb9e744", "mode": "autocomplete" }
+        },
+        "acts": {
+          "RM": "Registre matricule"
+        },
+        "cells": {
+          "locality": "bureau",
+          "act": "type_doc",
+          "period": "classe",
+          "numbers": "num_mat",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "conscription-lists",
+      "acts": ["CM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives-numerisees.loire-atlantique.fr",
+        "transport": "any",
+        "search_path": "/chercher/conscrits-militaires-recherche-chronologique",
+        "engine": "arko_default_6a687245cf833",
+        "content_ids": ["1251077"],
+        "display_mode": "arko_default_6a6873dd4107f",
+        "fields": {
+          "locality": { "ref": "arko_default_6a6872bb77049", "mode": "select" },
+          "act": "arko_default_6a6872bb8c9f4",
+          "period": { "ref": "arko_default_6a6872bb9e744", "mode": "autocomplete" }
+        },
+        "acts": {
+          "CM": ["Liste départementale du contingent", "Liste de la garde nationale mobile"]
+        },
+        "cells": {
+          "locality": "bureau",
+          "act": "type_doc",
+          "period": "classe",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives-numerisees.loire-atlantique.fr",
+        "transport": "any",
+        "search_path": "/chercher/tables-alphabetiques-des-deces-de-lenregistrement",
+        "engine": "arko_default_6a4ce217c7f3f",
+        "content_ids": ["838274"],
+        "display_mode": "arko_default_6a4ce4885c1f2",
+        "fields": {
+          "locality": { "ref": "arko_default_6a4ce39be62e4", "mode": "select" },
+          "period": "arko_default_6a4f4e39ef02d"
+        },
+        "cells": {
+          "locality": "bureau",
+          "period": "date",
+          "call_number": "cote"
         }
       }
     }

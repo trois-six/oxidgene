@@ -1,0 +1,114 @@
+{
+  "id": "fr-ad54",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Meurthe-et-Moselle",
+  "jurisdiction": ["54"],
+  "citation_codes": ["AD54"],
+  "website": "https://archives.meurthe-et-moselle.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "D", "S", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/registres-paroissiaux-et-detat-civil",
+        "engine": "arko_default_62bc67565d099",
+        "content_ids": ["457641"],
+        "display_mode": "arko_default_62bc67b55c7d2",
+        "fields": {
+          "locality": "arko_default_62bc67951f875",
+          "act": "arko_default_62bc67952465a",
+          "period": "arko_default_62bc679526687"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_62bc4d268b4ae]]",
+          "N": "Naissances[[arko_fiche_62bc4d2698edd]]",
+          "M": "Mariages[[arko_fiche_62bc4d2697a5a]]",
+          "D": "Décès[[arko_fiche_62bc4d2699471]]",
+          "S": "Sépultures[[arko_fiche_62bc4d26989e1]]",
+          "TD": "Tables décennales[[arko_fiche_62bc4d26999c2]]"
+        },
+        "cells": {
+          "locality": "commune",
+          "act": "actes_affichage",
+          "period": "dates_extremes",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/listes-nominatives-de-recensement-de-population",
+        "engine": "arko_default_62bc69dac0628",
+        "content_ids": ["457506"],
+        "display_mode": "arko_default_62bc6a152c9ad",
+        "fields": {
+          "locality": "arko_default_62bc6a05bc53e",
+          "period": { "ref": "arko_default_62bc6a05bf566", "mode": "input" }
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/registres-matricules-militaires",
+        "engine": "arko_default_62bc69358b041",
+        "content_ids": ["457611"],
+        "display_mode": "arko_default_62bc697ad38e3",
+        "fields": {
+          "locality": "arko_default_62bc696c3d40b",
+          "act": "arko_default_62bc696c3f135",
+          "period": { "ref": "arko_default_62bc696c3a9fb", "mode": "select", "keyed": true }
+        },
+        "acts": {
+          "RM": "Registre"
+        },
+        "cells": {
+          "locality": "bureau",
+          "period": "date",
+          "numbers": "analyse",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/tables-de-successions-et-absences",
+        "engine": "arko_default_62bc6aac086d6",
+        "content_ids": ["457500"],
+        "display_mode": "arko_default_62bc6ae1b35f5",
+        "fields": {
+          "locality": "arko_default_62bc6ad59d381",
+          "period": "arko_default_62bc6ad5a2c05"
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "dates_extremes",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

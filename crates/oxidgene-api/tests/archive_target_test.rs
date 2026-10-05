@@ -262,7 +262,7 @@ async fn a_title_that_is_no_catalogued_citation_has_no_target() {
         // A well-formed citation of an archive the catalogue does not list.
         ("AD09 - Exampleville - (aucun) - N - 1877", "no_adapter"),
         // A catalogued archive, but a table no collection holds.
-        ("AD44 - Exampleville - (aucun) - TD - 1877", "no_adapter"),
+        ("AD44 - Exampleville - (aucun) - TB - 1877", "no_adapter"),
     ] {
         let source = new_source(&app, &tree, title).await;
         let (status, body) = rest(&app, &tree, &source, None).await;
@@ -654,7 +654,7 @@ async fn parts_the_archive_cannot_search_are_refused_on_both_surfaces() {
 
     for parts in [
         // A document kind no collection of the archive holds, or none at all.
-        json!({ "locality": "Exampleville", "act": "TD" }),
+        json!({ "locality": "Exampleville", "act": "TB" }),
         json!({ "locality": "Exampleville", "act": "XX" }),
         json!({ "locality": "  ", "act": "B" }),
         json!({ "locality": "Exampleville", "act": "B", "year": 900 }),

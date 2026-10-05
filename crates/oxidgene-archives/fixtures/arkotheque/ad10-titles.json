@@ -1,0 +1,22 @@
+{
+ "refUnique": "arko_default_694266c456574",
+ "resultats": {
+  "total": 2,
+  "count": 2,
+  "results": [
+   {
+    "id": 200000,
+    "intitule": "9E99901 Bourg (Le)",
+    "refUnique": "arko_fiche_0000000000a01"
+   },
+   {
+    "id": 200001,
+    "intitule": "9E99902 Bourg (Le)",
+    "refUnique": "arko_fiche_0000000000a02"
+   }
+  ],
+  "html": "\n<table class=\"tableau_resultat_facettes\">\n    <caption>Tableau de résultats</caption>\n    <thead>\n        <tr></tr>\n    </thead>\n    <tbody>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"communes_aube\" data-type-champ=\"varchar\">Bourg (Le)</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"date\" data-type-champ=\"varchar\">1848-1860</span>\n        </td>\n        <td class=\"\">\n            <ul><li><span style=\"pointer-events: none;\" data-champ=\"type_acte\" data-type-champ=\"varchar\">Naissance</span></li></ul>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000a01&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000001001&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_694266c456574&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:960001,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_694266c456574/arko_fiche_0000000000a01/arko_default_0000000001001/image/960001\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(304 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"communes_aube\" data-type-champ=\"varchar\">Bourg (Le)</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"date\" data-type-champ=\"varchar\">1861-1872</span>\n        </td>\n        <td class=\"\">\n            <ul><li><span style=\"pointer-events: none;\" data-champ=\"type_acte\" data-type-champ=\"varchar\">Naissance</span></li></ul>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000a02&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000001001&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_694266c456574&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:960002,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_694266c456574/arko_fiche_0000000000a02/arko_default_0000000001001/image/960002\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(280 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    </tbody>\n</table>\n",
+  "aggregations": [],
+  "modeRestit": "tableau"
+ }
+}

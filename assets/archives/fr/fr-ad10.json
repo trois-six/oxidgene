@@ -1,0 +1,124 @@
+{
+  "id": "fr-ad10",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Aube",
+  "jurisdiction": ["10"],
+  "citation_codes": ["AD10"],
+  "website": "https://www.archives-aube.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-aube.fr",
+        "transport": "browser",
+        "search_path": "/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube",
+        "engine": "arko_default_694266c456574",
+        "content_ids": ["1686737"],
+        "display_mode": "arko_default_694268df16a0a",
+        "fields": {
+          "locality": "arko_default_694269ca4d0b2",
+          "act": "arko_default_694269ca6b834",
+          "period": "arko_default_694269ca88a6e"
+        },
+        "acts": {
+          "B": "Baptême[[arko_fiche_61d5821c05d11]]",
+          "M": "Mariage[[arko_fiche_61d5821c0699d]]",
+          "S": "Sépulture[[arko_fiche_61d5821c07501]]",
+          "N": "Naissance[[arko_fiche_61d5821c062b8]]",
+          "D": "Décès[[arko_fiche_61d5821c0842a]]"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "communes_aube",
+          "parish": "ancienne_paroisse",
+          "act": "type_acte",
+          "period": "date"
+        }
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-aube.fr",
+        "transport": "browser",
+        "search_path": "/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube",
+        "engine": "arko_default_694266c456574",
+        "content_ids": ["1686737"],
+        "display_mode": "arko_default_694268df16a0a",
+        "fields": {
+          "locality": "arko_default_694269ca4d0b2",
+          "act": "arko_default_694269ca6b834",
+          "period": "arko_default_694269ca88a6e"
+        },
+        "acts": {
+          "TD": "Tables décennales[[arko_fiche_61d5821c08f4d]]"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune_aube",
+          "act": "type_acte_liaison",
+          "period": "date"
+        }
+      }
+    },
+    {
+      "id": "troyes-registers",
+      "acts": ["N", "M", "D", "B", "S"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-aube.fr",
+        "transport": "browser",
+        "search_path": "/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube",
+        "engine": "arko_default_694266c456574",
+        "content_ids": ["1686737"],
+        "display_mode": "arko_default_694268df16a0a",
+        "fields": {
+          "locality": "arko_default_695796f326190",
+          "act": "arko_default_694269ca6b834",
+          "period": "arko_default_694269ca88a6e"
+        },
+        "acts": {
+          "B": "Baptême[[arko_fiche_61d5821c05d11]]",
+          "M": "Mariage[[arko_fiche_61d5821c0699d]]",
+          "S": "Sépulture[[arko_fiche_61d5821c07501]]",
+          "N": "Naissance[[arko_fiche_61d5821c062b8]]",
+          "D": "Décès[[arko_fiche_61d5821c0842a]]"
+        },
+        "locality_style": "enclosing",
+        "cells": {
+          "locality": "commune_troyes",
+          "act": "type_acte",
+          "period": "date"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-aube.fr",
+        "transport": "browser",
+        "search_path": "/recherches/documents-numerises/genealogie/recensement/recensements-de-la-population-1820-1936",
+        "engine": "arko_default_62289b6f7c515",
+        "content_ids": ["1684029"],
+        "display_mode": "arko_default_62289d58d769e",
+        "fields": {
+          "locality": "arko_default_62289c6f8a931",
+          "period": "arko_default_62289c6f955ad"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

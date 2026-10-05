@@ -72,7 +72,7 @@
      }
     },
     "arko_default_6a6b489eb7a6c": {
-     "doc_count": 230,
+     "doc_count": 240,
      "arko_default_6a6b489eb7a6c_terms": {
       "doc_count_error_upper_bound": 0,
       "sum_other_doc_count": 0,
@@ -100,6 +100,10 @@
        {
         "key": "Décès[[arko_fiche_6a6b3d7107318]]",
         "doc_count": 20
+       },
+       {
+        "key": "Tables décennales[[arko_fiche_6a6b3d7108c8d]]",
+        "doc_count": 10
        }
       ]
      }

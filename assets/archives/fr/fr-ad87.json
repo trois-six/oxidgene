@@ -1,0 +1,145 @@
+{
+  "id": "fr-ad87",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Haute-Vienne",
+  "jurisdiction": ["87"],
+  "citation_codes": ["AD87"],
+  "website": "https://archives.haute-vienne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "D", "S", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.haute-vienne.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/etat-civil",
+        "engine": "arko_default_603517b8650b3",
+        "content_ids": ["687638"],
+        "display_mode": "arko_default_60351d21d72ee",
+        "fields": {
+          "locality": "arko_default_616d87384282a",
+          "act": "arko_default_605b1d7489fb3",
+          "period": "arko_default_60351bf306e8a"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_602ba63a3db4a]]",
+          "N": "Naissances[[arko_fiche_602ba639decb3]]",
+          "M": "Mariages[[arko_fiche_602ba639d945a]]",
+          "D": "Décès[[arko_fiche_602b7ce1bcbeb]]",
+          "S": "Sépultures[[arko_fiche_602ba639d15c4]]",
+          "TD": "Tables décennales[[arko_fiche_602ba63a0cfb9]]"
+        },
+        "cells": {
+          "locality": "commune",
+          "parish": "paroisse",
+          "act": "type_acte",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.haute-vienne.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/recensements-de-la-population",
+        "engine": "arko_default_6040e10bf3e4b",
+        "content_ids": ["685229"],
+        "display_mode": "arko_default_6040e21044e9b",
+        "fields": {
+          "locality": "arko_default_6040e1579c8d2",
+          "period": "arko_default_6040e157a87ec"
+        },
+        "cells": {
+          "locality": "commune_intitule",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.haute-vienne.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/registres-militaires/registres-militaires-recherche-par-registres",
+        "engine": "arko_default_60363483e20cb",
+        "content_ids": ["699609"],
+        "display_mode": "arko_default_603635f3e2209",
+        "fields": {
+          "locality": "arko_default_60363574d9003",
+          "act": "arko_default_60363574e285a",
+          "period": { "ref": "arko_default_60363574cea2f", "mode": "input" }
+        },
+        "acts": {
+          "RM": "Registre matricule[[arko_fiche_60362de59db5f]]"
+        },
+        "cells": {
+          "act": "type_registre",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "conscription-lists",
+      "acts": ["CM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.haute-vienne.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/registres-militaires/registres-militaires-recherche-par-registres",
+        "engine": "arko_default_60363483e20cb",
+        "content_ids": ["699609"],
+        "display_mode": "arko_default_603635f3e2209",
+        "fields": {
+          "locality": "arko_default_69ad81b02f941",
+          "act": "arko_default_60363574e285a",
+          "period": { "ref": "arko_default_60363574cea2f", "mode": "input" }
+        },
+        "acts": {
+          "CM": ["Listes de tirage au sort et de recrutement cantonal[[arko_fiche_690a05bf72528]]", "Listes cantonales et listes de tirage au sort[[arko_fiche_6728f3e0a498e]]"]
+        },
+        "cells": {
+          "act": "type_registre",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.haute-vienne.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/declarations-et-tables-des-successions-1790-1968",
+        "engine": "arko_default_6040ed485345e",
+        "content_ids": ["472988"],
+        "display_mode": "arko_default_6040ee15d4fc7",
+        "fields": {
+          "locality": "arko_default_6040ed940dd77",
+          "act": "arko_default_6040ed9424f78",
+          "period": "arko_default_6040ed943033f"
+        },
+        "acts": {
+          "TSA": "Table des successions et absences"
+        },
+        "cells": {
+          "locality": "commune_intitule",
+          "act": "analyse",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

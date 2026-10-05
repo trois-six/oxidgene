@@ -517,7 +517,7 @@ mod tests {
 
         // A catalogued archive, but a table no collection holds.
         assert_eq!(
-            link("AD44 - Exampleville - (aucun) - TD - 1877", None),
+            link("AD44 - Exampleville - (aucun) - TB - 1877", None),
             None
         );
         // A well-formed citation of an archive the catalogue does not list.

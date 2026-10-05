@@ -1,0 +1,138 @@
+{
+  "id": "fr-ad43",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Haute-Loire",
+  "jurisdiction": ["43"],
+  "citation_codes": ["AD43"],
+  "website": "https://www.archives43.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "P"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives43.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/etat-civil-de-la-haute-loire",
+        "engine": "arko_default_616fd22b91d20",
+        "content_ids": ["2501638"],
+        "display_mode": "arko_default_616fd47714b7b",
+        "fields": {
+          "locality": "arko_default_616fd46414cf1",
+          "act": "arko_default_616fd464320d7",
+          "period": { "ref": "arko_default_625573febd6ad", "mode": "input", "end": "arko_default_625573fedadc6" }
+        },
+        "acts": {
+          "B": "Baptêmes",
+          "N": "Naissances",
+          "M": "Mariages",
+          "S": "Sépultures",
+          "D": "Décès",
+          "P": "Publications de mariage"
+        },
+        "cells": {
+          "locality": "commune",
+          "act": "#3",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives43.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/tables-decennales-et-cantonales-de-letat-civil",
+        "engine": "arko_default_6155b2b4c96b4",
+        "content_ids": ["2486671"],
+        "display_mode": "arko_default_615c3290d76bb",
+        "fields": {
+          "locality": "arko_default_615c3271179ac"
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives43.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/recensements-de-population",
+        "engine": "arko_default_615c3449307fa",
+        "content_ids": ["2504142"],
+        "display_mode": "arko_default_615c35a86fac8",
+        "fields": {
+          "locality": "arko_default_615c35995d4e0",
+          "period": "arko_default_615c35996b1d5"
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives43.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/tables-et-registres-matricules-militaires",
+        "engine": "arko_default_616fd4be9e095",
+        "content_ids": ["2512873"],
+        "display_mode": "arko_default_616fd648a113e",
+        "fields": {
+          "act": "arko_default_616fd62e0eb33",
+          "period": { "ref": "arko_default_616fd62e007b3", "mode": "select", "keyed": true }
+        },
+        "acts": {
+          "RM": "Registre matricule"
+        },
+        "cells": {
+          "act": "intitule",
+          "period": "date",
+          "numbers": "contenu",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives43.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/familles-et-individus-en-haute-loire/tables-du-controle-des-actes-et-de-lenregistrement",
+        "engine": "arko_default_616fd68c54a1b",
+        "content_ids": ["2486716"],
+        "display_mode": "arko_default_616fd806d2663",
+        "fields": {
+          "locality": "arko_default_616fd7da1900b",
+          "act": "arko_default_616fd7da2c7ad"
+        },
+        "acts": {
+          "TSA": "Table des successions et absences"
+        },
+        "cells": {
+          "locality": "commune",
+          "act": "intitule",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

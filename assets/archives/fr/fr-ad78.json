@@ -1,0 +1,72 @@
+{
+  "id": "fr-ad78",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Yvelines",
+  "jurisdiction": ["78"],
+  "citation_codes": ["AD78"],
+  "website": "https://archives.yvelines.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["TD", "B", "N", "M", "S", "D"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.yvelines.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil",
+        "engine": "arko_default_618914e3ee7e4",
+        "content_ids": ["2604849"],
+        "display_mode": "arko_default_6189505357e83",
+        "fields": {
+          "locality": "arko_default_61894fee776d8",
+          "act": "arko_default_61a63c2ef379b",
+          "period": "arko_default_618950376837d"
+        },
+        "acts": {
+          "B": "Baptêmes et naissances[[arko_fiche_614201ec39f69]]",
+          "N": "Baptêmes et naissances[[arko_fiche_614201ec39f69]]",
+          "M": "Mariages[[arko_fiche_61420425251c0]]",
+          "S": "Sépultures et décès[[arko_fiche_6142044ed6a3e]]",
+          "D": "Sépultures et décès[[arko_fiche_6142044ed6a3e]]",
+          "TD": "Tables décennales[[arko_fiche_6142047753047]]"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "#2",
+          "parish": "paroisse_autre",
+          "act": "intitule",
+          "period": "date",
+          "call_number": "#1"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.yvelines.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/enregistrementbrtables-referencant-les-actesbret-declarations-de-successions/tables-de-lenregistrement",
+        "engine": "arko_default_60e708450211b",
+        "content_ids": ["1286109"],
+        "display_mode": "arko_default_60e70c1a57f90",
+        "fields": {
+          "locality": "arko_default_6123650dc7841",
+          "act": "arko_default_60e70a19035de",
+          "period": "arko_default_60e70a192dcd2"
+        },
+        "acts": {
+          "TSA": "Tables de successions"
+        },
+        "cells": {
+          "locality": "bureau",
+          "act": "intitule",
+          "period": "presentation_contenu",
+          "call_number": "liaison_cote"
+        }
+      }
+    }
+  ]
+}

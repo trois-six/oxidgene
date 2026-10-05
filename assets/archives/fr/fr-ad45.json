@@ -1,0 +1,115 @@
+{
+  "id": "fr-ad45",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Loiret",
+  "jurisdiction": ["45"],
+  "citation_codes": ["AD45"],
+  "website": "https://www.archives-loiret.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-loiret.fr",
+        "transport": "browser",
+        "search_path": "/faire-vos-recherches/archives-numerisees/etat-civil",
+        "engine": "arko_default_61e6b3f775f99",
+        "content_ids": ["2134922"],
+        "display_mode": "arko_default_61e6b60a6943c",
+        "fields": {
+          "locality": "arko_default_61e6b4731902f",
+          "act": "arko_default_61e6b47300d5d",
+          "period": "arko_default_61e6b47347f17"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_61f106368ae38]]",
+          "N": "Naissances[[arko_fiche_61e69199472b7]]",
+          "M": "Mariages[[arko_fiche_61e6919977ad9]]",
+          "S": "Sépultures[[arko_fiche_61f106368d236]]",
+          "D": "Décès[[arko_fiche_61e6919981924]]",
+          "TD": "Tables décennales[[arko_fiche_61f10336c764c]]"
+        },
+        "cells": {
+          "locality": "lieu",
+          "act": "intitule",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-loiret.fr",
+        "transport": "browser",
+        "search_path": "/faire-vos-recherches/archives-numerisees/recensements-de-population",
+        "engine": "arko_default_617a570882544",
+        "content_ids": ["2134945"],
+        "display_mode": "arko_default_617a596b66bd3",
+        "fields": {
+          "locality": "arko_default_617a5768cc0b6",
+          "period": { "ref": "arko_default_617a5768d1ba0", "mode": "input" }
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-loiret.fr",
+        "transport": "browser",
+        "search_path": "/faire-vos-recherches/archives-numerisees/registres-matricules-militaires",
+        "engine": "arko_default_61e6e5dd36b3d",
+        "content_ids": ["2415826"],
+        "display_mode": "arko_default_61e6e85b2d8bb",
+        "fields": {
+          "locality": "arko_default_61e6e66029535",
+          "act": "arko_default_61e6e65fe53db",
+          "period": { "ref": "arko_default_61e6e6603f324", "mode": "input" }
+        },
+        "acts": {
+          "RM": "Registres matricules"
+        },
+        "cells": {
+          "locality": "commune",
+          "act": "typologie",
+          "period": "date",
+          "numbers": "intitule",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-loiret.fr",
+        "transport": "browser",
+        "search_path": "/faire-vos-recherches/archives-numerisees/tables-de-successions",
+        "engine": "arko_default_617a4c4f3c3b4",
+        "content_ids": ["2239647"],
+        "display_mode": "arko_default_617a4e0d4b4b0",
+        "fields": {
+          "locality": "arko_default_617a4ce42b3d5",
+          "period": "arko_default_617a4ce4357db"
+        },
+        "cells": {
+          "locality": "lieu",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

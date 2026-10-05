@@ -1,0 +1,88 @@
+{
+  "id": "fr-ad50",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Manche",
+  "jurisdiction": ["50"],
+  "citation_codes": ["AD50"],
+  "website": "https://www.archives-manche.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "P", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-manche.fr",
+        "transport": "browser",
+        "search_path": "/recherche/registres-paroissiaux-et-detat-civil",
+        "engine": "arko_default_635b873d1f4a7",
+        "content_ids": ["867775"],
+        "display_mode": "arko_default_635b8783b6c86",
+        "fields": {
+          "locality": "arko_default_635fe0c23fd4c",
+          "act": "arko_default_635fe0c25c8b6",
+          "period": "arko_default_635fe0c2535eb"
+        },
+        "acts": {
+          "B": ["Baptêmes[[arko_fiche_646c7cc2eae16]]", "Baptêmes, mariages, sépultures[[arko_fiche_65788542c284d]]"],
+          "N": ["Naissances[[arko_fiche_646c7cc33163b]]", "Naissances, mariages[[arko_fiche_6578899bc1d49]]"],
+          "M": ["Mariages[[arko_fiche_646c7cc2ee959]]", "Baptêmes, mariages, sépultures[[arko_fiche_65788542c284d]]", "Naissances, mariages[[arko_fiche_6578899bc1d49]]", "Mariages, sépultures[[arko_fiche_65788e0407382]]"],
+          "S": ["Sépultures[[arko_fiche_646c7cc2ef221]]", "Baptêmes, mariages, sépultures[[arko_fiche_65788542c284d]]", "Mariages, sépultures[[arko_fiche_65788e0407382]]"],
+          "D": "Décès[[arko_fiche_646c7cc3321d4]]",
+          "P": "Publications de mariages[[arko_fiche_646c7cf991148]]",
+          "TD": "Table décennale[[arko_fiche_646c7cc338cb6]]"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "geogname",
+          "act": "type_acte",
+          "period": "date",
+          "call_number": "cote_tableau"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-manche.fr",
+        "transport": "browser",
+        "search_path": "/recherche/registres-matricules-militaires",
+        "engine": "arko_default_62459a8324417",
+        "content_ids": ["944767"],
+        "display_mode": "arko_default_62459ac1b185a",
+        "fields": {
+          "locality": "arko_default_62459a9f9521e",
+          "period": { "ref": "arko_default_62459c0763e35", "mode": "input" }
+        },
+        "cells": {
+          "locality": "isadg_controlaccess_geogname",
+          "period": "isadg_unitdate",
+          "call_number": "isadg_unitid"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives-manche.fr",
+        "transport": "browser",
+        "search_path": "/rechercher-1/repertoires-de-lenregistrement",
+        "engine": "arko_default_636bcb323b0ba",
+        "content_ids": ["588857"],
+        "display_mode": "arko_default_636bcd9e77e8f",
+        "fields": {
+          "locality": "arko_default_636bcde2bf110",
+          "period": "arko_default_636bcde2d3d99"
+        },
+        "cells": {
+          "period": "isadg_unitdate",
+          "call_number": "isadg_unitid"
+        }
+      }
+    }
+  ]
+}

@@ -15,8 +15,10 @@
 //!    one. A part the citation lacks is skipped, and so is one that would
 //!    leave none, since a portal may write a parish or a period differently.
 //!    The call number is the exception: a cited call number that no
-//!    candidate carries means the register is not among them, and the
-//!    answer is the results rather than a guess.
+//!    candidate carries means the register may not be among them, and the
+//!    answer is the results rather than a guess — unless exactly one
+//!    candidate both covers the cited year and has the cited image count,
+//!    strong evidence of a call number the portal writes otherwise.
 //!
 //! The period helpers read the period texts portals display, segments,
 //! act codes, notes and Republican years included.
@@ -108,7 +110,7 @@ pub(crate) fn narrow<'c, T>(
             })
             .collect();
         match matching.len() {
-            0 => return kept,
+            0 => return without_cited_call_number(kept, citation),
             1 => return matching,
             _ => kept = matching,
         }
@@ -127,6 +129,32 @@ pub(crate) fn narrow<'c, T>(
         }
     }
     kept
+}
+
+/// The candidates left when no candidate carries the cited call number,
+/// which a portal may write otherwise than the citation: the one register
+/// whose period covers the cited year and whose image count is the cited
+/// view count, when exactly one does — both are strong evidence —, and all
+/// of them otherwise, the results rather than a guess.
+fn without_cited_call_number<'c, T>(
+    kept: Vec<&'c Candidate<T>>,
+    citation: &CitationParts,
+) -> Vec<&'c Candidate<T>> {
+    let (Some(year), Some(count)) = (citation.year, citation.view_count) else {
+        return kept;
+    };
+    let evidence: Vec<&Candidate<T>> = kept
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate.images == Some(count)
+                && candidate
+                    .period
+                    .as_deref()
+                    .is_some_and(|period| covers(period, year))
+        })
+        .collect();
+    if evidence.len() == 1 { evidence } else { kept }
 }
 
 /// The criteria after the call number, in order; `None` for a part the
@@ -277,13 +305,15 @@ const MONTHS: [&str; 12] = [
 ];
 
 /// Whether the text between two years joins them into one range: a dash, a
-/// slash, `à` or `au` (`1683/1750`, `1833 à 1852`), or nothing but spaces
+/// slash, an ellipsis, `à` or `au` (`1683/1750`, `1621...1687`, `1833 à
+/// 1852`), or nothing but spaces
 /// (`1841 1860`), with the days and months of full dates written around the
 /// years (`13/11/1697 - 06/11/1707`, `26 juillet 1849-20 février 1850`). A
 /// comma, a word or a note separates two periods.
 fn joins_range(between: &str) -> bool {
     between
-        .replace(['-', '/', '\u{2013}'], " ")
+        .replace("...", " ")
+        .replace(['-', '/', '\u{2013}', '\u{2026}'], " ")
         .split_whitespace()
         .all(|word| {
             let folded = fold(word);
@@ -392,6 +422,8 @@ mod tests {
             [(1857, 1859), (1853, 1872), (1853, 1856), (1860, 1872)]
         );
         assert_eq!(period_ranges("N 1903 - 1912"), [(1903, 1912)]);
+        assert_eq!(period_ranges("1793/1802"), [(1793, 1802)]);
+        assert_eq!(period_ranges("BMS 1621...1687"), [(1621, 1687)]);
         assert_eq!(period_ranges("NM an II"), [(1793, 1794)]);
         assert_eq!(period_ranges("1792-an II"), [(1792, 1794)]);
         assert_eq!(
@@ -589,6 +621,39 @@ mod tests {
         assert_eq!(
             chosen(&candidates, "AB12 - Elsewhere - (aucun) - B - 1700"),
             Selection::Many(0)
+        );
+    }
+
+    #[test]
+    fn a_call_number_written_otherwise_gives_way_to_period_and_image_count() {
+        let candidates = [
+            candidate("Bourg (Le)", "9Mi 9_371", "M", "M 1877-1879", 580, 1),
+            candidate("Bourg (Le)", "9Mi 9_374", "M", "M 1880-1882", 567, 2),
+            candidate("Bourg (Le)", "9Mi 9_377", "M", "M 1880-1882", 600, 3),
+        ];
+        // The cited call number is on no row, but one register covers the
+        // year with the cited image count.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Le Bourg - (aucun) - M - 1881 - 9Mi 9 R374 - vue 289d/567"
+            ),
+            Selection::Many(102)
+        );
+        // Without both, or with two that fit, the results.
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Le Bourg - (aucun) - M - 1881 - 9Mi 9 R374"
+            ),
+            Selection::Many(3)
+        );
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Le Bourg - (aucun) - M - 1878 - 9Mi 9 R374 - vue 3/600"
+            ),
+            Selection::Many(3)
         );
     }
 }

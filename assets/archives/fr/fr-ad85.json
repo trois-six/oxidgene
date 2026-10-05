@@ -1,0 +1,92 @@
+{
+  "id": "fr-ad85",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Vendée",
+  "jurisdiction": ["85"],
+  "citation_codes": ["AD85"],
+  "website": "https://archives.vendee.fr",
+  "collections": [
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://etatcivil-archives.vendee.fr",
+        "transport": "browser",
+        "search_path": "/consulter/etat-civil-et-recensements/etat-civil",
+        "engine": "arko_default_643d0101d83ae",
+        "content_ids": ["688016"],
+        "display_mode": "arko_default_643d01a9df905",
+        "fields": {
+          "locality": "arko_default_643d01a17501e",
+          "act": "arko_default_643d01a17feea"
+        },
+        "acts": {
+          "N": "Etat civil",
+          "M": "Etat civil",
+          "D": "Etat civil",
+          "TD": "Tables"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "act": "types_actes",
+          "period": "periodes",
+          "call_number": "cote_archivistique"
+        }
+      }
+    },
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://etatcivil-archives.vendee.fr",
+        "transport": "browser",
+        "search_path": "/consulter/etat-civil-et-recensements/etat-civil",
+        "engine": "arko_default_643d0101d83ae",
+        "content_ids": ["688016"],
+        "display_mode": "arko_default_643d01a9df905",
+        "fields": {
+          "locality": "arko_default_643d01a17501e"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "act": "types_actes",
+          "period": "periodes",
+          "call_number": "cote_archivistique"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://etatcivil-archives.vendee.fr",
+        "transport": "browser",
+        "search_path": "/consulter/etat-civil-et-recensements/listes-nominatives-recensements-de-population",
+        "engine": "arko_default_643d0253983b3",
+        "content_ids": ["688000"],
+        "display_mode": "arko_default_643d0301cf693",
+        "fields": {
+          "locality": "arko_default_643d029dedcdc",
+          "act": "arko_default_643d029e0fb9c",
+          "period": { "ref": "arko_default_643d029e080e7", "mode": "select", "keyed": true }
+        },
+        "acts": {
+          "RP": ["Recensement de population", "Dénombrement de la population"]
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "act": "nature",
+          "period": "date",
+          "call_number": "cote_microfilm"
+        }
+      }
+    }
+  ]
+}

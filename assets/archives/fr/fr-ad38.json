@@ -1,0 +1,87 @@
+{
+  "id": "fr-ad38",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Isère",
+  "jurisdiction": ["38"],
+  "citation_codes": ["AD38"],
+  "website": "https://archives.isere.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne1.archives-isere.fr",
+        "transport": "browser",
+        "search_path": "/etat-civil-et-registres-paroissiaux-5",
+        "engine": "arko_default_68495321cfc3a",
+        "content_ids": ["106379"],
+        "display_mode": "arko_default_685d1d69e49f8",
+        "fields": {
+          "locality": "arko_default_685baaa065770",
+          "act": "arko_default_685d1d34b5007",
+          "period": "arko_default_685d5c4cb38ae"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_685a7ac0335ed]]",
+          "N": "Naissances[[arko_fiche_68540930d1a24]]",
+          "M": "Mariages[[arko_fiche_685409467c70c]]",
+          "S": "Sépultures[[arko_fiche_685a7ac035762]]",
+          "D": "Décès[[arko_fiche_68540955d7131]]",
+          "TD": "Tables décennales[[arko_fiche_6854096309134]]"
+        },
+        "cells": {
+          "locality": "commune_ancienne",
+          "parish": "texteCourt",
+          "act": "intitule",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne1.archives-isere.fr",
+        "transport": "browser",
+        "search_path": "/recensements-de-population",
+        "engine": "arko_default_661503e12c9a2",
+        "content_ids": ["98915"],
+        "display_mode": "arko_default_6615189dacb02",
+        "fields": {
+          "locality": "arko_default_661515c01d58f",
+          "period": { "ref": "arko_default_661516bac681e", "mode": "input" }
+        },
+        "cells": {
+          "locality": "commune_ancienne",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne1.archives-isere.fr",
+        "transport": "browser",
+        "search_path": "/registres-matricules-militaires-1",
+        "engine": "arko_default_662ba804bb466",
+        "content_ids": ["100883"],
+        "display_mode": "arko_default_662bab98c2931",
+        "fields": {
+          "period": "arko_default_662ba9be79e2c"
+        },
+        "cells": {
+          "period": "classe",
+          "numbers": "texteCourt",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

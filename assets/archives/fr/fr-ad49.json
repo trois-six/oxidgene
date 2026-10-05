@@ -1,0 +1,117 @@
+{
+  "id": "fr-ad49",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Maine-et-Loire",
+  "jurisdiction": ["49"],
+  "citation_codes": ["AD49"],
+  "website": "https://archives.maine-et-loire.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "P", "TD"],
+      "period": [null, 1902],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://recherche-archives.maine-et-loire.fr",
+        "transport": "browser",
+        "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/etat-civil-et-registres-paroissiaux",
+        "engine": "arko_default_6825f9c6950b1",
+        "content_ids": ["714088"],
+        "display_mode": "arko_default_6825feeddb0b9",
+        "fields": {
+          "locality": "arko_default_6825fa8970a3c",
+          "act": "arko_default_6825fa8993189",
+          "period": "arko_default_6825fa89aace2"
+        },
+        "acts": {
+          "B": ["Baptêmes", "Baptêmes, mariages, sépultures", "Baptêmes, mariages", "Baptêmes, sépultures", "Baptêmes, mariages, décès"],
+          "N": ["Naissances", "Naissances, mariages, décès", "Naissances, mariages", "Naissances, décès", "Naissances, mariages, sépultures"],
+          "M": ["Mariages", "Naissances, mariages, décès", "Baptêmes, mariages, sépultures", "Baptêmes, mariages", "Mariages, sépultures", "Mariages, décès", "Baptêmes, mariages, décès", "Naissances, mariages", "Naissances, mariages, sépultures"],
+          "S": ["Sépultures", "Baptêmes, mariages, sépultures", "Mariages, sépultures", "Baptêmes, sépultures", "Naissances, mariages, sépultures"],
+          "D": ["Décès", "Naissances, mariages, décès", "Mariages, décès", "Baptêmes, mariages, décès", "Naissances, décès"],
+          "P": "Publications de mariages",
+          "TD": ["Tables décennales", "Tables décennales (naissances)", "Tables décennales (mariages)", "Tables décennales (décès)"]
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "#title",
+          "act": "type_acte",
+          "period": "date"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://recherche-archives.maine-et-loire.fr",
+        "transport": "browser",
+        "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/recensements-de-population",
+        "engine": "arko_default_6841a02713045",
+        "content_ids": ["714168"],
+        "display_mode": "arko_default_6841a676df74e",
+        "fields": {
+          "locality": "arko_default_6841a23ec5162",
+          "period": { "ref": "arko_default_6841a2bca2f1e", "mode": "select", "keyed": true }
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "liaison_commune",
+          "period": "annee"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://recherche-archives.maine-et-loire.fr",
+        "transport": "browser",
+        "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/registres-matricules-militaires",
+        "engine": "arko_default_67fcd5fcb1798",
+        "content_ids": ["718419"],
+        "display_mode": "arko_default_67fcd74de1b83",
+        "fields": {
+          "locality": "arko_default_67fcd6447e69c",
+          "act": "arko_default_67fcd6448a07a",
+          "period": { "ref": "arko_default_67fcd64486bce", "mode": "autocomplete", "keyed": true }
+        },
+        "acts": {
+          "RM": "Registre matricule"
+        },
+        "cells": {
+          "locality": "bureau",
+          "act": "type_doc",
+          "period": "classe",
+          "numbers": "num_matricule"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://recherche-archives.maine-et-loire.fr",
+        "transport": "browser",
+        "search_path": "/rechercher-et-consulter/archives-consultables-en-ligne/tables-de-successions-et-absences",
+        "engine": "arko_default_6808b90641494",
+        "content_ids": ["725647"],
+        "display_mode": "arko_default_6808ba6660989",
+        "fields": {
+          "locality": "arko_default_6808b962c96a1",
+          "period": "arko_default_6808e3195778f"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "bureau",
+          "period": "date",
+          "call_number": "#none"
+        }
+      }
+    }
+  ]
+}

@@ -3,31 +3,31 @@
 //!
 //! Each collection is searched by one engine of the portal's request
 //! interface, `/_recherche-api/moteur`, filtered by the locality, the act
-//! category and, where the engine has the filter, the year. The answer's
-//! result rows are selected down to one register (`select`), whose viewer
-//! endpoint lists its images; the target is the portal's record page opened
-//! on the cited image, `<search_path>?detail=<record>#<viewer address>/<i>`
-//! with `i` zero-based. Archive Portals §4.3 specifies the requests.
+//! category and the year where the engine has those filters, some of whose
+//! values are first read from the engine's own lists. The answer's result
+//! rows are selected down to one register (`select`), whose viewer endpoint
+//! lists its images; the target is the portal's record page opened on the
+//! cited image, `<search_path>?detail=<record>#<viewer address>/<i>` with `i`
+//! zero-based. Archive Portals §4.3 specifies the settings and requests.
 
 #[cfg(any(test, feature = "live"))]
 mod live;
 mod page;
+mod settings;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
-
-use serde::Deserialize;
-
 use super::iiif::image_info;
-use super::locality::LocalityStyle;
-use super::select::{Selection, select};
+use super::markup::fold;
+use super::select::{Candidate, Selection, period_ranges, select};
 use super::view::{cited_views, view_target};
-use super::{Access, BoxFuture, Platform, PortalEndpoint, Query, is_https_origin};
+use super::{BoxFuture, Platform, PortalEndpoint};
 use crate::catalog::{Archive, CatalogError, Collection, Display};
-use crate::citation::{Act, CitationParts};
+use crate::citation::CitationParts;
 use crate::transport::PortalFetch;
 use crate::{ArchiveImage, ArchiveTarget, ArchiveView, ResolveError};
+use page::Register;
+use settings::{Keys, Settings};
 
 /// The rows one search asks for: the largest page the engines accept (25,
 /// 50 or 100).
@@ -36,235 +36,15 @@ const RESULT_SIZE: &str = "100";
 /// The search interface every Arkothèque portal exposes.
 const SEARCH_PATH: &str = "/_recherche-api/moteur";
 
+/// The page a browser transport loads before its requests: the lightest
+/// page of the portal's origin that passes its bot-mitigation check. The
+/// search page would fetch the engine's whole unfiltered list on load, which
+/// the portal answers before the adapter's own search, in the same session:
+/// on the Sarthe portal it delayed the search by up to 30 seconds.
+const START_PATH: &str = "/robots.txt";
+
 /// The Arkothèque adapter.
 pub struct Arkotheque;
-
-/// A collection's `portal` settings.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Settings {
-    origin: String,
-    #[serde(default)]
-    transport: Access,
-    /// The collection's search page, where records and views open.
-    search_path: String,
-    /// The engine's unique reference, `arko_default_…`.
-    engine: String,
-    /// The search component's content identifiers.
-    content_ids: Vec<String>,
-    /// The list display mode, whose rows carry the cells read below.
-    display_mode: String,
-    fields: Fields,
-    /// The act filter value of each act code, with its record key:
-    /// `Baptêmes[[arko_fiche_…]]`. The engines match nothing without the key.
-    /// Empty for an engine without an act filter.
-    #[serde(default)]
-    acts: BTreeMap<String, String>,
-    #[serde(default)]
-    locality_style: LocalityStyle,
-    cells: Cells,
-}
-
-/// The engine's filter references.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Fields {
-    locality: String,
-    /// Absent from an engine searching one series, such as a census, which
-    /// has no act filter.
-    #[serde(default)]
-    act: Option<String>,
-    /// Absent from engines without a period filter.
-    #[serde(default)]
-    period: Option<String>,
-}
-
-/// The `data-champ` names of the result row cells selection reads.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Cells {
-    locality: String,
-    #[serde(default)]
-    parish: Option<String>,
-    #[serde(default)]
-    act: Option<String>,
-    #[serde(default)]
-    period: Option<String>,
-    /// The cell showing the numbers a register spans, such as the
-    /// matricules of a military register (`1 à 1586`).
-    #[serde(default)]
-    numbers: Option<String>,
-}
-
-fn invalid(message: &str) -> CatalogError {
-    CatalogError::new(format!("arkotheque settings: {message}"))
-}
-
-/// A reference of the request interface: letters, digits and `_`.
-fn is_reference(text: &str) -> bool {
-    !text.is_empty()
-        && text
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-}
-
-impl Settings {
-    fn read(collection: &Collection) -> Result<Self, CatalogError> {
-        let settings =
-            Self::deserialize(&collection.portal).map_err(|error| invalid(&error.to_string()))?;
-        settings.check()?;
-        settings.check_acts(collection)?;
-        Ok(settings)
-    }
-
-    fn check(&self) -> Result<(), CatalogError> {
-        if !is_https_origin(&self.origin) {
-            return Err(invalid("origin must be an https origin"));
-        }
-        if !self.search_path.starts_with('/') || self.search_path.contains(['?', '#', ' ']) {
-            return Err(invalid("search_path must be an absolute path"));
-        }
-        let references = [&self.engine, &self.display_mode, &self.fields.locality];
-        if !references
-            .into_iter()
-            .all(|reference| is_reference(reference))
-            || !self.fields.act.as_deref().is_none_or(is_reference)
-            || !self.fields.period.as_deref().is_none_or(is_reference)
-        {
-            return Err(invalid("engine, display mode and filter references"));
-        }
-        if self.content_ids.is_empty()
-            || !self
-                .content_ids
-                .iter()
-                .all(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
-        {
-            return Err(invalid("content_ids must be numeric identifiers"));
-        }
-        let cells = [
-            &self.cells.parish,
-            &self.cells.act,
-            &self.cells.period,
-            &self.cells.numbers,
-        ];
-        if !is_reference(&self.cells.locality)
-            || !cells.into_iter().flatten().all(|cell| is_reference(cell))
-        {
-            return Err(invalid("cell names"));
-        }
-        Ok(())
-    }
-
-    /// Every act code is valid and has a filter value with its record key,
-    /// and every act the collection holds has one. An engine without an act
-    /// filter searches series only: its rows are told apart by their cells.
-    fn check_acts(&self, collection: &Collection) -> Result<(), CatalogError> {
-        if self.fields.act.is_none() {
-            if !self.acts.is_empty() {
-                return Err(invalid("acts without fields.act"));
-            }
-            return match collection
-                .acts
-                .iter()
-                .find(|act| !matches!(act, Act::Series(_)))
-            {
-                Some(act) => Err(invalid(&format!(
-                    "`{act}` needs the act filter, fields.act"
-                ))),
-                None => Ok(()),
-            };
-        }
-        for (code, value) in &self.acts {
-            if Act::from_code(code).is_none() {
-                return Err(invalid(&format!("`{code}` is not an act code")));
-            }
-            if !(value.contains("[[arko_fiche_") && value.ends_with("]]")) {
-                return Err(invalid(&format!(
-                    "the filter value of `{code}` lacks its record key"
-                )));
-            }
-        }
-        match collection
-            .acts
-            .iter()
-            .find(|act| self.act_value(act).is_none())
-        {
-            Some(act) => Err(invalid(&format!("no filter value for `{act}`"))),
-            None => Ok(()),
-        }
-    }
-
-    /// The act filter value: the act's own code, or for a combined act
-    /// (`BMS`) its first kind, whose category holds the mixed registers.
-    fn act_value(&self, act: &Act) -> Option<&str> {
-        self.acts
-            .get(&act.to_string())
-            .or_else(|| {
-                let first = act.primary_kind()?;
-                self.acts.get(&first.letter().to_string())
-            })
-            .map(String::as_str)
-    }
-
-    /// The locality as the portal writes it.
-    fn locality(&self, citation: &CitationParts) -> String {
-        self.locality_style.write(&citation.locality)
-    }
-
-    /// The filters of a search, shared by the request and the search page:
-    /// the locality, the act category and, where the engine has the filter,
-    /// the year. Nothing else of the citation leaves the application.
-    fn filters(&self, citation: &CitationParts) -> Query {
-        let engine = &self.engine;
-        let mut query = Query::new();
-        query
-            .push(format!("{engine}--ficheFocus"), "")
-            .push(format!("{engine}--filtreGroupes[mode]"), "simple")
-            .push(format!("{engine}--filtreGroupes[op]"), "AND");
-        let mut filter = |field: &str, value: String, mode: &str| {
-            let prefix = format!("{engine}--filtreGroupes[groupes][0][{field}]");
-            query
-                .push(format!("{prefix}[op]"), "AND")
-                .push(format!("{prefix}[q][]"), value)
-                .push(format!("{prefix}[extras][mode]"), mode);
-        };
-        filter(&self.fields.locality, self.locality(citation), "popup");
-        if let (Some(field), Some(act)) = (&self.fields.act, self.act_value(&citation.act)) {
-            filter(field, act.to_owned(), "select");
-        }
-        if let (Some(field), Some(year)) = (&self.fields.period, citation.year) {
-            filter(field, format!("{year}|{year}"), "slider");
-        }
-        query
-            .push(format!("{engine}--from"), "0")
-            .push(format!("{engine}--resultSize"), RESULT_SIZE);
-        for id in &self.content_ids {
-            query.push(format!("{engine}--contenuIds[]"), id.as_str());
-        }
-        query.push(format!("{engine}--modeRestit"), self.display_mode.as_str());
-        query
-    }
-
-    fn search_request(&self, filters: &Query) -> String {
-        let mut query = Query::new();
-        query.push("refUnique", self.engine.as_str());
-        format!("{SEARCH_PATH}?{query}&{filters}")
-    }
-
-    fn search_page(&self, filters: &Query) -> String {
-        format!("{}{}?{filters}", self.origin, self.search_path)
-    }
-
-    /// The record page opened on image `index`, zero-based.
-    fn view_url(&self, record: &str, viewer: &str, index: u16) -> String {
-        format!(
-            "{}{}?detail={}#{viewer}/{index}",
-            self.origin,
-            self.search_path,
-            super::query::encode(record)
-        )
-    }
-}
 
 impl Platform for Arkotheque {
     fn id(&self) -> &'static str {
@@ -278,16 +58,18 @@ impl Platform for Arkotheque {
     fn endpoint(&self, collection: &Collection) -> Option<PortalEndpoint> {
         let settings = Settings::read(collection).ok()?;
         Some(PortalEndpoint {
-            start: format!("{}{}", settings.origin, settings.search_path),
+            start: format!("{}{START_PATH}", settings.origin),
             origin: settings.origin,
             other_origins: Vec::new(),
             access: settings.transport,
         })
     }
 
+    /// The search page with the filters a request can write without
+    /// reading the engine's lists: a keyed filter is left out.
     fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<String> {
         let settings = Settings::read(collection).ok()?;
-        Some(settings.search_page(&settings.filters(citation)))
+        Some(settings.results_page(citation, &Keys::default()))
     }
 
     fn resolve<'a>(
@@ -301,6 +83,133 @@ impl Platform for Arkotheque {
     }
 }
 
+fn unexpected(detail: &str) -> ResolveError {
+    ResolveError::UnexpectedResponse(format!("arkotheque: {detail}"))
+}
+
+/// The keyed filters' values, read from the engine's lists: `None` when the
+/// cited locality is not among those the engine lists, such as an office
+/// that never kept the series.
+async fn keys(
+    settings: &Settings,
+    citation: &CitationParts,
+    fetch: &dyn PortalFetch,
+) -> Result<Option<Keys>, ResolveError> {
+    if !settings.needs_keys(citation) {
+        return Ok(Some(Keys::default()));
+    }
+    let engine = page::engine_answer(&fetch.get(&settings.engine_request()).await?)?;
+    let listed = |filter: &settings::Filter| {
+        engine
+            .field(&filter.reference)
+            .map(|_| engine.filter_values(&filter.reference))
+            .ok_or_else(|| unexpected("the engine lacks a keyed filter"))
+    };
+    let mut keys = Keys::default();
+    if let Some(filter) = settings.fields.locality.as_ref().filter(|f| f.keyed)
+        && !citation.locality.is_empty()
+    {
+        let style = settings.locality_style;
+        let wanted = fold(&style.cited(&citation.locality));
+        match listed(filter)?
+            .into_iter()
+            .find(|value| fold(&style.cited(page::without_key(value))) == wanted)
+        {
+            Some(value) => keys.locality = Some(value.to_owned()),
+            None => return Ok(None),
+        }
+    }
+    if let Some(filter) = settings.fields.period.as_ref().filter(|f| f.keyed)
+        && let Some(year) = citation.year
+    {
+        // A year the engine does not list is left to the rows' periods.
+        keys.period = listed(filter)?
+            .into_iter()
+            .find(|value| period_ranges(page::without_key(value)) == [(year, year)])
+            .map(str::to_owned);
+    }
+    Ok(Some(keys))
+}
+
+/// The registers of a search answer, read for selection — each row's
+/// locality as a citation writes it, and its acts as codes where the
+/// search could not single out the cited act — and the count of all the
+/// search matched.
+fn rows(
+    settings: &Settings,
+    answer: &str,
+    citation: &CitationParts,
+) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
+    let reads_acts = settings.reads_acts(&citation.act);
+    let (mut rows, total) = page::search_rows(answer, &settings.cells)?;
+    let style = settings.locality_style;
+    let wanted: Vec<String> = settings
+        .localities(citation)
+        .iter()
+        .map(|locality| fold(&style.cited(locality)))
+        .collect();
+    for row in &mut rows {
+        // A row naming several localities is the cited one's when one of
+        // them is.
+        if let Some(named) = row
+            .payload
+            .localities
+            .iter()
+            .find(|locality| wanted.contains(&fold(&style.cited(locality))))
+        {
+            row.locality = Some(named.clone());
+        }
+        if row.parish.is_none() {
+            row.parish = row
+                .locality
+                .as_deref()
+                .and_then(|locality| style.parish(locality));
+        }
+        row.locality = row.locality.take().map(|locality| style.cited(&locality));
+        if reads_acts {
+            row.act = row
+                .act
+                .take()
+                .map(|text| page::act_code(&text).unwrap_or(text));
+        }
+    }
+    Ok((rows, total))
+}
+
+/// The pages a search reads at most: a cited call number missing from the
+/// first page of a populated locality is looked for on the next ones.
+const MAX_PAGES: usize = 3;
+
+/// The registers the search lists for the citation: its first page, and
+/// while the cited call number is on none read so far, the next pages.
+async fn search(
+    settings: &Settings,
+    citation: &CitationParts,
+    keys: &Keys,
+    fetch: &dyn PortalFetch,
+) -> Result<Vec<Candidate<Register>>, ResolveError> {
+    let mut found = Vec::new();
+    for _ in 0..MAX_PAGES {
+        let filters = settings.page_filters(citation, keys, RESULT_SIZE, found.len());
+        let answer = fetch.get(&settings.search_request(&filters)).await?;
+        let (rows, total) = rows(settings, &answer, citation)?;
+        let last = rows.is_empty() || found.len() + rows.len() >= total;
+        found.extend(rows);
+        let cited = citation.call_number.as_ref();
+        let carried = cited.is_none_or(|cited| {
+            found.iter().any(|row| {
+                row.call_number
+                    .as_deref()
+                    .is_some_and(|written| cited.matches(written))
+            })
+        });
+        if last || carried {
+            break;
+        }
+    }
+    Ok(found)
+}
+
 async fn resolve(
     archive: &Archive,
     collection: &Collection,
@@ -308,16 +217,21 @@ async fn resolve(
     fetch: &dyn PortalFetch,
 ) -> Result<ArchiveTarget, ResolveError> {
     let settings = Settings::read(collection).map_err(|_| ResolveError::NoAdapter)?;
-    let filters = settings.filters(citation);
+    let Some(keys) = keys(&settings, citation, fetch).await? else {
+        return Ok(ArchiveTarget::Results {
+            url: settings.results_page(citation, &Keys::default()),
+            matches: Some(0),
+        });
+    };
     let results = |matches| ArchiveTarget::Results {
-        url: settings.search_page(&filters),
+        url: settings.results_page(citation, &keys),
         matches: Some(matches),
     };
 
-    let answer = fetch.get(&settings.search_request(&filters)).await?;
-    let rows = page::search_rows(&answer, &settings.cells)?;
-    let styled = settings.locality(citation);
-    let row = match select(&rows, citation, &[&citation.locality, &styled]) {
+    let rows = search(&settings, citation, &keys, fetch).await?;
+    let localities = settings.localities(citation);
+    let localities: Vec<&str> = localities.iter().map(String::as_str).collect();
+    let row = match select(&rows, citation, &localities) {
         Selection::One(row) => row,
         Selection::Many(matches) => return Ok(results(matches)),
     };
@@ -326,7 +240,7 @@ async fn resolve(
     let Some(viewer) = row.payload.viewer.as_deref() else {
         return Ok(results(1));
     };
-    let sources = page::viewer_sources(&fetch.get(viewer).await?)?;
+    let sources = page::viewer_sources(&fetch.get(viewer).await?, &settings.origin)?;
 
     let cited = cited_views(citation, sources.len());
     let mut views = Vec::with_capacity(cited.len());

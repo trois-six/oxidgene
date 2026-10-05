@@ -1,0 +1,91 @@
+{
+  "id": "fr-ad94",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Val-de-Marne",
+  "jurisdiction": ["94"],
+  "citation_codes": ["AD94"],
+  "website": "https://archives.valdemarne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "D", "S", "P"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.valdemarne.fr",
+        "transport": "browser",
+        "search_path": "/recherches/archives-en-ligne/etat-civil",
+        "engine": "arko_default_6303325b22a2d",
+        "content_ids": ["226129"],
+        "display_mode": "arko_default_630332b80d931",
+        "fields": {
+          "locality": "arko_default_630332ab3ef85",
+          "act": "arko_default_630332ab5c8ed",
+          "period": "arko_default_6895910737656"
+        },
+        "acts": {
+          "B": "Baptêmes puis naissances",
+          "N": "Baptêmes puis naissances",
+          "M": "Mariages",
+          "S": "Sépultures puis décès",
+          "D": "Sépultures puis décès",
+          "P": "Publications de mariages"
+        },
+        "cells": {
+          "locality": "commune_actuelle",
+          "act": "intitule",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.valdemarne.fr",
+        "transport": "browser",
+        "search_path": "/recherches/archives-en-ligne/recensement-de-la-population",
+        "engine": "arko_default_62fe57348ac9a",
+        "content_ids": ["226113"],
+        "display_mode": "arko_default_63032aabd3533",
+        "fields": {
+          "locality": "arko_default_62fe5768a95ab",
+          "period": { "ref": "arko_default_62fe5768c333a", "mode": "select", "keyed": true }
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.valdemarne.fr",
+        "transport": "browser",
+        "search_path": "/recherches/archives-en-ligne/tables-alphabetiques-de-successions",
+        "engine": "arko_default_6303367a9e064",
+        "content_ids": ["227853"],
+        "display_mode": "arko_default_630336dfd2a5f",
+        "fields": {
+          "locality": "arko_default_630336d537582",
+          "act": "arko_default_630336d542caa",
+          "period": "arko_default_630336d55297b"
+        },
+        "acts": {
+          "TSA": ["Tables des successions et absences", "Tables des décès, successions et absences", "Tables des successions et absences, Hospice"]
+        },
+        "cells": {
+          "act": "type_actes",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

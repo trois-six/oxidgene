@@ -1,0 +1,120 @@
+{
+  "id": "fr-ad71",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Saône-et-Loire",
+  "jurisdiction": ["71"],
+  "citation_codes": ["AD71"],
+  "website": "https://www.archives71.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "D", "S", "P"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives71.fr",
+        "transport": "browser",
+        "search_path": "/consulter/en-ligne/familles-et-individus/etat-civil",
+        "engine": "arko_default_61b1ccdceb9a7",
+        "content_ids": ["15057090"],
+        "display_mode": "arko_default_61b1cd85eef9b",
+        "fields": {
+          "locality": "arko_default_61b1cd7726c84",
+          "act": "arko_default_61b1cd7747afb",
+          "period": "arko_default_63a1bb161de3e"
+        },
+        "acts": {
+          "B": "Baptêmes",
+          "N": "Naissances",
+          "M": "Mariages",
+          "D": "Décès",
+          "S": "Sépultures",
+          "P": "Publications de mariage"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "act": "#3",
+          "period": "date",
+          "call_number": "cote_original"
+        }
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives71.fr",
+        "transport": "browser",
+        "search_path": "/consulter/en-ligne/familles-et-individus/tables-decennales",
+        "engine": "arko_default_61b1d00bd98a3",
+        "content_ids": ["4216641"],
+        "display_mode": "arko_default_61b1d090ea2b3",
+        "fields": {
+          "locality": "arko_default_61b1d08071ee5",
+          "act": "arko_default_61b1d0808079d",
+          "period": { "ref": "arko_default_6286470171177", "mode": "input", "end": "arko_default_628647019cf5e" }
+        },
+        "acts": {
+          "TD": ["Tables décennales des naissances", "Tables décennales des mariages", "Tables décennales des décès"]
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote_originale"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives71.fr",
+        "transport": "browser",
+        "search_path": "/consulter/en-ligne/familles-et-individus/recensement-de-la-population",
+        "engine": "arko_default_61b1d169384c3",
+        "content_ids": ["15079062"],
+        "display_mode": "arko_default_61b1d1aba0244",
+        "fields": {
+          "locality": "arko_default_61b1d19cc33d5",
+          "period": { "ref": "arko_default_61b1d19cce2df", "mode": "select", "keyed": true }
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "#none"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives71.fr",
+        "transport": "browser",
+        "search_path": "/consulter/en-ligne/familles-et-individus/controle-des-actes-et-enregistrement",
+        "engine": "arko_default_61c065045dec4",
+        "content_ids": ["9059334"],
+        "display_mode": "arko_default_61c0656a9d368",
+        "fields": {
+          "locality": "arko_default_61c065494e269",
+          "act": "arko_default_61c06549329be",
+          "period": { "ref": "arko_default_628647968a3c7", "mode": "input", "end": "arko_default_62864796b30f6" }
+        },
+        "acts": {
+          "TSA": "Table des successions et absences"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "date"
+        }
+      }
+    }
+  ]
+}

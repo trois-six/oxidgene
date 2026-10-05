@@ -1,0 +1,22 @@
+{
+ "refUnique": "arko_default_6319dbb9a1c43",
+ "resultats": {
+  "total": 5,
+  "count": 2,
+  "results": [
+   {
+    "id": 200000,
+    "intitule": "9Mi 999_3",
+    "refUnique": "arko_fiche_0000000001003"
+   },
+   {
+    "id": 200001,
+    "intitule": "9Mi 999_374-376",
+    "refUnique": "arko_fiche_0000000002000"
+   }
+  ],
+  "html": "\n<table class=\"tableau_resultat_facettes\">\n    <caption>Tableau de résultats</caption>\n    <thead>\n        <tr></tr>\n    </thead>\n    <tbody>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"commune\" data-type-champ=\"varchar\">Bourg (Le)</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"cote\" data-type-champ=\"varchar\">9Mi 999_3</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"dates_extremes\" data-type-champ=\"varchar\">M 1703</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"actes_affichage\" data-type-champ=\"varchar\">M</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000001003&quot;,&quot;refUniqueField&quot;:&quot;arko_default_6319dbb1469ae&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_6319dbb9a1c43&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:990003,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_6319dbb9a1c43/arko_fiche_0000000001003/arko_default_6319dbb1469ae/image/990003\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(203 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"commune\" data-type-champ=\"varchar\">Bourg (Le)</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"cote\" data-type-champ=\"varchar\">9Mi 999_374-376</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"dates_extremes\" data-type-champ=\"varchar\">M 1880-1882</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"actes_affichage\" data-type-champ=\"varchar\">M</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000002000&quot;,&quot;refUniqueField&quot;:&quot;arko_default_6319dbb1469ae&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_6319dbb9a1c43&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:999999,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_6319dbb9a1c43/arko_fiche_0000000002000/arko_default_6319dbb1469ae/image/999999\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(567 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    </tbody>\n</table>\n",
+  "aggregations": [],
+  "modeRestit": "tableau"
+ }
+}

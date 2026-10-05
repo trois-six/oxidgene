@@ -25,7 +25,12 @@ pub const USER_AGENT: &str = concat!(
 );
 
 /// The bound on one request, connection included. Requests are never retried.
-pub const TIMEOUT: Duration = Duration::from_secs(10);
+///
+/// A reader waits for one lookup they asked for: some engines take 15 to 20
+/// seconds to search their most populated localities (100 rows of the Sarthe
+/// portal's `Le Mans`, uncached), and a shorter bound fails exactly the
+/// lookups that need the portal most.
+pub const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The largest response body read; a search answer is a few hundred
 /// kilobytes at most.

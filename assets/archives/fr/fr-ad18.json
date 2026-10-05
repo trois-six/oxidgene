@@ -1,0 +1,110 @@
+{
+  "id": "fr-ad18",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales et patrimoine du Cher",
+  "jurisdiction": ["18"],
+  "citation_codes": ["AD18"],
+  "website": "https://www.archives18.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives18.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/registres-paroissiaux-et-etat-civil",
+        "engine": "arko_default_61011a8e5db65",
+        "content_ids": ["2688623"],
+        "display_mode": "arko_default_61011eb03aad2",
+        "fields": {
+          "locality": "arko_default_61011b4c3eacb",
+          "act": "arko_default_61011b4c4f010",
+          "period": "arko_default_61011b4c6012f"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_60feb4fe7efba]]",
+          "N": "Naissances[[arko_fiche_60feb4fe82fdc]]",
+          "M": "Mariages[[arko_fiche_60feb4fe8286a]]",
+          "S": "Sépultures[[arko_fiche_60feb4fe83e5e]]",
+          "D": "Décès[[arko_fiche_60feb4fe820ae]]",
+          "TD": "Tables décennales[[arko_fiche_60feb4fe8458a]]"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "liaison_commune",
+          "act": "type_acte",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives18.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/recensement",
+        "engine": "arko_default_6101206ac2b60",
+        "content_ids": ["2636419"],
+        "display_mode": "arko_default_610121f218633",
+        "fields": {
+          "locality": "arko_default_6101208689dde",
+          "period": "arko_default_64f8841abfe83"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "liaison_commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives18.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/registres-matricules-militaires",
+        "engine": "arko_default_61012fb8a8ad7",
+        "content_ids": ["2636306"],
+        "display_mode": "arko_default_610130702c317",
+        "fields": {
+          "period": { "ref": "arko_default_610932d33cadc", "mode": "input" }
+        },
+        "cells": {
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives18.fr",
+        "transport": "browser",
+        "search_path": "/archives-numerisees/tables-de-successions-et-dabsences",
+        "engine": "arko_default_624c5c57b3113",
+        "content_ids": ["2644368"],
+        "display_mode": "arko_default_624c5dff01c0f",
+        "fields": {
+          "locality": "arko_default_624d321100f68",
+          "period": "arko_default_624d31f373f11"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "texteCourt_7a5",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

@@ -13,7 +13,7 @@ import type { Page } from "@playwright/test";
 import { type CollectionReport, antiBotPage } from "./report";
 
 // The native transport's bound on one request (transport.rs, TIMEOUT).
-const REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 // How long a portal page, a challenge's redirect included, may take.
 const LOAD_TIMEOUT_MS = 30_000;
 

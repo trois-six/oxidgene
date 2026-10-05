@@ -1,0 +1,113 @@
+{
+  "id": "fr-ad46",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Lot",
+  "jurisdiction": ["46"],
+  "citation_codes": ["AD46"],
+  "website": "https://archives.lot.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "P", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.lot.fr",
+        "transport": "browser",
+        "search_path": "/recherche-en-ligne/archives-numerisees/registres-paroissiaux-et-detat-civil",
+        "engine": "arko_default_67ebab2c7f97d",
+        "content_ids": ["311484"],
+        "display_mode": "arko_default_67ebaf0fd2439",
+        "fields": {
+          "locality": "arko_default_67ebadbab042e",
+          "act": "arko_default_67ebadbabdf53",
+          "period": "arko_default_67ebadbb0434b"
+        },
+        "acts": {
+          "B": "Actes de baptêmes[[arko_fiche_67e57e5fc9947]]",
+          "N": "Actes de naissance[[arko_fiche_67e581e94338a]]",
+          "M": "Actes de mariage[[arko_fiche_67e581e99706b]]",
+          "S": "Actes de sépultures[[arko_fiche_67e57e5fd07a2]]",
+          "D": "Actes de décès[[arko_fiche_67e581e8a7590]]",
+          "P": "Publications de mariages[[arko_fiche_67e581e8f0660]]",
+          "TD": ["Tables décennales des naissances[[arko_fiche_67e5a98209948]]", "Tables décennales des mariages[[arko_fiche_67e5a98210e00]]", "Tables décennales des décès[[arko_fiche_67e5a9821af57]]"]
+        },
+        "cells": {
+          "locality": "liaison_liste_communes",
+          "act": "ark_fiche_champ_14",
+          "period": "ark_fiche_champ_14",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.lot.fr",
+        "transport": "browser",
+        "search_path": "/recherche-en-ligne/archives-numerisees/recensements-de-population",
+        "engine": "arko_default_67ea8a7b139a2",
+        "content_ids": ["385542"],
+        "display_mode": "arko_default_67ea8c2b30fa4",
+        "fields": {
+          "locality": "arko_default_67ea8b3415e79",
+          "period": "arko_default_67ea8b3422f15"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "ark_fiche_champ_14",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.lot.fr",
+        "transport": "browser",
+        "search_path": "/recherche-en-ligne/archives-numerisees/registres-militaires/registres-matricules-de-1872-a-1940/tables-alphabetiques-et-registres-matricules",
+        "engine": "arko_default_67ea6619d54d1",
+        "content_ids": ["314190"],
+        "display_mode": "arko_default_67ea6946c439a",
+        "fields": {
+          "locality": "arko_default_68496c5ba1a8e",
+          "period": "arko_default_67ea66e8e4118"
+        },
+        "cells": {
+          "locality": "bureau",
+          "period": "ark_fiche_date",
+          "numbers": "ark_fiche_champ_14",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.lot.fr",
+        "transport": "browser",
+        "search_path": "/recherche-en-ligne/archives-numerisees/enregistrement-et-hypotheques/enregistrement-tsa",
+        "engine": "arko_default_67ea6f1d1e10a",
+        "content_ids": ["310925"],
+        "display_mode": "arko_default_67ea711a17f7a",
+        "fields": {
+          "locality": "arko_default_67ea6fb1256d5",
+          "period": "arko_default_67ea6fb12b60f"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "ark_fiche_champ_14",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    }
+  ]
+}

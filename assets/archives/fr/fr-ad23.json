@@ -1,0 +1,113 @@
+{
+  "id": "fr-ad23",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Creuse",
+  "jurisdiction": ["23"],
+  "citation_codes": ["AD23"],
+  "website": "https://archives.creuse.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "TD"],
+      "period": [null, 1940],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.creuse.fr",
+        "transport": "any",
+        "search_path": "/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil",
+        "engine": "arko_default_6089614c0e9ed",
+        "content_ids": ["1303236"],
+        "display_mode": "arko_default_60896998ef13f",
+        "fields": {
+          "locality": "arko_default_6089619817b3c",
+          "act": "arko_default_6089619825455",
+          "period": "arko_default_608961982df33"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_60815ed97b7a5]]",
+          "N": "Naissances[[arko_fiche_60815ed9826f3]]",
+          "M": "Mariages[[arko_fiche_60815ed983140]]",
+          "S": "Sépultures[[arko_fiche_60815ed983ebd]]",
+          "D": "Décès[[arko_fiche_60815ed9838ab]]",
+          "TD": "Table décennale[[arko_fiche_60815ed984520]]"
+        },
+        "cells": {
+          "locality": "commune_intitule",
+          "act": "type_acte",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.creuse.fr",
+        "transport": "any",
+        "search_path": "/rechercher/archives-numerisees/recensementreprise",
+        "engine": "arko_default_65b36ef5b3d14",
+        "content_ids": ["1292145"],
+        "display_mode": "arko_default_65b373417e547",
+        "fields": {
+          "locality": "arko_default_65b3719267fe3",
+          "period": "arko_default_65b37192521e7"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "period": "isadg_unitdate",
+          "call_number": "isadg_unitid"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.creuse.fr",
+        "transport": "any",
+        "search_path": "/rechercher/archives-numerisees/registres-matricules-recherche-par-classe-dincorporation",
+        "engine": "arko_default_6089632f7cb9e",
+        "content_ids": ["933331"],
+        "display_mode": "arko_default_608969b36cbc2",
+        "fields": {
+          "period": { "ref": "arko_default_608963842d0ce", "mode": "input" }
+        },
+        "cells": {
+          "period": "date",
+          "numbers": "intitule",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.creuse.fr",
+        "transport": "any",
+        "search_path": "/rechercher/archives-numerisees/tables-du-controle-des-actes-et-de-lenregistrement-1",
+        "engine": "arko_default_68b6dc6d73648",
+        "content_ids": ["2066904"],
+        "display_mode": "arko_default_68b702a1207b4",
+        "fields": {
+          "locality": "arko_default_68b7eeb8569d4",
+          "act": { "ref": "arko_default_68b7df200f4a0", "mode": "autocomplete" }
+        },
+        "acts": {
+          "TSA": ["table des successions[[arko_fiche_68b1b0f2b2a52]]", "table des décès[[arko_fiche_68b59da71fa77]]", "table des décès et succession[[arko_fiche_68b59229d6267]]"]
+        },
+        "locality_style": "enclosing",
+        "cells": {
+          "act": "isadg_controlaccess_genreform",
+          "period": "isadg_unitdate",
+          "call_number": "isadg_unitid"
+        }
+      }
+    }
+  ]
+}

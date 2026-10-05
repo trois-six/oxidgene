@@ -1,0 +1,154 @@
+{
+  "id": "fr-ad65",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives et patrimoines des Hautes-Pyrénées",
+  "jurisdiction": ["65"],
+  "citation_codes": ["AD65"],
+  "website": "https://archivesenligne65.fr",
+  "collections": [
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne65.fr",
+        "transport": "browser",
+        "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-detat-civil",
+        "engine": "arko_default_636924f5785e7",
+        "content_ids": ["1289558"],
+        "display_mode": "arko_default_636927697452e",
+        "fields": {
+          "locality": "arko_default_63692b66c9e60",
+          "act": "arko_default_63692b66d38ed",
+          "period": { "ref": "arko_default_63692b66ded44", "mode": "input", "end": "arko_default_63bd8f04715bc" }
+        },
+        "acts": {
+          "N": "Etat civil[[arko_fiche_62ab4d1a8c805]]",
+          "M": "Etat civil[[arko_fiche_62ab4d1a8c805]]",
+          "D": "Etat civil[[arko_fiche_62ab4d1a8c805]]"
+        },
+        "cells": {
+          "locality": "commune",
+          "act": "titre_court",
+          "period": "fr_date_publication"
+        }
+      }
+    },
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne65.fr",
+        "transport": "browser",
+        "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-paroissiaux",
+        "engine": "arko_default_636924f5785e7",
+        "content_ids": ["1251085"],
+        "display_mode": "arko_default_636927697452e",
+        "fields": {
+          "locality": "arko_default_63692b66c9e60",
+          "act": "arko_default_63692b66d38ed",
+          "period": { "ref": "arko_default_63692b66ded44", "mode": "input", "end": "arko_default_63bd8f04715bc" }
+        },
+        "acts": {
+          "B": "Registre paroissial[[arko_fiche_62ab4364d8c89]]",
+          "M": "Registre paroissial[[arko_fiche_62ab4364d8c89]]",
+          "S": "Registre paroissial[[arko_fiche_62ab4364d8c89]]"
+        },
+        "cells": {
+          "locality": "commune",
+          "act": "titre_court",
+          "period": "fr_date_publication"
+        }
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne65.fr",
+        "transport": "browser",
+        "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-tables-decennales",
+        "engine": "arko_default_63692511cdb76",
+        "content_ids": ["1221560"],
+        "display_mode": "arko_default_636927d24ed8e",
+        "fields": {
+          "locality": "arko_default_63692c0d759ec",
+          "period": { "ref": "arko_default_63692c0d98b42", "mode": "input", "end": "arko_default_63bd8f32be0d7" }
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "fr_date_publication"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne65.fr",
+        "transport": "browser",
+        "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-listes-nominatives-de-recensement-de-population",
+        "engine": "arko_default_636925189d555",
+        "content_ids": ["1240570"],
+        "display_mode": "arko_default_636927e2ce629",
+        "fields": {
+          "locality": "arko_default_63692c71b2e69",
+          "period": { "ref": "arko_default_63692c71d32ed", "mode": "input", "end": "arko_default_63be6a2b26d25" }
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "fr_date_publication"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne65.fr",
+        "transport": "browser",
+        "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-de-matricule-militaire",
+        "engine": "arko_default_6369253b10a15",
+        "content_ids": ["1240575"],
+        "display_mode": "arko_default_63692812ba70c",
+        "fields": {
+          "period": { "ref": "arko_default_63692d1ddfe18", "mode": "input", "end": "arko_default_63be729558370" }
+        },
+        "cells": {
+          "period": "fr_date_publication",
+          "numbers": "titre_court"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archivesenligne65.fr",
+        "transport": "browser",
+        "search_path": "/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-de-lenregistrement-1",
+        "engine": "arko_default_6369252f2a1dd",
+        "content_ids": ["1325058"],
+        "display_mode": "arko_default_636927f29f299",
+        "fields": {
+          "locality": "arko_default_63692cbb7fd9b",
+          "act": "arko_default_63692cbb79301",
+          "period": { "ref": "arko_default_63692cbb88212", "mode": "input", "end": "arko_default_63be725d3cfe4" }
+        },
+        "acts": {
+          "TSA": "Table des successions et absences[[arko_fiche_62ab650b84df5]]"
+        },
+        "cells": {
+          "locality": "bureau",
+          "period": "fr_date_publication"
+        }
+      }
+    }
+  ]
+}

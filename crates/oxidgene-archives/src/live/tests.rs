@@ -144,11 +144,12 @@ fn builds_its_citation_from_the_portal_and_resolves_it() {
 fn discovers_with_a_handful_of_sequential_requests() {
     let transport = Scripted::new();
     let report = check(&transport);
-    // The page, the engine, the discovery search, then a search and the
-    // viewer per resolution, with and without the call number.
+    // The page, the engine, the discovery search and the chosen register's
+    // viewer, which counts its images, then a search and the viewer per
+    // resolution, with and without the call number.
     let requests = transport.requests.lock().unwrap().clone();
-    assert_eq!(report.requests, 8);
-    assert_eq!(requests.len(), 8);
+    assert_eq!(report.requests, 9);
+    assert_eq!(requests.len(), 9);
     // The portal's pace first, then its search page and engine.
     assert_eq!(requests[0], "/robots.txt");
     let requests = &requests[1..];
@@ -160,7 +161,8 @@ fn discovers_with_a_handful_of_sequential_requests() {
     assert!(requests[2].contains("Exampleville"));
     assert!(requests[2].contains("Bapt%C3%AAmes%5B%5Barko_fiche_6a6b3d70f2db3"));
     assert!(!requests[2].contains("slider"));
-    assert!(requests[3].contains("1658%7C1658"));
+    assert!(requests[3].starts_with("/_recherche-api/visionneuse-infos/"));
+    assert!(requests[4].contains("1658%7C1658"));
 }
 
 #[test]
@@ -190,14 +192,13 @@ fn reports_what_the_portal_lacks_as_drift() {
         (Step::Discovery, "no register")
     );
 
-    // The register has fewer images than its row announced: the middle view
-    // lies beyond them.
+    // The register has fewer images than its row announces, as when the
+    // reading room shows more: the citation counts those of the viewer.
     let mut transport = Scripted::new();
     transport.viewer = viewer_of(3);
-    let failure = check(&transport).failure.unwrap();
-    assert_eq!(failure.step, Step::Resolution);
-    assert_eq!(failure.outcome, Outcome::Drift);
-    assert_eq!(failure.received, "View with views [] of 3 images");
+    let report = check(&transport);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.failure);
+    assert!(report.citation.unwrap().ends_with("vue 2/3"));
 }
 
 #[test]

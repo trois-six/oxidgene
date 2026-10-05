@@ -1,0 +1,27 @@
+{
+ "refUnique": "arko_default_5f8ef8b61e0d4",
+ "resultats": {
+  "total": 3,
+  "count": 3,
+  "results": [
+   {
+    "id": 200000,
+    "intitule": "1737-1754",
+    "refUnique": "arko_fiche_0000000000e01"
+   },
+   {
+    "id": 200001,
+    "intitule": "1730-1792",
+    "refUnique": "arko_fiche_0000000000e02"
+   },
+   {
+    "id": 200002,
+    "intitule": "1846-1867",
+    "refUnique": "arko_fiche_0000000000e03"
+   }
+  ],
+  "html": "\n<table class=\"tableau_resultat_facettes\">\n    <caption>Tableau de résultats</caption>\n    <thead>\n        <tr></tr>\n    </thead>\n    <tbody>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"isadg_unitid\" data-type-champ=\"varchar\">9 Mi 99/2</span>\n        </td>\n        <td class=\"pas_de_rebond\">\n            Exampleville Collection départementale Registres paroissiaux Baptêmes, mariages, sépultures\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"isadg_controlaccess_geogname\" data-type-champ=\"varchar\">Exampleville (Exemple, France)</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000e01&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000001501&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_5f8ef8b61e0d4&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:940001,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_5f8ef8b61e0d4/arko_fiche_0000000000e01/arko_default_0000000001501/image/940001\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(327 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"isadg_unitid\" data-type-champ=\"varchar\">9 Mi 98/5</span>\n        </td>\n        <td class=\"pas_de_rebond\">\n            Hameau Collection départementale Registres paroissiaux Baptêmes, mariages, sépultures\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"isadg_controlaccess_geogname\" data-type-champ=\"varchar\">Hameau (Exampleville, Exemple, France)</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000e02&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000001501&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_5f8ef8b61e0d4&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:940002,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_5f8ef8b61e0d4/arko_fiche_0000000000e02/arko_default_0000000001501/image/940002\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(266 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"isadg_unitid\" data-type-champ=\"varchar\">9 Mi 99/5</span>\n        </td>\n        <td class=\"pas_de_rebond\">\n            Exampleville Collection départementale Etat civil Naissances\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"isadg_controlaccess_geogname\" data-type-champ=\"varchar\">Exampleville (Exemple, France)</span>\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000e03&quot;,&quot;refUniqueField&quot;:&quot;arko_default_0000000001501&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_5f8ef8b61e0d4&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:940003,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_5f8ef8b61e0d4/arko_fiche_0000000000e03/arko_default_0000000001501/image/940003\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(120 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    </tbody>\n</table>\n",
+  "aggregations": [],
+  "modeRestit": "tableau"
+ }
+}

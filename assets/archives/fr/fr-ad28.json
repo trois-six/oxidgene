@@ -1,0 +1,100 @@
+{
+  "id": "fr-ad28",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales d'Eure-et-Loir",
+  "jurisdiction": ["28"],
+  "citation_codes": ["AD28"],
+  "website": "https://archives28.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives28.fr",
+        "transport": "browser",
+        "search_path": "/archives-et-inventaires-en-ligne/histoire-des-individus-des-populations-et-genealogie/les-registres-paroissiaux-et-detat-civil",
+        "engine": "arko_default_6241bc24d7427",
+        "content_ids": ["637586"],
+        "display_mode": "arko_default_6241bca468666",
+        "fields": {
+          "locality": "arko_default_6241bc68aa536",
+          "period": "arko_default_6241bc6906602"
+        },
+        "cells": {
+          "locality": "commune",
+          "parish": "ancienne_proisse",
+          "act": "ref_actes",
+          "period": "ref_dates",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives28.fr",
+        "transport": "browser",
+        "search_path": "/archives-et-inventaires-en-ligne/histoire-des-individus-des-populations-et-genealogie/les-listes-de-recensement-de-la-population",
+        "engine": "arko_default_623c6c0a2cee0",
+        "content_ids": ["521629"],
+        "display_mode": "arko_default_623c6c4746420",
+        "fields": {
+          "locality": "arko_default_623c6c24b948d"
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "ref_dates"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives28.fr",
+        "transport": "browser",
+        "search_path": "/archives-et-inventaires-en-ligne/histoire-des-individus-des-populations-et-genealogie/les-registres-matricules-du-recensement-militaire",
+        "engine": "arko_default_623c6d9fefa00",
+        "content_ids": ["612760"],
+        "display_mode": "arko_default_623c6e1db87b3",
+        "fields": {
+          "locality": "arko_default_623c6e10493a6",
+          "period": "arko_default_623c6e105ea72"
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "numbers": "ref_analyse",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives28.fr",
+        "transport": "browser",
+        "search_path": "/archives-et-inventaires-en-ligne/histoire-des-individus-des-populations-et-genealogie/les-tables-des-successions-et-absences",
+        "engine": "arko_default_621f4b240b039",
+        "content_ids": ["485118"],
+        "display_mode": "arko_default_623b39808a0b1",
+        "fields": {
+          "locality": "arko_default_621f4b56f40e4",
+          "period": "arko_default_621f4b5703383"
+        },
+        "cells": {
+          "locality": "commune",
+          "period": "ref_dates",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

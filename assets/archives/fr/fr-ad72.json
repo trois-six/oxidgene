@@ -70,6 +70,102 @@
           "period": "actes_affichage"
         }
       }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.sarthe.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/listes-nominatives-de-recensement-de-population",
+        "engine": "arko_default_6319dda7da548",
+        "content_ids": ["558791"],
+        "display_mode": "arko_default_6319ddc7d390a",
+        "fields": {
+          "locality": "arko_default_6319ddb99eb73"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "date_affichage",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.sarthe.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/registres-matricules-militaires/acces-par-classe-et-par-bureau/registres-matricules-1860-a-1921",
+        "engine": "arko_default_632ac7263f2d8",
+        "content_ids": ["508612"],
+        "display_mode": "arko_default_632ac7ced5bcf",
+        "fields": {
+          "locality": "arko_default_632ac7c3db831",
+          "period": { "ref": "arko_default_632ac7c3e6ee0", "mode": "input" }
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "classe_txt",
+          "numbers": "matricules",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "conscription-lists",
+      "acts": ["CM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.sarthe.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/registres-matricules-militaires/acces-par-classe-et-par-bureau/tables-alphabetiques-des-conscrits-1874-1940",
+        "engine": "arko_default_6319d8a73d9f9",
+        "content_ids": ["508609"],
+        "display_mode": "arko_default_6319d8d8ab39c",
+        "fields": {
+          "locality": "arko_default_6319d8ca67163",
+          "period": { "ref": "arko_default_6319d8ca62b4b", "mode": "input" }
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.sarthe.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/tables-de-lenregistrement-sous-serie-3-q",
+        "engine": "arko_default_6319da5195025",
+        "content_ids": ["551640"],
+        "display_mode": "arko_default_6319da7c27cf2",
+        "fields": {
+          "locality": "arko_default_6319da70cbd62",
+          "act": "arko_default_6319da70c3834"
+        },
+        "acts": {
+          "TSA": "Table des successions et absences"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "act": "typologie",
+          "period": "dates",
+          "call_number": "cote"
+        }
+      }
     }
   ]
 }

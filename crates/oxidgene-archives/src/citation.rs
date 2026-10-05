@@ -364,9 +364,40 @@ impl CallNumber {
     }
 
     /// Whether `other` names the same register: `3E73/14` matches
-    /// `3 E 73 / 14`.
+    /// `3 E 73 / 14`. A call number ending with a range of numbers
+    /// (`5 Mi 9_374-376`, the microfilms of several years) also matches one
+    /// it contains (`5 Mi 9_375`), and one that contains it.
     pub fn matches(&self, other: &str) -> bool {
-        Self::folded(&self.0).eq(Self::folded(other))
+        let (mine, theirs): (String, String) = (
+            Self::folded(&self.0).collect(),
+            Self::folded(other).collect(),
+        );
+        mine == theirs
+            || Self::numbered(&mine)
+                .zip(Self::numbered(&theirs))
+                .is_some_and(|((prefix, first, last), (other_prefix, from, to))| {
+                    prefix == other_prefix
+                        && ((first <= from && to <= last) || (from <= first && last <= to))
+                })
+    }
+
+    /// A folded call number ending with a number or a range of numbers after
+    /// a separator: its prefix, separator included, and the range.
+    fn numbered(folded: &str) -> Option<(&str, u32, u32)> {
+        let digits =
+            |text: &str| text.len() - text.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+        let last_digits = digits(folded);
+        let last = folded[folded.len() - last_digits..].parse().ok()?;
+        let rest = &folded[..folded.len() - last_digits];
+        let (prefix, first) = match rest.strip_suffix('-') {
+            Some(before) if digits(before) > 0 => {
+                let first_digits = digits(before);
+                let first = before[before.len() - first_digits..].parse().ok()?;
+                (&before[..before.len() - first_digits], first)
+            }
+            _ => (rest, last),
+        };
+        (prefix.ends_with(['_', '/', '.', '-']) && first <= last).then_some((prefix, first, last))
     }
 
     fn folded(text: &str) -> impl Iterator<Item = char> + '_ {
@@ -709,8 +740,16 @@ fn find_act(fields: &[&str]) -> Option<usize> {
 }
 
 /// The Gregorian first year of a period field: `1877`, `1702-1703`, `an XII`,
-/// `an XI-an XII`, `an XI-XII`.
+/// `an XI-an XII`, `an XI-XII`, a note in parentheses after it left aside
+/// (`1931 (A-H, collection communale)`).
 fn period_start(field: &str) -> Option<u16> {
+    let field = field
+        .trim_end()
+        .strip_suffix(')')
+        .and_then(|rest| rest.rsplit_once(" ("))
+        .map(|(period, _)| period.trim())
+        .filter(|period| !period.is_empty())
+        .unwrap_or(field);
     let (first, last) = match field.split_once('-') {
         Some((first, last)) => (first.trim(), Some(last.trim())),
         None => (field, None),
@@ -937,6 +976,44 @@ mod tests {
         let without = parse("AD44 - Exampleville - (aucun) - M - 1850 - acte 3")
             .expect("a normalized citation");
         assert_eq!(without.call_number, None);
+    }
+
+    #[test]
+    fn a_range_of_microfilms_matches_the_ones_it_holds() {
+        let range = CallNumber::new("9Mi 999_374-376");
+        for (written, matches) in [
+            ("9Mi 999_374-376", true),
+            ("9 Mi 999_375", true),
+            ("9Mi 999_374-375", true),
+            ("9Mi 999_370-380", true),
+            ("9Mi 999_371-373", false),
+            ("9Mi 999_377", false),
+            ("9Mi 998_375", false),
+        ] {
+            assert_eq!(range.matches(written), matches, "{written}");
+        }
+        assert!(CallNumber::new("9Mi 999_375").matches("9Mi 999_374-376"));
+        // A number is not a range of the numbers it starts with.
+        assert!(!CallNumber::new("3 E 73 / 14").matches("3 E 73 / 1"));
+        assert!(!CallNumber::new("1 R 1213").matches("1 R 1213-1215"));
+    }
+
+    #[test]
+    fn reads_a_census_year_followed_by_its_part() {
+        let citation = parse(
+            "AD99 - Exampleville - Recensement - 1931 (A-H, collection communale) - 9 Mi 9999_ 19 - vue 490d/662",
+        )
+        .expect("a census citation");
+        assert_eq!(citation.act, Act::Series(Series::Census));
+        assert_eq!(citation.locality, "Exampleville");
+        assert_eq!(citation.year, Some(1931));
+        assert_eq!(
+            citation.call_number.as_ref().map(CallNumber::as_str),
+            Some("9 Mi 9999_ 19")
+        );
+        assert!(citation.call_number.unwrap().matches("9 Mi 9999_19"));
+        assert_eq!(citation.views, [view(490, Some(Side::Right))]);
+        assert_eq!(citation.view_count, Some(662));
     }
 
     #[test]

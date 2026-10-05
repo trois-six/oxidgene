@@ -153,7 +153,7 @@ mod tests {
             script.contains(r#"fetch("https://archives.example.org/search?q=\"x\"", options)"#)
         );
         assert!(script.contains(r#""body":"{\"locality\":\"Exampleville</script>\"}""#));
-        assert!(script.contains("AbortSignal.timeout(10000)"));
+        assert!(script.contains(&format!("AbortSignal.timeout({})", TIMEOUT.as_millis())));
 
         let get = fetch(8, Method::Get, "https://archives.example.org/", &[], None);
         assert!(get.contains(r#""body":null"#));

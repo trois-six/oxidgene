@@ -1,0 +1,141 @@
+{
+  "id": "fr-ad83",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Var",
+  "jurisdiction": ["83"],
+  "citation_codes": ["AD83"],
+  "website": "https://archives.var.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "D", "S", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.var.fr",
+        "transport": "browser",
+        "search_path": "/rechercher-dans-les-archives-numerisees-et-les-inventaires-5/registres-paroissiaux-et-de-letat-civil",
+        "engine": "arko_default_68638fc9de3cb",
+        "content_ids": ["624434"],
+        "display_mode": "arko_default_686392c1eea05",
+        "fields": {
+          "locality": "arko_default_686391c21f7f7",
+          "act": "arko_default_686391c23113d",
+          "period": "arko_default_686391c228405"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_6852b6f8d1303]]",
+          "N": "Naissances[[arko_fiche_6852b6f8d7913]]",
+          "M": "Mariages[[arko_fiche_6852b6f8d6e41]]",
+          "D": "Décès[[arko_fiche_6852b6f8d552a]]",
+          "S": "Sépultures[[arko_fiche_6852b6f8d9b9f]]",
+          "TD": "Tables[[arko_fiche_6852b6f8da45c]]"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "act": "ark_fiche_type_acte_ref_cle",
+          "period": "#3",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.var.fr",
+        "transport": "browser",
+        "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/tables-decennales",
+        "engine": "arko_default_685bea67512f6",
+        "content_ids": ["624426"],
+        "display_mode": "arko_default_685bf00394bb7",
+        "fields": {
+          "locality": "arko_default_685bef8ff3374",
+          "period": "arko_default_685bef90065ed"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "ark_fiche_date",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.var.fr",
+        "transport": "browser",
+        "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/recensements-de-population",
+        "engine": "arko_default_685bf5e5e4e33",
+        "content_ids": ["696375"],
+        "display_mode": "arko_default_685bf73fac13d",
+        "fields": {
+          "locality": "arko_default_685bf6b07d626",
+          "period": "arko_default_685bf6b084500"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "ark_fiche_date",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM", "CM"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.var.fr",
+        "transport": "browser",
+        "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/registres-matricules",
+        "engine": "arko_default_685aa21544ef5",
+        "content_ids": ["693009"],
+        "display_mode": "arko_default_685aa46155e7a",
+        "fields": {
+          "locality": "arko_default_685aa31d0d8e2",
+          "period": { "ref": "arko_default_685aa31d0617b", "mode": "input" }
+        },
+        "cells": {
+          "locality": "bureau",
+          "act": "intitule",
+          "period": "classe",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.var.fr",
+        "transport": "browser",
+        "search_path": "/recherche/rechercher-dans-les-archives-numerisees-et-les-inventaires/controle-des-actes-et-enregistrement",
+        "engine": "arko_default_6863e881f24c5",
+        "content_ids": ["684401"],
+        "display_mode": "arko_default_6863e9f3cf0c8",
+        "fields": {
+          "locality": "arko_default_6863e952bc23e",
+          "act": "arko_default_6863e952c4c8d",
+          "period": "arko_default_6863e952c97c1"
+        },
+        "acts": {
+          "TSA": "Table des successions"
+        },
+        "locality_style": "qualified",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "act": "intitule",
+          "period": "ark_fiche_date",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    }
+  ]
+}

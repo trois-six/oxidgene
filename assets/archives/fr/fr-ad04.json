@@ -1,0 +1,122 @@
+{
+  "id": "fr-ad04",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Alpes-de-Haute-Provence",
+  "jurisdiction": ["04"],
+  "citation_codes": ["AD04"],
+  "website": "https://www.archives04.fr",
+  "collections": [
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "P", "B", "S"],
+      "period": [1607, 1974],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives04.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/etat-civil/actes-etat-civil",
+        "engine": "arko_default_6704d5bc7830f",
+        "content_ids": ["115742"],
+        "display_mode": "arko_default_6704d61aa1ace",
+        "fields": {
+          "locality": "arko_default_6704d5d99881d",
+          "act": "arko_default_674d9dd9571a1",
+          "period": "arko_default_6704d7148bd59"
+        },
+        "acts": {
+          "N": "Naissances[[arko_fiche_66fef38a35762]]",
+          "M": "Mariages[[arko_fiche_66fef38a36413]]",
+          "D": "Décès[[arko_fiche_66fef38a398f6]]",
+          "P": "Publications de mariage[[arko_fiche_66fef38a37112]]",
+          "B": "Baptêmes[[arko_fiche_66fef38a34b9d]]",
+          "S": "Sépultures[[arko_fiche_66fef38a38ac1]]"
+        },
+        "locality_style": "article_dash",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "act": "ark_fiche_type_acte_ref_cle",
+          "period": "periode",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [1532, 1932],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives04.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/etat-civil/actes-paroissiaux",
+        "engine": "arko_default_674d9f3f32f92",
+        "content_ids": ["116127"],
+        "display_mode": "arko_default_674da1a7c748c",
+        "fields": {
+          "locality": "arko_default_674d9ff4b9101",
+          "act": "arko_default_674d9ff4cfb40",
+          "period": "arko_default_674d9ff4c6c4f"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_66fef38a34b9d]]",
+          "M": "Mariages[[arko_fiche_66fef38a36413]]",
+          "S": "Sépultures[[arko_fiche_66fef38a38ac1]]"
+        },
+        "locality_style": "article_dash",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "act": "ark_fiche_type_acte_ref_cle",
+          "period": "periode",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives04.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/etat-civil/tables-decennales",
+        "engine": "arko_default_674daf40ce8b9",
+        "content_ids": ["116136"],
+        "display_mode": "arko_default_674db0b9da797",
+        "fields": {
+          "locality": "arko_default_674daffeab540",
+          "period": "arko_default_674daffebc611"
+        },
+        "locality_style": "article_dash",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "ark_fiche_date",
+          "call_number": "ark_fiche_cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://www.archives04.fr",
+        "transport": "browser",
+        "search_path": "/rechercher/archives-en-ligne/recensements-de-la-population",
+        "engine": "arko_default_67111213b7ada",
+        "content_ids": ["115756"],
+        "display_mode": "arko_default_671113fb88e27",
+        "fields": {
+          "locality": "arko_default_67111344779b7",
+          "period": "arko_default_6711134480dee"
+        },
+        "locality_style": "article_dash",
+        "cells": {
+          "locality": "ark_commune_intitule",
+          "period": "#3",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}
