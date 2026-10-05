@@ -10,8 +10,8 @@ use crate::platform::BoxFuture;
 use crate::transport::PortalRequest;
 
 /// Drives a future whose every step completes at once, as the scripted
-/// adapter and transport do.
-fn block_on<F: Future>(future: F) -> F::Output {
+/// adapters and transports of the crate's tests do.
+pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     let mut context = Context::from_waker(Waker::noop());
     loop {

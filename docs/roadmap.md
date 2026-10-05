@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T15:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -79,10 +79,11 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
 - [ ] Catalogue every French departmental archive, adding a driver for each
   portal platform they use.
 - [ ] Extend the catalogue to Swiss cantonal archives.
-- [ ] Add a live end-to-end check per catalogued archive against its real
+- [x] Add a live end-to-end check per catalogued archive against its real
   portal, run weekly by a dedicated workflow rather than on commits, so
   vendor software upgrades are caught before users meet them
-  ([Archive Portals §9.1](archives.md#91-live-checks)).
+  ([Archive Portals §9.1](archives.md#91-live-checks)); each later adapter
+  adds its probe and viewer description.
 
 ## 4. Person merge wizard
 

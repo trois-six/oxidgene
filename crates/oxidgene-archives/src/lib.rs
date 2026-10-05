@@ -5,6 +5,8 @@
 //! - [`citation`]: normalized citations read into [`CitationParts`].
 //! - [`platform`]: one adapter per portal software.
 //! - [`transport`]: how an adapter's requests reach a portal.
+//! - `live` (feature `live`): the live checks of the portals, never part of
+//!   an application.
 //!
 //! [`ArchiveRegistry`] joins the catalogue to the adapters, and [`Resolver`]
 //! turns parsed citations into [`ArchiveTarget`]s. The crate has no UI and no
@@ -13,6 +15,8 @@
 
 pub mod catalog;
 pub mod citation;
+#[cfg(any(test, feature = "live"))]
+pub mod live;
 pub mod platform;
 pub mod transport;
 

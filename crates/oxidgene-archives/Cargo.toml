@@ -16,6 +16,22 @@ default = []
 # The `reqwest` transport, for the processes that reach portals directly. The
 # web build never enables it: it parses citations and builds offline targets.
 native = ["dep:reqwest"]
+# The live checks of the portals (Archive Portals §9.1): their discovery and
+# reports, and the bridge binary that runs an adapter's requests in the
+# Playwright check's browser page. No application enables it.
+live = []
+
+# Speaks JSON lines with `e2e/archives/live.spec.ts` (`just archives-live`).
+[[bin]]
+name = "archives-live-bridge"
+path = "src/bin/archives-live-bridge.rs"
+required-features = ["live"]
+
+# Steps 1 to 3 of the live checks over the native transport, `#[ignore]`d.
+[[test]]
+name = "live"
+path = "tests/live.rs"
+required-features = ["live", "native"]
 
 [dependencies]
 # The Republican calendar, to read a register's year written `an XII`.
@@ -24,3 +40,7 @@ serde = { workspace = true }
 # The catalogue documents, and the adapters' `portal` settings and responses.
 serde_json = { workspace = true }
 reqwest = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The runtime `reqwest` needs, for the native live checks (`tests/live.rs`).
+tokio = { workspace = true }

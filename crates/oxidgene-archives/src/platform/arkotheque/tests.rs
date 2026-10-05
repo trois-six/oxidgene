@@ -520,3 +520,25 @@ fn writes_the_locality_in_the_portal_style() {
         assert_eq!(settings.locality(&citation), expected, "{written}");
     }
 }
+
+#[test]
+fn reads_a_locality_of_the_portal_back_as_cited() {
+    let registry = ArchiveRegistry::embedded();
+    let suffixed = Settings::read(&registry.archive("AD72").unwrap().collections[0]).unwrap();
+    for (portal, cited) in [
+        ("Bourg (Le)", "Le Bourg"),
+        ("Ville-Example (La)", "La Ville-Example"),
+        ("Examples (Les)", "Les Examples"),
+        ("Exemple (L')", "L'Exemple"),
+        ("Exampleville", "Exampleville"),
+        (
+            "Exampleville (Saint-Exemple)",
+            "Exampleville (Saint-Exemple)",
+        ),
+        (" (Le)", " (Le)"),
+    ] {
+        assert_eq!(suffixed.cited_locality(portal), cited, "{portal}");
+    }
+    let plain = Settings::read(&registry.archive("AD44").unwrap().collections[0]).unwrap();
+    assert_eq!(plain.cited_locality("Bourg (Le)"), "Bourg (Le)");
+}

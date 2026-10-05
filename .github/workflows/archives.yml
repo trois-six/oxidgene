@@ -1,0 +1,207 @@
+name: Archive portals
+
+# The live end-to-end checks of the archive portals (docs/archives.md §9.1,
+# §9.2): every week and on demand, each catalogued archive with an adapter
+# against its real portal, through scripts/archives-live.sh (`just
+# archives-live`). Not part of the nightly workflow, not a required status
+# check, and no release waits for it: a portal changing is not a defect of a
+# commit.
+#
+# One job per archive, its requests sequential and never retried. A drift,
+# or a portal unreachable on two scheduled runs in a row, opens an issue
+# labelled `archive-drift` for that archive or comments on the open one; an
+# `ok` run closes it.
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      archive:
+        description: Archive id, such as fr-ad44; empty for every archive
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: archive-portals
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      archives: ${{ steps.plan.outputs.archives }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # The archives `live::archives` of oxidgene-archives checks: those with
+      # a collection, whose catalogue entry does not set `live_check: false`.
+      - name: List the archives
+        id: plan
+        env:
+          ARCHIVE: ${{ inputs.archive }}
+        run: |
+          archives=$(jq -c -s --arg only "${ARCHIVE:-}" '[.[]
+            | select((.collections // []) | length > 0)
+            | select(.live_check != false)
+            | .id
+            | select($only == "" or . == $only)]' assets/archives/*/*.json)
+          if [ -n "${ARCHIVE:-}" ] && [ "$archives" = "[]" ]; then
+            echo "::error::$ARCHIVE is not a catalogued archive with an adapter and live checks"
+            exit 1
+          fi
+          echo "archives=$archives" >> "$GITHUB_OUTPUT"
+
+  check:
+    name: ${{ matrix.archive }}
+    needs: plan
+    if: needs.plan.outputs.archives != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      # The report of the previous scheduled run.
+      actions: read
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        archive: ${{ fromJSON(needs.plan.outputs.archives) }}
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      # The toolchain of rust-toolchain.toml.
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      # A prebuilt binary; the version of mise.toml.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.143
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      # Fails on a drift only; an unreachable or challenged portal is left
+      # to the report.
+      - name: Check the portal
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+        run: scripts/archives-live.sh "$ARCHIVE"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: archives-live-${{ matrix.archive }}
+          path: target/archives-live/
+          if-no-files-found: ignore
+          # Long enough for the next weekly run to read it.
+          retention-days: 15
+
+      # Portal pages only, kept a few days.
+      - name: Upload the Playwright traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: archives-live-traces-${{ matrix.archive }}
+          path: e2e/test-results/archives/
+          if-no-files-found: ignore
+          retention-days: 5
+
+      - name: Open, comment on or close the archive's issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ARCHIVE: ${{ matrix.archive }}
+          EVENT: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          outcome_in() {
+            jq -r --arg id "$ARCHIVE" '.archives[] | select(.archive == $id) | .outcome' "$1" 2>/dev/null || true
+          }
+          report=target/archives-live/report.json
+          outcome=$(outcome_in "$report")
+          if [ -z "$outcome" ]; then
+            echo "::warning::$ARCHIVE: the check ended without a report"
+            exit 0
+          fi
+          title="Archive portal drift: $ARCHIVE"
+          number=$(gh issue list --state open --label archive-drift --limit 100 --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+
+          case "$outcome" in
+            ok)
+              if [ -n "$number" ]; then
+                gh issue close "$number" --comment "The live check of \`$ARCHIVE\` passed: $RUN_URL"
+              fi
+              exit 0
+              ;;
+            challenged)
+              echo "::warning::$ARCHIVE: an anti-bot challenge blocked the headless browser; unverified"
+              exit 0
+              ;;
+            unreachable)
+              previous=""
+              if [ "$EVENT" = schedule ]; then
+                run=$(gh run list --workflow archives.yml --event schedule --status completed --limit 1 \
+                  --json databaseId --jq '.[0].databaseId // empty')
+                if [ -n "$run" ] && gh run download "$run" --name "archives-live-$ARCHIVE" --dir previous; then
+                  previous=$(outcome_in previous/report.json)
+                fi
+              fi
+              if [ "$previous" != unreachable ]; then
+                echo "::warning::$ARCHIVE: the portal could not be reached"
+                exit 0
+              fi
+              ;;
+          esac
+
+          catalogue=$(for file in assets/archives/*/*.json; do
+            jq -e --arg id "$ARCHIVE" '.id == $id' "$file" >/dev/null && echo "$file"
+          done || true)
+          {
+            echo "The live check of \`$ARCHIVE\` ended in \`$outcome\` ($RUN_URL)."
+            echo
+            echo "| Collection | Outcome | Step | Expected | Received |"
+            echo "|---|---|---|---|---|"
+            jq -r --arg id "$ARCHIVE" '.archives[] | select(.archive == $id) | .collections[]
+              | select(.failure) | [.collection, .outcome, .failure.step, .failure.expected, .failure.received]
+              | map(gsub("\\|"; "\\|")) | "| " + join(" | ") + " |"' "$report"
+            echo
+            echo "Catalogue entry: \`$catalogue\`."
+            jq -r --arg id "$ARCHIVE" '.archives[] | select(.archive == $id) | [.collections[].platform] | unique[]
+              | "Adapter: `crates/oxidgene-archives/src/platform/\(.)/`, viewer in `e2e/archives/viewers.ts`."' "$report"
+            echo
+            echo "A drift is fixed in the collection's \`portal\` settings, or in the adapter and its fixtures when the platform itself changed (docs/archives.md §9.2)."
+          } > issue.md
+
+          gh label create archive-drift --color D93F0B \
+            --description "A live check found an archive portal changed or unreachable" 2>/dev/null || true
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file issue.md
+          else
+            gh issue create --title "$title" --label archive-drift --body-file issue.md
+          fi

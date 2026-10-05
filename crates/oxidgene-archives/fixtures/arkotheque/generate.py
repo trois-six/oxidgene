@@ -170,4 +170,43 @@ write('ad44-info.json', {
     "tiles": [{"width": 1024, "height": 1024, "scaleFactors": [1, 2, 4, 8, 16, 32]}],
     "profile": ["http://iiif.io/api/image/2/level2.json",
                 {"formats": ["jpg", "png"], "qualities": ["default", "gray"], "supports": ["sizeByW", "cors"]}]})
+
+# The live checks' discovery (Archive Portals §9.1): the search page names
+# its engine and content components; the engine's bare answer declares its
+# filters, display modes and, per filter field, the values it offers, the
+# most frequent first, with their record keys. The localities are fictitious;
+# the act values are the catalogue's.
+(OUT / 'ad44-search-page.html').write_text(
+    '<!DOCTYPE html>\n<html lang="fr">\n<head><title>Recherche</title></head>\n<body>\n'
+    f'<div class="arko-recherche filtres_facettes" data-moteur="{AD44["engine"]}" data-contenu="1289790" data-component="filtres"></div>\n'
+    f'<div class="arko-recherche resultats" data-moteur="{AD44["engine"]}" data-contenu="1289789" data-component="resultats"></div>\n'
+    '</body>\n</html>\n')
+
+def terms(field, keys):
+    return {field: {"doc_count": sum(count for _, count in keys),
+                    f"{field}_terms": {"doc_count_error_upper_bound": 0, "sum_other_doc_count": 0,
+                                       "buckets": [{"key": key, "doc_count": count} for key, count in keys]}}}
+
+AD44_ACT_FIELD = 'arko_default_6a6b489eb7a6c'
+write('ad44-engine.json', {
+    "refUnique": AD44['engine'],
+    "filtres": [
+        {"refUnique": "arko_default_6a6b4ba5532ce", "type": "select", "intitule": "Commune",
+         "properties": [{"fieldName": AD44['locality_field']}]},
+        {"refUnique": "arko_default_6a6b4ba578da0", "type": "select", "intitule": "Type d'acte",
+         "properties": [{"fieldName": AD44_ACT_FIELD}]},
+        {"refUnique": "arko_default_6a6b4ba58e64b", "type": "slider", "intitule": "Période",
+         "properties": [{"fieldName": AD44['period_field']}]}],
+    "restits": [{"refUnique": "arko_default_6a6b4d95b8dc8", "mode": {"intituleCourt": "tableau"}}],
+    "frontConfig": {"possibleResultSize": [25, 50, 100]},
+    "resultats": {"total": 3, "count": 0, "results": [], "html": "", "aggregations": [{
+        # The most frequent first; the check takes the alphabetical first.
+        **terms(AD44['locality_field'], [("Sampleton[[arko_fiche_0000000000c002]]", 120),
+                                         ("Exampleville[[arko_fiche_0000000000c001]]", 80)]),
+        **terms(AD44_ACT_FIELD, [("Baptêmes et naissances[[arko_fiche_6a6b3d70f0fdf]]", 90),
+                                 ("Baptêmes[[arko_fiche_6a6b3d70f2db3]]", 40),
+                                 ("Naissances[[arko_fiche_6a6b3d7100e74]]", 30),
+                                 ("Mariages[[arko_fiche_6a6b3d7104771]]", 30),
+                                 ("Sépultures[[arko_fiche_6a6b3d71061cb]]", 20),
+                                 ("Décès[[arko_fiche_6a6b3d7107318]]", 20)])}]}})
 print(sorted(p.name for p in OUT.iterdir()))

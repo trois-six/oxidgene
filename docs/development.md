@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T15:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -65,7 +65,7 @@ the repository root.
 | `just screenshots` | Build the web bundle and server, take the README and [Features](features.md) screenshots of the fictitious screenshot tree, and encode them with the README carousel into `assets/screenshots/` (§2.7). |
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
-| `just clippy` | Run Clippy for all workspace targets and deny warnings. |
+| `just clippy` | Run Clippy for all workspace targets and deny warnings, then for `oxidgene-archives` with its `live` checks, a feature no workspace member enables. |
 | `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. The browser binary declares its dependencies for `wasm32` only, so the native `just clippy` does not see its code. Not part of `just check`; the CI Clippy matrix runs it. |
 | `just deps` | Check the dependency graph: no unused dependency (`cargo machete`), nothing `deny.toml` refuses (`cargo deny check`: advisories, licences, bans, sources), no known vulnerability (`cargo audit`), and no more duplicated crates than `scripts/budgets.json` allows (§2.8). |
 | `just sql-plans` | Read the query plan of every statement the API runs over a populated tree and fail on a full scan of a large table (§2.8). |
@@ -80,6 +80,7 @@ the repository root.
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
+| `just archives-live [archive]` | Check every catalogued archive with an adapter, or the one named (`fr-ad44`), against its real portal: the live end-to-end checks (§2.7, [Archive Portals §9.1](archives.md#91-live-checks)). |
 | `just theme-preview` | Write an HTML preview of every theme's pedigree card to `OXIDGENE_PREVIEW_DIR`. |
 | `just graphql-schema` | Rewrite `docs/schema.graphql`, the committed SDL of the GraphQL schema, after an intended schema change ([API Contract](api.md#schema)). |
 | `just openapi` | Build `oxidgene-api`, whose build script regenerates from the REST router the OpenAPI document served at `/api/v1/openapi.json` ([API Contract](api.md)). |
@@ -307,6 +308,7 @@ and the Wikidata query service.
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
 | End-to-end | The Playwright suite of `e2e/`, driving the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
+| Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive]` | Archive portals (weekly) | No |
 
 `just test`, and through it `just check`, runs the unit and functional tests.
 The selection is by Cargo target (`--lib --bins`, `--doc`, `--test '*'`)
@@ -315,8 +317,8 @@ binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS, or
 only time something; each one's ignore reason names the `just` recipe that
 runs it (`just bench`, `just test-postgres`, `just test-s3`,
 `just session-check`, `just geneanet-harness`, `just theme-preview`,
-`just real-import`, `just scaling`, `just import-memory`), and a guard fails
-on a reason that names none.
+`just real-import`, `just scaling`, `just import-memory`,
+`just archives-live`), and a guard fails on a reason that names none.
 
 The opt-in tests and the golden checks read these variables:
 
@@ -330,10 +332,14 @@ The opt-in tests and the golden checks read these variables:
 | `OXIDGENE_PREVIEW_DIR` | The `theme_preview` test of `oxidgene-ui`, which writes an HTML preview of every theme there (default: the current directory) |
 | `OXIDGENE_BLESS` | The pedigree layout golden tests of `oxidgene-ui`: set, they print fresh golden blocks instead of comparing |
 | `OXIDGENE_BLESS_E2E_FIXTURE` | `rest_test.rs`: set to `1`, it rewrites the end-to-end fixture (below) |
+| `OXIDGENE_LIVE_ARCHIVE` | The live checks of the archive portals: the one archive to check (default: every one); `just archives-live <archive>` sets it |
+| `OXIDGENE_LIVE_REPORT_DIR` | The live checks: where `native.json` and `report.json` land (default `target/archives-live`) |
+| `OXIDGENE_LIVE_BRIDGE` | The Playwright live check: the `archives-live-bridge` binary (default `target/debug/archives-live-bridge`) |
 
 CI runs the unit, functional and browser JavaScript categories as jobs of
 their own on every change outside the documentation; the performance and
-end-to-end ones run every night (§2.8). The `CI` job, the one status check
+end-to-end ones run every night (§2.8), and the archive portal checks every
+week in their own workflow. The `CI` job, the one status check
 branch protection requires, gathers the jobs of tiers 1 and 2.
 
 **Archive portal fixtures.** The adapter tests of `oxidgene-archives` run
@@ -346,6 +352,27 @@ only the portals' public engine and filter references; `python3
 generate.py` rewrites them after a change. A recorded answer is research
 material and is never committed: it names real localities and registers, and
 internal hosts of the archive.
+
+**Archive portal live checks.** `just archives-live [archive]` runs
+`scripts/archives-live.sh`, which checks the catalogued archives against
+their real portals ([Archive Portals §9.1](archives.md#91-live-checks)):
+it builds the `archives-live-bridge` binary, runs the `#[ignore]`d `live`
+test of `oxidgene-archives` (features `native` and `live`) for the
+collections any client may reach, then the Playwright project of
+`e2e/playwright.archives.config.ts`, which runs the browser-only
+collections' steps through the bridge binary in a Chromium page and opens
+every resolved target in the portal's viewer. Nothing in the repository
+names a locality or a register: each check builds its citation from what the
+portal lists. The reports land in `target/archives-live/` (`report.json`
+for the run), the Playwright traces in `e2e/test-results/archives/`. The
+recipe fails on a drift only; an unreachable or challenged portal is
+reported. It contacts the portals, sequentially and with the identifying
+`User-Agent`, so it runs on demand and from the weekly
+`.github/workflows/archives.yml`, never from `just check`, a pull request
+or the nightly workflow. An adapter brings its live check with it: a
+`live::Probe` in `platform/<platform>/live.rs`, its entry in `live::probe`,
+and its viewer in `e2e/archives/viewers.ts` ([Archive Portals
+§9.1](archives.md#91-live-checks), *Adding an adapter's live check*).
 
 **End-to-end suite.** `e2e/` holds a Node.js project whose only dependency is
 a pinned `@playwright/test`. `just e2e` builds the debug web bundle for the
@@ -450,7 +477,7 @@ of both passed (the next-toolchain jobs report without failing).
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |
 | REST/GraphQL parity | 1 | `just test` (`guards_test`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |
 | api.md and schema | 1 | `just test` (`guards_test`), `just graphql-schema` | Functional tests | docs/api.md's tables list exactly the router's routes; `docs/schema.graphql` is the schema's SDL |
-| Clippy matrix | 1 | `just clippy`, `just wasm`, Clippy of `-p oxidgene-desktop --no-default-features` and of `-p oxidgene-api` | Clippy (4 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL |
+| Clippy matrix | 1 | `just clippy`, `just wasm`, Clippy of `-p oxidgene-desktop --no-default-features`, of `-p oxidgene-api` and of `-p oxidgene-archives --features native,live` | Clippy (5 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL, archive portals with the native transport and the live checks |
 | Cyclomatic complexity | 1 | `just cyclomatic` | Cyclomatic complexity | No function above 15 paths |
 | Unused dependencies | 1 | `cargo machete` (in `just deps`) | Unused dependencies | No dependency declared and unused |
 | Stack depth | 2 | `just test` (`guards_test`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |

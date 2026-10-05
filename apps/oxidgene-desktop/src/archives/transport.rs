@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use futures_channel::oneshot;
 use oxidgene_archives::platform::BoxFuture;
-use oxidgene_archives::transport::{MAX_BODY_BYTES, TIMEOUT, origin_of, request_url};
+use oxidgene_archives::transport::{PageAnswer, TIMEOUT, request_url};
 use oxidgene_archives::{FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport};
 use serde::Deserialize;
 
@@ -76,48 +76,13 @@ pub(super) struct Shared {
     next: AtomicU64,
 }
 
-/// What the fetch script posts back.
+/// What the fetch script posts back: the ticket of its request and the
+/// page's answer, checked by [`PageAnswer::result`].
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 pub(super) struct Fetched {
     ticket: u64,
-    #[serde(default)]
-    status: Option<u16>,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    body: Option<String>,
-    #[serde(default)]
-    error: Option<String>,
-}
-
-impl Fetched {
-    /// The body, once the answer is checked: a success status, a final
-    /// address still on the endpoint's origins after redirects, a bounded
-    /// size.
-    fn result(self, origins: &[String]) -> Result<String, FetchError> {
-        match self.error.as_deref() {
-            Some("timeout") => return Err(FetchError::Timeout),
-            Some(_) => return Err(FetchError::Network),
-            None => {}
-        }
-        let status = self.status.ok_or(FetchError::Network)?;
-        let on_origin = self
-            .url
-            .as_deref()
-            .and_then(origin_of)
-            .is_some_and(|origin| origins.iter().any(|allowed| allowed == origin));
-        if !on_origin {
-            return Err(FetchError::NotSameOrigin);
-        }
-        if !(200..300).contains(&status) {
-            return Err(FetchError::Status(status));
-        }
-        let body = self.body.unwrap_or_default();
-        if body.len() > MAX_BODY_BYTES {
-            return Err(FetchError::TooLarge);
-        }
-        Ok(body)
-    }
+    #[serde(flatten)]
+    answer: PageAnswer,
 }
 
 impl Shared {
@@ -169,7 +134,7 @@ impl Shared {
             return;
         }
         if let Some(request) = waiting.remove(&fetched.ticket) {
-            let _ = request.reply.send(fetched.result(&request.origins));
+            let _ = request.reply.send(fetched.answer.result(&request.origins));
         }
     }
 
@@ -321,43 +286,28 @@ mod tests {
     fn answer(ticket: u64, status: u16, url: &str, body: &str) -> Fetched {
         Fetched {
             ticket,
-            status: Some(status),
-            url: Some(url.to_owned()),
-            body: Some(body.to_owned()),
-            error: None,
+            answer: PageAnswer {
+                status: Some(status),
+                url: Some(url.to_owned()),
+                body: Some(body.to_owned()),
+                error: None,
+            },
         }
     }
 
+    /// The checks themselves are `PageAnswer`'s, tested in
+    /// `oxidgene-archives`.
     #[test]
-    fn checks_the_answer_of_the_page() {
-        let origins = origins();
-        let url = "https://archives.example.org/_recherche-api/moteur";
-        assert_eq!(
-            answer(1, 200, url, "{}").result(&origins),
-            Ok("{}".to_owned())
-        );
-        assert_eq!(
-            answer(1, 503, url, "").result(&origins),
-            Err(FetchError::Status(503))
-        );
-        assert_eq!(
-            answer(1, 200, "https://elsewhere.example.org/", "").result(&origins),
-            Err(FetchError::NotSameOrigin)
-        );
-        let failed = |error: &str| Fetched {
-            ticket: 1,
-            status: None,
-            url: None,
-            body: None,
-            error: Some(error.to_owned()),
-        };
-        assert_eq!(failed("timeout").result(&origins), Err(FetchError::Timeout));
-        assert_eq!(failed("network").result(&origins), Err(FetchError::Network));
+    fn reads_the_ticket_beside_the_answer() {
         let parsed: Fetched = serde_json::from_str(
             r#"{"ticket": 3, "status": 200, "url": "https://archives.example.org/", "body": "x"}"#,
         )
         .unwrap();
-        assert_eq!(parsed.result(&origins), Ok("x".to_owned()));
+        assert_eq!(parsed, answer(3, 200, "https://archives.example.org/", "x"));
+        assert_eq!(parsed.answer.result(&origins()), Ok("x".to_owned()));
+        let failed: Fetched = serde_json::from_str(r#"{"ticket": 4, "error": "timeout"}"#).unwrap();
+        assert_eq!(failed.ticket, 4);
+        assert_eq!(failed.answer.result(&origins()), Err(FetchError::Timeout));
     }
 
     #[test]

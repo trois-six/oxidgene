@@ -12,6 +12,8 @@
 use std::fmt;
 use std::time::Duration;
 
+use serde::Deserialize;
+
 use crate::platform::{BoxFuture, PortalEndpoint};
 
 /// How OxidGene names itself to a portal.
@@ -194,6 +196,50 @@ pub fn request_url(
         Ok(request.url.clone())
     } else {
         Err(FetchError::NotSameOrigin)
+    }
+}
+
+/// The answer of a request a browser page ran with its own `fetch`, as a
+/// browser transport receives it: the status, final address and body, or
+/// the `error` (`timeout`, anything else a network failure) that stopped it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct PageAnswer {
+    #[serde(default)]
+    pub status: Option<u16>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+impl PageAnswer {
+    /// The body, once the answer is checked: a success status, a final
+    /// address still on one of `origins` after redirects, a bounded size.
+    pub fn result(self, origins: &[String]) -> Result<String, FetchError> {
+        match self.error.as_deref() {
+            Some("timeout") => return Err(FetchError::Timeout),
+            Some(_) => return Err(FetchError::Network),
+            None => {}
+        }
+        let status = self.status.ok_or(FetchError::Network)?;
+        let on_origin = self
+            .url
+            .as_deref()
+            .and_then(origin_of)
+            .is_some_and(|origin| origins.iter().any(|allowed| allowed == origin));
+        if !on_origin {
+            return Err(FetchError::NotSameOrigin);
+        }
+        if !(200..300).contains(&status) {
+            return Err(FetchError::Status(status));
+        }
+        let body = self.body.unwrap_or_default();
+        if body.len() > MAX_BODY_BYTES {
+            return Err(FetchError::TooLarge);
+        }
+        Ok(body)
     }
 }
 
@@ -540,6 +586,38 @@ mod tests {
         let form = PortalRequest::post("/search", "application/x-www-form-urlencoded", "q=1");
         assert_eq!(form.method.as_str(), "POST");
         assert!(request_url(&endpoint, &form).is_ok());
+    }
+
+    #[test]
+    fn checks_the_answer_of_a_page() {
+        let origins = vec!["https://archives.example.org".to_owned()];
+        let url = "https://archives.example.org/_recherche-api/moteur";
+        let answer = |status: u16, url: &str, body: &str| PageAnswer {
+            status: Some(status),
+            url: Some(url.to_owned()),
+            body: Some(body.to_owned()),
+            error: None,
+        };
+        assert_eq!(answer(200, url, "{}").result(&origins), Ok("{}".to_owned()));
+        assert_eq!(
+            answer(503, url, "").result(&origins),
+            Err(FetchError::Status(503))
+        );
+        assert_eq!(
+            answer(200, "https://elsewhere.example.org/", "").result(&origins),
+            Err(FetchError::NotSameOrigin)
+        );
+        let failed = |error: &str| PageAnswer {
+            error: Some(error.to_owned()),
+            ..PageAnswer::default()
+        };
+        assert_eq!(failed("timeout").result(&origins), Err(FetchError::Timeout));
+        assert_eq!(failed("network").result(&origins), Err(FetchError::Network));
+        let parsed: PageAnswer = serde_json::from_str(
+            r#"{"status": 200, "url": "https://archives.example.org/", "body": "x"}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.result(&origins), Ok("x".to_owned()));
     }
 
     #[test]

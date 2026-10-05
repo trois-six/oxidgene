@@ -139,6 +139,9 @@ jobs:
           # The API alone, as the desktop links it: without GraphQL.
           - name: api without graphql
             args: -p oxidgene-api --all-targets
+          # The archive crate's live checks, which no member enables.
+          - name: archives live checks
+            args: -p oxidgene-archives --features native,live --all-targets
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"

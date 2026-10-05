@@ -1,0 +1,168 @@
+// The browser half of the live checks (docs/archives.md §9.1), run by
+// `just archives-live [archive id]` after the Rust test of the native
+// collections:
+//
+// - steps 1 to 3 of every collection whose portal admits only a browser,
+//   through `archives-live-bridge`, the Rust check whose requests run in
+//   this page;
+// - step 4 of every resolved collection: the target opens and the portal's
+//   viewer shows the cited view, after its reuse licence if it asks for one;
+// - step 5 for a `display: "iiif"` archive: the picture and the thumbnail
+//   are images of the resolved proportions.
+//
+// Each archive is one test. It fails on a drift only: an unreachable or a
+// challenged portal is annotated and left to the scheduled workflow.
+
+import { execFileSync } from "node:child_process";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { expect, test, type Page } from "@playwright/test";
+
+import { runBridge } from "./bridge";
+import { type ArchiveReport, type CollectionReport, type Failure, type Opening, drift, nativeReport, record, summary, worst } from "./report";
+import { viewers } from "./viewers";
+
+const root = fileURLToPath(new URL("../..", import.meta.url));
+const reportDir = process.env.OXIDGENE_LIVE_REPORT_DIR || path.join(root, "target/archives-live");
+const bridge = process.env.OXIDGENE_LIVE_BRIDGE || path.join(root, "target/debug/archives-live-bridge");
+const only = process.env.OXIDGENE_LIVE_ARCHIVE || "";
+
+// How long a viewer may take to show its view, licence included.
+const VIEWER_TIMEOUT_MS = 30_000;
+
+// The archives to check, as the Rust catalogue lists them.
+const archives = execFileSync(bridge, only ? ["--list", only] : ["--list"], { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+
+function unreachable(step: Failure["step"], expected: string, error: unknown): Failure {
+    const received = error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network error";
+    return { step, outcome: "unreachable", expected, received };
+}
+
+// The first number an element shows: an input's value or its text.
+async function numberShown(page: Page, selector: string): Promise<number | null> {
+    const element = page.locator(selector).first();
+    if ((await element.count()) === 0) return null;
+    const text = await element
+        .evaluate((node) => (node instanceof HTMLInputElement ? node.value : (node.textContent ?? "")))
+        .catch(() => "");
+    const match = /\d+/.exec(text);
+    return match ? Number(match[0]) : null;
+}
+
+// Step 4: the target opens on the cited view.
+async function open(page: Page, opening: Opening): Promise<Failure | null> {
+    const viewer = viewers[opening.platform];
+    if (!viewer) return drift("opening", `a viewer of ${opening.platform} in e2e/archives/viewers.ts`, "none");
+    // A portal behind a challenge keeps the fragment, which carries the view,
+    // only once its cookie is set (docs/archives.md §6.1): the bridge has
+    // loaded its start page in this page already.
+    try {
+        const response = await page.goto(opening.url, { waitUntil: "load", timeout: VIEWER_TIMEOUT_MS });
+        if ((response?.status() ?? 0) >= 500) return unreachable("opening", "the target page", new Error("status"));
+    } catch (error) {
+        return unreachable("opening", "the target page", error);
+    }
+    let shown: number | null = null;
+    const deadline = Date.now() + VIEWER_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (viewer.licence) {
+            const licence = page.locator(viewer.licence).first();
+            if (await licence.isVisible().catch(() => false)) await licence.click();
+        }
+        shown = await numberShown(page, viewer.view);
+        if (shown === opening.view) break;
+        await page.waitForTimeout(500);
+    }
+    if (shown === null) {
+        const blank = await page.evaluate(() => !document.body || !document.body.innerText.trim()).catch(() => true);
+        if (blank) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "a page rendering nothing, as a challenge does" };
+        return drift("opening", `the viewer showing view ${opening.view}`, "no view number shown");
+    }
+    if (shown !== opening.view) return drift("opening", `view ${opening.view}`, `view ${shown}`);
+    if (viewer.viewCount && opening.view_count !== null) {
+        const count = await numberShown(page, viewer.viewCount);
+        if (count !== opening.view_count) return drift("opening", `${opening.view_count} views`, `${count ?? "no"} views`);
+    }
+    return null;
+}
+
+interface Loaded {
+    status?: number;
+    type?: string;
+    width?: number;
+    height?: number;
+    error?: string;
+}
+
+// One image as the page loads it: its status, type and pixel size. An image
+// on another origin without CORS is read through an <img>, without its type.
+async function loadImage(page: Page, url: string): Promise<Loaded> {
+    return page
+        .evaluate(async (url) => {
+            try {
+                const response = await fetch(url, { credentials: "include" });
+                const type = response.headers.get("content-type") ?? "";
+                if (!response.ok) return { status: response.status, type };
+                const bitmap = await createImageBitmap(await response.blob());
+                return { status: response.status, type, width: bitmap.width, height: bitmap.height };
+            } catch {
+                return await new Promise<Loaded>((resolve) => {
+                    const image = new Image();
+                    image.onload = () => resolve({ status: 200, width: image.naturalWidth, height: image.naturalHeight });
+                    image.onerror = () => resolve({ error: "network" });
+                    image.src = url;
+                });
+            }
+        }, url)
+        .catch(() => ({ error: "network" }));
+}
+
+// Step 5: the picture and the thumbnail are images of the resolved
+// proportions, the picture no larger than the image.
+async function images(page: Page, image: NonNullable<Opening["image"]>): Promise<Failure | null> {
+    const ratio = image.width / image.height;
+    for (const [role, url] of [
+        ["picture", image.picture],
+        ["thumbnail", image.thumbnail],
+    ] as const) {
+        const loaded = await loadImage(page, url);
+        if (loaded.error || (loaded.status ?? 0) >= 500) return unreachable("images", `the ${role}`, new Error(loaded.error));
+        if (loaded.type !== undefined && !loaded.type.startsWith("image/")) return drift("images", `the ${role} as an image`, `${loaded.status} ${loaded.type || "untyped"}`);
+        if (!loaded.width || !loaded.height) return drift("images", `the ${role} as an image`, `${loaded.status} without pixels`);
+        if (Math.abs(loaded.width / loaded.height - ratio) > ratio * 0.02 || Math.max(loaded.width, loaded.height) > Math.max(image.width, image.height)) {
+            return drift("images", `the ${role} within ${image.width}×${image.height}, same proportions`, `${loaded.width}×${loaded.height}`);
+        }
+    }
+    return null;
+}
+
+async function browserSteps(page: Page, collection: CollectionReport): Promise<void> {
+    if (collection.outcome !== "ok" || !collection.opening) return;
+    const failure = (await open(page, collection.opening)) ?? (collection.opening.image ? await images(page, collection.opening.image) : null);
+    if (failure) {
+        collection.outcome = failure.outcome;
+        collection.failure = failure;
+    }
+}
+
+for (const archive of archives) {
+    test(archive, async ({ page }) => {
+        const bridged = await runBridge(bridge, archive, page);
+        const native = bridged.native.length > 0 ? nativeReport(reportDir, archive) : [];
+        const missing = bridged.native.filter((index) => !native?.some((collection) => collection.index === index));
+        if (missing.length > 0) {
+            throw new Error(`no native report of ${archive}'s collections ${missing.join(", ")} in ${reportDir}: run \`just archives-live\``);
+        }
+        const collections = [...(native ?? []), ...bridged.collections].sort((a, b) => a.index - b.index);
+        for (const collection of collections) await browserSteps(page, collection);
+
+        const report: ArchiveReport = { archive, outcome: worst(collections.map((c) => c.outcome)), collections };
+        record(reportDir, report);
+        const text = summary(report);
+        if (report.outcome !== "ok") test.info().annotations.push({ type: report.outcome, description: text });
+        expect(report.outcome, text).not.toBe("drift");
+    });
+}

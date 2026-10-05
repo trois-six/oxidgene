@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T15:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -196,13 +196,19 @@ crates/oxidgene-archives/
       select.rs     Choosing the cited register among search results (§4.3)
       iiif.rs       Reading an image service and building a view's image
       view.rs       The View target of a chosen register (§5.2, §7)
-      arkotheque/   Arkothèque (1 égal 2)
+      arkotheque/   Arkothèque (1 égal 2) (§4.3); each adapter's live.rs is its live probe (§9.1)
       archinoe/     Archinoë (EidoPolis): `registre`, `seriel` and `ead` searches (§4.6)
       ligeo/        Ligeo Diffusion (Boscop) (§4.5)
       mnesys/       Mnesys Expo (Naoned) (§4.4)
       prismia/      Prismia Vision (EidoPolis) (§4.7)
     transport.rs    The request contract, the PortalFetch and PortalTransport
                     traits, and the native implementation
+    live/           The live checks (feature `live`, §9.1): steps 1 to 3,
+                    reports, and the bridge transport to a browser page
+    bin/archives-live-bridge.rs
+                    The live checks of browser-only collections (feature
+                    `live`)
+  tests/live.rs     The live checks over the native transport, `#[ignore]`d
   fixtures/<platform>/
                     Anonymized portal answers for the adapter tests (§9)
 ```
@@ -229,6 +235,11 @@ transport, for the backend endpoint (§5.3); the desktop links it through the
 API but resolves through its archive window, a second transport (§4.2).
 `oxidgene-ui` never enables it. Without a transport, the crate parses,
 matches, and builds offline targets (§5.2) but cannot resolve a view.
+The `live` feature, which no application enables, provides the live checks
+of §9.1 with their bridge binary, and the Clippy matrix checks it on its own
+([Development §2.8](development.md#28-guards)); their test over the native
+transport takes `tokio`, the runtime `reqwest` needs, as a development
+dependency.
 
 Addresses are plain `String`s: the crate builds and compares them as text
 and adds no URL library.
@@ -1056,6 +1067,11 @@ Archive portals are public services whose terms OxidGene follows:
 - Resolver tests run a scripted adapter over a counting transport: collection
   order, the fallbacks, the cache, and offline targets for `browser`
   portals.
+- Live check tests (§9.1) replay the fixtures through a scripted transport:
+  the citation built from the portal, the requests it takes, the choice of
+  a register, the verdicts and the outcomes of a drifted or unanswered
+  portal; and the bridge transport's exchanges, including an answer to
+  another request and a challenge.
 
 `just check` never contacts a portal: the tests above run offline.
 
@@ -1073,38 +1089,91 @@ committed reference, so the repository holds no locality, call number or
 view chosen from anyone's research, and the check survives an archive
 renumbering its registers. For each collection of each archive, in order:
 
-1. **Search page.** The `search_path` (or the search form) loads, and the
-   engine, content, display-mode and filter references of the `portal`
-   settings are still present in it.
-2. **Discovery.** The first locality the portal's own locality filter lists,
-   with the first act kind of `acts`, returns at least one register whose row
-   yields a call number, an image count and a viewer address or ARK.
-3. **Resolution.** A citation assembled from that register — its locality,
-   act, year and call number, and a view in the middle of its image count —
-   resolves to `View` with that call number and that view. The same citation
-   without its call number resolves to the same register or to `Results`,
-   never to another register.
+1. **Search page.** The collection's search page loads, and every reference
+   of its `portal` settings is still declared by the portal.
+2. **Discovery.** The alphabetically first locality the portal's own
+   locality filter lists, with the first act of the collection's `acts` and
+   no year, returns at least one register whose row yields a call number, an
+   image count, an image address and a year within the collection's period.
+   The engines list their most populated locality first, whose search is
+   the slowest — the largest Sarthe parish's baptisms took longer than the
+   10-second bound of §8 — so the check takes an ordinary one. Of the
+   registers, it keeps the first that its citation can single out: none
+   other of the list shares its call number and image count with a period
+   covering its year; failing that, the first one it can cite.
+3. **Resolution.** A citation assembled from that register — its locality
+   as a citation writes it (`Le Bourg` for the portal's `Bourg (Le)`), the
+   act, the first year of its period, its call number, and its middle view
+   `⌈count / 2⌉ / count` — resolves through the `Resolver` to `View` with
+   that call number, that view and that count; for a `display: "iiif"`
+   archive, with the view's image and an attribution without a placeholder
+   left. The same citation without its call number resolves to the same
+   register or to `Results`, never to another register.
 4. **Opening.** The target loads in a browser and the portal's viewer shows
-   the cited view: the view number displayed by the viewer equals the cited
-   one after the reuse licence, if any, is accepted.
-5. **Images**, for a `display: "iiif"` archive: the picture and the thumbnail
-   answer with an image type, the pixel size matches the one resolved, and the
-   attribution template fills without a placeholder left.
+   the cited view: the view number it displays equals the cited one, once
+   its reuse licence, if any, is accepted, and its view count, where it
+   shows one, equals the register's.
+5. **Images**, for a `display: "iiif"` archive: the picture and the
+   thumbnail load as images, with the resolved proportions and no larger
+   than the resolved size.
 
-Steps 1 to 3 are Rust tests of `oxidgene-archives` marked `#[ignore]` over the
-`native` transport. Steps 4 and 5, and steps 1 to 3 of a `transport:
-"browser"` archive, run in a Playwright project of `e2e/` with its own
-configuration, which loads the portal in Chromium and runs the adapter's
-requests in the page, as the desktop window does. `just archives-live` runs
-both for every archive, and `just archives-live <archive id>` for one.
+For Arkothèque, step 1 finds the engine and content references in the
+search page's `data-moteur` and `data-contenu`, then reads the engine's
+bare answer, the one the page requests on load
+(`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`): its
+`filtres` must hold the locality, act and period filters, its `restits` the
+display mode, and the act filter's values every `acts` value with its record
+key. The localities are that answer's aggregation of the locality filter's
+field. Its viewer shows the view in `input[data-cy="input-position-image"]`
+and the count in `[data-cy="nb-total-images"]`, after
+`button[data-cy="accept-license"]` on a portal with a licence (Sarthe).
 
-Each archive ends in one of four outcomes:
+**How it runs.** The adapter logic stays in Rust, whichever transport
+carries the requests:
+
+| Steps | Collections | Where | Transport |
+|---|---|---|---|
+| 1 to 3 | `transport: "any"` | `crates/oxidgene-archives/tests/live.rs`, `#[ignore]`d, features `native` and `live` | `native` (§4.2), identifying `User-Agent` |
+| 1 to 3 | `transport: "browser"` | the `archives-live-bridge` binary (feature `live`), started by `e2e/archives/live.spec.ts` | a Chromium page, as the desktop window |
+| 4 and 5 | every resolved one | `e2e/archives/live.spec.ts` | the same Chromium page |
+
+The browser part is a Playwright project of its own,
+`e2e/playwright.archives.config.ts`: one worker, no retry, no server of
+ours, and its own test directory, so `just e2e` never runs it. Its
+`User-Agent` is Chromium's own followed by
+`OxidGene-live-check (+https://github.com/trois-six/oxidgene)`.
+
+**The bridge.** For a browser-only collection, `live.spec.ts` starts
+`archives-live-bridge <archive id>`, which runs the same steps with a
+`PortalTransport` whose requests are JSON lines on its standard output,
+each answered by one line on its standard input before the next is sent:
+`connect` asks the page to load the endpoint's start page and wait until it
+renders the portal rather than a challenge, and `fetch` asks it to run one
+request with the page's own `fetch` and `credentials: "include"`, as the
+window's script does (§4.2). The answers are checked as the window's are
+(`PageAnswer`): a final address on the endpoint's origins, a success
+status, a bounded body. The binary ends with its collections' reports and
+the indices of the collections the native test checks instead. The process
+boundary is two standard streams: no port, no new dependency — the binary
+drives its future on its own thread, since its requests block on the
+streams — and the same `Resolver`, adapters and verdicts run over both
+transports. A connection the page could not establish past a challenge
+makes the collection `challenged` rather than `unreachable`.
+
+**Reports.** `just archives-live` writes under `target/archives-live/`
+(`OXIDGENE_LIVE_REPORT_DIR`) `native.json`, the native test's, and
+`report.json`, the run's: per archive its outcome, and per collection the
+transport, the outcome, the failing step with the expected and received
+shapes, the number of requests sent to the portal (seven per collection for
+steps 1 to 3 on Arkothèque), the citation built, and the opening of steps 4
+and 5. Each archive ends in one of four outcomes, the worst of its
+collections':
 
 | Outcome | Meaning | Run result |
 |---|---|---|
 | `ok` | Every step passed. | Pass |
 | `drift` | The portal answered, but not as the adapter or its settings expect; the failing step and the expected and received shapes are reported. | Fail |
-| `unreachable` | Timeout, network error or a `5xx` answer. | Warning; fail after two consecutive scheduled runs |
+| `unreachable` | Timeout, network error or a `5xx` answer. | Warning; an issue after two consecutive scheduled runs |
 | `challenged` | An anti-bot challenge blocked the headless browser. | Warning, reported as unverified |
 
 A check never solves or works around a challenge. Reports name the archive,
@@ -1112,28 +1181,58 @@ step, URL path and response shape, never response bodies beyond the fields
 compared; failure artifacts (Playwright traces) hold portal pages only and
 are kept for a short period.
 
+**Adding an adapter's live check.** Every adapter arrives with its live
+check, in three places; archives are then picked up from the catalogue:
+
+1. `crates/oxidgene-archives/src/platform/<platform>/live.rs`, compiled
+   under `#[cfg(any(test, feature = "live"))]`, implements `live::Probe` for
+   the adapter: `search_page` loads the search page and whatever declares
+   the references the settings use, fails with
+   `Failure::drift(Step::SearchPage, …)` naming what is missing, and
+   returns the alphabetically first locality the portal's locality filter
+   lists, as a citation writes it; `registers` sends the search a citation
+   of that locality and act would send, without a year, and maps each
+   result to a `live::Register` (the locality as a citation writes it, the
+   call number, the displayed period, the image count, the image address).
+2. `live::probe` in `crates/oxidgene-archives/src/live/mod.rs` lists it by
+   platform id; the `every_adapter_has_a_probe` test fails until it does.
+3. `viewers` in `e2e/archives/viewers.ts` describes the portal's viewer by
+   platform id: the element showing the view number, and the licence button
+   and the view-count element where the viewer has them.
+
+The probe's own tests replay the platform's anonymized fixtures, as the
+Arkothèque probe's replay `ad44-search-page.html` and `ad44-engine.json`.
+
 ### 9.2 Scheduled run
 
 A dedicated workflow, `.github/workflows/archives.yml`, runs the live checks
-every week and on demand, with an optional archive id as input. It is not
+every Monday and on demand, with an optional archive id as input. It is not
 part of the nightly workflow, does not gate releases, and is not a required
-status check: a portal change is not a defect of a commit. Archives run as
-independent matrix entries without fail-fast, so one archive's drift does
-not hide another's.
+status check: a portal change is not a defect of a commit. A first job lists
+the archives from the catalogue — those with a collection, whose entry does
+not set `"live_check": false`, or the one named — and each becomes an
+independent matrix entry without fail-fast, so one archive's drift does not
+hide another's. Each entry runs `scripts/archives-live.sh <archive id>`,
+the script behind `just archives-live`, and keeps its reports for 15 days
+and its Playwright traces for 5.
 
-A `drift`, or an `unreachable` reaching its second run, opens an issue
-labelled `archive-drift` for that archive, or comments on the open one; an
-`ok` run closes it. The issue names the catalogue entry and the adapter to
-update. Fixing a drift updates the collection's `portal` settings, or the
-adapter and its recorded fixtures when the platform itself changed, so the
-offline tests learn the new shape.
+A `drift`, or an `unreachable` whose previous scheduled run, read from that
+run's report artifact, was `unreachable` too, opens an issue labelled
+`archive-drift` for that archive, titled `Archive portal drift: <archive
+id>`, or comments on the open one; an `ok` run closes it. The issue lists
+the failing collections with their step and shapes, and names the catalogue
+entry, the adapter and the viewer description to update. Fixing a drift
+updates the collection's `portal` settings, or the adapter and its recorded
+fixtures when the platform itself changed, so the offline tests learn the
+new shape.
 
-The checks follow §8: one archive at a time, sequential requests, a handful
-per archive and run, the identifying `User-Agent` with the repository
-address, and no retry within a run. A portal whose `robots.txt` disallows
-automated agents, Loire-Atlantique and the Ligeo portals included, is checked only at this weekly
-rate; an archive that objects is marked `"live_check": false` in its
-catalogue entry and relies on the user-reported failures of §7.
+The checks follow §8: one archive at a time per job, sequential requests, a
+handful per collection and run, the identifying `User-Agent` with the
+repository address, and no retry within a run. A portal whose `robots.txt`
+disallows automated agents, Loire-Atlantique and the Ligeo portals included, is checked only at
+this weekly rate; an archive that objects is marked `"live_check": false` in
+its catalogue entry, which every live check, `just archives-live <archive
+id>` included, then skips, and relies on the user-reported failures of §7.
 
 ## 10. Delivery phases
 
@@ -1145,7 +1244,7 @@ catalogue entry and relies on the user-reported failures of §7.
    weekly workflow (§9.1, §9.2), and list them in
    [Development §2.7](development.md#27-test-categories).
    Every later archive or adapter arrives with its live check. All of it is
-   in place but the live checks, their recipe and their workflow.
+   in place.
 2. Add the Mnesys adapter with Indre-et-Loire; add the backend endpoint on
    both surfaces and open targets from the web client; add `display`, the
    IIIF view in the shared viewer, attaching views as a remote multi-page

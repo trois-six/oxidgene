@@ -1,0 +1,110 @@
+{
+ "refUnique": "arko_default_6a6b4ac0309a5",
+ "filtres": [
+  {
+   "refUnique": "arko_default_6a6b4ba5532ce",
+   "type": "select",
+   "intitule": "Commune",
+   "properties": [
+    {
+     "fieldName": "arko_default_6a3b876245227"
+    }
+   ]
+  },
+  {
+   "refUnique": "arko_default_6a6b4ba578da0",
+   "type": "select",
+   "intitule": "Type d'acte",
+   "properties": [
+    {
+     "fieldName": "arko_default_6a6b489eb7a6c"
+    }
+   ]
+  },
+  {
+   "refUnique": "arko_default_6a6b4ba58e64b",
+   "type": "slider",
+   "intitule": "Période",
+   "properties": [
+    {
+     "fieldName": "arko_default_6a3b7db3a0215"
+    }
+   ]
+  }
+ ],
+ "restits": [
+  {
+   "refUnique": "arko_default_6a6b4d95b8dc8",
+   "mode": {
+    "intituleCourt": "tableau"
+   }
+  }
+ ],
+ "frontConfig": {
+  "possibleResultSize": [
+   25,
+   50,
+   100
+  ]
+ },
+ "resultats": {
+  "total": 3,
+  "count": 0,
+  "results": [],
+  "html": "",
+  "aggregations": [
+   {
+    "arko_default_6a3b876245227": {
+     "doc_count": 200,
+     "arko_default_6a3b876245227_terms": {
+      "doc_count_error_upper_bound": 0,
+      "sum_other_doc_count": 0,
+      "buckets": [
+       {
+        "key": "Sampleton[[arko_fiche_0000000000c002]]",
+        "doc_count": 120
+       },
+       {
+        "key": "Exampleville[[arko_fiche_0000000000c001]]",
+        "doc_count": 80
+       }
+      ]
+     }
+    },
+    "arko_default_6a6b489eb7a6c": {
+     "doc_count": 230,
+     "arko_default_6a6b489eb7a6c_terms": {
+      "doc_count_error_upper_bound": 0,
+      "sum_other_doc_count": 0,
+      "buckets": [
+       {
+        "key": "Baptêmes et naissances[[arko_fiche_6a6b3d70f0fdf]]",
+        "doc_count": 90
+       },
+       {
+        "key": "Baptêmes[[arko_fiche_6a6b3d70f2db3]]",
+        "doc_count": 40
+       },
+       {
+        "key": "Naissances[[arko_fiche_6a6b3d7100e74]]",
+        "doc_count": 30
+       },
+       {
+        "key": "Mariages[[arko_fiche_6a6b3d7104771]]",
+        "doc_count": 30
+       },
+       {
+        "key": "Sépultures[[arko_fiche_6a6b3d71061cb]]",
+        "doc_count": 20
+       },
+       {
+        "key": "Décès[[arko_fiche_6a6b3d7107318]]",
+        "doc_count": 20
+       }
+      ]
+     }
+    }
+   }
+  ]
+ }
+}

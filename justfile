@@ -77,9 +77,11 @@ screenshots:
 test-verbose:
     cargo nextest run --workspace --no-capture
 
-# Run clippy linter
+# Run clippy linter. The second run covers the live checks of
+# `oxidgene-archives`, a feature no workspace member enables.
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy -p oxidgene-archives --features native,live --all-targets -- -D warnings
 
 # Check that the shared UI still compiles to WASM.
 #
@@ -165,6 +167,16 @@ deps:
 # and fail on a full scan of a large table (docs/development.md, guards).
 sql-plans:
     cargo nextest run -p oxidgene-api --features graphql --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+
+# The live end-to-end checks of the archive portals (docs/archives.md §9.1):
+# every catalogued archive with an adapter and live checks, or the one named
+# (`just archives-live fr-ad44`). They contact the real portals, sequentially
+# and with the identifying User-Agent, so they run on demand and weekly in
+# .github/workflows/archives.yml, never in `check`. Reports land in
+# target/archives-live/.
+# Check the archive portals against their adapters
+archives-live archive="":
+    scripts/archives-live.sh {{ archive }}
 
 # Every `#[ignore]`d test names the recipe below that runs it; the
 # `lint_discipline` guard fails on a reason naming no existing recipe.
