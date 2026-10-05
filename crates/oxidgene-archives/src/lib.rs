@@ -129,6 +129,17 @@ impl From<FetchError> for ResolveError {
     }
 }
 
+/// The text a citation of a source is read from: the source title, followed
+/// by the citation's page as further fields when it names one, so that a
+/// page naming the act or the views completes a title naming the register.
+/// The page's last field wins over the title's for the views.
+pub fn cited_text(title: &str, page: Option<&str>) -> String {
+    match page.map(str::trim).filter(|page| !page.is_empty()) {
+        Some(page) => format!("{} - {page}", title.trim_end()),
+        None => title.to_owned(),
+    }
+}
+
 /// The catalogue joined to the adapters.
 pub struct ArchiveRegistry {
     archives: Vec<Archive>,

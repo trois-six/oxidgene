@@ -24,9 +24,7 @@ use crate::api::{
     ApiClient, ApiError, CroppedSource, GalleryBundle, GallerySources, MediaWithLink,
     PersonDetailBundle, ResolvedPictures,
 };
-use crate::archive_viewer::{
-    ArchiveLink, ArchiveViewerBridge, ArchiveViewerMessages, ArchiveViewerRequest,
-};
+use crate::archive_viewer::{ArchiveLink, ArchiveSourceLink};
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
@@ -782,7 +780,12 @@ fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<EventCit
             .or_default()
             .push(EventCitation {
                 text,
-                archive: ArchiveLink::from_source_title(&source.title),
+                archive: ArchiveLink::from_citation(
+                    source.id,
+                    &source.title,
+                    Some(citation.id),
+                    citation.page.as_deref(),
+                ),
             });
     }
     citations_by_event
@@ -1155,7 +1158,6 @@ pub(crate) fn refresh_button(i18n: &I18n, mut on_refresh: impl FnMut() + 'static
 pub(crate) struct SectionContext<'a> {
     pub i18n: I18n,
     pub tree_id: Uuid,
-    pub archive_viewer: Option<ArchiveViewerBridge>,
     pub sosa_ancestors: &'a HashSet<Uuid>,
     /// Bumped when a gallery changes what is attached, so the page reloads.
     pub media_revision: Signal<u32>,
@@ -1771,32 +1773,11 @@ pub(crate) fn timeline_section(
                                                 for (index, source) in sources.iter().enumerate() {
                                                     span { key: "{index}",
                                                         if index > 0 { "; " }
-                                                        if let Some((link, viewer)) = source
-                                                            .archive
-                                                            .as_ref()
-                                                            .zip(ctx.archive_viewer.as_ref())
-                                                            .filter(|(link, viewer)| viewer.supports(link))
-                                                        {
-                                                            {
-                                                                let link = link.clone();
-                                                                let viewer = viewer.clone();
-                                                                let hint = i18n.t_args(
-                                                                    "person.source_open_archive",
-                                                                    &[("archive", &link.archive.name)],
-                                                                );
-                                                                rsx! {
-                                                                    button {
-                                                                        class: "pd-ev-source-link",
-                                                                        title: "{hint}",
-                                                                        onclick: move |_| {
-                                                                            viewer.open(ArchiveViewerRequest {
-                                                                                link: link.clone(),
-                                                                                messages: ArchiveViewerMessages::new(&i18n),
-                                                                            })
-                                                                        },
-                                                                        "{source.text}"
-                                                                    }
-                                                                }
+                                                        if let Some(link) = &source.archive {
+                                                            ArchiveSourceLink {
+                                                                tree_id,
+                                                                link: link.clone(),
+                                                                text: source.text.clone(),
                                                             }
                                                         } else {
                                                             "{source.text}"

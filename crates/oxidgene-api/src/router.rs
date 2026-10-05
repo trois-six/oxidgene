@@ -230,6 +230,10 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(source::delete_source),
         )
         .route(
+            "/{tree_id}/sources/{source_id}/archive-target",
+            post(source::archive_target),
+        )
+        .route(
             "/{tree_id}/sources/{source_id}/repositories",
             get(repository::list_source_repositories).post(repository::add_source_repository),
         )
@@ -556,6 +560,7 @@ pub fn build_router(state: AppState) -> Router {
         state.purge.clone(),
         state.media.clone(),
         state.work_dir.clone(),
+        state.archives.clone(),
         state.local_file_access,
     );
 

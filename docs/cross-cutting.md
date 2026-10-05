@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: github-copilot/copilot, at: 2026-10-02T18:51:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -193,7 +193,10 @@ error (a `500`), and names the server log line that records it.
 | 409 | `conflict` | State conflicts with an invariant or concurrent change, such as starting an import or export while another runs on the tree. |
 | 413 | `payload_too_large` | Request body exceeds the route's limit. |
 | 415 | `unsupported_media_type` | Payload format is unsupported, such as a body without a JSON content type on a JSON route. |
-| 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1). |
+| 422 | `not_an_archive_citation`, `no_adapter` | A source asked for its archive target is not an archive citation, or cites an act no catalogued collection holds ([API Contract](api.md#sources)). |
+| 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1); a `504 timeout` is an archive portal's. |
+| 502 | `unexpected_response`, `unreachable` | An archive portal answered not as its adapter expects, or could not be reached. |
+| 504 | `timeout` | An archive portal did not answer in time. |
 | 500 | `database_error` | Persistence failed unexpectedly. |
 | 500 | `io_error` | Storage or transport I/O failed unexpectedly. |
 | 500 | `internal_error` | Unclassified server failure. |
@@ -211,8 +214,9 @@ documents deviations that still exist in the implementation.
 
 GraphQL uses the standard `errors` array. Each error carries the equivalent
 uppercase code (`VALIDATION_ERROR`, `GEDCOM_ERROR`, `NOT_FOUND`, `CONFLICT`,
-`DATABASE_ERROR`, `IO_ERROR`, `INTERNAL_ERROR`) and optional request ID in
-`extensions`. Mutation payloads do not invent a second error model.
+`DATABASE_ERROR`, `IO_ERROR`, `INTERNAL_ERROR`, and the archive codes
+`NOT_AN_ARCHIVE_CITATION`, `NO_ADAPTER`, `UNEXPECTED_RESPONSE`, `TIMEOUT`,
+`UNREACHABLE`) and optional request ID in `extensions`. Mutation payloads do not invent a second error model.
 
 ```json
 {

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::media::{FsStore, MediaStore};
 use crate::profile::ProfileService;
+use crate::service::archive::ArchivePortals;
 use crate::service::purge::{self, PurgeQueue};
 use crate::workdir::WorkDir;
 
@@ -44,6 +45,8 @@ pub struct AppState {
     pub media: Arc<dyn MediaStore>,
     /// Where requests stage the files they hand to a job.
     pub work_dir: WorkDir,
+    /// The archive resolution every request shares, with its session cache.
+    pub archives: Arc<ArchivePortals>,
     pub(crate) local_file_access: LocalFileAccess,
 }
 
@@ -83,8 +86,17 @@ impl AppState {
             purge,
             media,
             work_dir: WorkDir::temporary(),
+            archives: Arc::new(ArchivePortals::native()),
             local_file_access: LocalFileAccess(false),
         }
+    }
+
+    /// Resolve archive citations with `archives` rather than over the
+    /// native transport: a recorded portal, in tests.
+    #[must_use]
+    pub fn with_archive_portals(mut self, archives: ArchivePortals) -> Self {
+        self.archives = Arc::new(archives);
+        self
     }
 
     /// Stage working files under `work_dir` rather than the system's

@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T12:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -217,13 +217,11 @@ oxidgene-ui        oxidgene-core, oxidgene-archives (catalogue and parser only)
 oxidgene-desktop   … , oxidgene-archives
 ```
 
-Today `oxidgene-ui` and `oxidgene-desktop` depend on it; `oxidgene-api`
-joins with the backend endpoint (§5.3). The `native` feature, which
-`oxidgene-api` will enable, provides the `reqwest` transport; until then the
-Clippy matrix checks it on its own
-([Development §2.8](development.md#28-guards)). The desktop supplies a second
-transport through its archive window (§4.2). Without either, the crate
-parses, matches, and builds offline targets (§5.2) but cannot resolve a view.
+`oxidgene-api` enables the `native` feature, which provides the `reqwest`
+transport, for the backend endpoint (§5.3); the desktop links it through the
+API but resolves through its archive window, a second transport (§4.2).
+`oxidgene-ui` never enables it. Without a transport, the crate parses,
+matches, and builds offline targets (§5.2) but cannot resolve a view.
 
 Addresses are plain `String`s: the crate builds and compares them as text
 and adds no URL library.
@@ -642,17 +640,51 @@ transport in use cannot reach.
 
 ### 5.3 API
 
-The backend resolves archives whose transport is `any`; for a `browser`
-archive it returns the offline `Results` target:
+The backend resolves archives whose transport is `any` over the `native`
+transport; for a `browser` archive it returns the offline `Results` target
+without any request:
 
 - REST: `POST /api/v1/trees/{tree_id}/sources/{source_id}/archive-target`
-  with an optional `citation_id`, returning the `ArchiveTarget`.
-- GraphQL: `Source.archiveTarget(citationId: ID)`.
+  with a JSON body naming an optional `citation_id`, returning the
+  `ArchiveTarget`.
+- GraphQL: `Source.archiveTarget(citationId: ID)`, the same target as one
+  object whose `kind` is `VIEW` or `RESULTS`.
 
 Both surfaces share one service, validation and error mapping, and are tested
-symmetrically ([API Contract](api.md)). The request sends the portal only the
-locality, period, act and call number; never the person's name, the citation
-text or the act number.
+symmetrically ([API Contract](api.md#sources)). The request sends the portal
+only the locality, period, act and call number; never the person's name, the
+citation text or the act number.
+
+**What is read.** A normalized citation is usually written whole in the
+source title, which is what the interface shows and what the
+[data model](data-model.md#source) calls the source. A GEDCOM-shaped tree
+instead keeps the register as the source and the act within it as the
+citation's `page` ("where in the source",
+[Data Model](data-model.md#citation)), such as `acte 26 - vue 5d/13`. So
+the text read is the source title followed by the named citation's `page`
+as further fields, when it has one (`cited_text`); the page's views win over
+the title's, and a page holding no citation field only adds a free field.
+Without a `citation_id`, the title alone is read. Both clients read a
+citation the same way when deciding to offer the link.
+
+**Process-wide resolver.** The backend keeps one `Resolver` for the process,
+shared by both surfaces, so its session cache (§8) answers a citation
+already resolved without a request; the native client is built on the first
+resolution, so a process that never resolves holds none. The transport is
+injected into the application state, which lets the API tests serve the
+recorded fixtures (§9) instead of a portal.
+
+**Errors.** A source or citation that is absent, deleted or of another tree,
+or a citation of another source, is `not_found`. A text that is no
+normalized citation is `422 not_an_archive_citation`; a citation of an
+archive the catalogue does not list, or of an act none of its collections
+holds, is `422 no_adapter`. A resolution failure keeps its `ResolveError`
+code: `502 unexpected_response`, `502 unreachable`, `504 timeout`, and the
+same codes in upper case in GraphQL's `extensions`. They are the portal's
+failures, not the server's: no correlation ID, and the backend logs the
+code and the archive's identifier only, never the citation. GraphQL answers
+the field for a source read on its own, never for the items of a list
+(`VALIDATION_ERROR`), so that no query resolves sources in bulk (§8).
 
 ## 6. Display
 
@@ -677,8 +709,9 @@ register while it resolves, and once the target has loaded, that no
 register or several registers match the citation, over the filtered results.
 When the resolution fails — an archive the window cannot reach, a portal
 that changed shape or did not answer in time — the window opens the
-archive's `website` with a failure banner, and the failure is logged with
-its code and the archive's identifier only. A reader who closes the window
+archive's `website` with the banner of the failure's code
+(`archive_viewer.<code>`), and the failure is logged with its code and the
+archive's identifier only. A reader who closes the window
 during the resolution stops it.
 
 The window uses a persistent web profile of its own, separate from the
@@ -689,11 +722,28 @@ anti-bot challenge at every opening.
 
 ### 6.2 Web
 
-The web client resolves through the same backend endpoint and opens the
-target in a new browser tab (`rel="noopener noreferrer"`). For a `browser`
-archive the tab opens on the filtered search results, from which the reader
-opens the register. The source becomes a link on both clients; only the
-window type and the precision differ.
+The web client resolves through the same backend endpoint (§5.3), naming the
+citation the reader clicked, and opens the target in a new browser tab that
+can neither reach the application (`noopener`) nor tell the portal where the
+reader came from (`noreferrer`). For a `browser` archive the tab opens on
+the filtered search results, from which the reader opens the register. The
+source becomes a link on both clients; only the window type and the
+precision differ.
+
+A browser opens a tab only during the reader's click, and the address
+arrives after a request that may wait on the portal for seconds, beyond the
+few seconds a browser grants. So the click opens a blank tab at once, showing
+`archive_viewer.searching`, cuts it from the application, and sends it to
+the address when it arrives, through a link of the tab's own document marked
+`noopener noreferrer`. When the browser refuses even that tab, the address
+is opened in a new tab once known, which a strict popup blocker may refuse
+too. A reader who closes the blank tab meanwhile is not sent another.
+
+The tab cannot carry a banner over the portal's page, so what the window's
+banner says (§6.1) appears in the application, beside the source: no
+register, or several, over the filtered results; and on a failure, by its
+code (`archive_viewer.<code>`, `archive_viewer.failed` for any other), while
+the tab opens the archive's `website`.
 
 ### 6.3 OxidGene's viewer
 
@@ -748,11 +798,11 @@ tile would load a full view.
 
 | Situation | Result |
 |---|---|
-| Unknown citation code, or no adapter | Plain text, no link. |
-| No register, or several | `Results`: the filtered search page. |
+| Unknown citation code, or no adapter | Plain text, no link; the endpoint answers `not_an_archive_citation` or `no_adapter` (§5.3). |
+| No register, or several | `Results`: the filtered search page, with a banner (desktop) or a notice beside the source (web). |
 | View beyond the register's image count | `View` with no views: the register's first image. |
 | `iiif` image fails to load | The viewer shows the portal link in place of the picture. |
-| Portal changed shape, timed out or could not be reached | Error banner; the window opens the archive's `website`. |
+| Portal changed shape, timed out or could not be reached | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
 
 ## 8. Access etiquette
 
@@ -897,7 +947,8 @@ catalogue entry and relies on the user-reported failures of §7.
 2. Add the Mnesys adapter with Indre-et-Loire; add the backend endpoint on
    both surfaces and open targets from the web client; add `display`, the
    IIIF view in the shared viewer, attaching views as a remote multi-page
-   document, and `Media.thumbnail_url`.
+   document, and `Media.thumbnail_url`. The backend endpoint and the web
+   client's tab are in place.
 3. Add the Ligeo adapter, then Archinoë / Prismia Vision, and catalogue the
    departmental archives running the four platforms in the order of §11.4,
    then municipal and Swiss cantonal archives.

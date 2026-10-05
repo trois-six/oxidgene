@@ -34,6 +34,42 @@ pub enum OxidGeneError {
     /// Internal error.
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// A cited source could not be resolved to its page on an archive portal.
+    #[error("Archive error: {}", .0.code())]
+    Archive(ArchiveFailure),
+}
+
+/// Why a cited source has no archive target, each with a stable code.
+///
+/// The resolution's own failures mirror `oxidgene-archives`' `ResolveError`
+/// codes; the interface translates each as `archive_viewer.<code>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveFailure {
+    /// The source title, completed by the citation's page, is not a
+    /// normalized archive citation.
+    NotACitation,
+    /// The archive is not catalogued, or no collection with an adapter holds
+    /// the cited act.
+    NoAdapter,
+    /// The portal answered, but not as its adapter expects.
+    UnexpectedResponse,
+    /// The portal did not answer in time.
+    Timeout,
+    /// The portal could not be reached, or answered with a server error.
+    Unreachable,
+}
+
+impl ArchiveFailure {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::NotACitation => "not_an_archive_citation",
+            Self::NoAdapter => "no_adapter",
+            Self::UnexpectedResponse => "unexpected_response",
+            Self::Timeout => "timeout",
+            Self::Unreachable => "unreachable",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -48,6 +84,12 @@ mod tests {
             id,
         };
         assert_eq!(err.to_string(), format!("Person with id {id} not found"));
+    }
+
+    #[test]
+    fn archive_errors_display_their_code_only() {
+        let err = OxidGeneError::Archive(ArchiveFailure::UnexpectedResponse);
+        assert_eq!(err.to_string(), "Archive error: unexpected_response");
     }
 
     #[test]

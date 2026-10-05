@@ -3,6 +3,7 @@
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::error::ArchiveFailure;
 use serde::Serialize;
 use tracing::error;
 use uuid::Uuid;
@@ -128,6 +129,15 @@ fn status(error: &OxidGeneError) -> StatusCode {
         OxidGeneError::Database(_) | OxidGeneError::Io(_) | OxidGeneError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
+        OxidGeneError::Archive(failure) => match failure {
+            ArchiveFailure::NotACitation | ArchiveFailure::NoAdapter => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
+            ArchiveFailure::UnexpectedResponse | ArchiveFailure::Unreachable => {
+                StatusCode::BAD_GATEWAY
+            }
+            ArchiveFailure::Timeout => StatusCode::GATEWAY_TIMEOUT,
+        },
     }
 }
 

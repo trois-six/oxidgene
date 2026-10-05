@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T09:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
 ---
 
 
@@ -575,7 +575,8 @@ oxidgene-gedcom           oxidgene-core
 oxidgene-geneanet         oxidgene-core
 oxidgene-archives         oxidgene-core
 oxidgene-api              oxidgene-core, oxidgene-db, oxidgene-gedcom,
-                          oxidgene-geneanet, oxidgene-observability?
+                          oxidgene-geneanet, oxidgene-archives,
+                          oxidgene-observability?
 oxidgene-ui               oxidgene-core, oxidgene-archives
 
 oxidgene-server           oxidgene-api, oxidgene-observability
@@ -601,7 +602,8 @@ Where it needs something only the desktop can do — the
 and injects as context. The web build simply finds none and renders the
 explanation instead of the control. It uses `oxidgene-archives` for its
 catalogue and citation parser only, without the crate's `native` transport,
-which links `reqwest`'s native client
+which links `reqwest`'s native client; `oxidgene-api` enables that transport
+for the archive-target endpoint
 ([Archive Portals §3.3](archives.md#33-dependencies)).
 
 The workspace keeps libraries under `crates/` and application entry points

@@ -5,9 +5,11 @@
 
 use crate::media::MediaStore;
 use crate::profile::ProfileService;
+use crate::service::archive::ArchivePortals;
 use crate::service::purge::PurgeQueue;
-use async_graphql::{ComplexObject, Context, Enum, ID, Result, SimpleObject};
+use async_graphql::{ComplexObject, Context, Enum, ID, QueryPathSegment, Result, SimpleObject};
 use chrono::{DateTime, Utc};
+use oxidgene_archives::{ArchiveTarget, ArchiveView};
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1456,6 +1458,142 @@ impl GqlSource {
     async fn repositories(&self, ctx: &Context<'_>) -> Result<Vec<GqlSourceRepository>> {
         let links = loaders::list(ctx, SourceRepositories(uuid(&self.id)?)).await?;
         Ok(links.into_iter().map(GqlSourceRepository::from).collect())
+    }
+
+    /// Where this source opens on its archive's portal, as cited by
+    /// `citationId` when given — a citation of this source, whose page
+    /// completes the title. It may query the portal, so it is answered for
+    /// a source read on its own, never for the items of a list; `null` only
+    /// with an error.
+    async fn archive_target(
+        &self,
+        ctx: &Context<'_>,
+        citation_id: Option<ID>,
+    ) -> Result<Option<GqlArchiveTarget>> {
+        if within_list(ctx) {
+            return Err(oxidgene_core::OxidGeneError::Validation(
+                "archiveTarget resolves one source at a time".to_string(),
+            )
+            .into());
+        }
+        let citation_id = citation_id.map(uuid).transpose()?;
+        let target = crate::service::archive::archive_target(
+            reader_from_ctx(ctx),
+            ctx.data_unchecked::<Arc<ArchivePortals>>(),
+            uuid(&self.tree_id)?,
+            uuid(&self.id)?,
+            citation_id,
+        )
+        .await?;
+        Ok(Some(target.into()))
+    }
+}
+
+/// Whether the field being resolved belongs to an item of a list.
+fn within_list(ctx: &Context<'_>) -> bool {
+    std::iter::successors(ctx.path_node.as_ref(), |node| node.parent)
+        .any(|node| matches!(node.segment, QueryPathSegment::Index(_)))
+}
+
+// ── Archive target ───────────────────────────────────────────────────
+
+/// What an archive target opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
+pub enum GqlArchiveTargetKind {
+    /// The cited views, or the register when the citation names no view.
+    View,
+    /// Several or no registers matched: the portal's filtered results.
+    Results,
+}
+
+/// Where a cited source opens on its archive's portal. The fields of the
+/// other kind are `null`.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlArchiveTarget {
+    pub kind: GqlArchiveTargetKind,
+    /// The page to open.
+    pub url: String,
+    /// `VIEW`: every cited view, in order.
+    pub views: Option<Vec<GqlArchiveView>>,
+    /// `VIEW`: the register's image count, when known.
+    pub view_count: Option<u16>,
+    /// `VIEW`: the register's call number on the portal.
+    pub call_number: Option<String>,
+    /// `VIEW`: the archive's attribution, for a `display: "iiif"` archive.
+    pub attribution: Option<String>,
+    /// `RESULTS`: how many registers matched; `null` when the address was
+    /// built without querying the portal.
+    pub matches: Option<usize>,
+}
+
+/// One cited view of a resolved register.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlArchiveView {
+    /// One-based view number, as cited.
+    pub view: u16,
+    /// The portal page opened on this view.
+    pub url: String,
+    /// The image's persistent address, when the portal publishes one.
+    pub ark: Option<String>,
+    /// Present only for a `display: "iiif"` archive.
+    pub image: Option<GqlArchiveImage>,
+}
+
+/// An image OxidGene may show itself, for a `display: "iiif"` archive.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlArchiveImage {
+    /// The address the viewer loads.
+    pub picture: String,
+    /// The smallest address the archive serves.
+    pub thumbnail: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl From<ArchiveTarget> for GqlArchiveTarget {
+    fn from(target: ArchiveTarget) -> Self {
+        match target {
+            ArchiveTarget::View {
+                url,
+                views,
+                view_count,
+                call_number,
+                attribution,
+            } => Self {
+                kind: GqlArchiveTargetKind::View,
+                url,
+                views: Some(views.into_iter().map(GqlArchiveView::from).collect()),
+                view_count,
+                call_number,
+                attribution,
+                matches: None,
+            },
+            ArchiveTarget::Results { url, matches } => Self {
+                kind: GqlArchiveTargetKind::Results,
+                url,
+                views: None,
+                view_count: None,
+                call_number: None,
+                attribution: None,
+                matches,
+            },
+        }
+    }
+}
+
+impl From<ArchiveView> for GqlArchiveView {
+    fn from(view: ArchiveView) -> Self {
+        Self {
+            view: view.view,
+            url: view.url,
+            ark: view.ark,
+            image: view.image.map(|image| GqlArchiveImage {
+                picture: image.picture,
+                thumbnail: image.thumbnail,
+                width: image.width,
+                height: image.height,
+            }),
+        }
     }
 }
 

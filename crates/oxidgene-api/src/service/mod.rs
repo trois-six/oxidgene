@@ -2,6 +2,7 @@
 
 pub mod ancestry;
 pub mod anomalies;
+pub mod archive;
 pub mod background_job;
 pub(crate) mod blocking;
 pub mod citation;

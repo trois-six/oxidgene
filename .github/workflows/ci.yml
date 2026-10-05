@@ -139,9 +139,6 @@ jobs:
           # The API alone, as the desktop links it: without GraphQL.
           - name: api without graphql
             args: -p oxidgene-api --all-targets
-          # The archive crate's native transport, which no member enables yet.
-          - name: archives native transport
-            args: -p oxidgene-archives --features native --all-targets
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"

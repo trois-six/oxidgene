@@ -27,10 +27,9 @@ use dioxus::desktop::tao::event_loop::EventLoopWindowTarget;
 use dioxus::desktop::tao::window::{Window, WindowBuilder};
 use dioxus::desktop::wry::{WebContext, WebView, WebViewBuilder};
 use oxidgene_archives::transport::origin_of;
-use oxidgene_archives::{Archive, ArchiveRegistry, ArchiveTarget, ResolveError, Resolver};
+use oxidgene_archives::{ArchiveRegistry, Resolver};
 use oxidgene_ui::archive_viewer::{
-    ArchiveLink, ArchiveViewerBridge, ArchiveViewerMessages, ArchiveViewerOpener,
-    ArchiveViewerRequest,
+    ArchiveLink, ArchiveViewerBridge, ArchiveViewerOpener, ArchiveViewerRequest, Landing,
 };
 use serde::Deserialize;
 use tracing::{debug, warn};
@@ -96,7 +95,8 @@ async fn open_register(
             "could not resolve the cited register"
         );
     }
-    let (url, text) = page(link.archive, outcome, &messages);
+    let Landing { url, banner: key } =
+        Landing::of(link.archive, outcome.map_err(|error| error.code()));
     if shared.is_closed(session) {
         return;
     }
@@ -105,29 +105,8 @@ async fn open_register(
         title: link.title,
         origins: origin_of(&url).map(str::to_owned).into_iter().collect(),
         url,
-        banner: text.map(|text| banner(&text)),
+        banner: key.and_then(|key| messages.banner(key)).map(banner),
     });
-}
-
-/// The page a resolution ends on, and the banner over it.
-fn page(
-    archive: &Archive,
-    outcome: Result<ArchiveTarget, ResolveError>,
-    messages: &ArchiveViewerMessages,
-) -> (String, Option<String>) {
-    match outcome {
-        Ok(ArchiveTarget::View { url, .. }) => (url, None),
-        Ok(ArchiveTarget::Results {
-            url,
-            matches: Some(0),
-        }) => (url, Some(messages.not_found.clone())),
-        Ok(ArchiveTarget::Results {
-            url,
-            matches: Some(2..),
-        }) => (url, Some(messages.ambiguous.clone())),
-        Ok(ArchiveTarget::Results { url, .. }) => (url, None),
-        Err(_) => (archive.website.clone(), Some(messages.failed.clone())),
-    }
 }
 
 /// An open archive window.
@@ -391,22 +370,6 @@ fn open<T>(
 mod tests {
     use super::*;
 
-    fn messages() -> ArchiveViewerMessages {
-        ArchiveViewerMessages {
-            searching: "searching".to_owned(),
-            not_found: "not found".to_owned(),
-            ambiguous: "ambiguous".to_owned(),
-            failed: "failed".to_owned(),
-            close: "close".to_owned(),
-        }
-    }
-
-    fn archive() -> &'static Archive {
-        ArchiveRegistry::embedded()
-            .archive("AD44")
-            .expect("the Loire-Atlantique archive")
-    }
-
     #[test]
     fn every_catalogued_platform_has_an_adapter() {
         let registry = ArchiveRegistry::embedded();
@@ -420,45 +383,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn the_window_ends_on_the_target_with_what_was_found() {
-        let results = |matches| {
-            Ok(ArchiveTarget::Results {
-                url: "https://archives.example.org/search".to_owned(),
-                matches,
-            })
-        };
-        let view = Ok(ArchiveTarget::View {
-            url: "https://archives.example.org/search?detail=x#/v/3".to_owned(),
-            views: Vec::new(),
-            view_count: None,
-            call_number: None,
-            attribution: None,
-        });
-        let messages = messages();
-        assert_eq!(
-            page(archive(), view, &messages),
-            (
-                "https://archives.example.org/search?detail=x#/v/3".to_owned(),
-                None
-            )
-        );
-        assert_eq!(
-            page(archive(), results(Some(0)), &messages).1.as_deref(),
-            Some("not found")
-        );
-        assert_eq!(
-            page(archive(), results(Some(3)), &messages).1.as_deref(),
-            Some("ambiguous")
-        );
-        assert_eq!(page(archive(), results(Some(1)), &messages).1, None);
-        assert_eq!(page(archive(), results(None), &messages).1, None);
-        assert_eq!(
-            page(archive(), Err(ResolveError::Timeout), &messages),
-            (archive().website.clone(), Some("failed".to_owned()))
-        );
     }
 
     #[test]

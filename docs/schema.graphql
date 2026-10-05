@@ -441,6 +441,91 @@ input GeneanetSessionEncodeInput {
 }
 
 """
+An image OxidGene may show itself, for a `display: "iiif"` archive.
+"""
+type GqlArchiveImage {
+	"""
+	The address the viewer loads.
+	"""
+	picture: String!
+	"""
+	The smallest address the archive serves.
+	"""
+	thumbnail: String!
+	width: Int!
+	height: Int!
+}
+
+"""
+Where a cited source opens on its archive's portal. The fields of the
+other kind are `null`.
+"""
+type GqlArchiveTarget {
+	kind: GqlArchiveTargetKind!
+	"""
+	The page to open.
+	"""
+	url: String!
+	"""
+	`VIEW`: every cited view, in order.
+	"""
+	views: [GqlArchiveView!]
+	"""
+	`VIEW`: the register's image count, when known.
+	"""
+	viewCount: Int
+	"""
+	`VIEW`: the register's call number on the portal.
+	"""
+	callNumber: String
+	"""
+	`VIEW`: the archive's attribution, for a `display: "iiif"` archive.
+	"""
+	attribution: String
+	"""
+	`RESULTS`: how many registers matched; `null` when the address was
+	built without querying the portal.
+	"""
+	matches: Int
+}
+
+"""
+What an archive target opens.
+"""
+enum GqlArchiveTargetKind {
+	"""
+	The cited views, or the register when the citation names no view.
+	"""
+	VIEW
+	"""
+	Several or no registers matched: the portal's filtered results.
+	"""
+	RESULTS
+}
+
+"""
+One cited view of a resolved register.
+"""
+type GqlArchiveView {
+	"""
+	One-based view number, as cited.
+	"""
+	view: Int!
+	"""
+	The portal page opened on this view.
+	"""
+	url: String!
+	"""
+	The image's persistent address, when the portal publishes one.
+	"""
+	ark: String
+	"""
+	Present only for a `display: "iiif"` archive.
+	"""
+	image: GqlArchiveImage
+}
+
+"""
 What a write did.
 """
 enum GqlAuditAction {
@@ -2338,6 +2423,14 @@ type GqlSource {
 	The repositories holding this source, each under one call number.
 	"""
 	repositories: [GqlSourceRepository!]!
+	"""
+	Where this source opens on its archive's portal, as cited by
+	`citationId` when given — a citation of this source, whose page
+	completes the title. It may query the portal, so it is answered for
+	a source read on its own, never for the items of a list; `null` only
+	with an error.
+	"""
+	archiveTarget(citationId: ID): GqlArchiveTarget
 }
 
 type GqlSourceConnection {

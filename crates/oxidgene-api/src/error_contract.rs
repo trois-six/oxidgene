@@ -1,4 +1,5 @@
 use oxidgene_core::OxidGeneError;
+use oxidgene_core::error::ArchiveFailure;
 
 pub(crate) struct ErrorContract {
     pub code: &'static str,
@@ -43,6 +44,23 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "The request could not be completed",
             unexpected: true,
         },
+        // An archive portal's failure is the portal's, not the server's: no
+        // correlation ID, and the service has logged the archive and code.
+        OxidGeneError::Archive(failure) => ErrorContract {
+            code: failure.code(),
+            message: archive_message(*failure),
+            unexpected: false,
+        },
+    }
+}
+
+fn archive_message(failure: ArchiveFailure) -> &'static str {
+    match failure {
+        ArchiveFailure::NotACitation => "The source is not an archive citation",
+        ArchiveFailure::NoAdapter => "No catalogued archive collection holds the cited act",
+        ArchiveFailure::UnexpectedResponse => "The archive portal did not answer as expected",
+        ArchiveFailure::Timeout => "The archive portal did not answer in time",
+        ArchiveFailure::Unreachable => "The archive portal could not be reached",
     }
 }
 
@@ -62,6 +80,7 @@ pub(crate) fn error_kind(error: &OxidGeneError) -> &'static str {
         OxidGeneError::Database(message) => database_kind(message),
         OxidGeneError::Io(error) => io_kind(error.kind()),
         OxidGeneError::Internal(message) => internal_kind(message),
+        OxidGeneError::Archive(failure) => failure.code(),
     }
 }
 

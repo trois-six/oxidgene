@@ -111,7 +111,6 @@ type CoupleResource = Resource<Result<Arc<CoupleData>, ApiError>>;
 #[component]
 pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     let i18n = use_i18n();
-    let archive_viewer = crate::archive_viewer::use_archive_viewer_bridge();
     let api = use_context::<ApiClient>();
     let nav = use_navigator();
     let tree_cache = use_tree_cache();
@@ -254,7 +253,6 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
     let ctx = tree_id_parsed().map(|tree_id| SectionContext {
         i18n,
         tree_id,
-        archive_viewer,
         sosa_ancestors: &sosa_ancestors,
         media_revision,
         gallery: page_gallery(&pictures),

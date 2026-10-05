@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T09:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
 ---
 
 
@@ -244,8 +244,9 @@ Each event shows:
 
 #### Opening a cited register
 
-On desktop, a source title written as a normalized archive citation opens the
-cited register in a dedicated archive window:
+A source title written as a normalized archive citation opens the cited
+register: in a dedicated archive window on desktop, in a new browser tab on
+the web:
 
 ```text
 AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13
@@ -261,12 +262,18 @@ the register still opens. The grammar, and the per-archive adjustments the
 catalogue may make to it, are specified in
 [Archive Portals §5.1](archives.md#51-citation-parsing).
 
+A citation's page completes its source's title: a source titled after the
+register (`AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2`) cited at page
+`acte 26 - vue 5d/13` opens like the full citation above, and the page's
+views win over any the title names
+([Archive Portals §5.3](archives.md#53-api)).
+
 The catalogue and the parser belong to the `oxidgene-archives` crate, which
 the interface uses on both clients. The source becomes a button only when the
 archive code is in the catalogue and one of the archive's collections holds
 the cited act; every collection has an adapter for its portal platform. Its
-tooltip, `person.source_open_archive`, names the archive. Every other title,
-and every title on the web client, stays plain text.
+tooltip, `person.source_open_archive`, names the archive. Every other title
+stays plain text, as does a title the desktop window cannot open.
 
 The catalogue is one JSON document per archive in
 `assets/archives/<country>/`, discovered at build time, so an archive on an
@@ -285,6 +292,21 @@ matching register or several matching registers over the portal's filtered
 results, instead of an arbitrary register. When the portal does not answer
 as expected, the window opens the archive's website with a failure banner.
 Once the target has loaded, the reader browses the portal freely.
+
+On the web, a click asks the backend for the target
+(`POST …/sources/{source_id}/archive-target` with the clicked citation,
+[API Contract](api.md#sources)) and opens it in a new tab that can neither
+reach the application nor tell the portal where the reader came from
+(`noopener`, `noreferrer`). The tab opens blank during the click, showing
+`archive_viewer.searching`, because a browser opens a tab only during the
+reader's gesture and the lookup may take seconds; it is sent to the target
+once known ([Archive Portals §6.2](archives.md#62-web)). A portal that only a
+browser reaches opens on its filtered search results. What the desktop's
+banner would say appears beside the source instead, as a status notice: no
+matching register or several over the filtered results, or, on a failure,
+the message of its code (`archive_viewer.<code>`, `archive_viewer.failed`
+otherwise) while the tab opens the archive's website. The next click clears
+it.
 
 The portal receives the locality, the act category, and the year, plus the
 portal's own collection and display identifiers. It does not receive the

@@ -235,6 +235,15 @@ pub struct DeleteSourceQuery {
     pub only_if_unused: bool,
 }
 
+/// The body of a source's archive-target request.
+#[derive(Debug, Default, Deserialize)]
+pub struct ArchiveTargetBody {
+    /// A citation of the source whose page completes the source title, when
+    /// it names the act or the views.
+    #[serde(default)]
+    pub citation_id: Option<uuid::Uuid>,
+}
+
 /// Query parameters for definitively deleting a media record.
 #[derive(Debug, Default, Deserialize)]
 pub struct DeleteMediaQuery {

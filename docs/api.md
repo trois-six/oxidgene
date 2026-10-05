@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T11:38:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
 ---
 
 
@@ -387,6 +387,30 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note, media link or repository link still points at it — `204` deleted, `200` kept |
+| `POST` | `/trees/{tree_id}/sources/{source_id}/archive-target` | Where a source written as an archive citation opens on its archive's portal: a JSON body, `{}` or `{"citation_id": …}` naming a citation of the source whose `page` completes the title. Answers the `ArchiveTarget` ([Archive Portals §5.2](archives.md#52-result)). GraphQL: `Source.archiveTarget(citationId)` |
+
+`archive-target` reads nothing it writes, but may query the archive's portal,
+once per call: it is a `POST` so that nothing caches or prefetches it. The
+answer is `{"kind": "view", "url", "views", "view_count", "call_number",
+"attribution"}` — each view `{"view", "url", "ark", "image"}`, `image` being
+`{"picture", "thumbnail", "width", "height"}` or `null` — or `{"kind":
+"results", "url", "matches"}`, `matches` being `null` when the address was
+built without querying the portal, as for an archive whose portal only a
+browser reaches. GraphQL answers one `GqlArchiveTarget` object whose `kind`
+is `VIEW` or `RESULTS` and whose fields of the other kind are `null`, and
+answers the field only for a source read on its own, never for the items of
+a list (`VALIDATION_ERROR`). A source or citation that is absent, deleted or
+of another tree, or a citation of another source, is `404 not_found`. The
+other failures carry their own codes on both surfaces, in upper case in
+GraphQL, with no `request_id`:
+
+| Status | Code | Meaning |
+|---|---|---|
+| 422 | `not_an_archive_citation` | The title, completed by the citation's page, is not a normalized archive citation. |
+| 422 | `no_adapter` | The archive is not catalogued, or none of its collections holds the cited act. |
+| 502 | `unexpected_response` | The portal answered, but not as its adapter expects. |
+| 502 | `unreachable` | The portal could not be reached, or answered with a server error. |
+| 504 | `timeout` | The portal did not answer within 10 seconds. |
 
 ### Repositories
 

@@ -3,13 +3,15 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use oxidgene_archives::ArchiveTarget;
 use oxidgene_core::types::{Connection, Source};
 use oxidgene_db::repo::{PaginationParams, SourceRepo};
 use uuid::Uuid;
 
-use super::dto::{DeleteSourceQuery, SourceListQuery};
+use super::dto::{ArchiveTargetBody, DeleteSourceQuery, SourceListQuery};
 use super::error::ApiError;
 use super::state::AppState;
+use crate::service::archive;
 use crate::service::scope::{TreeResource, require_tree_resource};
 use crate::service::source::{self, NewSource, SourcePatch};
 
@@ -74,4 +76,26 @@ pub async fn delete_source(
     } else {
         StatusCode::OK
     })
+}
+
+/// POST /api/v1/trees/:tree_id/sources/:source_id/archive-target
+///
+/// A `POST` although it writes nothing: it may send requests to an archive
+/// portal, one per reader's click, and its answer is not to be cached by
+/// the HTTP layer.
+pub async fn archive_target(
+    State(state): State<AppState>,
+    Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ArchiveTargetBody>,
+) -> Result<Json<ArchiveTarget>, ApiError> {
+    Ok(Json(
+        archive::archive_target(
+            &state.reader,
+            &state.archives,
+            tree_id,
+            source_id,
+            body.citation_id,
+        )
+        .await?,
+    ))
 }

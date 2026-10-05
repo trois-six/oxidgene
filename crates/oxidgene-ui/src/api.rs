@@ -2393,6 +2393,16 @@ impl ApiError {
         }
     }
 
+    /// The stable code of the server's error envelope (`not_found`,
+    /// `timeout`…), when the server answered with one.
+    pub fn code(&self) -> Option<String> {
+        let Self::Api { body, .. } = self else {
+            return None;
+        };
+        let envelope: serde_json::Value = serde_json::from_str(body).ok()?;
+        envelope["error"].as_str().map(str::to_owned)
+    }
+
     /// The HTTP status the request ended with, when it got one.
     pub fn status(&self) -> Option<u16> {
         match self {
@@ -3708,6 +3718,22 @@ impl ApiClient {
     ) -> Result<Source, ApiError> {
         self.put(&format!("/api/v1/trees/{tree_id}/sources/{id}"), body)
             .await
+    }
+
+    /// Where a source written as an archive citation opens on its archive's
+    /// portal, as cited by `citation_id` when given. It may query the
+    /// portal: call it once per reader's click, never ahead of one.
+    pub async fn archive_target(
+        &self,
+        tree_id: Uuid,
+        source_id: Uuid,
+        citation_id: Option<Uuid>,
+    ) -> Result<oxidgene_archives::ArchiveTarget, ApiError> {
+        self.post_read(
+            &format!("/api/v1/trees/{tree_id}/sources/{source_id}/archive-target"),
+            &serde_json::json!({ "citation_id": citation_id }),
+        )
+        .await
     }
 
     // ── Repositories ────────────────────────────────────────────────
@@ -5281,6 +5307,21 @@ impl Injector for HeaderInjector<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_api_error_reads_its_envelope_code() {
+        let error = ApiError::Api {
+            status: 504,
+            body: r#"{"error":"timeout","message":"The archive portal did not answer in time"}"#
+                .to_owned(),
+        };
+        assert_eq!(error.code().as_deref(), Some("timeout"));
+        let plain = ApiError::Api {
+            status: 502,
+            body: "Bad Gateway".to_owned(),
+        };
+        assert_eq!(plain.code(), None);
+    }
 
     #[test]
     fn a_kept_picture_is_found_until_its_tree_is_written_to() {

@@ -1277,6 +1277,11 @@ pub const LAYOUT_STYLES: &str = r#"
         outline: 2px solid currentColor;
         outline-offset: 2px;
     }
+    .pd-ev-source-notice {
+        display: block;
+        font-style: normal;
+        color: var(--text-secondary);
+    }
     /* ── Modal / confirmation dialog ─────────────────────────────── */
 
     .modal-backdrop {

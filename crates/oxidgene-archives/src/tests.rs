@@ -415,3 +415,31 @@ fn the_embedded_registry_links_the_catalogued_archives() {
         }
     }
 }
+
+#[test]
+fn a_citation_page_completes_its_source_title() {
+    let registry = ArchiveRegistry::embedded();
+    let title = "AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2";
+    assert_eq!(cited_text(title, None), title);
+    assert_eq!(cited_text(title, Some("  ")), title);
+
+    let text = cited_text(title, Some("acte 26 - vue 5d/13"));
+    assert_eq!(
+        text,
+        "AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13"
+    );
+    let (_, citation) = registry.link(&text).expect("a catalogued birth");
+    assert_eq!(
+        citation.views.iter().map(|v| v.view).collect::<Vec<_>>(),
+        [5]
+    );
+    assert_eq!(citation.view_count, Some(13));
+
+    // The page's views win over the title's.
+    let text = cited_text(&format!("{title} - vue 2/13"), Some("vue 7/13"));
+    let (_, citation) = registry.link(&text).expect("a catalogued birth");
+    assert_eq!(
+        citation.views.iter().map(|v| v.view).collect::<Vec<_>>(),
+        [7]
+    );
+}

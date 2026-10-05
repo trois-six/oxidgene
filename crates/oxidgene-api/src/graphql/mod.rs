@@ -52,6 +52,7 @@ pub mod types;
 use crate::media::MediaStore;
 use crate::profile::ProfileService;
 use crate::rest::state::LocalFileAccess;
+use crate::service::archive::ArchivePortals;
 use crate::service::purge::PurgeQueue;
 use async_graphql::{EmptySubscription, Schema, http::GraphiQLSource};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
@@ -93,6 +94,7 @@ pub fn build_schema(
         purge,
         media,
         WorkDir::temporary(),
+        Arc::new(ArchivePortals::native()),
         LocalFileAccess(false),
     )
 }
@@ -105,6 +107,7 @@ pub(crate) fn build_schema_with_local_file_access(
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
     work_dir: WorkDir,
+    archives: Arc<ArchivePortals>,
     local_file_access: LocalFileAccess,
 ) -> OxidGeneSchema {
     Schema::build(QueryRoot, MutationRoot, EmptySubscription)
@@ -119,6 +122,7 @@ pub(crate) fn build_schema_with_local_file_access(
         .data(purge)
         .data(media)
         .data(work_dir)
+        .data(archives)
         .data(local_file_access)
         .finish()
 }

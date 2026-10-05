@@ -22,8 +22,11 @@ use std::sync::Arc;
 
 use oxidgene_api::media::FsStore;
 use oxidgene_api::profile::ProfileService;
+use oxidgene_api::service::archive::ArchivePortals;
 use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::{AppState, build_router};
+use oxidgene_archives::platform::BoxFuture;
+use oxidgene_archives::{FetchError, PortalEndpoint, PortalFetch, PortalTransport};
 use oxidgene_db::repo::{Connections, connect, run_migrations};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::Value;
@@ -48,7 +51,30 @@ pub fn test_media_root() -> std::path::PathBuf {
 
 /// The API router over `db`.
 pub fn app_on(db: DatabaseConnection) -> Router {
-    build_router(AppState::new(db, test_media_root()))
+    build_router(offline(AppState::new(db, test_media_root())))
+}
+
+/// A transport that reaches no portal: every connection fails as
+/// unreachable. The tests never contact an archive portal, whatever titles
+/// their sources carry.
+pub struct NoPortal;
+
+impl PortalTransport for NoPortal {
+    fn is_browser(&self) -> bool {
+        false
+    }
+
+    fn connect<'a>(
+        &'a self,
+        _endpoint: &'a PortalEndpoint,
+    ) -> BoxFuture<'a, Result<Box<dyn PortalFetch + 'a>, FetchError>> {
+        Box::pin(async { Err(FetchError::Network) })
+    }
+}
+
+/// `state` resolving archive citations over [`NoPortal`].
+pub fn offline(state: AppState) -> AppState {
+    state.with_archive_portals(ArchivePortals::with_transport(Arc::new(NoPortal)))
 }
 
 /// A background job worker over `db` and the media root of [`app_on`].
@@ -145,10 +171,10 @@ pub async fn setup_file_db(directory: &std::path::Path) -> Connections {
 pub async fn setup_app() -> Router {
     let directory = tempfile::tempdir().expect("database directory");
     let connections = setup_file_db(directory.path()).await;
-    build_router(AppState::new(
+    build_router(offline(AppState::new(
         connections,
         std::env::temp_dir().join("oxidgene-test-media"),
-    ))
+    )))
     .layer(axum::Extension(std::sync::Arc::new(directory)))
 }
 

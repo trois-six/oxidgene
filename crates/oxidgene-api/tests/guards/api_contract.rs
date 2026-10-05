@@ -787,6 +787,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         Gql(&["Mutation.updateSource"]),
     ),
     (
+        "POST",
+        "/api/v1/trees/{tree_id}/sources/{source_id}/archive-target",
+        Gql(&["GqlSource.archiveTarget"]),
+    ),
+    (
         "GET",
         "/api/v1/trees/{tree_id}/sources/{source_id}/repositories",
         Gql(&["GqlSource.repositories"]),
