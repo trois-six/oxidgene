@@ -22,7 +22,10 @@ use std::time::{Duration, Instant};
 use futures_channel::oneshot;
 use oxidgene_archives::platform::BoxFuture;
 use oxidgene_archives::transport::{Guard, PageAnswer, TIMEOUT, anti_bot, request_url};
-use oxidgene_archives::{FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport};
+use oxidgene_archives::{
+    ArchiveTarget, FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport,
+};
+use oxidgene_ui::archive_viewer::AttachSender;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
@@ -72,6 +75,19 @@ pub(super) struct Texts {
     pub(super) open_in_browser: String,
 }
 
+/// The views of an archive whose images OxidGene may use, shown in a window:
+/// a banner offers to attach them, and the reader's click sends the target
+/// to the interface, which opens the document form in its own window
+/// (docs/archives.md §6.1, §6.4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Attachable {
+    pub(super) sender: AttachSender,
+    pub(super) target: ArchiveTarget,
+    /// What the banner says, and its button's label.
+    pub(super) hint: String,
+    pub(super) label: String,
+}
+
 /// Work for the event loop.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Command {
@@ -85,6 +101,8 @@ pub(super) enum Command {
         origins: Vec<String>,
         banner: Option<String>,
         texts: Texts,
+        /// The views the page shows, which the reader may attach.
+        attach: Option<Box<Attachable>>,
     },
     /// Asks the reader to answer the check on screen: the banner stays over
     /// every check page of the window until the portal's page shows.
@@ -412,6 +430,7 @@ impl WindowTransport {
             origins: vec![endpoint.origin.clone()],
             banner: Some(self.searching.clone()),
             texts: self.texts.clone(),
+            attach: None,
         });
         let mut gate = Gate::new(Instant::now());
         let shown = loop {

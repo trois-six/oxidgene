@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
 ---
 
 
@@ -399,9 +399,9 @@ built without querying the portal, as for an archive whose portal only a
 browser reaches. GraphQL answers one `GqlArchiveTarget` object whose `kind`
 is `VIEW` or `RESULTS` and whose fields of the other kind are `null`, and
 answers the field only for a source read on its own, never for the items of
-a list (`VALIDATION_ERROR`). `view` is how OxidGene's viewer pages to the
-previous or next view of the register, one request per click
-([Archive Portals §6.3](archives.md#63-oxidgenes-viewer)): it resolves that
+a list (`VALIDATION_ERROR`). `view` is how the document form attaching cited
+views adds the previous or next view of the register, one request per click
+([Archive Portals §6.4](archives.md#64-attaching-and-cropping)): it resolves that
 view alone, with the side the citation gives it, and a view below 1 or
 beyond the cited view count is a `400 validation_error` (`VALIDATION_ERROR`).
 `parts` win over everything the records say; an unknown document kind, one

@@ -36,17 +36,18 @@ use dioxus::desktop::tao::event::{Event, WindowEvent};
 use dioxus::desktop::tao::event_loop::EventLoopWindowTarget;
 use dioxus::desktop::tao::window::{Window, WindowBuilder};
 use dioxus::desktop::wry::{WebContext, WebView, WebViewBuilder};
+use oxidgene_archives::ArchiveTarget;
 use oxidgene_archives::transport::origin_of;
 use oxidgene_archives::{ArchiveRegistry, Resolver};
 use oxidgene_ui::archive_viewer::{
-    ArchiveLink, ArchivePageRequest, ArchiveViewerBridge, ArchiveViewerMessages,
-    ArchiveViewerOpener, ArchiveViewerRequest, Landing,
+    ArchiveLink, ArchivePageRequest, ArchiveRegister, ArchiveViewerBridge, ArchiveViewerMessages,
+    ArchiveViewerOpener, ArchiveViewerRequest, AttachSender, Landing,
 };
 use serde::Deserialize;
 use tracing::{debug, warn};
 
 use transport::{
-    Command, Fetched, Page, PageState, Seen, SessionId, Shared, Texts, WindowTransport,
+    Attachable, Command, Fetched, Page, PageState, Seen, SessionId, Shared, Texts, WindowTransport,
 };
 
 /// One message from the scripts of [`script`].
@@ -55,6 +56,8 @@ use transport::{
 enum Message {
     Page(Page),
     Fetched(Fetched),
+    /// The reader asks to attach the views on screen as a document.
+    Attach,
     /// The reader asks to open the page whose certificate could not be
     /// verified in the system browser.
     #[cfg(any(
@@ -106,6 +109,10 @@ impl ArchiveViewerOpener for WindowOpener {
         dioxus::core::spawn_forever(open_register(shared, resolver, request));
     }
 
+    fn focus(&self) {
+        dioxus::desktop::window().set_focus();
+    }
+
     fn open_page(&self, request: ArchivePageRequest) {
         let shared = Arc::clone(&self.shared);
         // Queued from a task, as a resolution's landing is, so that the
@@ -155,6 +162,7 @@ fn page_command(session: SessionId, request: ArchivePageRequest) -> Command {
         url,
         banner,
         texts: texts(&messages),
+        attach: None,
     }
 }
 
@@ -165,7 +173,11 @@ async fn open_register(
     resolver: Arc<Resolver<'static>>,
     request: ArchiveViewerRequest,
 ) {
-    let ArchiveViewerRequest { link, messages } = request;
+    let ArchiveViewerRequest {
+        link,
+        messages,
+        attach,
+    } = request;
     let session = shared.next_id();
     let transport = WindowTransport {
         shared: Arc::clone(&shared),
@@ -183,6 +195,8 @@ async fn open_register(
             "could not resolve the cited register"
         );
     }
+    let attach =
+        attach.and_then(|sender| attachable(&link, outcome.as_ref().ok()?, sender, &messages));
     let Landing { url, banner } = Landing::of(&link, outcome.map_err(|error| error.code()));
     if shared.is_closed(session) {
         return;
@@ -194,7 +208,26 @@ async fn open_register(
         url,
         banner: banner.and_then(|banner| messages.banner(banner)),
         texts: transport.texts,
+        attach,
     });
+}
+
+/// What the window offers to attach: for an archive whose images OxidGene
+/// may use, a target whose views all carry their image.
+fn attachable(
+    link: &ArchiveLink,
+    target: &ArchiveTarget,
+    sender: AttachSender,
+    messages: &ArchiveViewerMessages,
+) -> Option<Box<Attachable>> {
+    ArchiveRegister::attachable(link, target).then(|| {
+        Box::new(Attachable {
+            sender,
+            target: target.clone(),
+            hint: messages.attach_hint.clone(),
+            label: messages.attach.clone(),
+        })
+    })
 }
 
 /// The citation's parts read again with the place dictionary, which the
@@ -236,6 +269,8 @@ struct ArchiveWindow {
     /// Whether the reader was asked to answer an anti-bot check.
     asking: bool,
     texts: Texts,
+    /// The views on screen the reader may attach.
+    attach: Option<Box<Attachable>>,
     /// The page whose certificate could not be verified, which the reader
     /// may open in the system browser.
     #[cfg(any(
@@ -249,11 +284,19 @@ struct ArchiveWindow {
 }
 
 impl ArchiveWindow {
-    fn load(&mut self, url: &str, origins: Vec<String>, banner: Option<String>, texts: Texts) {
+    fn load(
+        &mut self,
+        url: &str,
+        origins: Vec<String>,
+        banner: Option<String>,
+        texts: Texts,
+        attach: Option<Box<Attachable>>,
+    ) {
         if let Ok(mut allowed) = self.origins.lock() {
             *allowed = origins;
         }
         self.banner = banner;
+        self.attach = attach;
         self.asking = false;
         self.texts = texts;
         #[cfg(any(
@@ -282,12 +325,47 @@ impl ArchiveWindow {
         self.eval(&script::banner(text, &self.texts.close, None));
     }
 
+    /// The banner over the portal's page: what OxidGene found, and the
+    /// offer to attach the views on screen.
+    fn show_landing(&mut self) {
+        let banner = self.banner.take();
+        match &self.attach {
+            Some(attach) => {
+                let text = banner.unwrap_or_else(|| attach.hint.clone());
+                self.eval(&script::banner(
+                    &text,
+                    &self.texts.close,
+                    Some((&attach.label, "attach")),
+                ));
+            }
+            None => {
+                if let Some(banner) = banner {
+                    self.show(&banner);
+                }
+            }
+        }
+    }
+
+    /// Sends the views on screen to the interface, which opens the document
+    /// form prefilled with them.
+    fn attach(&self) {
+        if let Some(attach) = &self.attach
+            && !attach.sender.send(attach.target.clone())
+        {
+            debug!("the page that asked to attach the views is gone");
+        }
+    }
+
     /// A page loaded. The portal's page, or a block, shows the pending
     /// banner, once; a check shows the request to answer it once the
     /// reader was asked, and the pending banner until then.
     fn on_page(&mut self, state: PageState) {
         match state {
-            PageState::Portal | PageState::Blocked => {
+            PageState::Portal => {
+                self.asking = false;
+                self.show_landing();
+            }
+            PageState::Blocked => {
                 self.asking = false;
                 if let Some(banner) = self.banner.take() {
                     self.show(&banner);
@@ -320,7 +398,7 @@ impl ArchiveWindow {
         self.eval(&script::banner(
             &self.texts.certificate,
             &self.texts.close,
-            Some(&self.texts.open_in_browser),
+            Some((&self.texts.open_in_browser, "open_in_browser")),
         ));
     }
 
@@ -376,12 +454,13 @@ pub fn install<T: 'static>(
                     origins,
                     banner,
                     texts,
+                    attach,
                 } => {
                     if shared.is_closed(session) {
                         continue;
                     }
                     if let Some(window) = windows.get_mut(&session) {
-                        window.load(&url, origins, banner, texts);
+                        window.load(&url, origins, banner, texts, attach);
                         continue;
                     }
                     let context =
@@ -393,6 +472,7 @@ pub fn install<T: 'static>(
                         origins,
                         banner,
                         texts,
+                        attach,
                     };
                     match open(target, context, opening, Arc::clone(&inbox)) {
                         Some(window) => {
@@ -462,6 +542,11 @@ fn receive_inbound(
             shared.seen(session, Seen::Page(page));
         }
         Inbound::Posted(Message::Fetched(fetched)) => shared.fetched(session, fetched),
+        Inbound::Posted(Message::Attach) => {
+            if let Some(window) = window {
+                window.attach();
+            }
+        }
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -498,6 +583,7 @@ struct Opening<'a> {
     origins: Vec<String>,
     banner: Option<String>,
     texts: Texts,
+    attach: Option<Box<Attachable>>,
 }
 
 /// The `scheme://authority` of the page that posted an IPC message.
@@ -634,6 +720,7 @@ fn open<T>(
         banner: opening.banner,
         asking: false,
         texts: opening.texts,
+        attach: opening.attach,
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -691,6 +778,7 @@ mod tests {
                 origins: vec!["https://archives.example.org".to_owned()],
                 banner: Some("No register matches.".to_owned()),
                 texts: texts(&messages),
+                attach: None,
             }
         );
         // The window's own texts are the interface's.
@@ -721,6 +809,11 @@ mod tests {
                 r#"{"kind": "fetched", "ticket": 2, "error": "network"}"#
             ),
             Ok(Message::Fetched(_))
+        ));
+        // The banner's button over views the reader may attach.
+        assert!(matches!(
+            serde_json::from_str::<Message>(r#"{"kind": "attach"}"#),
+            Ok(Message::Attach)
         ));
         assert!(serde_json::from_str::<Message>(r#"{"kind": "ready"}"#).is_err());
         assert!(serde_json::from_str::<Message>(r#"{"kind": "portal-event"}"#).is_err());

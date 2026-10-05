@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
 ---
 
 
@@ -244,10 +244,9 @@ Each event shows:
 
 #### Opening a cited register
 
-A cited source that names a register of a catalogued archive opens it: in a
-dedicated archive window on desktop, in a new browser tab on the web, or, for
-an archive whose images OxidGene may show, in OxidGene's own viewer on both
-(below). OxidGene recognizes the citation however it is written
+A cited source that names a register of a catalogued archive opens it on the
+archive's portal, for every archive alike: in a dedicated archive window on
+desktop, in a new browser tab on the web (below). OxidGene recognizes the citation however it is written
 ([Archive Portals §5.1](archives.md#51-citation-recognition)) — a
 description from the archive down to the act, its short form, the
 normalized form, or the register as the source with the archive as its
@@ -325,22 +324,19 @@ the message of its code (`archive_viewer.<code>`, `archive_viewer.failed`
 otherwise) while the tab opens the archive's website, or its filtered search
 results after an anti-bot check. The next click clears it.
 
-An archive whose catalogue entry is `display: "iiif"` — one whose reuse
-terms let OxidGene show its images with their credit — opens in the shared
-media viewer instead, on both clients
-([Archive Portals §6.3](archives.md#63-oxidgenes-viewer)): the backend
-resolves the citation, and the viewer shows the cited views as an unsaved
-document, marks the cited half of a double page (`d` right, `g` left), pages
-to the register's previous and next views on the reader's click, credits the
-archive under the image with a link to its reuse terms, and offers **Open on
-the archive's site**. When the lookup finds no view to show, the desktop
-opens its archive window with the banner and the web viewer shows the
-message with a link to the portal. **Attach as a document** opens the
-document form prefilled with the cited views, attached to the event and
-linked to the source; nothing is written before Save
+Every archive opens the same way, on its portal. For an archive whose
+catalogue entry is `display: "iiif"` — one whose reuse terms let OxidGene use
+its images with their credit — the reader may also keep the cited views as a
+document ([Archive Portals §6.3](archives.md#63-iiif-behind-the-scenes)): on
+the desktop, the archive window's banner over the cited view offers **Attach
+as a document**, which brings this page forward with the document form; on
+the web, an **Attach as a document** button beside the source asks the
+backend for the cited views and opens the form, or says beside the source why
+there is none to attach. The form is prefilled with the cited views, attached
+to the event and linked to the source, and lets the reader add the
+register's previous and next views; nothing is written before Save
 ([§6.4](archives.md#64-attaching-and-cropping)). The event's documents
-refresh once it is saved, and the viewer then offers to keep only the act
-with the region tool, opened on the cited half.
+refresh once it is saved; the gallery's region tool keeps only the act.
 
 The portal receives the locality, the act category, and the year, plus the
 portal's own collection and display identifiers. It does not receive the

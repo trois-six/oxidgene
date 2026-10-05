@@ -6,22 +6,24 @@
 //! by `oxidgene-archives` (docs/archives.md §5.1) — and offers such a source
 //! as [`ArchiveSourceLink`]: a register to look up, a portal address to
 //! open as it is, or, when the archive is known but the act or the locality
-//! is not, the "Find in the archives" dialog ([`find`]). On the desktop the
-//! binary injects an [`ArchiveViewerOpener`] that resolves the citation in
-//! an archive window; the web client, which has none, asks the backend for
-//! the target and opens it in a new browser tab. An archive whose images
-//! OxidGene may show (`display: "iiif"`) is resolved by the backend on both
-//! clients and shown in OxidGene's own viewer instead ([`viewer`]), from
-//! which the reader may attach the cited views as a document.
+//! is not, the "Find in the archives" dialog ([`find`]). Every archive opens
+//! on its portal: on the desktop the binary injects an
+//! [`ArchiveViewerOpener`] that resolves the citation in an archive window;
+//! the web client, which has none, asks the backend for the target and opens
+//! it in a new browser tab. For an archive whose images OxidGene may use
+//! (`display: "iiif"`), the reader may attach the cited views as a document
+//! ([`attach`]): from the archive window on the desktop, from beside the
+//! source on the web.
 
+mod attach;
 mod find;
 mod register;
 mod source_link;
-mod viewer;
 
 use std::sync::Arc;
 
 use dioxus::prelude::try_use_context;
+use futures_channel::mpsc::UnboundedSender;
 use oxidgene_archives::{
     Archive, ArchiveRegistry, ArchiveTarget, CitationEvidence, CitationParts, Found, Part,
     SuppliedParts,
@@ -316,6 +318,10 @@ pub struct ArchiveViewerMessages {
     pub certificate: String,
     /// The label of the button opening the page in the system browser.
     pub open_in_browser: String,
+    /// What the window says over a view the reader may attach, and the
+    /// label of the button doing so.
+    pub attach_hint: String,
+    pub attach: String,
     /// The text of each banner of [`BANNER_KEYS`].
     banners: Vec<(&'static str, String)>,
 }
@@ -328,6 +334,8 @@ impl ArchiveViewerMessages {
             challenge: i18n.t("archive_viewer.challenge"),
             certificate: i18n.t("archive_viewer.certificate"),
             open_in_browser: i18n.t("archive_viewer.open_in_browser"),
+            attach_hint: i18n.t("archive_viewer.attach_hint"),
+            attach: i18n.t("archive_viewer.attach"),
             banners: BANNER_KEYS.map(|key| (key, i18n.t(key))).to_vec(),
         }
     }
@@ -346,11 +354,38 @@ impl ArchiveViewerMessages {
 pub struct ArchiveViewerRequest {
     pub link: ArchiveLink,
     pub messages: ArchiveViewerMessages,
+    /// Where the window sends the target it shows when the reader asks to
+    /// attach its views: given for an archive whose images OxidGene may use.
+    pub attach: Option<AttachSender>,
 }
 
-/// A portal page to open as it is, without resolving anything: the page of a
-/// view OxidGene already shows, or the landing of a resolution the backend
-/// ran.
+/// The interface's end of the archive window's « Attach as a document »:
+/// the resolved target, whose views the interface attaches in its own
+/// window (docs/archives.md §6.1, §6.4).
+#[derive(Clone, Debug)]
+pub struct AttachSender(UnboundedSender<ArchiveTarget>);
+
+impl AttachSender {
+    pub fn new(sender: UnboundedSender<ArchiveTarget>) -> Self {
+        Self(sender)
+    }
+
+    /// Sends `target`; `false` when the page that asked is gone.
+    pub fn send(&self, target: ArchiveTarget) -> bool {
+        self.0.unbounded_send(target).is_ok()
+    }
+}
+
+impl PartialEq for AttachSender {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.same_receiver(&other.0)
+    }
+}
+
+impl Eq for AttachSender {}
+
+/// A portal page to open as it is, without resolving anything: a portal
+/// address found in a citation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArchivePageRequest {
     /// The window's title.
@@ -367,6 +402,9 @@ pub trait ArchiveViewerOpener: Send + Sync {
     /// Whether this platform can open `link`.
     fn supports(&self, link: &ArchiveLink) -> bool;
     fn open(&self, request: ArchiveViewerRequest);
+    /// Brings the application's window forward, over the archive windows:
+    /// the reader asked to attach a view there.
+    fn focus(&self);
     /// Opens a portal page in an archive window.
     fn open_page(&self, request: ArchivePageRequest);
 }
@@ -390,6 +428,10 @@ impl ArchiveViewerBridge {
 
     pub fn open_page(&self, request: ArchivePageRequest) {
         self.0.open_page(request);
+    }
+
+    pub fn focus(&self) {
+        self.0.focus();
     }
 }
 

@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -540,12 +540,10 @@ the crop badge.
 
 The viewer draws a picture on one shared stage (`components/media_stage.rs`):
 fitted to the space, zoomed by the wheel and its controls, dragged when it
-overflows, with the caller's overlays — identified regions, the cited half
-of an archive's double page — over it in percentages of the picture. Moving
-to another page starts it fitted again. OxidGene's archive viewer
-([Archive Portals §6.3](archives.md#63-oxidgenes-viewer)) shows an unsaved
-document of an archive's views on the same stage, in the same frame, side
-column and pager, with the archive's attribution under the picture.
+overflows, with the caller's overlays — identified regions — over it in
+percentages of the picture. Moving to another page starts it fitted again.
+Archive registers are shown by the archives' own portals
+([Archive Portals §6](archives.md#6-display)), not here.
 
 The viewer and the edit panel describe the **page** on screen, not the document
 above it: its format, dimensions, size, and whether the file is stored, remote,
@@ -578,8 +576,9 @@ because a mistyped URL is found after it has been added far more often than
 while it is being typed. Pages may be reordered and removed before saving.
 
 A caller that has already assembled a document opens the same form
-prefilled rather than a form of its own: OxidGene's archive viewer attaching
-cited views ([Archive Portals §6.4](archives.md#64-attaching-and-cropping))
+prefilled rather than a form of its own: attaching an archive's cited views
+— from the desktop's archive window or beside the cited source on the web
+([Archive Portals §6.4](archives.md#64-attaching-and-cropping)) —
 fills the title, description, kind of record, medium, the event checked, the
 source the document is linked to, and one remote page per view, each with its
 pixel size and thumbnail address. For such a register the page list also

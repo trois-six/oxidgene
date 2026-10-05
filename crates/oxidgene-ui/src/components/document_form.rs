@@ -133,7 +133,7 @@ impl PendingPage {
 }
 
 /// What the form opens with when its caller has already assembled the
-/// document, as OxidGene's archive viewer does for cited views: nothing of
+/// document, as attaching an archive's cited views does: nothing of
 /// it is written until Save.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct DocumentDraft {

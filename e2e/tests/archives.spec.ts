@@ -1,8 +1,9 @@
-// OxidGene's viewer over an archive whose images it may show
-// (docs/archives.md §6.3, §6.4), and the "Find in the archives" dialog
-// completing a citation (§6.5). No archive portal is contacted: the
-// backend's archive-target answer is stubbed in the page, and the archive's
-// pictures are served by the test.
+// A cited register opens on its archive's portal, for every archive alike;
+// for an archive whose images OxidGene may use (docs/archives.md §6.2, §6.4),
+// the cited views attach as a document from beside the source; and the
+// "Find in the archives" dialog completes a citation (§6.5). No archive
+// portal is contacted: the backend's archive-target answer is stubbed, and
+// the archive's pages and pictures are served by the test.
 
 import { apiUrl, expect, test } from "./fixtures";
 
@@ -41,7 +42,7 @@ function target(view: number) {
     };
 }
 
-test("an iiif archive's cited view opens in OxidGene's viewer and attaches as a document", async ({
+test("a cited register opens on the portal, and an iiif archive's cited view attaches as a document", async ({
     page,
     request,
     tree,
@@ -58,7 +59,7 @@ test("an iiif archive's cited view opens in OxidGene's viewer and attaches as a 
     expect(renamed.ok()).toBeTruthy();
 
     const asked: Array<number | null> = [];
-    await page.route(`${ARCHIVE}/**`, (route) => route.fulfill({ contentType: "image/png", body: PIXEL }));
+    await page.context().route(`${ARCHIVE}/**`, (route) => route.fulfill({ contentType: "image/png", body: PIXEL }));
     await page.route("**/sources/*/archive-target", async (route) => {
         const view = (route.request().postDataJSON()?.view ?? null) as number | null;
         asked.push(view);
@@ -66,57 +67,41 @@ test("an iiif archive's cited view opens in OxidGene's viewer and attaches as a 
     });
 
     await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
-    // Every birth of the timeline cites the register: open the first.
+    // Every birth of the timeline cites the register: the first opens on
+    // the portal, in a tab of its own, like any archive's.
+    const opened = page.waitForEvent("popup");
     await page.getByRole("button", { name: CITATION }).first().click();
-
-    const viewer = page.locator(".media-viewer");
-    await expect(viewer.locator("img.media-viewer-image")).toHaveAttribute("src", /\/a1\/5\/full\/max\//);
-    // The cited half of the double page is marked; the credit links to the
-    // archive's reuse terms.
-    await expect(viewer.locator(".media-viewer-side.is-right")).toBeVisible();
-    await expect(viewer.getByRole("link", { name: "Archives départementales d'Indre-et-Loire, 3E1/2, vue 5" })).toHaveAttribute(
-        "href",
-        "https://archives.touraine.fr/page/reutilisation",
-    );
-    await expect(viewer.getByText("View 5 of 13")).toBeVisible();
-    await expect(viewer.getByRole("link", { name: "Open on the archive's site" })).toHaveAttribute(
-        "href",
-        `${ARCHIVE}/ark:/00000/a1/5`,
-    );
+    const tab = await opened;
+    await tab.waitForURL(`${ARCHIVE}/ark:/00000/a1/5`);
     expect(asked).toEqual([null]);
-
-    // The next view of the register, resolved on the click, and only then.
-    await viewer.getByRole("button", { name: "Next view" }).click();
-    await expect(viewer.getByText("View 6 of 13")).toBeVisible();
-    await expect(viewer.locator("img.media-viewer-image")).toHaveAttribute("src", /\/a1\/6\/full\/max\//);
-    await expect(viewer.locator(".media-viewer-side")).toHaveCount(0);
-    // Back to the cited view: already loaded, no request.
-    await viewer.getByRole("button", { name: "Previous view" }).click();
-    await expect(viewer.getByText("View 5 of 13")).toBeVisible();
-    expect(asked).toEqual([null, 6]);
+    await expect(page.locator(".media-viewer")).toHaveCount(0);
 
     // Nothing is written until the form is saved.
-    await viewer.getByRole("button", { name: "Attach as a document" }).click();
+    await page.getByRole("button", { name: "Attach as a document" }).first().click();
     const form = page.locator(".document-form-modal");
     await expect(form.locator(".form-group", { hasText: "Title" }).locator("input").first()).toHaveValue("3E1/2, view 5");
+    expect(asked).toEqual([null, null]);
     const before = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/media`)).json();
     expect(before.edges).toHaveLength(0);
+    // The next view of the register, resolved on the click, and only then.
+    await form.getByRole("button", { name: "Add the next view" }).click();
+    await expect(form.locator(".form-group", { hasText: "Title" }).locator("input").first()).toHaveValue("3E1/2, views 5-6");
+    expect(asked).toEqual([null, null, 6]);
     await form.getByRole("button", { name: "Save", exact: true }).click();
     await expect(form).toBeHidden();
-    await expect(viewer.getByRole("button", { name: "Keep only the act" })).toBeVisible();
 
     const documents = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/media`)).json();
     expect(documents.edges).toHaveLength(1);
     const document = documents.edges[0].node;
-    expect(document.title).toBe("3E1/2, view 5");
+    expect(document.title).toBe("3E1/2, views 5-6");
     expect(document.document_category).toBe("civil_record");
     expect(document.source_media_type).toBe("manuscript");
     const pages = await (await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/media/${document.id}/pages`)).json();
-    expect(pages).toHaveLength(1);
+    expect(pages).toHaveLength(2);
     expect(pages[0].file_path).toBe(`${ARCHIVE}/iiif/ark:/00000/a1/5/full/max/0/default.jpg`);
     expect(pages[0].thumbnail_url).toBe(`${ARCHIVE}/images/5_thumbnail.jpg`);
     expect([pages[0].width, pages[0].height]).toEqual([1200, 800]);
-    expect(asked).toEqual([null, 6]);
+    expect(pages[1].file_path).toBe(`${ARCHIVE}/iiif/ark:/00000/a1/6/full/max/0/default.jpg`);
 });
 
 test("a citation missing its locality opens the Find in the archives dialog, which may keep what the reader adds", async ({
@@ -137,7 +122,7 @@ test("a citation missing its locality opens the Find in the archives dialog, whi
     const citation = await post("/citations", { source_id: source, event_id: event, page: "vue 5" });
 
     const asked: unknown[] = [];
-    await page.route(`${ARCHIVE}/**`, (route) => route.fulfill({ contentType: "image/png", body: PIXEL }));
+    await page.context().route(`${ARCHIVE}/**`, (route) => route.fulfill({ contentType: "image/png", body: PIXEL }));
     await page.route("**/sources/*/archive-target", async (route) => {
         asked.push(route.request().postDataJSON()?.parts ?? null);
         await route.fulfill({ json: target(5) });
@@ -157,11 +142,13 @@ test("a citation missing its locality opens the Find in the archives dialog, whi
 
     await dialog.locator(".form-group", { hasText: "Locality" }).locator("input").fill("Exampleville");
     await dialog.getByRole("checkbox", { name: "Add these details to the citation" }).check();
+    const opened = page.waitForEvent("popup");
     await dialog.getByRole("button", { name: "Search" }).click();
     await expect(dialog).toBeHidden();
 
-    // The register opens with the reader's part, and only theirs.
-    await expect(page.locator(".media-viewer img.media-viewer-image")).toHaveAttribute("src", /\/a1\/5\/full\/max\//);
+    // The register opens on the portal with the reader's part, and only
+    // theirs.
+    await (await opened).waitForURL(`${ARCHIVE}/ark:/00000/a1/5`);
     expect(asked).toEqual([{ locality: "Exampleville", act: null, year: null, view: null }]);
     // Kept on the citation, at the end of its page.
     const pageOf = async () => {

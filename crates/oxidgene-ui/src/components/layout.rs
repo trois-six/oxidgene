@@ -1282,6 +1282,23 @@ pub const LAYOUT_STYLES: &str = r#"
         outline: 2px solid currentColor;
         outline-offset: 2px;
     }
+    /* « Attach as a document » beside a source of an archive whose images
+       OxidGene may use (web). */
+    .pd-ev-source-attach {
+        margin-left: var(--space-3);
+        padding: 0 var(--space-3);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: none;
+        color: inherit;
+        font: inherit;
+        font-style: normal;
+        cursor: pointer;
+    }
+    .pd-ev-source-attach:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+    }
     .pd-ev-source-notice {
         display: block;
         font-style: normal;
@@ -5541,31 +5558,6 @@ pub const LAYOUT_STYLES: &str = r#"
 
     .media-viewer-vignette-surname,
     .media-viewer-vignette-given { display: block; }
-
-    /* The half of a double page an archive citation names (`d`, `g`). */
-    .media-viewer-side {
-        position: absolute;
-        top: 0;
-        width: 50%;
-        height: 100%;
-        box-sizing: border-box;
-        border: 2px solid color-mix(in srgb, var(--media-frame) 95%, transparent);
-        background: color-mix(in srgb, var(--media-tint) 10%, transparent);
-        pointer-events: none;
-    }
-
-    .media-viewer-side.is-left { left: 0; }
-    .media-viewer-side.is-right { left: 50%; }
-
-    /* The credit an archive's reuse terms require, under its picture. */
-    .media-viewer-attribution {
-        margin: var(--space-3) var(--space-6) 0;
-        color: var(--text-muted);
-        font-size: var(--text-85);
-        text-align: center;
-    }
-
-    .media-viewer-attribution a { color: inherit; }
 
     .media-viewer-audio { width: min(520px, 100%); }
 

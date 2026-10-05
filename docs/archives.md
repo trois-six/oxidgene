@@ -1,9 +1,9 @@
 ---
 type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
-description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
+description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -80,10 +80,10 @@ instead of leaving them to repeat the portal search by hand.
 `oxidgene-archives` is the crate that knows the archives: which ones exist,
 which portal software each runs, how to recognize a citation that belongs to
 one, and how to turn that citation into the address of the cited image on the
-portal. OxidGene uses it to display sources, either in the portal's own viewer
-or, where the archive publishes its images over IIIF and its terms allow it,
-in OxidGene's viewer. A reader who wants to keep the cited act attaches it as a
-document whose pages are the archive's image addresses (§6.4). OxidGene never
+portal. OxidGene uses it to open sources in the portal's own viewer, for
+every archive alike. Where the archive publishes its images over IIIF and its
+terms allow it, a reader who wants to keep the cited act attaches it as a
+document whose pages are the archive's image addresses (§6.3, §6.4). OxidGene never
 copies, stores or redistributes the image bytes themselves.
 
 The catalogue and the citation recognizer live in this crate, which the interface
@@ -105,8 +105,7 @@ since some portals demand a browser, and displays the result (§4.2, §6;
 - Resolution of a parsed citation to an [`ArchiveTarget`](#52-result): the
   portal page that shows the register, opened at the cited view when the
   platform allows it.
-- The desktop archive window and the web fallback that display a target.
-- Displaying a resolved view in OxidGene's shared media viewer over IIIF.
+- The desktop archive window and the web tab that display a target.
 - Attaching one or several views, at the reader's explicit request, as a
   document of remote pages, then cropping it with the existing region tool.
 
@@ -143,7 +142,7 @@ that runs an already supported platform is a data change with no code.
 | `citation_codes` | Uppercase codes a citation may start with, such as `["AD44"]`. Unique across the catalogue. |
 | `website` | The archive's home page. |
 | `collections` | The archive's searchable collections of registers, each with its own engine (below). Empty when no adapter exists yet. |
-| `display` | `iiif` when OxidGene may show the archive's images in its own viewer and attach them as remote pages (§6.3, §6.4); `portal` when they are shown only in the portal's viewer. Default `portal`. |
+| `display` | `iiif` when OxidGene may use the archive's images over IIIF to attach cited views as remote pages (§6.3, §6.4); `portal` otherwise. Either way the archive opens on its portal. Default `portal`. |
 | `attribution` | Credit the archive's reuse terms require, written in the archive's language with `{call_number}` and `{view}` placeholders, such as `Archives départementales d'Indre-et-Loire, {call_number}, vue {view}`. Required when `display` is `iiif`; never translated. |
 | `terms` | Address of the archive's reuse terms. Required when `display` is `iiif`. |
 | `citation` | Optional overrides of the citation grammar for this archive (§5.1): `no_parish`, the parish values meaning none (default `["(aucun)"]`); `view_words`, the words introducing the views (default `["vue"]`); and `series`, phrases naming a series added to the built-in vocabulary, by series code (`{"RP": ["dénombrement des habitants"]}`, default none). A field left out keeps its default. |
@@ -193,7 +192,7 @@ collection with every act kind and no period.
 attribution and whose images load across origins; the decision is recorded
 with the archive, not inferred. Every collection of an `iiif` archive
 answers any client (`transport: "any"`), since the backend resolves its
-views on both clients (§6.3); the catalogue refuses one with a `browser`
+views for attaching on the web (§6.3); the catalogue refuses one with a `browser`
 collection. An archive whose viewer requires accepting a
 licence or passing an anti-bot challenge before showing an image stays
 `portal`: the Sarthe, Calvados and Marne archives are `portal`, the
@@ -1070,7 +1069,7 @@ pub struct ArchiveImage {
 
 Addresses are `String`s, and the target serializes with a `kind` of `view` or
 `results`. `views` holds every cited view, in order, so an act spanning views
-5 and 6 resolves to both. `picture` is the address the viewer loads — a size bounded to
+5 and 6 resolves to both. `picture` is the address an attached page holds — a size bounded to
 the screen where the service allows it, the full image otherwise — and
 `thumbnail` the smallest address the archive serves. `attribution` is the
 catalogue template filled with the call number and views.
@@ -1119,9 +1118,9 @@ over 200 characters, a year outside 1000–2100 or a view below 1 is a
 
 The body may also name a `view` (`archiveTarget(citationId, view)` in
 GraphQL): the one view of the cited register to resolve instead of the cited
-views, which OxidGene's viewer asks for when the reader pages to the
-previous or the next view (§6.3). It keeps the side the citation gives that
-view, if it cites it; a view below 1 or beyond the cited view count is a
+views, which the document form attaching cited views asks for when the
+reader adds the previous or the next view of the register (§6.4). It keeps
+the side the citation gives that view, if it cites it; a view below 1 or beyond the cited view count is a
 `400 validation_error`. A view beyond the register's own images resolves,
 as any cited view does, to `View` with no views (§7).
 
@@ -1169,14 +1168,10 @@ the field for a source read on its own, never for the items of a list
 
 ### 6.1 Desktop
 
-The archive window is a top-level WebView, because portals forbid framing
-(`frame-ancestors 'self'` on the Loire-Atlantique portal). An archive whose
-views OxidGene shows (`display: "iiif"`) is the exception: its citation is
-resolved by the embedded backend and opens in OxidGene's viewer (§6.3), and
-the window only carries the portal pages the reader opens from there, and
-the landing of a resolution that found no view to show, with its banner.
-For every other archive, a click on a
-cited source starts the resolution on the desktop's Dioxus runtime, with one
+Every archive opens on its portal, alike: the archive window is a top-level
+WebView, because portals forbid framing (`frame-ancestors 'self'` on the
+Loire-Atlantique portal), beside the application's window, which stays where
+the reader was. A click on a cited source starts the resolution on the desktop's Dioxus runtime, with one
 `Resolver` shared by every window, whose cache (§8) spares a second request
 for a citation already opened in the session. The desktop resolves every
 archive with the `window` transport (§4.2): for each collection it tries, the
@@ -1249,6 +1244,17 @@ could not be verified (`archive_viewer.certificate`) with a button opening
 the page in the system browser (`archive_viewer.open_in_browser`), and a
 resolution waiting on that page fails `unreachable`.
 
+**Attaching from the window.** Over the views of an archive whose images
+OxidGene may use (`display: "iiif"`, §6.3) — a `View` target whose every
+view carries its image —, the window's banner says that OxidGene can keep
+the cited view (`archive_viewer.attach_hint`, or the landing's own message)
+with an **Attach as a document** button (`archive_viewer.attach`). Its
+click sends the target the window shows, over the window's IPC channel, to
+the page of the application that opened it, which brings its window forward
+and opens the document form prefilled (§6.4); nothing is written before the
+reader saves it there. A page of the application closed meanwhile receives
+nothing.
+
 The window uses a persistent web profile of its own, separate from the
 application's, under the state directory (`archives-webview/`,
 [Architecture §8.3](architecture.md#83-local-files)). Archive portals hold no
@@ -1257,9 +1263,8 @@ anti-bot challenge at every opening.
 
 ### 6.2 Web
 
-For an archive whose views OxidGene shows, see §6.3. For any other, the web
-client resolves through the same backend endpoint (§5.3), naming the
-citation the reader clicked, and opens the target in a new browser tab that
+Every archive opens on its portal here too: the web client resolves through
+the backend endpoint (§5.3), naming the citation the reader clicked, and opens the target in a new browser tab that
 can neither reach the application (`noopener`) nor tell the portal where the
 reader came from (`noreferrer`). For a `browser` archive the tab opens on
 the filtered search results, from which the reader opens the register. The
@@ -1284,49 +1289,25 @@ collection's filtered search page, where the reader passes the check in
 their own browser. The view to go to on a portal without an address per
 view is said the same way.
 
-### 6.3 OxidGene's viewer
+### 6.3 IIIF behind the scenes
 
-For a `display: "iiif"` archive, a click on the cited source opens the shared
-media viewer ([UI Common §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform))
-on both clients instead of the portal. Both resolve the citation through the
-backend endpoint (§5.3), the desktop through its embedded backend, which
-reaches these portals over the `native` transport (§3.1); the viewer shows
-that the register is being looked up meanwhile.
-
-When the target is a `View` whose every view carries an `image`, the viewer
-shows an unsaved document whose pages are the cited views' `picture`
-addresses, on the same stage, with the same zoom and drag, as a stored
-document. Its side column names the archive, the register's call number and
-the view on screen, marked when it is a cited one. Its pager steps through
-the register rather than through the cited views alone: the previous or next
-view of the register is resolved on the reader's click, one request naming
-that `view` (§5.3), and kept for the rest of the viewing, so a reader who
-finds the act continues on the following image reaches it without leaving.
-The register's view count bounds the pager; a view the archive serves no
-image of is reported, and the view on screen stays.
-
-The attribution of the view on screen — the catalogue template filled with
-the call number and that view — is shown under the image and links to the
-archive's `terms`, both read from the catalogue (§5.2). **Open on the
-archive's site** opens the view's portal page as §6.1 and §6.2 do: in an
-archive window on the desktop, in a tab that can neither reach the
-application nor tell the portal where the reader came from on the web. When
-the citation names a side (`d` right, `g` left), the viewer marks that half
-of the double page.
-
-Any other outcome — several or no registers, a view the register does not
-have, a view without an image, a failure — leaves the viewer for the portal:
-the desktop opens its archive window on the landing of §6.1 with the same
-banner and closes the viewer; the web, where a tab opened after the lookup
-would be blocked, shows the banner's message in the viewer with **Open on the
-archive's site** on the same page, a link the reader follows.
-
-Nothing is written while the reader only looks. Closing the viewer leaves no
-record.
+OxidGene shows every archive's images in the archive's own viewer, on its
+portal (§6.1, §6.2). For a `display: "iiif"` archive it also knows each
+cited view's image — its `picture` and `thumbnail` addresses and its pixel
+size, read over IIIF by the adapter (§4) — and uses it to attach the views
+as a document (§6.4), with the attribution the archive's terms require.
+Nothing is displayed in OxidGene before the reader attaches: the desktop
+offers to attach from the archive window's banner (§6.1), the web from an
+**Attach as a document** button beside the cited source, whose click asks
+the backend for the target (§5.3) — one lookup, answered from the session
+cache when the source was just opened — and, when its views carry their
+images, opens the document form. Any other answer — several or no
+registers, a view without an image, a failure — is said beside the source
+as the landing's notice (§6.2), or `archive_viewer.no_image`.
 
 ### 6.4 Attaching and cropping
 
-**Attach as a document** in the viewer opens the canonical `DocumentForm`
+**Attach as a document** (§6.1, §6.3) opens the canonical `DocumentForm`
 ([UI Common](ui-common.md#adding-a-document)) prefilled, and nothing is
 written before the reader saves it:
 
@@ -1334,7 +1315,8 @@ written before the reader saves it:
   address, its pixel size, and its thumbnail address
   ([Data Model](data-model.md#media), `thumbnail_url`); the reader removes
   views, or adds the previous or next view of the register, each resolved on
-  its click as in the viewer, so a two-page act becomes one two-page document
+  its click — one request naming that `view` (§5.3) —, so a two-page act
+  becomes one two-page document
   and a single page one single-page document;
 - the title from the call number (the archive's name without one) and views,
   and the description from the attribution of the views; both follow the
@@ -1360,13 +1342,11 @@ event, and every viewer action applies to it. Its tiles draw each page's
 thumbnail address, never the full view.
 
 Keeping only the act out of a double page or a crowded view is done with the
-existing region tool ([Data Model](data-model.md#vignette)): a region drawn on
-a remote page is stored as coordinates over the page, in the pixel size the
-archive stated, and cut by the client, so it needs none of the bytes; a
-region can serve as a portrait or be attributed to a person like any other.
-Once the document is saved, the viewer offers **Keep only the act** on each
-attached view; when the citation names a side of that view, the region tool
-opens with that half selected, which the reader saves or redraws.
+existing region tool of the gallery ([Data Model](data-model.md#vignette)): a
+region drawn on a remote page is stored as coordinates over the page, in the
+pixel size the archive stated, and cut by the client, so it needs none of the
+bytes; a region can serve as a portrait or be attributed to a person like any
+other.
 
 ### 6.5 Find in the archives
 
@@ -1379,7 +1359,7 @@ the document kinds the archive's collections hold, named in the interface
 language (`archive_viewer.kind.<code>`); the year; and the view. **Search**
 completes the citation with the reader's parts, which win over every other
 signal, and opens the register exactly as a complete citation's click does —
-in the archive window, a new tab, or OxidGene's viewer — the reader's parts
+in the archive window or a new tab — the reader's parts
 riding with every resolution of it, the neighbouring views included
 (`parts`, §5.3). A kind or locality still missing keeps the dialog open with
 `archive_viewer.find_missing`.
@@ -1402,8 +1382,7 @@ reloads. The source, shared by other citations, is never changed.
 | Portal address of a catalogued archive in the records | The address, opened as it is: in the archive window (desktop) or a new tab (web), without a lookup. |
 | No register, or several | `Results`: the filtered search page, with a banner (desktop) or a notice beside the source (web). |
 | View beyond the register's image count | `View` with no views: the register's first image. |
-| `iiif` image fails to load | The viewer shows the portal link in place of the picture. |
-| `iiif` archive resolves to anything but views with images | The desktop's archive window opens on the landing with its banner; the web viewer shows the banner's message and the portal link (§6.3). |
+| `iiif` archive resolves to anything but views with images | The archive opens on the landing like any other; the window offers nothing to attach, and the web's **Attach as a document** says the landing's message, or `archive_viewer.no_image`, beside the source (§6.3). |
 | View cited within a register whose portal has no address per view | `View` with no views: the register's first image, with `archive_viewer.go_to_view` naming the cited view, as a banner (desktop) or a notice (web). |
 | Anti-bot check on the start page (desktop) | Waited out for 5 seconds, then the reader's to answer in the window within 3 minutes (§6.1). |
 | Anti-bot check answering a request (desktop) | The start page again for the reader, then the same request once more (§6.1, §8). |
@@ -1440,8 +1419,7 @@ Archive portals are public services whose terms OxidGene follows:
   targets are not kept, so the next click asks the portal again. The only portal data
   written to the database is what the reader attaches (§6.4): image addresses,
   sizes and the attribution, never image bytes.
-- Paging in OxidGene's viewer, or adding a view to a document being
-  attached, is a click too: one resolution of that one view, kept by the
+- Adding a view to a document being attached is a click too: one resolution of that one view, kept by the
   session cache like any other. No neighbouring view is asked for ahead of
   the reader.
 - Image bytes are cached only by the browser's or WebView's HTTP cache,
@@ -1504,9 +1482,12 @@ Archive portals are public services whose terms OxidGene follows:
 - API tests resolve recorded answers on both surfaces, a neighbouring view
   included, a citation recognized from a repository record and its event,
   an incomplete citation before and after the reader's parts, refused parts
-  and a portal address; interface tests read the viewer's register, its kinds
-  of record and its cited halves from fictitious targets, what a citation
-  offers, and the dialog's kinds and completion.
+  and a portal address; interface tests read the attached register, its
+  kinds of record and the views a target lets attach from fictitious
+  targets, what a citation offers, and the dialog's kinds and completion;
+  the desktop's, the archive window's banner action and its message; and the
+  browser test opens a register in a tab, attaches an `iiif` archive's views
+  and completes a citation in the dialog.
 
 `just check` never contacts a portal: the tests above run offline.
 

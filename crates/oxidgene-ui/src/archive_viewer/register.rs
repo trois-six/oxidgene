@@ -1,11 +1,11 @@
-//! The register a cited view belongs to, as OxidGene's viewer and the
-//! document form page through it (docs/archives.md §6.3, §6.4).
+//! The register a cited view belongs to, as the document form attaching
+//! cited views pages through it (docs/archives.md §6.3, §6.4).
 //!
 //! Every view the reader turns to is resolved by the backend on that click
 //! (`view` of the archive-target request), never ahead of it: the portal is
 //! asked once per click, and only for the view asked for.
 
-use oxidgene_archives::{ArchiveImage, ArchiveTarget, CitedView, Side};
+use oxidgene_archives::{ArchiveImage, ArchiveTarget};
 use oxidgene_core::enums::DocumentCategory;
 use uuid::Uuid;
 
@@ -13,23 +13,18 @@ use super::ArchiveLink;
 use crate::api::{ApiClient, ApiError};
 use crate::i18n::I18n;
 
-/// One view of a register that OxidGene may show: its image and its page on
-/// the portal.
+/// One view of a register whose image OxidGene may attach.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewPage {
     /// One-based view number.
     pub view: u16,
-    /// The half of the double page the citation names, when it names one.
-    pub side: Option<Side>,
     /// Whether the citation cites this view.
     pub cited: bool,
-    /// The portal page opened on this view.
-    pub portal_url: String,
     pub image: ArchiveImage,
 }
 
-/// A cited register whose views OxidGene shows: where its views are asked
-/// for, and what its documents are called.
+/// A cited register whose views OxidGene may attach: where its views are
+/// asked for, and what its documents are called.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArchiveRegister {
     pub tree_id: Uuid,
@@ -42,8 +37,8 @@ pub struct ArchiveRegister {
 
 impl ArchiveRegister {
     /// The register and the cited views of a resolved target, when the target
-    /// is a view whose every view carries an image OxidGene may show; `None`
-    /// for any other target, which opens on the portal instead.
+    /// is a view whose every view carries an image OxidGene may attach;
+    /// `None` for any other target.
     pub fn of(
         tree_id: Uuid,
         link: &ArchiveLink,
@@ -63,13 +58,11 @@ impl ArchiveRegister {
             .map(|view| {
                 Some(ViewPage {
                     view: view.view,
-                    side: side_of(&link.citation.views, view.view),
                     cited: link
                         .citation
                         .views
                         .iter()
                         .any(|cited| cited.view == view.view),
-                    portal_url: view.url.clone(),
                     image: view.image.clone()?,
                 })
             })
@@ -84,6 +77,13 @@ impl ArchiveRegister {
             call_number: call_number.clone(),
         };
         Some((register, pages))
+    }
+
+    /// Whether the views of `target` can be attached as a document: views
+    /// of an archive whose images OxidGene may use, each with its image.
+    pub fn attachable(link: &ArchiveLink, target: &ArchiveTarget) -> bool {
+        link.archive.display == oxidgene_archives::Display::Iiif
+            && Self::of(Uuid::nil(), link, target).is_some()
     }
 
     /// Whether view `view` exists in the register, as far as its count says.
@@ -115,11 +115,6 @@ impl ArchiveRegister {
             .attribution_for(self.call_number.as_deref(), views)
     }
 
-    /// The address of the archive's reuse terms.
-    pub fn terms(&self) -> Option<&str> {
-        self.link.archive.terms.as_deref()
-    }
-
     /// A document's title for `views`: the call number, or the archive's
     /// name without one, and the views.
     pub fn document_title(&self, i18n: &I18n, views: &[u16]) -> String {
@@ -143,14 +138,6 @@ impl ArchiveRegister {
     pub fn category(&self) -> Option<DocumentCategory> {
         self.link.citation.category()
     }
-}
-
-/// The side the citation gives view `view`, if it cites it.
-fn side_of(cited: &[CitedView], view: u16) -> Option<Side> {
-    cited
-        .iter()
-        .find(|cited| cited.view == view)
-        .and_then(|cited| cited.side)
 }
 
 /// Views as a reader writes them: `5`, a run `5-6`, or a list `5, 7`.
@@ -210,26 +197,35 @@ mod tests {
     }
 
     #[test]
-    fn a_view_with_images_opens_in_oxidgene_with_its_cited_sides() {
+    fn the_views_of_a_target_with_images_are_the_registers() {
         let link = link("AD37 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5d-6g/13");
-        let (register, pages) =
-            ArchiveRegister::of(Uuid::nil(), &link, &target(&[(5, true), (6, true)])).unwrap();
+        let (register, pages) = ArchiveRegister::of(
+            Uuid::nil(),
+            &link,
+            &target(&[(5, true), (6, true), (7, true)]),
+        )
+        .unwrap();
         assert_eq!(register.view_count, Some(13));
         assert_eq!(register.call_number.as_deref(), Some("3E1/2"));
         assert_eq!(
             pages
                 .iter()
-                .map(|page| (page.view, page.side))
+                .map(|page| (page.view, page.cited))
                 .collect::<Vec<_>>(),
-            [(5, Some(Side::Right)), (6, Some(Side::Left))]
+            [(5, true), (6, true), (7, false)]
         );
-        assert!(pages.iter().all(|page| page.cited));
         assert!(register.has_view(13) && !register.has_view(14) && !register.has_view(0));
     }
 
     #[test]
-    fn anything_but_shown_views_opens_on_the_portal() {
+    fn anything_but_views_with_images_cannot_be_attached() {
         let link = link("AD37 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5/13");
+        assert!(ArchiveRegister::attachable(&link, &target(&[(5, true)])));
+        // An archive whose images OxidGene may not use.
+        let portal =
+            super::super::tests::link("AD44 - Exampleville - (aucun) - N - 1877 - vue 5/13", None)
+                .expect("a catalogued citation");
+        assert!(!ArchiveRegister::attachable(&portal, &target(&[(5, true)])));
         // A view without an image, no view at all, and the search results.
         assert!(ArchiveRegister::of(Uuid::nil(), &link, &target(&[(5, false)])).is_none());
         assert!(ArchiveRegister::of(Uuid::nil(), &link, &target(&[])).is_none());

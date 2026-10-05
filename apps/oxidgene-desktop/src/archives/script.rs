@@ -63,14 +63,25 @@ pub(super) fn fetch(
     )
 }
 
+/// A banner's button: its label, and the `kind` of the IPC message its
+/// click posts — `open_in_browser` to open the page the window could not
+/// verify in the system browser, `attach` to attach the views on screen.
+pub(super) type Action<'a> = (&'a str, &'a str);
+
 /// Shows `text` in a banner over the page with a close button labelled
-/// `close`, replacing any earlier banner. With an `action` label, the
-/// banner also has a button that asks the window, over IPC, to open the
-/// page it could not verify in the system browser.
-pub(super) fn banner(text: &str, close: &str, action: Option<&str>) -> String {
+/// `close`, replacing any earlier banner, and the button of `action` when
+/// given.
+pub(super) fn banner(text: &str, close: &str, action: Option<Action<'_>>) -> String {
     let text = serde_json::Value::from(text);
     let close = serde_json::Value::from(close);
-    let action = serde_json::Value::from(action);
+    let (action, kind) = match action {
+        Some((label, kind)) => (
+            serde_json::Value::from(label),
+            serde_json::json!({ "kind": kind }).to_string(),
+        ),
+        None => (serde_json::Value::Null, "null".to_owned()),
+    };
+    let kind = serde_json::Value::from(kind);
     format!(
         r#"(() => {{
     document.getElementById("oxidgene-archive-status")?.remove();
@@ -91,8 +102,8 @@ pub(super) fn banner(text: &str, close: &str, action: Option<&str>) -> String {
         open.textContent = action;
         open.style.cssText = "border:1px solid currentColor;border-radius:6px;background:none;"
             + "color:inherit;font:inherit;padding:4px 10px;cursor:pointer;white-space:nowrap";
-        open.addEventListener("click", () =>
-            window.ipc.postMessage(JSON.stringify({{ kind: "open_in_browser" }})));
+        const message = {kind};
+        open.addEventListener("click", () => window.ipc.postMessage(message));
         banner.append(open);
     }}
     const button = document.createElement("button");
@@ -159,8 +170,15 @@ mod tests {
         assert!(script.contains("const action = null;"));
         assert!(!script.contains("innerHTML"));
 
-        let script = banner("Unverified.", "Close", Some("Open in the <browser>"));
+        let script = banner(
+            "Unverified.",
+            "Close",
+            Some(("Open in the <browser>", "open_in_browser")),
+        );
         assert!(script.contains(r#"const action = "Open in the <browser>";"#));
-        assert!(script.contains(r#"kind: "open_in_browser""#));
+        assert!(script.contains(r#"const message = "{\"kind\":\"open_in_browser\"}";"#));
+
+        let script = banner("A view to keep.", "Close", Some(("Attach", "attach")));
+        assert!(script.contains(r#"const message = "{\"kind\":\"attach\"}";"#));
     }
 }

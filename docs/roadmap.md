@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -73,9 +73,10 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
 - [x] Resolve a cited source on the backend, through REST and GraphQL, and
   open its target from the web client in a new tab
   ([Archive Portals §5.3](archives.md#53-api), [§6.2](archives.md#62-web)).
-- [x] Show `iiif` archives' views in the shared viewer and attach cited views
-  as a remote multi-page document that the region tool can crop
-  ([Archive Portals §6.3–6.4](archives.md#63-oxidgenes-viewer)).
+- [x] Attach `iiif` archives' cited views as a remote multi-page document that
+  the region tool can crop, every archive opening alike on its portal — from
+  the desktop's archive window, from beside the source on the web
+  ([Archive Portals §6.3–6.4](archives.md#63-iiif-behind-the-scenes)).
 - [x] Cite and resolve series beyond acts — population censuses, military
   registers, conscription lists, tables of successions and absences — named
   in words or by code, through Arkothèque and Ligeo collections
