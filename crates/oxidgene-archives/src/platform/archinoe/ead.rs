@@ -79,7 +79,7 @@ pub(super) async fn find(
 
 /// The nodes a tree fragment or the aid's page lists:
 /// `javascript:showEntry(<id>)…>Name<`.
-fn entries(html: &str) -> Vec<(String, String)> {
+pub(super) fn entries(html: &str) -> Vec<(String, String)> {
     markup::split_after(html, "javascript:showEntry(")
         .into_iter()
         .filter_map(|entry| {
@@ -129,7 +129,7 @@ fn is_named(portal: &str, wanted: &[Vec<char>]) -> bool {
 /// each, whose cells carry the call number, the period and, in the
 /// description, the image count. A block without a viewer link has no
 /// images and is left out.
-fn registers(notice: &str, locality: &str) -> Vec<Candidate<Register>> {
+pub(super) fn registers(notice: &str, locality: &str) -> Vec<Candidate<Register>> {
     markup::split_after(notice, "<div id=\"item_")
         .into_iter()
         .filter_map(|block| {

@@ -19,6 +19,9 @@ const ARDECHE_CIVIL: &str = include_str!("../../../fixtures/ligeo/ardeche-civil.
 const ARDECHE_PARISH: &str = include_str!("../../../fixtures/ligeo/ardeche-parish.html");
 const HG_SEVERAL: &str = include_str!("../../../fixtures/ligeo/hg-several.html");
 const MANIFEST: &str = include_str!("../../../fixtures/ligeo/manifest.json");
+const INFO_WIDE: &str = include_str!("../../../fixtures/ligeo/info-wide.json");
+const INFO_TALL: &str = include_str!("../../../fixtures/ligeo/info-tall.json");
+const INFO_SMALL: &str = include_str!("../../../fixtures/ligeo/info-small.json");
 
 const AIN: &str = "https://www.archives.ain.fr";
 const ARDECHE: &str = "https://archives.ardeche.fr";
@@ -34,11 +37,12 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-/// Answers a search and a manifest with their fixtures, and records the
-/// requests.
+/// Answers a search, a manifest and an image service's `info.json` with
+/// their fixtures, and records the requests.
 struct Fixtures {
     search: &'static str,
     manifest: &'static str,
+    info: &'static str,
     requests: Mutex<Vec<String>>,
 }
 
@@ -47,6 +51,7 @@ impl Fixtures {
         Self {
             search,
             manifest: MANIFEST,
+            info: INFO_TALL,
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -68,6 +73,8 @@ impl PortalFetch for Fixtures {
                 self.search
             } else if url.starts_with("/ark:/") && url.ends_with("/manifest") {
                 self.manifest
+            } else if url.starts_with("/iiif/") && url.ends_with("/info.json") {
+                self.info
             } else {
                 return Err(FetchError::Status(404));
             };
@@ -123,11 +130,12 @@ fn one_register_opens_on_the_cited_view_with_its_images() {
                 view: 5,
                 url: format!("{base}/daogrp/0/5"),
                 ark: Some(format!("{base}/img:EX_0011_005")),
+                // Sized by its service, not by the manifest's canvas.
                 image: Some(ArchiveImage {
                     picture: format!("{image_base}/full/,2048/0/default.jpg"),
                     thumbnail: format!("{image_base}/full/150,/0/default.jpg"),
-                    width: 2268,
-                    height: 3576,
+                    width: 1780,
+                    height: 2704,
                 }),
             }],
             // The manifest's count, not the row's.
@@ -139,13 +147,15 @@ fn one_register_opens_on_the_cited_view_with_its_images() {
         })
     );
 
-    // The search, then the register's manifest: nothing more.
+    // The search, the register's manifest, the view's image service:
+    // nothing more.
     assert_eq!(
         fetch.requests(),
         [
             "/archive/resultats/etatcivil/n:88?RECH_commune=Exampleville&RECH_acte%5B%5D=N\
              &RECH_unitdate_debut=1880&RECH_unitdate_fin=1880&type=etatcivil",
             "/ark:/99999/vtaexample0011/manifest",
+            "/iiif/EC/EX_0011/EX_0011_005.jpg/info.json",
         ]
     );
     // The portal learns the locality, act and year, never the rest.
@@ -158,8 +168,36 @@ fn one_register_opens_on_the_cited_view_with_its_images() {
 }
 
 #[test]
-fn images_are_sized_by_the_canvas_on_the_level_1_service() {
-    let (target, _) = embedded(
+fn images_are_sized_by_their_service_on_the_level_1_service() {
+    // Wider than tall, taller than wide, and below the bound, whatever the
+    // canvases declare.
+    for (info, picture, size) in [
+        (INFO_WIDE, "full/2048,", (2704, 1780)),
+        (INFO_TALL, "full/,2048", (1780, 2704)),
+        (INFO_SMALL, "full/full", (1000, 800)),
+    ] {
+        let mut fetch = Fixtures::new(AIN_ONE);
+        fetch.info = info;
+        let target = resolve(
+            ArchiveRegistry::embedded(),
+            "AD01 - Exampleville - (aucun) - N - 1880 - vue 1/120",
+            &fetch,
+        );
+        let Ok(ArchiveTarget::View { views, .. }) = target else {
+            panic!("expected a view, got {target:?}");
+        };
+        let image = views[0].image.as_ref().unwrap();
+        assert!(
+            image
+                .picture
+                .ends_with(&format!("/EX_0011_001.jpg/{picture}/0/default.jpg")),
+            "{}",
+            image.picture
+        );
+        assert_eq!((image.width, image.height), size);
+    }
+
+    let (target, fetch) = embedded(
         "AD01 - Exampleville - (aucun) - N - 1880 - vue 1-6/120",
         AIN_ONE,
     );
@@ -170,15 +208,21 @@ fn images_are_sized_by_the_canvas_on_the_level_1_service() {
         panic!("expected a view, got {target:?}");
     };
     assert_eq!(views.len(), 6);
-    let picture = |index: usize| views[index].image.as_ref().unwrap().picture.clone();
-    // Wider than tall, taller than wide, and below the bound.
-    assert!(picture(0).ends_with("/EX_0011_001.jpg/full/2048,/0/default.jpg"));
-    assert!(picture(4).ends_with("/EX_0011_005.jpg/full/,2048/0/default.jpg"));
-    assert!(picture(5).ends_with("/EX_0011_006.jpg/full/full/0/default.jpg"));
+    // One service per view.
+    assert_eq!(fetch.requests().len(), 2 + 6);
     assert_eq!(
         attribution.as_deref(),
         Some("Archives départementales de l'Ain, , vue 1-6")
     );
+    // A service whose `info.json` lacks a size is a changed answer.
+    let mut fetch = Fixtures::new(AIN_ONE);
+    fetch.info = "<html>maintenance</html>";
+    let target = resolve(
+        ArchiveRegistry::embedded(),
+        "AD01 - Exampleville - (aucun) - N - 1880 - vue 1/120",
+        &fetch,
+    );
+    assert!(matches!(target, Err(ResolveError::UnexpectedResponse(_))));
 }
 
 #[test]

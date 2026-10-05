@@ -5,18 +5,40 @@
 export interface Viewer {
     // The button accepting the reuse licence the viewer shows first, if any.
     licence?: string;
-    // The element showing the one-based view number: an input's value or
-    // an element's text, whose first number is read.
+    // The element showing the one-based view number: an input's value or an
+    // element's text, whose first number is read.
     view: string;
-    // The element showing the register's view count, if the viewer shows it.
+    // The element showing the register's view count, if the viewer shows it:
+    // its last number is read (`/ 46`, `5/267`).
     viewCount?: string;
 }
 
 export const viewers: Record<string, Viewer> = {
+    // Archinoë: `n/total` in the viewer's pagination.
+    archinoe: {
+        view: "#visu_pagination",
+        viewCount: "#visu_pagination",
+    },
     // Arkothèque 8: the viewer's own test hooks.
     arkotheque: {
         licence: 'button[data-cy="accept-license"]',
         view: 'input[data-cy="input-position-image"]',
         viewCount: '[data-cy="nb-total-images"]',
+    },
+    // Ligeo: the Monocle viewer's page navigation.
+    ligeo: {
+        view: '.monocle-PageNav input[role="spinbutton"]',
+        viewCount: ".monocle-PageNav-total",
+    },
+    // Mnesys Expo: the media browser, behind the reuse conditions' dialog.
+    mnesys: {
+        licence: 'input.btn.primary[value="Accepter"]',
+        view: ".media-browse .pagination-form input",
+        viewCount: ".media-browse .page-count",
+    },
+    // Prismia Vision: `n` and `total` in the view-number button.
+    prismia: {
+        view: 'button[aria-label="Numéro de la vue"]',
+        viewCount: 'button[aria-label="Numéro de la vue"]',
     },
 };

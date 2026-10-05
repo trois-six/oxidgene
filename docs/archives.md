@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T15:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:30:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -357,7 +357,10 @@ the endpoint's origins, and keeps the cookies responses set, by origin, in a
 jar that lives as long as the fetcher: one resolution. The jar keeps names
 and values only — within one resolution on a few origins of one portal, the
 domain, path and expiry attributes have nothing to separate — and forgets a
-cookie set empty or with `Max-Age=0`.
+cookie set empty or with `Max-Age=0`. It opens a fresh connection for each
+request: the Pas-de-Calais portal answers `HTTP/1.0` with `Connection:
+Keep-Alive`, then drops a reused connection in the middle of its next
+answer, and a resolution's handful of requests gains little from reuse.
 
 The `window` transport ([§6.1](#61-desktop)) first loads the endpoint's
 `start` page, the portal's own page, and waits until it is the loaded portal
@@ -592,10 +595,10 @@ Resolution:
 
 1. `GET <prefix>/resultats/<search>/n:<node>?<locality input>=<locality>&<act filter>&<year_from>=<year>&<year_to>=<year>&type=<search>`, the address a form submission reaches through a redirect from `<prefix>/recherche/…`. Values are the readable names and labels; no key is needed. `results_url` is this address. The locality is a **substring** match (`Exampleville` also returns `Exampleville-lès-Bois`), and the years are an interval test: the register's period contains the year when both inputs are the cited one (`exacte`, the register's own period, is not used). A citation without a year omits both.
 2. The answer is a Ligeo page when it holds `div#arc_liste_update`. Any other body is an anti-bot challenge when it bears the signature of Anubis or of the F5 pages (`ResolveError::Challenged`, §5.2: not drift), and a changed shape otherwise. The count is in `p.nb_reponses > span` or `span.arc_nbr_reponses`; the rows are the `tr.pair` and `tr.impair` of `table#resultats`, each cell mapped by its header text. No table is no match. A header the settings name that the table lacks is a changed shape; more answers than rows read (pages of 20 to 50 rows) gives `Results` with the count rather than a guess.
-3. Each row gives its locality (the cell before the thesaurus qualifier, `Exampleville (commune ; Exampledept, France)`, or the title's head), its acts, period and image count, which the viewer link carries in its `title`, `120 vues  dont 104 indexées - <label> (ouvre la visionneuse)`. Acts are read as the codes selection compares: the kinds the text names (`B, M, S`, `Naissances.`, `baptêmes, mariages`), `TD` for decennial tables; the link's label stands in where there is no act column (`BMS` on parish registers). Letter codes are read in an act cell or label, never in a title, where an initial is not an act. On a title-only table the locality is the title up to ` : ` or `, `, the parish the name after it (`Exampleville : Saint-Exemple, paroisse de …`, or `paroisse de Saint-Exemple.`), and the call number the shaped words after the first sentence (`… Saint-Exemple. 1 GG 8, registre …`).
+3. Each row gives its locality (the cell before the thesaurus qualifier, `Exampleville (commune ; Exampledept, France)`, or the title's head), its acts, period and image count, which the viewer link carries in its `title`, `120 vues  dont 104 indexées - <label> (ouvre la visionneuse)`. Acts are read as the codes selection compares: the kinds the text names (`B, M, S`, `Naissances.`, `baptêmes, mariages`), `TD` for decennial tables; the link's label stands in where there is no act column (`BMS` on parish registers). Letter codes are read in an act cell or label, never in a title, where an initial is not an act. On a title-only table the locality is the title up to ` : `, `, ` or `. ` (`Exampleville. 1 E 1 registre paroissial : …`), the parish the name after it (`Exampleville : Saint-Exemple, paroisse de …`, or `paroisse de Saint-Exemple.`), and the call number the shaped words after the first sentence (`… Saint-Exemple. 1 GG 8, registre …`).
 4. One register is selected as for Arkothèque (§4.3, step 3): rows whose locality, folded, equals the cited one, then act kind, parish, period and image count. The **call number only breaks a tie**: the first selection ignores it, and it is applied only when that leaves several rows, choosing one only if exactly one carries it. The portals disagree on what it is: Ain shows an internal reference, not a call number; the Ardèche `Cote ou référence` is shared by the registers of every locality of the same kind and year; Haute-Garonne has one in the title of communal registers only; the Alpes-Maritimes one is shared by a commune's volumes. A cited call number no row carries therefore does not discard them.
 5. The target is `<origin>/ark:/<naan>/<id>/<tag>/<group>/<view>`, the view one-based. `<tag>/<group>` is kept from the row's viewer link (`/ark:/<naan>/<id>/<tag>/<group>/layout:table/…`): `daogrp/0` normally, `daoloc/0` on the Ardèche parish registers, `dao/0` on finding-aid pages. The portal answers with a redirect to the same path and `?id=<canvas ark>`; its Monocle viewer opens on that view, and a reload keeps it. A view beyond the register's images gives `View` with no views, opened on the first image (§7).
-6. For a `display: "iiif"` archive, `GET /ark:/<naan>/<id>/manifest` (IIIF Presentation 2, `Access-Control-Allow-Origin: *`, not cacheable, 0.25 to 1 MB) gives the image count and, per canvas, the pixel size, the image service and the view's own persistent address (`…/img:<image name>`, returned as `ark`). The sizes are the canvas's: the service's `info.json` is served as `text/html` and describes another image, so it is not read, and the manifest's other fields (renderings, thumbnails, file paths) name server paths and are not either. The services are Image API 2 level 1 under the portal's `/iiif/` path, rebuilt on the portal's origin whatever host the manifest declares. Level 1 sizes by width or height, never by a bounding box and never above the image's own size (`404`): the picture is `full/2048,/0/default.jpg` (`,2048` for a portrait image) when the long side exceeds 2048 pixels and `full` otherwise, the thumbnail `full/150,/0/default.jpg`. Images carry `Access-Control-Allow-Origin: *`. A `display: "portal"` archive reads the count from the row and fetches no manifest.
+6. For a `display: "iiif"` archive, `GET /ark:/<naan>/<id>/manifest` (IIIF Presentation 2, `Access-Control-Allow-Origin: *`, not cacheable, 0.25 to 1 MB) gives the image count and, per canvas, the image service and the view's own persistent address (`…/img:<image name>`, returned as `ark`). The canvases' declared sizes are not their images': the live checks found canvases of 1392 × 1212 over images of 2704 × 1780 (Ain), and other proportions on every portal. Each cited view's size is therefore its service's `info.json` (`<service>/info.json`, Image API 3 context, served as `text/html`), one request per view; the manifest's other fields (renderings, thumbnails, file paths) name server paths and are not read. The services are Image API 2 level 1 under the portal's `/iiif/` path, rebuilt on the portal's origin whatever host the manifest declares. Level 1 sizes by width or height, never by a bounding box and never above the image's own size (`404`): the picture is `full/2048,/0/default.jpg` (`,2048` for a portrait image) when the long side exceeds 2048 pixels and `full` otherwise, the thumbnail `full/150,/0/default.jpg`. Images carry `Access-Control-Allow-Origin: *`. A `display: "portal"` archive reads the count from the row and fetches no manifest.
 
 The viewer shows the current view in `.monocle-PageNav input[role="spinbutton"]` (`aria-valuenow`) and the total in `.monocle-PageNav-total`, which the live check reads; the portals observed show no licence step. A live check also finds a locality to probe from the portal: the locality input's thesaurus is named in the search page script (`new VT_Control("ArchivesRECHCommune",{…"str":"…"…})`), and `POST /archive/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index` with the input's name and three letters lists the matching localities. It is read from the page, not set.
 
@@ -1056,7 +1059,7 @@ Archive portals are public services whose terms OxidGene follows:
   fixtures, covering one match, several matches, no match, a changed
   response shape, and the platform's own cases: for Arkothèque, a locality
   matched as text, a period of several segments, a view beyond the
-  register's images, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, and the images sized by the manifest's canvases.
+  register's images, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, and the images sized by their services' `info.json` rather than the manifest's canvases.
 - Transport tests check the declared origins, the header allow-list and the
   native cookie jar; the desktop's, that a window's answers reach only their
   own request and only from the archive's origin.
@@ -1089,44 +1092,51 @@ committed reference, so the repository holds no locality, call number or
 view chosen from anyone's research, and the check survives an archive
 renumbering its registers. For each collection of each archive, in order:
 
-1. **Search page.** The collection's search page loads, and every reference
-   of its `portal` settings is still declared by the portal.
+1. **Search page.** The portal's `robots.txt` is read first: a
+   `Crawl-delay` for every robot or for OxidGene spaces the check's
+   following requests (Ligeo portals ask 5 seconds), up to 30 seconds. The
+   collection's search page loads, and every reference of its `portal`
+   settings is still declared by the portal.
 2. **Discovery.** The alphabetically first locality the portal's own
    locality filter lists, with the first act of the collection's `acts` and
-   no year, returns at least one register whose row yields a call number, an
-   image count, an image address and a year within the collection's period.
-   The engines list their most populated locality first, whose search is
-   the slowest — the largest Sarthe parish's baptisms took longer than the
-   10-second bound of §8 — so the check takes an ordinary one. Of the
-   registers, it keeps the first that its citation can single out: none
+   no year, returns at least one register whose row yields an image address
+   and a year within the collection's period. The engines list their most
+   populated locality first, whose search is the slowest — the largest
+   Sarthe parish's baptisms took longer than the 10-second bound of §8 — so
+   the check takes an ordinary one. Of the registers, it keeps the first
+   that its citation can single out, one with a call number first: none
    other of the list shares its call number and image count with a period
-   covering its year; failing that, the first one it can cite.
+   covering its year; failing that, the first one it can cite. A portal
+   whose rows show no call number (Calvados, Ain) has its registers cited
+   without one; one whose rows do not count the images (Archinoë) has the
+   chosen register's counted by its viewer page.
 3. **Resolution.** A citation assembled from that register — its locality
    as a citation writes it (`Le Bourg` for the portal's `Bourg (Le)`), the
-   act, the first year of its period, its call number, and its middle view
-   `⌈count / 2⌉ / count` — resolves through the `Resolver` to `View` with
-   that call number, that view and that count; for a `display: "iiif"`
-   archive, with the view's image and an attribution without a placeholder
-   left. The same citation without its call number resolves to the same
-   register or to `Results`, never to another register.
+   act, the first year of its period, its call number when it has one, and
+   its middle view `⌈count / 2⌉ / count` — resolves through the `Resolver`
+   to `View` with that call number, that view and, where the adapter counts
+   the images, that count; for a `display: "iiif"` archive, with the view's
+   image and an attribution without a placeholder left. The same citation
+   without its call number resolves to the same register or to `Results`,
+   never to another register.
 4. **Opening.** The target loads in a browser and the portal's viewer shows
    the cited view: the view number it displays equals the cited one, once
    its reuse licence, if any, is accepted, and its view count, where it
    shows one, equals the register's.
 5. **Images**, for a `display: "iiif"` archive: the picture and the
-   thumbnail load as images, with the resolved proportions and no larger
-   than the resolved size.
+   thumbnail load as images no larger than the resolved size, the picture
+   with the resolved proportions; a thumbnail may be the portal's own,
+   square one (Mnesys).
 
-For Arkothèque, step 1 finds the engine and content references in the
-search page's `data-moteur` and `data-contenu`, then reads the engine's
-bare answer, the one the page requests on load
-(`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`): its
-`filtres` must hold the locality, act and period filters, its `restits` the
-display mode, and the act filter's values every `acts` value with its record
-key. The localities are that answer's aggregation of the locality filter's
-field. Its viewer shows the view in `input[data-cy="input-position-image"]`
-and the count in `[data-cy="nb-total-images"]`, after
-`button[data-cy="accept-license"]` on a portal with a licence (Sarthe).
+What each platform's probe reads, and where its viewer shows the view:
+
+| Platform | Step 1: references and localities | Step 4: viewer |
+|---|---|---|
+| Arkothèque | The search page's `data-moteur` and `data-contenu`; the engine's bare answer, the one the page requests on load (`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`): its `filtres` hold the locality, act and period filters, its `restits` the display mode, the act filter's values every `acts` value with its record key; the localities are its aggregation of the locality filter's field. | `input[data-cy="input-position-image"]`, count `[data-cy="nb-total-images"]`, after `button[data-cy="accept-license"]` (Sarthe). |
+| Mnesys | The form `/search/form/<form>`: each select is an `enhanced-select` whose `data-options` lists its labels; the act select holds every `acts` label, the year input exists; the localities are the locality select's labels that follow a `locality_label` pattern. | `.media-browse .pagination-form input`, count `.media-browse .page-count`, after `input.btn.primary[value="Accepter"]`. |
+| Ligeo | The search form `arc_form_rech` holds every input and act value of the settings; the page's script names the locality's thesaurus (`VT_Control`, `str`), whose autocomplete (`POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index`) is asked for `Sai`; labels naming a parish, a place or a former commune are left out. | `.monocle-PageNav input[role="spinbutton"]`, count `.monocle-PageNav-total`. |
+| Archinoë | `registre`: the locality select's labels, the act select holds every act identifier, the year input exists. `seriel`: the form names its inputs (quoted with apostrophes); the localities are the autocomplete's suggestions for `Sai` (`ir_seriel_data.php`) that follow `locality_label`. `ead`: the finding aid's root lists the communes, a leading article written behind the name. The results count no images: the chosen register's viewer page does (one `div_image_<n>` per view). | `#visu_pagination` (`n/total`). |
+| Prismia Vision | The API key of `/runtimeConfig.js`; the facet endpoint lists the act filter's values, which hold every `acts` value, and the localities, written `Name (Article)`. | `button[aria-label="Numéro de la vue"]` (`n` and `total`). |
 
 **How it runs.** The adapter logic stays in Rust, whichever transport
 carries the requests:
@@ -1159,6 +1169,15 @@ drives its future on its own thread, since its requests block on the
 streams — and the same `Resolver`, adapters and verdicts run over both
 transports.
 
+A portal that sends the browser to another site instead of its own page
+refuses the identified agent as a challenge would: the Archinoë v2 hosts
+(Charente-Maritime, Oise) redirect a `User-Agent` naming OxidGene to a
+search engine, whether a plain client's or the browser's. Their checks end
+`challenged` at once and stay unverified: §8 asks the checks to identify
+themselves, and a check does not hide what it is to pass. A reader's own
+browser and the desktop window send the browser's own `User-Agent` and are
+not refused.
+
 A challenge is told apart from a drift on every path. A page that never
 got past one fails the bridge's `connect` with `FetchError::Challenged`; an
 error status whose body is an anti-bot page (`markup::is_challenge`) is
@@ -1172,9 +1191,9 @@ collection `challenged` rather than `drift` or `unreachable`.
 (`OXIDGENE_LIVE_REPORT_DIR`) `native.json`, the native test's, and
 `report.json`, the run's: per archive its outcome, and per collection the
 transport, the outcome, the failing step with the expected and received
-shapes, the number of requests sent to the portal (seven per collection for
-steps 1 to 3 on Arkothèque), the citation built, and the opening of steps 4
-and 5. Each archive ends in one of four outcomes, the worst of its
+shapes, the number of requests sent to the portal (five to thirteen per
+collection for steps 1 to 3, `robots.txt` included), the locality searched,
+the citation built, and the opening of steps 4 and 5. Each archive ends in one of four outcomes, the worst of its
 collections':
 
 | Outcome | Meaning | Run result |
@@ -1201,7 +1220,10 @@ check, in three places; archives are then picked up from the catalogue:
    lists, as a citation writes it; `registers` sends the search a citation
    of that locality and act would send, without a year, and maps each
    result to a `live::Register` (the locality as a citation writes it, the
-   call number, the displayed period, the image count, the image address).
+   call number and the image count where the results show them, the
+   displayed period, the image address). A platform whose results do not
+   count the images also implements `images`, which counts those of the
+   chosen register from the portal's own pages.
 2. `live::probe` in `crates/oxidgene-archives/src/live/mod.rs` lists it by
    platform id; the `every_adapter_has_a_probe` test fails until it does.
 3. `viewers` in `e2e/archives/viewers.ts` describes the portal's viewer by

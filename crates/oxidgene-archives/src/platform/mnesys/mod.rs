@@ -10,6 +10,8 @@
 //! viewer opens on it, and it is also the view's persistent address. Archive
 //! Portals §4.4 specifies the requests.
 
+#[cfg(any(test, feature = "live"))]
+mod live;
 mod page;
 #[cfg(test)]
 mod tests;

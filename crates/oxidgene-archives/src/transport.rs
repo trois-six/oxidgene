@@ -300,6 +300,11 @@ mod native {
                 .timeout(TIMEOUT)
                 .retry(reqwest::retry::never())
                 .redirect(reqwest::redirect::Policy::none())
+                // A fresh connection per request: some portals answer
+                // `HTTP/1.0` with `Connection: Keep-Alive`, then drop the
+                // reused connection mid-answer (Pas-de-Calais). A resolution
+                // sends a handful of requests, so pooling saves little.
+                .pool_max_idle_per_host(0)
                 .build()
                 .map_err(|_| FetchError::Network)?;
             Ok(Self { client })

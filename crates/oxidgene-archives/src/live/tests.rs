@@ -62,7 +62,9 @@ impl Scripted {
         if let Some(failure) = &self.failure {
             return Err(failure.clone());
         }
-        let body = if url == "/chercher/etat-civil-et-registres-paroissiaux" {
+        let body = if url == "/robots.txt" {
+            "User-agent: *\nDisallow: /private/\n"
+        } else if url == "/chercher/etat-civil-et-registres-paroissiaux" {
             &self.page
         } else if url.starts_with("/_recherche-api/moteur?") && url.contains("ficheFocus") {
             self.search
@@ -145,8 +147,11 @@ fn discovers_with_a_handful_of_sequential_requests() {
     // The page, the engine, the discovery search, then a search and the
     // viewer per resolution, with and without the call number.
     let requests = transport.requests.lock().unwrap().clone();
-    assert_eq!(report.requests, 7);
-    assert_eq!(requests.len(), 7);
+    assert_eq!(report.requests, 8);
+    assert_eq!(requests.len(), 8);
+    // The portal's pace first, then its search page and engine.
+    assert_eq!(requests[0], "/robots.txt");
+    let requests = &requests[1..];
     assert_eq!(requests[0], "/chercher/etat-civil-et-registres-paroissiaux");
     assert!(requests[1].contains("contenuIds"));
     assert!(!requests[1].contains("ficheFocus"));
@@ -209,7 +214,8 @@ fn reports_an_unanswered_portal_as_unreachable() {
         let report = check(&transport);
         assert_eq!(report.outcome, outcome, "{error:?}");
         assert_eq!(report.failure.unwrap().step, Step::SearchPage);
-        assert_eq!(report.requests, 1);
+        // `robots.txt`, then the search page.
+        assert_eq!(report.requests, 2);
     }
 }
 
@@ -230,7 +236,26 @@ fn a_challenge_page_is_not_a_drift() {
     transport.engine = challenge.to_owned();
     let report = check(&transport);
     assert_eq!(report.outcome, Outcome::Challenged);
-    assert_eq!(report.requests, 2);
+    assert_eq!(report.requests, 3);
+}
+
+#[test]
+fn reads_the_pace_a_portal_asks_of_robots() {
+    let robots = "User-agent: Googlebot\nCrawl-delay: 1\n\nUser-agent: OtherBot\nUser-agent: *\nDisallow: /archive/resultats/*?*\nCrawl-delay: 5 # seconds\n";
+    assert_eq!(crawl_delay(robots), Duration::from_secs(5));
+    assert_eq!(
+        crawl_delay("User-agent: Googlebot\nCrawl-delay: 10\n"),
+        Duration::ZERO
+    );
+    assert_eq!(
+        crawl_delay("User-agent: *\nCrawl-delay: 3600\n"),
+        MAX_CRAWL_DELAY
+    );
+    assert_eq!(crawl_delay("<html>Not found</html>"), Duration::ZERO);
+    assert_eq!(
+        crawl_delay("User-agent: *\nCrawl-delay: 0.5\n"),
+        Duration::from_millis(500)
+    );
 }
 
 fn register(call_number: &str, period: &str, images: u16) -> Register {
@@ -317,6 +342,7 @@ fn an_archive_takes_its_worst_outcome() {
         outcome,
         failure: None,
         requests: 0,
+        locality: None,
         citation: None,
         opening: None,
     };

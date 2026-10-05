@@ -11,6 +11,8 @@
 //! as the view number, so the target needs no further request. Archive
 //! Portals §4.7 specifies the requests.
 
+#[cfg(any(test, feature = "live"))]
+mod live;
 mod page;
 #[cfg(test)]
 mod tests;

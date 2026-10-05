@@ -146,7 +146,7 @@ pub(super) async fn find(
 }
 
 /// The registers of one page of results, and the total the portal announces.
-fn page_rows(html: &str) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
+pub(super) fn page_rows(html: &str) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
     let announced = markup::text_after(html, "class='cnres' >")
         .ok_or_else(|| unexpected("the results lack their total"))?;
     let total = if announced.starts_with("Aucun") {

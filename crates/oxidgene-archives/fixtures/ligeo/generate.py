@@ -167,9 +167,11 @@ write("hg-several.html", page(
     '<VTISREP>' + table(HG_HEADERS, hg, thead=False)))
 
 
-# The register's IIIF Presentation 2 manifest: the canvases' sizes, image
-# services and view permalinks. The service host is the portal's internal
-# one; the adapter never uses it.
+# The register's IIIF Presentation 2 manifest: the canvases, image services
+# and view permalinks. The service host is the portal's internal one; the
+# adapter never uses it. The canvases' sizes are not the images': the live
+# portals declare canvases of another size and proportions than the image
+# their service serves, whose `info.json` gives the true size.
 def canvas(register, index, width, height):
     name = f"EX_{register:04d}_{index:03d}"
     return {
@@ -212,3 +214,24 @@ def manifest(register, sizes):
 
 SIZES = [(3576, 2268), (3576, 2268), (3576, 2268), (3576, 2268), (2268, 3576), (1000, 800)]
 write("manifest.json", json.dumps(manifest(11, SIZES), indent=1, ensure_ascii=False) + "\n")
+
+
+# An image service's `info.json`, as the portals serve it (as `text/html`):
+# Image API 3, level 1, a few sizes, an id on the internal host.
+def info(width, height):
+    return {
+        "@context": "http://iiif.io/api/image/3/context.json",
+        "id": "https://portal.example.invalid/iiif/pool1/EX/FOND.TIF",
+        "type": "ImageService3",
+        "protocol": "http://iiif.io/api/image",
+        "profile": "level1",
+        "width": width,
+        "height": height,
+        "sizes": [{"width": width // 2 ** k, "height": height // 2 ** k} for k in (4, 3, 2, 1)],
+        "tiles": [{"width": 256, "height": 256, "scaleFactors": [1, 2, 4, 8, 16]}],
+    }
+
+
+write("info-wide.json", json.dumps(info(2704, 1780), indent=1) + "\n")
+write("info-tall.json", json.dumps(info(1780, 2704), indent=1) + "\n")
+write("info-small.json", json.dumps(info(1000, 800), indent=1) + "\n")

@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 
 import type { Page } from "@playwright/test";
 
-import type { CollectionReport } from "./report";
+import { type CollectionReport, isChallenge } from "./report";
 
 // The native transport's bound on one request (transport.rs, TIMEOUT).
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -80,11 +80,18 @@ async function connect(page: Page, start: string, origins: string[]): Promise<st
         return error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network";
     }
     if (status >= 500) return "network";
+    // A portal that sends an agent identifying itself to another site
+    // refuses it, as a challenge does; the check goes no further there.
+    if (!origins.includes(originOf(page.url()) ?? "")) {
+        await page.goto("about:blank").catch(() => undefined);
+        return "challenged";
+    }
     const deadline = Date.now() + LOAD_TIMEOUT_MS;
     while (Date.now() < deadline) {
         if (await rendersThePortal(page, origins)) {
             // A challenge answering with its own refusal page.
-            return status === 403 || status === 429 ? "challenged" : null;
+            const refused = status === 403 || status === 429 || isChallenge(await page.content().catch(() => ""));
+            return refused ? "challenged" : null;
         }
         await page.waitForTimeout(500);
     }

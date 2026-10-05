@@ -28,7 +28,9 @@
 
 pub mod bridge;
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -123,9 +125,14 @@ impl Failure {
         }
     }
 
-    /// A failed request of a probe.
+    /// A failed request of a probe, described by the request's own error
+    /// (a status, a timeout, a refused redirect).
     pub fn fetch(step: Step, expected: impl Into<String>, error: FetchError) -> Self {
-        Self::from_error(step, expected, &ResolveError::from(error))
+        let mut failure = Self::from_error(step, expected, &ResolveError::from(error.clone()));
+        if failure.outcome != Outcome::Challenged {
+            failure.received = error.to_string();
+        }
+        failure
     }
 }
 
@@ -136,12 +143,16 @@ pub struct Register {
     /// The locality as a citation writes it, which may differ from the
     /// portal's style (`Le Bourg` for `Bourg (Le)`).
     pub locality: String,
+    /// The call number, where the portal shows one: some portals show none,
+    /// and their citations name registers without it.
     pub call_number: Option<String>,
     /// The period as the portal displays it.
     pub period: Option<String>,
+    /// The image count, where the results show it; otherwise
+    /// [`Probe::images`] reads it for the chosen register.
     pub images: Option<u16>,
-    /// The address that opens the register's images: a viewer endpoint or
-    /// an ARK.
+    /// The address that opens the register's images: a viewer endpoint, an
+    /// ARK, a register identifier.
     pub address: Option<String>,
 }
 
@@ -154,10 +165,11 @@ impl Register {
             .next()
     }
 
-    /// Whether the register has what a citation of it needs.
+    /// Whether the register has what a citation of it needs: an image
+    /// address, a year in the collection's period, and images when the
+    /// results count them.
     fn is_citable(&self, collection: &Collection) -> bool {
-        self.call_number.is_some()
-            && self.images.is_some_and(|images| images > 0)
+        self.images.is_none_or(|images| images > 0)
             && self.address.is_some()
             && self
                 .year()
@@ -169,7 +181,8 @@ impl Register {
     fn is_confusable_with(&self, other: &Self) -> bool {
         let same_call_number = match (&self.call_number, &other.call_number) {
             (Some(mine), Some(theirs)) => CallNumber::new(mine.as_str()).matches(theirs),
-            _ => false,
+            (None, _) => true,
+            (Some(_), None) => false,
         };
         let year = self.year();
         same_call_number
@@ -211,12 +224,28 @@ pub trait Probe: Send + Sync {
         act: &'a Act,
         fetch: &'a dyn PortalFetch,
     ) -> BoxFuture<'a, Result<Vec<Register>, Failure>>;
+
+    /// The image count of a chosen register its results did not count, as
+    /// the portal's own pages give it; `None` by default, which fails the
+    /// discovery.
+    fn images<'a>(
+        &'a self,
+        _collection: &'a Collection,
+        _register: &'a Register,
+        _fetch: &'a dyn PortalFetch,
+    ) -> BoxFuture<'a, Result<Option<u16>, Failure>> {
+        Box::pin(async { Ok(None) })
+    }
 }
 
 /// The probe of a platform.
 pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
     match platform {
+        "archinoe" => Some(&crate::platform::Archinoe),
         "arkotheque" => Some(&crate::platform::Arkotheque),
+        "ligeo" => Some(&crate::platform::Ligeo),
+        "mnesys" => Some(&crate::platform::Mnesys),
+        "prismia" => Some(&crate::platform::Prismia),
         _ => None,
     }
 }
@@ -256,6 +285,8 @@ pub struct CollectionReport {
     /// The requests the check sent to the portal.
     pub requests: u32,
     /// The citation built from the portal, in the normalized form.
+    /// The locality the discovery searched, as a citation writes it.
+    pub locality: Option<String>,
     pub citation: Option<String>,
     pub opening: Option<Opening>,
 }
@@ -319,10 +350,7 @@ pub async fn check_collection(
     transport: &dyn PortalTransport,
 ) -> CollectionReport {
     let collection = &archive.collections[index];
-    let counting = Counting {
-        inner: transport,
-        requests: AtomicU32::new(0),
-    };
+    let counting = Counting::new(transport);
     let mut report = CollectionReport {
         collection: collection.id.clone(),
         index,
@@ -335,6 +363,7 @@ pub async fn check_collection(
         outcome: Outcome::Ok,
         failure: None,
         requests: 0,
+        locality: None,
         citation: None,
         opening: None,
     };
@@ -353,7 +382,7 @@ async fn steps(
     registry: &ArchiveRegistry,
     archive: &Archive,
     collection: &Collection,
-    transport: &dyn PortalTransport,
+    transport: &Counting<'_>,
     report: &mut CollectionReport,
 ) -> Result<Opening, Failure> {
     let probe = probe(&collection.platform).ok_or_else(|| {
@@ -371,8 +400,13 @@ async fn steps(
         .connect(&endpoint)
         .await
         .map_err(|error| Failure::fetch(Step::SearchPage, "the portal's search page", error))?;
+    // The pace the portal asks of robots, for every request that follows.
+    if let Ok(robots) = fetch.get("/robots.txt").await {
+        transport.space(crawl_delay(&robots));
+    }
 
     let locality = probe.search_page(collection, fetch.as_ref()).await?;
+    report.locality = Some(locality.clone());
     let act = collection
         .acts
         .first()
@@ -380,10 +414,23 @@ async fn steps(
     let registers = probe
         .registers(collection, &locality, act, fetch.as_ref())
         .await?;
+    let mut register = choose(&registers, &locality, collection)?.clone();
+    if register.images.is_none() {
+        register.images = probe
+            .images(collection, &register, fetch.as_ref())
+            .await?
+            .filter(|images| *images > 0);
+    }
     drop(fetch);
+    if register.images.is_none() {
+        return Err(Failure::drift(
+            Step::Discovery,
+            "the chosen register's image count",
+            "none",
+        ));
+    }
 
-    let register = choose(&registers, &locality, collection)?;
-    let citation = citation_of(archive, act, register);
+    let citation = citation_of(archive, act, &register);
     report.citation = Some(title_of(&citation));
     resolution(registry, archive, collection, transport, &citation).await
 }
@@ -405,11 +452,13 @@ fn choose<'r>(
         .copied()
         .filter(|register| fold(&register.locality) == searched)
         .collect();
-    let pool = if at_locality.is_empty() {
-        &citable
+    let mut pool = if at_locality.is_empty() {
+        citable
     } else {
-        &at_locality
+        at_locality
     };
+    // A register its citation can name by call number first.
+    pool.sort_by_key(|register| register.call_number.is_none());
     pool.iter()
         .copied()
         .find(|register| {
@@ -424,7 +473,7 @@ fn choose<'r>(
             let count = |test: fn(&Register) -> bool| registers.iter().filter(|r| test(r)).count();
             Failure::drift(
                 Step::Discovery,
-                "a register with a call number, an image count, an image address and a year in the collection's period",
+                "a register with an image address and a year in the collection's period",
                 format!(
                     "{} registers: {} with a call number, {} with images, {} with an image address, {} with a year",
                     registers.len(),
@@ -500,6 +549,9 @@ async fn resolution(
         .map_err(|error| Failure::from_error(Step::Resolution, expected(), &error))?;
     let opening = check_view(archive, collection, citation, &target)
         .map_err(|received| Failure::drift(Step::Resolution, expected(), received))?;
+    if citation.call_number.is_none() {
+        return Ok(opening);
+    }
 
     let uncalled = CitationParts {
         call_number: None,
@@ -547,12 +599,13 @@ fn check_view(
             });
         }
     };
-    let cited = citation.call_number.as_ref().map(CallNumber::as_str);
-    let same_call_number = call_number
-        .as_deref()
-        .zip(citation.call_number.as_ref())
-        .is_some_and(|(found, cited)| cited.matches(found));
-    if !same_call_number {
+    // A register its portal lists without a call number is cited without
+    // one, and found by the other parts.
+    if let Some(cited) = &citation.call_number
+        && !call_number
+            .as_deref()
+            .is_some_and(|found| cited.matches(found))
+    {
         return Err(format!(
             "View of a register with {} call number than {}",
             if call_number.is_some() {
@@ -560,7 +613,7 @@ fn check_view(
             } else {
                 "no"
             },
-            cited.unwrap_or_default()
+            cited.as_str()
         ));
     }
     let view = citation.views[0].view;
@@ -571,11 +624,12 @@ fn check_view(
             view_count.unwrap_or_default()
         ));
     };
-    if *view_count != citation.view_count {
-        return Err(format!(
-            "View of a register of {} images",
-            view_count.unwrap_or_default()
-        ));
+    // An adapter that does not count a register's images leaves the count
+    // to the viewer, which step 4 reads.
+    if let Some(count) = view_count
+        && Some(*count) != citation.view_count
+    {
+        return Err(format!("View of a register of {count} images"));
     }
     if archive.display == crate::Display::Iiif {
         if first.image.is_none() {
@@ -592,20 +646,101 @@ fn check_view(
         platform: collection.platform.clone(),
         url: first.url.clone(),
         view,
-        view_count: *view_count,
+        // Counted by the probe where the adapter does not count.
+        view_count: view_count.or(citation.view_count),
         image: first.image.clone(),
     })
 }
 
-/// Counts the requests a check sends, over whatever transport carries them.
+/// The longest pause a portal's `Crawl-delay` imposes between two requests
+/// of a check.
+const MAX_CRAWL_DELAY: Duration = Duration::from_secs(30);
+
+/// The `Crawl-delay` a `robots.txt` asks of every robot (`User-agent: *`) or
+/// of OxidGene, bounded by [`MAX_CRAWL_DELAY`]; none when it asks none.
+pub(crate) fn crawl_delay(robots: &str) -> Duration {
+    let mut delay = 0.0_f64;
+    let mut applies = false;
+    let mut in_agents = false;
+    for line in robots.lines() {
+        let line = line.split('#').next().unwrap_or_default().trim();
+        let Some((field, value)) = line.split_once(':') else {
+            continue;
+        };
+        let (field, value) = (field.trim().to_ascii_lowercase(), value.trim());
+        if field == "user-agent" {
+            let agent = value.to_ascii_lowercase();
+            let ours = agent == "*" || agent.contains("oxidgene");
+            // Consecutive agents share a group; a new group starts after a
+            // rule.
+            applies = if in_agents { applies || ours } else { ours };
+            in_agents = true;
+            continue;
+        }
+        in_agents = false;
+        if applies
+            && field == "crawl-delay"
+            && let Ok(seconds) = value.parse::<f64>()
+            && seconds.is_finite()
+        {
+            delay = delay.max(seconds);
+        }
+    }
+    Duration::from_secs_f64(delay.clamp(0.0, MAX_CRAWL_DELAY.as_secs_f64()))
+}
+
+/// Counts the requests a check sends, over whatever transport carries them,
+/// and spaces them by the portal's `Crawl-delay`. Requests are sequential,
+/// so the pause blocks the check's own thread.
 struct Counting<'t> {
     inner: &'t dyn PortalTransport,
     requests: AtomicU32,
+    pace: Mutex<Pace>,
+}
+
+/// The spacing of a check's requests.
+#[derive(Default)]
+struct Pace {
+    delay: Duration,
+    last: Option<Instant>,
+}
+
+impl<'t> Counting<'t> {
+    fn new(inner: &'t dyn PortalTransport) -> Self {
+        Self {
+            inner,
+            requests: AtomicU32::new(0),
+            pace: Mutex::new(Pace::default()),
+        }
+    }
+
+    /// Spaces the following requests by `delay`.
+    fn space(&self, delay: Duration) {
+        if let Ok(mut pace) = self.pace.lock() {
+            pace.delay = delay;
+        }
+    }
+
+    /// Counts a request about to start, once the portal's pause is over.
+    fn start(&self) {
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        let Ok(mut pace) = self.pace.lock() else {
+            return;
+        };
+        if let Some(wait) = pace
+            .last
+            .map(|last| pace.delay.saturating_sub(last.elapsed()))
+            .filter(|wait| !wait.is_zero())
+        {
+            std::thread::sleep(wait);
+        }
+        pace.last = Some(Instant::now());
+    }
 }
 
 struct CountingFetch<'c> {
     inner: Box<dyn PortalFetch + 'c>,
-    requests: &'c AtomicU32,
+    counting: &'c Counting<'c>,
 }
 
 impl PortalTransport for Counting<'_> {
@@ -621,7 +756,7 @@ impl PortalTransport for Counting<'_> {
             let inner = self.inner.connect(endpoint).await?;
             Ok(Box::new(CountingFetch {
                 inner,
-                requests: &self.requests,
+                counting: self,
             }) as Box<dyn PortalFetch + 'a>)
         })
     }
@@ -632,7 +767,7 @@ impl PortalFetch for CountingFetch<'_> {
         &'a self,
         request: &'a PortalRequest,
     ) -> BoxFuture<'a, Result<String, FetchError>> {
-        self.requests.fetch_add(1, Ordering::Relaxed);
+        self.counting.start();
         self.inner.request(request)
     }
 }

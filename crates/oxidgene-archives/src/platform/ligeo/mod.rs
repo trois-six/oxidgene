@@ -10,6 +10,8 @@
 //! archive its IIIF Presentation 2 manifest gives the image count and sizes.
 //! Archive Portals §4.5 specifies the requests.
 
+#[cfg(any(test, feature = "live"))]
+mod live;
 mod page;
 #[cfg(test)]
 mod tests;
@@ -18,7 +20,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use super::iiif::{PICTURE_BOUND, THUMBNAIL_MIN_WIDTH};
+use super::iiif::{PICTURE_BOUND, THUMBNAIL_MIN_WIDTH, image_info};
 use super::select::{Selection, select};
 use super::view::{cited_views, view_target};
 use super::{Access, BoxFuture, Platform, PortalEndpoint, Query, is_https_origin};
@@ -387,7 +389,10 @@ async fn resolve(
             ark: canvas
                 .and_then(|canvas| canvas.ark.as_deref())
                 .and_then(|ark| settings.on_origin(ark, "/ark:/")),
-            image: canvas.map(|canvas| image(&settings, canvas)).transpose()?,
+            image: match canvas {
+                Some(canvas) => Some(image(&settings, canvas, fetch).await?),
+                None => None,
+            },
         });
     }
     Ok(view_target(
@@ -423,9 +428,14 @@ fn choose<'r>(
 }
 
 /// The image of one view, on the portal's own origin: the level 1 service's
-/// whole image bounded to the screen, and a tile. The size is the canvas's:
-/// the service's own `info.json` is unreliable on these portals.
-fn image(settings: &Settings, canvas: &page::Canvas) -> Result<ArchiveImage, ResolveError> {
+/// whole image bounded to the screen, and a tile. The size is the service's
+/// own, from its `info.json`: the manifest's canvases declare another size
+/// and other proportions than the image the service serves.
+async fn image(
+    settings: &Settings,
+    canvas: &page::Canvas,
+    fetch: &dyn PortalFetch,
+) -> Result<ArchiveImage, ResolveError> {
     let base = canvas
         .service
         .as_deref()
@@ -433,9 +443,12 @@ fn image(settings: &Settings, canvas: &page::Canvas) -> Result<ArchiveImage, Res
         .ok_or_else(|| {
             ResolveError::UnexpectedResponse("ligeo: a canvas lacks its image service".to_owned())
         })?;
-    let picture = if canvas.width.max(canvas.height) > PICTURE_BOUND {
+    let path = &base[settings.origin.len()..];
+    let info = image_info(&fetch.get(&format!("{path}/info.json")).await?)?;
+    let (width, height) = (info.width, info.height);
+    let picture = if width.max(height) > PICTURE_BOUND {
         // Level 1 sizes by width or height alone, not by a bounding box.
-        if canvas.width >= canvas.height {
+        if width >= height {
             format!("{PICTURE_BOUND},")
         } else {
             format!(",{PICTURE_BOUND}")
@@ -446,7 +459,7 @@ fn image(settings: &Settings, canvas: &page::Canvas) -> Result<ArchiveImage, Res
     Ok(ArchiveImage {
         picture: format!("{base}/full/{picture}/0/default.jpg"),
         thumbnail: format!("{base}/full/{THUMBNAIL_MIN_WIDTH},/0/default.jpg"),
-        width: canvas.width,
-        height: canvas.height,
+        width,
+        height,
     })
 }

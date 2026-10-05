@@ -19,6 +19,8 @@
 //! requests.
 
 mod ead;
+#[cfg(any(test, feature = "live"))]
+mod live;
 mod registre;
 mod seriel;
 #[cfg(test)]

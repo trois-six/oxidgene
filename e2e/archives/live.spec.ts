@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { runBridge } from "./bridge";
-import { type ArchiveReport, type CollectionReport, type Failure, type Opening, drift, nativeReport, record, summary, worst } from "./report";
+import { type ArchiveReport, type CollectionReport, type Failure, type Opening, drift, isChallenge, nativeReport, record, summary, worst } from "./report";
 import { viewers } from "./viewers";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -41,15 +41,17 @@ function unreachable(step: Failure["step"], expected: string, error: unknown): F
     return { step, outcome: "unreachable", expected, received };
 }
 
-// The first number an element shows: an input's value or its text.
-async function numberShown(page: Page, selector: string): Promise<number | null> {
+// The first or last number an element shows: an input's value or its text
+// (`12`, `/ 46`, `5/267`).
+async function numberShown(page: Page, selector: string, which: "first" | "last"): Promise<number | null> {
     const element = page.locator(selector).first();
     if ((await element.count()) === 0) return null;
     const text = await element
         .evaluate((node) => (node instanceof HTMLInputElement ? node.value : (node.textContent ?? "")))
         .catch(() => "");
-    const match = /\d+/.exec(text);
-    return match ? Number(match[0]) : null;
+    const numbers = text.match(/\d+/g) ?? [];
+    const number = which === "first" ? numbers[0] : numbers[numbers.length - 1];
+    return number === undefined ? null : Number(number);
 }
 
 // Step 4: the target opens on the cited view.
@@ -62,6 +64,11 @@ async function open(page: Page, opening: Opening): Promise<Failure | null> {
     try {
         const response = await page.goto(opening.url, { waitUntil: "load", timeout: VIEWER_TIMEOUT_MS });
         if ((response?.status() ?? 0) >= 500) return unreachable("opening", "the target page", new Error("status"));
+        // Sent to another site: the portal refuses the identified agent.
+        if (new URL(page.url()).origin !== new URL(opening.url).origin) {
+            await page.goto("about:blank").catch(() => undefined);
+            return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "a redirect to another site" };
+        }
     } catch (error) {
         return unreachable("opening", "the target page", error);
     }
@@ -72,18 +79,18 @@ async function open(page: Page, opening: Opening): Promise<Failure | null> {
             const licence = page.locator(viewer.licence).first();
             if (await licence.isVisible().catch(() => false)) await licence.click();
         }
-        shown = await numberShown(page, viewer.view);
+        shown = await numberShown(page, viewer.view, "first");
         if (shown === opening.view) break;
         await page.waitForTimeout(500);
     }
     if (shown === null) {
         const blank = await page.evaluate(() => !document.body || !document.body.innerText.trim()).catch(() => true);
-        if (blank) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "a page rendering nothing, as a challenge does" };
+        if (blank || isChallenge(await page.content().catch(() => ""))) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "an anti-bot challenge in place of the viewer" };
         return drift("opening", `the viewer showing view ${opening.view}`, "no view number shown");
     }
     if (shown !== opening.view) return drift("opening", `view ${opening.view}`, `view ${shown}`);
     if (viewer.viewCount && opening.view_count !== null) {
-        const count = await numberShown(page, viewer.viewCount);
+        const count = await numberShown(page, viewer.viewCount, "last");
         if (count !== opening.view_count) return drift("opening", `${opening.view_count} views`, `${count ?? "no"} views`);
     }
     return null;
@@ -120,8 +127,8 @@ async function loadImage(page: Page, url: string): Promise<Loaded> {
         .catch(() => ({ error: "network" }));
 }
 
-// Step 5: the picture and the thumbnail are images of the resolved
-// proportions, the picture no larger than the image.
+// Step 5: the picture and the thumbnail are images no larger than the
+// resolved size, the picture of the resolved proportions.
 async function images(page: Page, image: NonNullable<Opening["image"]>): Promise<Failure | null> {
     const ratio = image.width / image.height;
     for (const [role, url] of [
@@ -132,7 +139,10 @@ async function images(page: Page, image: NonNullable<Opening["image"]>): Promise
         if (loaded.error || (loaded.status ?? 0) >= 500) return unreachable("images", `the ${role}`, new Error(loaded.error));
         if (loaded.type !== undefined && !loaded.type.startsWith("image/")) return drift("images", `the ${role} as an image`, `${loaded.status} ${loaded.type || "untyped"}`);
         if (!loaded.width || !loaded.height) return drift("images", `the ${role} as an image`, `${loaded.status} without pixels`);
-        if (Math.abs(loaded.width / loaded.height - ratio) > ratio * 0.02 || Math.max(loaded.width, loaded.height) > Math.max(image.width, image.height)) {
+        // A thumbnail may be the portal's own, square or padded: only the
+        // picture is held to the image's proportions.
+        const reshaped = role === "picture" && Math.abs(loaded.width / loaded.height - ratio) > ratio * 0.02;
+        if (reshaped || Math.max(loaded.width, loaded.height) > Math.max(image.width, image.height)) {
             return drift("images", `the ${role} within ${image.width}×${image.height}, same proportions`, `${loaded.width}×${loaded.height}`);
         }
     }

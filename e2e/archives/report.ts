@@ -32,6 +32,7 @@ export interface CollectionReport {
     outcome: Outcome;
     failure: Failure | null;
     requests: number;
+    locality: string | null;
     citation: string | null;
     opening: Opening | null;
 }
@@ -40,6 +41,24 @@ export interface ArchiveReport {
     archive: string;
     outcome: Outcome;
     collections: CollectionReport[];
+}
+
+// The signatures of the anti-bot pages portals show in place of their own,
+// as `markup::CHALLENGES` of oxidgene-archives lists them.
+const CHALLENGES = [
+    "anubis",
+    "/tspd/",
+    "request rejected",
+    "access denied",
+    "making sure you",
+    "bot_mitigation",
+    "window.location.href='/redirect_",
+];
+
+// Whether a page's markup is an anti-bot challenge rather than the portal.
+export function isChallenge(html: string): boolean {
+    const lowered = html.toLowerCase();
+    return CHALLENGES.some((sign) => lowered.includes(sign));
 }
 
 const SEVERITY: Outcome[] = ["ok", "challenged", "unreachable", "drift"];

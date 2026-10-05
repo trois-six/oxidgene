@@ -73,7 +73,7 @@ pub(super) async fn find(
 
 /// The `(value, label)` of each option of the `<select name="…">` of the
 /// form, the empty "choose" option left out.
-fn options(form: &str, name: &str) -> Vec<(String, String)> {
+pub(super) fn options(form: &str, name: &str) -> Vec<(String, String)> {
     // The leading space keeps `data-othername="commune"` from matching.
     let marker = format!(" name=\"{name}\"");
     let Some(at) = form.find(&marker) else {
@@ -144,7 +144,10 @@ fn is_table_listing(act: &str) -> bool {
 
 /// The registers of a results fragment, and the total it announces. A
 /// listing of tables is left out of a search for a register's acts.
-fn rows(html: &str, cited: &Act) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
+pub(super) fn rows(
+    html: &str,
+    cited: &Act,
+) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
     if html.contains("Pas de résultat") {
         return Ok((Vec::new(), 0));
     }

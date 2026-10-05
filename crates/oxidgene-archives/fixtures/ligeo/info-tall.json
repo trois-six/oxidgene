@@ -1,0 +1,40 @@
+{
+ "@context": "http://iiif.io/api/image/3/context.json",
+ "id": "https://portal.example.invalid/iiif/pool1/EX/FOND.TIF",
+ "type": "ImageService3",
+ "protocol": "http://iiif.io/api/image",
+ "profile": "level1",
+ "width": 1780,
+ "height": 2704,
+ "sizes": [
+  {
+   "width": 111,
+   "height": 169
+  },
+  {
+   "width": 222,
+   "height": 338
+  },
+  {
+   "width": 445,
+   "height": 676
+  },
+  {
+   "width": 890,
+   "height": 1352
+  }
+ ],
+ "tiles": [
+  {
+   "width": 256,
+   "height": 256,
+   "scaleFactors": [
+    1,
+    2,
+    4,
+    8,
+    16
+   ]
+  }
+ ]
+}

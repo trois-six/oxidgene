@@ -256,9 +256,10 @@ fn clean_locality(text: &str) -> String {
         .to_owned()
 }
 
-/// The locality a title begins with: up to the first ` : ` or `, `.
+/// The locality a title begins with: up to the first ` : `, `, ` or `. `
+/// (`Exampleville. 1 E 1 registre paroissial : …`).
 fn title_locality(title: &str) -> String {
-    let end = [" : ", ", "]
+    let end = [" : ", ", ", ". "]
         .iter()
         .filter_map(|separator| title.find(separator))
         .min()
@@ -365,11 +366,10 @@ pub(super) fn path_of(address: &str) -> Option<&str> {
     (!path.contains(['?', '#', ' ', '\\']) && !path.starts_with("//")).then_some(path)
 }
 
-/// One canvas of a register's manifest: one view.
+/// One canvas of a register's manifest: one view. Its declared size is not
+/// its image's, which the image service's `info.json` gives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Canvas {
-    pub(super) width: u32,
-    pub(super) height: u32,
     /// The view's own persistent address, when the manifest gives one.
     pub(super) ark: Option<String>,
     /// The image service's address.
@@ -434,8 +434,6 @@ pub(super) fn manifest(answer: &str) -> Result<Vec<Canvas>, ResolveError> {
     Ok(canvases
         .into_iter()
         .map(|canvas| Canvas {
-            width: canvas.width,
-            height: canvas.height,
             ark: canvas.permalink,
             service: canvas
                 .images
@@ -445,4 +443,35 @@ pub(super) fn manifest(answer: &str) -> Result<Vec<Canvas>, ResolveError> {
                 .map(|service| service.id),
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_title_names_its_locality_first() {
+        for (title, locality) in [
+            (
+                "Exampleville : baptêmes, mariages, sépultures",
+                "Exampleville",
+            ),
+            (
+                "Exampleville, paroisse de Saint-Exemple. 1 GG 8",
+                "Exampleville",
+            ),
+            // A communal register, its call number after a full stop.
+            (
+                "Exampleville. 1 E 1 registre paroissial : baptêmes",
+                "Exampleville",
+            ),
+            ("Exampleville-sur-Mer", "Exampleville-sur-Mer"),
+        ] {
+            assert_eq!(title_locality(title), locality, "{title}");
+        }
+        assert_eq!(
+            title_call_number("Exampleville. 1 E 1 registre paroissial : baptêmes").as_deref(),
+            Some("1 E 1")
+        );
+    }
 }
