@@ -90,14 +90,13 @@ pub enum ResolveError {
     /// The portal answered, but not as the adapter expects: what differed,
     /// without any response content.
     UnexpectedResponse(String),
+    /// An anti-bot challenge answered in place of the portal: not a change
+    /// of the portal's shape, and nothing the adapter can pass.
+    Challenged,
     /// The portal did not answer in time.
     Timeout,
     /// The portal could not be reached, or answered with a server error.
     Unreachable,
-    /// An anti-bot challenge answered in place of the page: not a change of
-    /// the portal's shape, so an adapter reports it apart from
-    /// `UnexpectedResponse` and a live check reports `challenged`.
-    Challenged,
 }
 
 impl ResolveError {
@@ -105,9 +104,9 @@ impl ResolveError {
         match self {
             Self::NoAdapter => "no_adapter",
             Self::UnexpectedResponse(_) => "unexpected_response",
+            Self::Challenged => "challenged",
             Self::Timeout => "timeout",
             Self::Unreachable => "unreachable",
-            Self::Challenged => "challenged",
         }
     }
 }

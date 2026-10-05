@@ -58,6 +58,22 @@ pub(crate) fn select<'c, T>(
     citation: &CitationParts,
     localities: &[&str],
 ) -> Selection<'c, T> {
+    match narrow(candidates, citation, localities).as_slice() {
+        [only] => Selection::One(only),
+        many => Selection::Many(many.len()),
+    }
+}
+
+/// The candidates the citation's parts leave: one when the citation decides,
+/// otherwise those it cannot tell apart (none when the locality matches no
+/// candidate). A portal whose result rows lack a part, such as the image
+/// count, lets its adapter read that part from each remaining register and
+/// select again.
+pub(crate) fn narrow<'c, T>(
+    candidates: &'c [Candidate<T>],
+    citation: &CitationParts,
+    localities: &[&str],
+) -> Vec<&'c Candidate<T>> {
     let wanted: Vec<String> = localities.iter().map(|locality| fold(locality)).collect();
     let mut kept: Vec<&Candidate<T>> = candidates
         .iter()
@@ -68,11 +84,8 @@ pub(crate) fn select<'c, T>(
                 .is_some_and(|locality| wanted.contains(&fold(locality)))
         })
         .collect();
-    if let [only] = kept.as_slice() {
-        return Selection::One(only);
-    }
-    if kept.is_empty() {
-        return Selection::Many(0);
+    if kept.len() <= 1 {
+        return kept;
     }
 
     if let Some(call_number) = &citation.call_number {
@@ -86,9 +99,9 @@ pub(crate) fn select<'c, T>(
                     .is_some_and(|written| call_number.matches(written))
             })
             .collect();
-        match matching.as_slice() {
-            [] => return Selection::Many(kept.len()),
-            [only] => return Selection::One(only),
+        match matching.len() {
+            0 => return kept,
+            1 => return matching,
             _ => kept = matching,
         }
     }
@@ -99,13 +112,13 @@ pub(crate) fn select<'c, T>(
             .copied()
             .filter(|candidate| criterion(candidate))
             .collect();
-        match matching.as_slice() {
-            [] => {}
-            [only] => return Selection::One(only),
+        match matching.len() {
+            0 => {}
+            1 => return matching,
             _ => kept = matching,
         }
     }
-    Selection::Many(kept.len())
+    kept
 }
 
 /// The criteria after the call number, in order; `None` for a part the

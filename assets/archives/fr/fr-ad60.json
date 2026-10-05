@@ -1,0 +1,38 @@
+{
+  "id": "fr-ad60",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Oise",
+  "jurisdiction": ["60"],
+  "citation_codes": ["AD60"],
+  "website": "https://archives.oise.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [null, 1943],
+      "platform": "archinoe",
+      "portal": {
+        "origin": "https://ressources.archives.oise.fr",
+        "transport": "browser",
+        "search": "registre",
+        "base": "/v2/ad60",
+        "viewer": "/v2/ad60/visualiseur/registre.html?id={id}",
+        "licence": "click",
+        "fields": {
+          "locality": "commune",
+          "act": "acte",
+          "year": "annee"
+        },
+        "acts": {
+          "B": "600000001",
+          "M": "600000002",
+          "S": "600000003",
+          "N": "600000004",
+          "D": "600000005",
+          "TD": "600000010"
+        }
+      }
+    }
+  ]
+}

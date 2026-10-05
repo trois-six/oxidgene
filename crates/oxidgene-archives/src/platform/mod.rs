@@ -9,14 +9,18 @@
 //! What does not depend on a platform is shared by every adapter:
 //! [`query`] percent-encodes query strings, [`markup`] scans portal markup,
 //! [`select`] chooses the cited register among a search's results,
+//! [`locality`] writes a cited locality as a portal's list may,
 //! [`iiif`] reads an image service and builds a view's image, and [`view`]
 //! assembles the `View` target of the chosen register.
 
+mod archinoe;
 mod arkotheque;
 pub(crate) mod iiif;
 mod ligeo;
+pub(crate) mod locality;
 pub(crate) mod markup;
 mod mnesys;
+mod prismia;
 pub(crate) mod query;
 pub(crate) mod select;
 pub(crate) mod view;
@@ -26,9 +30,11 @@ use std::pin::Pin;
 
 use serde::{Deserialize, Serialize};
 
+pub use archinoe::Archinoe;
 pub use arkotheque::Arkotheque;
 pub use ligeo::Ligeo;
 pub use mnesys::Mnesys;
+pub use prismia::Prismia;
 pub(crate) use query::Query;
 
 use crate::catalog::{Archive, CatalogError, Collection};
@@ -108,7 +114,13 @@ pub trait Platform: Send + Sync {
 
 /// Every adapter OxidGene ships.
 pub fn builtin() -> Vec<Box<dyn Platform>> {
-    vec![Box::new(Arkotheque), Box::new(Ligeo), Box::new(Mnesys)]
+    vec![
+        Box::new(Arkotheque),
+        Box::new(Archinoe),
+        Box::new(Ligeo),
+        Box::new(Mnesys),
+        Box::new(Prismia),
+    ]
 }
 
 /// Whether `text` is an `https` origin: a scheme and a host, no path.

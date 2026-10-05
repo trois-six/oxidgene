@@ -1,0 +1,34 @@
+{
+  "id": "fr-ad21",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Côte-d'Or",
+  "jurisdiction": ["21"],
+  "citation_codes": ["AD21"],
+  "website": "https://archives.cotedor.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": null,
+      "platform": "archinoe",
+      "portal": {
+        "origin": "https://archives.cotedor.fr",
+        "transport": "any",
+        "search": "ead",
+        "base": "/console",
+        "viewer": "/v2/ad21/visualiseur/ir_ead_visu_lien.html?ir=26564&id={id}",
+        "ir": "26564",
+        "eadid": "FRAD021_000000912",
+        "acts": {
+          "B": "Actes (BMS puis NMD)",
+          "M": "Actes (BMS puis NMD)",
+          "S": "Actes (BMS puis NMD)",
+          "N": "Actes (BMS puis NMD)",
+          "D": "Actes (BMS puis NMD)",
+          "TD": "Tables décennales"
+        }
+      }
+    }
+  ]
+}

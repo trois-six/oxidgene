@@ -1,0 +1,51 @@
+{
+ "searchQuery": {},
+ "total": 1,
+ "maxScore": 0,
+ "listResponseObject": [
+  {
+   "score": 0,
+   "id": "https://ad47.backend.archives.prismia.fr/api/iiif/presentation/v3/900000001/manifest",
+   "type": "Manifest",
+   "prismUserId": "900000001",
+   "prismCoteId": "E SUP EXEMPLE GG-1",
+   "prismNbMedias": 216,
+   "label": {
+    "fr": [
+     "Baptêmes, Mariages, Sépultures-Exampleville-1673-1753"
+    ]
+   },
+   "prismNavDate": {
+    "greaterThan": null,
+    "greaterThanOrEqualTo": "1673-01-01T00:00:00+01:00",
+    "lessThan": null,
+    "lessThanOrEqualTo": "1753-12-31T00:00:00+01:00"
+   },
+   "prismNavDateValue": "1673-1681, 1686, 1692-1723, 1730, 1752-1753",
+   "metadata": [],
+   "listIndexationAgg": [
+    {
+     "tagLabel": "Lieu géographique",
+     "tagArchivistiqueValues": [
+      "Exampleville (Commune)"
+     ]
+    },
+    {
+     "tagLabel": "Paroisse",
+     "tagArchivistiqueValues": [
+      "Saint-Exemple, Notre-Dame-Exemple"
+     ]
+    },
+    {
+     "tagLabel": "Actes",
+     "tagArchivistiqueValues": [
+      "Baptêmes ou Naissances",
+      "Mariages"
+     ]
+    }
+   ],
+   "thumbnail": [],
+   "items": []
+  }
+ ]
+}

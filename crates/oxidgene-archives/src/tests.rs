@@ -359,6 +359,7 @@ fn errors_have_stable_codes() {
         ResolveError::UnexpectedResponse(String::new()).code(),
         "unexpected_response"
     );
+    assert_eq!(ResolveError::Challenged.code(), "challenged");
     assert_eq!(ResolveError::Timeout.code(), "timeout");
     assert_eq!(ResolveError::Unreachable.code(), "unreachable");
 

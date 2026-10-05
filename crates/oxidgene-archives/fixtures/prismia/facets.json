@@ -1,0 +1,27 @@
+{
+ "total": 0,
+ "nextAfter": "Exampleville-sur-Mer",
+ "searchAggsMetaTag": [
+  {
+   "key": "Exampleville",
+   "label": "Exampleville",
+   "docCount": 506
+  },
+  {
+   "key": "Exampleville-d’Aval",
+   "label": "Exampleville-d’Aval",
+   "docCount": 131
+  },
+  {
+   "key": "Mas-Exemple (Le)",
+   "label": "Mas-Exemple (Le)",
+   "docCount": 88
+  },
+  {
+   "key": "Passage-d'Exemple (Le)",
+   "label": "Passage-d'Exemple (Le)",
+   "docCount": 12
+  }
+ ],
+ "aggsMetaTagGeognameList": []
+}

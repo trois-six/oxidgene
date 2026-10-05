@@ -1,0 +1,37 @@
+{
+  "id": "fr-ad17",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Charente-Maritime",
+  "jurisdiction": ["17"],
+  "citation_codes": ["AD17"],
+  "website": "https://archives.charente-maritime.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": null,
+      "platform": "archinoe",
+      "portal": {
+        "origin": "https://archinoe.com",
+        "transport": "browser",
+        "search": "registre",
+        "base": "/v2/ad17",
+        "viewer": "/v2/ad17/visualiseur/registre.html?id={id}",
+        "fields": {
+          "locality": "commune",
+          "act": "acte",
+          "year": "annee"
+        },
+        "acts": {
+          "B": "170000001",
+          "M": "170000002",
+          "S": "170000003",
+          "N": "170000004",
+          "D": "170000005",
+          "TD": "170000010"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "fr-ad62",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Pas-de-Calais",
+  "jurisdiction": ["62"],
+  "citation_codes": ["AD62"],
+  "website": "https://www.archivespasdecalais.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [null, 1944],
+      "platform": "archinoe",
+      "portal": {
+        "origin": "https://archivesenligne.pasdecalais.fr",
+        "transport": "any",
+        "search": "seriel",
+        "base": "/console",
+        "viewer": "/v2/ad62/visualiseur/etat_civil.html?id={id}",
+        "id": "56",
+        "form": "formulaire_etat_civil",
+        "locality_label": "{locality} (Pas-de-Calais, France)",
+        "fields": {
+          "locality": "f_0_0",
+          "year_from": "f_0_1_0",
+          "year_to": "f_0_1_1",
+          "cote": "f_0_3"
+        },
+        "acts": {
+          "N": "f_0_2_0",
+          "B": "f_0_2_1",
+          "M": "f_0_2_2",
+          "D": "f_0_2_3",
+          "S": "f_0_2_4",
+          "TD": "f_0_2_5"
+        }
+      }
+    }
+  ]
+}

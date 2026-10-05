@@ -1,0 +1,41 @@
+{
+  "id": "fr-ad47",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Lot-et-Garonne",
+  "jurisdiction": ["47"],
+  "citation_codes": ["AD47"],
+  "website": "https://archivesdepartementales.lotetgaronne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [1555, 1922],
+      "platform": "prismia",
+      "portal": {
+        "origin": "https://lotetgaronne.archives.prismia.fr",
+        "api": "https://ad47.backend.archives.prismia.fr/api",
+        "search_path": "/Recherche/Etat%20civil",
+        "paths": [
+          "/AD47/FONDS ET COLLECTIONS DE TOUTES PERIODES/E_Féodalité, communes, bourgeoisie, familles/4 E_Etat civil",
+          "/AD47/FONDS ET COLLECTIONS DE TOUTES PERIODES/E_Féodalité, communes, bourgeoisie, familles/5 E_Tables décennales",
+          "/AD47/FONDS ET COLLECTIONS DE TOUTES PERIODES/E DEPOT_Archives communales postérieures à 1790/archives_communales_diverses/FRAD047_0000EDEPOT",
+          "/AD47/FONDS ET COLLECTIONS DE TOUTES PERIODES/E SUP_Archives communales antérieures à 1790/Etat civil",
+          "/AD47/FONDS ET COLLECTIONS DE TOUTES PERIODES/E DEPOT_Archives communales postérieures à 1790/archives_communales_diverses/FRAD047_000000002E"
+        ],
+        "filters": {
+          "locality": "geogname||Commune||Commune",
+          "act": "extrafield||Actes"
+        },
+        "acts": {
+          "B": "Baptêmes ou Naissances",
+          "N": "Baptêmes ou Naissances",
+          "M": "Mariages",
+          "S": "Sépultures ou Décès",
+          "D": "Sépultures ou Décès",
+          "TD": "Tables décennales"
+        }
+      }
+    }
+  ]
+}

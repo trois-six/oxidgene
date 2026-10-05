@@ -1,0 +1,139 @@
+{
+ "searchQuery": {},
+ "total": 3,
+ "maxScore": 0,
+ "listResponseObject": [
+  {
+   "score": 0,
+   "id": "https://ad47.backend.archives.prismia.fr/api/iiif/presentation/v3/900000002/manifest",
+   "type": "Manifest",
+   "prismUserId": "900000002",
+   "prismCoteId": "4E9-1",
+   "prismNbMedias": 29,
+   "label": {
+    "fr": [
+     "Baptêmes, Mariages, Sépultures-Exampleville-1745-1760"
+    ]
+   },
+   "prismNavDate": {
+    "greaterThan": null,
+    "greaterThanOrEqualTo": "1745-01-01T00:00:00+01:00",
+    "lessThan": null,
+    "lessThanOrEqualTo": "1760-12-31T00:00:00+01:00"
+   },
+   "prismNavDateValue": "",
+   "metadata": [],
+   "listIndexationAgg": [
+    {
+     "tagLabel": "Lieu géographique",
+     "tagArchivistiqueValues": [
+      "Exampleville (Commune)"
+     ]
+    },
+    {
+     "tagLabel": "Paroisse",
+     "tagArchivistiqueValues": [
+      "Saint-Exemple"
+     ]
+    },
+    {
+     "tagLabel": "Actes",
+     "tagArchivistiqueValues": [
+      "Baptêmes ou Naissances",
+      "Mariages"
+     ]
+    }
+   ],
+   "thumbnail": [],
+   "items": []
+  },
+  {
+   "score": 0,
+   "id": "https://ad47.backend.archives.prismia.fr/api/iiif/presentation/v3/900000003/manifest",
+   "type": "Manifest",
+   "prismUserId": "900000003",
+   "prismCoteId": "4E9-2",
+   "prismNbMedias": 45,
+   "label": {
+    "fr": [
+     "Baptêmes, Mariages, Sépultures-Exampleville-1740-1752"
+    ]
+   },
+   "prismNavDate": {
+    "greaterThan": null,
+    "greaterThanOrEqualTo": "1740-01-01T00:00:00+01:00",
+    "lessThan": null,
+    "lessThanOrEqualTo": "1752-12-31T00:00:00+01:00"
+   },
+   "prismNavDateValue": "1740-1752",
+   "metadata": [],
+   "listIndexationAgg": [
+    {
+     "tagLabel": "Lieu géographique",
+     "tagArchivistiqueValues": [
+      "Exampleville (Commune)"
+     ]
+    },
+    {
+     "tagLabel": "Paroisse",
+     "tagArchivistiqueValues": [
+      "Notre-Dame-Exemple"
+     ]
+    },
+    {
+     "tagLabel": "Actes",
+     "tagArchivistiqueValues": [
+      "Baptêmes ou Naissances",
+      "Mariages"
+     ]
+    }
+   ],
+   "thumbnail": [],
+   "items": []
+  },
+  {
+   "score": 0,
+   "id": "https://ad47.backend.archives.prismia.fr/api/iiif/presentation/v3/900000004/manifest",
+   "type": "Manifest",
+   "prismUserId": "900000004",
+   "prismCoteId": "E SUP EXEMPLE GG-2",
+   "prismNbMedias": 192,
+   "label": {
+    "fr": [
+     "Baptêmes, Mariages, Sépultures-Exampleville-1700-1760"
+    ]
+   },
+   "prismNavDate": {
+    "greaterThan": null,
+    "greaterThanOrEqualTo": "1700-01-01T00:00:00+01:00",
+    "lessThan": null,
+    "lessThanOrEqualTo": "1760-12-31T00:00:00+01:00"
+   },
+   "prismNavDateValue": "1700-1760",
+   "metadata": [],
+   "listIndexationAgg": [
+    {
+     "tagLabel": "Lieu géographique",
+     "tagArchivistiqueValues": [
+      "Exampleville (Commune)"
+     ]
+    },
+    {
+     "tagLabel": "Paroisse",
+     "tagArchivistiqueValues": [
+      "Sainte-Exemple"
+     ]
+    },
+    {
+     "tagLabel": "Actes",
+     "tagArchivistiqueValues": [
+      "Baptêmes ou Naissances",
+      "Mariages"
+     ]
+    }
+   ],
+   "thumbnail": [],
+   "items": []
+  }
+ ]
+}
