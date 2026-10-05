@@ -1,0 +1,64 @@
+{
+  "id": "fr-ad63",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Puy-de-Dôme",
+  "jurisdiction": ["63"],
+  "areas": ["Puy-de-Dôme"],
+  "citation_codes": ["AD63"],
+  "website": "https://www.archivesdepartementales.puy-de-dome.fr/",
+  "display": "portal",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archivesdepartementales.puy-de-dome.fr",
+        "search": "etatcivil",
+        "node": 13,
+        "fields": {
+          "locality": "RECH_comune",
+          "act": "RECH_acte[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "baptemes",
+          "N": "naissances",
+          "M": "mariages",
+          "P": "publications",
+          "S": "sepultures",
+          "D": "deces",
+          "TD": "tables"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'actes",
+          "period": "Titre",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archivesdepartementales.puy-de-dome.fr",
+        "search": "matricules",
+        "node": 318,
+        "fields": {
+          "locality": "RECH_subdivision[]",
+          "year": "RECH_classe"
+        },
+        "columns": {
+          "locality": "Subdivision de recrutement",
+          "period": "Classe",
+          "call_number": "Cote",
+          "numbers": "Intitulé"
+        }
+      }
+    }
+  ]
+}

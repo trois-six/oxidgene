@@ -1,0 +1,105 @@
+{
+  "id": "fr-ad41",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Loir-et-Cher",
+  "jurisdiction": ["41"],
+  "areas": ["Loir-et-Cher"],
+  "citation_codes": ["AD41"],
+  "website": "https://www.archives41.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales de Loir-et-Cher, {call_number}, vue {view}",
+  "terms": "https://www.archives41.fr/n/reutilisation-et-reproduction-des-documents/n:130",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives41.fr",
+        "search": "etatcivil",
+        "node": 19,
+        "fields": {
+          "locality": "Rech_commune",
+          "act": "RECH_acte[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "baptême",
+          "M": "mariage",
+          "S": "sépulture",
+          "N": "naissance",
+          "D": "décès",
+          "TD": { "Rech_registre[]": "table" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "parish": "Paroisse",
+          "acts": "Description",
+          "period": "Années",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives41.fr",
+        "search": "recensement",
+        "node": 143,
+        "fields": {
+          "locality": "Rech_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "title": "Description",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives41.fr",
+        "search": "matricules",
+        "node": 145,
+        "fields": {
+          "year": "rech_noms-classe"
+        },
+        "columns": {
+          "acts": "Description",
+          "period": "Classe",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives41.fr",
+        "search": "tsa",
+        "node": 152,
+        "fields": {
+          "locality": "RECH_canton",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "acts": "Description",
+          "period": "Années",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

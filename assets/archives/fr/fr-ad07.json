@@ -33,7 +33,7 @@
     },
     {
       "id": "civil-status",
-      "acts": ["N", "M", "D", "TD"],
+      "acts": ["N", "M", "D", "P", "TD"],
       "period": [1793, null],
       "platform": "ligeo",
       "portal": {
@@ -48,6 +48,7 @@
         "acts": {
           "N": { "RECH_doc": "EC", "RECH_acte2": "*aissanc*" },
           "M": { "RECH_doc": "EC", "RECH_acte2": "*ariage*" },
+          "P": { "RECH_doc": "EC", "RECH_acte2": "*ublication*" },
           "D": { "RECH_doc": "EC", "RECH_acte2": "*écès" },
           "TD": { "RECH_doc": "TD" }
         },
@@ -56,6 +57,44 @@
           "acts": "Intitulé [type(s) d'acte]",
           "period": "Dates",
           "call_number": "Cote ou référence"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.ardeche.fr",
+        "search": "recpop",
+        "node": 204,
+        "fields": {
+          "locality": "RECH_communes",
+          "year": "RECH_unidate"
+        },
+        "columns": {
+          "locality": "Communes",
+          "period": "Dates"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.ardeche.fr",
+        "search": "enrmoderne",
+        "node": 203,
+        "fields": {
+          "locality": "rech_bur",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "period": "Date",
+          "call_number": "Cote"
         }
       }
     }

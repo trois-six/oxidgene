@@ -1,0 +1,88 @@
+{
+  "id": "fr-ad67",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives d'Alsace",
+  "jurisdiction": ["67"],
+  "areas": ["Bas-Rhin"],
+  "citation_codes": ["AD67"],
+  "website": "https://archives67.alsace.eu/",
+  "display": "iiif",
+  "attribution": "Archives d'Alsace, site de Strasbourg, {call_number}, vue {view}",
+  "terms": "https://archives.alsace.eu/informations-pratiques/pendant-ma-visite/reproduire-et-reutiliser-des-documents/",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives67.alsace.eu",
+        "search": "etatcivil",
+        "node": 128,
+        "layout": "Tableau",
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "RECH_typeacte",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "baptême",
+          "M": "mariage",
+          "S": "sépulture",
+          "N": "naissance",
+          "D": "décès",
+          "TD": "table décennale"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives67.alsace.eu",
+        "search": "recpop",
+        "node": 131,
+        "layout": "tableau",
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives67.alsace.eu",
+        "search": "enregistrement",
+        "node": 146,
+        "layout": "Tableau",
+        "fields": {
+          "locality": "RECH_bureau",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Bureau de l'Enregistrement",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

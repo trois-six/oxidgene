@@ -1,0 +1,133 @@
+{
+  "id": "fr-ad92",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Hauts-de-Seine",
+  "jurisdiction": ["92"],
+  "areas": ["Hauts-de-Seine"],
+  "citation_codes": ["AD92"],
+  "website": "https://archives.hauts-de-seine.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales des Hauts-de-Seine, {call_number}, vue {view}",
+  "terms": "https://archives.hauts-de-seine.fr/n/reutilisation-des-informations-publiques/n:417",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hauts-de-seine.fr",
+        "search": "registresparoissiaux",
+        "node": 93,
+        "layout": "tableau",
+        "fields": {
+          "locality": "RECH_paroisse",
+          "year_from": "RECH_annee_debut",
+          "year_to": "RECH_annee_fin"
+        },
+        "columns": {
+          "locality": "Paroisse",
+          "period": "Année",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "TD"],
+      "period": [1793, null],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hauts-de-seine.fr",
+        "search": "etatcivil",
+        "node": 92,
+        "layout": "tableau",
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "RECH_type",
+          "year_from": "RECH_annee_debut",
+          "year_to": "RECH_annee_fin"
+        },
+        "acts": {
+          "N": "Naissances",
+          "M": "Mariages",
+          "D": "Décès",
+          "TD": { "RECH_source": "Tables décennales de l'Etat-civil" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": ["Source", "Type d'acte"],
+          "period": "Année",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hauts-de-seine.fr",
+        "search": "recensementspopulation",
+        "node": 95,
+        "layout": "tableau",
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_annee_debut",
+          "year_to": "RECH_annee_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Année",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "conscription-lists",
+      "acts": ["CM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hauts-de-seine.fr",
+        "search": "recensementsmilitaires",
+        "node": 401,
+        "layout": "tableau",
+        "fields": {
+          "locality": "RECH_canton",
+          "year_from": "RECH_annee_debut",
+          "year_to": "RECH_annee_fin"
+        },
+        "columns": {
+          "locality": "Canton ou commune",
+          "period": "Année",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hauts-de-seine.fr",
+        "search": "enregistrements",
+        "node": 96,
+        "layout": "tableau",
+        "fields": {
+          "locality": "RECH_bureau",
+          "year_from": "RECH_annee_debut",
+          "year_to": "RECH_annee_fin"
+        },
+        "params": {
+          "RECH_TYPE": "Tables des successions et absences"
+        },
+        "columns": {
+          "locality": "Bureau de l'enregistrement",
+          "period": "Année",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "id": "fr-ad29",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Finistère",
+  "jurisdiction": ["29"],
+  "areas": ["Finistère"],
+  "citation_codes": ["AD29"],
+  "website": "https://archives.finistere.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales du Finistère, {call_number}, vue {view}",
+  "terms": "https://archives.finistere.fr/reutilisation-des-archives",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://recherche.archives.finistere.fr",
+        "search": "etatcivil",
+        "node": 138,
+        "fields": {
+          "locality": "REch_commune",
+          "act": "Rech_typologie[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin",
+          "year_margin": 1
+        },
+        "params": {
+          "RECH_images": "1"
+        },
+        "acts": {
+          "B": "Baptême ",
+          "N": "Naissance",
+          "M": "Mariage",
+          "S": "Sépulture",
+          "D": "Décès",
+          "TD": "Table décennale"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "period": "Intitulé",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://recherche.archives.finistere.fr",
+        "search": "recensements",
+        "node": 139,
+        "fields": {
+          "locality": "RECH_commune",
+          "year": "RECH_date"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://recherche.archives.finistere.fr",
+        "search": "matricules",
+        "node": 141,
+        "fields": {
+          "locality": "RECH_bureau",
+          "year": "RECH_dateclassefacettes"
+        },
+        "params": {
+          "RECH_typologie": "registre matricule"
+        },
+        "columns": {
+          "title": "Titre",
+          "period": "Classe",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

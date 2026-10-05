@@ -1,0 +1,67 @@
+{
+  "id": "fr-ad56",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Morbihan",
+  "jurisdiction": ["56"],
+  "areas": ["Morbihan"],
+  "citation_codes": ["AD56"],
+  "website": "https://patrimoines-archives.morbihan.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales du Morbihan, {call_number}, vue {view}",
+  "terms": "https://patrimoines-archives.morbihan.fr/informations-pratiques/reutilisation-des-donnees-publiques",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://rechercher.patrimoines-archives.morbihan.fr",
+        "search": "etatcivil",
+        "node": 6,
+        "fields": {
+          "locality": "REch_commune",
+          "act": "RECH_acte[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "bapt*",
+          "N": "naissan*",
+          "M": "maria*",
+          "S": "sépultu*",
+          "D": "décès",
+          "TD": "table décen*"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "period": "Période"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://rechercher.patrimoines-archives.morbihan.fr",
+        "search": "recrutement",
+        "node": 11,
+        "fields": {
+          "locality": "RECH_bureaurct[]",
+          "year_from": "Rech_classe_debut",
+          "year_to": "Rech_classe_fin"
+        },
+        "params": {
+          "RECH_type[]": "registre"
+        },
+        "columns": {
+          "locality": "Lieu / bureau de recrutement",
+          "period": "Année de la classe",
+          "numbers": "Description"
+        }
+      }
+    }
+  ]
+}

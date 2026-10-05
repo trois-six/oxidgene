@@ -1,0 +1,97 @@
+{
+  "id": "fr-ad70",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Haute-Saône",
+  "jurisdiction": ["70"],
+  "areas": ["Haute-Saône"],
+  "citation_codes": ["AD70"],
+  "website": "https://archives.haute-saone.fr/",
+  "display": "portal",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.haute-saone.fr",
+        "search": "etatcivil2",
+        "node": 119,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_date_debut",
+          "year_to": "RECH_date_fin"
+        },
+        "params": {
+          "RECH_source[]": "Registres paroissiaux"
+        },
+        "columns": {
+          "title": "Contenu",
+          "period": "Contenu",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "P"],
+      "period": [1793, null],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.haute-saone.fr",
+        "search": "etatcivil2",
+        "node": 119,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_date_debut",
+          "year_to": "RECH_date_fin"
+        },
+        "params": {
+          "RECH_source[]": "civil"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Types d'actes",
+          "period": "Date"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.haute-saone.fr",
+        "search": "recensement",
+        "node": 120,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.haute-saone.fr",
+        "search": "enregistrement",
+        "node": 121,
+        "fields": {
+          "locality": "RECH_bureau"
+        },
+        "columns": {
+          "acts": "Analyse",
+          "period": "Analyse"
+        }
+      }
+    }
+  ]
+}

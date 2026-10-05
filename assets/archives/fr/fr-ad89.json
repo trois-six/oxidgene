@@ -1,0 +1,46 @@
+{
+  "id": "fr-ad89",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Yonne",
+  "jurisdiction": ["89"],
+  "areas": ["Yonne"],
+  "citation_codes": ["AD89"],
+  "website": "https://archives.yonne.fr/",
+  "display": "portal",
+  "terms": "https://archives.yonne.fr/n/reutilisation/n:193",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.yonne.fr",
+        "search": "etatcivil",
+        "node": 157,
+        "fields": {
+          "locality": "RECH_comms",
+          "act": "RECH_acte[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin",
+          "year_margin": 1
+        },
+        "acts": {
+          "B": "B",
+          "M": "M",
+          "S": "S",
+          "N": "N",
+          "D": "D",
+          "P": "P",
+          "TD": "T"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "parish": "Paroisse / hôpital",
+          "period": "Date"
+        }
+      }
+    }
+  ]
+}

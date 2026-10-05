@@ -1,0 +1,36 @@
+{
+  "id": "fr-ad57",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Moselle",
+  "jurisdiction": ["57"],
+  "areas": ["Moselle"],
+  "citation_codes": ["AD57"],
+  "website": "https://www.archives57.com/",
+  "display": "portal",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives57.com",
+        "fonds": "FRAD057_605804",
+        "search": "inventaire",
+        "node": 3,
+        "fields": {
+          "locality": "RECH_S"
+        },
+        "params": {
+          "RECH_eadid": "FRAD057_605804"
+        },
+        "columns": {
+          "locality": "Contexte",
+          "acts": "unittitle",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

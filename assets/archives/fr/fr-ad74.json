@@ -1,0 +1,107 @@
+{
+  "id": "fr-ad74",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Haute-Savoie",
+  "jurisdiction": ["74"],
+  "areas": ["Haute-Savoie"],
+  "citation_codes": ["AD74"],
+  "website": "https://archives.hautesavoie.fr/",
+  "display": "iiif",
+  "attribution": "Arch. dép. Haute-Savoie, {call_number}, vue {view}",
+  "terms": "https://archives.hautesavoie.fr/n/obtenir-une-copie/n:92",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hautesavoie.fr",
+        "search": "etatcivil",
+        "node": 139,
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "RECH_actes",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "Naissances",
+          "N": "Naissances",
+          "M": "Mariages",
+          "S": "Décès",
+          "D": "Décès",
+          "TD": { "RECH_registre": "Tables décennales" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hautesavoie.fr",
+        "search": "recensements",
+        "node": 161,
+        "fields": {
+          "locality": "RECH_geogname",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hautesavoie.fr",
+        "search": "matricule",
+        "node": 152,
+        "fields": {
+          "year": "RECH_classe_exacte",
+          "number": "RECH_numero_matricule"
+        },
+        "columns": {
+          "period": "Classe",
+          "call_number": "Cote du registre",
+          "numbers": "Numéro de matricule"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hautesavoie.fr",
+        "search": "enregistrement",
+        "node": 154,
+        "fields": {
+          "locality": "RECH_bureau_enregistrement",
+          "year": "RECH_annee"
+        },
+        "params": {
+          "RECH_type_registre": "Table des successions et absences"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "acts": "Type de registre",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

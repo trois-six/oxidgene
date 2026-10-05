@@ -407,7 +407,7 @@ fn the_embedded_registry_links_the_catalogued_archives() {
     assert_eq!(citation.locality, "Exampleville");
     assert!(
         registry
-            .link("AD67 - Exampleville - (aucun) - N - 1877")
+            .link("AD09 - Exampleville - (aucun) - N - 1877")
             .is_none()
     );
     for archive in registry.archives() {

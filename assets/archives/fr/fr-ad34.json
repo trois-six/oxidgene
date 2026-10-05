@@ -1,0 +1,94 @@
+{
+  "id": "fr-ad34",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Hérault",
+  "jurisdiction": ["34"],
+  "areas": ["Hérault"],
+  "citation_codes": ["AD34"],
+  "website": "https://archives-pierresvives.herault.fr/",
+  "display": "iiif",
+  "attribution": "Document conservé aux Archives départementales de l'Hérault, sous la cote {call_number}, vue {view}",
+  "terms": "https://pierresvives.herault.fr/933-regles-de-reproduction-et-de-reutilisation.htm",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives-pierresvives.herault.fr",
+        "search": "etatcivil",
+        "node": 23,
+        "fields": {
+          "locality": "RECH_COMMUNE",
+          "act": "Rech_typologie[]",
+          "year_from": "RECH_DATE_debut",
+          "year_to": "RECH_DATE_fin"
+        },
+        "acts": {
+          "B": "Baptême",
+          "N": "Naissance",
+          "M": "Mariage",
+          "P": "Publication de mariage",
+          "S": "Sépulture",
+          "D": "Décès",
+          "TD": "Table décennale"
+        },
+        "columns": {
+          "locality": "Communes",
+          "acts": "Intitulé",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives-pierresvives.herault.fr",
+        "search": "recensement",
+        "node": 28,
+        "fields": {
+          "locality": "rech_commune",
+          "year_from": "RECH_DATE_debut",
+          "year_to": "RECH_DATE_fin"
+        },
+        "params": {
+          "RECH_DAO": "1"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives-pierresvives.herault.fr",
+        "search": "enregistrement",
+        "node": 22,
+        "fields": {
+          "locality": "Rech_bureau",
+          "year_from": "RECH_date_debut",
+          "year_to": "RECH_date_fin"
+        },
+        "params": {
+          "RECH_DAO": "1",
+          "RECH_typeacte": "Table des successions et absences"
+        },
+        "columns": {
+          "locality": ["Indexation Collectivité", "Indexation géographique"],
+          "acts": "Indexation typologie",
+          "period": "unittitle",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

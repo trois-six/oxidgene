@@ -29,6 +29,46 @@
           "period": "Date"
         }
       }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.haute-garonne.fr",
+        "search": "recensement",
+        "node": 114,
+        "fields": {
+          "locality": "RECH_lieux",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.haute-garonne.fr",
+        "search": "indexationRM",
+        "node": 113,
+        "fields": {
+          "locality": "RECH_bureau[]",
+          "year": "RECH_classe",
+          "number": "RECH_matricule"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "period": "Classe",
+          "numbers": "Matricule"
+        }
+      }
     }
   ]
 }

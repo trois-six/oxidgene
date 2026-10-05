@@ -1,0 +1,99 @@
+{
+  "id": "fr-ad95",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Val-d'Oise",
+  "jurisdiction": ["95"],
+  "areas": ["Val-d'Oise"],
+  "citation_codes": ["AD95"],
+  "website": "https://archives.valdoise.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales du Val-d'Oise, {call_number}, vue {view}",
+  "terms": "https://archives.valdoise.fr/n/modalites-de-reutilisation/n:51",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.valdoise.fr",
+        "search": "EtatCivilNumerise",
+        "node": 419,
+        "fields": {
+          "locality": "RECH_Commune",
+          "act": "RECH_actes[]",
+          "year_from": "RECH_Unitdate_debut",
+          "year_to": "RECH_Unitdate_fin"
+        },
+        "params": {
+          "RECH_TypeDoc[]": "registre paroissial"
+        },
+        "acts": {
+          "B": "naissance",
+          "M": "mariage",
+          "S": "décès"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "TD"],
+      "period": [1793, null],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.valdoise.fr",
+        "search": "EtatCivilNumerise",
+        "node": 419,
+        "fields": {
+          "locality": "RECH_Commune",
+          "year_from": "RECH_Unitdate_debut",
+          "year_to": "RECH_Unitdate_fin"
+        },
+        "acts": {
+          "N": {
+            "RECH_TypeDoc[]": "registre d'état civil",
+            "RECH_actes[]": "naissance"
+          },
+          "M": {
+            "RECH_TypeDoc[]": "registre d'état civil",
+            "RECH_actes[]": "mariage"
+          },
+          "D": { "RECH_TypeDoc[]": "registre d'état civil", "RECH_actes[]": "décès" },
+          "TD": { "RECH_TypeDoc[]": "table décennale" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Document",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.valdoise.fr",
+        "search": "RecensementsPopulation",
+        "node": 420,
+        "fields": {
+          "locality": "RECH_Commune",
+          "year_from": "RECH_Unitdate_debut",
+          "year_to": "RECH_Unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "id": "fr-ad86",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Vienne",
+  "jurisdiction": ["86"],
+  "areas": ["Vienne"],
+  "citation_codes": ["AD86"],
+  "website": "https://archives-deux-sevres-vienne.fr/",
+  "display": "portal",
+  "terms": "https://archives-deux-sevres-vienne.fr/n/mentions-legales/n:79",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives-deux-sevres-vienne.fr",
+        "search": "etatcivil",
+        "node": 100,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "params": {
+          "RECH_departement": "Vienne",
+          "RECH_typeregistre": "registre paroissial"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Description",
+          "parish": "Paroisse",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "TD"],
+      "period": [1793, null],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives-deux-sevres-vienne.fr",
+        "search": "etatcivil",
+        "node": 100,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin",
+          "act": "RECH_typeacte"
+        },
+        "params": {
+          "RECH_departement": "Vienne",
+          "RECH_typeregistre": "état civil"
+        },
+        "acts": {
+          "N": "naissance",
+          "M": "mariage",
+          "D": "décès",
+          "TD": "table décennale"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Description",
+          "parish": "Paroisse",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives-deux-sevres-vienne.fr",
+        "search": "recensement",
+        "node": 104,
+        "page": "listerecensement",
+        "fields": {
+          "locality": "RECH_commune",
+          "year": "RECH_annee"
+        },
+        "params": {
+          "RECH_departement": "Vienne"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives-deux-sevres-vienne.fr",
+        "search": "enregistrement",
+        "node": 101,
+        "page": "enregistest",
+        "fields": {
+          "locality": "RECH_bureau",
+          "year_from": "Rech_date_debut",
+          "year_to": "Rech_date_fin"
+        },
+        "params": {
+          "RECH_dep": "Vienne",
+          "RECH_type": "table de successions"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "acts": "Documents",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

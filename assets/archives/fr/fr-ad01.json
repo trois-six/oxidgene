@@ -13,7 +13,7 @@
   "collections": [
     {
       "id": "registers",
-      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
       "platform": "ligeo",
       "portal": {
         "origin": "https://www.archives.ain.fr",
@@ -31,12 +31,72 @@
           "S": "S",
           "N": "N",
           "D": "D",
+          "P": "P",
           "TD": "tables"
         },
         "columns": {
           "locality": "Commune",
           "acts": "Type d’acte",
           "period": "Dates"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives.ain.fr",
+        "search": "recensement",
+        "node": 90,
+        "fields": {
+          "locality": "REch_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Dates"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives.ain.fr",
+        "search": "matricules",
+        "node": 91,
+        "fields": {
+          "locality": "RECH_bureau[]",
+          "year": "RECH_Classe_exacte",
+          "number": "rech_mat"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "period": "Classe",
+          "call_number": "Cote",
+          "numbers": "Matricule"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archives.ain.fr",
+        "search": "3q",
+        "node": 92,
+        "fields": {
+          "locality": "REch_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "period": "Date"
         }
       }
     }

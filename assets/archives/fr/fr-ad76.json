@@ -1,0 +1,97 @@
+{
+  "id": "fr-ad76",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Seine-Maritime",
+  "jurisdiction": ["76"],
+  "areas": ["Seine-Maritime", "Seine-Inférieure"],
+  "citation_codes": ["AD76"],
+  "website": "https://www.archivesdepartementales76.net/",
+  "display": "iiif",
+  "attribution": "Archives départementales de la Seine-Maritime, {call_number}, vue {view}",
+  "terms": "https://www.archivesdepartementales76.net/n/reproduction-reutilisation-communicabilite/n:80",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archivesdepartementales76.net",
+        "search": "etatcivil",
+        "node": 113,
+        "layout": "tabulaire",
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "RECH_act",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "Baptêmes",
+          "M": "Mariages",
+          "S": "Sépultures",
+          "N": "Naissances",
+          "D": "Décès",
+          "P": "Publications de mariages",
+          "TD": { "RECH_typo": "Tables décennales" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": ["Typologie", "Type d'actes"],
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1865, 1934],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archivesdepartementales76.net",
+        "search": "matricules",
+        "node": 242,
+        "layout": "tabulaire",
+        "fields": {
+          "locality": "RECH_bureau",
+          "year": "RECH_classe"
+        },
+        "params": {
+          "RECH_typo[]": "registre"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "period": "Classe",
+          "call_number": "Cote",
+          "numbers": "Commentaire"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://www.archivesdepartementales76.net",
+        "search": "enregistrement",
+        "node": 302,
+        "layout": "tabulaire",
+        "fields": {
+          "locality": "RECH_geogname",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "params": {
+          "RECH_genreform": "Table des successions et absences"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "acts": "Typologie",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

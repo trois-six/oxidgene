@@ -1,0 +1,87 @@
+{
+  "id": "fr-ad93",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Seine-Saint-Denis",
+  "jurisdiction": ["93"],
+  "areas": ["Seine-Saint-Denis"],
+  "citation_codes": ["AD93"],
+  "website": "https://archives.seinesaintdenis.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales de la Seine-Saint-Denis / {call_number}, vue {view}",
+  "terms": "https://archives.seinesaintdenis.fr/n/mentions-legales-credits/n:236",
+  "collections": [
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.seinesaintdenis.fr",
+        "search": "etatcivil",
+        "node": 217,
+        "fields": {
+          "locality": "rech_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin",
+          "year_margin": 1
+        },
+        "acts": {
+          "N": { "rech_type_doc": "acte", "rech_type_acte": "naissance" },
+          "M": { "rech_type_doc": "acte", "rech_type_acte": "mariage" },
+          "D": { "rech_type_doc": "acte", "rech_type_acte": "décès" },
+          "TD": { "rech_type_doc": "table décennale" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Acte",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.seinesaintdenis.fr",
+        "search": "listeselrecensements",
+        "node": 212,
+        "fields": {
+          "locality": "rech_commune",
+          "year_from": "rech_dates_debut",
+          "year_to": "rech_dates_fin"
+        },
+        "params": {
+          "rech_type_doc": "recensement de population"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.seinesaintdenis.fr",
+        "search": "sucession",
+        "node": 219,
+        "fields": {
+          "locality": "rech_burea",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

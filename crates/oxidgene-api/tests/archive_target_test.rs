@@ -260,7 +260,7 @@ async fn a_title_that_is_no_catalogued_citation_has_no_target() {
     for (title, code) in [
         ("Fictitious register", "not_an_archive_citation"),
         // A well-formed citation of an archive the catalogue does not list.
-        ("AD67 - Exampleville - (aucun) - N - 1877", "no_adapter"),
+        ("AD09 - Exampleville - (aucun) - N - 1877", "no_adapter"),
         // A catalogued archive, but a table no collection holds.
         ("AD44 - Exampleville - (aucun) - TD - 1877", "no_adapter"),
     ] {

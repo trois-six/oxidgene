@@ -1,0 +1,100 @@
+{
+  "id": "fr-ad88",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Vosges",
+  "jurisdiction": ["88"],
+  "areas": ["Vosges"],
+  "citation_codes": ["AD88"],
+  "website": "https://recherche-archives.vosges.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales des Vosges, {call_number}, vue {view}",
+  "terms": "https://recherche-archives.vosges.fr/n/conditions-d-utilisation-du-site/n:40",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://recherche-archives.vosges.fr",
+        "search": "etatcivil",
+        "node": 2,
+        "layout": "etatcivil_tableau",
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "Rech_nature[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "params": {
+          "rech_typo[]": "registre paroissial"
+        },
+        "acts": {
+          "B": "baptême",
+          "M": "mariage",
+          "S": "sépulture"
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "TD"],
+      "period": [1793, null],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://recherche-archives.vosges.fr",
+        "search": "etatcivil",
+        "node": 2,
+        "layout": "etatcivil_tableau",
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "N": {
+            "rech_typo[]": "registre d'état civil",
+            "Rech_nature[]": "naissance"
+          },
+          "M": { "rech_typo[]": "registre d'état civil", "Rech_nature[]": "mariage" },
+          "D": { "rech_typo[]": "registre d'état civil", "Rech_nature[]": "décès" },
+          "TD": { "rech_typo[]": "table décennale" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Type d'acte",
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://recherche-archives.vosges.fr",
+        "search": "recensement",
+        "node": 3,
+        "layout": "etatcivil_tableau",
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune/adresse",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

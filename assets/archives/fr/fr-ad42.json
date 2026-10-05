@@ -1,0 +1,81 @@
+{
+  "id": "fr-ad42",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Loire",
+  "jurisdiction": ["42"],
+  "areas": ["Loire"],
+  "citation_codes": ["AD42"],
+  "website": "https://archives.loire.fr/",
+  "display": "portal",
+  "terms": "https://archives.loire.fr/n/conditions-de-reutilisation-des-donnees-publiques/n:98",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.loire.fr",
+        "search": "etatcivil",
+        "node": 92,
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "RECH_genreform[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "NAISSANCE",
+          "N": "NAISSANCE",
+          "M": "MARIAGE",
+          "S": "DECES",
+          "D": "DECES",
+          "TD": { "RECH_archdesc[]": "TABLES" }
+        },
+        "columns": {
+          "title": "Commune et type d'acte",
+          "period": "Date"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.loire.fr",
+        "search": "recensement",
+        "node": 129,
+        "fields": {
+          "locality": "RECH_geogname",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "title": "Intitulé",
+          "period": "Dates"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.loire.fr",
+        "search": "enregistrement",
+        "node": 130,
+        "fields": {
+          "locality": "RECH_bureau",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

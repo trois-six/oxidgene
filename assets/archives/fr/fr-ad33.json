@@ -1,0 +1,91 @@
+{
+  "id": "fr-ad33",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Gironde",
+  "jurisdiction": ["33"],
+  "areas": ["Gironde"],
+  "citation_codes": ["AD33"],
+  "website": "https://archives.gironde.fr/",
+  "display": "portal",
+  "terms": "https://archives.gironde.fr/data/deliberation_ad_reglement_salle_de_lecture_bp23_votee_121222_avec_annexes.pdf",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.gironde.fr",
+        "search": "etatcivil",
+        "node": 629,
+        "fields": {
+          "locality": "REch_commune",
+          "act": "RECH_acte_NMD[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "params": {
+          "RECH_images": "1"
+        },
+        "acts": {
+          "B": "Baptême ou naissance",
+          "N": "Baptême ou naissance",
+          "M": "Mariage",
+          "S": "Sépulture ou décès",
+          "D": "Sépulture ou décès",
+          "P": { "RECH_acte_all": "Publication de mariage" },
+          "TD": { "RECH_typo[]": "table" }
+        },
+        "columns": {
+          "locality": "Lieux",
+          "acts": ["Registre", "Actes"],
+          "period": "Dates",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.gironde.fr",
+        "search": "recensement",
+        "node": 634,
+        "fields": {
+          "locality": "RECH_lieu",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Lieu(x)",
+          "period": "date",
+          "call_number": "cote"
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.gironde.fr",
+        "search": "enregistrement2",
+        "node": 628,
+        "fields": {
+          "locality": "RECH_Bureau",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "params": {
+          "RECH_table": "Table des successions et absences"
+        },
+        "columns": {
+          "locality": "Bureau",
+          "acts": "Type documentaire",
+          "period": "Date"
+        }
+      }
+    }
+  ]
+}
