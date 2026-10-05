@@ -1,10 +1,11 @@
 //! The scripts the archive window runs in the portal's page.
 //!
-//! None of them searches, fills or clicks anything: [`page`] says what each
-//! loaded page is — the portal's own, an anti-bot check, or a block —,
-//! [`fetch`] sends one request of an adapter from that page and posts back
-//! the answer, and [`banner`] shows the reader what OxidGene found. The
-//! resolution itself runs in Rust.
+//! None of them searches or fills anything: [`page`] says what each loaded
+//! page is — the portal's own, an anti-bot check, or a block —, [`fetch`]
+//! sends one request of an adapter from that page and posts back the answer,
+//! and [`banner`] shows the reader what OxidGene found. The resolution itself
+//! runs in Rust. The one control clicked is a cookie banner's refusal
+//! ([`consent`]): OxidGene refuses on the reader's behalf, never accepts.
 
 use oxidgene_archives::Method;
 use oxidgene_archives::transport::{ANTI_BOT_JSON, TIMEOUT};
@@ -16,6 +17,19 @@ pub(super) fn page() -> String {
     format!(
         "(() => {{\nconst antiBot = {ANTI_BOT_JSON};\n{}\n}})();",
         include_str!("page.js")
+    )
+}
+
+/// The consent managers [`consent`] recognizes, and their controls.
+const CONSENT_JSON: &str = include_str!("consent.json");
+
+/// Refuses a recognized cookie banner's consent in each main-frame document
+/// (`consent.js`), with the managers of `consent.json`, which it receives as
+/// `consent`. Posts `{"kind": "consent", "state", "manager"}`.
+pub(super) fn consent() -> String {
+    format!(
+        "(() => {{\nconst consent = {CONSENT_JSON};\n{}\n}})();",
+        include_str!("consent.js")
     )
 }
 
@@ -134,6 +148,21 @@ mod tests {
         assert!(script.contains(r#""vendor": "anubis""#));
         assert!(script.contains("body.localName === \"frameset\""));
         assert!(script.ends_with("})();"));
+    }
+
+    #[test]
+    fn the_consent_script_receives_the_managers() {
+        let script = consent();
+        assert!(script.starts_with("(() => {\nconst consent = {"));
+        assert!(script.contains(r#""name": "tarteaucitron""#));
+        assert!(script.contains("new MutationObserver"));
+        assert!(script.ends_with("})();"));
+        let managers: serde_json::Value = serde_json::from_str(CONSENT_JSON).unwrap();
+        assert!(
+            managers["managers"]
+                .as_array()
+                .is_some_and(|list| !list.is_empty())
+        );
     }
 
     #[test]

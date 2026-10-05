@@ -16,7 +16,9 @@
 //!
 //! Windows are top-level, since portals refuse to be framed, and share one
 //! persistent web profile of their own, so that a portal's cookies spare the
-//! reader its reuse licence and its challenge at every opening. On WebKitGTK,
+//! reader its reuse licence and its challenge at every opening; a portal's
+//! cookie banner is refused on the reader's behalf, never accepted
+//! (`consent.js`), and the profile keeps that choice too. On WebKitGTK,
 //! a portal certificate served without its issuer is completed ([`tls`]).
 
 mod script;
@@ -66,6 +68,7 @@ enum Message {
     Attach,
     /// The reader closed the banner.
     Dismiss,
+    Consent(Consent),
     /// The reader asks to open the page whose certificate could not be
     /// verified in the system browser.
     #[cfg(any(
@@ -76,6 +79,37 @@ enum Message {
         target_os = "openbsd"
     ))]
     OpenInBrowser,
+}
+
+/// What `consent.js` did with a portal's cookie banner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ConsentState {
+    /// OxidGene refused the consent.
+    Refused,
+    /// The banner offers no refusal OxidGene could click: the reader's.
+    Left,
+    /// The banner left to the reader is gone.
+    Closed,
+}
+
+/// A cookie banner's outcome, posted by `consent.js`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct Consent {
+    state: ConsentState,
+    /// The consent manager recognized.
+    #[serde(default)]
+    manager: Option<String>,
+}
+
+impl Consent {
+    fn log(&self) {
+        debug!(
+            manager = self.manager.as_deref().unwrap_or_default(),
+            state = ?self.state,
+            "a cookie banner in an archive window"
+        );
+    }
 }
 
 /// What reaches the event loop from the windows.
@@ -672,6 +706,7 @@ fn receive_inbound(
                 window.status.dismiss();
             }
         }
+        Inbound::Posted(Message::Consent(consent)) => consent.log(),
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -848,6 +883,7 @@ fn open<T>(
     let posted = inbox.clone();
     let builder = WebViewBuilder::new_with_web_context(context)
         .with_initialization_script_for_main_only(script::page(), true)
+        .with_initialization_script_for_main_only(script::consent(), true)
         .with_ipc_handler(move |request| {
             receive(session, &accepted, &posted, request.uri(), request.body());
         });
@@ -1011,6 +1047,30 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn the_consent_script_s_messages_are_read() {
+        let read = |body: &str| match serde_json::from_str::<Message>(body) {
+            Ok(Message::Consent(consent)) => Some(consent),
+            _ => None,
+        };
+        assert_eq!(
+            read(r#"{"kind": "consent", "state": "refused", "manager": "tarteaucitron"}"#),
+            Some(Consent {
+                state: ConsentState::Refused,
+                manager: Some("tarteaucitron".to_owned()),
+            })
+        );
+        for (state, expected) in [
+            ("left", ConsentState::Left),
+            ("closed", ConsentState::Closed),
+        ] {
+            let consent = read(&format!(r#"{{"kind": "consent", "state": "{state}"}}"#));
+            assert_eq!(consent.map(|consent| consent.state), Some(expected));
+        }
+        // OxidGene never accepts: there is no such outcome.
+        assert_eq!(read(r#"{"kind": "consent", "state": "accepted"}"#), None);
     }
 
     #[test]

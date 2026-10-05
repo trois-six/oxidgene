@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T05:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T05:21:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1292,7 +1292,8 @@ matters on a portal with a challenge: on a cold session the Sarthe
 challenge's redirect drops the address's fragment, which carries the view,
 while the challenge cookie the first load leaves keeps it.
 
-The window fills no field and clicks no control; the page's own scripts open
+The window fills no field and clicks no control but a cookie banner's
+refusal (below); the page's own scripts open
 the viewer at the view. A banner over the portal page, in the interface
 language (`archive_viewer.*`), says that OxidGene is looking for the
 register while it resolves, and once the target has loaded, that no
@@ -1348,6 +1349,20 @@ start page again, where the reader faces the check as above, and once the
 portal's page shows, sends that same request once more: once per search of a
 collection (§8). A block answering a request fails `challenged`. The window
 never answers a check itself: it waits, and the reader answers.
+
+**Cookie consent.** OxidGene refuses a portal's cookie consent on the
+reader's behalf and never accepts it. A script of the window, run in each
+main-frame document, recognizes the consent managers of the shared list
+beside it (`consent.json`: the Arkothèque banner, tarteaucitron, Axeptio,
+Didomi, OneTrust, CookieConsent and Osano, Klaro, Complianz — each with its
+banner, refuse and accept controls), watches the document for 15 seconds,
+and clicks the first visible refuse control of a banner on screen, once: the
+manager's own, or else, within the banner, a control whose whole text is a
+refuse phrase. Nothing whose text, title, label or value is an accept phrase
+is ever clicked. A banner offering only an accept control, still there after
+the refusal, or still on screen after the 15 seconds, is left to the reader.
+The window's persistent profile keeps the choice. The live checks' browser
+runs the same script.
 
 **Certificates on Linux.** WebKitGTK does not fetch an intermediate
 certificate a server omits, where Chromium, Firefox and the macOS and
@@ -1540,6 +1555,9 @@ Archive portals are public services whose terms OxidGene follows:
   the reader sees. The window answers no check itself: it waits for a check
   that clears itself, and asks the reader to answer one that does not
   (§6.1).
+- The window's only click on a portal page is a cookie banner's refusal, on
+  the reader's behalf (§6.1): it never accepts a consent, never answers a
+  check, and fills nothing.
 - Requests of the `native` transport identify OxidGene in their
   `User-Agent`, `OxidGene/<version> (+https://github.com/trois-six/oxidgene)`;
   the `window` transport's are the portal page's own. Both time out
@@ -1605,6 +1623,11 @@ Archive portals are public services whose terms OxidGene follows:
   signatures, and a portal page carrying a vendor's scripts as the portal;
   the window's page script, run on Node.js (`just ui-js`), tells a
   challenge with text and a frameset apart from the portal.
+- The window's consent script, run on Node.js over a minimal DOM (`just
+  ui-js`), refuses each recognized manager's banner with its refuse control,
+  never clicks an accept control, leaves accept-only banners to the reader
+  and ignores pages without a banner; Rust tests read its messages, none of
+  which says a consent was accepted.
 - The Linux window's certificate completion reads the issuer address of a
   certificate and verifies a completed chain with a test authority made for
   the test alone, refusing another name, an untrusted root, a wrong issuer

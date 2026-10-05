@@ -1,0 +1,108 @@
+{
+  "managers": [
+    {
+      "name": "arkotheque",
+      "banner": "#analytics-container .cookie_enabled",
+      "refuse": [".btn_refuser"],
+      "accept": [".btn_accepter"]
+    },
+    {
+      "name": "tarteaucitron",
+      "banner": "#tarteaucitronAlertBig",
+      "refuse": ["#tarteaucitronAllDenied2", ".tarteaucitronDeny"],
+      "accept": ["#tarteaucitronPersonalize2", ".tarteaucitronAllow"]
+    },
+    {
+      "name": "axeptio",
+      "banner": "#axeptio_overlay",
+      "refuse": ["#axeptio_btn_dismiss"],
+      "accept": ["#axeptio_btn_acceptAll"]
+    },
+    {
+      "name": "didomi",
+      "banner": "#didomi-notice, #didomi-popup",
+      "refuse": ["#didomi-notice-disagree-button", ".didomi-continue-without-agreeing"],
+      "accept": ["#didomi-notice-agree-button"]
+    },
+    {
+      "name": "onetrust",
+      "banner": "#onetrust-banner-sdk",
+      "refuse": ["#onetrust-reject-all-handler"],
+      "accept": ["#onetrust-accept-btn-handler"]
+    },
+    {
+      "name": "cookieconsent",
+      "banner": "#cc-main .cm",
+      "refuse": ["[data-role=\"necessary\"]"],
+      "accept": ["[data-role=\"all\"]"]
+    },
+    {
+      "name": "cookieconsent",
+      "banner": ".cc-window",
+      "refuse": [".cc-deny"],
+      "accept": [".cc-allow", ".cc-dismiss"]
+    },
+    {
+      "name": "osano",
+      "banner": ".osano-cm-dialog",
+      "refuse": [".osano-cm-denyAll", ".osano-cm-deny"],
+      "accept": [".osano-cm-accept-all", ".osano-cm-acceptAll", ".osano-cm-accept"]
+    },
+    {
+      "name": "klaro",
+      "banner": ".klaro .cookie-notice, .klaro .cookie-modal",
+      "refuse": [".cn-decline", ".cm-btn-decline"],
+      "accept": [".cm-btn-success", ".cm-btn-accept-all", ".cm-btn-accept"]
+    },
+    {
+      "name": "complianz",
+      "banner": ".cmplz-cookiebanner",
+      "refuse": [".cmplz-deny"],
+      "accept": [".cmplz-accept"]
+    }
+  ],
+  "refuse_phrases": [
+    "refuser",
+    "tout refuser",
+    "refuser tout",
+    "je refuse",
+    "refuser les cookies",
+    "refuser tous les cookies",
+    "continuer sans accepter",
+    "non merci",
+    "reject",
+    "reject all",
+    "decline",
+    "decline all",
+    "deny",
+    "deny all",
+    "refuse",
+    "refuse all",
+    "continue without accepting",
+    "no thanks"
+  ],
+  "accept_phrases": [
+    "accepter",
+    "tout accepter",
+    "accepter tout",
+    "j'accepte",
+    "accepter et fermer",
+    "accepter les cookies",
+    "accepter tous les cookies",
+    "autoriser",
+    "tout autoriser",
+    "ok",
+    "ok pour moi",
+    "d'accord",
+    "j'ai compris",
+    "compris",
+    "accept",
+    "accept all",
+    "accept cookies",
+    "allow",
+    "allow all",
+    "agree",
+    "i agree",
+    "got it"
+  ]
+}

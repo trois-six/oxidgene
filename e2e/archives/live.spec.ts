@@ -6,7 +6,8 @@
 //   through `archives-live-bridge`, the Rust check whose requests run in
 //   this page;
 // - step 4 of every resolved collection: the target opens and the portal's
-//   viewer shows the cited view, after its reuse licence if it asks for one;
+//   viewer shows the cited view, after its reuse licence if it asks for one
+//   (a cookie banner is refused as the desktop window refuses it);
 // - step 5 for a `display: "iiif"` archive: the picture and the thumbnail
 //   are images of the resolved proportions.
 //
@@ -14,6 +15,7 @@
 // challenged portal is annotated and left to the scheduled workflow.
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +32,12 @@ const only = process.env.OXIDGENE_LIVE_ARCHIVE || "";
 
 // How long a viewer may take to show its view, licence included.
 const VIEWER_TIMEOUT_MS = 30_000;
+
+// The desktop window's cookie-consent script (docs/archives.md §6.1), run
+// as the window runs it: it refuses a recognized banner, never accepts, so
+// that no banner hides the viewer. It posts nothing here.
+const consentDir = path.join(root, "apps/oxidgene-desktop/src/archives");
+const consentScript = `(() => {\nconst consent = ${readFileSync(path.join(consentDir, "consent.json"), "utf8")};\n${readFileSync(path.join(consentDir, "consent.js"), "utf8")}\n})();`;
 
 // The archives to check, as the Rust catalogue lists them.
 const archives = execFileSync(bridge, only ? ["--list", only] : ["--list"], { encoding: "utf8" })
@@ -82,7 +90,9 @@ async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise
     // only once its cookie is set (docs/archives.md §6.1): the bridge has
     // loaded its start page in this page already.
     try {
-        const response = await page.goto(opening.url, { waitUntil: "load", timeout: VIEWER_TIMEOUT_MS });
+        // DOM ready only: a portal's third-party resource may hold `load`
+        // back long after the viewer shows, and the loop below waits for it.
+        const response = await page.goto(opening.url, { waitUntil: "domcontentloaded", timeout: VIEWER_TIMEOUT_MS });
         if ((response?.status() ?? 0) >= 500) return unreachable("opening", "the target page", new Error("status"));
         // Sent to another site: the portal refuses the identified agent.
         if (new URL(page.url()).origin !== new URL(opening.url).origin) {
@@ -182,6 +192,8 @@ async function browserSteps(page: Page, collection: CollectionReport): Promise<v
 
 for (const archive of archives) {
     test(archive, async ({ page }) => {
+        // Every document of the page, the start pages and the targets alike.
+        await page.addInitScript({ content: consentScript });
         const bridged = await runBridge(bridge, archive, page);
         const native = bridged.native.length > 0 ? nativeReport(reportDir, archive) : [];
         const missing = bridged.native.filter((index) => !native?.some((collection) => collection.index === index));
