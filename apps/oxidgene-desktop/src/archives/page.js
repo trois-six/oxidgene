@@ -1,7 +1,9 @@
-// Says what each main-frame document of the archive window is, once it is
-// parsed: the portal's own page, an anti-bot check, or a block. Posts
-// `{"kind": "page", "state", "vendor", "interactive"}`, `state` being
-// `portal`, `challenge` or `blocked`.
+// Says when each main-frame document of the archive window starts, posting
+// `{"kind": "document"}` — the window covers it with its progress overlay
+// while it resolves —, and what it is once it is parsed: the portal's own
+// page, an anti-bot check, or a block. Posts `{"kind": "page", "state",
+// "vendor", "interactive"}`, `state` being `portal`, `challenge` or
+// `blocked`.
 //
 // A page is a check or a block when its markup, lower-cased, bears one of
 // the adapters' anti-bot signatures (oxidgene-archives'
@@ -21,6 +23,7 @@
 // navigates, and the next document posts anew. Nothing is filled or clicked.
 //
 // `antiBot` is defined before this script runs.
+window.ipc.postMessage(JSON.stringify({ kind: "document" }));
 const classify = () => {
     const root = document.documentElement;
     if (!root) return null;

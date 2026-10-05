@@ -19,14 +19,27 @@ function page({ html, text = "", frames = 0 }) {
     };
 }
 
-// Runs the script on `document`; `next` runs its pending re-check.
+// Runs the script on `document`; `next` runs its pending re-check. `posted`
+// holds the classifications, `starts` the documents said to start.
 function classify(document) {
     const posted = [];
+    let starts = 0;
     let pending = null;
-    const window = { ipc: { postMessage: message => posted.push(JSON.parse(message)) } };
-    run(antiBot, window, document, () => assert.fail("parsed already"), callback => { pending = callback; });
+    const post = message => {
+        const parsed = JSON.parse(message);
+        if (parsed.kind === "document") {
+            assert.equal(posted.length, 0, "the start comes first");
+            starts += 1;
+        } else {
+            posted.push(parsed);
+        }
+    };
+    run(antiBot, { ipc: { postMessage: post } }, document, () => assert.fail("parsed already"), callback => { pending = callback; });
     return {
         posted,
+        get starts() {
+            return starts;
+        },
         next() {
             const callback = pending;
             pending = null;
@@ -42,6 +55,15 @@ test("a portal page with text is the portal, and is not checked again", () => {
     const run = classify(page({ html: "<html><body><main>Registres</main></body></html>", text: "Registres" }));
     assert.deepEqual(run.posted, [{ kind: "page", state: "portal" }]);
     assert.equal(run.waiting, false);
+});
+
+test("each document says it starts, once, before anything else", () => {
+    const document = page({ html: "<html><body><div id=\"app\"></div></body></html>" });
+    const run = classify(document);
+    assert.equal(run.starts, 1);
+    document.body.innerText = "Résultats";
+    run.next();
+    assert.equal(run.starts, 1);
 });
 
 test("a frameset with a frame is the portal, though its body shows no text", () => {
@@ -98,8 +120,9 @@ test("a page still being parsed is classified once its markup is", () => {
     const listeners = [];
     const window = { ipc: { postMessage: message => posted.push(JSON.parse(message)) } };
     run(antiBot, window, document, (type, listener) => listeners.push([type, listener]), () => assert.fail("no re-check"));
-    assert.deepEqual(posted, []);
+    // Its start is said at once, for the progress overlay.
+    assert.deepEqual(posted, [{ kind: "document" }]);
     assert.deepEqual(listeners.map(([type]) => type), ["DOMContentLoaded"]);
     listeners[0][1]();
-    assert.deepEqual(posted, [{ kind: "page", state: "portal" }]);
+    assert.deepEqual(posted, [{ kind: "document" }, { kind: "page", state: "portal" }]);
 });

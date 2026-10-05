@@ -13,6 +13,9 @@
 //! an anti-bot check on the way ([`Gate`]): a check that clears itself is
 //! given a few seconds, one that stays or shows a widget is the reader's to
 //! answer in the window, and a block ends the search at once.
+//!
+//! Meanwhile the window's progress overlay says where the resolution stands
+//! ([`Stage`]); the reader may cancel it there ([`Shared::cancel`]).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -52,6 +55,18 @@ const ANSWER_MARGIN: Duration = Duration::from_secs(5);
 /// What the window says, in the interface language.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Texts {
+    /// Heads the progress overlay.
+    pub(super) searching: String,
+    /// The overlay's steps ([`Stage`]), `opening_view` with a `{view}`
+    /// placeholder.
+    pub(super) connecting: String,
+    pub(super) looking_up: String,
+    pub(super) opening: String,
+    pub(super) opening_view: String,
+    /// How long a step has lasted, with a `{seconds}` placeholder.
+    pub(super) elapsed: String,
+    /// The label of the overlay's button stopping the lookup.
+    pub(super) cancel: String,
     /// The label of a banner's close button.
     pub(super) close: String,
     /// Asks the reader to answer an anti-bot check in the window.
@@ -89,22 +104,62 @@ pub(super) struct Attachable {
     pub(super) label: String,
 }
 
+/// Where a resolution stands, as its progress overlay says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Stage {
+    /// The start page loads, through any anti-bot check.
+    Connecting,
+    /// An adapter's request runs.
+    Searching,
+    /// The window loads where the resolution ended: the cited view, when
+    /// the target opens on it.
+    Opening { view: Option<u16> },
+}
+
+impl Stage {
+    /// The step's text.
+    pub(super) fn text(self, texts: &Texts) -> String {
+        match self {
+            Self::Connecting => texts.connecting.clone(),
+            Self::Searching => texts.looking_up.clone(),
+            Self::Opening { view: None } => texts.opening.clone(),
+            Self::Opening { view: Some(view) } => {
+                texts.opening_view.replace("{view}", &view.to_string())
+            }
+        }
+    }
+}
+
+/// The progress overlay covering the window while a resolution runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Progress {
+    /// The archive's name.
+    pub(super) archive: String,
+    /// The citation being resolved: the source title.
+    pub(super) citation: String,
+    pub(super) stage: Stage,
+}
+
 /// Work for the event loop.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Command {
     /// Loads `url` in the session's window, creating the window if needed,
-    /// and shows `banner` over the page once it is the portal's. IPC
-    /// messages are then accepted from `origins` only.
+    /// and shows `banner` over the page once it is the portal's, and
+    /// `progress` over the pages until the resolution lands. IPC messages
+    /// are then accepted from `origins` only.
     Load {
         session: SessionId,
         title: String,
         url: String,
         origins: Vec<String>,
         banner: Option<String>,
-        texts: Texts,
+        progress: Option<Progress>,
+        texts: Box<Texts>,
         /// The views the page shows, which the reader may attach.
         attach: Option<Box<Attachable>>,
     },
+    /// The resolution moved on to `stage`.
+    Stage { session: SessionId, stage: Stage },
     /// Asks the reader to answer the check on screen: the banner stays over
     /// every check page of the window until the portal's page shows.
     Ask { session: SessionId },
@@ -278,6 +333,8 @@ pub(super) struct Shared {
     pages: Mutex<HashMap<SessionId, mpsc::UnboundedSender<Seen>>>,
     waiting: Mutex<HashMap<u64, Waiting>>,
     closed: Mutex<HashSet<SessionId>>,
+    /// How to stop each running resolution, when the reader cancels it.
+    cancels: Mutex<HashMap<SessionId, oneshot::Sender<()>>>,
     next: AtomicU64,
 }
 
@@ -361,11 +418,51 @@ impl Shared {
         if let Ok(mut closed) = self.closed.lock() {
             closed.insert(session);
         }
+        // The resolution fails on its own as its waits do.
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.remove(&session);
+        }
+        self.forget(session);
+    }
+
+    /// Drops what waits on the session's window.
+    fn forget(&self, session: SessionId) {
         if let Ok(mut pages) = self.pages.lock() {
             pages.remove(&session);
         }
         if let Ok(mut waiting) = self.waiting.lock() {
             waiting.retain(|_, request| request.session != session);
+        }
+    }
+
+    /// A resolution starts in the session's window: the receiver hears when
+    /// the reader cancels it, until [`Self::settle`].
+    pub(super) fn cancellable(&self, session: SessionId) -> oneshot::Receiver<()> {
+        let (cancel, cancelled) = oneshot::channel();
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.insert(session, cancel);
+        }
+        cancelled
+    }
+
+    /// The session's resolution ended: it can no longer be cancelled.
+    pub(super) fn settle(&self, session: SessionId) {
+        if let Ok(mut cancels) = self.cancels.lock() {
+            cancels.remove(&session);
+        }
+    }
+
+    /// The reader cancelled the session's resolution: it stops, and what
+    /// it waited on in the window is dropped. The window stays open.
+    pub(super) fn cancel(&self, session: SessionId) {
+        let cancel = self
+            .cancels
+            .lock()
+            .ok()
+            .and_then(|mut cancels| cancels.remove(&session));
+        if let Some(cancel) = cancel {
+            let _ = cancel.send(());
+            self.forget(session);
         }
     }
 
@@ -411,12 +508,21 @@ pub(super) struct WindowTransport {
     pub(super) session: SessionId,
     /// The window's title: the source title.
     pub(super) title: String,
-    /// Shown while the resolution runs.
-    pub(super) searching: String,
+    /// The archive's name, which the progress overlay shows.
+    pub(super) archive: String,
     pub(super) texts: Texts,
 }
 
 impl WindowTransport {
+    /// The progress overlay at `stage`.
+    pub(super) fn progress(&self, stage: Stage) -> Progress {
+        Progress {
+            archive: self.archive.clone(),
+            citation: self.title.clone(),
+            stage,
+        }
+    }
+
     /// Loads the endpoint's start page and waits until the window shows the
     /// portal's own page, through any anti-bot check ([`Gate`]).
     async fn show_portal(&self, endpoint: &PortalEndpoint) -> Result<(), FetchError> {
@@ -429,8 +535,9 @@ impl WindowTransport {
             title: self.title.clone(),
             url: endpoint.start.clone(),
             origins: vec![endpoint.origin.clone()],
-            banner: Some(self.searching.clone()),
-            texts: self.texts.clone(),
+            banner: None,
+            progress: Some(self.progress(Stage::Connecting)),
+            texts: Box::new(self.texts.clone()),
             attach: None,
         });
         let started = Instant::now();
@@ -518,6 +625,10 @@ impl WindowFetch<'_> {
         let shared = &self.transport.shared;
         let origins = self.endpoint.origins().map(str::to_owned).collect();
         let (ticket, answer) = shared.wait_for_answer(self.transport.session, origins);
+        shared.push(Command::Stage {
+            session: self.transport.session,
+            stage: Stage::Searching,
+        });
         shared.push(Command::Fetch {
             session: self.transport.session,
             ticket,
@@ -622,6 +733,13 @@ mod tests {
 
     fn texts() -> Texts {
         Texts {
+            searching: "Looking for the register…".to_owned(),
+            connecting: "Connecting…".to_owned(),
+            looking_up: "Searching…".to_owned(),
+            opening: "Opening…".to_owned(),
+            opening_view: "Opening view {view}…".to_owned(),
+            elapsed: "{seconds} s".to_owned(),
+            cancel: "Cancel".to_owned(),
             close: "Close".to_owned(),
             challenge: "Answer the check.".to_owned(),
             #[cfg(any(
@@ -876,22 +994,25 @@ mod tests {
 
     /// Plays the event loop and the window: each start page shows as
     /// `pages` says in turn, and each request is answered by `bodies` in
-    /// turn. Returns how many pages were loaded and requests sent.
+    /// turn. Returns how many pages were loaded and requests sent, and the
+    /// overlay's stages in order.
     async fn window(
         shared: &Shared,
         session: SessionId,
         pages: &[Seen],
         bodies: &[&str],
         done: &AtomicBool,
-    ) -> (usize, usize) {
-        let (mut loads, mut fetches) = (0, 0);
+    ) -> (usize, usize, Vec<Stage>) {
+        let (mut loads, mut fetches, mut stages) = (0, 0, Vec::new());
         while !done.load(Ordering::Relaxed) {
             for command in shared.drain() {
                 match command {
-                    Command::Load { .. } => {
+                    Command::Load { progress, .. } => {
+                        stages.extend(progress.map(|progress| progress.stage));
                         shared.seen(session, pages[loads].clone());
                         loads += 1;
                     }
+                    Command::Stage { stage, .. } => stages.push(stage),
                     Command::Fetch { ticket, .. } => {
                         let url = "https://archives.example.org/api";
                         shared.fetched(session, answer(ticket, 200, url, bodies[fetches]));
@@ -902,18 +1023,30 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        (loads, fetches)
+        (loads, fetches, stages)
+    }
+
+    fn transport(shared: &Arc<Shared>) -> WindowTransport {
+        WindowTransport {
+            shared: Arc::clone(shared),
+            session: 1,
+            title: "AD00 - Exampleville - (aucun) - N - 1877".to_owned(),
+            archive: "Archives of Example".to_owned(),
+            texts: texts(),
+        }
     }
 
     async fn search(pages: &[Seen], bodies: &[&str]) -> (Result<String, FetchError>, usize, usize) {
+        let (result, loads, fetches, _) = search_stages(pages, bodies).await;
+        (result, loads, fetches)
+    }
+
+    async fn search_stages(
+        pages: &[Seen],
+        bodies: &[&str],
+    ) -> (Result<String, FetchError>, usize, usize, Vec<Stage>) {
         let shared = Arc::new(Shared::default());
-        let transport = WindowTransport {
-            shared: Arc::clone(&shared),
-            session: 1,
-            title: "AD00".to_owned(),
-            searching: "Searching".to_owned(),
-            texts: texts(),
-        };
+        let transport = transport(&shared);
         let endpoint = endpoint();
         let done = AtomicBool::new(false);
         let resolution = async {
@@ -924,9 +1057,69 @@ mod tests {
             done.store(true, Ordering::Relaxed);
             result
         };
-        let (result, (loads, fetches)) =
+        let (result, (loads, fetches, stages)) =
             tokio::join!(resolution, window(&shared, 1, pages, bodies, &done));
-        (result, loads, fetches)
+        (result, loads, fetches, stages)
+    }
+
+    #[tokio::test]
+    async fn the_overlay_follows_the_search() {
+        let portal = page(PageState::Portal, false);
+        let (_, _, _, stages) = search_stages(&[portal.clone(), portal], &[CHECK, PORTAL]).await;
+        // The start page, the request, the start page again for the
+        // reader, the request once more.
+        assert_eq!(
+            stages,
+            [
+                Stage::Connecting,
+                Stage::Searching,
+                Stage::Connecting,
+                Stage::Searching
+            ]
+        );
+    }
+
+    #[test]
+    fn each_stage_says_where_the_resolution_stands() {
+        let texts = texts();
+        assert_eq!(Stage::Connecting.text(&texts), "Connecting…");
+        assert_eq!(Stage::Searching.text(&texts), "Searching…");
+        assert_eq!(Stage::Opening { view: None }.text(&texts), "Opening…");
+        assert_eq!(
+            Stage::Opening { view: Some(12) }.text(&texts),
+            "Opening view 12…"
+        );
+    }
+
+    #[test]
+    fn cancelling_stops_the_resolution_and_what_it_waits_on() {
+        let shared = Shared::default();
+        let mut cancelled = shared.cancellable(3);
+        let mut pages = shared.listen(3);
+        let (_, mut answer) = shared.wait_for_answer(3, origins());
+        let mut other = shared.cancellable(4);
+
+        shared.cancel(3);
+        assert_eq!(cancelled.try_recv(), Ok(Some(())));
+        assert!(pages.try_recv().is_err());
+        assert!(answer.try_recv().is_err());
+        // The window stays open, and another session's resolution runs on.
+        assert!(!shared.is_closed(3));
+        assert_eq!(other.try_recv(), Ok(None));
+
+        // Once settled, a resolution is no longer cancelled.
+        shared.settle(4);
+        shared.cancel(4);
+        assert!(other.try_recv().is_err());
+    }
+
+    #[test]
+    fn closing_a_window_does_not_cancel_its_resolution() {
+        let shared = Shared::default();
+        let mut cancelled = shared.cancellable(5);
+        shared.close(5);
+        // Dropped, not sent: the resolution fails as its waits do.
+        assert!(cancelled.try_recv().is_err());
     }
 
     #[tokio::test]

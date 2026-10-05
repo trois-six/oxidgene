@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T05:21:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T05:22:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1294,9 +1294,26 @@ while the challenge cookie the first load leaves keeps it.
 
 The window fills no field and clicks no control but a cookie banner's
 refusal (below); the page's own scripts open
-the viewer at the view. A banner over the portal page, in the interface
-language (`archive_viewer.*`), says that OxidGene is looking for the
-register while it resolves, and once the target has loaded, that no
+the viewer at the view. While it resolves, the window covers the portal's
+pages with OxidGene's progress overlay: a full-window cover, in neutral
+light or dark colours, out of reach of the portal's styles (a shadow root),
+showing the archive's name, the citation and the step, as a polite status:
+connecting to the portal while the start page loads
+(`archive_viewer.step_connecting`), searching for the register during each
+of the adapter's requests (`archive_viewer.step_searching`), and opening the
+cited view, or the archive's page, while the landing loads
+(`archive_viewer.step_opening_view`, `archive_viewer.step_opening`). From 3
+seconds on, the step's elapsed time shows beside it
+(`archive_viewer.step_elapsed`), updated every second. The page script says
+when each document starts, so that the overlay covers it at once. The
+overlay gives way whenever the reader has to act on the page — an anti-bot
+check they were asked to answer, until the portal's page shows; a cookie
+banner left to them, until it is gone — and is gone once the landing's page
+has shown. Its Cancel button (`common.cancel`) stops the resolution — its
+pending requests are dropped — and the window loads the collection's
+filtered search page (`results_url`, the archive's `website` when there is
+none), without a banner. Once the target has loaded, a banner over the
+portal page, in the interface language (`archive_viewer.*`), says that no
 register or several registers match the citation, over the filtered results;
 or, over a register whose portal has no address per view — a `View` with no
 views although the cited views lie within the register, or its size is
@@ -1334,7 +1351,7 @@ the start page:
 
 - the portal's page lets the requests run;
 - a challenge is given 5 seconds to clear itself, as Anubis's proof of work,
-  F5's script or a bot-mitigation redirect do, with the searching banner
+  F5's script or a bot-mitigation redirect do, with the progress overlay
   over it; one still on screen after that, or one showing a widget, is the
   reader's: the banner asks them to answer the check in this window
   (`archive_viewer.challenge`), on every page of the check until the
@@ -1360,7 +1377,8 @@ and clicks the first visible refuse control of a banner on screen, once: the
 manager's own, or else, within the banner, a control whose whole text is a
 refuse phrase. Nothing whose text, title, label or value is an accept phrase
 is ever clicked. A banner offering only an accept control, still there after
-the refusal, or still on screen after the 15 seconds, is left to the reader.
+the refusal, or still on screen after the 15 seconds, is left to the reader,
+and the progress overlay gives way to it.
 The window's persistent profile keeps the choice. The live checks' browser
 runs the same script.
 
@@ -1627,7 +1645,11 @@ Archive portals are public services whose terms OxidGene follows:
   ui-js`), refuses each recognized manager's banner with its refuse control,
   never clicks an accept control, leaves accept-only banners to the reader
   and ignores pages without a banner; Rust tests read its messages, none of
-  which says a consent was accepted.
+  which says a consent was accepted. The progress overlay, run the same way,
+  shows each step, the elapsed time from 3 seconds, gives way and goes when
+  told, and its Cancel posts the window's message; Rust tests cover when the
+  overlay gives way and is gone, the cancellation of a resolution, and the
+  landing of a cancelled lookup.
 - The Linux window's certificate completion reads the issuer address of a
   certificate and verifies a completed chain with a test authority made for
   the test alone, refusing another name, an untrusted root, a wrong issuer

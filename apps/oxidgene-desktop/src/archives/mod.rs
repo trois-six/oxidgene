@@ -10,9 +10,11 @@
 //! the cited view, or the portal's filtered results — with a banner saying
 //! what OxidGene found, or, when the resolution failed, the landing of the
 //! failure; a resolution running past [`LOOKUP_DEADLINE`] lands as a
-//! timeout. What a window's page posts wakes the event loop at once
-//! ([`Inbox`]), so that neither the banner nor the resolution waits for the
-//! reader to move the mouse.
+//! timeout. Until then a progress overlay covers the portal's pages
+//! ([`cover`]), from which the reader may cancel the lookup. What a window's
+//! page posts wakes the event loop at once ([`Inbox`]), so that neither the
+//! banner, the overlay nor the resolution waits for the reader to move the
+//! mouse.
 //!
 //! Windows are top-level, since portals refuse to be framed, and share one
 //! persistent web profile of their own, so that a portal's cookies spare the
@@ -21,6 +23,7 @@
 //! (`consent.js`), and the profile keeps that choice too. On WebKitGTK,
 //! a portal certificate served without its issuer is completed ([`tls`]).
 
+mod cover;
 mod script;
 #[cfg(any(
     target_os = "linux",
@@ -36,7 +39,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dioxus::desktop::tao::dpi::LogicalSize;
 use dioxus::desktop::tao::event::{Event, WindowEvent};
@@ -54,14 +57,18 @@ use serde::Deserialize;
 use tokio::sync::Notify;
 use tracing::{debug, warn};
 
+use cover::Cover;
 use transport::{
-    Attachable, Command, Fetched, Page, PageState, Seen, SessionId, Shared, Texts, WindowTransport,
+    Attachable, Command, Fetched, Page, PageState, Progress, Seen, SessionId, Shared, Stage, Texts,
+    WindowTransport,
 };
 
 /// One message from the scripts of [`script`].
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Message {
+    /// A main-frame document starts.
+    Document,
     Page(Page),
     Fetched(Fetched),
     /// The reader asks to attach the views on screen as a document.
@@ -69,6 +76,8 @@ enum Message {
     /// The reader closed the banner.
     Dismiss,
     Consent(Consent),
+    /// The reader cancels the lookup from the progress overlay.
+    Cancel,
     /// The reader asks to open the page whose certificate could not be
     /// verified in the system browser.
     #[cfg(any(
@@ -219,6 +228,13 @@ impl ArchiveViewerOpener for WindowOpener {
 /// What the window says, from the interface's messages.
 fn texts(messages: &ArchiveViewerMessages) -> Texts {
     Texts {
+        searching: messages.searching.clone(),
+        connecting: messages.step_connecting.clone(),
+        looking_up: messages.step_searching.clone(),
+        opening: messages.step_opening.clone(),
+        opening_view: messages.step_opening_view.clone(),
+        elapsed: messages.step_elapsed.clone(),
+        cancel: messages.cancel.clone(),
         close: messages.close.clone(),
         challenge: messages.challenge.clone(),
         #[cfg(any(
@@ -254,13 +270,15 @@ fn page_command(session: SessionId, request: ArchivePageRequest) -> Command {
         origins: origin_of(&url).map(str::to_owned).into_iter().collect(),
         url,
         banner,
-        texts: texts(&messages),
+        progress: None,
+        texts: Box::new(texts(&messages)),
         attach: None,
     }
 }
 
 /// Resolves the citation through the session's window, then loads the
-/// target in it.
+/// target in it; or, when the reader cancels, stops the resolution and
+/// loads the collection's filtered search page.
 async fn open_register(
     shared: Arc<Shared>,
     resolver: Arc<Resolver<'static>>,
@@ -276,28 +294,82 @@ async fn open_register(
         shared: Arc::clone(&shared),
         session,
         title: link.title.clone(),
-        searching: messages.searching.clone(),
+        archive: link.archive.name.clone(),
         texts: texts(&messages),
     };
     let citation = refined(&link).await;
     let started = std::time::Instant::now();
-    let outcome = within(LOOKUP_DEADLINE, resolver.resolve(&citation, &transport)).await;
-    log_outcome(&link, &outcome, started);
-    let attach =
-        attach.and_then(|sender| attachable(&link, outcome.as_ref().ok()?, sender, &messages));
-    let Landing { url, banner } = Landing::of(&link, outcome.map_err(|error| error.code()));
+    let mut cancelled = shared.cancellable(session);
+    // Dropping the resolution drops its requests: an answer the window
+    // posts later finds nothing waiting.
+    let outcome = tokio::select! {
+        outcome = within(LOOKUP_DEADLINE, resolver.resolve(&citation, &transport)) => Some(outcome),
+        Ok(()) = &mut cancelled => None,
+    };
+    shared.settle(session);
+    if let Some(outcome) = &outcome {
+        log_outcome(&link, outcome, started);
+    }
     if shared.is_closed(session) {
         return;
     }
-    shared.push(Command::Load {
-        session,
-        title: link.title,
+    shared.push(match outcome {
+        Some(outcome) => landing(&link, &messages, attach, &transport, outcome),
+        None => cancelled_landing(&link, &transport),
+    });
+}
+
+/// Loads where the resolution ended, under the overlay's last step.
+fn landing(
+    link: &ArchiveLink,
+    messages: &ArchiveViewerMessages,
+    attach: Option<AttachSender>,
+    transport: &WindowTransport,
+    outcome: Result<ArchiveTarget, ResolveError>,
+) -> Command {
+    let attach =
+        attach.and_then(|sender| attachable(link, outcome.as_ref().ok()?, sender, messages));
+    let view = match &outcome {
+        Ok(ArchiveTarget::View { views, .. }) => views.first().map(|view| view.view),
+        _ => None,
+    };
+    let Landing { url, banner } = Landing::of(link, outcome.map_err(|error| error.code()));
+    Command::Load {
+        session: transport.session,
+        title: link.title.clone(),
         origins: origin_of(&url).map(str::to_owned).into_iter().collect(),
         url,
         banner: banner.and_then(|banner| messages.banner(banner)),
-        texts: transport.texts,
+        progress: Some(transport.progress(Stage::Opening { view })),
+        texts: Box::new(transport.texts.clone()),
         attach,
-    });
+    }
+}
+
+/// Loads the collection's filtered search page — the archive's website
+/// when there is none —, without a banner, for a reader who cancelled:
+/// the portal's page where they may search themselves.
+fn cancelled_landing(link: &ArchiveLink, transport: &WindowTransport) -> Command {
+    debug!(
+        archive = link.archive.id.as_str(),
+        "the reader cancelled a lookup"
+    );
+    let url = ArchiveRegistry::embedded()
+        .offline_target(&link.citation)
+        .map_or_else(
+            |_| link.archive.website.clone(),
+            |target| target.url().to_owned(),
+        );
+    Command::Load {
+        session: transport.session,
+        title: link.title.clone(),
+        origins: origin_of(&url).map(str::to_owned).into_iter().collect(),
+        url,
+        banner: None,
+        progress: None,
+        texts: Box::new(transport.texts.clone()),
+        attach: None,
+    }
 }
 
 /// Logs how a resolution ended and how long it took, with the archive's
@@ -461,7 +533,9 @@ struct ArchiveWindow {
     origins: Arc<Mutex<Vec<String>>>,
     /// What it says over its pages.
     status: Status,
-    texts: Texts,
+    /// The progress overlay.
+    cover: Cover,
+    texts: Box<Texts>,
     /// The views on screen the reader may attach.
     attach: Option<Box<Attachable>>,
     /// The page whose certificate could not be verified, which the reader
@@ -477,12 +551,15 @@ struct ArchiveWindow {
 }
 
 impl ArchiveWindow {
+    /// Loads `url`. The overlay of `progress` shows at once over the page
+    /// being left, then over the new one.
     fn load(
         &mut self,
         url: &str,
         origins: Vec<String>,
         banner: Option<String>,
-        texts: Texts,
+        progress: Option<Progress>,
+        texts: Box<Texts>,
         attach: Option<Box<Attachable>>,
     ) {
         if let Ok(mut allowed) = self.origins.lock() {
@@ -491,6 +568,8 @@ impl ArchiveWindow {
         self.status = Status::new(banner);
         self.attach = attach;
         self.texts = texts;
+        self.cover.load(progress, Instant::now());
+        self.render();
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -522,8 +601,30 @@ impl ArchiveWindow {
         }
     }
 
-    /// A page loaded: shows what [`Status::page`] says over it.
+    /// Shows the progress overlay as the cover stands, or removes it.
+    fn render(&self) {
+        self.eval(&script::overlay(
+            self.cover.shown(Instant::now(), self.status.asking),
+            &self.texts,
+        ));
+    }
+
+    /// A document starts: the overlay covers it at once, if it shows.
+    fn on_document(&mut self) {
+        self.cover.document();
+        if self
+            .cover
+            .shown(Instant::now(), self.status.asking)
+            .is_some()
+        {
+            self.render();
+        }
+    }
+
+    /// A page was classified: shows what [`Status::page`] says over it, and
+    /// the overlay as it now stands; the landing's page ends the overlay.
     fn on_page(&mut self, state: PageState) {
+        self.cover.page();
         let shown = self
             .status
             .page(state, self.attach.as_deref(), &self.texts.challenge);
@@ -534,12 +635,35 @@ impl ArchiveWindow {
                 action.as_ref().map(|(label, kind)| (label.as_str(), *kind)),
             ));
         }
+        self.render();
     }
 
-    /// Asks the reader to answer the check on screen.
+    /// Asks the reader to answer the check on screen: the overlay gives way.
     fn ask(&mut self) {
         self.status.ask();
+        self.render();
         self.show(&self.texts.challenge);
+    }
+
+    fn on_stage(&mut self, stage: Stage) {
+        self.cover.stage(stage, Instant::now());
+        self.render();
+    }
+
+    /// A cookie banner left to the reader: the overlay gives way until it
+    /// is gone.
+    fn on_consent(&mut self, consent: &Consent) {
+        consent.log();
+        if consent.state != ConsentState::Refused {
+            self.cover.consent(consent.state);
+            self.render();
+        }
+    }
+
+    /// The reader cancelled the lookup: the overlay is gone.
+    fn cancel(&mut self) {
+        self.cover.cancel();
+        self.render();
     }
 
     #[cfg(any(
@@ -607,6 +731,7 @@ pub fn install<T: 'static>(
                     url,
                     origins,
                     banner,
+                    progress,
                     texts,
                     attach,
                 } => {
@@ -614,7 +739,7 @@ pub fn install<T: 'static>(
                         continue;
                     }
                     if let Some(window) = windows.get_mut(&session) {
-                        window.load(&url, origins, banner, texts, attach);
+                        window.load(&url, origins, banner, progress, texts, attach);
                         continue;
                     }
                     let context =
@@ -625,6 +750,7 @@ pub fn install<T: 'static>(
                         url: &url,
                         origins,
                         banner,
+                        progress,
                         texts,
                         attach,
                     };
@@ -638,6 +764,11 @@ pub fn install<T: 'static>(
                 Command::Ask { session } => {
                     if let Some(window) = windows.get_mut(&session) {
                         window.ask();
+                    }
+                }
+                Command::Stage { session, stage } => {
+                    if let Some(window) = windows.get_mut(&session) {
+                        window.on_stage(stage);
                     }
                 }
                 Command::Fetch {
@@ -682,43 +813,7 @@ fn receive_inbound(
 ) {
     let window = windows.get_mut(&session);
     match inbound {
-        Inbound::Posted(Message::Page(page)) => {
-            if page.state != PageState::Portal {
-                debug!(
-                    vendor = page.vendor.as_deref().unwrap_or_default(),
-                    state = ?page.state,
-                    "an anti-bot page in an archive window"
-                );
-            }
-            if let Some(window) = window {
-                window.on_page(page.state);
-            }
-            shared.seen(session, Seen::Page(page));
-        }
-        Inbound::Posted(Message::Fetched(fetched)) => shared.fetched(session, fetched),
-        Inbound::Posted(Message::Attach) => {
-            if let Some(window) = window {
-                window.attach();
-            }
-        }
-        Inbound::Posted(Message::Dismiss) => {
-            if let Some(window) = window {
-                window.status.dismiss();
-            }
-        }
-        Inbound::Posted(Message::Consent(consent)) => consent.log(),
-        #[cfg(any(
-            target_os = "linux",
-            target_os = "dragonfly",
-            target_os = "freebsd",
-            target_os = "netbsd",
-            target_os = "openbsd"
-        ))]
-        Inbound::Posted(Message::OpenInBrowser) => {
-            if let Some(window) = window {
-                window.open_in_browser();
-            }
-        }
+        Inbound::Posted(message) => receive_posted(shared, window, session, message),
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -735,6 +830,72 @@ fn receive_inbound(
     }
 }
 
+/// Carries out what a window's page posted.
+fn receive_posted(
+    shared: &Shared,
+    window: Option<&mut ArchiveWindow>,
+    session: SessionId,
+    message: Message,
+) {
+    match message {
+        Message::Document => {
+            if let Some(window) = window {
+                window.on_document();
+            }
+        }
+        Message::Page(page) => {
+            log_page(&page);
+            if let Some(window) = window {
+                window.on_page(page.state);
+            }
+            shared.seen(session, Seen::Page(page));
+        }
+        Message::Fetched(fetched) => shared.fetched(session, fetched),
+        Message::Attach => {
+            if let Some(window) = window {
+                window.attach();
+            }
+        }
+        Message::Dismiss => {
+            if let Some(window) = window {
+                window.status.dismiss();
+            }
+        }
+        Message::Consent(consent) => match window {
+            Some(window) => window.on_consent(&consent),
+            None => consent.log(),
+        },
+        Message::Cancel => {
+            shared.cancel(session);
+            if let Some(window) = window {
+                window.cancel();
+            }
+        }
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        Message::OpenInBrowser => {
+            if let Some(window) = window {
+                window.open_in_browser();
+            }
+        }
+    }
+}
+
+fn log_page(page: &Page) {
+    if page.state != PageState::Portal {
+        debug!(
+            vendor = page.vendor.as_deref().unwrap_or_default(),
+            state = ?page.state,
+            "an anti-bot page in an archive window"
+        );
+    }
+}
+
 /// What a new window opens on.
 struct Opening<'a> {
     session: SessionId,
@@ -742,7 +903,8 @@ struct Opening<'a> {
     url: &'a str,
     origins: Vec<String>,
     banner: Option<String>,
-    texts: Texts,
+    progress: Option<Progress>,
+    texts: Box<Texts>,
     attach: Option<Box<Attachable>>,
 }
 
@@ -932,11 +1094,14 @@ fn open<T>(
     tls::watch(&webview, session, Arc::clone(&origins), inbox);
     navigate(&webview, opening.url);
 
+    let mut cover = Cover::default();
+    cover.load(opening.progress, Instant::now());
     Some(ArchiveWindow {
         window,
         webview,
         origins,
         status: Status::new(opening.banner),
+        cover,
         texts: opening.texts,
         attach: opening.attach,
         #[cfg(any(
@@ -995,13 +1160,140 @@ mod tests {
                 url: "https://archives.example.org/ark:/00000/a1/5".to_owned(),
                 origins: vec!["https://archives.example.org".to_owned()],
                 banner: Some("No register matches.".to_owned()),
-                texts: texts(&messages),
+                // A page opened as it is has no progress overlay.
+                progress: None,
+                texts: Box::new(texts(&messages)),
                 attach: None,
             }
         );
         // The window's own texts are the interface's.
-        assert_eq!(texts(&messages).challenge, messages.challenge);
+        let texts = texts(&messages);
+        assert_eq!(texts.challenge, messages.challenge);
         assert!(!messages.challenge.starts_with("archive_viewer."));
+        for text in [
+            &texts.connecting,
+            &texts.looking_up,
+            &texts.opening,
+            &texts.opening_view,
+            &texts.elapsed,
+            &texts.cancel,
+        ] {
+            assert!(!text.starts_with("archive_viewer."), "{text}");
+        }
+        assert!(texts.opening_view.contains("{view}"));
+        assert!(texts.elapsed.contains("{seconds}"));
+    }
+
+    fn transport(link: &ArchiveLink, messages: &ArchiveViewerMessages) -> WindowTransport {
+        WindowTransport {
+            shared: Arc::new(Shared::default()),
+            session: 9,
+            title: link.title.clone(),
+            archive: link.archive.name.clone(),
+            texts: texts(messages),
+        }
+    }
+
+    fn link() -> ArchiveLink {
+        let evidence = oxidgene_archives::CitationEvidence {
+            title: "AD44 - Exampleville - (aucun) - N - 1877".to_owned(),
+            ..Default::default()
+        };
+        match oxidgene_ui::archive_viewer::ArchiveOffer::of(Default::default(), None, evidence) {
+            Some(oxidgene_ui::archive_viewer::ArchiveOffer::Register(link)) => link,
+            _ => panic!("a catalogued citation"),
+        }
+    }
+
+    #[test]
+    fn the_landing_opens_under_the_overlay_s_last_step() {
+        let (link, messages) = (link(), messages());
+        let transport = transport(&link, &messages);
+        let target = ArchiveTarget::View {
+            url: "https://archives.example.org/viewer/12".to_owned(),
+            views: vec![oxidgene_archives::ArchiveView {
+                view: 12,
+                url: "https://archives.example.org/viewer/12".to_owned(),
+                ark: None,
+                image: None,
+            }],
+            view_count: Some(40),
+            call_number: None,
+            attribution: None,
+        };
+        let Command::Load { progress, .. } =
+            landing(&link, &messages, None, &transport, Ok(target))
+        else {
+            panic!("a load");
+        };
+        assert_eq!(
+            progress.map(|progress| (progress.archive, progress.stage)),
+            Some((link.archive.name.clone(), Stage::Opening { view: Some(12) }))
+        );
+        let Command::Load {
+            progress, banner, ..
+        } = landing(
+            &link,
+            &messages,
+            None,
+            &transport,
+            Err(ResolveError::NoAdapter),
+        )
+        else {
+            panic!("a load");
+        };
+        assert_eq!(
+            progress.map(|progress| progress.stage),
+            Some(Stage::Opening { view: None })
+        );
+        assert!(banner.is_some());
+    }
+
+    #[test]
+    fn a_cancelled_lookup_lands_on_the_filtered_search_page_without_overlay() {
+        let (link, messages) = (link(), messages());
+        let Command::Load {
+            url,
+            banner,
+            progress,
+            ..
+        } = cancelled_landing(&link, &transport(&link, &messages))
+        else {
+            panic!("a load");
+        };
+        assert_eq!(
+            url,
+            ArchiveRegistry::embedded()
+                .offline_target(&link.citation)
+                .unwrap()
+                .url()
+        );
+        assert_eq!((banner, progress), (None, None));
+    }
+
+    #[test]
+    fn the_overlay_s_messages_are_read() {
+        assert!(matches!(
+            serde_json::from_str::<Message>(r#"{"kind": "document"}"#),
+            Ok(Message::Document)
+        ));
+        assert!(matches!(
+            serde_json::from_str::<Message>(r#"{"kind": "cancel"}"#),
+            Ok(Message::Cancel)
+        ));
+        // Like every other message, only from the archive's origin.
+        let accepted = Mutex::new(vec!["https://archives.example.org".to_owned()]);
+        let uri = |text: &str| text.parse::<dioxus::desktop::wry::http::Uri>().unwrap();
+        let cancel = r#"{"kind": "cancel"}"#;
+        assert!(matches!(
+            read_message(
+                &accepted,
+                &uri("https://archives.example.org/robots.txt"),
+                cancel
+            ),
+            Ok(Message::Cancel)
+        ));
+        assert!(read_message(&accepted, &uri("https://elsewhere.example.org/"), cancel).is_err());
     }
 
     #[test]

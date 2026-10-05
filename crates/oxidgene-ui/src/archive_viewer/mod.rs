@@ -308,10 +308,23 @@ fn unaddressed_view(citation: &CitationParts, view_count: Option<u16>) -> Option
 /// What the archive window tells the reader, in the interface language.
 ///
 /// The portal page is not ours to translate, so the window shows these in a
-/// small banner over it.
+/// small banner over it, and, while it resolves, in a progress overlay
+/// covering it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArchiveViewerMessages {
+    /// Heads the progress overlay.
     pub searching: String,
+    /// The overlay's steps: the portal's page loading, the register being
+    /// searched for, and the landing opening, on the cited view
+    /// (`{view}`) when there is one.
+    pub step_connecting: String,
+    pub step_searching: String,
+    pub step_opening: String,
+    pub step_opening_view: String,
+    /// How long a step has lasted, with a `{seconds}` placeholder.
+    pub step_elapsed: String,
+    /// The label of the overlay's button stopping the lookup.
+    pub cancel: String,
     pub close: String,
     /// Asks the reader to answer an anti-bot check in the window.
     pub challenge: String,
@@ -331,6 +344,12 @@ impl ArchiveViewerMessages {
     pub fn new(i18n: &I18n) -> Self {
         Self {
             searching: i18n.t("archive_viewer.searching"),
+            step_connecting: i18n.t("archive_viewer.step_connecting"),
+            step_searching: i18n.t("archive_viewer.step_searching"),
+            step_opening: i18n.t("archive_viewer.step_opening"),
+            step_opening_view: i18n.t("archive_viewer.step_opening_view"),
+            step_elapsed: i18n.t("archive_viewer.step_elapsed"),
+            cancel: i18n.t("common.cancel"),
             close: i18n.t("common.close"),
             challenge: i18n.t("archive_viewer.challenge"),
             certificate: i18n.t("archive_viewer.certificate"),

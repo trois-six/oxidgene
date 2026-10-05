@@ -3,16 +3,22 @@
 //! None of them searches or fills anything: [`page`] says what each loaded
 //! page is — the portal's own, an anti-bot check, or a block —, [`fetch`]
 //! sends one request of an adapter from that page and posts back the answer,
-//! and [`banner`] shows the reader what OxidGene found. The resolution itself
+//! [`overlay`] covers the page with the resolution's progress, and
+//! [`banner`] shows the reader what OxidGene found. The resolution itself
 //! runs in Rust. The one control clicked is a cookie banner's refusal
 //! ([`consent`]): OxidGene refuses on the reader's behalf, never accepts.
+
+use std::time::Duration;
 
 use oxidgene_archives::Method;
 use oxidgene_archives::transport::{ANTI_BOT_JSON, TIMEOUT};
 
-/// Classifies each main-frame document once it has loaded (`page.js`):
-/// the portal's page, an anti-bot check, or a block, by the adapters'
-/// anti-bot signatures, which it receives as `antiBot`.
+use super::transport::{Progress, Stage, Texts};
+
+/// Says when each main-frame document starts, as `{"kind": "document"}`,
+/// and classifies it once it has loaded (`page.js`): the portal's page, an
+/// anti-bot check, or a block, by the adapters' anti-bot signatures, which
+/// it receives as `antiBot`.
 pub(super) fn page() -> String {
     format!(
         "(() => {{\nconst antiBot = {ANTI_BOT_JSON};\n{}\n}})();",
@@ -30,6 +36,29 @@ pub(super) fn consent() -> String {
     format!(
         "(() => {{\nconst consent = {CONSENT_JSON};\n{}\n}})();",
         include_str!("consent.js")
+    )
+}
+
+/// Covers the page with the progress overlay of `shown` — the resolution's
+/// overlay and how long its stage has lasted —, or removes the overlay
+/// (`overlay.js`). Its button cancelling the lookup posts
+/// `{"kind": "cancel"}`; there is none once the resolution is landing.
+pub(super) fn overlay(shown: Option<(&Progress, Duration)>, texts: &Texts) -> String {
+    let overlay = shown.map_or(serde_json::Value::Null, |(progress, lasted)| {
+        let landing = matches!(progress.stage, Stage::Opening { .. });
+        serde_json::json!({
+            "heading": texts.searching,
+            "archive": progress.archive,
+            "citation": progress.citation,
+            "step": progress.stage.text(texts),
+            "elapsed": u64::try_from(lasted.as_millis()).unwrap_or(u64::MAX),
+            "seconds": texts.elapsed,
+            "cancel": (!landing).then_some(&texts.cancel),
+        })
+    });
+    format!(
+        "(() => {{\nconst overlay = {overlay};\n{}\n}})();",
+        include_str!("overlay.js")
     )
 }
 
@@ -186,6 +215,78 @@ mod tests {
 
         let get = fetch(8, Method::Get, "https://archives.example.org/", &[], None);
         assert!(get.contains(r#""body":null"#));
+    }
+
+    fn texts() -> Texts {
+        Texts {
+            searching: "Looking for the register…".to_owned(),
+            connecting: "Connecting…".to_owned(),
+            looking_up: "Searching…".to_owned(),
+            opening: "Opening…".to_owned(),
+            opening_view: "Opening view {view}…".to_owned(),
+            elapsed: "{seconds} s".to_owned(),
+            cancel: "Cancel".to_owned(),
+            close: "Close".to_owned(),
+            challenge: "Answer the check.".to_owned(),
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            certificate: "Unverified.".to_owned(),
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            open_in_browser: "Open".to_owned(),
+        }
+    }
+
+    /// The model `overlay.js` receives, read back from the script.
+    fn model(script: &str) -> serde_json::Value {
+        let start = script.find("const overlay = ").unwrap() + "const overlay = ".len();
+        let end = script[start..].find(";\n").unwrap();
+        serde_json::from_str(&script[start..start + end]).unwrap()
+    }
+
+    #[test]
+    fn the_overlay_carries_its_texts_as_json() {
+        let progress = Progress {
+            archive: "Archives of <Example>".to_owned(),
+            citation: "AD00 - \"Exampleville\" - N - 1877".to_owned(),
+            stage: Stage::Searching,
+        };
+        let script = overlay(Some((&progress, Duration::from_millis(4200))), &texts());
+        assert_eq!(
+            model(&script),
+            serde_json::json!({
+                "heading": "Looking for the register…",
+                "archive": "Archives of <Example>",
+                "citation": "AD00 - \"Exampleville\" - N - 1877",
+                "step": "Searching…",
+                "elapsed": 4200,
+                "seconds": "{seconds} s",
+                "cancel": "Cancel",
+            })
+        );
+        assert!(script.contains("attachShadow"));
+        assert!(!script.contains("innerHTML"));
+
+        // Landing: nothing left to cancel.
+        let landing = Progress {
+            stage: Stage::Opening { view: Some(5) },
+            ..progress
+        };
+        let model = model(&overlay(Some((&landing, Duration::ZERO)), &texts()));
+        assert_eq!(model["step"], "Opening view 5…");
+        assert_eq!(model["cancel"], serde_json::Value::Null);
+
+        assert!(overlay(None, &texts()).contains("const overlay = null;\n"));
     }
 
     #[test]
