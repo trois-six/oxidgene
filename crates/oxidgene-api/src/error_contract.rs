@@ -59,6 +59,7 @@ fn archive_message(failure: ArchiveFailure) -> &'static str {
         ArchiveFailure::NotACitation => "The source is not an archive citation",
         ArchiveFailure::NoAdapter => "No catalogued archive collection holds the cited act",
         ArchiveFailure::UnexpectedResponse => "The archive portal did not answer as expected",
+        ArchiveFailure::Challenged => "The archive portal answered with an anti-bot challenge",
         ArchiveFailure::Timeout => "The archive portal did not answer in time",
         ArchiveFailure::Unreachable => "The archive portal could not be reached",
     }

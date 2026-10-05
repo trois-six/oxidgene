@@ -133,9 +133,9 @@ fn status(error: &OxidGeneError) -> StatusCode {
             ArchiveFailure::NotACitation | ArchiveFailure::NoAdapter => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
-            ArchiveFailure::UnexpectedResponse | ArchiveFailure::Unreachable => {
-                StatusCode::BAD_GATEWAY
-            }
+            ArchiveFailure::UnexpectedResponse
+            | ArchiveFailure::Challenged
+            | ArchiveFailure::Unreachable => StatusCode::BAD_GATEWAY,
             ArchiveFailure::Timeout => StatusCode::GATEWAY_TIMEOUT,
         },
     }

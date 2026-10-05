@@ -409,6 +409,7 @@ GraphQL, with no `request_id`:
 | 422 | `not_an_archive_citation` | The title, completed by the citation's page, is not a normalized archive citation. |
 | 422 | `no_adapter` | The archive is not catalogued, or none of its collections holds the cited act. |
 | 502 | `unexpected_response` | The portal answered, but not as its adapter expects. |
+| 502 | `challenged` | The portal answered with an anti-bot challenge instead of its page. |
 | 502 | `unreachable` | The portal could not be reached, or answered with a server error. |
 | 504 | `timeout` | The portal did not answer within 10 seconds. |
 

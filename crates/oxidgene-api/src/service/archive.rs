@@ -155,6 +155,7 @@ fn failure_of(error: &ResolveError) -> ArchiveFailure {
     match error {
         ResolveError::NoAdapter => ArchiveFailure::NoAdapter,
         ResolveError::UnexpectedResponse(_) => ArchiveFailure::UnexpectedResponse,
+        ResolveError::Challenged => ArchiveFailure::Challenged,
         ResolveError::Timeout => ArchiveFailure::Timeout,
         ResolveError::Unreachable => ArchiveFailure::Unreachable,
     }
@@ -169,6 +170,7 @@ mod tests {
         for error in [
             ResolveError::NoAdapter,
             ResolveError::UnexpectedResponse("a changed shape".to_owned()),
+            ResolveError::Challenged,
             ResolveError::Timeout,
             ResolveError::Unreachable,
         ] {

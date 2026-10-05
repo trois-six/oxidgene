@@ -14,6 +14,7 @@
 
 mod arkotheque;
 pub(crate) mod iiif;
+mod ligeo;
 pub(crate) mod markup;
 mod mnesys;
 pub(crate) mod query;
@@ -26,6 +27,7 @@ use std::pin::Pin;
 use serde::{Deserialize, Serialize};
 
 pub use arkotheque::Arkotheque;
+pub use ligeo::Ligeo;
 pub use mnesys::Mnesys;
 pub(crate) use query::Query;
 
@@ -106,7 +108,7 @@ pub trait Platform: Send + Sync {
 
 /// Every adapter OxidGene ships.
 pub fn builtin() -> Vec<Box<dyn Platform>> {
-    vec![Box::new(Arkotheque), Box::new(Mnesys)]
+    vec![Box::new(Arkotheque), Box::new(Ligeo), Box::new(Mnesys)]
 }
 
 /// Whether `text` is an `https` origin: a scheme and a host, no path.

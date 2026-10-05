@@ -23,6 +23,9 @@ sources:
   - id: ad37-portal
     title: "Archives d'Indre-et-Loire — état civil, recherche ciblée"
     url: "https://archives.touraine.fr/search/form/e9414896-40cc-4ec3-936c-8acdfdb11770"
+  - id: ligeo-portals
+    title: "Ligeo Diffusion portals — Ain, Ardèche, Haute-Garonne (search, viewer, manifest, terms)"
+    url: "https://www.archives.ain.fr/archive/recherche/etatcivil/n:88"
   - id: iiif-image
     title: "IIIF Image API 2.1"
     url: "https://iiif.io/api/image/2.1/"
@@ -152,7 +155,7 @@ one or more collections, each resolved on its own:
 | `acts` | Act codes the collection holds (§5.1): `B`, `M`, `S` for parish registers; `N`, `M`, `D` for civil status; table codes such as `TD` for tables. A collection holds a combined act (`BMS`) when it holds each of its kinds. |
 | `period` | Optional `[first year, last year]` the collection covers; either bound may be `null`. |
 | `platform` | The adapter that searches it. |
-| `portal` | The adapter's settings for this collection (§4.3, §4.4). |
+| `portal` | The adapter's settings for this collection (§4.3, §4.4, §4.5). |
 
 Resolution picks the collections whose `acts` contain the citation's act and
 whose `period` contains its year, and tries them in catalogue order until one
@@ -193,6 +196,7 @@ crates/oxidgene-archives/
       iiif.rs       Reading an image service and building a view's image
       view.rs       The View target of a chosen register (§5.2, §7)
       arkotheque/   Arkothèque (1 égal 2)
+      ligeo/        Ligeo Diffusion (Boscop)
       mnesys/       Mnesys Expo (Naoned)
     transport.rs    The request contract, the PortalFetch and PortalTransport
                     traits, and the native implementation
@@ -548,6 +552,47 @@ The adapter's tests replay anonymized answers shaped like the three portals'
 (`crates/oxidgene-archives/fixtures/mnesys/`, written by the `generate.py`
 beside them, which copies no recorded value).
 
+### 4.5 Ligeo
+
+Observed on the Ain, Ardèche and Haute-Garonne portals[^ligeo-portals]. Each
+collection is one search ("recherche") of the portal, named in the path and
+placed in its menu by a node number; the form is a plain `GET` and the answer
+is server-rendered HTML, with no session, key or token. Input names, act
+encodings and result columns differ from portal to portal and from search to
+search, so the `portal` settings describe them. The Ardèche portal has two
+collections: its parish registers (search `paroissiaux`) and its civil status
+(search `etatcivil`). The `portal` settings are:
+
+| Setting | Content |
+|---|---|
+| `origin` | Portal origin. |
+| `transport` | `any` (default), or `browser` when an F5 challenge blocks other clients (Alpes-Maritimes, not catalogued). |
+| `prefix` | `/archive` (default), or `/archives` on some portals. |
+| `search` | The search's name in the path, `etatcivil`, `paroissiaux`, `etatcivil2`; also sent as `type`. |
+| `node` | The menu node, `n:<node>` in the path. |
+| `fields` | Names of the form inputs: `locality`, and the optional `act`, `year_from` and `year_to` (both or neither), such as `RECH_commune`, `RECH_unitdate_debut`. |
+| `acts` | Map from act code to the act filter, omitted where the form has none (Haute-Garonne, Ardèche parish registers). A string is the value of the `act` input, which a name ending in `[]` makes a checkbox list: a combined act repeats it once per kind (`RECH_acte[]=B&RECH_acte[]=M`), and Ain's tables are `tables`. An object gives inputs of its own, with their values: `{"RECH_doc": "EC", "RECH_acte2": "*aissanc*"}` on the Ardèche civil status; a combined act without its own entry is then searched by its first kind. Every act the collection holds needs one. |
+| `columns` | Header texts of the result table's columns, read as written (case, accents and punctuation ignored): `locality`, and the optional `acts`, `parish`, `period` and `call_number`; or only `title`, with `period`, when the table has a single title column from which locality, parish, acts and call number are read (Haute-Garonne). |
+
+Resolution:
+
+1. `GET <prefix>/resultats/<search>/n:<node>?<locality input>=<locality>&<act filter>&<year_from>=<year>&<year_to>=<year>&type=<search>`, the address a form submission reaches through a redirect from `<prefix>/recherche/…`. Values are the readable names and labels; no key is needed. `results_url` is this address. The locality is a **substring** match (`Exampleville` also returns `Exampleville-lès-Bois`), and the years are an interval test: the register's period contains the year when both inputs are the cited one (`exacte`, the register's own period, is not used). A citation without a year omits both.
+2. The answer is a Ligeo page when it holds `div#arc_liste_update`. Any other body is an anti-bot challenge when it bears the signature of Anubis or of the F5 pages (`ResolveError::Challenged`, §5.2: not drift), and a changed shape otherwise. The count is in `p.nb_reponses > span` or `span.arc_nbr_reponses`; the rows are the `tr.pair` and `tr.impair` of `table#resultats`, each cell mapped by its header text. No table is no match. A header the settings name that the table lacks is a changed shape; more answers than rows read (pages of 20 to 50 rows) gives `Results` with the count rather than a guess.
+3. Each row gives its locality (the cell before the thesaurus qualifier, `Exampleville (commune ; Exampledept, France)`, or the title's head), its acts, period and image count, which the viewer link carries in its `title`, `120 vues  dont 104 indexées - <label> (ouvre la visionneuse)`. Acts are read as the codes selection compares: the kinds the text names (`B, M, S`, `Naissances.`, `baptêmes, mariages`), `TD` for decennial tables; the link's label stands in where there is no act column (`BMS` on parish registers). Letter codes are read in an act cell or label, never in a title, where an initial is not an act. On a title-only table the locality is the title up to ` : ` or `, `, the parish the name after it (`Exampleville : Saint-Exemple, paroisse de …`, or `paroisse de Saint-Exemple.`), and the call number the shaped words after the first sentence (`… Saint-Exemple. 1 GG 8, registre …`).
+4. One register is selected as for Arkothèque (§4.3, step 3): rows whose locality, folded, equals the cited one, then act kind, parish, period and image count. The **call number only breaks a tie**: the first selection ignores it, and it is applied only when that leaves several rows, choosing one only if exactly one carries it. The portals disagree on what it is: Ain shows an internal reference, not a call number; the Ardèche `Cote ou référence` is shared by the registers of every locality of the same kind and year; Haute-Garonne has one in the title of communal registers only; the Alpes-Maritimes one is shared by a commune's volumes. A cited call number no row carries therefore does not discard them.
+5. The target is `<origin>/ark:/<naan>/<id>/<tag>/<group>/<view>`, the view one-based. `<tag>/<group>` is kept from the row's viewer link (`/ark:/<naan>/<id>/<tag>/<group>/layout:table/…`): `daogrp/0` normally, `daoloc/0` on the Ardèche parish registers, `dao/0` on finding-aid pages. The portal answers with a redirect to the same path and `?id=<canvas ark>`; its Monocle viewer opens on that view, and a reload keeps it. A view beyond the register's images gives `View` with no views, opened on the first image (§7).
+6. For a `display: "iiif"` archive, `GET /ark:/<naan>/<id>/manifest` (IIIF Presentation 2, `Access-Control-Allow-Origin: *`, not cacheable, 0.25 to 1 MB) gives the image count and, per canvas, the pixel size, the image service and the view's own persistent address (`…/img:<image name>`, returned as `ark`). The sizes are the canvas's: the service's `info.json` is served as `text/html` and describes another image, so it is not read, and the manifest's other fields (renderings, thumbnails, file paths) name server paths and are not either. The services are Image API 2 level 1 under the portal's `/iiif/` path, rebuilt on the portal's origin whatever host the manifest declares. Level 1 sizes by width or height, never by a bounding box and never above the image's own size (`404`): the picture is `full/2048,/0/default.jpg` (`,2048` for a portrait image) when the long side exceeds 2048 pixels and `full` otherwise, the thumbnail `full/150,/0/default.jpg`. Images carry `Access-Control-Allow-Origin: *`. A `display: "portal"` archive reads the count from the row and fetches no manifest.
+
+The viewer shows the current view in `.monocle-PageNav input[role="spinbutton"]` (`aria-valuenow`) and the total in `.monocle-PageNav-total`, which the live check reads; the portals observed show no licence step. A live check also finds a locality to probe from the portal: the locality input's thesaurus is named in the search page script (`new VT_Control("ArchivesRECHCommune",{…"str":"…"…})`), and `POST /archive/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index` with the input's name and three letters lists the matching localities. It is read from the page, not set.
+
+**Etiquette.** These portals' `robots.txt` set `Crawl-delay: 5` and disallow `/archive/resultats/*?*`, `/archive/recherche/*?*` and `/archive/*/view:*`, as the Loire-Atlantique one does: resolutions are user-initiated only, one per click (§8), and the live checks run at the weekly rate (§9.2), at least 5 seconds apart. The Ain and Ardèche portals run Anubis, a proof-of-work challenge shown to browser `User-Agent`s only: the identifying `User-Agent` of the `native` transport is not challenged, while a headless browser is refused (`Access Denied`). The Alpes-Maritimes portal runs F5 TSPD, which gives a plain client a challenge page (hence `transport: "browser"`) and rejects the viewer's manifest request from automated browsers (`challenged` in a live check).
+
+**Reuse.** The Ain (2017), Haute-Garonne (Etalab 2.0, 2023) and Ardèche (2024) archives publish an Etalab open licence covering their images, with attribution to the archive and the call number, and the date of the last update; they are `display: "iiif"`, their `terms` the deliberation or the reuse page. The Alpes-Maritimes terms page was not read. Waiting periods keep recent acts out of the portals (births under 100 years, marriages 75, deaths 25).
+
+**Not covered.** The finding-aid pages (`/archive/fonds/<finding aid>` on Hautes-Alpes, `/archives/fonds/FRAD057_605804` on Moselle) have no search form. The Moselle page is an inventory tree of commune notices (1.2 MB; each notice, `/archives/archives/fonds/<finding aid>/view:<notice>`, is disallowed by `robots.txt`) whose entries list registers with a `span.cote`, a `span.date`, a title (`93 vues - Naissances, mariages, décès.`) and an ARK `/ark:/<naan>/<id>/dao/0`, which the same viewer path opens on a view. Its only text box posts `RECH_S` to the finding aid. They need a mode of their own, not implemented: until then these archives are catalogued without collections. The `etatcivil2` search (Alpes-Maritimes, Haute-Saône) is a facet form whose results address accepts the same plain inputs (`RECH_commune`, `RECH_acte=<label>`, `RECH_date_debut`, `RECH_date_fin`), and the portals under `/archives/` (Loir-et-Cher) differ by `prefix`; neither is catalogued yet.
+
+The adapter's tests replay anonymized answers shaped like the three portals' (`crates/oxidgene-archives/fixtures/ligeo/`, written by the `generate.py` beside them, which copies no recorded value and keeps no server path).
+
 ## 5. Contract
 
 ### 5.1 Citation parsing
@@ -628,7 +673,9 @@ is what a client gets when no transport can reach the portal.
 `ResolveError` distinguishes an archive without an adapter (`no_adapter`: not
 catalogued, or no collection holds the act), a portal that did not answer as
 expected (`unexpected_response`, with a description of what differed and no
-response content), a timeout (`timeout`), and a portal that could not be
+response content), an anti-bot challenge answering in place of the page
+(`challenged`, which an adapter reports apart from a changed shape because the
+portal did not change), a timeout (`timeout`), and a portal that could not be
 reached or answered with a server error (`unreachable`). Each code is stable
 and the interface translates it as `archive_viewer.<code>`.
 
@@ -802,14 +849,14 @@ tile would load a full view.
 | No register, or several | `Results`: the filtered search page, with a banner (desktop) or a notice beside the source (web). |
 | View beyond the register's image count | `View` with no views: the register's first image. |
 | `iiif` image fails to load | The viewer shows the portal link in place of the picture. |
-| Portal changed shape, timed out or could not be reached | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
+| Portal changed shape, answered with a challenge, timed out or could not be reached | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
 
 ## 8. Access etiquette
 
 Archive portals are public services whose terms OxidGene follows:
 
 - One resolution per user click: no crawling, bulk resolution, background
-  refresh or prefetching. Some portals, Loire-Atlantique included, publish a
+  refresh or prefetching. Some portals, Loire-Atlantique and the Ligeo ones included, publish a
   `robots.txt` that disallows automated agents, and some protect themselves
   with an anti-bot challenge; OxidGene acts only on a user's explicit request,
   as a browser does, and never works around a challenge outside the window
@@ -843,7 +890,7 @@ Archive portals are public services whose terms OxidGene follows:
   fixtures, covering one match, several matches, no match, a changed
   response shape, and the platform's own cases: for Arkothèque, a locality
   matched as text, a period of several segments, a view beyond the
-  register's images, and the IIIF images of a `display: "iiif"` archive.
+  register's images, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, and the images sized by the manifest's canvases.
 - Transport tests check the declared origins, the header allow-list and the
   native cookie jar; the desktop's, that a window's answers reach only their
   own request and only from the archive's origin.
@@ -929,7 +976,7 @@ offline tests learn the new shape.
 The checks follow §8: one archive at a time, sequential requests, a handful
 per archive and run, the identifying `User-Agent` with the repository
 address, and no retry within a run. A portal whose `robots.txt` disallows
-automated agents, Loire-Atlantique included, is checked only at this weekly
+automated agents, Loire-Atlantique and the Ligeo portals included, is checked only at this weekly
 rate; an archive that objects is marked `"live_check": false` in its
 catalogue entry and relies on the user-reported failures of §7.
 
@@ -1097,13 +1144,13 @@ only, and *unconfirmed* means no evidence was found.
 
 | No. | Department | Site | Civil-status entry point | Portal platform | Evidence |
 |---|---|---|---|---|---|
-| 01 | Ain | `www.archives.ain.fr` | [`www.archives.ain.fr/archive/recherche/etatcivil/n:88`](https://www.archives.ain.fr/archive/recherche/etatcivil/n:88) | Ligeo | Ligeo references; URL pattern |
+| 01 | Ain | `www.archives.ain.fr` | [`www.archives.ain.fr/archive/recherche/etatcivil/n:88`](https://www.archives.ain.fr/archive/recherche/etatcivil/n:88) | Ligeo | Ligeo references; URL pattern; observed (§4.5) |
 | 02 | Aisne | `archives.aisne.fr` | [`archives.aisne.fr/archive/recherche/etatcivil/n:11`](https://archives.aisne.fr/archive/recherche/etatcivil/n:11) (FranceConnect for recent civil status) | Ligeo | Ligeo references; URL pattern; redesigned portal |
 | 03 | Allier | `archives.allier.fr` | [`archives.allier.fr/rechercher/archives-numerisees/genealogie-histoire-des-familles/etat-civil-en-ligne`](https://archives.allier.fr/rechercher/archives-numerisees/genealogie-histoire-des-familles/etat-civil-en-ligne) | Arkothèque | Arkothèque references; portal |
 | 04 | Alpes-de-Haute-Provence | `www.archives04.fr` | [`www.archives04.fr/rechercher/archives-en-ligne/etat-civil/actes-etat-civil`](https://www.archives04.fr/rechercher/archives-en-ligne/etat-civil/actes-etat-civil) | Arkothèque (since 2008) | Arkothèque references; portal |
-| 05 | Hautes-Alpes | `archives.hautes-alpes.fr` | [`archives.hautes-alpes.fr/archive/fonds/FRAD005_2E`](https://archives.hautes-alpes.fr/archive/fonds/FRAD005_2E) | Ligeo | Ligeo references; URL pattern |
-| 06 | Alpes-Maritimes | `archives06.fr` | [`archives06.fr/archive/resultats/etatcivil2/n:101?type=etatcivil2`](https://archives06.fr/archive/resultats/etatcivil2/n:101?type=etatcivil2) | Ligeo | URL pattern |
-| 07 | Ardèche | `archives.ardeche.fr` | [`archives.ardeche.fr/archive/recherche/etatcivil/n:96`](https://archives.ardeche.fr/archive/recherche/etatcivil/n:96) | Ligeo (older pages on Archinoë) | Ligeo references; URL pattern |
+| 05 | Hautes-Alpes | `archives.hautes-alpes.fr` | [`archives.hautes-alpes.fr/archive/fonds/FRAD005_2E`](https://archives.hautes-alpes.fr/archive/fonds/FRAD005_2E) | Ligeo | Ligeo references; URL pattern; finding-aid pages, not covered (§4.5) |
+| 06 | Alpes-Maritimes | `archives06.fr` | [`archives06.fr/archive/resultats/etatcivil2/n:101?type=etatcivil2`](https://archives06.fr/archive/resultats/etatcivil2/n:101?type=etatcivil2) | Ligeo | URL pattern; F5 challenge, observed (§4.5) |
+| 07 | Ardèche | `archives.ardeche.fr` | [`archives.ardeche.fr/archive/recherche/etatcivil/n:96`](https://archives.ardeche.fr/archive/recherche/etatcivil/n:96) | Ligeo (older pages on Archinoë) | Ligeo references; URL pattern; observed (§4.5) |
 | 08 | Ardennes | `archives.cd08.fr` | [`archives.cd08.fr/archives-numerisees/sources-genealogiques/registres-paroissiaux-et-detat-civil`](https://archives.cd08.fr/archives-numerisees/sources-genealogiques/registres-paroissiaux-et-detat-civil) | Arkothèque | Arkothèque references; portal |
 | 09 | Ariège | `mdr-archives.ariege.fr` | [`mdr-archives.ariege.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://mdr-archives.ariege.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | Unidentified (`/mdr/index.php/rechercheTheme/…` engine) | Portal |
 | 10 | Aube | `www.archives-aube.fr` | [`www.archives-aube.fr/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube`](https://www.archives-aube.fr/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube) | Arkothèque | Arkothèque references; portal |
@@ -1127,7 +1174,7 @@ only, and *unconfirmed* means no evidence was found.
 | 28 | Eure-et-Loir | `archives28.fr` | [`archives28.fr/archives-et-inventaires-en-ligne/histoire-des-individus-des-populations-et-genealogie/les-registres-paroissiaux-et-detat-civil`](https://archives28.fr/archives-et-inventaires-en-ligne/histoire-des-individus-des-populations-et-genealogie/les-registres-paroissiaux-et-detat-civil) | Arkothèque | Arkothèque references; 2024 visual redesign; portal |
 | 29 | Finistère | `archives.finistere.fr` | [`recherche.archives.finistere.fr/archive/resultats/etatcivil/n:138?type=etatcivil`](https://recherche.archives.finistere.fr/archive/resultats/etatcivil/n:138?type=etatcivil) | Ligeo | Ligeo references; URL pattern |
 | 30 | Gard | `archives.gard.fr` | [`earchives.gard.fr/archives/classification-scheme`](https://earchives.gard.fr/archives/classification-scheme) | Unidentified (`/archives/classification-scheme`) | Portal |
-| 31 | Haute-Garonne | `archives.haute-garonne.fr` | [`archives.haute-garonne.fr/archive/recherche/etatcivil/n:97`](https://archives.haute-garonne.fr/archive/recherche/etatcivil/n:97) | Ligeo | Ligeo references; URL pattern |
+| 31 | Haute-Garonne | `archives.haute-garonne.fr` | [`archives.haute-garonne.fr/archive/recherche/etatcivil/n:97`](https://archives.haute-garonne.fr/archive/recherche/etatcivil/n:97) | Ligeo | Ligeo references; URL pattern; observed (§4.5) |
 | 32 | Gers | `www.archives32.fr` | [`www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/`](https://www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/) | Unidentified | Portal |
 | 33 | Gironde | `archives.gironde.fr` | [`archives.gironde.fr/archive/recherche/etatcivil/n:629`](https://archives.gironde.fr/archive/recherche/etatcivil/n:629) | Ligeo | Ligeo references; URL pattern; Bordeaux published by the Archives Bordeaux Métropole |
 | 34 | Hérault | `archives-pierresvives.herault.fr` | [`archives-pierresvives.herault.fr/archive/recherche/etatcivil/n:23`](https://archives-pierresvives.herault.fr/archive/recherche/etatcivil/n:23) | Ligeo (portal); Mnesys customer | URL pattern; both vendors' lists |
@@ -1153,7 +1200,7 @@ only, and *unconfirmed* means no evidence was found.
 | 54 | Meurthe-et-Moselle | `archivesenligne.meurthe-et-moselle.fr` | [`archivesenligne.meurthe-et-moselle.fr/archives-en-ligne/registres-paroissiaux-et-detat-civil`](https://archivesenligne.meurthe-et-moselle.fr/archives-en-ligne/registres-paroissiaux-et-detat-civil) | Arkothèque | Arkothèque references; URL pattern |
 | 55 | Meuse | `archives.meuse.fr` | [`archives.meuse.fr/search/form/32239fba-c3ac-416c-b0f7-889cfa87214a`](https://archives.meuse.fr/search/form/32239fba-c3ac-416c-b0f7-889cfa87214a) | Mnesys Expo | Logo, Naoned case study; URL pattern |
 | 56 | Morbihan | `patrimoines-archives.morbihan.fr` | [`rechercher.patrimoines-archives.morbihan.fr/archive/recherche/etatcivil/n:6`](https://rechercher.patrimoines-archives.morbihan.fr/archive/recherche/etatcivil/n:6) | Ligeo | Ligeo references; URL pattern |
-| 57 | Moselle | `www.archives57.com` | [`www.archives57.com/archives/fonds/FRAD057_605804`](https://www.archives57.com/archives/fonds/FRAD057_605804) | Ligeo | Ligeo references; URL pattern |
+| 57 | Moselle | `www.archives57.com` | [`www.archives57.com/archives/fonds/FRAD057_605804`](https://www.archives57.com/archives/fonds/FRAD057_605804) | Ligeo | Ligeo references; URL pattern; finding-aid pages, not covered (§4.5) |
 | 58 | Nièvre | `archives.nievre.fr` | [`archives.nievre.fr/search/form/9430efb3-399f-4de3-a3e7-004e232d8601`](https://archives.nievre.fr/search/form/9430efb3-399f-4de3-a3e7-004e232d8601) | Mnesys Expo | Naoned customer list; URL pattern |
 | 59 | Nord | `archivesdepartementales.lenord.fr` | [`archivesdepartementales.lenord.fr/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8`](https://archivesdepartementales.lenord.fr/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8) | Mnesys Expo | Naoned case study; URL pattern |
 | 60 | Oise | `archives.oise.fr` | [`ressources.archives.oise.fr/v2/ad60/registre.html`](https://ressources.archives.oise.fr/v2/ad60/registre.html) | Archinoë | URL pattern |
@@ -1222,6 +1269,7 @@ collections (§3.1). The ones supplied so far:
 [^ad44-portal]: Loire-Atlantique archive portal, search and viewer requests observed 2026-10-03.
 [^ad72-portal]: Sarthe archive portal, search, viewer and anti-bot challenge observed 2026-10-03.
 [^ad37-portal]: Indre-et-Loire archive portal, search form, results, viewer and manifest observed 2026-10-03.
+[^ligeo-portals]: Ain, Ardèche and Haute-Garonne portals, search, results, viewer, manifest, image service and terms observed 2026-10-05.
 [^iiif-image]: IIIF Image API, image sources listed by the viewer endpoint.
 [^iiif-presentation]: IIIF Presentation API 3.0, the register manifest.
 [^arkotheque-departmental]: Arkothèque departmental references, 28 services named.

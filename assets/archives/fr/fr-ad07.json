@@ -1,0 +1,62 @@
+{
+  "id": "fr-ad07",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Ardèche",
+  "jurisdiction": ["07"],
+  "citation_codes": ["AD07"],
+  "website": "https://archives.ardeche.fr/",
+  "display": "iiif",
+  "attribution": "Archives départementales de l'Ardèche, {call_number}, vue {view}",
+  "terms": "https://archives.ardeche.fr/n/reutilisation-des-informations-publiques/n:86",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.ardeche.fr",
+        "search": "paroissiaux",
+        "node": 164,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Date"
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "TD"],
+      "period": [1793, null],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.ardeche.fr",
+        "search": "etatcivil",
+        "node": 96,
+        "fields": {
+          "locality": "RECH_comm",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "N": { "RECH_doc": "EC", "RECH_acte2": "*aissanc*" },
+          "M": { "RECH_doc": "EC", "RECH_acte2": "*ariage*" },
+          "D": { "RECH_doc": "EC", "RECH_acte2": "*écès" },
+          "TD": { "RECH_doc": "TD" }
+        },
+        "columns": {
+          "locality": "Commune",
+          "acts": "Intitulé [type(s) d'acte]",
+          "period": "Dates",
+          "call_number": "Cote ou référence"
+        }
+      }
+    }
+  ]
+}

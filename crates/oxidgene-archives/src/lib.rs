@@ -94,6 +94,10 @@ pub enum ResolveError {
     Timeout,
     /// The portal could not be reached, or answered with a server error.
     Unreachable,
+    /// An anti-bot challenge answered in place of the page: not a change of
+    /// the portal's shape, so an adapter reports it apart from
+    /// `UnexpectedResponse` and a live check reports `challenged`.
+    Challenged,
 }
 
 impl ResolveError {
@@ -103,6 +107,7 @@ impl ResolveError {
             Self::UnexpectedResponse(_) => "unexpected_response",
             Self::Timeout => "timeout",
             Self::Unreachable => "unreachable",
+            Self::Challenged => "challenged",
         }
     }
 }

@@ -59,6 +59,7 @@ fn failure_key(code: &str) -> &'static str {
         "no_adapter" => "archive_viewer.no_adapter",
         "not_an_archive_citation" => "archive_viewer.not_an_archive_citation",
         "unexpected_response" => "archive_viewer.unexpected_response",
+        "challenged" => "archive_viewer.challenged",
         "timeout" => "archive_viewer.timeout",
         "unreachable" => "archive_viewer.unreachable",
         _ => "archive_viewer.failed",
@@ -66,13 +67,14 @@ fn failure_key(code: &str) -> &'static str {
 }
 
 /// Every banner a [`Landing`] may name.
-const BANNER_KEYS: [&str; 8] = [
+const BANNER_KEYS: [&str; 9] = [
     "archive_viewer.not_found",
     "archive_viewer.ambiguous",
     "archive_viewer.failed",
     "archive_viewer.no_adapter",
     "archive_viewer.not_an_archive_citation",
     "archive_viewer.unexpected_response",
+    "archive_viewer.challenged",
     "archive_viewer.timeout",
     "archive_viewer.unreachable",
 ];
@@ -251,6 +253,7 @@ mod tests {
             "no_adapter",
             "not_an_archive_citation",
             "unexpected_response",
+            "challenged",
             "timeout",
             "unreachable",
             "",

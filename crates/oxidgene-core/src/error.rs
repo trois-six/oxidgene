@@ -54,6 +54,8 @@ pub enum ArchiveFailure {
     NoAdapter,
     /// The portal answered, but not as its adapter expects.
     UnexpectedResponse,
+    /// The portal answered with an anti-bot challenge instead of its page.
+    Challenged,
     /// The portal did not answer in time.
     Timeout,
     /// The portal could not be reached, or answered with a server error.
@@ -66,6 +68,7 @@ impl ArchiveFailure {
             Self::NotACitation => "not_an_archive_citation",
             Self::NoAdapter => "no_adapter",
             Self::UnexpectedResponse => "unexpected_response",
+            Self::Challenged => "challenged",
             Self::Timeout => "timeout",
             Self::Unreachable => "unreachable",
         }

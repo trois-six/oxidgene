@@ -6717,6 +6717,7 @@
     "app_settings.token_label": "Access token",
     "app_settings.token_warning": "Anyone holding this token can read and change every tree in this application while it is running, living people, notes and sources included. Give it only to tools you trust.",
     "archive_viewer.ambiguous": "Several registers match the citation. Choose one in the search results.",
+    "archive_viewer.challenged": "The archive portal asked to check that you are not a robot. Continue the search on the archive's website.",
     "archive_viewer.failed": "OxidGene could not look up the cited register. Continue the search on the archive's website.",
     "archive_viewer.no_adapter": "OxidGene cannot search this archive for the cited act. Continue the search on the archive's website.",
     "archive_viewer.not_an_archive_citation": "This source is not an archive citation OxidGene can look up. Continue the search on the archive's website.",

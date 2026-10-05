@@ -10,6 +10,39 @@
 
 use oxidgene_core::search::fold_words;
 
+use crate::ResolveError;
+
+/// Signatures of the anti-bot pages portals answer in place of their own:
+/// the Anubis proof-of-work page, the F5 pages, and the bot-mitigation
+/// redirect page some Arkothèque portals serve to a client without the
+/// cookie it sets.
+const CHALLENGES: [&str; 7] = [
+    "anubis",
+    "/tspd/",
+    "request rejected",
+    "access denied",
+    "making sure you",
+    "bot_mitigation",
+    "window.location.href='/redirect_",
+];
+
+/// Whether `answer` is an anti-bot challenge rather than the portal's page.
+pub(crate) fn is_challenge(answer: &str) -> bool {
+    let lowered = answer.to_ascii_lowercase();
+    CHALLENGES.iter().any(|sign| lowered.contains(sign))
+}
+
+/// The error of an answer an adapter cannot read: `Challenged` when it is
+/// an anti-bot page, a changed shape described by `detail` otherwise, so a
+/// live check tells a challenge from drift.
+pub(crate) fn unreadable(answer: &str, detail: String) -> ResolveError {
+    if is_challenge(answer) {
+        ResolveError::Challenged
+    } else {
+        ResolveError::UnexpectedResponse(detail)
+    }
+}
+
 /// Folds text for comparison: case, accents and punctuation ignored, words
 /// separated by single spaces. `Bourg (Le)` and `bourg le` fold alike.
 pub(crate) fn fold(text: &str) -> String {
@@ -79,34 +112,45 @@ pub(crate) fn text_after(html: &str, marker: &str) -> Option<String> {
     ))
 }
 
-/// The text of a fragment of markup: tags removed, character references
-/// decoded, whitespace runs collapsed to single spaces.
+/// The fragments that follow each occurrence of `marker`, each up to the
+/// next one: the rows of a table opened by `<tr class="row`.
+pub(crate) fn split_after<'h>(html: &'h str, marker: &str) -> Vec<&'h str> {
+    html.split(marker).skip(1).collect()
+}
+
+/// The text of `html` without its tags: character references decoded,
+/// whitespace runs collapsed to one space, ends trimmed. A block-level tag
+/// (`br`, `div`, `p`, `li`, `td`, `tr`, `th`) separates words, an inline one
+/// (`mark`, `span`, `a`) does not, so a highlighted part of a name stays in
+/// it. Elements are not interpreted, so a `<script>` body would be kept: use
+/// it on cells that hold text and links.
 pub(crate) fn strip_tags(html: &str) -> String {
     let mut text = String::with_capacity(html.len());
     let mut rest = html;
     while let Some(open) = rest.find('<') {
         text.push_str(&rest[..open]);
-        match rest[open..].find('>') {
-            Some(close) => rest = &rest[open + close + 1..],
-            None => {
-                rest = "";
-                break;
-            }
+        let Some(close) = rest[open..].find('>') else {
+            rest = "";
+            break;
+        };
+        let name: String = rest[open + 1..open + close]
+            .trim_start_matches('/')
+            .chars()
+            .take_while(char::is_ascii_alphabetic)
+            .collect();
+        if ["br", "div", "p", "li", "td", "tr", "th"]
+            .iter()
+            .any(|block| name.eq_ignore_ascii_case(block))
+        {
+            text.push(' ');
         }
-        // A tag separates words: `<li>a</li><li>b</li>` reads `a b`.
-        text.push(' ');
+        rest = &rest[open + close + 1..];
     }
     text.push_str(rest);
     decode_entities(&text)
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-/// The fragments that follow each occurrence of `marker`, each up to the
-/// next one: the rows of a table opened by `<tr class="row`.
-pub(crate) fn split_after<'h>(html: &'h str, marker: &str) -> Vec<&'h str> {
-    html.split(marker).skip(1).collect()
 }
 
 /// The first whole number in `text`: `46` in `(46 images)`.
@@ -170,6 +214,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tells_an_anti_bot_challenge_from_a_changed_shape() {
+        for page in [
+            "<script>window.location.href='/redirect_0000/search'</script>",
+            "<title>Making sure you&#39;re not a bot!</title> Anubis",
+            "<html><body>Request Rejected</body></html>",
+        ] {
+            assert!(is_challenge(page), "{page}");
+            assert_eq!(unreadable(page, String::new()), ResolveError::Challenged);
+        }
+        assert_eq!(
+            unreadable("{\"other\": 1}", "changed".to_owned()),
+            ResolveError::UnexpectedResponse("changed".to_owned())
+        );
+    }
+
+    #[test]
     fn decodes_the_character_references_of_the_markup() {
         assert_eq!(
             decode_entities("Type d&#039;actes &amp; &quot;registres&quot; &#x2014; &lt;b&gt;"),
@@ -200,6 +260,18 @@ mod tests {
         assert_eq!(attributes(html, "href"), ["/one?a=1&b=2", "/two"]);
         assert_eq!(attribute(html, "data-href").as_deref(), Some("/other"));
         assert_eq!(attribute(html, "title"), None);
+    }
+
+    #[test]
+    fn strips_tags_and_collapses_whitespace() {
+        assert_eq!(
+            strip_tags(
+                "<td>\n <mark class=\"m\">Exemple</mark>-sur-Mer &amp; <b>Co</b><br/>x </td>"
+            ),
+            "Exemple-sur-Mer & Co x"
+        );
+        assert_eq!(strip_tags("plain"), "plain");
+        assert_eq!(strip_tags("cut <a href"), "cut");
     }
 
     #[test]

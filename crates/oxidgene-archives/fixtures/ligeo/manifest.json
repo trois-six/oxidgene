@@ -1,0 +1,163 @@
+{
+ "@context": "http://iiif.io/api/presentation/2/context.json",
+ "@type": "sc:Manifest",
+ "@id": "https://portal.example.invalid/ark:/99999/vtaexample0011/manifest",
+ "label": "EX_EC LOT00011 -  Exampleville 1880 - 1880",
+ "sequences": [
+  {
+   "@type": "sc:Sequence",
+   "canvases": [
+    {
+     "@id": "https://portal.example.invalid/ark:/99999/vtaexample0011/canvas/0/1",
+     "@type": "sc:Canvas",
+     "label": "Image 1 sur 6",
+     "width": 3576,
+     "height": 2268,
+     "ligeoPermalink": "https://portal.example.invalid/ark:/99999/vtaexample0011/img:EX_0011_001",
+     "images": [
+      {
+       "@type": "oa:Annotation",
+       "motivation": "sc:painting",
+       "resource": {
+        "@type": "dctypes:Image",
+        "service": {
+         "@context": "http://iiif.io/api/image/2/context.json",
+         "@id": "https://portal.example.invalid/iiif/EC/EX_0011/EX_0011_001.jpg",
+         "profile": "http://iiif.io/api/image/2/level1.json"
+        },
+        "format": "image/jpeg",
+        "width": 3576,
+        "height": 2268
+       }
+      }
+     ]
+    },
+    {
+     "@id": "https://portal.example.invalid/ark:/99999/vtaexample0011/canvas/0/2",
+     "@type": "sc:Canvas",
+     "label": "Image 2 sur 6",
+     "width": 3576,
+     "height": 2268,
+     "ligeoPermalink": "https://portal.example.invalid/ark:/99999/vtaexample0011/img:EX_0011_002",
+     "images": [
+      {
+       "@type": "oa:Annotation",
+       "motivation": "sc:painting",
+       "resource": {
+        "@type": "dctypes:Image",
+        "service": {
+         "@context": "http://iiif.io/api/image/2/context.json",
+         "@id": "https://portal.example.invalid/iiif/EC/EX_0011/EX_0011_002.jpg",
+         "profile": "http://iiif.io/api/image/2/level1.json"
+        },
+        "format": "image/jpeg",
+        "width": 3576,
+        "height": 2268
+       }
+      }
+     ]
+    },
+    {
+     "@id": "https://portal.example.invalid/ark:/99999/vtaexample0011/canvas/0/3",
+     "@type": "sc:Canvas",
+     "label": "Image 3 sur 6",
+     "width": 3576,
+     "height": 2268,
+     "ligeoPermalink": "https://portal.example.invalid/ark:/99999/vtaexample0011/img:EX_0011_003",
+     "images": [
+      {
+       "@type": "oa:Annotation",
+       "motivation": "sc:painting",
+       "resource": {
+        "@type": "dctypes:Image",
+        "service": {
+         "@context": "http://iiif.io/api/image/2/context.json",
+         "@id": "https://portal.example.invalid/iiif/EC/EX_0011/EX_0011_003.jpg",
+         "profile": "http://iiif.io/api/image/2/level1.json"
+        },
+        "format": "image/jpeg",
+        "width": 3576,
+        "height": 2268
+       }
+      }
+     ]
+    },
+    {
+     "@id": "https://portal.example.invalid/ark:/99999/vtaexample0011/canvas/0/4",
+     "@type": "sc:Canvas",
+     "label": "Image 4 sur 6",
+     "width": 3576,
+     "height": 2268,
+     "ligeoPermalink": "https://portal.example.invalid/ark:/99999/vtaexample0011/img:EX_0011_004",
+     "images": [
+      {
+       "@type": "oa:Annotation",
+       "motivation": "sc:painting",
+       "resource": {
+        "@type": "dctypes:Image",
+        "service": {
+         "@context": "http://iiif.io/api/image/2/context.json",
+         "@id": "https://portal.example.invalid/iiif/EC/EX_0011/EX_0011_004.jpg",
+         "profile": "http://iiif.io/api/image/2/level1.json"
+        },
+        "format": "image/jpeg",
+        "width": 3576,
+        "height": 2268
+       }
+      }
+     ]
+    },
+    {
+     "@id": "https://portal.example.invalid/ark:/99999/vtaexample0011/canvas/0/5",
+     "@type": "sc:Canvas",
+     "label": "Image 5 sur 6",
+     "width": 2268,
+     "height": 3576,
+     "ligeoPermalink": "https://portal.example.invalid/ark:/99999/vtaexample0011/img:EX_0011_005",
+     "images": [
+      {
+       "@type": "oa:Annotation",
+       "motivation": "sc:painting",
+       "resource": {
+        "@type": "dctypes:Image",
+        "service": {
+         "@context": "http://iiif.io/api/image/2/context.json",
+         "@id": "https://portal.example.invalid/iiif/EC/EX_0011/EX_0011_005.jpg",
+         "profile": "http://iiif.io/api/image/2/level1.json"
+        },
+        "format": "image/jpeg",
+        "width": 2268,
+        "height": 3576
+       }
+      }
+     ]
+    },
+    {
+     "@id": "https://portal.example.invalid/ark:/99999/vtaexample0011/canvas/0/6",
+     "@type": "sc:Canvas",
+     "label": "Image 6 sur 6",
+     "width": 1000,
+     "height": 800,
+     "ligeoPermalink": "https://portal.example.invalid/ark:/99999/vtaexample0011/img:EX_0011_006",
+     "images": [
+      {
+       "@type": "oa:Annotation",
+       "motivation": "sc:painting",
+       "resource": {
+        "@type": "dctypes:Image",
+        "service": {
+         "@context": "http://iiif.io/api/image/2/context.json",
+         "@id": "https://portal.example.invalid/iiif/EC/EX_0011/EX_0011_006.jpg",
+         "profile": "http://iiif.io/api/image/2/level1.json"
+        },
+        "format": "image/jpeg",
+        "width": 1000,
+        "height": 800
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

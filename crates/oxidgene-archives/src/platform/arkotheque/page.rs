@@ -53,8 +53,12 @@ pub(super) fn search_rows(
     answer: &str,
     cells: &Cells,
 ) -> Result<Vec<Candidate<Register>>, ResolveError> {
-    let answer: SearchAnswer = serde_json::from_str(answer)
-        .map_err(|_| unexpected("the search answer lacks resultats.results or html"))?;
+    let answer: SearchAnswer = serde_json::from_str(answer).map_err(|_| {
+        markup::unreadable(
+            answer,
+            "arkotheque: the search answer lacks resultats.results or html".to_owned(),
+        )
+    })?;
     let rendered = markup::split_after(&answer.resultats.html, "<tr class=\"resultat_container");
     if rendered.len() != answer.resultats.results.len() {
         return Err(unexpected("the rendered rows do not match the results"));
@@ -119,8 +123,12 @@ struct Media {
 /// The images of a register, in order. Nothing else of the answer is read:
 /// its other fields name internal hosts and files.
 pub(super) fn viewer_sources(answer: &str) -> Result<Vec<Source>, ResolveError> {
-    let answer: ViewerAnswer = serde_json::from_str(answer)
-        .map_err(|_| unexpected("the viewer answer lacks medias[].sources"))?;
+    let answer: ViewerAnswer = serde_json::from_str(answer).map_err(|_| {
+        markup::unreadable(
+            answer,
+            "arkotheque: the viewer answer lacks medias[].sources".to_owned(),
+        )
+    })?;
     let mut sources = answer
         .medias
         .into_iter()

@@ -348,6 +348,11 @@ async fn portal_failures_carry_their_code() {
             StatusCode::BAD_GATEWAY,
             "unexpected_response",
         ),
+        (
+            Answer::Search("<script>window.location.href='/redirect_0000/chercher'</script>"),
+            StatusCode::BAD_GATEWAY,
+            "challenged",
+        ),
     ] {
         let portal = Recorded::new(answer);
         let app = app_with(&portal).await;

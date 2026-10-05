@@ -6717,6 +6717,7 @@
     "app_settings.token_label": "Toegangstoken",
     "app_settings.token_warning": "Wie dit token heeft, kan elke stamboom in deze toepassing lezen en wijzigen zolang ze draait, levende personen, notities en bronnen inbegrepen. Geef het alleen aan hulpmiddelen die u vertrouwt.",
     "archive_viewer.ambiguous": "Meerdere registers komen overeen met de citatie. Kies er een in de zoekresultaten.",
+    "archive_viewer.challenged": "Het archiefportaal vraagt te controleren dat u geen robot bent. Zet de zoekopdracht voort op de website van het archief.",
     "archive_viewer.failed": "OxidGene kon het geciteerde register niet opzoeken. Zet de zoekopdracht voort op de website van het archief.",
     "archive_viewer.no_adapter": "OxidGene kan dit archief niet doorzoeken naar de geciteerde akte. Zet de zoekopdracht voort op de website van het archief.",
     "archive_viewer.not_an_archive_citation": "Deze bron is geen archiefcitatie die OxidGene kan opzoeken. Zet de zoekopdracht voort op de website van het archief.",

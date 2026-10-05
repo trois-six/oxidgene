@@ -195,7 +195,7 @@ error (a `500`), and names the server log line that records it.
 | 415 | `unsupported_media_type` | Payload format is unsupported, such as a body without a JSON content type on a JSON route. |
 | 422 | `not_an_archive_citation`, `no_adapter` | A source asked for its archive target is not an archive citation, or cites an act no catalogued collection holds ([API Contract](api.md#sources)). |
 | 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1); a `504 timeout` is an archive portal's. |
-| 502 | `unexpected_response`, `unreachable` | An archive portal answered not as its adapter expects, or could not be reached. |
+| 502 | `unexpected_response`, `challenged`, `unreachable` | An archive portal answered not as its adapter expects, answered with an anti-bot challenge, or could not be reached. |
 | 504 | `timeout` | An archive portal did not answer in time. |
 | 500 | `database_error` | Persistence failed unexpectedly. |
 | 500 | `io_error` | Storage or transport I/O failed unexpectedly. |

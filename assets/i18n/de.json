@@ -6717,6 +6717,7 @@
     "app_settings.token_label": "Zugriffstoken",
     "app_settings.token_warning": "Wer dieses Token besitzt, kann jeden Stammbaum dieser Anwendung lesen und ändern, solange sie läuft, lebende Personen, Notizen und Quellen eingeschlossen. Geben Sie es nur Werkzeugen, denen Sie vertrauen.",
     "archive_viewer.ambiguous": "Mehrere Register entsprechen dem Zitat. Wählen Sie eines in den Suchergebnissen.",
+    "archive_viewer.challenged": "Das Archivportal verlangt eine Prüfung, dass Sie kein Roboter sind. Setzen Sie die Suche auf der Website des Archivs fort.",
     "archive_viewer.failed": "OxidGene konnte das zitierte Register nicht nachschlagen. Setzen Sie die Suche auf der Website des Archivs fort.",
     "archive_viewer.no_adapter": "OxidGene kann dieses Archiv nicht nach der zitierten Urkunde durchsuchen. Setzen Sie die Suche auf der Website des Archivs fort.",
     "archive_viewer.not_an_archive_citation": "Diese Quelle ist kein Archivzitat, das OxidGene nachschlagen kann. Setzen Sie die Suche auf der Website des Archivs fort.",

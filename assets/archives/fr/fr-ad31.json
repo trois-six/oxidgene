@@ -1,0 +1,33 @@
+{
+  "id": "fr-ad31",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Haute-Garonne",
+  "jurisdiction": ["31"],
+  "citation_codes": ["AD31"],
+  "website": "https://archives.haute-garonne.fr/",
+  "display": "iiif",
+  "attribution": "Conseil départemental de la Haute-Garonne, Archives départementales, {call_number}, vue {view}",
+  "terms": "https://archives.haute-garonne.fr/n/reutiliser-un-document/n:415",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.haute-garonne.fr",
+        "search": "etatcivil",
+        "node": 97,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "columns": {
+          "title": "Intitulé",
+          "period": "Date"
+        }
+      }
+    }
+  ]
+}
