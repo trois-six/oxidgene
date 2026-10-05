@@ -16,8 +16,8 @@ use oxidgene_core::types::Media;
 use uuid::Uuid;
 
 use super::{
-    ArchiveLink, ArchivePageRequest, ArchiveRegister, Landing, ViewPage, failure_key,
-    use_archive_viewer_bridge,
+    ArchiveLink, ArchivePageRequest, ArchiveRegister, ArchiveViewerMessages, Landing, ViewPage,
+    failure_key, use_archive_viewer_bridge,
 };
 use crate::api::ApiClient;
 use crate::components::document_form::{DocumentDraft, DocumentForm, RemotePage};
@@ -114,11 +114,11 @@ fn use_resolution(tree_id: Uuid, link: &ArchiveLink, viewing: Viewing, on_close:
                         phase.set(Phase::Shown);
                         return;
                     }
-                    None => Landing::of(link.archive, Ok(target)),
+                    None => Landing::of(&link, Ok(target)),
                 },
                 Err(error) => {
                     let code = error.code();
-                    Landing::of(link.archive, Err(code.as_deref().unwrap_or_default()))
+                    Landing::of(&link, Err(code.as_deref().unwrap_or_default()))
                 }
             };
             let Some(bridge) = bridge else {
@@ -128,8 +128,8 @@ fn use_resolution(tree_id: Uuid, link: &ArchiveLink, viewing: Viewing, on_close:
             bridge.open_page(ArchivePageRequest {
                 title: link.title.clone(),
                 url: landing.url.clone(),
-                banner: landing.banner.map(|key| i18n.t(key)),
-                close: i18n.t("common.close"),
+                banner: landing.banner.map(|banner| banner.text(&i18n)),
+                messages: ArchiveViewerMessages::new(&i18n),
             });
             on_close.call(());
         });
@@ -215,7 +215,7 @@ pub fn ArchiveViewer(
                     title: title.clone(),
                     url,
                     banner: None,
-                    close: i18n.t("common.close"),
+                    messages: ArchiveViewerMessages::new(&i18n),
                 });
             }
         })
@@ -383,7 +383,9 @@ fn ViewerMain(
         },
         (Phase::Elsewhere(landing), _) => rsx! {
             div { class: "media-viewer-fallback", role: "status",
-                p { {i18n.t(landing.banner.unwrap_or("archive_viewer.no_image"))} }
+                p {
+                    {landing.banner.map_or_else(|| i18n.t("archive_viewer.no_image"), |banner| banner.text(&i18n))}
+                }
                 PortalLink { url: landing.url.clone(), on_open: open_portal }
             }
         },

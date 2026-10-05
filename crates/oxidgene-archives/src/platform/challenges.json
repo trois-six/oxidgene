@@ -1,0 +1,26 @@
+{
+  "signatures": [
+    { "vendor": "cloudflare", "guard": "block", "markers": ["cf-error-details"] },
+    { "vendor": "cloudflare", "guard": "block", "markers": ["sorry, you have been blocked"] },
+    { "vendor": "cloudflare", "guard": "challenge", "markers": ["_cf_chl_opt"] },
+    { "vendor": "cloudflare", "guard": "challenge", "markers": ["<title>just a moment...</title>"] },
+    { "vendor": "anubis", "guard": "block", "markers": ["/.within.website/", "error code"], "unless": ["anubis_challenge"] },
+    { "vendor": "anubis", "guard": "block", "markers": ["/.within.website/", "code d'erreur"], "unless": ["anubis_challenge"] },
+    { "vendor": "anubis", "guard": "challenge", "markers": ["anubis"] },
+    { "vendor": "anubis", "guard": "challenge", "markers": ["making sure you"] },
+    { "vendor": "f5", "guard": "block", "markers": ["request rejected"] },
+    { "vendor": "f5", "guard": "challenge", "markers": ["bobcmn"] },
+    { "vendor": "f5", "guard": "challenge", "markers": ["/tspd/", "enable javascript"] },
+    { "vendor": "bot-mitigation", "guard": "challenge", "markers": ["bot_mitigation"] },
+    { "vendor": "bot-mitigation", "guard": "challenge", "markers": ["window.location.href='/redirect_"] },
+    { "vendor": "altcha", "guard": "challenge", "markers": ["altcha-widget"] },
+    { "vendor": "waf", "guard": "block", "markers": ["access denied"] }
+  ],
+  "widgets": [
+    "cf-turnstile",
+    "src=\"https://challenges.cloudflare.com/",
+    "h-captcha",
+    "g-recaptcha",
+    "/recaptcha/api2/anchor"
+  ]
+}

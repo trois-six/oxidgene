@@ -43,22 +43,34 @@ export interface ArchiveReport {
     collections: CollectionReport[];
 }
 
-// The signatures of the anti-bot pages portals show in place of their own,
-// as `markup::CHALLENGES` of oxidgene-archives lists them.
-const CHALLENGES = [
-    "anubis",
-    "/tspd/",
-    "request rejected",
-    "access denied",
-    "making sure you",
-    "bot_mitigation",
-    "window.location.href='/redirect_",
-];
+// The anti-bot pages portals show in place of their own: the very file the
+// adapters and the desktop's archive window classify pages with
+// (crates/oxidgene-archives/src/platform/challenges.json, `markup::anti_bot`).
+interface Signature {
+    vendor: string;
+    guard: "challenge" | "block";
+    markers: string[];
+    unless?: string[];
+}
 
-// Whether a page's markup is an anti-bot challenge rather than the portal.
-export function isChallenge(html: string): boolean {
+const antiBot = JSON.parse(
+    fs.readFileSync(new URL("../../crates/oxidgene-archives/src/platform/challenges.json", import.meta.url), "utf8"),
+) as { signatures: Signature[]; widgets: string[] };
+
+// The anti-bot page a page's markup is, if any: every marker of a signature
+// and none of its `unless`, lower-cased, the first match winning.
+export function antiBotPage(html: string): Signature | null {
     const lowered = html.toLowerCase();
-    return CHALLENGES.some((sign) => lowered.includes(sign));
+    return (
+        antiBot.signatures.find(
+            (signature) => signature.markers.every((marker) => lowered.includes(marker)) && !(signature.unless ?? []).some((marker) => lowered.includes(marker)),
+        ) ?? null
+    );
+}
+
+// How a report names an anti-bot page: `cloudflare block`, `anubis challenge`.
+export function antiBotName(signature: Signature): string {
+    return `${signature.vendor} ${signature.guard}`;
 }
 
 const SEVERITY: Outcome[] = ["ok", "challenged", "unreachable", "drift"];

@@ -1,26 +1,23 @@
 //! The scripts the archive window runs in the portal's page.
 //!
-//! None of them searches, fills or clicks anything: [`READY`] says when a
-//! page is the portal's own and loaded, [`fetch`] sends one request of an
-//! adapter from that page and posts back the answer, and [`banner`] shows
-//! the reader what OxidGene found. The resolution itself runs in Rust.
+//! None of them searches, fills or clicks anything: [`page`] says what each
+//! loaded page is — the portal's own, an anti-bot check, or a block —,
+//! [`fetch`] sends one request of an adapter from that page and posts back
+//! the answer, and [`banner`] shows the reader what OxidGene found. The
+//! resolution itself runs in Rust.
 
 use oxidgene_archives::Method;
-use oxidgene_archives::transport::TIMEOUT;
+use oxidgene_archives::transport::{ANTI_BOT_JSON, TIMEOUT};
 
-/// Posts `{"kind": "ready"}` once a page has loaded and renders something.
-///
-/// An anti-bot challenge page renders nothing — a script that navigates on,
-/// and a `noscript` note — so it is not taken for the portal's page, whose
-/// requests would otherwise be challenged too.
-pub(super) const READY: &str = r#"(() => {
-    const ready = () => {
-        if (!document.body || !document.body.innerText.trim()) return;
-        window.ipc.postMessage(JSON.stringify({ kind: "ready" }));
-    };
-    if (document.readyState === "complete") ready();
-    else addEventListener("load", ready, { once: true });
-})();"#;
+/// Classifies each main-frame document once it has loaded (`page.js`):
+/// the portal's page, an anti-bot check, or a block, by the adapters'
+/// anti-bot signatures, which it receives as `antiBot`.
+pub(super) fn page() -> String {
+    format!(
+        "(() => {{\nconst antiBot = {ANTI_BOT_JSON};\n{}\n}})();",
+        include_str!("page.js")
+    )
+}
 
 /// Sends one request from the page and posts the answer back as
 /// `{"kind": "fetched", "ticket", "status", "url", "body"}`, or with an
@@ -67,10 +64,13 @@ pub(super) fn fetch(
 }
 
 /// Shows `text` in a banner over the page with a close button labelled
-/// `close`, replacing any earlier banner.
-pub(super) fn banner(text: &str, close: &str) -> String {
+/// `close`, replacing any earlier banner. With an `action` label, the
+/// banner also has a button that asks the window, over IPC, to open the
+/// page it could not verify in the system browser.
+pub(super) fn banner(text: &str, close: &str, action: Option<&str>) -> String {
     let text = serde_json::Value::from(text);
     let close = serde_json::Value::from(close);
+    let action = serde_json::Value::from(action);
     format!(
         r#"(() => {{
     document.getElementById("oxidgene-archive-status")?.remove();
@@ -83,6 +83,18 @@ pub(super) fn banner(text: &str, close: &str) -> String {
         + "color:#f6f0e4;font:14px/1.4 system-ui,sans-serif;box-shadow:0 4px 16px #0000004d";
     const label = document.createElement("span");
     label.textContent = {text};
+    banner.append(label);
+    const action = {action};
+    if (action) {{
+        const open = document.createElement("button");
+        open.type = "button";
+        open.textContent = action;
+        open.style.cssText = "border:1px solid currentColor;border-radius:6px;background:none;"
+            + "color:inherit;font:inherit;padding:4px 10px;cursor:pointer;white-space:nowrap";
+        open.addEventListener("click", () =>
+            window.ipc.postMessage(JSON.stringify({{ kind: "open_in_browser" }})));
+        banner.append(open);
+    }}
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "×";
@@ -90,7 +102,7 @@ pub(super) fn banner(text: &str, close: &str) -> String {
     button.style.cssText = "border:0;background:none;color:inherit;font-size:18px;"
         + "cursor:pointer;line-height:1";
     button.addEventListener("click", () => banner.remove());
-    banner.append(label, button);
+    banner.append(button);
     document.documentElement.append(banner);
 }})();"#
     )
@@ -99,6 +111,15 @@ pub(super) fn banner(text: &str, close: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_page_script_receives_the_adapters_signatures() {
+        let script = page();
+        assert!(script.starts_with("(() => {\nconst antiBot = {"));
+        assert!(script.contains(r#""vendor": "anubis""#));
+        assert!(script.contains("body.localName === \"frameset\""));
+        assert!(script.ends_with("})();"));
+    }
 
     #[test]
     fn the_fetch_script_carries_the_request_as_json() {
@@ -125,12 +146,21 @@ mod tests {
 
     #[test]
     fn the_banner_text_is_set_as_text() {
-        let script = banner("No register <b>matches</b> \"the\" citation.", "Close");
+        let script = banner(
+            "No register <b>matches</b> \"the\" citation.",
+            "Close",
+            None,
+        );
         assert!(
             script
                 .contains(r#"label.textContent = "No register <b>matches</b> \"the\" citation.";"#)
         );
         assert!(script.contains(r#"setAttribute("aria-label", "Close")"#));
+        assert!(script.contains("const action = null;"));
         assert!(!script.contains("innerHTML"));
+
+        let script = banner("Unverified.", "Close", Some("Open in the <browser>"));
+        assert!(script.contains(r#"const action = "Open in the <browser>";"#));
+        assert!(script.contains(r#"kind: "open_in_browser""#));
     }
 }

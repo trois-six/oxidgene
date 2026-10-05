@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+pub use crate::platform::markup::{ANTI_BOT_JSON, Guard, Signature, anti_bot, shows_check_widget};
 use crate::platform::{BoxFuture, PortalEndpoint};
 
 /// How OxidGene names itself to a portal.

@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { runBridge } from "./bridge";
-import { type ArchiveReport, type CollectionReport, type Failure, type Opening, drift, isChallenge, nativeReport, record, summary, worst } from "./report";
+import { type ArchiveReport, type CollectionReport, type Failure, type Opening, antiBotName, antiBotPage, drift, nativeReport, record, summary, worst } from "./report";
 import { viewers } from "./viewers";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -85,7 +85,9 @@ async function open(page: Page, opening: Opening): Promise<Failure | null> {
     }
     if (shown === null) {
         const blank = await page.evaluate(() => !document.body || !document.body.innerText.trim()).catch(() => true);
-        if (blank || isChallenge(await page.content().catch(() => ""))) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "an anti-bot challenge in place of the viewer" };
+        const guard = antiBotPage(await page.content().catch(() => ""));
+        if (guard) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: `an anti-bot page in place of the viewer: ${antiBotName(guard)}` };
+        if (blank) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "a blank page in place of the viewer" };
         return drift("opening", `the viewer showing view ${opening.view}`, "no view number shown");
     }
     if (shown !== opening.view) return drift("opening", `view ${opening.view}`, `view ${shown}`);

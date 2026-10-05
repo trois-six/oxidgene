@@ -46,7 +46,7 @@ test-functional:
 
 # Run the browser JavaScript unit tests (Node.js, no dependencies)
 ui-js:
-    node --test crates/oxidgene-ui/tests/*.test.mjs
+    node --test crates/oxidgene-ui/tests/*.test.mjs apps/oxidgene-desktop/tests/*.test.mjs
 
 # Builds the web bundle for the e2e API port and the server, then runs the
 # Playwright suite in `e2e/` against both on a throwaway database (see

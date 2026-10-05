@@ -73,9 +73,10 @@ fn failure_key(code: &str) -> &'static str {
 }
 
 /// Every banner a [`Landing`] may name.
-const BANNER_KEYS: [&str; 9] = [
+const BANNER_KEYS: [&str; 10] = [
     "archive_viewer.not_found",
     "archive_viewer.ambiguous",
+    "archive_viewer.go_to_view",
     "archive_viewer.failed",
     "archive_viewer.no_adapter",
     "archive_viewer.not_an_archive_citation",
@@ -85,33 +86,100 @@ const BANNER_KEYS: [&str; 9] = [
     "archive_viewer.unreachable",
 ];
 
+/// What to tell the reader over a [`Landing`]: a translation key, and the
+/// view number its text names, if any.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LandingBanner {
+    pub key: &'static str,
+    pub view: Option<u16>,
+}
+
+impl LandingBanner {
+    const fn of(key: &'static str) -> Self {
+        Self { key, view: None }
+    }
+
+    /// The banner's text in the interface language.
+    pub fn text(&self, i18n: &I18n) -> String {
+        fill(i18n.t(self.key), self.view)
+    }
+}
+
+/// `text` with its `{view}` placeholder filled.
+fn fill(text: String, view: Option<u16>) -> String {
+    match view {
+        Some(view) => text.replace("{view}", &view.to_string()),
+        None => text,
+    }
+}
+
 /// The page a resolution ends on, and what to tell the reader about it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Landing {
     pub url: String,
-    /// The translation key of the banner, when there is something to say.
-    pub banner: Option<&'static str>,
+    /// The banner, when there is something to say.
+    pub banner: Option<LandingBanner>,
 }
 
 impl Landing {
     /// The target, with a banner when no register or several registers
-    /// match; on a failure, given by its code, the archive's website with
-    /// the failure's banner.
-    pub fn of(archive: &Archive, outcome: Result<ArchiveTarget, &str>) -> Self {
+    /// match, or when the register opens on its first view though the
+    /// citation names one within it: the portal has no address per view,
+    /// and the reader goes to the view. On a failure, given by its code,
+    /// the failure's banner over the collection's filtered search page when
+    /// an anti-bot check answered — the reader may pass it there — and over
+    /// the archive's website otherwise.
+    pub fn of(link: &ArchiveLink, outcome: Result<ArchiveTarget, &str>) -> Self {
         let (url, banner) = match outcome {
             Ok(ArchiveTarget::Results {
                 url,
                 matches: Some(0),
-            }) => (url, Some("archive_viewer.not_found")),
+            }) => (url, Some(LandingBanner::of("archive_viewer.not_found"))),
             Ok(ArchiveTarget::Results {
                 url,
                 matches: Some(2..),
-            }) => (url, Some("archive_viewer.ambiguous")),
+            }) => (url, Some(LandingBanner::of("archive_viewer.ambiguous"))),
+            Ok(ArchiveTarget::View {
+                url,
+                views,
+                view_count,
+                ..
+            }) if views.is_empty() => {
+                let banner =
+                    unaddressed_view(&link.citation, view_count).map(|view| LandingBanner {
+                        key: "archive_viewer.go_to_view",
+                        view: Some(view),
+                    });
+                (url, banner)
+            }
             Ok(target) => (target.url().to_owned(), None),
-            Err(code) => (archive.website.clone(), Some(failure_key(code))),
+            Err(code @ "challenged") => {
+                let url = ArchiveRegistry::embedded()
+                    .offline_target(&link.citation)
+                    .map_or_else(
+                        |_| link.archive.website.clone(),
+                        |target| target.url().to_owned(),
+                    );
+                (url, Some(LandingBanner::of(failure_key(code))))
+            }
+            Err(code) => (
+                link.archive.website.clone(),
+                Some(LandingBanner::of(failure_key(code))),
+            ),
         };
         Self { url, banner }
     }
+}
+
+/// The first cited view of a register target that opens on its first view
+/// although every cited view lies within the register — or the register's
+/// size is unknown —: a portal without an address per view. A citation
+/// naming no view, or one beyond the register (§7), has none.
+fn unaddressed_view(citation: &CitationParts, view_count: Option<u16>) -> Option<u16> {
+    let first = citation.views.first()?.view;
+    let within =
+        view_count.is_none_or(|count| citation.views.iter().all(|cited| cited.view <= count));
+    within.then_some(first)
 }
 
 /// What the archive window tells the reader, in the interface language.
@@ -122,6 +190,12 @@ impl Landing {
 pub struct ArchiveViewerMessages {
     pub searching: String,
     pub close: String,
+    /// Asks the reader to answer an anti-bot check in the window.
+    pub challenge: String,
+    /// Says that the portal's certificate could not be verified.
+    pub certificate: String,
+    /// The label of the button opening the page in the system browser.
+    pub open_in_browser: String,
     /// The text of each banner of [`BANNER_KEYS`].
     banners: Vec<(&'static str, String)>,
 }
@@ -131,16 +205,19 @@ impl ArchiveViewerMessages {
         Self {
             searching: i18n.t("archive_viewer.searching"),
             close: i18n.t("common.close"),
+            challenge: i18n.t("archive_viewer.challenge"),
+            certificate: i18n.t("archive_viewer.certificate"),
+            open_in_browser: i18n.t("archive_viewer.open_in_browser"),
             banners: BANNER_KEYS.map(|key| (key, i18n.t(key))).to_vec(),
         }
     }
 
     /// The text of a [`Landing`]'s banner.
-    pub fn banner(&self, key: &str) -> Option<&str> {
+    pub fn banner(&self, banner: LandingBanner) -> Option<String> {
         self.banners
             .iter()
-            .find(|(known, _)| *known == key)
-            .map(|(_, text)| text.as_str())
+            .find(|(known, _)| *known == banner.key)
+            .map(|(_, text)| fill(text.clone(), banner.view))
     }
 }
 
@@ -161,8 +238,8 @@ pub struct ArchivePageRequest {
     pub url: String,
     /// What to tell the reader over the page, in the interface language.
     pub banner: Option<String>,
-    /// The label of the banner's close button.
-    pub close: String,
+    /// What else the window may say: its close button, an anti-bot check.
+    pub messages: ArchiveViewerMessages,
 }
 
 /// The platform side of the archive viewer.
@@ -249,29 +326,37 @@ mod tests {
         );
     }
 
+    fn banner_key(landing: &Landing) -> Option<&'static str> {
+        landing.banner.map(|banner| banner.key)
+    }
+
     #[test]
     fn a_landing_says_what_the_resolution_found() {
-        let archive = &ArchiveRegistry::embedded().archives()[0];
+        let cited = link(
+            "AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5d/13",
+            None,
+        )
+        .unwrap();
         let results = |matches| ArchiveTarget::Results {
             url: "https://archives.example.org/search".to_owned(),
             matches,
         };
-        assert_eq!(Landing::of(archive, Ok(results(Some(1)))).banner, None);
-        assert_eq!(Landing::of(archive, Ok(results(None))).banner, None);
+        assert_eq!(Landing::of(&cited, Ok(results(Some(1)))).banner, None);
+        assert_eq!(Landing::of(&cited, Ok(results(None))).banner, None);
         assert_eq!(
-            Landing::of(archive, Ok(results(Some(0)))).banner,
+            banner_key(&Landing::of(&cited, Ok(results(Some(0))))),
             Some("archive_viewer.not_found")
         );
         assert_eq!(
-            Landing::of(archive, Ok(results(Some(3)))).banner,
+            banner_key(&Landing::of(&cited, Ok(results(Some(3))))),
             Some("archive_viewer.ambiguous")
         );
 
-        let failed = Landing::of(archive, Err("timeout"));
-        assert_eq!(failed.url, archive.website);
-        assert_eq!(failed.banner, Some("archive_viewer.timeout"));
+        let failed = Landing::of(&cited, Err("timeout"));
+        assert_eq!(failed.url, cited.archive.website);
+        assert_eq!(banner_key(&failed), Some("archive_viewer.timeout"));
         assert_eq!(
-            Landing::of(archive, Err("internal_error")).banner,
+            banner_key(&Landing::of(&cited, Err("internal_error"))),
             Some("archive_viewer.failed")
         );
         // Every banner a landing names has its text.
@@ -286,5 +371,59 @@ mod tests {
         ] {
             assert!(BANNER_KEYS.contains(&failure_key(code)), "{code}");
         }
+    }
+
+    #[test]
+    fn a_challenge_lands_on_the_filtered_search_page() {
+        let cited = link("AD44 - Exampleville - (aucun) - N - 1877", None).unwrap();
+        let landing = Landing::of(&cited, Err("challenged"));
+        let results = ArchiveRegistry::embedded()
+            .offline_target(&cited.citation)
+            .unwrap();
+        assert_eq!(landing.url, results.url());
+        assert_ne!(landing.url, cited.archive.website);
+        assert_eq!(banner_key(&landing), Some("archive_viewer.challenged"));
+    }
+
+    #[test]
+    fn a_register_without_an_address_per_view_names_the_cited_view() {
+        let register = |view_count| ArchiveTarget::View {
+            url: "https://archives.example.org/register".to_owned(),
+            views: Vec::new(),
+            view_count,
+            call_number: None,
+            attribution: None,
+        };
+        let cited = link(
+            "AD44 - Exampleville - (aucun) - N - 1877 - vue 5d-6g/13",
+            None,
+        )
+        .unwrap();
+        for count in [Some(13), Some(6), None] {
+            let landing = Landing::of(&cited, Ok(register(count)));
+            assert_eq!(landing.url, "https://archives.example.org/register");
+            assert_eq!(
+                landing.banner,
+                Some(LandingBanner {
+                    key: "archive_viewer.go_to_view",
+                    view: Some(5)
+                }),
+                "{count:?}"
+            );
+        }
+        // A cited view beyond the register: it opens on its first view.
+        assert_eq!(Landing::of(&cited, Ok(register(Some(5)))).banner, None);
+        // A citation naming no view.
+        let whole = link("AD44 - Exampleville - (aucun) - N - 1877", None).unwrap();
+        assert_eq!(Landing::of(&whole, Ok(register(Some(13)))).banner, None);
+
+        let i18n = I18n::new(crate::i18n::Language::english());
+        let banner = LandingBanner {
+            key: "archive_viewer.go_to_view",
+            view: Some(5),
+        };
+        let text = banner.text(&i18n);
+        assert!(text.contains('5') && !text.contains("{view}"), "{text}");
+        assert_eq!(ArchiveViewerMessages::new(&i18n).banner(banner), Some(text));
     }
 }

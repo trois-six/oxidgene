@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
 ---
 
 
@@ -292,9 +292,15 @@ selects it among the results, then the window loads the register opened on
 the cited view. A banner over the portal page reports the lookup in the
 interface language (`archive_viewer.*`): searching while it runs, then no
 matching register or several matching registers over the portal's filtered
-results, instead of an arbitrary register. When the portal does not answer
-as expected, the window opens the archive's website with a failure banner.
-Once the target has loaded, the reader browses the portal freely.
+results, instead of an arbitrary register; or, on a portal whose viewer
+cannot open a given view, which view to go to. When the portal shows an
+anti-bot check that does not clear itself within seconds, the banner asks
+the reader to answer it in the window, and the search continues once they
+have. When the portal does not answer as expected, the window opens the
+archive's website with a failure banner — or, when an anti-bot measure
+stopped the search, the collection's filtered search results, where the
+reader can pass the check and continue. Once the target has loaded, the
+reader browses the portal freely.
 
 On the web, a click asks the backend for the target
 (`POST …/sources/{source_id}/archive-target` with the clicked citation,
@@ -308,8 +314,8 @@ browser reaches opens on its filtered search results. What the desktop's
 banner would say appears beside the source instead, as a status notice: no
 matching register or several over the filtered results, or, on a failure,
 the message of its code (`archive_viewer.<code>`, `archive_viewer.failed`
-otherwise) while the tab opens the archive's website. The next click clears
-it.
+otherwise) while the tab opens the archive's website, or its filtered search
+results after an anti-bot check. The next click clears it.
 
 An archive whose catalogue entry is `display: "iiif"` — one whose reuse
 terms let OxidGene show its images with their credit — opens in the shared

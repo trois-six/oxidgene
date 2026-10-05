@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 
 import type { Page } from "@playwright/test";
 
-import { type CollectionReport, isChallenge } from "./report";
+import { type CollectionReport, antiBotPage } from "./report";
 
 // The native transport's bound on one request (transport.rs, TIMEOUT).
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -49,27 +49,38 @@ function originOf(url: string): string | null {
     }
 }
 
-// Whether the page is a loaded page of the portal rather than a challenge,
-// which renders nothing but a script that navigates on.
-async function rendersThePortal(page: Page, origins: string[]): Promise<boolean> {
-    if (!origins.includes(originOf(page.url()) ?? "")) return false;
+type PageState = "portal" | "challenge" | "blocked";
+
+// What the page on screen is, as the desktop's archive window tells it
+// (apps/oxidgene-desktop/src/archives/page.js): an anti-bot check or block
+// by the adapters' signatures, otherwise the portal once it renders text or
+// a frameset with a frame; null while it shows nothing or navigates.
+async function pageState(page: Page, origins: string[]): Promise<PageState | null> {
+    if (!origins.includes(originOf(page.url()) ?? "")) return null;
     try {
-        return await page.evaluate(
-            () => document.readyState === "complete" && !!document.body && document.body.innerText.trim().length > 0,
-        );
+        const signature = antiBotPage(await page.content());
+        if (signature) return signature.guard === "block" ? "blocked" : "challenge";
+        const rendered = await page.evaluate(() => {
+            const body = document.body;
+            if (document.readyState !== "complete" || !body) return false;
+            return body.localName === "frameset" ? !!body.querySelector("frame") : body.innerText.trim().length > 0;
+        });
+        return rendered ? "portal" : null;
     } catch {
-        // The page is navigating, as a challenge does once passed.
-        return false;
+        // The page is navigating, as a check does once passed.
+        return null;
     }
 }
 
-// Loads the start page and waits until it is the portal's own page.
+// Loads the start page and waits until it is the portal's own page. A
+// check that clears itself is waited out; one that stays, which only a
+// reader may answer, ends the check `challenged`, as a block does at once.
 async function connect(page: Page, start: string, origins: string[]): Promise<string | null> {
     const current = new URL(page.url());
     const wanted = new URL(start);
     // Already on the start page with its cookies: the check does not load it
     // again for every collection it resolves in.
-    if (current.origin === wanted.origin && current.pathname === wanted.pathname && (await rendersThePortal(page, origins))) {
+    if (current.origin === wanted.origin && current.pathname === wanted.pathname && (await pageState(page, origins)) === "portal") {
         return null;
     }
     let status = 0;
@@ -87,15 +98,16 @@ async function connect(page: Page, start: string, origins: string[]): Promise<st
         return "challenged";
     }
     const deadline = Date.now() + LOAD_TIMEOUT_MS;
+    let checked = false;
     while (Date.now() < deadline) {
-        if (await rendersThePortal(page, origins)) {
-            // A challenge answering with its own refusal page.
-            const refused = status === 403 || status === 429 || isChallenge(await page.content().catch(() => ""));
-            return refused ? "challenged" : null;
-        }
+        const state = await pageState(page, origins);
+        if (state === "blocked") return "challenged";
+        // A refusal status over the portal's own page refuses it too.
+        if (state === "portal") return status === 403 || status === 429 ? "challenged" : null;
+        checked ||= state === "challenge";
         await page.waitForTimeout(500);
     }
-    return "challenged";
+    return checked ? "challenged" : "timeout";
 }
 
 // Runs one request as the page's own `fetch`, with the portal's cookies.

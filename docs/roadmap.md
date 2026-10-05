@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -80,6 +80,11 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   registers, conscription lists, tables of successions and absences — named
   in words or by code, through Arkothèque and Ligeo collections
   ([Archive Portals §3.1, §5.1](archives.md#51-citation-parsing)).
+- [x] Wait out anti-bot checks in the desktop archive window, ask the reader
+  to answer one that stays, land on the filtered search results after a
+  check or a block, name the view to go to on a portal without an address
+  per view, and complete on Linux a portal certificate served without its
+  issuer ([Archive Portals §6.1](archives.md#61-desktop)).
 - [ ] Catalogue every French departmental archive, adding a driver for each
   portal platform they use.
 - [ ] Extend the catalogue to Swiss cantonal archives.

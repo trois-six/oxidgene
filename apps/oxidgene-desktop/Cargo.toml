@@ -32,6 +32,15 @@ windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 glib = { version = "0.18", default-features = false }
 gtk = { version = "0.18", default-features = false }
+# The archive window completes a portal certificate served without its
+# issuer (Archive Portals §6.1): WebKitGTK's TLS-error signal and per-host
+# certificate exception, rustls's verifier over the system's roots, and
+# reqwest to fetch the issuer the certificate names. Every one is already in
+# the tree, at these versions and features, through wry and reqwest.
+webkit2gtk = { version = "2.0", features = ["v2_6"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std"] }
+rustls-native-certs = "0.8"
+reqwest = { workspace = true }
 
 [dependencies]
 oxidgene-api = { workspace = true, features = ["mcp"] }

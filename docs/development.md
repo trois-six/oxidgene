@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -304,7 +304,7 @@ and the Wikidata query service.
 |----------|------|---------|--------|------------|
 | Unit | The `#[cfg(test)]` modules of every library and binary, then the documentation examples, which nextest does not run | `just test-unit` | Unit tests | Yes |
 | Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database, repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
-| Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
+| Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs`, and of the desktop archive window's page script under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
 | End-to-end | The Playwright suite of `e2e/`, driving the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
@@ -892,8 +892,8 @@ just check
 For changes to the web application's pages or the API they call, also run
 `just e2e`.
 
-For browser download transport changes, also run the dependency-free Node.js
-tests:
+For browser download transport changes, or changes to the archive window's
+page script, also run the dependency-free Node.js tests:
 
 ```bash
 just ui-js

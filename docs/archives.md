@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing of acts, tables and other series (censuses, military registers, conscription lists, succession tables), the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -252,7 +252,12 @@ oxidgene-desktop   … , oxidgene-archives
 
 `oxidgene-api` enables the `native` feature, which provides the `reqwest`
 transport, for the backend endpoint (§5.3); the desktop links it through the
-API but resolves through its archive window, a second transport (§4.2).
+API but resolves through its archive window, a second transport (§4.2). On
+Linux the desktop also uses, directly, crates already in its tree: `webkit2gtk`
+(through wry) for the window's TLS-error signal and per-host certificate
+exception, and `rustls`, `rustls-native-certs` and `reqwest` (through
+`reqwest`) to complete and verify a certificate chain (§6.1); they add no
+crate to the lock file.
 `oxidgene-ui` never enables it. Without a transport, the crate parses,
 matches, and builds offline targets (§5.2) but cannot resolve a view.
 The `live` feature, which no application enables, provides the live checks
@@ -389,8 +394,8 @@ Keep-Alive`, then drops a reused connection in the middle of its next
 answer, and a resolution's handful of requests gains little from reuse.
 
 The `window` transport ([§6.1](#61-desktop)) first loads the endpoint's
-`start` page, the portal's own page, and waits until it is the loaded portal
-page rather than a challenge page, which renders nothing. It then runs each
+`start` page, the portal's own page, and waits until the window shows that
+page rather than an anti-bot check. It then runs each
 request as that page's `fetch`, with the portal's cookies
 (`credentials: "include"`), so it passes the challenge, needs no CORS on the
 portal's origin, and reaches a declared API origin whose CORS admits the
@@ -399,6 +404,33 @@ accepts messages from the archive's `origin` only and matches each answer
 to the request it was issued for; an answer whose final address left the
 endpoint's origins is refused. The window's own `User-Agent` is the
 WebView's. The resolution logic itself never runs in injected script.
+
+**Anti-bot pages.** One list of signatures,
+`platform/challenges.json`, tells a portal's page from an anti-bot page, for
+every path a page or an answer takes: the adapters' answer checks
+(`markup::anti_bot`, behind `FetchError::Challenged` and
+`markup::unreadable`), the desktop window's page classification, and the
+live checks' Playwright side, which reads the same file. Each signature names
+its vendor, whether it is a **challenge** — a check a browser passes — or a
+**block** — a refusal nobody passes from that browser —, the lower-case
+fragments the markup must all hold, and those that rule it out; the first
+match wins, so a vendor's block is listed before its challenge. A list of
+widget fragments (Turnstile, hCaptcha, reCAPTCHA) marks a check that asks
+the reader to answer. A new vendor is one entry.
+
+| Vendor | Challenge | Block |
+|---|---|---|
+| Cloudflare | `_cf_chl_opt`, or the title `Just a moment...` | `cf-error-details`, or `Sorry, you have been blocked` |
+| Anubis | `anubis`, or `Making sure you` | a `/.within.website/` page with an error code and no `anubis_challenge` |
+| F5 (TSPD, ASM) | `bobcmn`, or a `/TSPD/` script with `enable JavaScript` | `Request Rejected` |
+| Bot-mitigation redirect (Arkothèque) | `bot_mitigation`, or `window.location.href='/redirect_` | — |
+| Altcha | `altcha-widget` | — |
+| Other WAFs | — | `Access Denied` |
+
+A signature describes the check's own page, not a page behind it: F5 and
+Cloudflare add their scripts (`/TSPD/…`, `/cdn-cgi/challenge-platform/…`)
+to every page a browser reaches once it has passed, so those addresses alone
+do not mark a check.
 
 ### 4.3 Arkothèque
 
@@ -990,13 +1022,64 @@ The window fills no field and clicks no control; the page's own scripts open
 the viewer at the view. A banner over the portal page, in the interface
 language (`archive_viewer.*`), says that OxidGene is looking for the
 register while it resolves, and once the target has loaded, that no
-register or several registers match the citation, over the filtered results.
-When the resolution fails — an archive the window cannot reach, a portal
-that changed shape or did not answer in time — the window opens the
+register or several registers match the citation, over the filtered results;
+or, over a register whose portal has no address per view — a `View` with no
+views although the cited views lie within the register, or its size is
+unknown —, which view to go to (`archive_viewer.go_to_view`, with the first
+cited view). When the resolution fails — an archive the window cannot reach,
+a portal that changed shape or did not answer in time — the window opens the
 archive's `website` with the banner of the failure's code
-(`archive_viewer.<code>`), and the failure is logged with its code and the
-archive's identifier only. A reader who closes the window
-during the resolution stops it.
+(`archive_viewer.<code>`); an anti-bot check or block (`challenged`) lands
+instead on the collection's filtered search page (`results_url`, the
+offline `Results` of §5.2), where the reader may pass the check and
+continue. The failure is logged with its code and the archive's identifier
+only. A reader who closes the window during the resolution stops it.
+
+**Anti-bot checks.** A script of the window classifies each main-frame page
+once it has loaded, with the signatures of §4.2: a **challenge** or a
+**block** when its markup bears one, **interactive** when a challenge also
+shows a widget, and otherwise the **portal** once it renders something —
+text, or a frameset with a frame, whose body has no text of its own (THOT).
+A page that shows nothing yet, or a challenge, is looked at again every half
+second, since a widget or a portal's content may come after the page's
+`load`. Waiting for the start page:
+
+- the portal's page lets the requests run;
+- a challenge is given 5 seconds to clear itself, as Anubis's proof of work,
+  F5's script or a bot-mitigation redirect do, with the searching banner
+  over it; one still on screen after that, or one showing a widget, is the
+  reader's: the banner asks them to answer the check in this window
+  (`archive_viewer.challenge`), on every page of the check until the
+  portal's page shows, and the reader has 3 minutes, after which the
+  resolution fails `challenged`;
+- a block fails `challenged` at once;
+- a page that shows nothing for 30 seconds fails `timeout`.
+
+When an anti-bot check answers one of the adapter's requests — an answer
+bearing a challenge's signature, whatever its status — the window loads the
+start page again, where the reader faces the check as above, and once the
+portal's page shows, sends that same request once more: once per search of a
+collection (§8). A block answering a request fails `challenged`. The window
+never answers a check itself: it waits, and the reader answers.
+
+**Certificates on Linux.** WebKitGTK does not fetch an intermediate
+certificate a server omits, where Chromium, Firefox and the macOS and
+Windows WebViews do, so a portal serving its certificate without its issuer
+opens everywhere but in the Linux window (Savoie's image host did). On the
+load's TLS failure, when the page is on an origin the window was sent to
+(the collection's or the target's), over `https`, and an unknown issuer is
+the only error, the window fetches the one issuer the certificate names in
+its Authority Information Access extension (`caIssuers`, DER or PEM, 10
+seconds, 64 KiB, no retry), verifies the completed chain — that certificate,
+that issuer, a root the system trusts (`rustls-native-certs`) — for the
+page's host name and the current time with rustls's verifier, and only then
+allows that exact certificate for that host in the archive windows' web
+context, for the application session, and loads the page again.
+Verification is never disabled: any other failure, or a chain that does
+not verify, stays refused, the window says that the portal's certificate
+could not be verified (`archive_viewer.certificate`) with a button opening
+the page in the system browser (`archive_viewer.open_in_browser`), and a
+resolution waiting on that page fails `unreachable`.
 
 The window uses a persistent web profile of its own, separate from the
 application's, under the state directory (`archives-webview/`,
@@ -1028,7 +1111,10 @@ The tab cannot carry a banner over the portal's page, so what the window's
 banner says (§6.1) appears in the application, beside the source: no
 register, or several, over the filtered results; and on a failure, by its
 code (`archive_viewer.<code>`, `archive_viewer.failed` for any other), while
-the tab opens the archive's `website`.
+the tab opens the archive's `website` — or, for `challenged`, the
+collection's filtered search page, where the reader passes the check in
+their own browser. The view to go to on a portal without an address per
+view is said the same way.
 
 ### 6.3 OxidGene's viewer
 
@@ -1123,7 +1209,12 @@ opens with that half selected, which the reader saves or redraws.
 | View beyond the register's image count | `View` with no views: the register's first image. |
 | `iiif` image fails to load | The viewer shows the portal link in place of the picture. |
 | `iiif` archive resolves to anything but views with images | The desktop's archive window opens on the landing with its banner; the web viewer shows the banner's message and the portal link (§6.3). |
-| Portal changed shape, answered with a challenge, timed out or could not be reached | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
+| View cited within a register whose portal has no address per view | `View` with no views: the register's first image, with `archive_viewer.go_to_view` naming the cited view, as a banner (desktop) or a notice (web). |
+| Anti-bot check on the start page (desktop) | Waited out for 5 seconds, then the reader's to answer in the window within 3 minutes (§6.1). |
+| Anti-bot check answering a request (desktop) | The start page again for the reader, then the same request once more (§6.1, §8). |
+| Anti-bot block, a check left unanswered, or a challenge answering the backend | `challenged`: its message, as a banner (desktop) or a notice (web); the window or the tab opens the collection's filtered search page (`results_url`), the archive's `website` when there is none. |
+| Portal certificate served without its issuer (Linux desktop) | Completed from its `caIssuers` address and verified against the system's roots; otherwise `archive_viewer.certificate` with a button opening the page in the system browser (§6.1). |
+| Portal changed shape, timed out or could not be reached | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
 
 ## 8. Access etiquette
 
@@ -1134,12 +1225,18 @@ Archive portals are public services whose terms OxidGene follows:
   `robots.txt` that disallows automated agents, and some protect themselves
   with an anti-bot challenge; OxidGene acts only on a user's explicit request,
   as a browser does, and never works around a challenge outside the window
-  the reader sees.
+  the reader sees. The window answers no check itself: it waits for a check
+  that clears itself, and asks the reader to answer one that does not
+  (§6.1).
 - Requests of the `native` transport identify OxidGene in their
   `User-Agent`, `OxidGene/<version> (+https://github.com/trois-six/oxidgene)`;
   the `window` transport's are the portal page's own. Both time out
   after 10 seconds, read at most 8 MiB, and are never retried
-  automatically. They stay on the endpoint's origins (§4.2): a path is
+  automatically. The one exception is reader-driven: a request of the
+  window that an anti-bot check answers is sent once more after the
+  window has shown the start page again and the reader has passed the
+  check there — at most once per search of a collection, never for a
+  block, an error status, a timeout or a network failure. They stay on the endpoint's origins (§4.2): a path is
   refused unless it is absolute on the portal's origin, an absolute address
   unless its origin is declared, and a redirect elsewhere fails the request.
 - Resolved targets are cached in memory for the session, by the resolver:
@@ -1174,7 +1271,20 @@ Archive portals are public services whose terms OxidGene follows:
   register's images, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, and a military register chosen by bureau, class and matricule range.
 - Transport tests check the declared origins, the header allow-list and the
   native cookie jar; the desktop's, that a window's answers reach only their
-  own request and only from the archive's origin.
+  own request and only from the archive's origin, the waiting for the
+  portal's page — a check that clears itself, one left to the reader with
+  its deadline, a widget, a block, a blank page —, and a request answered by
+  a check sent once more, once only.
+- Anti-bot tests classify each vendor's challenge and block from the shared
+  signatures, and a portal page carrying a vendor's scripts as the portal;
+  the window's page script, run on Node.js (`just ui-js`), tells a
+  challenge with text and a frameset apart from the portal.
+- The Linux window's certificate completion reads the issuer address of a
+  certificate and verifies a completed chain with a test authority made for
+  the test alone, refusing another name, an untrusted root, a wrong issuer
+  and an expired certificate.
+- Interface tests check each landing: the filtered search page on
+  `challenged`, the view to go to on a portal without an address per view.
 - Catalogue tests check unique ids and citation codes, that each archive
   sits in its country's directory, that an `iiif` archive has its
   attribution and terms, that every collection's `platform` has an adapter,
@@ -1280,9 +1390,9 @@ ours, and its own test directory, so `just e2e` never runs it. Its
 `PortalTransport` whose requests are JSON lines on its standard output,
 each answered by one line on its standard input before the next is sent:
 `connect` asks the page to load the endpoint's start page and wait until it
-renders the portal rather than a challenge, and `fetch` asks it to run one
-request with the page's own `fetch` and `credentials: "include"`, as the
-window's script does (§4.2). The answers are checked as the window's are
+shows the portal rather than an anti-bot page (as below), and `fetch` asks
+it to run one request with the page's own `fetch` and
+`credentials: "include"`, as the window's script does (§4.2). The answers are checked as the window's are
 (`PageAnswer`): a final address on the endpoint's origins, a success
 status, a bounded body. The binary ends with its collections' reports and
 the indices of the collections the native test checks instead. The process
@@ -1300,14 +1410,32 @@ themselves, and a check does not hide what it is to pass. A reader's own
 browser and the desktop window send the browser's own `User-Agent` and are
 not refused.
 
-A challenge is told apart from a drift on every path. A page that never
-got past one fails the bridge's `connect` with `FetchError::Challenged`; an
-error status whose body is an anti-bot page (`markup::is_challenge`) is
-`FetchError::Challenged` too, for the native transport, the bridge and the
-desktop window alike (`PageAnswer`); and an answer a success status let
-through is the adapter's or the probe's to tell, once it cannot read it
+A challenge is told apart from a drift on every path, with the signatures
+of §4.2. The bridge's `connect` classifies the page as the desktop window
+does: it waits out a check that clears itself, and fails with
+`FetchError::Challenged` on a block, or on a check still on screen when its
+30 seconds end — a live check answers no check, and a check left for a
+reader is not answered for them. An error status whose body is an anti-bot
+page is `FetchError::Challenged` too, for the native transport, the bridge
+and the desktop window alike (`PageAnswer`); and an answer a success status
+let through is the adapter's or the probe's to tell, once it cannot read it
 (`markup::unreadable`). Each becomes `ResolveError::Challenged`, and the
-collection `challenged` rather than `drift` or `unreachable`.
+collection `challenged` rather than `drift` or `unreachable`. Step 4 names
+the vendor and the kind of the page it met (`cloudflare block`, `anubis
+challenge`) in its received shape.
+
+What a check of an archive behind an anti-bot measure is expected to end
+on — the runners have datacentre addresses, which some vendors score
+badly, and some deny rules match a headless browser; a check never runs
+headful, nor hides what it is, to pass:
+
+| The portal's measure | Expected outcome |
+|---|---|
+| A check that clears itself in a headless browser (a bot-mitigation redirect, a proof of work let through) | `ok`: waited out like the window does. |
+| A check left for a reader (a widget, or one that stays) | `challenged`, unverified. |
+| A block of the headless browser or of the runner's address (a Cloudflare block, an Anubis deny rule), at any step, step 4 included | `challenged`, unverified; the steps before it keep their verdicts. |
+| A challenge answering the native client | `challenged` for that collection; the desktop resolves it in the window. |
+| A certificate served without its issuer | Not seen: Chromium completes the chain, as the desktop window on Linux does (§6.1). |
 
 **Reports.** `just archives-live` writes under `target/archives-live/`
 (`OXIDGENE_LIVE_REPORT_DIR`) `native.json`, the native test's, and

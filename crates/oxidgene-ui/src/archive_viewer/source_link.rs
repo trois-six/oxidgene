@@ -91,13 +91,13 @@ pub fn ArchiveSourceLink(
                             .await;
                         let code = outcome.as_ref().err().and_then(ApiError::code);
                         let landing = Landing::of(
-                            link.archive,
+                            &link,
                             outcome.map_err(|_| code.as_deref().unwrap_or_default()),
                         );
                         tab.load(&landing.url);
                         // The page may be gone by now; then so is the notice.
                         if let Ok(mut current) = notice.try_write() {
-                            *current = landing.banner.map(|key| i18n.t(key));
+                            *current = landing.banner.map(|banner| banner.text(&i18n));
                         }
                     });
                 },

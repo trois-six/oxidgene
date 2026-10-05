@@ -8,28 +8,86 @@
 //! attribute is double-quoted, and the text an adapter reads holds no
 //! nested element.
 
+use std::sync::LazyLock;
+
 use oxidgene_core::search::fold_words;
+use serde::Deserialize;
 
 use crate::ResolveError;
 
-/// Signatures of the anti-bot pages portals answer in place of their own:
-/// the Anubis proof-of-work page, the F5 pages, and the bot-mitigation
-/// redirect page some Arkothèque portals serve to a client without the
-/// cookie it sets.
-const CHALLENGES: [&str; 7] = [
-    "anubis",
-    "/tspd/",
-    "request rejected",
-    "access denied",
-    "making sure you",
-    "bot_mitigation",
-    "window.location.href='/redirect_",
-];
+/// What an anti-bot measure answering in place of a portal's page asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Guard {
+    /// A check a browser passes: a proof of work, a script that sets a
+    /// cookie and reloads, or a widget the reader answers.
+    Challenge,
+    /// A refusal nobody can pass from this browser.
+    Block,
+}
 
-/// Whether `answer` is an anti-bot challenge rather than the portal's page.
+/// One anti-bot page, recognized in its markup.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Signature {
+    /// The vendor, for logs and reports: `cloudflare`, `anubis`, `f5`…
+    pub vendor: String,
+    pub guard: Guard,
+    /// Lower-case fragments the markup holds, every one of them.
+    pub markers: Vec<String>,
+    /// Lower-case fragments that rule the signature out.
+    #[serde(default)]
+    pub unless: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Signatures {
+    signatures: Vec<Signature>,
+    widgets: Vec<String>,
+}
+
+/// The anti-bot pages portals answer in place of their own, and the
+/// fragments of a widget asking the reader to answer a check, as one JSON
+/// document: the adapters read answers with it, the desktop's archive
+/// window classifies its pages with it (`ANTI_BOT_JSON` is handed to its
+/// script), and the live checks' Playwright side reads the same file. A
+/// signature matches markup, lower-cased, holding all its `markers` and none
+/// of its `unless`; the first match in order wins, so a block is listed
+/// before a challenge of the same vendor.
+pub const ANTI_BOT_JSON: &str = include_str!("challenges.json");
+
+static ANTI_BOT: LazyLock<Signatures> = LazyLock::new(|| {
+    serde_json::from_str(ANTI_BOT_JSON)
+        .unwrap_or_else(|error| panic!("the embedded anti-bot signatures: {error}"))
+});
+
+/// The anti-bot page `markup` is, if any: a page or an answer's body.
+pub fn anti_bot(markup: &str) -> Option<&'static Signature> {
+    let lowered = markup.to_lowercase();
+    ANTI_BOT.signatures.iter().find(|signature| {
+        signature
+            .markers
+            .iter()
+            .all(|marker| lowered.contains(marker.as_str()))
+            && !signature
+                .unless
+                .iter()
+                .any(|marker| lowered.contains(marker.as_str()))
+    })
+}
+
+/// Whether `markup` shows a widget asking the reader to answer a check.
+pub fn shows_check_widget(markup: &str) -> bool {
+    let lowered = markup.to_lowercase();
+    ANTI_BOT
+        .widgets
+        .iter()
+        .any(|widget| lowered.contains(widget.as_str()))
+}
+
+/// Whether `answer` is an anti-bot page, challenge or block, rather than
+/// the portal's page.
 pub(crate) fn is_challenge(answer: &str) -> bool {
-    let lowered = answer.to_ascii_lowercase();
-    CHALLENGES.iter().any(|sign| lowered.contains(sign))
+    anti_bot(answer).is_some()
 }
 
 /// The error of an answer an adapter cannot read: `Challenged` when it is
@@ -227,6 +285,93 @@ mod tests {
             unreadable("{\"other\": 1}", "changed".to_owned()),
             ResolveError::UnexpectedResponse("changed".to_owned())
         );
+    }
+
+    fn verdict(markup: &str) -> Option<(&'static str, Guard)> {
+        anti_bot(markup).map(|signature| (signature.vendor.as_str(), signature.guard))
+    }
+
+    #[test]
+    fn classifies_each_vendor_s_challenge_and_block() {
+        let challenge = Some(Guard::Challenge);
+        let block = Some(Guard::Block);
+        for (page, vendor, guard) in [
+            (
+                "<html><head><title>Just a moment...</title></head><body><script>window._cf_chl_opt={cType:'managed'};</script></body></html>",
+                "cloudflare",
+                challenge,
+            ),
+            (
+                "<title>Attention Required! | Cloudflare</title><div id=\"cf-error-details\"><h1>Sorry, you have been blocked</h1></div>",
+                "cloudflare",
+                block,
+            ),
+            (
+                "<title>V\u{e9}rification que vous n'\u{ea}tes pas un robot !</title><script id=\"anubis_challenge\" type=\"application/json\">{}</script><script src=\"/.within.website/x/cmd/anubis/static/js/main.mjs\"></script>",
+                "anubis",
+                challenge,
+            ),
+            (
+                "<title>Oh non !</title><link href=\"/.within.website/x/xess/xess.css\"><p>Acc\u{e8}s refus\u{e9} : code d'erreur 0f3a</p>",
+                "anubis",
+                block,
+            ),
+            (
+                "<script>window[\"bobcmn\"] = \"10111\";</script><script src=\"/TSPD/0000?type=11\"></script>",
+                "f5",
+                challenge,
+            ),
+            (
+                "<script src=\"/TSPD/0000?type=9\"></script><body>Please enable JavaScript to view the page content.</body>",
+                "f5",
+                challenge,
+            ),
+            (
+                "<html><head><title>Request Rejected</title></head><body>The requested URL was rejected.</body></html>",
+                "f5",
+                block,
+            ),
+            (
+                "<html><body><script>window.location.href='/redirect_0000/search'</script></body></html>",
+                "bot-mitigation",
+                challenge,
+            ),
+            (
+                "<form><altcha-widget challengeurl=\"/altcha\" auto=\"onload\"></altcha-widget></form>",
+                "altcha",
+                challenge,
+            ),
+        ] {
+            assert_eq!(verdict(page).map(|(v, _)| v), Some(vendor), "{page}");
+            assert_eq!(verdict(page).map(|(_, g)| g), guard, "{page}");
+        }
+    }
+
+    #[test]
+    fn a_portal_page_carrying_a_vendor_s_scripts_is_not_a_challenge() {
+        // F5 and Cloudflare inject their scripts into the pages a browser
+        // reaches once it has passed: only the check's own page is one.
+        for page in [
+            "<title>L'\u{e9}tat civil | Archives</title><script src=\"/TSPD/0000?type=17\"></script><main>Registres</main>",
+            "<title>Recherche</title><script>window.__CF$cv$params={r:'0'};a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'</script>",
+            "<frameset><frame src=\"FrmSommaire.asp\"></frameset>",
+        ] {
+            assert_eq!(anti_bot(page), None, "{page}");
+        }
+    }
+
+    #[test]
+    fn tells_a_widget_asking_the_reader() {
+        assert!(shows_check_widget(
+            "<div class=\"cf-turnstile\" data-sitekey=\"0x0\"></div>"
+        ));
+        assert!(shows_check_widget(
+            "<iframe src=\"https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/\"></iframe>"
+        ));
+        // The check's own security policy names the host without a widget.
+        assert!(!shows_check_widget(
+            "<meta http-equiv=\"content-security-policy\" content=\"script-src https://challenges.cloudflare.com\">"
+        ));
     }
 
     #[test]

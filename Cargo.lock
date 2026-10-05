@@ -5132,12 +5132,16 @@ dependencies = [
  "oxidgene-geneanet",
  "oxidgene-observability",
  "oxidgene-ui",
+ "reqwest 0.13.5",
+ "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tower-http 0.7.1",
  "tracing",
+ "webkit2gtk",
  "windows-sys 0.61.2",
 ]
 

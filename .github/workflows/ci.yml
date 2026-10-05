@@ -361,7 +361,7 @@ jobs:
 
       # `just ui-js`: the browser glue, without dependencies.
       - name: Run the JavaScript unit tests
-        run: node --test crates/oxidgene-ui/tests/*.test.mjs
+        run: node --test crates/oxidgene-ui/tests/*.test.mjs apps/oxidgene-desktop/tests/*.test.mjs
 
   containers:
     name: Build ${{ matrix.name }} image
