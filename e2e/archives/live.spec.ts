@@ -17,11 +17,11 @@ import { execFileSync } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request, type Route } from "@playwright/test";
 
 import { runBridge } from "./bridge";
 import { type ArchiveReport, type CollectionReport, type Failure, type Opening, antiBotName, antiBotPage, drift, nativeReport, record, summary, worst } from "./report";
-import { viewers } from "./viewers";
+import { type Viewer, viewers } from "./viewers";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const reportDir = process.env.OXIDGENE_LIVE_REPORT_DIR || path.join(root, "target/archives-live");
@@ -54,10 +54,30 @@ async function numberShown(page: Page, selector: string, which: "first" | "last"
     return number === undefined ? null : Number(number);
 }
 
-// Step 4: the target opens on the cited view.
+// An image request: by the browser's resource type, or by its file
+// extension for one a viewer fetches by script.
+const IMAGE_PATH = /\.(jpe?g|png|gif|webp|tiff?|jp2)$/i;
+
+function isImageRequest(request: Request): boolean {
+    return request.resourceType() === "image" || IMAGE_PATH.test(new URL(request.url()).pathname);
+}
+
+// Step 4: the target opens on the cited view, with the viewer's image
+// requests aborted where the viewer shows its view without them.
 async function open(page: Page, opening: Opening): Promise<Failure | null> {
     const viewer = viewers[opening.platform];
     if (!viewer) return drift("opening", `a viewer of ${opening.platform} in e2e/archives/viewers.ts`, "none");
+    if (!viewer.blockImages) return openViewer(page, opening, viewer);
+    const block = (route: Route) => (isImageRequest(route.request()) ? route.abort() : route.fallback());
+    await page.route("**/*", block);
+    try {
+        return await openViewer(page, opening, viewer);
+    } finally {
+        await page.unroute("**/*", block);
+    }
+}
+
+async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise<Failure | null> {
     // A portal behind a challenge keeps the fragment, which carries the view,
     // only once its cookie is set (docs/archives.md §6.1): the bridge has
     // loaded its start page in this page already.

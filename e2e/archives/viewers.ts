@@ -11,6 +11,10 @@ export interface Viewer {
     // The element showing the register's view count, if the viewer shows it:
     // its last number is read (`/ 46`, `5/267`).
     viewCount?: string;
+    // Whether the check aborts the viewer's image requests: a viewer that
+    // shows its view number without them would otherwise download a full
+    // image and its neighbours' thumbnails at each opening.
+    blockImages?: boolean;
 }
 
 export const viewers: Record<string, Viewer> = {
@@ -35,6 +39,7 @@ export const viewers: Record<string, Viewer> = {
         licence: 'input.btn.primary[value="Accepter"]',
         view: ".media-browse .pagination-form input",
         viewCount: ".media-browse .page-count",
+        blockImages: true,
     },
     // Prismia Vision: `n` and `total` in the view-number button.
     prismia: {
