@@ -169,7 +169,10 @@ collection with every act kind and no period.
 
 `display: "iiif"` is set only for an archive whose terms allow reuse with
 attribution and whose images load across origins; the decision is recorded
-with the archive, not inferred. An archive whose viewer requires accepting a
+with the archive, not inferred. Every collection of an `iiif` archive
+answers any client (`transport: "any"`), since the backend resolves its
+views on both clients (§6.3); the catalogue refuses one with a `browser`
+collection. An archive whose viewer requires accepting a
 licence or passing an anti-bot challenge before showing an image stays
 `portal`: the Sarthe, Calvados and Marne archives are `portal`, the
 Indre-et-Loire archives are `iiif` under their reuse terms, and the
@@ -836,6 +839,9 @@ the screen where the service allows it, the full image otherwise — and
 `thumbnail` the smallest address the archive serves. `attribution` is the
 catalogue template filled with the call number and views.
 
+The target carries no `terms` and no `display`: both clients embed the
+catalogue and read them from the entry of the citation's archive.
+
 `Results` built by `results_url` without any request has no match count; it
 is what a client gets when no transport can reach the portal.
 
@@ -865,6 +871,14 @@ without any request:
   `ArchiveTarget`.
 - GraphQL: `Source.archiveTarget(citationId: ID)`, the same target as one
   object whose `kind` is `VIEW` or `RESULTS`.
+
+The body may also name a `view` (`archiveTarget(citationId, view)` in
+GraphQL): the one view of the cited register to resolve instead of the cited
+views, which OxidGene's viewer asks for when the reader pages to the
+previous or the next view (§6.3). It keeps the side the citation gives that
+view, if it cites it; a view below 1 or beyond the cited view count is a
+`400 validation_error`. A view beyond the register's own images resolves,
+as any cited view does, to `View` with no views (§7).
 
 Both surfaces share one service, validation and error mapping, and are tested
 symmetrically ([API Contract](api.md#sources)). The request sends the portal
@@ -907,7 +921,12 @@ the field for a source read on its own, never for the items of a list
 ### 6.1 Desktop
 
 The archive window is a top-level WebView, because portals forbid framing
-(`frame-ancestors 'self'` on the Loire-Atlantique portal). A click on a
+(`frame-ancestors 'self'` on the Loire-Atlantique portal). An archive whose
+views OxidGene shows (`display: "iiif"`) is the exception: its citation is
+resolved by the embedded backend and opens in OxidGene's viewer (§6.3), and
+the window only carries the portal pages the reader opens from there, and
+the landing of a resolution that found no view to show, with its banner.
+For every other archive, a click on a
 cited source starts the resolution on the desktop's Dioxus runtime, with one
 `Resolver` shared by every window, whose cache (§8) spares a second request
 for a citation already opened in the session. The desktop resolves every
@@ -938,7 +957,8 @@ anti-bot challenge at every opening.
 
 ### 6.2 Web
 
-The web client resolves through the same backend endpoint (§5.3), naming the
+For an archive whose views OxidGene shows, see §6.3. For any other, the web
+client resolves through the same backend endpoint (§5.3), naming the
 citation the reader clicked, and opens the target in a new browser tab that
 can neither reach the application (`noopener`) nor tell the portal where the
 reader came from (`noreferrer`). For a `browser` archive the tab opens on
@@ -963,16 +983,40 @@ the tab opens the archive's `website`.
 
 ### 6.3 OxidGene's viewer
 
-For a `display: "iiif"` archive, both clients open a resolved view in the
-shared media viewer ([UI Common §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform))
-instead of the portal, as an unsaved document whose pages are the cited
-views' `picture` addresses. The viewer pages through the cited views and
-offers the previous and next views of the register, so a reader who finds
-the act continues on the following image reaches it without leaving. The
-attribution is shown under the image and links to the archive's `terms`, and
-**Open on the archive's site** opens the view's portal page as §6.1 and §6.2
-do. When the citation names a side (`d` or `g`), the viewer marks that half
+For a `display: "iiif"` archive, a click on the cited source opens the shared
+media viewer ([UI Common §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform))
+on both clients instead of the portal. Both resolve the citation through the
+backend endpoint (§5.3), the desktop through its embedded backend, which
+reaches these portals over the `native` transport (§3.1); the viewer shows
+that the register is being looked up meanwhile.
+
+When the target is a `View` whose every view carries an `image`, the viewer
+shows an unsaved document whose pages are the cited views' `picture`
+addresses, on the same stage, with the same zoom and drag, as a stored
+document. Its side column names the archive, the register's call number and
+the view on screen, marked when it is a cited one. Its pager steps through
+the register rather than through the cited views alone: the previous or next
+view of the register is resolved on the reader's click, one request naming
+that `view` (§5.3), and kept for the rest of the viewing, so a reader who
+finds the act continues on the following image reaches it without leaving.
+The register's view count bounds the pager; a view the archive serves no
+image of is reported, and the view on screen stays.
+
+The attribution of the view on screen — the catalogue template filled with
+the call number and that view — is shown under the image and links to the
+archive's `terms`, both read from the catalogue (§5.2). **Open on the
+archive's site** opens the view's portal page as §6.1 and §6.2 do: in an
+archive window on the desktop, in a tab that can neither reach the
+application nor tell the portal where the reader came from on the web. When
+the citation names a side (`d` right, `g` left), the viewer marks that half
 of the double page.
+
+Any other outcome — several or no registers, a view the register does not
+have, a view without an image, a failure — leaves the viewer for the portal:
+the desktop opens its archive window on the landing of §6.1 with the same
+banner and closes the viewer; the web, where a tab opened after the lookup
+would be blocked, shows the banner's message in the viewer with **Open on the
+archive's site** on the same page, a link the reader follows.
 
 Nothing is written while the reader only looks. Closing the viewer leaves no
 record.
@@ -984,31 +1028,35 @@ record.
 written before the reader saves it:
 
 - one remote page per cited view, in order, holding the view's `picture`
-  address, its pixel size, and its thumbnail address; the reader removes
-  views, or adds the previous or next view of the register, so a two-page act
-  becomes one two-page document and a single page one single-page document;
-- the title from the call number and views, and the description from the
-  attribution, which the reader may edit;
-- the kind of record from the act (`parish_record` or `civil_record`) and the
-  medium `manuscript`;
-- the event the citation documents, and the cited source as a link of the
-  document, so the archive address can be resolved again from the citation if
-  the portal moves its images.
+  address, its pixel size, and its thumbnail address
+  ([Data Model](data-model.md#media), `thumbnail_url`); the reader removes
+  views, or adds the previous or next view of the register, each resolved on
+  its click as in the viewer, so a two-page act becomes one two-page document
+  and a single page one single-page document;
+- the title from the call number (the archive's name without one) and views,
+  and the description from the attribution of the views; both follow the
+  views the reader adds or removes until the reader writes them;
+- the kind of record from the act — `parish_record` for baptisms and
+  burials, `civil_record` for births, deaths and tables, and for a marriage
+  `parish_record` before 1793 and `civil_record` from then — and the medium
+  `manuscript`;
+- the event the citation documents, which the document is attached to, and
+  the cited source as a link of the document, so the archive address can be
+  resolved again from the citation if the portal moves its images.
 
-The saved document is an ordinary media record: it appears in the galleries
-of its persons, couple and event, and every viewer action applies to it.
+The saved document is an ordinary media record: it appears among the
+documents of its event, on the profiles and couple pages that show the
+event, and every viewer action applies to it. Its tiles draw each page's
+thumbnail address, never the full view.
+
 Keeping only the act out of a double page or a crowded view is done with the
 existing region tool ([Data Model](data-model.md#vignette)): a region drawn on
-a remote page is stored as coordinates over the page and cut by the client,
-so it needs none of the bytes; a region can serve as a portrait or be
-attributed to a person like any other. When the citation names a side, the
-region tool opens on that half of the view.
-
-Attaching requires the remote page to record its thumbnail address, which the
-data model does not yet have: phase 2 adds a nullable `thumbnail_url` to
-`Media` for pages held only as a URL, used by gallery tiles instead of the
-full picture ([Data Model](data-model.md#media)). Without it an Indre-et-Loire
-tile would load a full view.
+a remote page is stored as coordinates over the page, in the pixel size the
+archive stated, and cut by the client, so it needs none of the bytes; a
+region can serve as a portrait or be attributed to a person like any other.
+Once the document is saved, the viewer offers **Keep only the act** on each
+attached view; when the citation names a side of that view, the region tool
+opens with that half selected, which the reader saves or redraws.
 
 ## 7. Errors and fallbacks
 
@@ -1018,6 +1066,7 @@ tile would load a full view.
 | No register, or several | `Results`: the filtered search page, with a banner (desktop) or a notice beside the source (web). |
 | View beyond the register's image count | `View` with no views: the register's first image. |
 | `iiif` image fails to load | The viewer shows the portal link in place of the picture. |
+| `iiif` archive resolves to anything but views with images | The desktop's archive window opens on the landing with its banner; the web viewer shows the banner's message and the portal link (§6.3). |
 | Portal changed shape, answered with a challenge, timed out or could not be reached | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
 
 ## 8. Access etiquette
@@ -1043,6 +1092,10 @@ Archive portals are public services whose terms OxidGene follows:
   targets are not kept, so the next click asks the portal again. The only portal data
   written to the database is what the reader attaches (§6.4): image addresses,
   sizes and the attribution, never image bytes.
+- Paging in OxidGene's viewer, or adding a view to a document being
+  attached, is a click too: one resolution of that one view, kept by the
+  session cache like any other. No neighbouring view is asked for ahead of
+  the reader.
 - Image bytes are cached only by the browser's or WebView's HTTP cache,
   under the archive's own cache headers. The server never fetches, proxies
   or stores them, and a cropped region is cut by the client from the
@@ -1075,6 +1128,9 @@ Archive portals are public services whose terms OxidGene follows:
   a register, the verdicts and the outcomes of a drifted or unanswered
   portal; and the bridge transport's exchanges, including an answer to
   another request and a challenge.
+- API tests resolve recorded answers on both surfaces, a neighbouring view
+  included; interface tests read the viewer's register, its kinds of record
+  and its cited halves from fictitious targets.
 
 `just check` never contacts a portal: the tests above run offline.
 
@@ -1278,8 +1334,7 @@ id>` included, then skips, and relies on the user-reported failures of §7.
 2. Add the Mnesys adapter with Indre-et-Loire; add the backend endpoint on
    both surfaces and open targets from the web client; add `display`, the
    IIIF view in the shared viewer, attaching views as a remote multi-page
-   document, and `Media.thumbnail_url`. The backend endpoint and the web
-   client's tab are in place.
+   document, and `Media.thumbnail_url`. All of it is in place.
 3. Add the Ligeo adapter, then Archinoë / Prismia Vision, and catalogue the
    departmental archives running the four platforms in the order of §11.4,
    then municipal and Swiss cantonal archives.

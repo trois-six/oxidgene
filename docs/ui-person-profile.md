@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:00:00Z }
 ---
 
 
@@ -246,7 +246,8 @@ Each event shows:
 
 A source title written as a normalized archive citation opens the cited
 register: in a dedicated archive window on desktop, in a new browser tab on
-the web:
+the web, or, for an archive whose images OxidGene may show, in OxidGene's own
+viewer on both (below):
 
 ```text
 AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13
@@ -278,8 +279,10 @@ stays plain text, as does a title the desktop window cannot open.
 The catalogue is one JSON document per archive in
 `assets/archives/<country>/`, discovered at build time, so an archive on an
 already supported platform is added without code; its fields are specified in
-[Archive Portals §3.1](archives.md#31-catalogue). The archives catalogued
-today run Arkothèque: the Loire-Atlantique and Sarthe archives.
+[Archive Portals §3.1](archives.md#31-catalogue). Each collection names the
+portal platform that serves it, and one adapter per platform serves every
+archive running it; the platforms supported are listed in
+[Archive Portals §4](archives.md#4-platforms).
 
 A click resolves the citation through the portal's own request interface,
 inside the archive window
@@ -307,6 +310,23 @@ matching register or several over the filtered results, or, on a failure,
 the message of its code (`archive_viewer.<code>`, `archive_viewer.failed`
 otherwise) while the tab opens the archive's website. The next click clears
 it.
+
+An archive whose catalogue entry is `display: "iiif"` — one whose reuse
+terms let OxidGene show its images with their credit — opens in the shared
+media viewer instead, on both clients
+([Archive Portals §6.3](archives.md#63-oxidgenes-viewer)): the backend
+resolves the citation, and the viewer shows the cited views as an unsaved
+document, marks the cited half of a double page (`d` right, `g` left), pages
+to the register's previous and next views on the reader's click, credits the
+archive under the image with a link to its reuse terms, and offers **Open on
+the archive's site**. When the lookup finds no view to show, the desktop
+opens its archive window with the banner and the web viewer shows the
+message with a link to the portal. **Attach as a document** opens the
+document form prefilled with the cited views, attached to the event and
+linked to the source; nothing is written before Save
+([§6.4](archives.md#64-attaching-and-cropping)). The event's documents
+refresh once it is saved, and the viewer then offers to keep only the act
+with the region tool, opened on the cited half.
 
 The portal receives the locality, the act category, and the year, plus the
 portal's own collection and display identifiers. It does not receive the

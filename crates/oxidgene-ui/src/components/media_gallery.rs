@@ -21,7 +21,6 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDate;
-use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use oxidgene_core::enums::{DocumentCategory, Privacy, SourceMediaType};
 use oxidgene_core::types::{PersonName, Vignette};
@@ -39,6 +38,7 @@ use crate::components::date_input::{DateInput, DateParts, format_date};
 use crate::components::document_form::DocumentForm;
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
+use crate::components::media_stage::{MediaStage, StagePicture};
 use crate::components::pager::Pager;
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::search_person::SearchPerson;
@@ -676,7 +676,7 @@ fn GalleryDialogs(
                 tree_id,
                 owner,
                 events: events.clone(),
-                on_created: move |()| changed.call(()),
+                on_created: move |_| changed.call(()),
                 on_close: move |()| creating.set(false),
             }
         }
@@ -1193,9 +1193,12 @@ impl TileLook {
     fn of(tile: &MediaWithLink, previews: &[String]) -> Self {
         let source = tile.source();
         let kind = tile.kind();
+        // Its server's thumbnail when it serves one: a tile of a few
+        // kilobytes rather than the full picture.
         let remote_preview = (source == MediaSource::Remote
             && oxidgene_core::types::may_draw_as_image(&tile.media.mime_type))
-        .then(|| tile.media.file_path.clone());
+        .then(|| tile.media.remote_tile_address().map(str::to_string))
+        .flatten();
         let draws_a_picture =
             !previews.is_empty() || remote_preview.is_some() || kind == MediaKind::Image;
         let draws_remote = source == MediaSource::Remote
@@ -2513,7 +2516,8 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                     // browser draws it as readily as one of ours.
                     let remote = (crate::api::media_source(page) == MediaSource::Remote
                         && oxidgene_core::types::may_draw_as_image(&page.mime_type))
-                    .then(|| page.file_path.trim().to_string());
+                    .then(|| page.remote_tile_address().map(str::to_string))
+                    .flatten();
                     let name = page.file_name.clone();
                     rsx! {
                         div { key: "{page_id}", class: "doc-page",
@@ -2922,7 +2926,8 @@ fn MediaRelations(
 
     let remote_thumbnail = (crate::api::media_source(&source_media) == MediaSource::Remote
         && oxidgene_core::types::may_draw_as_image(&source_media.mime_type))
-    .then(|| source_media.file_path.trim().to_string());
+    .then(|| source_media.remote_tile_address().map(str::to_string))
+    .flatten();
 
     let delete_attachment = use_callback({
         let api = api.clone();
@@ -3341,7 +3346,11 @@ fn MediaEventLinks(
 
 /// One read-only field, using the same label/value structure as the forms.
 #[component]
-fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool) -> Element {
+pub(crate) fn MediaFact(
+    label: String,
+    value: Option<String>,
+    #[props(default)] prose: bool,
+) -> Element {
     let filled = value.as_ref().is_some_and(|v| !v.trim().is_empty());
     rsx! {
         div { class: if prose { "form-group media-fact is-prose" } else { "form-group media-fact" },
@@ -3355,12 +3364,6 @@ fn MediaFact(label: String, value: Option<String>, #[props(default)] prose: bool
             }
         }
     }
-}
-
-#[derive(Clone, Copy)]
-enum MediaZoomAnchor {
-    Center,
-    Pointer(f64, f64),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -3526,73 +3529,9 @@ fn MediaViewer(
     let mut attachment_busy = use_signal(|| false);
     let mut attachment_error = use_signal(|| None::<String>);
     let mut attachment_notice = use_signal(|| None::<String>);
-    let mut attachment_revision = use_signal(|| 0_u32);
+    let attachment_revision = use_signal(|| 0_u32);
     let mut family_choices = use_signal(Vec::<MediaFamilyChoice>::new);
     let mut media_revision = use_signal(|| 0_u32);
-    let mut delete_confirming = use_signal(|| false);
-    let mut checking_delete = use_signal(|| false);
-    let mut deleting = use_signal(|| false);
-    let mut delete_error = use_signal(|| None::<String>);
-    let retained_message = i18n.t("media.delete_kept_referenced");
-
-    // Mirrors the gallery tile's context-menu delete: only offer a
-    // definitive-delete confirmation when this link is the media's sole
-    // external reference, so the dialog never promises a deletion the
-    // backend would in fact just retain.
-    let request_delete_confirmation = {
-        let api = api.clone();
-        let media_id = tile.media.id;
-        let link_id = tile.link_id;
-        let retained_message = retained_message.clone();
-        move |_| {
-            let api = api.clone();
-            let retained_message = retained_message.clone();
-            spawn(async move {
-                checking_delete.set(true);
-                delete_error.set(None);
-                match api
-                    .can_delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
-                    .await
-                {
-                    Ok(true) => delete_confirming.set(true),
-                    Ok(false) => delete_error.set(Some(retained_message)),
-                    Err(err) => delete_error.set(Some(err.to_string())),
-                }
-                checking_delete.set(false);
-            });
-        }
-    };
-
-    let delete_media = {
-        let api = api.clone();
-        let media_id = tile.media.id;
-        let link_id = tile.link_id;
-        let retained_message = retained_message.clone();
-        move |_| {
-            let api = api.clone();
-            let retained_message = retained_message.clone();
-            spawn(async move {
-                deleting.set(true);
-                delete_error.set(None);
-                match api
-                    .delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
-                    .await
-                {
-                    Ok(true) => {
-                        delete_confirming.set(false);
-                        on_changed.call(());
-                        on_close.call(());
-                    }
-                    Ok(false) => {
-                        delete_confirming.set(false);
-                        delete_error.set(Some(retained_message));
-                    }
-                    Err(err) => delete_error.set(Some(err.to_string())),
-                }
-                deleting.set(false);
-            });
-        }
-    };
 
     // `viewing` owns the tile that opened the overlay, so it does not change
     // when the gallery refreshes underneath it. Reload the media itself after
@@ -3617,145 +3556,6 @@ fn MediaViewer(
     let is_document = current_tile.media.is_document();
     let mut page = use_signal(|| initial_page);
     let mut page_revision = use_signal(|| 0_u32);
-    // Zoom as a percentage of the fitted size; `None` is exactly fitted. This
-    // mirrors the pedigree's multiplicative zoom without sacrificing the
-    // scrollbars a large scan needs.
-    let mut zoom = use_signal(|| None::<u32>);
-    let mut dragging_image = use_signal(|| false);
-    let mut drag_start_x = use_signal(|| 0.0_f64);
-    let mut drag_start_y = use_signal(|| 0.0_f64);
-    let mut wheel_zooming = use_signal(|| false);
-    let mut fitted_size = use_signal(|| None::<(f64, f64)>);
-    let mut zoom_overflow = use_signal(|| (false, false));
-    let stage_id = format!("media-viewer-stage-{}", tile.media.id);
-
-    let fit_image = use_callback({
-        let stage_id = stage_id.clone();
-        move |()| {
-            let stage_id = stage_id.clone();
-            spawn(async move {
-                let script = format!(
-                    r#"
-                    const stage = document.getElementById('{stage_id}');
-                    const image = stage?.querySelector('.media-viewer-image');
-                    if (!stage || !image || !image.naturalWidth || !image.naturalHeight) return null;
-                    const style = getComputedStyle(stage);
-                    const availableWidth = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-                    const availableHeight = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-                    const scale = Math.min(availableWidth / image.naturalWidth, availableHeight / image.naturalHeight);
-                    const width = image.naturalWidth * scale;
-                    const height = image.naturalHeight * scale;
-                    image.style.width = `${{width}}px`;
-                    image.style.height = `${{height}}px`;
-                    image.style.maxWidth = 'none';
-                    image.style.maxHeight = 'none';
-                    stage.classList.remove('is-zoomed');
-                    stage.classList.remove('is-overflow-x', 'is-overflow-y');
-                    stage.scrollLeft = 0;
-                    stage.scrollTop = 0;
-                    return [width, height];
-                    "#,
-                );
-                if let Ok(value) = document::eval(&script).await
-                    && let (Some(width), Some(height)) = (
-                        value.get(0).and_then(|item| item.as_f64()),
-                        value.get(1).and_then(|item| item.as_f64()),
-                    )
-                {
-                    fitted_size.set(Some((width, height)));
-                    zoom.set(None);
-                    zoom_overflow.set((false, false));
-                }
-            });
-        }
-    });
-
-    // Size and scroll move in one WebView operation, then Rust adopts that
-    // already-visible state. This prevents an intermediate displaced frame.
-    let apply_zoom = use_callback({
-        let stage_id = stage_id.clone();
-        move |(level, anchor): (u32, MediaZoomAnchor)| {
-            let pointer_zoom = matches!(anchor, MediaZoomAnchor::Pointer(_, _));
-            if pointer_zoom && wheel_zooming() {
-                return;
-            }
-            if pointer_zoom {
-                wheel_zooming.set(true);
-            }
-            let Some((fit_width, fit_height)) = fitted_size() else {
-                if pointer_zoom {
-                    wheel_zooming.set(false);
-                }
-                return;
-            };
-            let width = fit_width * level as f64 / FIT_ZOOM as f64;
-            let height = fit_height * level as f64 / FIT_ZOOM as f64;
-            let is_zoomed = level > FIT_ZOOM;
-            let (pointer_x, pointer_y, center) = match anchor {
-                MediaZoomAnchor::Center => ("null".to_string(), "null".to_string(), true),
-                MediaZoomAnchor::Pointer(x, y) => (x.to_string(), y.to_string(), false),
-            };
-            let stage_id = stage_id.clone();
-            spawn(async move {
-                let script = format!(
-                    r#"
-                    const stage = document.getElementById('{stage_id}');
-                    const image = stage?.querySelector('.media-viewer-image');
-                    if (!stage || !image) return;
-                    const rect = stage.getBoundingClientRect();
-                    const oldImageRect = image.getBoundingClientRect();
-                    const clientX = {pointer_x} ?? oldImageRect.left + oldImageRect.width / 2;
-                    const clientY = {pointer_y} ?? oldImageRect.top + oldImageRect.height / 2;
-                    const screenX = clientX - rect.left;
-                    const screenY = clientY - rect.top;
-                    const nx = Math.max(0, Math.min(1, (clientX - oldImageRect.left) / oldImageRect.width));
-                    const ny = Math.max(0, Math.min(1, (clientY - oldImageRect.top) / oldImageRect.height));
-                    image.style.width = '{width}px';
-                    image.style.height = '{height}px';
-                    image.style.maxWidth = 'none';
-                    image.style.maxHeight = 'none';
-                    stage.classList.toggle('is-zoomed', {is_zoomed});
-                    const style = getComputedStyle(stage);
-                    const availableWidth = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-                    const availableHeight = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-                    const overflowX = {width} > availableWidth;
-                    const overflowY = {height} > availableHeight;
-                    stage.classList.toggle('is-overflow-x', overflowX);
-                    stage.classList.toggle('is-overflow-y', overflowY);
-
-                    if ({center}) {{
-                        stage.scrollLeft = Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2);
-                        stage.scrollTop = Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2);
-                    }} else {{
-                        const newImageRect = image.getBoundingClientRect();
-                        const imageLeft = newImageRect.left - rect.left + stage.scrollLeft;
-                        const imageTop = newImageRect.top - rect.top + stage.scrollTop;
-                        stage.scrollLeft = imageLeft + nx * newImageRect.width - screenX;
-                        stage.scrollTop = imageTop + ny * newImageRect.height - screenY;
-                    }}
-                    return [overflowX, overflowY];
-                    "#,
-                );
-                if let Ok(value) = document::eval(&script).await {
-                    zoom_overflow.set((
-                        value
-                            .get(0)
-                            .and_then(|item| item.as_bool())
-                            .unwrap_or(false),
-                        value
-                            .get(1)
-                            .and_then(|item| item.as_bool())
-                            .unwrap_or(false),
-                    ));
-                }
-                zoom.set(Some(level));
-                if pointer_zoom {
-                    wheel_zooming.set(false);
-                }
-            });
-        }
-    });
-    let stage_id_for_move = stage_id.clone();
 
     // A document has no bytes of its own: what is shown is its current page,
     // which is a media in its own right. Everything below therefore reads the
@@ -3785,11 +3585,6 @@ fn MediaViewer(
     let current = page().min(total_pages.saturating_sub(1));
     let shown = page_list.get(current);
 
-    let kind = match shown {
-        Some(page) => crate::api::media_kind(&page.mime_type),
-        None if is_document => MediaKind::Document,
-        None => current_tile.kind(),
-    };
     let content_media_id = shown.map(|media| media.id).unwrap_or(current_tile.media.id);
     let attachment_target_media_id =
         attachment_media_id(attachment_scope(), current_tile.media.id, content_media_id);
@@ -3805,32 +3600,18 @@ fn MediaViewer(
     // turning the page tries afresh rather than inheriting a failure.
     let mut failed_preview = use_signal(|| None::<Uuid>);
     let preview_failed = failed_preview() == Some(content_media_id);
-    // Nothing declared what this remote page is, so the browser fetching it is
-    // the only reader able to tell. Draw it as a picture until it says no.
-    let kind = if kind == MediaKind::Other
-        && content_source == MediaSource::Remote
-        && oxidgene_core::types::may_draw_as_image(&content_media.mime_type)
-        && !preview_failed
-    {
-        MediaKind::Image
-    } else {
-        kind
-    };
+    let kind = displayed_kind(&current_tile, shown, content_source, preview_failed);
     // A document's visible image changes with its page. Keep that id reactive
     // so the regions in both the facts column and the image follow it.
     let mut vignette_media_id = use_signal(|| content_media_id);
     let mut vignette_revision = use_signal(|| 0_u32);
-    if *vignette_media_id.peek() != content_media_id {
-        vignette_media_id.set(content_media_id);
-    }
+    follow(&mut vignette_media_id, content_media_id);
     // Only a media we hold has an asset to fetch. A remote one is rendered
     // straight from its URL, and asking the server for bytes it never stored
     // is a request that can only 404.
     let requested_asset_id = (content_source == MediaSource::Stored).then_some(content_media.id);
     let mut asset_media_id = use_signal(|| requested_asset_id);
-    if *asset_media_id.peek() != requested_asset_id {
-        asset_media_id.set(requested_asset_id);
-    }
+    follow(&mut asset_media_id, requested_asset_id);
     let media_asset = use_ui_resource("media_asset", {
         let api = api.clone();
         move || {
@@ -3874,91 +3655,8 @@ fn MediaViewer(
         .as_ref()
         .and_then(|content| content.clone())
         .unwrap_or_default();
-    let image_id = format!("media-viewer-image-{content_media_id}");
-    let image_style = match (zoom(), fitted_size()) {
-        (Some(level), Some((width, height))) => format!(
-            "width: {}px; height: {}px; max-width: none; max-height: none;",
-            width * level as f64 / FIT_ZOOM as f64,
-            height * level as f64 / FIT_ZOOM as f64,
-        ),
-        (Some(_), None) => "width: auto; max-width: none; max-height: none;".to_string(),
-        (None, Some((width, height))) => {
-            format!("width: {width}px; height: {height}px; max-width: none; max-height: none;",)
-        }
-        (None, None) => String::new(),
-    };
-    use_effect({
-        let image_id = image_id.clone();
-        let stage_id = stage_id.clone();
-        move || {
-            let image_id = image_id.clone();
-            let stage_id = stage_id.clone();
-            spawn(async move {
-                let script = format!(
-                    r#"
-                    const image = document.getElementById('{image_id}');
-                    const stage = document.getElementById('{stage_id}');
-                    if (!image || !stage) return null;
-                    for (let frame = 0; frame < 8 && (!image.complete || !image.naturalWidth); frame += 1) {{
-                        await new Promise(requestAnimationFrame);
-                    }}
-                    if (!image.naturalWidth || !image.naturalHeight) return null;
-                    const style = getComputedStyle(stage);
-                    return [
-                        image.naturalWidth,
-                        image.naturalHeight,
-                        stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-                        stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
-                    ];
-                    "#,
-                );
-                if let Ok(value) = document::eval(&script).await {
-                    let width = value.get(0).and_then(|item| item.as_f64());
-                    let height = value.get(1).and_then(|item| item.as_f64());
-                    let space_width = value.get(2).and_then(|item| item.as_f64());
-                    let space_height = value.get(3).and_then(|item| item.as_f64());
-                    if let (Some(width), Some(height), Some(space_width), Some(space_height)) =
-                        (width, height, space_width, space_height)
-                        && width > 0.0
-                        && height > 0.0
-                    {
-                        let scale = (space_width / width).min(space_height / height);
-                        let fitted = (width * scale, height * scale);
-                        let fit_changed = fitted_size().is_none_or(|(old_width, old_height)| {
-                            (old_width - fitted.0).abs() > 0.5
-                                || (old_height - fitted.1).abs() > 0.5
-                        });
-                        if fit_changed {
-                            fitted_size.set(Some(fitted));
-                        }
-                    }
-                }
-            });
-        }
-    });
 
-    let (overflow_x, overflow_y) = zoom_overflow();
-    let mut stage_class = "media-viewer-stage is-image".to_string();
-    if zoom().is_some_and(|level| level > FIT_ZOOM) {
-        stage_class.push_str(" is-zoomed");
-    }
-    if overflow_x {
-        stage_class.push_str(" is-overflow-x");
-    }
-    if overflow_y {
-        stage_class.push_str(" is-overflow-y");
-    }
-    if dragging_image() {
-        stage_class.push_str(" is-dragging");
-    }
-
-    let _aside_mode = if editing() {
-        "editing"
-    } else if managing_pages() {
-        "pages"
-    } else {
-        "facts"
-    };
+    let _aside_mode = aside_mode(editing(), managing_pages());
 
     let close_attachment = use_callback(move |()| {
         attachment_mode.set(None);
@@ -3966,6 +3664,612 @@ fn MediaViewer(
         attachment_error.set(None);
         family_choices.set(Vec::new());
     });
+
+    rsx! {
+        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
+            div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
+                div { class: "cropper-head",
+                    span { class: "cropper-title", "{caption}" }
+                    {page_count(&i18n, current, total_pages)}
+                    button {
+                        class: "cropper-close",
+                        r#type: "button",
+                        aria_label: i18n.t("common.close"),
+                        onclick: move |_| on_close.call(()),
+                        "\u{00D7}"
+                    }
+                }
+
+
+                div { class: "media-viewer-body",
+                aside {
+                    key: "media-viewer-aside-{content_media_id}-{_aside_mode}",
+                    class: "media-viewer-aside",
+                    if editing() {
+                        MediaEditPanel {
+                            key: "edit-{content_media_id}",
+                            tree_id,
+                            tile: current_tile.clone(),
+                            events: events.clone(),
+                            page: shown.cloned(),
+                            page_number: shown.map(|_| current + 1),
+                            embedded: true,
+                            on_changed: move |()| {
+                                media_revision += 1;
+                                // The panel may have repointed the page at
+                                // another URL, and the page list is what the
+                                // image on screen is read from.
+                                page_revision += 1;
+                                on_changed.call(());
+                            },
+                            on_close: move |()| editing.set(false),
+                        }
+                    } else if managing_pages() {
+                        div { class: "media-panel is-embedded",
+                            div { class: "media-panel-section",
+                                label { {i18n.t("media.pages")} }
+                                p { class: "pf-ns-hint", {i18n.t("media.pages_hint")} }
+                                DocumentPages {
+                                    tree_id,
+                                    document_id: current_media.id,
+                                    on_changed: move |()| {
+                                        page_revision += 1;
+                                        media_revision += 1;
+                                        on_changed.call(());
+                                    },
+                                }
+                            }
+                            div { class: "media-panel-actions",
+                                button {
+                                    class: "btn btn-outline",
+                                    r#type: "button",
+                                    onclick: move |_| managing_pages.set(false),
+                                    {i18n.t("common.close")}
+                                }
+                            }
+                        }
+                    } else {
+                        MediaFacts {
+                            key: "facts-{content_media_id}",
+                            tree_id,
+                            media: current_media.clone(),
+                            page: shown.cloned(),
+                            page_number: shown.map(|_| current + 1),
+                            displayed_media_id: content_media_id,
+                            document_media_id: shown.map(|_| current_media.id),
+                            attachment_revision: attachment_revision(),
+                            tags: current_media.tags.clone(),
+                            vignettes: content_vignettes.clone(),
+                            person_names: person_names.clone(),
+                            events: events.clone(),
+                            on_vignettes_changed: move |_| vignette_revision += 1,
+                            on_vignette_hover: move |vignette_id| highlighted_vignette.set(vignette_id),
+                            on_changed,
+                        }
+                        // Not gated on `read_only`. That flag governs the
+                        // *gallery* — uploading, cropping, detaching — which
+                        // is restructuring what a person has. Recording when a
+                        // scan was taken is describing the scan itself, and
+                        // the moment a reader knows that is while looking at
+                        // it. Sending them to the edit modal to type a date
+                        // means leaving the page that prompted them.
+                        div { class: "media-facts-actions",
+                            if is_document {
+                                button {
+                                    class: "btn btn-outline media-facts-pages",
+                                    r#type: "button",
+                                    onclick: move |_| managing_pages.set(true),
+                                    {i18n.t("media.manage_pages")}
+                                }
+                            }
+                            button {
+                                class: "pf-confirm-btn media-facts-edit",
+                                r#type: "button",
+                                onclick: move |_| editing.set(true),
+                                {i18n.t("media.viewer_edit")}
+                            }
+                            MediaDeleteButton {
+                                tree_id,
+                                media_id: tile.media.id,
+                                link_id: tile.link_id,
+                                on_deleted: move |()| {
+                                    on_changed.call(());
+                                    on_close.call(());
+                                },
+                            }
+                        }
+                    }
+                }
+
+                div { class: "media-viewer-main",
+                MediaStage {
+                    key: "{content_media_id}",
+                    stage_key: content_media_id.to_string(),
+                    picture: match (url.clone(), kind) {
+                        (Some(url), MediaKind::Image) => Some(StagePicture { url, alt: caption.clone() }),
+                        _ => None,
+                    },
+                    on_picture_error: move |()| failed_preview.set(Some(content_media_id)),
+                    controls: rsx! {
+                        button {
+                            class: "isb-btn media-relation-menu-button",
+                            r#type: "button",
+                            title: i18n.t("media.relations"),
+                            aria_label: i18n.t("media.relations"),
+                            onclick: move |event: Event<MouseData>| {
+                                let point = event.client_coordinates();
+                                relation_menu_at.set(Some((point.x, point.y)));
+                            },
+                            svg {
+                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
+                                stroke: "currentColor", "strokeWidth": "2",
+                                circle { cx: "12", cy: "12", r: "9" }
+                                circle { cx: "12", cy: "12", r: "5" }
+                                circle { cx: "12", cy: "12", r: "1" }
+                            }
+                        }
+                    },
+                    overlays: rsx! {
+                        VignetteOverlays {
+                            vignettes: content_vignettes.clone(),
+                            person_names: person_names.clone(),
+                            highlighted: highlighted_vignette(),
+                            size: (content_width, content_height),
+                        }
+                    },
+                    fallback: stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, &content_media),
+                    if let Some(at) = relation_menu_at() {
+                        RelationMenu {
+                            at,
+                            is_document,
+                            on_close: move |()| relation_menu_at.set(None),
+                            on_identify: move |()| {
+                                relation_menu_at.set(None);
+                                identifying.set(true);
+                            },
+                            on_attach: move |(scope, mode): (MediaAttachmentScope, MediaAttachmentMode)| {
+                                relation_menu_at.set(None);
+                                close_attachment.call(());
+                                attachment_notice.set(None);
+                                attachment_scope.set(scope);
+                                attachment_mode.set(Some(mode));
+                            },
+                        }
+                    }
+                    MediaAttachmentPicker {
+                        tree_id,
+                        target_media_id: attachment_target_media_id,
+                        mode: attachment_mode,
+                        busy: attachment_busy,
+                        error: attachment_error,
+                        notice: attachment_notice,
+                        family_choices,
+                        revision: attachment_revision,
+                        on_close: close_attachment,
+                        on_changed,
+                    }
+                    if let Some(message) = attachment_notice() {
+                        div { class: "media-attachment-notice", "{message}" }
+                    }
+                }
+
+                // The pager. Step buttons for reading front to back, jump
+                // buttons for the ends, and a numbered strip because "the
+                // entry is on page 27" is how a register is actually
+                // referenced — counting there with a Next button is absurd.
+                Pager {
+                    current,
+                    total: total_pages,
+                    ends: true,
+                    disabled: editing(),
+                    class: "media-pager",
+                    // The stage is keyed by the page, so the next one opens
+                    // fitted.
+                    on_select: move |index| page.set(index),
+                }
+                }
+                }
+
+                div { class: "cropper-foot",
+                    div { class: "cropper-actions",
+                        ViewerDownloads {
+                            tree_id,
+                            document_id: tile.media.id,
+                            page: content_media.clone(),
+                            current,
+                            total_pages,
+                            caption: caption.clone(),
+                        }
+                        button {
+                            class: "btn btn-primary",
+                            r#type: "button",
+                            onclick: move |_| on_close.call(()),
+                            {i18n.t("common.close")}
+                        }
+                    }
+                }
+            }
+            if identifying() {
+                IdentificationCropperHost {
+                    tree_id,
+                    media: content_media,
+                    on_complete: move |_| {
+                        identifying.set(false);
+                        vignette_revision += 1;
+                        // Identifying somebody on a picture we do not hold
+                        // records its pixel size, and every crop drawn on it
+                        // is placed against that size.
+                        page_revision += 1;
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// Sets `signal` to `value` when it holds another, so that what reads it
+/// reruns only on a change.
+fn follow<T: PartialEq + 'static>(signal: &mut Signal<T>, value: T) {
+    if *signal.peek() != value {
+        signal.set(value);
+    }
+}
+
+/// Which panel the viewer's side column shows, as a key that remounts it.
+fn aside_mode(editing: bool, managing_pages: bool) -> &'static str {
+    if editing {
+        "editing"
+    } else if managing_pages {
+        "pages"
+    } else {
+        "facts"
+    }
+}
+
+/// « Page n of m » beside the title of a document of several pages.
+fn page_count(i18n: &I18n, current: usize, total_pages: usize) -> Element {
+    if total_pages <= 1 {
+        return rsx! {};
+    }
+    rsx! {
+        span { class: "media-pager-count",
+            {i18n.t_args(
+                "pager.page_of",
+                &[
+                    ("page", &(current + 1).to_string()),
+                    ("total", &total_pages.to_string()),
+                ],
+            )}
+        }
+    }
+}
+
+/// The viewer's relation menu: identify somebody on the picture, or attach
+/// the page or the document to a person or a couple.
+#[component]
+fn RelationMenu(
+    at: (f64, f64),
+    is_document: bool,
+    on_close: EventHandler<()>,
+    on_identify: EventHandler<()>,
+    on_attach: EventHandler<(MediaAttachmentScope, MediaAttachmentMode)>,
+) -> Element {
+    let i18n = use_i18n();
+    let (x, y) = at;
+    rsx! {
+        ContextMenuSurface {
+            x,
+            y,
+            menu_class: "context-menu-media-relations".to_string(),
+            on_close: move |_| on_close.call(()),
+            button {
+                class: "context-menu-item",
+                r#type: "button",
+                onclick: move |_| on_identify.call(()),
+                {i18n.t("media.identify_person")}
+            }
+            for (scope, mode, label) in attachment_choices(is_document).iter().copied() {
+                button {
+                    key: "{label}",
+                    class: "context-menu-item",
+                    r#type: "button",
+                    onclick: move |_| on_attach.call((scope, mode)),
+                    {i18n.t(label)}
+                }
+            }
+        }
+    }
+}
+
+/// The regions identified on the page on screen, over its picture; the one
+/// hovered in the facts column stands out.
+#[component]
+fn VignetteOverlays(
+    vignettes: Vec<Vignette>,
+    person_names: Vec<PersonName>,
+    highlighted: Option<Uuid>,
+    size: (Option<i32>, Option<i32>),
+) -> Element {
+    let (content_width, content_height) = size;
+    rsx! {
+        for vignette in vignettes.iter() {
+            div {
+                key: "{vignette.id}",
+                class: if highlighted == Some(vignette.id) {
+                    "media-viewer-vignette is-active"
+                } else {
+                    "media-viewer-vignette"
+                },
+                style: "{vignette_overlay_style(vignette, content_width, content_height)}",
+                onpointerdown: move |event| event.stop_propagation(),
+                if let Some(person_id) = vignette.person_id
+                    && let Some(person) = primary_person_name_record(&person_names, person_id)
+                {
+                    span { class: "media-viewer-vignette-label",
+                        if let Some(surname) = person.full_surname() {
+                            span { class: "media-viewer-vignette-surname", "{surname.to_uppercase()}" }
+                        }
+                        if let Some(given_names) = person.given_names.as_ref() {
+                            span { class: "media-viewer-vignette-given", "{given_names}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// What the viewer draws a page as: its file's kind, the document's when
+/// there is no page, and a picture for a remote page nothing declared until
+/// the browser refuses it — the browser fetching it is the only reader able
+/// to tell.
+fn displayed_kind(
+    tile: &MediaWithLink,
+    shown: Option<&oxidgene_core::types::Media>,
+    source: MediaSource,
+    preview_failed: bool,
+) -> MediaKind {
+    let kind = match shown {
+        Some(page) => crate::api::media_kind(&page.mime_type),
+        None if tile.media.is_document() => MediaKind::Document,
+        None => tile.kind(),
+    };
+    let declared = shown.map_or(&tile.media.mime_type, |page| &page.mime_type);
+    let undeclared_picture = kind == MediaKind::Other
+        && source == MediaSource::Remote
+        && oxidgene_core::types::may_draw_as_image(declared)
+        && !preview_failed;
+    if undeclared_picture {
+        MediaKind::Image
+    } else {
+        kind
+    }
+}
+
+/// What the stage shows in place of a picture: a player, or a panel saying
+/// why there is nothing to draw.
+fn stage_fallback(
+    i18n: &I18n,
+    tree_id: Uuid,
+    kind: MediaKind,
+    url: Option<String>,
+    preview_failed: bool,
+    content_media: &oxidgene_core::types::Media,
+) -> Element {
+    let content_media_id = content_media.id;
+    match (url.clone(), kind) {
+        (Some(url), MediaKind::Video) => rsx! {
+            video {
+                class: "media-viewer-image",
+                src: "{url}",
+                controls: true,
+                preload: "metadata",
+            }
+        },
+        (Some(url), MediaKind::Audio) => rsx! {
+            audio { class: "media-viewer-audio", src: "{url}", controls: true }
+        },
+        (Some(_), _) => rsx! {
+            div { class: "media-viewer-fallback",
+                span { class: "media-glyph-large", {kind.icon()} }
+                p {
+                    if preview_failed {
+                        {i18n.t("media.preview_failed")}
+                    } else {
+                        {i18n.t("media.not_embeddable")}
+                    }
+                }
+                if let Some(download_source) = MediaDownloadSource::for_media(tree_id, content_media) {
+                    DownloadMediaButton {
+                        key: "fallback-{content_media_id}",
+                        source: download_source,
+                        file_name: download_name(&content_media.file_name, &content_media.mime_type),
+                    }
+                }
+            }
+        },
+        (None, _) => rsx! {
+            div { class: "media-viewer-fallback",
+                span { class: "media-glyph-large", {kind.icon()} }
+                p { {i18n.t("media.no_file")} }
+                // The path a record names without holding —
+                // the page's, since that is the row that names
+                // a file at all.
+                if !content_media.file_path.is_empty() {
+                    code { class: "media-viewer-path", "{content_media.file_path}" }
+                }
+            }
+        },
+    }
+}
+
+/// The viewer's download actions: the page on screen, and every page of a
+/// document of several as one archive.
+#[component]
+fn ViewerDownloads(
+    tree_id: Uuid,
+    document_id: Uuid,
+    page: oxidgene_core::types::Media,
+    current: usize,
+    total_pages: usize,
+    caption: String,
+) -> Element {
+    let i18n = use_i18n();
+    let content_media = page;
+    let content_media_id = content_media.id;
+    rsx! {
+        if let Some(download_source) = MediaDownloadSource::for_media(tree_id, &content_media) {
+            DownloadMediaButton {
+                key: "download-{content_media_id}",
+                source: download_source,
+                file_name: download_name(&content_media.file_name, &content_media.mime_type),
+                label: if total_pages > 1 {
+                    i18n.t_args("media.download_page", &[("page", &(current + 1).to_string())])
+                } else {
+                    i18n.t("media.download_file")
+                },
+            }
+        }
+        // Forty scans are one document to the reader and forty
+        // save dialogs one at a time. The archive numbers them
+        // so unzipping restores the reading order.
+        if total_pages > 1 {
+            DownloadMediaButton {
+                source: MediaDownloadSource::Archive {
+                    tree_id,
+                    media_id: document_id,
+                },
+                file_name: format!("{}.zip", archive_stem(&caption)),
+                label: i18n.t("media.download_all_pages"),
+            }
+        }
+    }
+}
+
+/// The definitive delete of the viewer's media, offered only when its link is
+/// the media's sole external reference, so the confirmation never promises a
+/// deletion the backend would in fact just retain. Mirrors the gallery tile's
+/// context-menu delete.
+#[component]
+fn MediaDeleteButton(
+    tree_id: Uuid,
+    media_id: Uuid,
+    link_id: Uuid,
+    on_deleted: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut delete_confirming = use_signal(|| false);
+    let mut checking_delete = use_signal(|| false);
+    let mut deleting = use_signal(|| false);
+    let mut delete_error = use_signal(|| None::<String>);
+    let retained_message = i18n.t("media.delete_kept_referenced");
+
+    // Mirrors the gallery tile's context-menu delete: only offer a
+    // definitive-delete confirmation when this link is the media's sole
+    // external reference, so the dialog never promises a deletion the
+    // backend would in fact just retain.
+    let request_delete_confirmation = {
+        let api = api.clone();
+        let retained_message = retained_message.clone();
+        move |_| {
+            let api = api.clone();
+            let retained_message = retained_message.clone();
+            spawn(async move {
+                checking_delete.set(true);
+                delete_error.set(None);
+                match api
+                    .can_delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
+                    .await
+                {
+                    Ok(true) => delete_confirming.set(true),
+                    Ok(false) => delete_error.set(Some(retained_message)),
+                    Err(err) => delete_error.set(Some(err.to_string())),
+                }
+                checking_delete.set(false);
+            });
+        }
+    };
+
+    let delete_media = {
+        let api = api.clone();
+        let retained_message = retained_message.clone();
+        move |_| {
+            let api = api.clone();
+            let retained_message = retained_message.clone();
+            spawn(async move {
+                deleting.set(true);
+                delete_error.set(None);
+                match api
+                    .delete_media_if_unreferenced_elsewhere(tree_id, media_id, link_id)
+                    .await
+                {
+                    Ok(true) => {
+                        delete_confirming.set(false);
+                        on_deleted.call(());
+                    }
+                    Ok(false) => {
+                        delete_confirming.set(false);
+                        delete_error.set(Some(retained_message));
+                    }
+                    Err(err) => delete_error.set(Some(err.to_string())),
+                }
+                deleting.set(false);
+            });
+        }
+    };
+
+    rsx! {
+        button {
+            class: "pf-delete-person-btn media-facts-delete",
+            r#type: "button",
+            disabled: deleting() || checking_delete(),
+            onclick: request_delete_confirmation,
+            {i18n.t("media.viewer_delete")}
+        }
+        if !delete_confirming()
+            && let Some(err) = delete_error()
+        {
+            div { class: "error-msg", "{err}" }
+        }
+        if delete_confirming() {
+            ConfirmDialog {
+                title: i18n.t("media.delete_title"),
+                message: i18n.t("media.delete_message"),
+                confirm_label: i18n.t("media.delete"),
+                error: delete_error(),
+                busy: deleting(),
+                on_confirm: delete_media,
+                on_cancel: move |_| {
+                    delete_confirming.set(false);
+                    delete_error.set(None);
+                },
+            }
+        }
+    }
+}
+
+/// Attaching the viewer's page or document to a person or a couple: the
+/// picker the relation menu opens in `mode`.
+#[component]
+fn MediaAttachmentPicker(
+    tree_id: Uuid,
+    target_media_id: Uuid,
+    mode: Signal<Option<MediaAttachmentMode>>,
+    busy: Signal<bool>,
+    error: Signal<Option<String>>,
+    notice: Signal<Option<String>>,
+    family_choices: Signal<Vec<MediaFamilyChoice>>,
+    revision: Signal<u32>,
+    on_close: Callback<()>,
+    on_changed: EventHandler<()>,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let (mut attachment_mode, mut attachment_busy, mut attachment_error) = (mode, busy, error);
+    let (mut attachment_notice, mut attachment_revision) = (notice, revision);
+    let attachment_target_media_id = target_media_id;
+    let close_attachment = on_close;
 
     let attach_person = {
         let api = api.clone();
@@ -4073,503 +4377,59 @@ fn MediaViewer(
     });
 
     rsx! {
-        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
-            div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
-                div { class: "cropper-head",
-                    span { class: "cropper-title", "{caption}" }
-                    if total_pages > 1 {
-                        span { class: "media-pager-count",
-                            {i18n.t_args(
-                                "pager.page_of",
-                                &[
-                                    ("page", &(current + 1).to_string()),
-                                    ("total", &total_pages.to_string()),
-                                ],
-                            )}
-                        }
-                    }
-                    button {
-                        class: "cropper-close",
-                        r#type: "button",
-                        aria_label: i18n.t("common.close"),
-                        onclick: move |_| on_close.call(()),
-                        "\u{00D7}"
-                    }
-                }
-
-
-                div { class: "media-viewer-body",
-                aside {
-                    key: "media-viewer-aside-{content_media_id}-{_aside_mode}",
-                    class: "media-viewer-aside",
-                    if editing() {
-                        MediaEditPanel {
-                            key: "edit-{content_media_id}",
-                            tree_id,
-                            tile: current_tile.clone(),
-                            events: events.clone(),
-                            page: shown.cloned(),
-                            page_number: shown.map(|_| current + 1),
-                            embedded: true,
-                            on_changed: move |()| {
-                                media_revision += 1;
-                                // The panel may have repointed the page at
-                                // another URL, and the page list is what the
-                                // image on screen is read from.
-                                page_revision += 1;
-                                on_changed.call(());
-                            },
-                            on_close: move |()| editing.set(false),
-                        }
-                    } else if managing_pages() {
-                        div { class: "media-panel is-embedded",
-                            div { class: "media-panel-section",
-                                label { {i18n.t("media.pages")} }
-                                p { class: "pf-ns-hint", {i18n.t("media.pages_hint")} }
-                                DocumentPages {
-                                    tree_id,
-                                    document_id: current_media.id,
-                                    on_changed: move |()| {
-                                        page_revision += 1;
-                                        media_revision += 1;
-                                        on_changed.call(());
-                                    },
-                                }
-                            }
-                            div { class: "media-panel-actions",
-                                button {
-                                    class: "btn btn-outline",
-                                    r#type: "button",
-                                    onclick: move |_| managing_pages.set(false),
-                                    {i18n.t("common.close")}
-                                }
-                            }
-                        }
+    if let Some(mode) = attachment_mode() {
+        div { class: "media-attachment-picker",
+            div { class: "media-attachment-picker-head",
+                strong {
+                    if mode == MediaAttachmentMode::Person {
+                        {i18n.t("media.attach_person")}
+                    } else if mode == MediaAttachmentMode::CouplePerson {
+                        {i18n.t("media.attach_find_couple")}
                     } else {
-                        MediaFacts {
-                            key: "facts-{content_media_id}",
-                            tree_id,
-                            media: current_media.clone(),
-                            page: shown.cloned(),
-                            page_number: shown.map(|_| current + 1),
-                            displayed_media_id: content_media_id,
-                            document_media_id: shown.map(|_| current_media.id),
-                            attachment_revision: attachment_revision(),
-                            tags: current_media.tags.clone(),
-                            vignettes: content_vignettes.clone(),
-                            person_names: person_names.clone(),
-                            events: events.clone(),
-                            on_vignettes_changed: move |_| vignette_revision += 1,
-                            on_vignette_hover: move |vignette_id| highlighted_vignette.set(vignette_id),
-                            on_changed,
-                        }
-                        // Not gated on `read_only`. That flag governs the
-                        // *gallery* — uploading, cropping, detaching — which
-                        // is restructuring what a person has. Recording when a
-                        // scan was taken is describing the scan itself, and
-                        // the moment a reader knows that is while looking at
-                        // it. Sending them to the edit modal to type a date
-                        // means leaving the page that prompted them.
-                        div { class: "media-facts-actions",
-                            if is_document {
-                                button {
-                                    class: "btn btn-outline media-facts-pages",
-                                    r#type: "button",
-                                    onclick: move |_| managing_pages.set(true),
-                                    {i18n.t("media.manage_pages")}
-                                }
-                            }
-                            button {
-                                class: "pf-confirm-btn media-facts-edit",
-                                r#type: "button",
-                                onclick: move |_| editing.set(true),
-                                {i18n.t("media.viewer_edit")}
-                            }
-                            button {
-                                class: "pf-delete-person-btn media-facts-delete",
-                                r#type: "button",
-                                disabled: deleting() || checking_delete(),
-                                onclick: request_delete_confirmation,
-                                {i18n.t("media.viewer_delete")}
-                            }
-                        }
-                        if !delete_confirming()
-                            && let Some(err) = delete_error()
-                        {
-                            div { class: "error-msg", "{err}" }
-                        }
+                        {i18n.t("media.attach_choose_couple")}
                     }
                 }
-
-                div { class: "media-viewer-main",
-                // Zoom belongs to images alone: a video and an audio track
-                // have their own controls, and a fallback has nothing to
-                // magnify. These use the tree sidebar's visual language so
-                // they remain compact beside a large scan.
-                if matches!(kind, MediaKind::Image) && url.is_some() {
-                    div { class: "media-viewer-controls",
-                        button {
-                            class: "isb-btn",
-                            r#type: "button",
-                            title: i18n.t("media.zoom_in"),
-                            disabled: fitted_size().is_none() || zoom().is_some_and(|z| z >= MAX_ZOOM),
-                            onclick: move |_| apply_zoom.call((zoom_in(zoom()), MediaZoomAnchor::Center)),
-                            svg {
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                circle { cx: "11", cy: "11", r: "8" }
-                                line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
-                                line { x1: "11", y1: "8", x2: "11", y2: "14" }
-                                line { x1: "8", y1: "11", x2: "14", y2: "11" }
-                            }
-                        }
-                        button {
-                            class: "isb-btn",
-                            r#type: "button",
-                            title: i18n.t("media.zoom_fit"),
-                            onclick: move |_| fit_image.call(()),
-                            svg {
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                path { d: "M3 8V5a2 2 0 0 1 2-2h3" }
-                                path { d: "M16 3h3a2 2 0 0 1 2 2v3" }
-                                path { d: "M21 16v3a2 2 0 0 1-2 2h-3" }
-                                path { d: "M8 21H5a2 2 0 0 1-2-2v-3" }
-                            }
-                        }
-                        button {
-                            class: "isb-btn",
-                            r#type: "button",
-                            title: i18n.t("media.zoom_out"),
-                            disabled: fitted_size().is_none() || zoom().is_some_and(|z| z <= MIN_ZOOM),
-                            onclick: move |_| apply_zoom.call((zoom_out(zoom()), MediaZoomAnchor::Center)),
-                            svg {
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                circle { cx: "11", cy: "11", r: "8" }
-                                line { x1: "21", y1: "21", x2: "16.65", y2: "16.65" }
-                                line { x1: "8", y1: "11", x2: "14", y2: "11" }
-                            }
-                        }
-                        button {
-                            class: "isb-btn media-relation-menu-button",
-                            r#type: "button",
-                            title: i18n.t("media.relations"),
-                            aria_label: i18n.t("media.relations"),
-                            onclick: move |event: Event<MouseData>| {
-                                let point = event.client_coordinates();
-                                relation_menu_at.set(Some((point.x, point.y)));
-                            },
-                            svg {
-                                width: "16", height: "16", fill: "none", "viewBox": "0 0 24 24",
-                                stroke: "currentColor", "strokeWidth": "2",
-                                circle { cx: "12", cy: "12", r: "9" }
-                                circle { cx: "12", cy: "12", r: "5" }
-                                circle { cx: "12", cy: "12", r: "1" }
-                            }
-                        }
-                    }
-                }
-                if let Some((x, y)) = relation_menu_at() {
-                    ContextMenuSurface {
-                        x,
-                        y,
-                        menu_class: "context-menu-media-relations".to_string(),
-                        on_close: move |_| relation_menu_at.set(None),
-                        button {
-                            class: "context-menu-item",
-                            r#type: "button",
-                            onclick: move |_| {
-                                relation_menu_at.set(None);
-                                identifying.set(true);
-                            },
-                            {i18n.t("media.identify_person")}
-                        }
-                        for (scope, mode, label) in attachment_choices(is_document).iter().copied() {
-                            button {
-                                key: "{label}",
-                                class: "context-menu-item",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    relation_menu_at.set(None);
-                                    close_attachment.call(());
-                                    attachment_notice.set(None);
-                                    attachment_scope.set(scope);
-                                    attachment_mode.set(Some(mode));
-                                },
-                                {i18n.t(label)}
-                            }
-                        }
-                    }
-                }
-                if let Some(mode) = attachment_mode() {
-                    div { class: "media-attachment-picker",
-                        div { class: "media-attachment-picker-head",
-                            strong {
-                                if mode == MediaAttachmentMode::Person {
-                                    {i18n.t("media.attach_person")}
-                                } else if mode == MediaAttachmentMode::CouplePerson {
-                                    {i18n.t("media.attach_find_couple")}
-                                } else {
-                                    {i18n.t("media.attach_choose_couple")}
-                                }
-                            }
-                            button {
-                                class: "person-form-close",
-                                r#type: "button",
-                                onclick: move |_| close_attachment.call(()),
-                                "\u{00D7}"
-                            }
-                        }
-                        if attachment_busy() {
-                            div { class: "loading", {i18n.t("common.loading")} }
-                        } else if mode == MediaAttachmentMode::Person {
-                            SearchPerson {
-                                tree_id,
-                                placeholder: i18n.t("media.attach_person_placeholder"),
-                                on_select: attach_person,
-                                on_cancel: move |()| close_attachment.call(()),
-                            }
-                        } else if mode == MediaAttachmentMode::CouplePerson {
-                            SearchPerson {
-                                tree_id,
-                                placeholder: i18n.t("media.attach_couple_placeholder"),
-                                on_select: select_couple_person,
-                                on_cancel: move |()| close_attachment.call(()),
-                            }
-                        } else {
-                            div { class: "media-family-choices",
-                                for family in family_choices() {
-                                    button {
-                                        key: "{family.family_id}",
-                                        class: "btn btn-outline",
-                                        r#type: "button",
-                                        onclick: move |_| attach_family.call(family.family_id),
-                                        "{family.label}"
-                                    }
-                                }
-                            }
-                        }
-                        if let Some(message) = attachment_error() {
-                            div { class: "error-msg", "{message}" }
-                        }
-                    }
-                }
-                if let Some(message) = attachment_notice() {
-                    div { class: "media-attachment-notice", "{message}" }
-                }
-                div {
-                    id: "{stage_id}",
-                    class: "{stage_class}",
-                    onpointermove: move |event| {
-                        let coords = event.client_coordinates();
-                        if dragging_image() {
-                            let stage_id = stage_id_for_move.clone();
-                            let delta_x = coords.x - drag_start_x();
-                            let delta_y = coords.y - drag_start_y();
-                            drag_start_x.set(coords.x);
-                            drag_start_y.set(coords.y);
-                            spawn(async move {
-                                let script = format!(
-                                    "const stage = document.getElementById('{stage_id}'); if (stage) {{ stage.scrollLeft -= {delta_x}; stage.scrollTop -= {delta_y}; }}"
-                                );
-                                let _ = document::eval(&script).await;
-                            });
-                        }
-                    },
-                    onpointerdown: move |event| {
-                        if !matches!(kind, MediaKind::Image) { return; }
-                        event.prevent_default();
-                        let coords = event.client_coordinates();
-                        drag_start_x.set(coords.x);
-                        drag_start_y.set(coords.y);
-                        dragging_image.set(true);
-                    },
-                    ondragstart: move |event| event.prevent_default(),
-                    onpointerup: move |_| dragging_image.set(false),
-                    onpointerleave: move |_| dragging_image.set(false),
-                    onwheel: move |event| {
-                        event.prevent_default();
-                        let coords = event.client_coordinates();
-                        let delta_y = match event.delta() {
-                            WheelDelta::Lines(lines) => lines.y,
-                            WheelDelta::Pixels(pixels) => pixels.y,
-                            WheelDelta::Pages(pages) => pages.y,
-                        };
-                        let next = if delta_y > 0.0 {
-                            zoom_out(zoom())
-                        } else {
-                            zoom_in(zoom())
-                        };
-                        apply_zoom.call((next, MediaZoomAnchor::Pointer(coords.x, coords.y)));
-                    },
-                    match (url.clone(), kind) {
-                        (Some(url), MediaKind::Image) => rsx! {
-                            div { class: "media-viewer-image-frame",
-                                img {
-                                    id: "{image_id}",
-                                    class: "media-viewer-image media-viewer-static-image",
-                                    src: "{url}",
-                                    alt: "{caption}",
-                                    draggable: "false",
-                                    style: "{image_style}",
-                                    onload: move |_| fit_image.call(()),
-                                    onerror: move |_| failed_preview.set(Some(content_media_id)),
-                                }
-                                for vignette in content_vignettes.iter() {
-                                    div {
-                                        key: "{vignette.id}",
-                                        class: if highlighted_vignette() == Some(vignette.id) {
-                                            "media-viewer-vignette is-active"
-                                        } else {
-                                            "media-viewer-vignette"
-                                        },
-                                        style: "{vignette_overlay_style(vignette, content_width, content_height)}",
-                                        onpointerdown: move |event| event.stop_propagation(),
-                                        if let Some(person_id) = vignette.person_id
-                                            && let Some(person) = primary_person_name_record(&person_names, person_id)
-                                        {
-                                            span { class: "media-viewer-vignette-label",
-                                                if let Some(surname) = person.full_surname() {
-                                                    span { class: "media-viewer-vignette-surname", "{surname.to_uppercase()}" }
-                                                }
-                                                if let Some(given_names) = person.given_names.as_ref() {
-                                                    span { class: "media-viewer-vignette-given", "{given_names}" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        (Some(url), MediaKind::Video) => rsx! {
-                            video {
-                                class: "media-viewer-image",
-                                src: "{url}",
-                                controls: true,
-                                preload: "metadata",
-                            }
-                        },
-                        (Some(url), MediaKind::Audio) => rsx! {
-                            audio { class: "media-viewer-audio", src: "{url}", controls: true }
-                        },
-                        (Some(_), _) => rsx! {
-                            div { class: "media-viewer-fallback",
-                                span { class: "media-glyph-large", {kind.icon()} }
-                                p {
-                                    if preview_failed {
-                                        {i18n.t("media.preview_failed")}
-                                    } else {
-                                        {i18n.t("media.not_embeddable")}
-                                    }
-                                }
-                                if let Some(download_source) = MediaDownloadSource::for_media(tree_id, &content_media) {
-                                    DownloadMediaButton {
-                                        key: "fallback-{content_media_id}",
-                                        source: download_source,
-                                        file_name: download_name(&content_media.file_name, &content_media.mime_type),
-                                    }
-                                }
-                            }
-                        },
-                        (None, _) => rsx! {
-                            div { class: "media-viewer-fallback",
-                                span { class: "media-glyph-large", {kind.icon()} }
-                                p { {i18n.t("media.no_file")} }
-                                // The path a record names without holding —
-                                // the page's, since that is the row that names
-                                // a file at all.
-                                if !content_media.file_path.is_empty() {
-                                    code { class: "media-viewer-path", "{content_media.file_path}" }
-                                }
-                            }
-                        },
-                    }
-                }
-
-                // The pager. Step buttons for reading front to back, jump
-                // buttons for the ends, and a numbered strip because "the
-                // entry is on page 27" is how a register is actually
-                // referenced — counting there with a Next button is absurd.
-                Pager {
-                    current,
-                    total: total_pages,
-                    ends: true,
-                    disabled: editing(),
-                    class: "media-pager",
-                    on_select: move |index| {
-                        page.set(index);
-                        zoom.set(None);
-                    },
-                }
-                }
-                }
-
-                div { class: "cropper-foot",
-                    div { class: "cropper-actions",
-                        if let Some(download_source) = MediaDownloadSource::for_media(tree_id, &content_media) {
-                            DownloadMediaButton {
-                                key: "download-{content_media_id}",
-                                source: download_source,
-                                file_name: download_name(&content_media.file_name, &content_media.mime_type),
-                                label: if total_pages > 1 {
-                                    i18n.t_args("media.download_page", &[("page", &(current + 1).to_string())])
-                                } else {
-                                    i18n.t("media.download_file")
-                                },
-                            }
-                        }
-                        // Forty scans are one document to the reader and forty
-                        // save dialogs one at a time. The archive numbers them
-                        // so unzipping restores the reading order.
-                        if total_pages > 1 {
-                            DownloadMediaButton {
-                                source: MediaDownloadSource::Archive {
-                                    tree_id,
-                                    media_id: tile.media.id,
-                                },
-                                file_name: format!("{}.zip", archive_stem(&caption)),
-                                label: i18n.t("media.download_all_pages"),
-                            }
-                        }
-                        button {
-                            class: "btn btn-primary",
-                            r#type: "button",
-                            onclick: move |_| on_close.call(()),
-                            {i18n.t("common.close")}
-                        }
-                    }
+                button {
+                    class: "person-form-close",
+                    r#type: "button",
+                    onclick: move |_| close_attachment.call(()),
+                    "\u{00D7}"
                 }
             }
-            if identifying() {
-                IdentificationCropperHost {
+            if attachment_busy() {
+                div { class: "loading", {i18n.t("common.loading")} }
+            } else if mode == MediaAttachmentMode::Person {
+                SearchPerson {
                     tree_id,
-                    media: content_media,
-                    on_complete: move |_| {
-                        identifying.set(false);
-                        vignette_revision += 1;
-                        // Identifying somebody on a picture we do not hold
-                        // records its pixel size, and every crop drawn on it
-                        // is placed against that size.
-                        page_revision += 1;
-                    },
+                    placeholder: i18n.t("media.attach_person_placeholder"),
+                    on_select: attach_person,
+                    on_cancel: move |()| close_attachment.call(()),
+                }
+            } else if mode == MediaAttachmentMode::CouplePerson {
+                SearchPerson {
+                    tree_id,
+                    placeholder: i18n.t("media.attach_couple_placeholder"),
+                    on_select: select_couple_person,
+                    on_cancel: move |()| close_attachment.call(()),
+                }
+            } else {
+                div { class: "media-family-choices",
+                    for family in family_choices() {
+                        button {
+                            key: "{family.family_id}",
+                            class: "btn btn-outline",
+                            r#type: "button",
+                            onclick: move |_| attach_family.call(family.family_id),
+                            "{family.label}"
+                        }
+                    }
                 }
             }
-        }
-        if delete_confirming() {
-            ConfirmDialog {
-                title: i18n.t("media.delete_title"),
-                message: i18n.t("media.delete_message"),
-                confirm_label: i18n.t("media.delete"),
-                error: delete_error(),
-                busy: deleting(),
-                on_confirm: delete_media,
-                on_cancel: move |_| {
-                    delete_confirming.set(false);
-                    delete_error.set(None);
-                },
+            if let Some(message) = attachment_error() {
+                div { class: "error-msg", "{message}" }
             }
         }
+    }
     }
 }
 
@@ -4864,32 +4724,6 @@ fn IdentificationCropperHost(
     }
 }
 
-/// Zoom bounds and step, as percentages of the fitted size.
-///
-/// The ceiling is high on purpose: the reason to zoom a parish register is to
-/// read one word of secretary hand in a corner, and 200% does not get there.
-pub(crate) const MIN_ZOOM: u32 = 25;
-pub(crate) const MAX_ZOOM: u32 = 3200;
-
-/// The fitted image is the zoom baseline.
-const FIT_ZOOM: u32 = 100;
-
-/// One step in, from the current level (`None` meaning "fit").
-pub(crate) fn zoom_in(current: Option<u32>) -> u32 {
-    match current {
-        None => FIT_ZOOM * 6 / 5,
-        Some(level) => (level.saturating_mul(6) / 5).min(MAX_ZOOM),
-    }
-}
-
-/// One step out, from the current level (`None` meaning "fit").
-pub(crate) fn zoom_out(current: Option<u32>) -> u32 {
-    match current {
-        None => FIT_ZOOM * 5 / 6,
-        Some(level) => (level * 5 / 6).max(MIN_ZOOM),
-    }
-}
-
 /// A document's name with any extension trimmed, for naming its archive.
 ///
 /// A document titled `Livret de famille` zips to `Livret de famille.zip`; one
@@ -5159,30 +4993,6 @@ mod tests {
     fn a_type_we_have_no_extension_for_leaves_the_name_alone() {
         assert_eq!(download_name("mystery", "application/x-thing"), "mystery");
         assert_eq!(download_name("", "application/x-thing"), "media");
-    }
-
-    #[test]
-    fn zooming_in_and_out_stays_within_its_bounds() {
-        // Match the pedigree's 1.2 factor around the fitted size.
-        assert_eq!(zoom_in(None), 120);
-        assert_eq!(zoom_out(None), 83);
-        assert_eq!(zoom_in(Some(120)), 144);
-        assert_eq!(zoom_out(Some(144)), 120);
-        assert_eq!(zoom_in(Some(MAX_ZOOM)), MAX_ZOOM);
-        assert_eq!(zoom_out(Some(MIN_ZOOM)), MIN_ZOOM);
-        // No overflow at the ceiling, whatever it is set to.
-        assert_eq!(zoom_in(Some(u32::MAX)), MAX_ZOOM);
-    }
-
-    #[test]
-    fn zooming_reaches_far_enough_to_read_a_corner_of_a_scan() {
-        // The reason to zoom a register is one word of secretary hand.
-        let mut level = zoom_in(None);
-        for _ in 0..40 {
-            level = zoom_in(Some(level));
-        }
-        assert_eq!(level, MAX_ZOOM);
-        const { assert!(MAX_ZOOM >= 400) };
     }
 
     #[test]

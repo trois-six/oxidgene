@@ -4968,3 +4968,102 @@ async fn resolver_refusals_report_the_domain_error_code() {
         );
     }
 }
+
+/// The GraphQL twin of `media_test.rs`'s
+/// `a_remote_page_tile_draws_its_thumbnail_address` and
+/// `a_thumbnail_address_is_a_web_address_of_a_remote_page`.
+#[tokio::test]
+async fn a_remote_page_thumbnail_address_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let document_id = document_id_for(&app, &tree_id).await;
+    let url = "https://archives.example.invalid/iiif/view-5/full/max/0/default.jpg";
+    let thumbnail = "https://archives.example.invalid/images/view-5_thumbnail.jpg";
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $doc: String!, $url: String!, $thumbnail: String) {
+            uploadMedia(treeId: $tree, input: {
+                documentId: $doc, fileName: "default.jpg", mimeType: "",
+                filePath: $url, fileSize: 0, thumbnailUrl: $thumbnail,
+                width: 3000, height: 2000
+            }) { id thumbnailUrl width height }
+        }"#,
+        Some(json!({ "tree": tree_id, "doc": document_id, "url": url, "thumbnail": thumbnail })),
+    )
+    .await;
+    let page = data(&resp)["uploadMedia"].clone();
+    assert_eq!(page["thumbnailUrl"], thumbnail);
+    assert_eq!(page["width"], 3000);
+    let page_id = page["id"].as_str().unwrap().to_string();
+
+    let bundle = data(
+        &graphql(
+            app.clone(),
+            &format!(
+                r#"{{ galleryBundle(treeId: "{tree_id}", mediaIds: ["{document_id}"], vignetteIds: []) {{ media {{ documentPreviews {{ kind url }} }} }} }}"#
+            ),
+            None,
+        )
+        .await,
+    )["galleryBundle"]
+        .clone();
+    assert_eq!(
+        bundle["media"][0]["documentPreviews"],
+        json!([{ "kind": "REMOTE", "url": thumbnail }]),
+        "{bundle}"
+    );
+
+    let update = r#"mutation($tree: ID!, $id: ID!, $input: UpdateMediaInput!) {
+        updateMedia(treeId: $tree, id: $id, input: $input) { thumbnailUrl }
+    }"#;
+    // `null` clears it.
+    let resp = graphql(
+        app.clone(),
+        update,
+        Some(json!({ "tree": tree_id, "id": page_id, "input": { "thumbnailUrl": null } })),
+    )
+    .await;
+    assert!(
+        data(&resp)["updateMedia"]["thumbnailUrl"].is_null(),
+        "{resp}"
+    );
+
+    // Only a web address, and only on a page held as one.
+    let resp = graphql(
+        app.clone(),
+        update,
+        Some(json!({ "tree": tree_id, "id": page_id, "input": { "thumbnailUrl": "file:///tmp/7.jpg" } })),
+    )
+    .await;
+    assert_eq!(
+        resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+        "{resp}"
+    );
+    let resp = graphql(
+        app.clone(),
+        update,
+        Some(json!({ "tree": tree_id, "id": document_id, "input": { "thumbnailUrl": thumbnail } })),
+    )
+    .await;
+    assert_eq!(
+        resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+        "{resp}"
+    );
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $doc: String!) {
+            uploadMedia(treeId: $tree, input: {
+                documentId: $doc, fileName: "7.jpg", mimeType: "image/jpeg",
+                filePath: "scans/7.jpg", fileSize: 0,
+                thumbnailUrl: "https://archives.example.invalid/7_thumb.jpg"
+            }) { id }
+        }"#,
+        Some(json!({ "tree": tree_id, "doc": document_id })),
+    )
+    .await;
+    assert_eq!(
+        resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+        "{resp}"
+    );
+}

@@ -1222,6 +1222,10 @@ pub const LAYOUT_STYLES: &str = r#"
         content-visibility: auto;
         contain-intrinsic-size: auto 44px;
     }
+    /* `content-visibility` contains the row's paint, which would make the row
+       the box of a fixed overlay opened from it — the viewer of a cited
+       register or of a document proving the event — and clip it there. */
+    .pd-timeline li:has(.cropper-backdrop) { content-visibility: visible; }
     .pd-timeline li:first-child {
         border-top: none;
         padding-top: var(--space-1);
@@ -5537,6 +5541,31 @@ pub const LAYOUT_STYLES: &str = r#"
     .media-viewer-vignette-surname,
     .media-viewer-vignette-given { display: block; }
 
+    /* The half of a double page an archive citation names (`d`, `g`). */
+    .media-viewer-side {
+        position: absolute;
+        top: 0;
+        width: 50%;
+        height: 100%;
+        box-sizing: border-box;
+        border: 2px solid color-mix(in srgb, var(--media-frame) 95%, transparent);
+        background: color-mix(in srgb, var(--media-tint) 10%, transparent);
+        pointer-events: none;
+    }
+
+    .media-viewer-side.is-left { left: 0; }
+    .media-viewer-side.is-right { left: 50%; }
+
+    /* The credit an archive's reuse terms require, under its picture. */
+    .media-viewer-attribution {
+        margin: var(--space-3) var(--space-6) 0;
+        color: var(--text-muted);
+        font-size: var(--text-85);
+        text-align: center;
+    }
+
+    .media-viewer-attribution a { color: inherit; }
+
     .media-viewer-audio { width: min(520px, 100%); }
 
     .media-viewer-fallback {
@@ -5661,6 +5690,15 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .doc-page-url input { flex: 1; min-width: 0; }
+
+    /* The previous and next views of the archive register a document's
+       pages are views of, under its page grid. */
+    .doc-register-views {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-4);
+        margin-top: var(--space-4);
+    }
 
     /* The link cell stays marked while the field below belongs to it, so the
        two read as one control rather than as a button and an unrelated row. */

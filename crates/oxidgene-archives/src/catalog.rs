@@ -266,8 +266,24 @@ fn validate(
             )));
         }
         validate_collection(collection, platforms).map_err(|error| error.within(&collection.id))?;
+        if archive.display == Display::Iiif && !admits_any_client(collection, platforms) {
+            return Err(CatalogError::new(
+                "an iiif archive's portal must answer any client, since the backend resolves its views",
+            )
+            .within(&collection.id));
+        }
     }
     Ok(())
+}
+
+/// Whether a collection's portal answers any HTTP client, rather than only a
+/// browser page that passes its challenge.
+fn admits_any_client(collection: &Collection, platforms: &[Box<dyn Platform>]) -> bool {
+    platforms
+        .iter()
+        .find(|platform| platform.id() == collection.platform)
+        .and_then(|platform| platform.endpoint(collection))
+        .is_some_and(|endpoint| endpoint.access == crate::platform::Access::Any)
 }
 
 fn validate_identity(archive: &Archive, directory: &str) -> Result<(), CatalogError> {
@@ -604,5 +620,16 @@ mod tests {
         document["attribution"] = "Archives d'Exemple, {call_number}, vue {view}".into();
         document["terms"] = "https://archives.example.org/conditions".into();
         assert_eq!(load_one("fr", &document).unwrap()[0].display, Display::Iiif);
+    }
+
+    #[test]
+    fn an_iiif_archive_answers_any_client() {
+        let mut document = document();
+        document["display"] = "iiif".into();
+        document["attribution"] = "Archives d'Exemple, {call_number}, vue {view}".into();
+        document["terms"] = "https://archives.example.org/conditions".into();
+        document["collections"][1]["portal"]["transport"] = "browser".into();
+        let error = load_one("fr", &document).unwrap_err().to_string();
+        assert!(error.contains("must answer any client"), "{error}");
     }
 }

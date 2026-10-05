@@ -389,3 +389,73 @@ async fn graphql_resolves_no_target_for_the_items_of_a_list() {
     assert_eq!(gql_error_code(&response), "VALIDATION_ERROR");
     assert_eq!(portal.connections(), 0);
 }
+
+const SOURCE_VIEW: &str = r#"
+    query($tree: ID!, $id: ID!, $citation: ID, $view: Int) {
+        source(treeId: $tree, id: $id) {
+            archiveTarget(citationId: $citation, view: $view) {
+                kind url viewCount attribution views { view url }
+            }
+        }
+    }"#;
+
+#[tokio::test]
+async fn a_neighbouring_view_resolves_on_both_surfaces() {
+    let portal = Recorded::new(Answer::Search(AD44_ONE));
+    let app = app_with(&portal).await;
+    let tree = new_tree(&app, "Archives").await;
+    let source = new_source(&app, &tree, AD44_REGISTER).await;
+    let citation = new_citation(&app, &tree, &source, AD44_PAGE).await;
+    let path = format!("/api/v1/trees/{tree}/sources/{source}/archive-target");
+
+    // The cited view is 2 of 3: the reader pages to 3, then back to 1.
+    for (view, connections) in [(3, 1), (1, 2)] {
+        let (status, target) = send(
+            &app,
+            Method::POST,
+            &path,
+            Some(json!({ "citation_id": citation, "view": view })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{target}");
+        assert_eq!(target["kind"], "view");
+        assert_eq!(target["views"].as_array().unwrap().len(), 1);
+        assert_eq!(target["views"][0]["view"], view);
+        // One resolution per click.
+        assert_eq!(portal.connections(), connections);
+
+        let response = gql(
+            &app,
+            SOURCE_VIEW,
+            json!({ "tree": tree, "id": source, "citation": citation, "view": view }),
+        )
+        .await;
+        assert!(response.get("errors").is_none(), "{response}");
+        let gql_target = &response["data"]["source"]["archiveTarget"];
+        assert_eq!(gql_target["views"][0]["view"], view);
+        assert_eq!(gql_target["views"][0]["url"], target["views"][0]["url"]);
+        // The same view again comes from the session cache.
+        assert_eq!(portal.connections(), connections);
+    }
+
+    // No view before the first, nor beyond the cited count.
+    for view in [0, 4] {
+        let (status, body) = send(
+            &app,
+            Method::POST,
+            &path,
+            Some(json!({ "citation_id": citation, "view": view })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{view}: {body}");
+        assert_eq!(body["error"], "validation_error");
+        let response = gql(
+            &app,
+            SOURCE_VIEW,
+            json!({ "tree": tree, "id": source, "citation": citation, "view": view }),
+        )
+        .await;
+        assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{view}");
+    }
+    assert_eq!(portal.connections(), 2);
+}

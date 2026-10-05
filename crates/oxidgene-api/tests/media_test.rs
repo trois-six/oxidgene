@@ -3676,3 +3676,156 @@ async fn job_id_of(h: &Harness, tree_id: &str) -> String {
         .id
         .to_string()
 }
+
+#[tokio::test]
+async fn a_remote_page_tile_draws_its_thumbnail_address() {
+    // An archive's view weighs a megabyte; its own thumbnail a few kilobytes.
+    // A page recorded with both is drawn from the thumbnail in every tile and
+    // keeps the full picture for the viewer. The GraphQL twin is in
+    // `graphql_test.rs`.
+    let h = setup().await;
+    let document = new_document(&h.app, h.tree_id, None).await;
+    let url = "https://archives.example.invalid/iiif/view-5/full/max/0/default.jpg";
+    let thumbnail = "https://archives.example.invalid/images/view-5_thumbnail.jpg";
+    let (status, page) = send(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": document,
+            "file_name": "default.jpg",
+            "mime_type": "",
+            "file_path": url,
+            "file_size": 0,
+            "thumbnail_url": thumbnail,
+            "width": 3000,
+            "height": 2000
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{page}");
+    assert_eq!(page["thumbnail_url"], thumbnail);
+    assert_eq!(
+        (page["width"].clone(), page["height"].clone()),
+        (json!(3000), json!(2000))
+    );
+    let page_id = page["id"].as_str().unwrap().to_string();
+
+    let (status, bundle) = send(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/gallery-bundle", h.tree_id),
+        Some(json!({"media_ids": [document], "vignette_ids": []})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(
+        bundle["media"][0]["document_previews"],
+        json!([{ "kind": "remote", "url": thumbnail }]),
+        "{bundle}"
+    );
+
+    // Repointing the page drops the thumbnail of the old address.
+    let other = "https://archives.example.invalid/iiif/view-6/full/max/0/default.jpg";
+    let (status, updated) = send(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{page_id}", h.tree_id),
+        Some(json!({ "file_path": other })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert!(updated["thumbnail_url"].is_null(), "{updated}");
+
+    // Set again, then cleared with `null`.
+    let (status, updated) = send(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{page_id}", h.tree_id),
+        Some(json!({ "thumbnail_url": thumbnail })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["thumbnail_url"], thumbnail);
+    let (status, updated) = send(
+        &h.app,
+        Method::PUT,
+        &format!("/api/v1/trees/{}/media/{page_id}", h.tree_id),
+        Some(json!({ "thumbnail_url": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert!(updated["thumbnail_url"].is_null(), "{updated}");
+}
+
+#[tokio::test]
+async fn a_thumbnail_address_is_a_web_address_of_a_remote_page() {
+    let h = setup().await;
+    let document = new_document(&h.app, h.tree_id, None).await;
+    let create = |file_path: &str, thumbnail: &str| {
+        json!({
+            "document_id": document,
+            "file_name": "page.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": file_path,
+            "file_size": 0,
+            "thumbnail_url": thumbnail
+        })
+    };
+    for body in [
+        // Not a web address.
+        create(
+            "https://archives.example.invalid/7.jpg",
+            "file:///tmp/7.jpg",
+        ),
+        create(
+            "https://archives.example.invalid/7.jpg",
+            "javascript:alert(1)",
+        ),
+        // A page that is no address has no thumbnail address either.
+        create(
+            "scans/7.jpg",
+            "https://archives.example.invalid/7_thumb.jpg",
+        ),
+    ] {
+        let (status, error) = send(
+            &h.app,
+            Method::POST,
+            &format!("/api/v1/trees/{}/media", h.tree_id),
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+        assert_eq!(error["error"], "validation_error");
+    }
+    // Half a size is not a size.
+    let (status, error) = send(
+        &h.app,
+        Method::POST,
+        &format!("/api/v1/trees/{}/media", h.tree_id),
+        Some(json!({
+            "document_id": document,
+            "file_name": "page.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": "https://archives.example.invalid/7.jpg",
+            "file_size": 0,
+            "width": 3000
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+
+    // A stored page and a document have no thumbnail address.
+    let stored = add_page(&h, &document, "scan.png").await;
+    for id in [stored.as_str(), document.as_str()] {
+        let (status, error) = send(
+            &h.app,
+            Method::PUT,
+            &format!("/api/v1/trees/{}/media/{id}", h.tree_id),
+            Some(json!({ "thumbnail_url": "https://archives.example.invalid/7_thumb.jpg" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+        assert_eq!(error["error"], "validation_error");
+    }
+}

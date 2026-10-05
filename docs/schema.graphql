@@ -1525,6 +1525,12 @@ type GqlMedia {
 	"""
 	thumbnailKey: String
 	"""
+	For a page held only as a URL, the address of a small picture of it
+	that its server also serves; gallery tiles draw it instead of the
+	full picture.
+	"""
+	thumbnailUrl: String
+	"""
 	Intrinsic pixel size, after applying any EXIF orientation.
 	"""
 	width: Int
@@ -2426,11 +2432,12 @@ type GqlSource {
 	"""
 	Where this source opens on its archive's portal, as cited by
 	`citationId` when given — a citation of this source, whose page
-	completes the title. It may query the portal, so it is answered for
-	a source read on its own, never for the items of a list; `null` only
-	with an error.
+	completes the title. `view` resolves that one view of the cited
+	register instead of the cited ones: the previous or next view a reader
+	pages to. It may query the portal, so it is answered for a source read
+	on its own, never for the items of a list; `null` only with an error.
 	"""
-	archiveTarget(citationId: ID): GqlArchiveTarget
+	archiveTarget(citationId: ID, view: Int): GqlArchiveTarget
 }
 
 type GqlSourceConnection {
@@ -4174,6 +4181,11 @@ input UpdateMediaInput {
 	width: Int
 	height: Int
 	"""
+	A remote page's thumbnail address, an `http(s)` URL; `null` clears it.
+	Repointing the page without one clears it too.
+	"""
+	thumbnailUrl: String
+	"""
 	Whether this is shown when the tree is published.
 	"""
 	privacy: GqlPrivacy
@@ -4384,6 +4396,18 @@ input UploadMediaInput {
 	fileSize: Int!
 	title: String
 	description: String
+	"""
+	For a page held as an `http(s)` URL, the address of a small picture of
+	it its server also serves, which gallery tiles draw instead of the
+	full picture.
+	"""
+	thumbnailUrl: String
+	"""
+	The picture's pixel size, when already known. Sent together or not at
+	all.
+	"""
+	width: Int
+	height: Int
 }
 
 """

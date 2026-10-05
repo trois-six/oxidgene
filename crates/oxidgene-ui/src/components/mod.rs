@@ -18,6 +18,7 @@ pub mod import_modal;
 pub mod layout;
 pub mod media_gallery;
 pub mod media_input;
+pub mod media_stage;
 pub mod merge_dialog;
 pub mod modal;
 pub mod paged_list;

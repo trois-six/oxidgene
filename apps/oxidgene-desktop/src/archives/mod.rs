@@ -29,7 +29,8 @@ use dioxus::desktop::wry::{WebContext, WebView, WebViewBuilder};
 use oxidgene_archives::transport::origin_of;
 use oxidgene_archives::{ArchiveRegistry, Resolver};
 use oxidgene_ui::archive_viewer::{
-    ArchiveLink, ArchiveViewerBridge, ArchiveViewerOpener, ArchiveViewerRequest, Landing,
+    ArchiveLink, ArchivePageRequest, ArchiveViewerBridge, ArchiveViewerOpener,
+    ArchiveViewerRequest, Landing,
 };
 use serde::Deserialize;
 use tracing::{debug, warn};
@@ -65,6 +66,32 @@ impl ArchiveViewerOpener for WindowOpener {
         // The task outlives the page that asked: the reader may navigate on
         // while the window opens.
         dioxus::core::spawn_forever(open_register(shared, resolver, request));
+    }
+
+    fn open_page(&self, request: ArchivePageRequest) {
+        let shared = Arc::clone(&self.shared);
+        // Queued from a task, as a resolution's landing is, so that the
+        // event loop that carries it out is woken.
+        dioxus::core::spawn_forever(async move {
+            shared.push(page_command(shared.next_id(), request));
+        });
+    }
+}
+
+/// The command opening a portal page as it is, in a window of its own.
+fn page_command(session: SessionId, request: ArchivePageRequest) -> Command {
+    let ArchivePageRequest {
+        title,
+        url,
+        banner,
+        close,
+    } = request;
+    Command::Load {
+        session,
+        title,
+        origins: origin_of(&url).map(str::to_owned).into_iter().collect(),
+        url,
+        banner: banner.map(|text| Banner { text, close }),
     }
 }
 
@@ -383,6 +410,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_page_opens_on_its_own_origin_with_its_banner() {
+        let command = page_command(
+            7,
+            ArchivePageRequest {
+                title: "AD00 - Exampleville".to_owned(),
+                url: "https://archives.example.org/ark:/00000/a1/5".to_owned(),
+                banner: Some("No register matches.".to_owned()),
+                close: "Close".to_owned(),
+            },
+        );
+        assert_eq!(
+            command,
+            Command::Load {
+                session: 7,
+                title: "AD00 - Exampleville".to_owned(),
+                url: "https://archives.example.org/ark:/00000/a1/5".to_owned(),
+                origins: vec!["https://archives.example.org".to_owned()],
+                banner: Some(Banner {
+                    text: "No register matches.".to_owned(),
+                    close: "Close".to_owned(),
+                }),
+            }
+        );
     }
 
     #[test]

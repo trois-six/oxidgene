@@ -4,24 +4,60 @@ use dioxus::document::{self, Eval};
 use dioxus::prelude::*;
 use uuid::Uuid;
 
+use oxidgene_archives::Display;
+
+use super::viewer::ArchiveViewer;
 use super::{ArchiveLink, ArchiveViewerMessages, ArchiveViewerRequest, Landing};
 use crate::api::{ApiClient, ApiError};
 use crate::i18n::use_i18n;
 
 /// `text`, the rendered citation, as a button opening `link`'s register: in
-/// the desktop's archive window, or, on the web, in a new browser tab with
-/// a notice beside the button when the lookup has something to say. Plain
-/// text where the desktop cannot open the link.
+/// OxidGene's viewer on both clients for an archive whose images it may show;
+/// otherwise in the desktop's archive window, or, on the web, in a new
+/// browser tab with a notice beside the button when the lookup has something
+/// to say. Plain text where the desktop cannot open the link.
+///
+/// The citation documents event `event_id`, which a document attached from
+/// the viewer documents too; `on_attached` fires once one is saved.
 #[component]
-pub fn ArchiveSourceLink(tree_id: Uuid, link: ArchiveLink, text: String) -> Element {
+pub fn ArchiveSourceLink(
+    tree_id: Uuid,
+    link: ArchiveLink,
+    text: String,
+    event_id: Uuid,
+    event_label: String,
+    #[props(default)] on_attached: EventHandler<()>,
+) -> Element {
     let i18n = use_i18n();
     let bridge = super::use_archive_viewer_bridge();
     let api = use_context::<ApiClient>();
     let mut notice = use_signal(|| None::<String>);
+    let mut viewing = use_signal(|| false);
     let hint = i18n.t_args(
         "person.source_open_archive",
         &[("archive", &link.archive.name)],
     );
+
+    if link.archive.display == Display::Iiif {
+        return rsx! {
+            button {
+                class: "pd-ev-source-link",
+                title: "{hint}",
+                onclick: move |_| viewing.set(true),
+                "{text}"
+            }
+            if viewing() {
+                ArchiveViewer {
+                    tree_id,
+                    link: link.clone(),
+                    event_id,
+                    event_label: event_label.clone(),
+                    on_attached,
+                    on_close: move |()| viewing.set(false),
+                }
+            }
+        };
+    }
 
     match bridge {
         Some(bridge) if bridge.supports(&link) => rsx! {
@@ -51,7 +87,7 @@ pub fn ArchiveSourceLink(tree_id: Uuid, link: ArchiveLink, text: String) -> Elem
                     // tab it opened still reaches its page.
                     dioxus::core::spawn_forever(async move {
                         let outcome = api
-                            .archive_target(tree_id, link.source_id, link.citation_id)
+                            .archive_target(tree_id, link.source_id, link.citation_id, None)
                             .await;
                         let code = outcome.as_ref().err().and_then(ApiError::code);
                         let landing = Landing::of(

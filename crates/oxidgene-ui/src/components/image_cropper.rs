@@ -38,6 +38,43 @@ pub struct CropRect {
     pub height: i32,
 }
 
+/// A half of the picture the cropper opens with selected: the side of a
+/// double page an archive citation names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CropHalf {
+    Left,
+    Right,
+}
+
+/// The rectangle of `half` over a picture displayed at `(width, height)`.
+fn half_rect(half: CropHalf, (width, height): (f64, f64)) -> (f64, f64, f64, f64) {
+    let x = match half {
+        CropHalf::Left => 0.0,
+        CropHalf::Right => width / 2.0,
+    };
+    (x, 0.0, width / 2.0, height)
+}
+
+/// Selects `half` once the picture has a size on screen, and only once: a
+/// reader who drew another rectangle meant it.
+fn use_initial_half(
+    half: Option<CropHalf>,
+    displayed: Signal<(f64, f64)>,
+    mut drag_rect: Signal<Option<(f64, f64, f64, f64)>>,
+) {
+    let mut selected = use_signal(|| false);
+    use_effect(move || {
+        let (width, height) = displayed();
+        let Some(half) = half.filter(|_| width > 0.0 && height > 0.0) else {
+            return;
+        };
+        if !*selected.peek() {
+            selected.set(true);
+            drag_rect.set(Some(half_rect(half, (width, height))));
+        }
+    });
+}
+
 /// The smallest crop worth saving, in source pixels.
 ///
 /// A click that moves three pixels is a click, not a drag. Without a floor,
@@ -61,6 +98,10 @@ pub struct ImageCropperProps {
     /// Events the crop may be attached to, as (id, label) pairs.
     #[props(default)]
     pub events: Vec<(Uuid, String)>,
+    /// The half of the picture to select on opening, which the reader may
+    /// save as it is or redraw.
+    #[props(default)]
+    pub half: Option<CropHalf>,
     /// Called with the saved vignette once it is stored.
     pub on_saved: EventHandler<Vignette>,
     pub on_close: EventHandler<()>,
@@ -296,6 +337,8 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
 
+    use_initial_half(props.half, displayed, drag_rect);
+
     let tree_id = props.tree_id;
     let media = props.media.clone();
     let media_id = media.id;
@@ -447,5 +490,37 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_cited_half_is_that_half_of_the_picture() {
+        assert_eq!(
+            half_rect(CropHalf::Left, (800.0, 600.0)),
+            (0.0, 0.0, 400.0, 600.0)
+        );
+        assert_eq!(
+            half_rect(CropHalf::Right, (800.0, 600.0)),
+            (400.0, 0.0, 400.0, 600.0)
+        );
+        // Saved, it is that half of the source picture.
+        let right = crop_in_source(
+            half_rect(CropHalf::Right, (800.0, 600.0)),
+            0.25,
+            (3200, 2400),
+        );
+        assert_eq!(
+            right,
+            Some(CropRect {
+                x: 1600,
+                y: 0,
+                width: 1600,
+                height: 2400
+            })
+        );
     }
 }

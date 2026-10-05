@@ -164,7 +164,7 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
         ),
         (
             "media",
-            "storage_key, sha256, thumbnail_key, width, height, page_count, parent_media_id, page_index, date_qualifier, date_value2, calendar, source_media_type, document_category, place_id, privacy",
+            "storage_key, sha256, thumbnail_key, thumbnail_url, width, height, page_count, parent_media_id, page_index, date_qualifier, date_value2, calendar, source_media_type, document_category, place_id, privacy",
         ),
         (
             "vignette",

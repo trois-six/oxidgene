@@ -75,6 +75,9 @@ pub struct MediaPatch {
     /// answer that can disagree. For a remote page the client is the only
     /// witness there is — it is the one that loaded the picture.
     pub dimensions: Option<(i32, i32)>,
+    /// A remote page's thumbnail address; `Some(None)` clears it. Like the
+    /// path, only ever set for a page whose bytes we do not hold.
+    pub thumbnail_url: Option<Option<String>>,
     pub privacy: Option<oxidgene_core::enums::Privacy>,
     pub source_media_type: Option<oxidgene_core::enums::SourceMediaType>,
     pub document_category: Option<Option<oxidgene_core::enums::DocumentCategory>>,
@@ -195,6 +198,7 @@ impl MediaRepo {
             storage_key: Set(None),
             sha256: Set(None),
             thumbnail_key: Set(None),
+            thumbnail_url: Set(None),
             width: Set(None),
             height: Set(None),
             page_count: Set(1),
@@ -242,6 +246,7 @@ impl MediaRepo {
             storage_key: Set(Some(upload.storage_key)),
             sha256: Set(Some(upload.sha256)),
             thumbnail_key: Set(upload.thumbnail_key),
+            thumbnail_url: Set(None),
             width: Set(upload.width),
             height: Set(upload.height),
             page_count: Set(upload.page_count),
@@ -296,6 +301,8 @@ impl MediaRepo {
         active.storage_key = Set(Some(upload.storage_key));
         active.sha256 = Set(Some(upload.sha256));
         active.thumbnail_key = Set(upload.thumbnail_key);
+        // Our own copy has a thumbnail of its own now.
+        active.thumbnail_url = Set(None);
         active.width = Set(upload.width);
         active.height = Set(upload.height);
         active.page_count = Set(upload.page_count);
@@ -336,6 +343,7 @@ impl MediaRepo {
             storage_key: Set(None),
             sha256: Set(None),
             thumbnail_key: Set(None),
+            thumbnail_url: Set(None),
             width: Set(None),
             height: Set(None),
             page_count: Set(0),
@@ -616,16 +624,23 @@ impl MediaRepo {
 /// Rejects a patch the record cannot take: file fields on a record whose
 /// bytes we hold, a non-positive size, a size too small for an existing
 /// crop, or a place from another tree.
+/// Whether a patch changes what the page names as its file: its path, type,
+/// size or thumbnail address.
+fn edits_file(patch: &MediaPatch) -> bool {
+    patch.file_path.is_some()
+        || patch.mime_type.is_some()
+        || patch.dimensions.is_some()
+        || matches!(patch.thumbnail_url, Some(Some(_)))
+}
+
 async fn validate_patch(
     db: &impl ConnectionTrait,
     existing: &media::Model,
     patch: &MediaPatch,
 ) -> Result<(), OxidGeneError> {
-    if (patch.file_path.is_some() || patch.mime_type.is_some() || patch.dimensions.is_some())
-        && (existing.parent_media_id.is_none() || existing.storage_key.is_some())
-    {
+    if edits_file(patch) && (existing.parent_media_id.is_none() || existing.storage_key.is_some()) {
         return Err(OxidGeneError::Validation(
-            "file path, MIME type and dimensions can only be edited on pages without stored bytes"
+            "file path, MIME type, dimensions and thumbnail address can only be edited on pages without stored bytes"
                 .into(),
         ));
     }
@@ -705,6 +720,7 @@ fn apply_patch(active: &mut ActiveModel, patch: MediaPatch) {
         active.file_path = Set(file_path);
     }
     set_if_some(&mut active.mime_type, patch.mime_type);
+    set_if_some(&mut active.thumbnail_url, patch.thumbnail_url);
     if let Some((width, height)) = patch.dimensions {
         active.width = Set(Some(width));
         active.height = Set(Some(height));
@@ -868,6 +884,7 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         storage_key: m.storage_key,
         sha256: m.sha256,
         thumbnail_key: m.thumbnail_key,
+        thumbnail_url: m.thumbnail_url,
         width: m.width,
         height: m.height,
         page_count: m.page_count,

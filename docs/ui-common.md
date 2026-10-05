@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T10:19:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -472,7 +472,9 @@ footnote lines under the caption. With no attachment to spare, the viewer's
 delete there only ever removes a document nothing references.
 
 The initial grid loads tile thumbnails, the first four document-page previews
-— a generated thumbnail, or a remote page's own image URL — vignette crops, and
+— a generated thumbnail, or for a remote page its thumbnail address when its
+server serves one (`thumbnail_url`) and its own image URL otherwise —
+vignette crops, and
 linked event ids through one bounded gallery bundle. It
 must not mount one image, page-list, or reverse-link resource per tile. Larger
 sets are split into as many batches of 1,024 identifiers as necessary. Viewer
@@ -490,7 +492,10 @@ its own origin and needs none of this.
 
 A tile draws its document's page previews when there are any, its own
 thumbnail when the tile is a stored page, and the address when it is a remote
-image; only a tile with none of those falls back to a labelled file icon. A
+image — its thumbnail address when it has one, here and in the page lists of
+the editors, so a tile of an archive's view loads a few kilobytes rather than
+the full view; only a tile with none of those falls back to a labelled file
+icon. A
 tile whose file is somebody else's — the document's page, or the tile itself —
 carries the remote badge. A document is offered as a portrait exactly when it
 draws a picture; a PDF is not, and the action is withheld rather than accepted
@@ -533,6 +538,15 @@ first time somebody identifies a person there. Until then a region of that page
 has no scale to be cut at, and the whole picture is shown, marked as a region by
 the crop badge.
 
+The viewer draws a picture on one shared stage (`components/media_stage.rs`):
+fitted to the space, zoomed by the wheel and its controls, dragged when it
+overflows, with the caller's overlays — identified regions, the cited half
+of an archive's double page — over it in percentages of the picture. Moving
+to another page starts it fitted again. OxidGene's archive viewer
+([Archive Portals §6.3](archives.md#63-oxidgenes-viewer)) shows an unsaved
+document of an archive's views on the same stage, in the same frame, side
+column and pager, with the archive's attribution under the picture.
+
 The viewer and the edit panel describe the **page** on screen, not the document
 above it: its format, dimensions, size, and whether the file is stored, remote,
 or held by nobody. A remote page is rendered from its URL exactly as a stored
@@ -562,6 +576,15 @@ opens an address field when clicked. An address stays editable afterwards — a
 remote page carries a pencil action that reopens the same field on that page —
 because a mistyped URL is found after it has been added far more often than
 while it is being typed. Pages may be reordered and removed before saving.
+
+A caller that has already assembled a document opens the same form
+prefilled rather than a form of its own: OxidGene's archive viewer attaching
+cited views ([Archive Portals §6.4](archives.md#64-attaching-and-cropping))
+fills the title, description, kind of record, medium, the event checked, the
+source the document is linked to, and one remote page per view, each with its
+pixel size and thumbnail address. For such a register the page list also
+offers the previous and the next view, each resolved on its click, and the
+title and description follow the views until the reader writes them.
 
 Nothing is written until the user saves. Cancelling issues no request, so
 closing the form cannot leave an unnamed empty document attached to somebody.

@@ -33,6 +33,12 @@ pub struct Media {
     /// Key of the generated thumbnail. `None` for formats we cannot rasterise
     /// (PDFs) and for records with no bytes.
     pub thumbnail_key: Option<String>,
+    /// For a page held only as a URL, the address of a small picture of it
+    /// that its server also serves — an archive's thumbnail of a view. Gallery
+    /// tiles draw it instead of the full picture. `None` for every other row,
+    /// and for a remote page whose server offers no thumbnail.
+    #[serde(default)]
+    pub thumbnail_url: Option<String>,
     /// Intrinsic pixel size, after applying any EXIF orientation.
     pub width: Option<i32>,
     pub height: Option<i32>,
@@ -119,6 +125,22 @@ impl Media {
             .filter(|title| !title.is_empty())
             .unwrap_or(&self.file_name)
             .to_string()
+    }
+
+    /// The address a gallery tile draws a page held only as a URL from: its
+    /// thumbnail address when one was recorded, the picture's own otherwise.
+    /// `None` for a page that is not held as a URL.
+    #[must_use]
+    pub fn remote_tile_address(&self) -> Option<&str> {
+        if !is_remote_url(&self.file_path) {
+            return None;
+        }
+        let thumbnail = self
+            .thumbnail_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| is_remote_url(url));
+        Some(thumbnail.unwrap_or_else(|| self.file_path.trim()))
     }
 
     /// Validate page coordinates, checking each known dimension independently.
@@ -462,6 +484,7 @@ mod crop_tests {
             storage_key: None,
             sha256: None,
             thumbnail_key: None,
+            thumbnail_url: None,
             width: Some(1600),
             height: Some(1200),
             page_count: 1,
@@ -487,6 +510,22 @@ mod crop_tests {
     }
 
     const URL: &str = "https://archives.example.org/group/7.jpg";
+
+    #[test]
+    fn a_tile_draws_a_remote_page_from_its_thumbnail_address() {
+        let mut remote = page(URL, "image/jpeg");
+        assert_eq!(remote.remote_tile_address(), Some(URL));
+        remote.thumbnail_url = Some(" https://archives.example.org/group/7_thumb.jpg ".into());
+        assert_eq!(
+            remote.remote_tile_address(),
+            Some("https://archives.example.org/group/7_thumb.jpg")
+        );
+        // A page we do not hold as a URL has no address to draw from.
+        assert_eq!(
+            page("scans/7.jpg", "image/jpeg").remote_tile_address(),
+            None
+        );
+    }
 
     #[test]
     fn a_region_of_a_remote_picture_travels_with_the_size_it_was_measured_against() {

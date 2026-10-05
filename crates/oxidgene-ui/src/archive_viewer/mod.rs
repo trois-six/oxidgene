@@ -5,9 +5,14 @@
 //! source as [`ArchiveSourceLink`]. On the desktop the binary injects an
 //! [`ArchiveViewerOpener`] that resolves the citation in an archive window;
 //! the web client, which has none, asks the backend for the target and opens
-//! it in a new browser tab.
+//! it in a new browser tab. An archive whose images OxidGene may show
+//! (`display: "iiif"`) is resolved by the backend on both clients and shown
+//! in OxidGene's own viewer instead ([`viewer`]), from which the reader may
+//! attach the cited views as a document.
 
+mod register;
 mod source_link;
+mod viewer;
 
 use std::sync::Arc;
 
@@ -17,6 +22,7 @@ use uuid::Uuid;
 
 use crate::i18n::I18n;
 
+pub use register::{ArchiveRegister, ViewPage};
 pub use source_link::ArchiveSourceLink;
 
 /// A citation together with the archive that holds it.
@@ -145,11 +151,27 @@ pub struct ArchiveViewerRequest {
     pub messages: ArchiveViewerMessages,
 }
 
+/// A portal page to open as it is, without resolving anything: the page of a
+/// view OxidGene already shows, or the landing of a resolution the backend
+/// ran.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchivePageRequest {
+    /// The window's title.
+    pub title: String,
+    pub url: String,
+    /// What to tell the reader over the page, in the interface language.
+    pub banner: Option<String>,
+    /// The label of the banner's close button.
+    pub close: String,
+}
+
 /// The platform side of the archive viewer.
 pub trait ArchiveViewerOpener: Send + Sync {
     /// Whether this platform can open `link`.
     fn supports(&self, link: &ArchiveLink) -> bool;
     fn open(&self, request: ArchiveViewerRequest);
+    /// Opens a portal page in an archive window.
+    fn open_page(&self, request: ArchivePageRequest);
 }
 
 #[derive(Clone)]
@@ -167,6 +189,10 @@ impl ArchiveViewerBridge {
 
     pub fn open(&self, request: ArchiveViewerRequest) {
         self.0.open(request);
+    }
+
+    pub fn open_page(&self, request: ArchivePageRequest) {
+        self.0.open_page(request);
     }
 }
 

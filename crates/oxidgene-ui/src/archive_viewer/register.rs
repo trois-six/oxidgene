@@ -1,0 +1,303 @@
+//! The register a cited view belongs to, as OxidGene's viewer and the
+//! document form page through it (docs/archives.md §6.3, §6.4).
+//!
+//! Every view the reader turns to is resolved by the backend on that click
+//! (`view` of the archive-target request), never ahead of it: the portal is
+//! asked once per click, and only for the view asked for.
+
+use oxidgene_archives::{ActKind, ArchiveImage, ArchiveTarget, CitedView, Side};
+use oxidgene_core::enums::DocumentCategory;
+use uuid::Uuid;
+
+use super::ArchiveLink;
+use crate::api::{ApiClient, ApiError};
+use crate::i18n::I18n;
+
+/// The first year of the French civil status: a marriage cited before it is
+/// in a parish register.
+const FIRST_CIVIL_STATUS_YEAR: u16 = 1793;
+
+/// One view of a register that OxidGene may show: its image and its page on
+/// the portal.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewPage {
+    /// One-based view number.
+    pub view: u16,
+    /// The half of the double page the citation names, when it names one.
+    pub side: Option<Side>,
+    /// Whether the citation cites this view.
+    pub cited: bool,
+    /// The portal page opened on this view.
+    pub portal_url: String,
+    pub image: ArchiveImage,
+}
+
+/// A cited register whose views OxidGene shows: where its views are asked
+/// for, and what its documents are called.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArchiveRegister {
+    pub tree_id: Uuid,
+    pub link: ArchiveLink,
+    /// The register's image count, when the portal states it.
+    pub view_count: Option<u16>,
+    /// The register's call number, as the portal or the citation writes it.
+    pub call_number: Option<String>,
+}
+
+impl ArchiveRegister {
+    /// The register and the cited views of a resolved target, when the target
+    /// is a view whose every view carries an image OxidGene may show; `None`
+    /// for any other target, which opens on the portal instead.
+    pub fn of(
+        tree_id: Uuid,
+        link: &ArchiveLink,
+        target: &ArchiveTarget,
+    ) -> Option<(Self, Vec<ViewPage>)> {
+        let ArchiveTarget::View {
+            views,
+            view_count,
+            call_number,
+            ..
+        } = target
+        else {
+            return None;
+        };
+        let pages: Vec<ViewPage> = views
+            .iter()
+            .map(|view| {
+                Some(ViewPage {
+                    view: view.view,
+                    side: side_of(&link.citation.views, view.view),
+                    cited: link
+                        .citation
+                        .views
+                        .iter()
+                        .any(|cited| cited.view == view.view),
+                    portal_url: view.url.clone(),
+                    image: view.image.clone()?,
+                })
+            })
+            .collect::<Option<_>>()?;
+        if pages.is_empty() {
+            return None;
+        }
+        let register = Self {
+            tree_id,
+            link: link.clone(),
+            view_count: *view_count,
+            call_number: call_number.clone(),
+        };
+        Some((register, pages))
+    }
+
+    /// Whether view `view` exists in the register, as far as its count says.
+    pub fn has_view(&self, view: u16) -> bool {
+        view >= 1 && self.view_count.is_none_or(|count| view <= count)
+    }
+
+    /// Resolves view `view` of the register: one request to the backend,
+    /// which may query the portal. `None` when the register has no such view
+    /// or the archive serves no image of it.
+    pub async fn view(&self, api: &ApiClient, view: u16) -> Result<Option<ViewPage>, ApiError> {
+        let target = api
+            .archive_target(
+                self.tree_id,
+                self.link.source_id,
+                self.link.citation_id,
+                Some(view),
+            )
+            .await?;
+        Ok(Self::of(self.tree_id, &self.link, &target)
+            .and_then(|(_, pages)| pages.into_iter().find(|page| page.view == view)))
+    }
+
+    /// The archive's credit for `views`, as its reuse terms require.
+    pub fn attribution(&self, views: &[u16]) -> Option<String> {
+        self.link
+            .archive
+            .attribution_for(self.call_number.as_deref(), views)
+    }
+
+    /// The address of the archive's reuse terms.
+    pub fn terms(&self) -> Option<&str> {
+        self.link.archive.terms.as_deref()
+    }
+
+    /// A document's title for `views`: the call number, or the archive's
+    /// name without one, and the views.
+    pub fn document_title(&self, i18n: &I18n, views: &[u16]) -> String {
+        let register = self
+            .call_number
+            .clone()
+            .unwrap_or_else(|| self.link.archive.name.clone());
+        let key = if views.len() > 1 {
+            "archive_viewer.document_title_views"
+        } else {
+            "archive_viewer.document_title"
+        };
+        i18n.t_args(
+            key,
+            &[("register", &register), ("views", &views_label(views))],
+        )
+    }
+
+    /// The kind of record the cited act is.
+    pub fn category(&self) -> Option<DocumentCategory> {
+        let citation = &self.link.citation;
+        let kinds = citation.act.kinds();
+        if kinds.is_empty() {
+            // A table of the civil status.
+            return Some(DocumentCategory::CivilRecord);
+        }
+        if kinds
+            .iter()
+            .any(|kind| matches!(kind, ActKind::Baptism | ActKind::Burial))
+        {
+            return Some(DocumentCategory::ParishRecord);
+        }
+        if kinds
+            .iter()
+            .any(|kind| matches!(kind, ActKind::Birth | ActKind::Death))
+        {
+            return Some(DocumentCategory::CivilRecord);
+        }
+        // A marriage alone: before the civil status, a parish register.
+        citation.year.map(|year| {
+            if year < FIRST_CIVIL_STATUS_YEAR {
+                DocumentCategory::ParishRecord
+            } else {
+                DocumentCategory::CivilRecord
+            }
+        })
+    }
+}
+
+/// The side the citation gives view `view`, if it cites it.
+fn side_of(cited: &[CitedView], view: u16) -> Option<Side> {
+    cited
+        .iter()
+        .find(|cited| cited.view == view)
+        .and_then(|cited| cited.side)
+}
+
+/// Views as a reader writes them: `5`, a run `5-6`, or a list `5, 7`.
+pub(crate) fn views_label(views: &[u16]) -> String {
+    let mut sorted = views.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    match sorted.as_slice() {
+        [] => String::new(),
+        [only] => only.to_string(),
+        [first, .., last] if usize::from(last - first) + 1 == sorted.len() => {
+            format!("{first}-{last}")
+        }
+        list => list
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oxidgene_archives::ArchiveView;
+
+    use super::*;
+
+    fn link(title: &str) -> ArchiveLink {
+        ArchiveLink::from_citation(Uuid::nil(), title, None, None).expect("a catalogued citation")
+    }
+
+    fn image(view: u16) -> ArchiveImage {
+        ArchiveImage {
+            picture: format!("https://archives.example.org/iiif/{view}/full/max/0/default.jpg"),
+            thumbnail: format!("https://archives.example.org/images/{view}_thumbnail.jpg"),
+            width: 3000,
+            height: 2000,
+        }
+    }
+
+    fn target(views: &[(u16, bool)]) -> ArchiveTarget {
+        ArchiveTarget::View {
+            url: "https://archives.example.org/ark:/00000/a1".to_owned(),
+            views: views
+                .iter()
+                .map(|&(view, with_image)| ArchiveView {
+                    view,
+                    url: format!("https://archives.example.org/ark:/00000/a1/{view}"),
+                    ark: None,
+                    image: with_image.then(|| image(view)),
+                })
+                .collect(),
+            view_count: Some(13),
+            call_number: Some("3E1/2".to_owned()),
+            attribution: None,
+        }
+    }
+
+    #[test]
+    fn a_view_with_images_opens_in_oxidgene_with_its_cited_sides() {
+        let link = link("AD37 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5d-6g/13");
+        let (register, pages) =
+            ArchiveRegister::of(Uuid::nil(), &link, &target(&[(5, true), (6, true)])).unwrap();
+        assert_eq!(register.view_count, Some(13));
+        assert_eq!(register.call_number.as_deref(), Some("3E1/2"));
+        assert_eq!(
+            pages
+                .iter()
+                .map(|page| (page.view, page.side))
+                .collect::<Vec<_>>(),
+            [(5, Some(Side::Right)), (6, Some(Side::Left))]
+        );
+        assert!(pages.iter().all(|page| page.cited));
+        assert!(register.has_view(13) && !register.has_view(14) && !register.has_view(0));
+    }
+
+    #[test]
+    fn anything_but_shown_views_opens_on_the_portal() {
+        let link = link("AD37 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5/13");
+        // A view without an image, no view at all, and the search results.
+        assert!(ArchiveRegister::of(Uuid::nil(), &link, &target(&[(5, false)])).is_none());
+        assert!(ArchiveRegister::of(Uuid::nil(), &link, &target(&[])).is_none());
+        let results = ArchiveTarget::Results {
+            url: "https://archives.example.org/search".to_owned(),
+            matches: Some(2),
+        };
+        assert!(ArchiveRegister::of(Uuid::nil(), &link, &results).is_none());
+    }
+
+    #[test]
+    fn the_kind_of_record_follows_the_act() {
+        let category = |title: &str| {
+            ArchiveRegister::of(Uuid::nil(), &link(title), &target(&[(5, true)]))
+                .unwrap()
+                .0
+                .category()
+        };
+        assert_eq!(
+            category("AD37 - Exampleville - (aucun) - B - 1702 - vue 5/13"),
+            Some(DocumentCategory::ParishRecord)
+        );
+        assert_eq!(
+            category("AD37 - Exampleville - (aucun) - D - 1877 - vue 5/13"),
+            Some(DocumentCategory::CivilRecord)
+        );
+        assert_eq!(
+            category("AD37 - Exampleville - (aucun) - M - 1702 - vue 5/13"),
+            Some(DocumentCategory::ParishRecord)
+        );
+        assert_eq!(
+            category("AD37 - Exampleville - (aucun) - M - 1877 - vue 5/13"),
+            Some(DocumentCategory::CivilRecord)
+        );
+    }
+
+    #[test]
+    fn views_are_written_as_a_reader_writes_them() {
+        assert_eq!(views_label(&[5]), "5");
+        assert_eq!(views_label(&[6, 5]), "5-6");
+        assert_eq!(views_label(&[5, 7]), "5, 7");
+        assert_eq!(views_label(&[]), "");
+    }
+}

@@ -725,6 +725,14 @@ pub struct UploadMediaInput {
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
+    /// For a page held as an `http(s)` URL, the address of a small picture of
+    /// it its server also serves, which gallery tiles draw instead of the
+    /// full picture.
+    pub thumbnail_url: Option<String>,
+    /// The picture's pixel size, when already known. Sent together or not at
+    /// all.
+    pub width: Option<i32>,
+    pub height: Option<i32>,
 }
 
 impl TryFrom<UploadMediaInput> for crate::service::media::NewPage {
@@ -739,6 +747,9 @@ impl TryFrom<UploadMediaInput> for crate::service::media::NewPage {
             file_size: input.file_size,
             title: input.title,
             description: input.description,
+            thumbnail_url: input.thumbnail_url,
+            width: input.width,
+            height: input.height,
         })
     }
 }
@@ -790,6 +801,9 @@ pub struct UpdateMediaInput {
     /// that displayed it is the only witness to how big it is.
     pub width: Option<i32>,
     pub height: Option<i32>,
+    /// A remote page's thumbnail address, an `http(s)` URL; `null` clears it.
+    /// Repointing the page without one clears it too.
+    pub thumbnail_url: MaybeUndefined<String>,
     /// Whether this is shown when the tree is published.
     pub privacy: Option<GqlPrivacy>,
     /// What the medium physically is, in GEDCOM's own vocabulary.
@@ -816,6 +830,7 @@ impl TryFrom<UpdateMediaInput> for crate::service::media::MediaUpdate {
             mime_type: input.mime_type,
             width: input.width,
             height: input.height,
+            thumbnail_url: patch(input.thumbnail_url),
             privacy: input.privacy.map(Into::into),
             source_media_type: input.source_media_type.map(Into::into),
             document_category: match input.document_category {

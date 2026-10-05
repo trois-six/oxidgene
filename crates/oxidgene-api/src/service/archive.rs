@@ -13,8 +13,8 @@ use std::sync::{Arc, OnceLock};
 
 use oxidgene_archives::platform::BoxFuture;
 use oxidgene_archives::{
-    ArchiveRegistry, ArchiveTarget, FetchError, NativeTransport, PortalEndpoint, PortalFetch,
-    PortalTransport, ResolveError, Resolver, cited_text,
+    ArchiveRegistry, ArchiveTarget, CitationParts, CitedView, FetchError, NativeTransport,
+    PortalEndpoint, PortalFetch, PortalTransport, ResolveError, Resolver, cited_text,
 };
 use oxidgene_core::error::{ArchiveFailure, OxidGeneError};
 use oxidgene_db::repo::{CitationRepo, SourceRepo};
@@ -98,6 +98,12 @@ impl PortalTransport for Unavailable {
 /// as cited by `citation_id` when given: a citation of that source, whose
 /// page completes the title.
 ///
+/// `view`, when given, resolves that one view of the cited register instead
+/// of the cited views: the reader paging to the previous or next view in
+/// OxidGene's viewer, one resolution per click (docs/archives.md §6.3, §8).
+/// It keeps the side the citation gives that view, if it cites it; a view
+/// below 1 or beyond the cited view count is a validation error.
+///
 /// A source or citation that is absent, deleted or of another tree, and a
 /// citation of another source, are `NotFound`. A title that is no archive
 /// citation, or cites an act no catalogued collection holds, and a failed
@@ -109,6 +115,7 @@ pub async fn archive_target(
     tree_id: Uuid,
     source_id: Uuid,
     citation_id: Option<Uuid>,
+    view: Option<u16>,
 ) -> Result<ArchiveTarget, OxidGeneError> {
     require_tree_resource(db, tree_id, TreeResource::Source, source_id).await?;
     let source = SourceRepo::get(db, source_id).await?;
@@ -129,7 +136,7 @@ pub async fn archive_target(
 
     let text = cited_text(&source.title, page.as_deref());
     let registry = portals.resolver.registry();
-    let Some((archive, citation)) = registry.link(&text) else {
+    let Some((archive, mut citation)) = registry.link(&text) else {
         let failure = if registry.parse(&text).is_some() {
             ArchiveFailure::NoAdapter
         } else {
@@ -137,6 +144,9 @@ pub async fn archive_target(
         };
         return Err(OxidGeneError::Archive(failure));
     };
+    if let Some(view) = view {
+        citation.views = vec![one_view(&citation, view)?];
+    }
     portals
         .resolver
         .resolve(&citation, portals.transport())
@@ -149,6 +159,21 @@ pub async fn archive_target(
             );
             OxidGeneError::Archive(failure_of(&error))
         })
+}
+
+/// View `view` of the cited register, with the side the citation gives it.
+fn one_view(citation: &CitationParts, view: u16) -> Result<CitedView, OxidGeneError> {
+    if view == 0 || citation.view_count.is_some_and(|count| view > count) {
+        return Err(OxidGeneError::Validation(
+            "view must be between 1 and the register's view count".to_string(),
+        ));
+    }
+    Ok(citation
+        .views
+        .iter()
+        .find(|cited| cited.view == view)
+        .copied()
+        .unwrap_or(CitedView { view, side: None }))
 }
 
 fn failure_of(error: &ResolveError) -> ArchiveFailure {
@@ -175,6 +200,24 @@ mod tests {
             ResolveError::Unreachable,
         ] {
             assert_eq!(failure_of(&error).code(), error.code());
+        }
+    }
+
+    #[test]
+    fn a_neighbouring_view_keeps_the_cited_side_and_stays_in_the_register() {
+        let citation = ArchiveRegistry::embedded()
+            .parse("AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - vue 5d-6g/13")
+            .unwrap();
+        let side = |view| one_view(&citation, view).unwrap().side;
+        assert_eq!(side(5), Some(oxidgene_archives::Side::Right));
+        assert_eq!(side(6), Some(oxidgene_archives::Side::Left));
+        assert_eq!(side(7), None);
+        assert_eq!(one_view(&citation, 13).unwrap().view, 13);
+        for beyond in [0, 14] {
+            assert!(matches!(
+                one_view(&citation, beyond),
+                Err(OxidGeneError::Validation(_))
+            ));
         }
     }
 }

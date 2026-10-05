@@ -242,6 +242,10 @@ pub struct ArchiveTargetBody {
     /// it names the act or the views.
     #[serde(default)]
     pub citation_id: Option<uuid::Uuid>,
+    /// One view of the cited register to resolve instead of the cited ones:
+    /// the previous or next view a reader pages to.
+    #[serde(default)]
+    pub view: Option<u16>,
 }
 
 /// Query parameters for definitively deleting a media record.

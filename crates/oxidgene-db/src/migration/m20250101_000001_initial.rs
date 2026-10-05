@@ -296,6 +296,7 @@ enum Media {
     StorageKey,
     Sha256,
     ThumbnailKey,
+    ThumbnailUrl,
     Width,
     Height,
     PageCount,
@@ -1143,6 +1144,7 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Media::StorageKey))
                 .col(string_null(Media::Sha256))
                 .col(string_null(Media::ThumbnailKey))
+                .col(string_null(Media::ThumbnailUrl))
                 .col(integer_null(Media::Width))
                 .col(integer_null(Media::Height))
                 .col(integer(Media::PageCount).default(1))

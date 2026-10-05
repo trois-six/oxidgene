@@ -31,6 +31,7 @@ use crate::api::{
     ApiClient, ApiError, CreateMediaBody, CreateMediaLinkBody, CreateNoteBody, MediaKind,
     MediaUpload, UpdateMediaBody,
 };
+use crate::archive_viewer::{ArchiveRegister, ViewPage};
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::media_gallery::{
     MediaClassification, MediaEventsChecklist, MediaOwner, MediaTagForm,
@@ -39,35 +40,116 @@ use crate::components::media_input::{MediaInput, PickedFile, friendly};
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::i18n::use_i18n;
 
+/// A page somebody else serves, held by its address. Nothing is fetched,
+/// then or later.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemotePage {
+    pub url: String,
+    pub file_name: String,
+    /// A small picture of the page its server also serves, which gallery
+    /// tiles draw instead of the full one.
+    pub thumbnail_url: Option<String>,
+    /// The picture's pixel size, when its server states it.
+    pub size: Option<(i32, i32)>,
+    /// The register view this page is, for a page of an archive register.
+    pub view: Option<u16>,
+}
+
+impl RemotePage {
+    /// A page typed as an address, of which nothing else is known.
+    fn typed(url: String) -> Self {
+        Self {
+            file_name: url_file_name(&url),
+            url,
+            thumbnail_url: None,
+            size: None,
+            view: None,
+        }
+    }
+
+    /// An archive's view: its picture, its size and its thumbnail.
+    pub fn of_view(page: &ViewPage) -> Self {
+        let url = page.image.picture.clone();
+        // The archive's picture address names no file worth showing —
+        // `default.jpg` on every view — so the page is named after its view.
+        let extension = url_file_name(&url)
+            .rsplit_once('.')
+            .map(|(_, extension)| extension.to_ascii_lowercase())
+            .unwrap_or_else(|| "jpg".to_string());
+        Self {
+            file_name: format!("{}.{extension}", page.view),
+            url,
+            thumbnail_url: Some(page.image.thumbnail.clone()),
+            size: Some((
+                i32::try_from(page.image.width).unwrap_or(i32::MAX),
+                i32::try_from(page.image.height).unwrap_or(i32::MAX),
+            )),
+            view: Some(page.view),
+        }
+    }
+}
+
 /// A page the user has chosen but that has not been written yet.
 #[derive(Clone, PartialEq)]
 enum PendingPage {
     /// Bytes read from the picker or a drop, waiting for a document to belong
     /// to.
     File { name: String, bytes: Vec<u8> },
-    /// An address somebody else serves. Nothing is fetched, then or later.
-    Remote { url: String, file_name: String },
+    /// An address somebody else serves.
+    Remote(RemotePage),
 }
 
 impl PendingPage {
     fn label(&self) -> &str {
         match self {
             Self::File { name, .. } => name,
-            Self::Remote { url, .. } => url,
+            Self::Remote(page) => &page.url,
         }
     }
 
     /// The address to preview from, when the page is a picture we can point an
-    /// `<img>` at without holding it.
+    /// `<img>` at without holding it: its thumbnail when its server serves
+    /// one.
     fn preview_url(&self) -> Option<&str> {
         match self {
             Self::File { .. } => None,
-            Self::Remote { url, file_name } => {
-                let mime = oxidgene_core::types::normalize_mime(None, file_name);
-                (crate::api::media_kind(&mime) == MediaKind::Image).then_some(url.as_str())
+            Self::Remote(page) => {
+                if let Some(thumbnail) = &page.thumbnail_url {
+                    return Some(thumbnail);
+                }
+                let mime = oxidgene_core::types::normalize_mime(None, &page.file_name);
+                (crate::api::media_kind(&mime) == MediaKind::Image).then_some(page.url.as_str())
             }
         }
     }
+
+    /// The register view this page is, if any.
+    fn view(&self) -> Option<u16> {
+        match self {
+            Self::File { .. } => None,
+            Self::Remote(page) => page.view,
+        }
+    }
+}
+
+/// What the form opens with when its caller has already assembled the
+/// document, as OxidGene's archive viewer does for cited views: nothing of
+/// it is written until Save.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct DocumentDraft {
+    pub title: String,
+    pub description: String,
+    pub category: Option<DocumentCategory>,
+    pub medium: SourceMediaType,
+    pub pages: Vec<RemotePage>,
+    /// The events the document is checked as documenting.
+    pub event_ids: Vec<Uuid>,
+    /// The source the document is linked to.
+    pub source_id: Option<Uuid>,
+    /// The archive register the pages are views of: the form then offers its
+    /// previous and next views, and names the document after its views until
+    /// the reader names it.
+    pub register: Option<ArchiveRegister>,
 }
 
 /// Which page the address field is currently standing in for.
@@ -131,8 +213,12 @@ pub struct DocumentFormProps {
     /// Events this document may be offered as evidence for, as (id, label).
     #[props(default)]
     pub events: Vec<(Uuid, String)>,
-    /// Fired after the document and everything in it has been written.
-    pub on_created: EventHandler<()>,
+    /// What the form opens with, when its caller assembled the document.
+    #[props(default)]
+    pub draft: Option<DocumentDraft>,
+    /// Fired with the document after it and everything in it has been
+    /// written.
+    pub on_created: EventHandler<Uuid>,
     pub on_close: EventHandler<()>,
 }
 
@@ -148,17 +234,47 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
     let on_created = props.on_created;
     let on_close = props.on_close;
 
-    let pages = use_signal(Vec::<PendingPage>::new);
-    let mut title = use_signal(String::new);
-    let mut description = use_signal(String::new);
+    let draft = props.draft.clone().unwrap_or_default();
+    let register = draft.register.clone();
+    let source_id = draft.source_id;
+    let pages = use_signal(|| {
+        draft
+            .pages
+            .iter()
+            .cloned()
+            .map(PendingPage::Remote)
+            .collect::<Vec<_>>()
+    });
+    let mut title = use_signal(|| draft.title.clone());
+    let mut description = use_signal(|| draft.description.clone());
     let tags = use_signal(Vec::<String>::new);
-    let document_category = use_signal(|| None::<DocumentCategory>);
-    let source_media_type = use_signal(SourceMediaType::default);
+    let document_category = use_signal(|| draft.category);
+    let source_media_type = use_signal(|| draft.medium);
     let privacy = use_signal(Privacy::default);
     let date_parts = use_signal(DateParts::default);
     let place_id = use_signal(String::new);
     let mut note_text = use_signal(String::new);
-    let mut selected_events = use_signal(Vec::<Uuid>::new);
+    let mut selected_events = use_signal(|| draft.event_ids.clone());
+    // Whether the reader wrote the title or the description: until then they
+    // follow the views of an archive register as views are added or removed.
+    let mut title_written = use_signal(|| false);
+    let mut description_written = use_signal(|| false);
+    use_effect({
+        let register = register.clone();
+        move || {
+            let views: Vec<u16> = pages.read().iter().filter_map(PendingPage::view).collect();
+            let Some(register) = &register else { return };
+            if views.is_empty() {
+                return;
+            }
+            if !*title_written.peek() {
+                title.set(register.document_title(&i18n, &views));
+            }
+            if !*description_written.peek() {
+                description.set(register.attribution(&views).unwrap_or_default());
+            }
+        }
+    });
     let mut saving = use_signal(|| false);
     let mut progress = use_signal(|| None::<(usize, usize)>);
     let mut error = use_signal(|| None::<String>);
@@ -185,6 +301,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                 date: date_parts().resolved(),
                 tags: tags(),
                 event_ids: selected_events(),
+                source_id,
             };
             spawn(async move {
                 saving.set(true);
@@ -201,8 +318,8 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                 progress.set(None);
                 saving.set(false);
                 match created {
-                    Ok(()) => {
-                        on_created.call(());
+                    Ok(document_id) => {
+                        on_created.call(document_id);
                         on_close.call(());
                     }
                     Err(message) => error.set(Some(message)),
@@ -240,7 +357,10 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                                 r#type: "text",
                                 value: "{title}",
                                 disabled: busy,
-                                oninput: move |e: Event<FormData>| title.set(e.value()),
+                                oninput: move |e: Event<FormData>| {
+                                    title_written.set(true);
+                                    title.set(e.value());
+                                },
                             }
                         }
                         div { class: "form-group",
@@ -249,7 +369,10 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                                 rows: 3,
                                 value: "{description}",
                                 disabled: busy,
-                                oninput: move |e: Event<FormData>| description.set(e.value()),
+                                oninput: move |e: Event<FormData>| {
+                                    description_written.set(true);
+                                    description.set(e.value());
+                                },
                             }
                         }
 
@@ -297,7 +420,7 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                         // describe the document; this is the document itself,
                         // and it is the last thing the user assembles before
                         // committing.
-                        PendingPagesEditor { tree_id, pages, busy }
+                        PendingPagesEditor { tree_id, pages, busy, register: register.clone() }
 
                         if let Some(err) = error() {
                             div { class: "error-msg", "{err}" }
@@ -356,7 +479,7 @@ async fn create_document(
     (title, place): (String, String),
     mut request: WriteRequest,
     i18n: &crate::i18n::I18n,
-) -> Result<(), String> {
+) -> Result<Uuid, String> {
     request.place_id = resolve_place(api, tree_id, &place, i18n.0.reference_code())
         .await
         .map_err(|err| err.to_string())?;
@@ -369,7 +492,7 @@ async fn create_document(
     if written.is_err() {
         let _ = api.delete_media(tree_id, document.id).await;
     }
-    written
+    written.map(|()| document.id)
 }
 
 /// The document's tags, each removable, and the form adding one — held
@@ -425,7 +548,12 @@ fn PendingTagsEditor(tags: Signal<Vec<String>>, disabled: bool) -> Element {
 /// The document's pages: moved, retyped when they are addresses, removed,
 /// and added as files or as addresses.
 #[component]
-fn PendingPagesEditor(tree_id: Uuid, pages: Signal<Vec<PendingPage>>, busy: bool) -> Element {
+fn PendingPagesEditor(
+    tree_id: Uuid,
+    pages: Signal<Vec<PendingPage>>,
+    busy: bool,
+    register: Option<ArchiveRegister>,
+) -> Element {
     let i18n = use_i18n();
     let mut url_draft = use_signal(String::new);
     let mut editing_url = use_signal(|| None::<UrlEdit>);
@@ -437,8 +565,11 @@ fn PendingPagesEditor(tree_id: Uuid, pages: Signal<Vec<PendingPage>>, busy: bool
         if url.is_empty() {
             return;
         }
-        let file_name = url_file_name(&url);
-        place_page(pages, editing_url(), PendingPage::Remote { url, file_name });
+        place_page(
+            pages,
+            editing_url(),
+            PendingPage::Remote(RemotePage::typed(url)),
+        );
         url_draft.set(String::new());
         editing_url.set(None);
     });
@@ -450,7 +581,7 @@ fn PendingPagesEditor(tree_id: Uuid, pages: Signal<Vec<PendingPage>>, busy: bool
             index,
             label: page.label().to_string(),
             preview: page.preview_url().map(str::to_string),
-            remote: matches!(page, PendingPage::Remote { .. }),
+            remote: matches!(page, PendingPage::Remote(_)),
         })
         .collect();
     let total = rows.len();
@@ -551,6 +682,103 @@ fn PendingPagesEditor(tree_id: Uuid, pages: Signal<Vec<PendingPage>>, busy: bool
                 }
                 p { class: "pf-ns-hint", {i18n.t("media.url_hint")} }
             }
+            if let Some(register) = register {
+                RegisterViewButtons { register, pages, busy }
+            }
+        }
+    }
+}
+
+/// Which end of an archive register's run of views a view is added at.
+#[derive(Clone, Copy, PartialEq)]
+enum RegisterEnd {
+    Previous,
+    Next,
+}
+
+/// The view before or after the archive views among `pages`, when the
+/// register has one.
+fn neighbour_view(
+    pages: &[PendingPage],
+    register: &ArchiveRegister,
+    end: RegisterEnd,
+) -> Option<u16> {
+    let views = pages.iter().filter_map(PendingPage::view);
+    let view = match end {
+        RegisterEnd::Previous => views.min()?.checked_sub(1)?,
+        RegisterEnd::Next => views.max()?.checked_add(1)?,
+    };
+    register.has_view(view).then_some(view)
+}
+
+/// Adds the previous or the next view of the register the pages are views
+/// of, each resolved on its click.
+#[component]
+fn RegisterViewButtons(
+    register: ArchiveRegister,
+    pages: Signal<Vec<PendingPage>>,
+    busy: bool,
+) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let mut adding = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let add = use_callback({
+        let register = register.clone();
+        move |end: RegisterEnd| {
+            let Some(view) = neighbour_view(&pages.peek(), &register, end) else {
+                return;
+            };
+            let (api, register) = (api.clone(), register.clone());
+            spawn(async move {
+                adding.set(true);
+                error.set(None);
+                match register.view(&api, view).await {
+                    Ok(Some(page)) => {
+                        let page = PendingPage::Remote(RemotePage::of_view(&page));
+                        let mut list = pages.write();
+                        let at = match end {
+                            RegisterEnd::Previous => list
+                                .iter()
+                                .position(|page| page.view().is_some())
+                                .unwrap_or(0),
+                            RegisterEnd::Next => list
+                                .iter()
+                                .rposition(|page| page.view().is_some())
+                                .map_or(list.len(), |at| at + 1),
+                        };
+                        list.insert(at, page);
+                    }
+                    Ok(None) => error.set(Some(i18n.t("archive_viewer.view_unavailable"))),
+                    Err(err) => error.set(Some(err.to_string())),
+                }
+                adding.set(false);
+            });
+        }
+    });
+    let list = pages.read();
+    let previous = neighbour_view(&list, &register, RegisterEnd::Previous);
+    let next = neighbour_view(&list, &register, RegisterEnd::Next);
+    let disabled = busy || adding();
+    rsx! {
+        div { class: "doc-register-views",
+            button {
+                class: "btn btn-outline btn-sm",
+                r#type: "button",
+                disabled: disabled || previous.is_none(),
+                onclick: move |_| add.call(RegisterEnd::Previous),
+                {i18n.t("archive_viewer.add_previous_view")}
+            }
+            button {
+                class: "btn btn-outline btn-sm",
+                r#type: "button",
+                disabled: disabled || next.is_none(),
+                onclick: move |_| add.call(RegisterEnd::Next),
+                {i18n.t("archive_viewer.add_next_view")}
+            }
+        }
+        if let Some(message) = error() {
+            div { class: "error-msg", "{message}" }
         }
     }
 }
@@ -658,6 +886,8 @@ struct WriteRequest {
     date: DateParts,
     tags: Vec<String>,
     event_ids: Vec<Uuid>,
+    /// The source the document is linked to, if any.
+    source_id: Option<Uuid>,
 }
 
 /// Fill in a freshly created document, returning the message to show on
@@ -687,6 +917,7 @@ async fn write_document(
         date,
         tags,
         event_ids,
+        source_id,
     } = request;
 
     let total = pages.peek().len();
@@ -745,7 +976,7 @@ async fn write_document(
 
     // Linked last: until this runs the document belongs to nobody, which is
     // exactly what a rollback wants to be true.
-    link_document(api, tree_id, document_id, owner, event_ids)
+    link_document(api, tree_id, document_id, owner, event_ids, source_id)
         .await
         .map_err(|err| err.to_string())
 }
@@ -775,36 +1006,40 @@ async fn add_page(
             .await
             .map(|_| ())
             .map_err(|err| format!("{name}: {}", friendly(&err, i18n))),
-        PendingPage::Remote { url, file_name } => api
+        PendingPage::Remote(page) => api
             .create_media(
                 tree_id,
                 &CreateMediaBody {
                     document_id,
-                    file_name,
+                    file_name: page.file_name,
                     // Left empty on purpose: the server guesses from the
                     // address, which is the only evidence there is for a
                     // file nobody is going to fetch.
                     mime_type: String::new(),
-                    file_path: url.clone(),
+                    file_path: page.url.clone(),
                     file_size: 0,
                     title: None,
                     description: None,
+                    thumbnail_url: page.thumbnail_url,
+                    width: page.size.map(|(width, _)| width),
+                    height: page.size.map(|(_, height)| height),
                 },
             )
             .await
             .map(|_| ())
-            .map_err(|err| format!("{url}: {}", friendly(&err, i18n))),
+            .map_err(|err| format!("{}: {}", page.url, friendly(&err, i18n))),
     }
 }
 
 /// Attach a document to its owner, then to every event it proves that is not
-/// that owner already.
+/// that owner already, then to its source.
 async fn link_document(
     api: &ApiClient,
     tree_id: Uuid,
     document_id: Uuid,
     owner: MediaOwner,
     event_ids: Vec<Uuid>,
+    source_id: Option<Uuid>,
 ) -> Result<(), ApiError> {
     api.create_media_link(
         tree_id,
@@ -826,6 +1061,13 @@ async fn link_document(
         api.create_media_link(
             tree_id,
             &CreateMediaLinkBody::to_event(document_id, event_id),
+        )
+        .await?;
+    }
+    if let Some(source_id) = source_id {
+        api.create_media_link(
+            tree_id,
+            &CreateMediaLinkBody::to_source(document_id, source_id),
         )
         .await?;
     }
@@ -873,20 +1115,28 @@ mod tests {
 
     #[test]
     fn only_a_remote_picture_offers_a_preview() {
-        let remote = PendingPage::Remote {
-            url: "https://archives.example.org/3.jpg".into(),
-            file_name: "3.jpg".into(),
-        };
+        let remote = PendingPage::Remote(RemotePage::typed(
+            "https://archives.example.org/3.jpg".into(),
+        ));
         assert_eq!(
             remote.preview_url(),
             Some("https://archives.example.org/3.jpg")
         );
 
-        let pdf = PendingPage::Remote {
-            url: "https://archives.example.org/act.pdf".into(),
-            file_name: "act.pdf".into(),
-        };
+        let pdf = PendingPage::Remote(RemotePage::typed(
+            "https://archives.example.org/act.pdf".into(),
+        ));
         assert_eq!(pdf.preview_url(), None);
+
+        // A page whose server serves a thumbnail is previewed from it.
+        let view = PendingPage::Remote(RemotePage {
+            thumbnail_url: Some("https://archives.example.org/3_thumbnail.jpg".into()),
+            ..RemotePage::typed("https://archives.example.org/iiif/3/full/max/0/default".into())
+        });
+        assert_eq!(
+            view.preview_url(),
+            Some("https://archives.example.org/3_thumbnail.jpg")
+        );
 
         // Bytes we hold have no address to point an `<img>` at until they are
         // uploaded.

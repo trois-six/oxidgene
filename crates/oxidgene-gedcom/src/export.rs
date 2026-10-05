@@ -2095,6 +2095,7 @@ mod tests {
             storage_key: stored.then(|| "ab/cdef".to_string()),
             sha256: None,
             thumbnail_key: None,
+            thumbnail_url: None,
             width: None,
             height: None,
             page_count: 1,

@@ -42,6 +42,17 @@ pub struct NewPage {
     pub file_size: i64,
     pub title: Option<String>,
     pub description: Option<String>,
+    /// For a page held as an `http(s)` URL, the address of a small picture of
+    /// it its server also serves, which gallery tiles draw instead of the full
+    /// picture.
+    #[serde(default)]
+    pub thumbnail_url: Option<String>,
+    /// The picture's pixel size, when the client already knows it — an
+    /// archive's image service states it. Sent together or not at all.
+    #[serde(default)]
+    pub width: Option<i32>,
+    #[serde(default)]
+    pub height: Option<i32>,
 }
 
 /// Uploaded bytes, and where they go.
@@ -98,6 +109,11 @@ pub struct MediaUpdate {
     /// to its size. For our own bytes the size is decoded from them.
     pub width: Option<i32>,
     pub height: Option<i32>,
+    /// A remote page's thumbnail address, an `http(s)` URL; `null` clears
+    /// it. Repointing the page at another address without sending one clears
+    /// it too, since it pictured the old address.
+    #[serde(default, deserialize_with = "double_option")]
+    pub thumbnail_url: Option<Option<String>>,
     /// Whether this is shown when the tree is published. Recorded now,
     /// enforced when authentication lands.
     pub privacy: Option<oxidgene_core::enums::Privacy>,
@@ -130,11 +146,13 @@ pub async fn create_page(
             &new.file_path
         },
     );
+    let thumbnail_url = thumbnail_address(&new.file_path, new.thumbnail_url)?;
+    let dimensions = page_dimensions(new.width, new.height)?;
     let id = Uuid::now_v7();
     let txn = begin_tx(db).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, new.document_id).await?;
     // `create` counts the page into its document's `page_count`.
-    let page = MediaRepo::create(
+    let mut page = MediaRepo::create(
         &txn,
         id,
         tree_id,
@@ -147,6 +165,18 @@ pub async fn create_page(
         new.description,
     )
     .await?;
+    if thumbnail_url.is_some() || dimensions.is_some() {
+        page = MediaRepo::update(
+            &txn,
+            id,
+            MediaPatch {
+                thumbnail_url: thumbnail_url.map(Some),
+                dimensions,
+                ..MediaPatch::default()
+            },
+        )
+        .await?;
+    }
     refresh_showing(&txn, profiles, tree_id, new.document_id).await?;
     Change::create(tree_id, AuditEntity::MediaPage, id)
         .media(new.document_id)
@@ -251,6 +281,7 @@ pub async fn update_media(
 fn media_patch(stored: &Media, update: MediaUpdate) -> Result<MediaPatch, OxidGeneError> {
     let (file_path, mime_type) = file_change(stored, update.file_path, update.mime_type)?;
     let dimensions = dimensions(stored, update.width, update.height)?;
+    let thumbnail_url = thumbnail_change(stored, file_path.as_deref(), update.thumbnail_url)?;
     // The calendar and the value are only meaningful together, so a patch that
     // moves one re-reads the other from the stored row before converting.
     let date_sort = Some(event_date::derive_patch(
@@ -270,6 +301,7 @@ fn media_patch(stored: &Media, update: MediaUpdate) -> Result<MediaPatch, OxidGe
         file_path,
         mime_type,
         dimensions,
+        thumbnail_url,
         privacy: update.privacy,
         source_media_type: update.source_media_type,
         document_category: update.document_category,
@@ -321,6 +353,80 @@ fn file_change(
     // remote media exists to avoid — so the extension is the only evidence.
     let mime_type = mime_type.or_else(|| media::guess_mime(&requested).map(str::to_string));
     Ok((Some(requested), mime_type))
+}
+
+/// The thumbnail address an update gives a page.
+///
+/// Only a page held as an `http(s)` URL has one, and it must be an `http(s)`
+/// URL itself: it is drawn by the reader's browser, never fetched here. A
+/// blank address clears it, and so does repointing the page at another
+/// address without naming a new thumbnail, since the old one pictured the
+/// old address.
+fn thumbnail_change(
+    stored: &Media,
+    file_path: Option<&str>,
+    requested: Option<Option<String>>,
+) -> Result<Option<Option<String>>, OxidGeneError> {
+    let requested = requested.map(|url| {
+        url.map(|url| url.trim().to_string())
+            .filter(|url| !url.is_empty())
+    });
+    match requested {
+        Some(Some(url)) => {
+            if stored.is_document() || stored.storage_key.is_some() {
+                return Err(OxidGeneError::Validation(
+                    "only a page held as a URL has a thumbnail address".into(),
+                ));
+            }
+            let path = file_path.unwrap_or(&stored.file_path);
+            thumbnail_address(path, Some(url)).map(Some)
+        }
+        Some(None) => Ok(Some(None)),
+        None if file_path.is_some() && stored.thumbnail_url.is_some() => Ok(Some(None)),
+        None => Ok(None),
+    }
+}
+
+/// A new page's thumbnail address, checked: an `http(s)` URL, for a page
+/// whose own path is one. A blank address is none.
+fn thumbnail_address(
+    file_path: &str,
+    thumbnail_url: Option<String>,
+) -> Result<Option<String>, OxidGeneError> {
+    let Some(url) = thumbnail_url
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+    else {
+        return Ok(None);
+    };
+    if !oxidgene_core::types::is_remote_url(file_path) {
+        return Err(OxidGeneError::Validation(
+            "only a page held as a URL has a thumbnail address".into(),
+        ));
+    }
+    if !oxidgene_core::types::is_remote_url(&url) {
+        return Err(OxidGeneError::Validation(
+            "thumbnail_url must be an http or https URL".into(),
+        ));
+    }
+    Ok(Some(url))
+}
+
+/// A new page's pixel size: both sides, positive, or none.
+fn page_dimensions(
+    width: Option<i32>,
+    height: Option<i32>,
+) -> Result<Option<(i32, i32)>, OxidGeneError> {
+    match (width, height) {
+        (None, None) => Ok(None),
+        (Some(width), Some(height)) if width > 0 && height > 0 => Ok(Some((width, height))),
+        (Some(_), Some(_)) => Err(OxidGeneError::Validation(
+            "image dimensions must be positive".into(),
+        )),
+        _ => Err(OxidGeneError::Validation(
+            "width and height are sent together or not at all".into(),
+        )),
+    }
 }
 
 /// The pixel size an update gives a media. Half a size is not a size, so

@@ -95,6 +95,7 @@ pub async fn archive_target(
             tree_id,
             source_id,
             body.citation_id,
+            body.view,
         )
         .await?,
     ))

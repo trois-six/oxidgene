@@ -344,6 +344,7 @@ mod tests {
             storage_key: Some("key".into()),
             sha256: Some("digest".into()),
             thumbnail_key: None,
+            thumbnail_url: None,
             width: Some(800),
             height: Some(600),
             page_count: 1,

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T14:56:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:00:00Z }
 ---
 
 
@@ -356,7 +356,8 @@ restoring it brings them back.
 | `storage_key` | String? | Key of the stored bytes in the media store. Null for a record that names a file we have never received — every GEDCOM import starts that way |
 | `sha256` | String? | Hex SHA-256 of the stored bytes. Doubles as the HTTP `ETag` and as the deduplication key |
 | `thumbnail_key` | String? | Key of the generated thumbnail. Null for PDFs and for byte-less records |
-| `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation. Decoded at upload for a file we hold; for a page held only as a URL, recorded from the browser that first displayed it |
+| `thumbnail_url` | String? | For a page held only as an `http(s)` URL, the `http(s)` address of a small picture of it that its server also serves — an archive's thumbnail of a view. Gallery tiles draw it instead of the full picture. Null for every other row; cleared when the page is repointed without a new one, or receives our own bytes |
+| `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation. Decoded at upload for a file we hold; for a page held only as a URL, given when the page is added by a client that knows it (an archive's image service states it), or recorded from the browser that first displayed it |
 | `height` | i32? | Intrinsic pixel height |
 | `page_count` | i32 | Pages in the document; `1` for photos and single-page files |
 | `parent_media_id` | UUID v7? | The document this row is a page of; null when the row is a document itself |

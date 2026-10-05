@@ -467,6 +467,7 @@ async fn insert_standalone_records(
                 storage_key: Set(m.storage_key.clone()),
                 sha256: Set(m.sha256.clone()),
                 thumbnail_key: Set(m.thumbnail_key.clone()),
+                thumbnail_url: Set(m.thumbnail_url.clone()),
                 width: Set(m.width),
                 height: Set(m.height),
                 page_count: Set(m.page_count),

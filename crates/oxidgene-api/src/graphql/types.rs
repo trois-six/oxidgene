@@ -1462,13 +1462,15 @@ impl GqlSource {
 
     /// Where this source opens on its archive's portal, as cited by
     /// `citationId` when given — a citation of this source, whose page
-    /// completes the title. It may query the portal, so it is answered for
-    /// a source read on its own, never for the items of a list; `null` only
-    /// with an error.
+    /// completes the title. `view` resolves that one view of the cited
+    /// register instead of the cited ones: the previous or next view a reader
+    /// pages to. It may query the portal, so it is answered for a source read
+    /// on its own, never for the items of a list; `null` only with an error.
     async fn archive_target(
         &self,
         ctx: &Context<'_>,
         citation_id: Option<ID>,
+        view: Option<u16>,
     ) -> Result<Option<GqlArchiveTarget>> {
         if within_list(ctx) {
             return Err(oxidgene_core::OxidGeneError::Validation(
@@ -1483,6 +1485,7 @@ impl GqlSource {
             uuid(&self.tree_id)?,
             uuid(&self.id)?,
             citation_id,
+            view,
         )
         .await?;
         Ok(Some(target.into()))
@@ -1782,6 +1785,10 @@ pub struct GqlMedia {
     pub sha256: Option<String>,
     /// Key of the generated thumbnail; null for PDFs and byte-less records.
     pub thumbnail_key: Option<String>,
+    /// For a page held only as a URL, the address of a small picture of it
+    /// that its server also serves; gallery tiles draw it instead of the
+    /// full picture.
+    pub thumbnail_url: Option<String>,
     /// Intrinsic pixel size, after applying any EXIF orientation.
     pub width: Option<i32>,
     pub height: Option<i32>,
@@ -1827,6 +1834,7 @@ impl From<oxidgene_core::types::Media> for GqlMedia {
             storage_key: m.storage_key,
             sha256: m.sha256,
             thumbnail_key: m.thumbnail_key,
+            thumbnail_url: m.thumbnail_url,
             width: m.width,
             height: m.height,
             page_count: m.page_count,

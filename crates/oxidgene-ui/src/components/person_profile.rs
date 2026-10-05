@@ -1478,7 +1478,7 @@ pub(crate) fn ProfileMediaCard(
                 // evidence for the event it proves while it is being added
                 // rather than in a second pass.
                 events: upload_events,
-                on_created: move |()| on_changed.call(()),
+                on_created: move |_| on_changed.call(()),
                 on_close: move |()| document_form_open.set(false),
             }
         }
@@ -1778,6 +1778,9 @@ pub(crate) fn timeline_section(
                                                                 tree_id,
                                                                 link: link.clone(),
                                                                 text: source.text.clone(),
+                                                                event_id: eid,
+                                                                event_label: event_type_label.clone(),
+                                                                on_attached: move |()| media_revision += 1,
                                                             }
                                                         } else {
                                                             "{source.text}"

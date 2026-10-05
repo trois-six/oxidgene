@@ -157,9 +157,11 @@ pub async fn load_gallery_bundle(
         // well one click away.
         if page.thumbnail_key.is_some() {
             document_previews.push(ImageSource::Thumbnail { media_id: page.id });
-        } else if is_remote_image(&page) {
+        } else if let Some(url) = remote_preview(&page) {
+            // The archive's own thumbnail when it serves one: a tile of a few
+            // kilobytes rather than the full view.
             document_previews.push(ImageSource::Remote {
-                url: page.file_path.trim().to_string(),
+                url: url.to_string(),
             });
         }
     }
@@ -195,6 +197,15 @@ pub async fn load_gallery_bundle(
             )
             .collect(),
     })
+}
+
+/// The address a document tile draws a page we only have a URL for from:
+/// the archive's own thumbnail when it serves one — a tile of a few
+/// kilobytes rather than the full view — and the picture's otherwise.
+fn remote_preview(page: &oxidgene_core::types::Media) -> Option<&str> {
+    is_remote_image(page)
+        .then(|| page.remote_tile_address())
+        .flatten()
 }
 
 /// Whether a page is a picture the browser can fetch for itself.

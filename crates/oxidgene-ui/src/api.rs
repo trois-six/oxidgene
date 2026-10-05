@@ -1604,6 +1604,18 @@ impl CreateMediaLinkBody {
             sort_order: 0,
         }
     }
+
+    /// A link attaching `media_id` to one source, first in its order.
+    pub fn to_source(media_id: uuid::Uuid, source_id: uuid::Uuid) -> Self {
+        Self {
+            media_id,
+            person_id: None,
+            event_id: None,
+            source_id: Some(source_id),
+            family_id: None,
+            sort_order: 0,
+        }
+    }
 }
 
 /// A page whose bytes somebody else serves.
@@ -1626,6 +1638,15 @@ pub struct CreateMediaBody {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// A small picture of the page its server also serves, which gallery
+    /// tiles draw instead of the full one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
+    /// The picture's pixel size, when its server states it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
 }
 
 /// One file on its way up, and what it should become on arrival.
@@ -3723,15 +3744,19 @@ impl ApiClient {
     /// Where a source written as an archive citation opens on its archive's
     /// portal, as cited by `citation_id` when given. It may query the
     /// portal: call it once per reader's click, never ahead of one.
+    ///
+    /// `view` asks for that one view of the cited register instead of the
+    /// cited ones: the previous or next view a reader pages to.
     pub async fn archive_target(
         &self,
         tree_id: Uuid,
         source_id: Uuid,
         citation_id: Option<Uuid>,
+        view: Option<u16>,
     ) -> Result<oxidgene_archives::ArchiveTarget, ApiError> {
         self.post_read(
             &format!("/api/v1/trees/{tree_id}/sources/{source_id}/archive-target"),
-            &serde_json::json!({ "citation_id": citation_id }),
+            &serde_json::json!({ "citation_id": citation_id, "view": view }),
         )
         .await
     }
