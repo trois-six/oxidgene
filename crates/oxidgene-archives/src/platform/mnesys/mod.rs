@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 
 use super::iiif::image_info;
+use super::locality::LocalityStyle;
 use super::markup::fold;
 use super::select::{Candidate, Selection, select};
 use super::view::{cited_views, view_target};
@@ -72,17 +73,6 @@ struct Fields {
     year: String,
 }
 
-/// How the portal writes a locality's leading article.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum LocalityStyle {
-    /// `Le Mans`.
-    #[default]
-    Plain,
-    /// `Mans (Le)`.
-    ArticleSuffix,
-}
-
 /// Whether the rows show the register's call number.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -104,9 +94,6 @@ enum ImageSource {
     /// size of an image comes from its `info.json`.
     Visualizer,
 }
-
-/// The articles `article_suffix` moves behind the name.
-const ARTICLES: [&str; 5] = ["Les ", "Le ", "La ", "L'", "L’"];
 
 fn invalid(message: &str) -> CatalogError {
     CatalogError::new(format!("mnesys settings: {message}"))
@@ -206,17 +193,7 @@ impl Settings {
 
     /// The locality as the portal writes it.
     fn locality(&self, citation: &CitationParts) -> String {
-        let locality = citation.locality.as_str();
-        if self.locality_style == LocalityStyle::ArticleSuffix {
-            for article in ARTICLES {
-                if let Some(name) = locality.strip_prefix(article)
-                    && !name.is_empty()
-                {
-                    return format!("{name} ({})", article.trim_end());
-                }
-            }
-        }
-        locality.to_owned()
+        self.locality_style.write(&citation.locality)
     }
 
     /// The filters of a search, shared by the request and the search page:

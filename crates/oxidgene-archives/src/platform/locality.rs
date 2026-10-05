@@ -4,6 +4,32 @@
 //! `Mas-d'Exemple (Le)`, which is how gazetteers sort. Adapters compare
 //! [`forms`] of the cited locality, folded, with the portal's own text.
 
+use serde::Deserialize;
+
+/// How a portal writes a locality's leading article: the setting
+/// `locality_style` of the adapters that search by locality label.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LocalityStyle {
+    /// `Le Mans`.
+    #[default]
+    Plain,
+    /// `Mans (Le)`.
+    ArticleSuffix,
+}
+
+impl LocalityStyle {
+    /// The cited locality as the portal writes it.
+    pub(crate) fn write(self, locality: &str) -> String {
+        let mut forms = forms(locality);
+        match self {
+            Self::ArticleSuffix => forms.pop(),
+            Self::Plain => None,
+        }
+        .unwrap_or_else(|| locality.to_owned())
+    }
+}
+
 /// The articles moved behind the name in a gazetteer's form.
 const ARTICLES: [&str; 5] = ["Les ", "Le ", "La ", "L'", "L\u{2019}"];
 
@@ -50,6 +76,13 @@ mod tests {
         assert_eq!(forms("L'Isle"), ["L'Isle", "Isle (L')"]);
         assert_eq!(forms("Les Hauts"), ["Les Hauts", "Hauts (Les)"]);
         assert_eq!(forms("Lemont"), ["Lemont"]);
+    }
+
+    #[test]
+    fn writes_a_locality_in_the_portals_style() {
+        assert_eq!(LocalityStyle::Plain.write("Le Bourg"), "Le Bourg");
+        assert_eq!(LocalityStyle::ArticleSuffix.write("Le Bourg"), "Bourg (Le)");
+        assert_eq!(LocalityStyle::ArticleSuffix.write("Bourg"), "Bourg");
     }
 
     #[test]
