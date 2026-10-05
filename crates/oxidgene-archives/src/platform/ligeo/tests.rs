@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
 
 use super::*;
+use crate::platform::Access;
 use crate::transport::{FetchError, PortalRequest};
 use crate::{ArchiveRegistry, platform};
 
@@ -69,7 +70,7 @@ impl PortalFetch for Fixtures {
         Box::pin(async move {
             self.requests.lock().unwrap().push(request.url.clone());
             let url = request.url.as_str();
-            let body = if url.starts_with("/archive/resultats/") {
+            let body = if url.contains("/resultats/") || url.contains("/fonds/") {
                 self.search
             } else if url.starts_with("/ark:/") && url.ends_with("/manifest") {
                 self.manifest
@@ -467,8 +468,8 @@ fn a_title_only_table_gives_everything_from_the_title() {
 #[test]
 fn reads_each_field_of_a_title_row() {
     let columns = Columns {
-        title: Some("Intitulé".to_owned()),
-        period: Some("Date".to_owned()),
+        title: Some(Names::One("Intitulé".to_owned())),
+        period: Some(Names::One("Date".to_owned())),
         ..Columns::default()
     };
     let found = page::results(HG_SEVERAL, &columns).unwrap();
@@ -541,7 +542,7 @@ fn reads_each_field_of_a_title_row() {
         ]
     );
     // The notice link of the action cell is not the viewer link.
-    assert!(found.rows.iter().all(|row| row.payload.is_some()));
+    assert!(found.rows.iter().all(|row| row.payload.register.is_some()));
 }
 
 #[test]
@@ -666,7 +667,7 @@ fn reads_the_endpoint_and_the_search_page_of_each_collection() {
     assert!(endpoint.other_origins.is_empty());
 
     let ad07 = registry.archive("AD07").unwrap();
-    assert_eq!(ad07.collections.len(), 2);
+    assert_eq!(ad07.collections[0].id, "parish-registers");
     let citation = registry
         .parse("AD07 - Exampleville - (aucun) - B - 1700")
         .unwrap();
@@ -753,8 +754,8 @@ fn validates_its_settings_against_the_collection() {
         ("needs `fields.act`", |p| {
             p["fields"].as_object_mut().unwrap().remove("act");
         }),
-        ("locality or a title", |p| {
-            p["columns"]["title"] = "Intitulé".into()
+        ("year replaces", |p| {
+            p["fields"]["year"] = "RECH_annee".into()
         }),
         ("must not be blank", |p| p["columns"]["period"] = " ".into()),
     ];
@@ -876,7 +877,7 @@ fn the_matricules_of_a_volume_are_read_from_its_title_without_their_column() {
     assert_eq!(viewed(&target), "vtaexample0062");
     // The rows read as military registers from their links' titles.
     let columns = Columns {
-        locality: Some("Bureau de recrutement".to_owned()),
+        locality: Some(Names::One("Bureau de recrutement".to_owned())),
         ..Columns::default()
     };
     let found = page::results(MATRICULES, &columns).unwrap();
@@ -908,4 +909,485 @@ fn a_series_collection_needs_a_filter_only_where_the_form_has_one() {
         Ligeo.validate(&with_acts(serde_json::json!(["N", "RP"]), portal)),
         Ok(())
     );
+}
+
+const NOTICES: &str = include_str!("../../../fixtures/ligeo/notices.html");
+const QUALIFIED: &str = include_str!("../../../fixtures/ligeo/qualified.html");
+const INDEX: &str = include_str!("../../../fixtures/ligeo/index.html");
+const FONDS: &str = include_str!("../../../fixtures/ligeo/fonds.html");
+const TITLES: &str = include_str!("../../../fixtures/ligeo/titles.html");
+
+const EXAMPLE: &str = "https://archives.example.org";
+
+/// A fictitious archive with one collection holding `acts`, searched with
+/// the `portal` settings, shown in the portal's viewer.
+fn registry_with(acts: serde_json::Value, portal: serde_json::Value) -> ArchiveRegistry {
+    let document = serde_json::json!({
+        "id": "fr-ad00",
+        "country": "FR",
+        "level": "departmental",
+        "name": "Archives départementales d'Exemple",
+        "citation_codes": ["AD00"],
+        "website": EXAMPLE,
+        "collections": [{
+            "id": "registers",
+            "acts": acts,
+            "platform": "ligeo",
+            "portal": portal,
+        }]
+    })
+    .to_string();
+    ArchiveRegistry::new(&[("fr", document.as_str())], platform::builtin()).unwrap()
+}
+
+/// The register a title resolves to over `search`, or the count of results.
+fn chosen(registry: &ArchiveRegistry, title: &str, search: &'static str) -> Result<String, usize> {
+    match resolve(registry, title, &Fixtures::new(search)) {
+        Ok(target @ ArchiveTarget::View { .. }) => Ok(viewed(&target).to_owned()),
+        Ok(ArchiveTarget::Results { matches, .. }) => Err(matches.unwrap_or_default()),
+        Err(error) => panic!("{title}: {error:?}"),
+    }
+}
+
+fn notices_registry() -> ArchiveRegistry {
+    registry_with(
+        serde_json::json!(["B", "M", "S", "N", "D", "TD"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "etatcivil",
+            "node": 11,
+            "fields": {
+                "locality": "RECH_commune",
+                "act": "RECH_acte[]",
+                "year_from": "RECH_dates_debut",
+                "year_to": "RECH_dates_fin"
+            },
+            "acts": {
+                "B": "Bapteme", "N": "Naissance", "M": "Mariage",
+                "S": "Sepulture", "D": "Deces", "TD": "Table"
+            },
+            "columns": {
+                "locality": "Commune ou lieu-dit",
+                "parish": "Paroisse",
+                "acts": "Sujet",
+                "period": "Dates",
+                "call_number": "cote"
+            }
+        }),
+    )
+}
+
+#[test]
+fn notices_are_read_by_their_labels_and_their_heading() {
+    let columns = Columns {
+        locality: Some(Names::One("Commune ou lieu-dit".to_owned())),
+        parish: Some(Names::One("Paroisse".to_owned())),
+        acts: Some(Names::One("Sujet".to_owned())),
+        period: Some(Names::One("Dates".to_owned())),
+        call_number: Some(Names::One("cote".to_owned())),
+        ..Columns::default()
+    };
+    let found = page::results(NOTICES, &columns).unwrap();
+    assert_eq!(found.total, Some(5));
+    let read: Vec<_> = found
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.locality.as_deref(),
+                row.call_number.as_deref(),
+                row.act.as_deref(),
+                row.parish.as_deref(),
+                row.period.as_deref(),
+                row.images,
+            )
+        })
+        .collect();
+    assert_eq!(
+        read[..4],
+        [
+            (
+                Some("Exampleville"),
+                Some("9 E 71/2"),
+                Some("NMD"),
+                None,
+                Some("1829-1861"),
+                Some(269)
+            ),
+            (
+                Some("Exampleville"),
+                Some("9 Mi 72"),
+                Some("DMN"),
+                None,
+                Some("1841 1860"),
+                Some(173)
+            ),
+            (
+                Some("Exampleville"),
+                Some("9 Mi 73"),
+                Some("TD"),
+                None,
+                Some("1843 1852"),
+                Some(16)
+            ),
+            (
+                Some("Exampleville"),
+                Some("9 Mi 74"),
+                Some("BSM"),
+                Some("Saint-Exemple"),
+                Some("1620 1746"),
+                Some(348)
+            ),
+        ]
+    );
+    // The notice of a register not digitised has no viewer link.
+    assert_eq!(found.rows[4].payload.register, None);
+    // The linear layout's links open the same viewer path.
+    assert_eq!(
+        found.rows[0]
+            .payload
+            .register
+            .as_ref()
+            .map(page::Register::viewer)
+            .as_deref(),
+        Some("/ark:/99999/vtaexample0071/daogrp/0")
+    );
+}
+
+#[test]
+fn notices_select_their_register_and_skip_one_not_digitised() {
+    let registry = notices_registry();
+    // Two registers of births cover 1850, written `1841 1860` and
+    // `1829-1861`; the one not digitised is not a candidate.
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - N - 1850",
+            NOTICES
+        ),
+        Err(2)
+    );
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - N - 1850 - 9 Mi 72",
+            NOTICES
+        )
+        .as_deref(),
+        Ok("vtaexample0072")
+    );
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - N - 1850 - 9 E 75/1",
+            NOTICES
+        ),
+        Err(2)
+    );
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - TD - 1850",
+            NOTICES
+        )
+        .as_deref(),
+        Ok("vtaexample0073")
+    );
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - Saint-Exemple - B - 1700",
+            NOTICES
+        )
+        .as_deref(),
+        Ok("vtaexample0074")
+    );
+}
+
+fn qualified_registry() -> ArchiveRegistry {
+    registry_with(
+        serde_json::json!(["B", "M", "S", "N", "D", "TD"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "etatcivil",
+            "node": 12,
+            "fields": {
+                "locality": "RECH_commune",
+                "year_from": "RECH_unitdate_debut",
+                "year_to": "RECH_unitdate_fin"
+            },
+            "columns": {
+                "locality": "Commune",
+                "acts": ["Type de document", "Type d'acte"],
+                "period": "Dates",
+                "call_number": "Cote"
+            }
+        }),
+    )
+}
+
+#[test]
+fn a_locality_cell_names_its_commune_with_the_places_within_it() {
+    let registry = qualified_registry();
+    // The hamlet's register, dated with full dates, and the commune's.
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - B - 1700",
+            QUALIFIED
+        ),
+        Err(2)
+    );
+    for (title, register) in [
+        // The hamlet is the place within its commune, read as the parish.
+        ("AD00 - Exampleville - Hameau - B - 1700", "vtaexample0081"),
+        ("AD00 - Hameau - (aucun) - B - 1700", "vtaexample0081"),
+        // A parish after its commune.
+        (
+            "AD00 - Exampleville - Saint-Exemple - B - 1700",
+            "vtaexample0082",
+        ),
+        // A cell naming a former commune, a note and the current one.
+        ("AD00 - Ancienne - (aucun) - N - 1850", "vtaexample0083"),
+        (
+            "AD00 - Exampleville - (aucun) - N - 1850 - 9 E 85/1",
+            "vtaexample0085",
+        ),
+        // The document type tells the decennial table from the births.
+        (
+            "AD00 - Exampleville - (aucun) - TD - 1850",
+            "vtaexample0084",
+        ),
+    ] {
+        assert_eq!(
+            chosen(&registry, title, QUALIFIED).as_deref(),
+            Ok(register),
+            "{title}"
+        );
+    }
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - N - 1850",
+            QUALIFIED
+        ),
+        Err(2)
+    );
+    // The register of deaths, listed without a viewer link, is no
+    // candidate: the act test would leave none, so the others of the year
+    // remain.
+    assert_eq!(
+        chosen(
+            &registry,
+            "AD00 - Exampleville - (aucun) - D - 1850",
+            QUALIFIED
+        ),
+        Err(3)
+    );
+}
+
+#[test]
+fn an_index_of_persons_finds_the_person_by_the_cited_matricule() {
+    let registry = registry_with(
+        serde_json::json!(["RM"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "search": "matricules",
+            "node": 91,
+            "fields": {
+                "locality": "RECH_bureau[]",
+                "year": "RECH_Classe_exacte",
+                "number": "rech_mat"
+            },
+            "columns": {
+                "locality": "Bureau",
+                "period": "Classe",
+                "call_number": "Cote",
+                "numbers": "Matricule"
+            }
+        }),
+    );
+    let fetch = Fixtures::new(INDEX);
+    let target = resolve(
+        &registry,
+        "AD00 - Exampleville - Registres matricules - 1890 - 9 R 1 - 984 - 579/833",
+        &fetch,
+    )
+    .unwrap();
+    // The class is a single year's input; the matricule goes to the index.
+    assert_eq!(
+        fetch.requests(),
+        [
+            "/archive/resultats/matricules/n:91?RECH_bureau%5B%5D=Exampleville\
+          &RECH_Classe_exacte=1890&rech_mat=984&type=matricules"
+        ]
+    );
+    // The person's row opens on its one view, whatever the register's view
+    // the citation counts.
+    assert_eq!(
+        target,
+        ArchiveTarget::View {
+            url: format!("{EXAMPLE}/ark:/99999/vtaexample0091/daoloc/0/1"),
+            views: Vec::new(),
+            view_count: Some(1),
+            call_number: Some("9R0001".to_owned()),
+            attribution: None,
+        }
+    );
+}
+
+#[test]
+fn a_search_within_a_finding_aid_reads_the_commune_from_the_notices_path() {
+    let registry = registry_with(
+        serde_json::json!(["B", "M", "S", "N", "D"]),
+        serde_json::json!({
+            "origin": EXAMPLE,
+            "prefix": "/archives",
+            "fonds": "FRAD000_1",
+            "search": "inventaire",
+            "node": 3,
+            "fields": { "locality": "RECH_S" },
+            "params": { "RECH_eadid": "FRAD000_1" },
+            "columns": {
+                "locality": "Contexte",
+                "acts": "unittitle",
+                "period": "date",
+                "call_number": "cote"
+            }
+        }),
+    );
+    let collection = &registry.archive("AD00").unwrap().collections[0];
+    assert_eq!(
+        Ligeo.endpoint(collection).unwrap().start,
+        format!("{EXAMPLE}/archives/fonds/FRAD000_1")
+    );
+    let fetch = Fixtures::new(FONDS);
+    let target = resolve(
+        &registry,
+        "AD00 - Exampleville - (aucun) - D - 1900",
+        &fetch,
+    )
+    .unwrap();
+    assert_eq!(viewed(&target), "vtaexample0102");
+    assert_eq!(
+        fetch.requests(),
+        [
+            "/archives/fonds/FRAD000_1/inventaire/n:3?RECH_S=Exampleville&RECH_eadid=FRAD000_1&type=inventaire"
+        ]
+    );
+    let ArchiveTarget::View {
+        url, call_number, ..
+    } = &target
+    else {
+        unreachable!("a view");
+    };
+    assert_eq!(url, &format!("{EXAMPLE}/ark:/99999/vtaexample0102/dao/0/1"));
+    assert_eq!(call_number.as_deref(), Some("9 NUM /1EC3"));
+    // The text search also found another commune's notice naming this one.
+    assert_eq!(
+        chosen(&registry, "AD00 - Exampleville - (aucun) - N - 1874", FONDS).as_deref(),
+        Ok("vtaexample0101")
+    );
+}
+
+#[test]
+fn a_title_ends_its_locality_at_a_full_stop_and_dash_and_may_start_with_a_call_number() {
+    let columns = Columns {
+        title: Some(Names::One("Commune et type d'acte".to_owned())),
+        period: Some(Names::One("Date".to_owned())),
+        ..Columns::default()
+    };
+    let found = page::results(TITLES, &columns).unwrap();
+    let read: Vec<_> = found
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.locality.as_deref(),
+                row.act.as_deref(),
+                row.call_number.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (Some("Exampleville"), Some("BMS"), None),
+            (Some("Exampleville"), Some("TD"), None),
+            (Some("Exampleville"), Some("RP"), Some("9 M 99")),
+        ]
+    );
+}
+
+#[test]
+fn layout_page_params_and_single_years_shape_the_addresses() {
+    let collection = collection_with(|portal| {
+        portal["layout"] = "Tableau".into();
+        portal["page"] = "menu".into();
+        portal["params"] = serde_json::json!({ "RECH_dep": "Exampledept" });
+        let fields = portal["fields"].as_object_mut().unwrap();
+        fields.remove("year_from");
+        fields.remove("year_to");
+        fields.insert("year".to_owned(), "RECH_annee".into());
+    });
+    assert_eq!(Ligeo.validate(&collection), Ok(()));
+    assert_eq!(
+        Ligeo.endpoint(&collection).unwrap().start,
+        format!("{AIN}/archive/recherche/menu/n:88")
+    );
+    let citation = ArchiveRegistry::embedded()
+        .parse("AD01 - Exampleville - (aucun) - N - 1880")
+        .unwrap();
+    assert_eq!(
+        Ligeo.results_url(&collection, &citation).unwrap(),
+        format!(
+            "{AIN}/archive/resultats/etatcivil/Tableau/n:88?RECH_commune=Exampleville\
+             &RECH_acte%5B%5D=N&RECH_dep=Exampledept&RECH_annee=1880&type=etatcivil"
+        )
+    );
+    // A margin widens the years searched, for a portal indexing registers
+    // by other years than their titles show.
+    let widened = collection_with(|portal| portal["fields"]["year_margin"] = 1.into());
+    assert!(
+        Ligeo
+            .results_url(&widened, &citation)
+            .unwrap()
+            .contains("&RECH_unitdate_debut=1879&RECH_unitdate_fin=1881&")
+    );
+}
+
+#[test]
+fn validates_the_settings_of_the_new_shapes() {
+    type Change = fn(&mut serde_json::Value);
+    let cases: [(&str, Change); 5] = [
+        ("year replaces", |p| {
+            p["fields"]["year"] = "RECH_annee".into()
+        }),
+        ("year_margin needs", |p| {
+            let fields = p["fields"].as_object_mut().unwrap();
+            fields.remove("year_from");
+            fields.remove("year_to");
+            fields.insert("year_margin".to_owned(), 1.into());
+        }),
+        ("page, fonds and layout", |p| {
+            p["layout"] = "Tab leau".into()
+        }),
+        ("page, fonds and layout", |p| p["fonds"] = "../x".into()),
+        ("params need", |p| {
+            p["params"] = serde_json::json!({ "RECH_dep": " " })
+        }),
+    ];
+    for (expected, change) in cases {
+        let error = Ligeo
+            .validate(&collection_with(change))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    }
+    // A series searched by year alone needs no locality input or column.
+    let by_year = collection_with(|p| {
+        p["fields"].as_object_mut().unwrap().remove("locality");
+        p["columns"].as_object_mut().unwrap().remove("locality");
+    });
+    assert_eq!(Ligeo.validate(&by_year), Ok(()));
 }

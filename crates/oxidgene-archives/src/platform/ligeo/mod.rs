@@ -2,10 +2,12 @@
 //! departmental archives.
 //!
 //! Each collection is one search of the portal ("recherche"), named in the
-//! path and placed in the menu by a node number. Its form is a plain `GET`
-//! whose results are server-rendered HTML, a table whose columns differ from
-//! portal to portal and are read by their header text. The cited register is
-//! selected among the rows (`select`); its viewer address is
+//! path and placed in the menu by a node number, or the search within one
+//! finding aid. Its form is a plain `GET` whose results are server-rendered
+//! HTML, a table or a list of notices whose columns or labels differ from
+//! portal to portal and are read by their text. The cited register is
+//! selected among the rows (`select`), after each row's places are matched
+//! with the cited locality and parish; its viewer address is
 //! `/ark:/<naan>/<id>/<tag>/<group>/<view>`, and for a `display: "iiif"`
 //! archive its IIIF Presentation 2 manifest gives the image count and sizes.
 //! Archive Portals §4.5 specifies the requests.
@@ -13,307 +15,27 @@
 #[cfg(any(test, feature = "live"))]
 mod live;
 mod page;
+mod place;
+mod settings;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
-
-use serde::Deserialize;
-
 use super::iiif::{PICTURE_BOUND, THUMBNAIL_MIN_WIDTH, image_info};
-use super::select::{Selection, select};
+use super::markup::fold;
+use super::select::{Candidate, Selection, select};
 use super::view::{cited_views, view_target};
-use super::{Access, BoxFuture, Platform, PortalEndpoint, Query, is_https_origin};
+use super::{BoxFuture, Platform, PortalEndpoint};
 use crate::catalog::{Archive, CatalogError, Collection, Display};
-use crate::citation::{Act, CitationParts};
+use crate::citation::CitationParts;
 use crate::transport::PortalFetch;
 use crate::{ArchiveImage, ArchiveTarget, ArchiveView, ResolveError};
+use page::Row;
+use settings::Settings;
+#[cfg(test)]
+use settings::{Columns, Names};
 
 /// The Ligeo adapter.
 pub struct Ligeo;
-
-/// A collection's `portal` settings.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Settings {
-    origin: String,
-    #[serde(default)]
-    transport: Access,
-    /// `/archive`, or `/archives` on some portals.
-    #[serde(default = "default_prefix")]
-    prefix: String,
-    /// The search's name in the path, also sent as `type`: `etatcivil`,
-    /// `paroissiaux`, `etatcivil2`.
-    search: String,
-    /// The menu node, `n:<node>` in the path.
-    node: u32,
-    fields: Fields,
-    /// The act filter of each act code; none when the form has no act filter.
-    #[serde(default)]
-    acts: BTreeMap<String, ActFilter>,
-    columns: Columns,
-}
-
-fn default_prefix() -> String {
-    "/archive".to_owned()
-}
-
-/// The names of the form inputs the adapter fills.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Fields {
-    locality: String,
-    /// The act input, for acts written as one value (`RECH_acte[]=N`).
-    #[serde(default)]
-    act: Option<String>,
-    /// The years' inputs, both or neither.
-    #[serde(default)]
-    year_from: Option<String>,
-    #[serde(default)]
-    year_to: Option<String>,
-}
-
-/// How the form expresses an act.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
-enum ActFilter {
-    /// The value of the `fields.act` input. An input named `…[]` is a
-    /// checkbox list: a combined act repeats it once per kind.
-    Value(String),
-    /// Inputs of their own, with their values: a document type and an act
-    /// glob (`RECH_doc=EC&RECH_acte2=*aissanc*`).
-    Params(BTreeMap<String, String>),
-}
-
-/// The header text of the result columns, read as written by the portal,
-/// case, accents and punctuation ignored. A table either has a `locality`
-/// column, or only a `title` column, from which the locality, parish, acts
-/// and call number are read.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Columns {
-    #[serde(default)]
-    locality: Option<String>,
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    acts: Option<String>,
-    #[serde(default)]
-    parish: Option<String>,
-    #[serde(default)]
-    period: Option<String>,
-    #[serde(default)]
-    call_number: Option<String>,
-    /// The column showing the numbers a register spans, such as the
-    /// matricules of a military register (`1 à 1586`).
-    #[serde(default)]
-    numbers: Option<String>,
-}
-
-fn invalid(message: &str) -> CatalogError {
-    CatalogError::new(format!("ligeo settings: {message}"))
-}
-
-/// An input or search name: letters, digits and `_ - [ ]`.
-fn is_name(text: &str) -> bool {
-    !text.is_empty()
-        && text
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"_-[]".contains(&byte))
-}
-
-/// A form value: no separator or control character a query could not carry
-/// once encoded as a single value.
-fn is_value(text: &str) -> bool {
-    !text.trim().is_empty() && !text.chars().any(char::is_control)
-}
-
-impl Settings {
-    fn read(collection: &Collection) -> Result<Self, CatalogError> {
-        let settings =
-            Self::deserialize(&collection.portal).map_err(|error| invalid(&error.to_string()))?;
-        settings.check()?;
-        settings.check_acts(collection)?;
-        Ok(settings)
-    }
-
-    fn check(&self) -> Result<(), CatalogError> {
-        if !is_https_origin(&self.origin) {
-            return Err(invalid("origin must be an https origin"));
-        }
-        if !self.prefix.starts_with('/')
-            || self.prefix.len() < 2
-            || !self.prefix[1..]
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase())
-        {
-            return Err(invalid("prefix must be a path such as /archive"));
-        }
-        if !is_name(&self.search) || self.search.contains(['[', ']', '-']) || self.node == 0 {
-            return Err(invalid("search and node"));
-        }
-        let fields = &self.fields;
-        let names = [
-            Some(&fields.locality),
-            fields.act.as_ref(),
-            fields.year_from.as_ref(),
-            fields.year_to.as_ref(),
-        ];
-        if !names.into_iter().flatten().all(|name| is_name(name)) {
-            return Err(invalid("input names"));
-        }
-        if fields.year_from.is_some() != fields.year_to.is_some() {
-            return Err(invalid("year_from and year_to go together"));
-        }
-        self.columns.check()
-    }
-
-    /// Every act code is valid and has a usable filter, and every act the
-    /// collection holds has one, unless the form has no act filter.
-    fn check_acts(&self, collection: &Collection) -> Result<(), CatalogError> {
-        for (code, filter) in &self.acts {
-            if Act::from_code(code).is_none() {
-                return Err(invalid(&format!("`{code}` is not an act code")));
-            }
-            let usable = match filter {
-                ActFilter::Value(value) => self.fields.act.is_some() && is_value(value),
-                ActFilter::Params(params) => {
-                    !params.is_empty()
-                        && params
-                            .iter()
-                            .all(|(name, value)| is_name(name) && is_value(value))
-                }
-            };
-            if !usable {
-                return Err(invalid(&format!(
-                    "the filter of `{code}` needs `fields.act` and a value, or inputs of its own"
-                )));
-            }
-        }
-        if self.acts.is_empty() {
-            return match self.fields.act {
-                Some(_) => Err(invalid("fields.act without acts")),
-                None => Ok(()),
-            };
-        }
-        match collection
-            .acts
-            .iter()
-            .find(|act| self.act_filters(act).is_empty())
-        {
-            Some(act) => Err(invalid(&format!("no filter for `{act}`"))),
-            None => Ok(()),
-        }
-    }
-
-    /// The filters searching `act`: its own entry, or one per kind of a
-    /// combined act, publications of banns searched as marriages.
-    fn act_filters(&self, act: &Act) -> Vec<&ActFilter> {
-        if let Some(filter) = self.acts.get(&act.to_string()) {
-            return vec![filter];
-        }
-        let mut kinds = Vec::new();
-        for kind in act.kinds().iter().map(|kind| kind.filed_as()) {
-            if !kinds.contains(&kind) {
-                kinds.push(kind);
-            }
-        }
-        kinds
-            .iter()
-            .filter_map(|kind| self.acts.get(&kind.letter().to_string()))
-            .collect()
-    }
-
-    /// The filters of a search, shared by the request and the results page:
-    /// the locality, the act and the year. Nothing else of the citation
-    /// leaves the application. The locality is the portal's text match, and
-    /// the year is the portal's interval test: both are re-checked on the
-    /// rows.
-    fn filters(&self, citation: &CitationParts) -> Query {
-        let mut query = Query::new();
-        query.push(&self.fields.locality, citation.locality.as_str());
-        for filter in self.act_filters(&citation.act) {
-            match filter {
-                ActFilter::Value(value) => {
-                    if let Some(name) = &self.fields.act {
-                        query.push(name, value.as_str());
-                        // A single-valued input holds one kind.
-                        if !name.ends_with("[]") {
-                            break;
-                        }
-                    }
-                }
-                ActFilter::Params(params) => {
-                    for (name, value) in params {
-                        query.push(name, value.as_str());
-                    }
-                    break;
-                }
-            }
-        }
-        if let (Some(from), Some(to), Some(year)) =
-            (&self.fields.year_from, &self.fields.year_to, citation.year)
-        {
-            query
-                .push(from, year.to_string())
-                .push(to, year.to_string());
-        }
-        query.push("type", self.search.as_str());
-        query
-    }
-
-    fn results_path(&self, filters: &Query) -> String {
-        format!(
-            "{}/resultats/{}/n:{}?{filters}",
-            self.prefix, self.search, self.node
-        )
-    }
-
-    fn search_page(&self) -> String {
-        format!(
-            "{}{}/recherche/{}/n:{}",
-            self.origin, self.prefix, self.search, self.node
-        )
-    }
-
-    /// `<ark>/<tag>/<group>/<view>`, view one-based, on the portal's origin.
-    fn view_url(&self, register: &page::Register, view: u16) -> String {
-        format!("{}{}/{view}", self.origin, register.viewer())
-    }
-
-    /// An image on the portal's own origin rather than on the host the
-    /// manifest declares.
-    fn on_origin(&self, address: &str, prefix: &str) -> Option<String> {
-        let path = page::path_of(address)?;
-        path.starts_with(prefix)
-            .then(|| format!("{}{path}", self.origin))
-    }
-}
-
-impl Columns {
-    fn check(&self) -> Result<(), CatalogError> {
-        if self.locality.is_some() == self.title.is_some() {
-            return Err(invalid("columns need a locality or a title column"));
-        }
-        let headers = [
-            &self.locality,
-            &self.title,
-            &self.acts,
-            &self.parish,
-            &self.period,
-            &self.call_number,
-            &self.numbers,
-        ];
-        if headers
-            .into_iter()
-            .flatten()
-            .any(|header| crate::platform::markup::fold(header).is_empty())
-        {
-            return Err(invalid("column headers must not be blank"));
-        }
-        Ok(())
-    }
-}
 
 impl Platform for Ligeo {
     fn id(&self) -> &'static str {
@@ -370,12 +92,11 @@ async fn resolve(
     if found.total.is_some_and(|total| total > found.rows.len()) {
         return Ok(results(found.total.unwrap_or_default()));
     }
-    let row = match choose(&found.rows, citation) {
+    let row = match choose(&found.rows, citation, &settings) {
         Selection::One(row) => row,
         Selection::Many(matches) => return Ok(results(matches)),
     };
-    // A register listed without a viewer link cannot be opened on a view.
-    let Some(register) = &row.payload else {
+    let Some(register) = &row.payload.register else {
         return Ok(results(1));
     };
 
@@ -416,25 +137,92 @@ async fn resolve(
     ))
 }
 
-/// The row of the cited register. The call number only breaks a tie: the
-/// portals show none (Ain shows an internal reference), or one shared by the
-/// registers of every locality or of several acts (Ardèche), so a cited call
-/// number a row does not carry must not discard it.
+/// A row as the citation reads it: when one of its places is the cited
+/// locality, or lies within it, the row's locality is the cited one, with
+/// the place within it as its parish; when one of the parishes it names is
+/// the cited parish, its parish is the cited one.
+fn as_cited(row: &Candidate<Row>, wanted: &str, parish: Option<&str>) -> Candidate<()> {
+    let mut read = Candidate {
+        locality: row.locality.clone(),
+        call_number: row.call_number.clone(),
+        act: row.act.clone(),
+        parish: row.parish.clone(),
+        period: row.period.clone(),
+        images: row.images,
+        numbers: row.numbers,
+        payload: (),
+    };
+    let places = &row.payload.places;
+    if let Some(within) = places.iter().find_map(|place| place.as_locality(wanted)) {
+        read.locality = Some(wanted.to_owned());
+        read.parish = read.parish.or(within);
+    }
+    if let Some(parish) = parish {
+        let named = row
+            .payload
+            .parishes
+            .iter()
+            .chain(places.iter().filter_map(|place| place.parish.as_ref()))
+            .chain(places.iter().map(|place| &place.name))
+            .any(|name| fold(name) == parish);
+        if named {
+            read.parish = Some(parish.to_owned());
+        }
+    }
+    read
+}
+
+/// The row of the cited register, among those with a viewer link: a
+/// register listed without one is not digitised. Rows are compared as the
+/// citation reads them ([`as_cited`]); a collection whose rows show no
+/// locality, a series searched by year alone, keeps every row whatever the
+/// cited locality. The call number only breaks a tie: the portals show none
+/// (Ain shows an internal reference), or one shared by the registers of
+/// every locality or of several acts (Ardèche), so a cited call number a
+/// row does not carry must not discard it.
 fn choose<'r>(
-    rows: &'r [crate::platform::select::Candidate<Option<page::Register>>],
+    rows: &'r [Candidate<Row>],
     citation: &CitationParts,
-) -> Selection<'r, Option<page::Register>> {
-    let localities = [citation.locality.as_str()];
-    let mut without = citation.clone();
+    settings: &Settings,
+) -> Selection<'r, Row> {
+    let wanted = if settings.fields.locality.is_some() && settings.columns.locate() {
+        fold(&citation.locality)
+    } else {
+        String::new()
+    };
+    let parish = citation.parish.as_deref().map(fold);
+    let viewable: Vec<&Candidate<Row>> = rows
+        .iter()
+        .filter(|row| row.payload.register.is_some())
+        .collect();
+    let read: Vec<Candidate<()>> = viewable
+        .iter()
+        .map(|row| as_cited(row, &wanted, parish.as_deref()))
+        .collect();
+    let mut cited = citation.clone();
+    cited.locality.clone_from(&wanted);
+    cited.parish = parish;
+    let localities = [wanted.as_str()];
+    let index = |chosen: &Candidate<()>| {
+        read.iter()
+            .position(|candidate| std::ptr::eq(candidate, chosen))
+            .map(|at| viewable[at])
+    };
+
+    let mut without = cited.clone();
     without.call_number = None;
-    match select(rows, &without, &localities) {
-        Selection::Many(count) if count > 1 && citation.call_number.is_some() => {
-            match select(rows, citation, &localities) {
-                one @ Selection::One(_) => one,
+    let selection = match select(&read, &without, &localities) {
+        Selection::Many(count) if count > 1 && cited.call_number.is_some() => {
+            match select(&read, &cited, &localities) {
+                Selection::One(one) => Selection::One(one),
                 Selection::Many(_) => Selection::Many(count),
             }
         }
         other => other,
+    };
+    match selection {
+        Selection::One(one) => index(one).map_or(Selection::Many(1), Selection::One),
+        Selection::Many(count) => Selection::Many(count),
     }
 }
 

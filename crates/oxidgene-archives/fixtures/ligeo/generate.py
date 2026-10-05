@@ -2,12 +2,15 @@
 `python3 generate.py`.
 
 They have the markup and JSON shapes of answers recorded from the Ain,
-Ardèche and Haute-Garonne portals (and a military-register table built in
-the same markup, not yet recorded), with fictitious localities, parishes,
-call numbers, internal references, ARK names and image paths; no recorded
-value is copied. Only what the adapter reads is kept, plus the neighbouring
-markup it must skip (action cells, notice links, scripts). The manifest keeps
-neither the portal's server paths nor its renderings."""
+Ardèche and Haute-Garonne portals, of the other Ligeo shapes recorded on
+departmental portals since (notice lists, qualified and composite locality
+cells, indexes of persons, a search within a finding aid), and a
+military-register table built in the same markup, with fictitious
+localities, parishes, call numbers, internal references, ARK names and
+image paths; no recorded value is copied. Only what the adapter reads is
+kept, plus the neighbouring markup it must skip (action cells, notice
+links, scripts). The manifest keeps neither the portal's server paths nor
+its renderings."""
 import html, json, pathlib
 
 OUT = pathlib.Path(__file__).resolve().parent
@@ -188,6 +191,150 @@ write("matricules.html", page(
         matricule_row(62, "Exampleville", 1870, "1 R 902", 501, 1000, 398),
         matricule_row(63, "Exampleville", 1871, "1 R 903", 1, 520, 420),
         matricule_row(64, "Exampleville-lès-Bois", 1870, "1 R 950", 1, 300, 250),
+    ])))
+
+
+# A list of notices instead of a table: each notice's heading shows its call
+# number and dates as classed spans, its items carry their own labels, and
+# its viewer link opens the linear layout. A notice without a viewer link is
+# a register not digitised.
+def notice(n, cote, dates, items, count, cls):
+    heading = ('<div class="arc_notice_header"><div class="arc_notice_header_content"><div class="title">'
+               f'<h3><span class="cote">{esc(cote)}</span> <span class="date"> • {esc(dates)}</span> </h3>'
+               '</div></div></div>')
+    image = ''
+    if count:
+        title = esc(f"{count} vues  - {cote} (ouvre la visionneuse)")
+        image = (f'<div class="arc_vignette_img"><a href="/ark:/{NAAN}/{ark_id(n)}/daogrp/0/layout:linear/'
+                 f'idsearch:RECH_internet_0000{n:04d}" target="mywindow" title="{title}" '
+                 f'class="arc_img_visu_noicone"><img src="/img/vignette.jpg" alt="{title}" /></a>'
+                 f'<p class="nb_vues">{count} vues </p></div>')
+    labelled = ''.join(f'<div class="items"><strong class="arc_libelle_strong">{esc(label)} : </strong>'
+                       f'{value}</div>' for label, value in items)
+    return (f'<tr class="{cls} type-notice-archive "><td>{heading}{actions(n, 11)}'
+            f'<div class="arc_notice_content"><div id="D_{n}" class="togglediv">{image}{labelled}'
+            '<br class="pusher" /></div></div></td></tr>')
+
+
+def place_item(name):
+    return f'<mark class="arc_mark">{esc(name)}</mark> (Exampledept, France)'
+
+
+notices = [
+    notice(71, "9 E 71/2", "1829-1861", [
+        ("Contexte", "Registres paroissiaux et d'état civil &gt; Exampleville"),
+        ("Dates", "1829-1861"),
+        ("Sujet", "naissance / mariage / décès"),
+        ("Commune ou lieu-dit", place_item("Exampleville")),
+    ], 269, "arc_impair"),
+    notice(72, "9 Mi 72", "1841 1860", [
+        ("Dates", "1841 1860"),
+        ("Sujet", "Deces / Mariage / Naissance"),
+        ("Commune ou lieu-dit", place_item("Exampleville")),
+    ], 173, "arc_pair"),
+    notice(73, "9 Mi 73", "1843 1852", [
+        ("Dates", "1843 1852"),
+        ("Sujet", "Table"),
+        ("Commune ou lieu-dit", place_item("Exampleville")),
+    ], 16, "arc_impair"),
+    notice(74, "9 Mi 74", "1620 1746", [
+        ("Dates", "1620 1746"),
+        ("Sujet", "Bapteme / Sepulture / Mariage"),
+        ("Paroisse", "Saint-Exemple (Exampleville, Exampledept, France : paroisse)"),
+        ("Commune ou lieu-dit", place_item("Exampleville")),
+    ], 348, "arc_pair"),
+    # Listed, not digitised: no viewer link.
+    notice(75, "9 E 75/1", "1850", [
+        ("Dates", "1850"),
+        ("Sujet", "naissance"),
+        ("Commune ou lieu-dit", place_item("Exampleville")),
+    ], 0, "arc_impair"),
+]
+write("notices.html", page(
+    '<p role="status" class="nb_reponses"><span>5</span> réponses à votre recherche</p>',
+    '<div style="overflow:auto;"><div id="linear_liste"><table role="presentation" id="resultats">'
+    + ''.join(notices) + '</table></div></div>'))
+
+# A table whose locality cells qualify their places: a hamlet within its
+# commune, a parish after a commune, several places in one cell, a note in
+# brackets; acts read from a document type and an act column; full dates;
+# a register listed without a viewer link.
+QUALIFIED_HEADERS = ["Commune", "Type de document", "Type d'acte", "Dates", "Cote", "Vues", "Action(s)"]
+
+
+def qualified_row(n, place, kind, acts, dates, cote, count):
+    link = viewer_link(n, count, cote) if count else ''
+    return [esc(place), esc(kind), esc(acts), esc(dates), esc(cote), link, actions(n, 12)]
+
+
+write("qualified.html", page(
+    '<span class="arc_nbr_reponses">6 réponses dans 1 inventaire</span>',
+    table(QUALIFIED_HEADERS, [
+        qualified_row(81, "HAMEAU (EXAMPLEVILLE, Exampledept, lieu-dit)", "Acte",
+                      "Baptême, Mariage, Sépulture", "13/11/1697 - 06/11/1707", "9 E 81 GG1", 28),
+        qualified_row(82, "Exampleville / Saint-Exemple (paroisse)", "Acte",
+                      "Baptême, Mariage, Sépulture", "1690-1710", "9 E 82 GG1", 41),
+        qualified_row(83, "Ancienne (Exampledept, France) [aujourd'hui : Exampleville (Exampledept, France)] "
+                          "Exampleville (Exampledept, France)", "Acte", "Naissance", "1850", "9 E 83/1", 30),
+        qualified_row(84, "Exampleville (Exampledept, France)", "Table décennale", "Naissance",
+                      "1843-1852", "9 E 84 TD", 25),
+        qualified_row(85, "Exampleville (Exampledept, France)", "Acte", "Naissance", "1850", "9 E 85/1", 47),
+        qualified_row(86, "Exampleville (Exampledept, France)", "Acte", "Décès", "1850", "9 E 86/1", 0),
+    ])))
+
+# An index of persons: one row per person, the register's call number and
+# the person's matricule, a viewer link onto the person's own view.
+INDEX_HEADERS = ["Cote", "Matricule", "Nom", "Bureau", "Classe", "Vues", "Action(s)"]
+
+
+def index_row(n, cote, matricule, bureau, year):
+    link = viewer_link(n, 1, f"{cote} - NOMEXEMPLE Prénom (matricule {matricule})", group="daoloc/0")
+    return [esc(cote), str(matricule), "NOMEXEMPLE", esc(bureau), str(year), link, actions(n, 91)]
+
+
+write("index.html", page(
+    '<span class="arc_nbr_reponses">1 réponse dans 1 inventaire</span>',
+    table(INDEX_HEADERS, [index_row(91, "9R0001", 984, "Exampleville", 1890)])))
+
+# A search within a finding aid: the notices of every commune whose text
+# names the searched one, each notice's path in the finding aid ending with
+# its commune.
+def fonds_notice(n, commune, cote, title, dates, count):
+    link = (f'<a href="/ark:/{NAAN}/{ark_id(n)}/dao/0/idsearch:RECH_internet_0000{n:04d}" target="mywindow" '
+            f'title="{count} vues - {esc(title)} (ouvre la visionneuse)" class="arc_img_visu">'
+            '<img src="/archives/img/ico_visu.gif" alt="" /></a>')
+    return (f'<li class="arc_notice " id="N_{n}"><div class="arc_titre_notice"><div class="arc_notice_header">'
+            f'<div class="title"><h3><span class="cote">{esc(cote)} - </span> <span class="unittitle">'
+            f'{esc(title)} - </span> <span class="date">{esc(dates)}</span> <div class="arc_item_img">{link}'
+            '</div> </h3></div></div><div class="arc_notice_content"><div class="items">'
+            '<div class="notice_filariane"><strong class="arc_libelle_strong">Contexte : </strong>'
+            f'Registres paroissiaux et état civil numérisés &gt; {esc(commune)}</div></div></div></div></li>')
+
+
+# The page of a finding aid searched within: its notices under
+# `div#arc_fonds_notice`, no results container nor count.
+write("fonds.html", '<!DOCTYPE html><html><head><title>Archives d\'Exemple</title></head><body>'
+      '<form id="arc_form_rech" method="get"><input name="RECH_S" type="text" />'
+      '<input type="hidden" name="RECH_eadid" value="FRAD000_1" /></form>'
+      '<script>jQuery("#arc_liste_update").on("arch.search.updated", function() {});</script>'
+      '<div id="arc_fonds_notice"><ul class="arc_res_bib_num">'
+      + fonds_notice(101, "EXAMPLEVILLE", "9 NUM /1EC1", "Naissances, mariages, décès.", "1872-1876", 93)
+      + fonds_notice(102, "EXAMPLEVILLE", "9 NUM /1EC3", "Décès.", "1893-1904", 56)
+      + fonds_notice(103, "AUTREVILLE", "9 NUM /2EC1", "Naissances, mariages, décès. avant 1890 voir EXAMPLEVILLE",
+                     "1872-1876", 61)
+      + '</ul></div></body></html>\n')
+
+# Titles whose locality ends at `.-`, and a heading that starts with the
+# register's call number.
+TITLE_HEADERS = ["Commune et type d'acte", "Date", "Vues", "Action(s)"]
+write("titles.html", page(
+    '<span class="arc_nbr_reponses">3 réponses dans 1 inventaire</span>',
+    table(TITLE_HEADERS, [
+        [esc("Exampleville.- Baptêmes, mariages, sépultures"), "1750", viewer_link(111, 120, "BMS"),
+         actions(111, 92)],
+        [esc("Exampleville.- Tables décennales des naissances, cote 9E99/2"), "1843 - 1852",
+         viewer_link(112, 60, "TD"), actions(112, 92)],
+        [esc("9 M 99 - Exampleville - 1901"), "1901", viewer_link(113, 80, "RP"), actions(113, 92)],
     ])))
 
 

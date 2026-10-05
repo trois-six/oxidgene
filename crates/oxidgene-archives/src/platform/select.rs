@@ -191,7 +191,9 @@ const RANGE_WORDS: [&str; 6] = ["no", "nos", "numero", "numeros", "matricule", "
 /// after one of the [`RANGE_WORDS`] in a title or label, or anywhere in a
 /// cell that holds the numbers alone (`marked` false). Years elsewhere in a
 /// title (`classes 1859 à 1940`, `N 1903-1912`) are not read, since no range
-/// word precedes them.
+/// word precedes them. One number alone, after a range word (`matricule
+/// 984`) or as the whole cell (`984`), spans itself: the row of one person
+/// in an index of matricules.
 pub(crate) fn number_range(text: &str, marked: bool) -> Option<(u32, u32)> {
     // `n°` would fold to a bare `n`, which also stands for births.
     let folded = fold(&text.replace(['°', 'º'], "o "));
@@ -202,6 +204,9 @@ pub(crate) fn number_range(text: &str, marked: bool) -> Option<(u32, u32)> {
             .then(|| word.parse().ok())
             .flatten()
     };
+    if !marked && words.len() == 1 {
+        return number(0).map(|alone| (alone, alone));
+    }
     (0..words.len()).find_map(|at| {
         let start = if marked {
             RANGE_WORDS.contains(&words[at]).then_some(at + 1)?
@@ -212,7 +217,11 @@ pub(crate) fn number_range(text: &str, marked: bool) -> Option<(u32, u32)> {
         // `1 à 1586` folds to `1 a 1586`, and `1-1586` to `1 1586`.
         let last = match words.get(start + 1) {
             Some(&"a" | &"au") => number(start + 2)?,
-            _ => number(start + 1)?,
+            _ => match number(start + 1) {
+                Some(last) => last,
+                None if marked => first,
+                None => return None,
+            },
         };
         (first <= last).then_some((first, last))
     })
@@ -230,7 +239,8 @@ pub(crate) fn covers(text: &str, year: u16) -> bool {
 
 /// The Gregorian year ranges of a displayed period: every four-digit year
 /// and every Republican `an <numeral>` (which spans two Gregorian years),
-/// two of them joined by a dash forming one range.
+/// two of them joined into one range as [`joins_range`] reads the text
+/// between them.
 pub(crate) fn period_ranges(text: &str) -> Vec<(u16, u16)> {
     let tokens = year_tokens(text);
     let mut ranges = Vec::new();
@@ -238,7 +248,7 @@ pub(crate) fn period_ranges(text: &str) -> Vec<(u16, u16)> {
     while let Some(token) = tokens.get(index) {
         let mut last = token.last;
         if let Some(next) = tokens.get(index + 1)
-            && text[token.end..next.start].trim() == "-"
+            && joins_range(&text[token.end..next.start])
         {
             last = next.last;
             index += 1;
@@ -247,6 +257,42 @@ pub(crate) fn period_ranges(text: &str) -> Vec<(u16, u16)> {
         index += 1;
     }
     ranges
+}
+
+/// The French month names, folded, which full dates write between the years
+/// of a period.
+const MONTHS: [&str; 12] = [
+    "janvier",
+    "fevrier",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "aout",
+    "septembre",
+    "octobre",
+    "novembre",
+    "decembre",
+];
+
+/// Whether the text between two years joins them into one range: a dash, a
+/// slash, `à` or `au` (`1683/1750`, `1833 à 1852`), or nothing but spaces
+/// (`1841 1860`), with the days and months of full dates written around the
+/// years (`13/11/1697 - 06/11/1707`, `26 juillet 1849-20 février 1850`). A
+/// comma, a word or a note separates two periods.
+fn joins_range(between: &str) -> bool {
+    between
+        .replace(['-', '/', '\u{2013}'], " ")
+        .split_whitespace()
+        .all(|word| {
+            let folded = fold(word);
+            let is_day =
+                (1..=2).contains(&folded.len()) && folded.bytes().all(|byte| byte.is_ascii_digit());
+            is_day
+                || ["a", "au", "1er"].contains(&folded.as_str())
+                || MONTHS.contains(&folded.as_str())
+        })
 }
 
 /// A year written in a period: its byte span and the Gregorian years it
@@ -359,6 +405,26 @@ mod tests {
     }
 
     #[test]
+    fn reads_ranges_written_with_a_slash_a_word_spaces_or_full_dates() {
+        for (text, range) in [
+            ("1683/1750", (1683, 1750)),
+            ("1833 à 1852", (1833, 1852)),
+            ("1841 1860", (1841, 1860)),
+            ("13/11/1697 - 06/11/1707", (1697, 1707)),
+            ("01/01/1700-31/12/1766", (1700, 1766)),
+            ("26 juillet 1849-20 février 1850", (1849, 1850)),
+            ("Juin 1732 - Mars 1762", (1732, 1762)),
+        ] {
+            assert_eq!(period_ranges(text), [range], "{text}");
+        }
+        assert_eq!(
+            period_ranges("Baptêmes (1512-1569 (incomplet), 1597-1673)"),
+            [(1512, 1569), (1597, 1673)]
+        );
+        assert_eq!(period_ranges("1851, 1856"), [(1851, 1851), (1856, 1856)]);
+    }
+
+    #[test]
     fn reads_the_numbers_a_register_spans() {
         for (text, marked, expected) in [
             (
@@ -382,6 +448,11 @@ mod tests {
             ("1 à 500", false, Some((1, 500))),
             ("1-500", false, Some((1, 500))),
             ("classe 1870, 1 à 500", false, Some((1, 500))),
+            // One person's matricule spans itself.
+            ("984", false, Some((984, 984))),
+            ("Bureau 984", false, None),
+            ("ACHARD Louis (matricule 984)", true, Some((984, 984))),
+            ("Matricule n°1", true, Some((1, 1))),
         ] {
             assert_eq!(number_range(text, marked), expected, "{text}");
         }

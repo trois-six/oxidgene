@@ -1,19 +1,22 @@
 //! Reading a Ligeo portal's answers: the results page and the register's
 //! IIIF manifest.
 //!
-//! The results page is an HTML table, `table#resultats`: a header row
-//! (`tr.entete`) and one row per register (`tr.pair`, `tr.impair`). Which
-//! columns it has depends on the portal, so each is found by its header text;
-//! the viewer link of a row (`/ark:/<naan>/<id>/<tag>/<group>/layout:table…`)
-//! carries the register's address and, in its `title`, the image count.
+//! The results are a table, `table#resultats`, whose header row
+//! (`tr.entete`) names the columns of the rows (`tr.pair`, `tr.impair`), or
+//! a list of notices whose items carry their own labels. Which columns or
+//! items a search shows depends on the portal, so each is found by its
+//! header text or label; the viewer link of a row
+//! (`/ark:/<naan>/<id>/<tag>/<group>/layout:table…`) carries the register's
+//! address and, in its `title`, the image count.
 
 use serde::Deserialize;
 
-use super::Columns;
+use super::place::{Place, places};
+use super::settings::{Columns, Names};
 use crate::ResolveError;
-use crate::citation::CitationGrammar;
+use crate::citation::{CallNumber, CitationGrammar};
 use crate::platform::markup::{
-    attribute, attributes, first_number, fold, is_challenge, split_after, strip_tags, text_after,
+    attribute, attributes, first_number, fold, split_after, strip_tags, text_after, unreadable,
 };
 use crate::platform::select::{Candidate, number_range};
 
@@ -41,11 +44,14 @@ impl Register {
         format!("{}/manifest", self.ark)
     }
 
-    /// Reads a viewer link: `/ark:/<naan>/<id>/<tag>/<group>`, followed by
-    /// `/layout:…` on a results page.
+    /// Reads a viewer link: `/ark:/<naan>/<id>/<tag>/<group>`, followed on
+    /// a results page by named segments (`/layout:table`, `/idsearch:…`).
     pub(super) fn parse(href: &str) -> Option<Self> {
-        let path = href.split("/layout:").next()?;
-        let segments: Vec<_> = path.strip_prefix("/ark:/")?.split('/').collect();
+        let segments: Vec<_> = href
+            .strip_prefix("/ark:/")?
+            .split('/')
+            .take_while(|segment| !segment.contains(':'))
+            .collect();
         let [naan, id, tag, group] = segments[..] else {
             return None;
         };
@@ -74,154 +80,259 @@ fn is_name(text: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
 }
 
+/// What the adapter keeps of a result row besides what selection compares:
+/// the register to open, and every place and parish the row names, against
+/// which the cited ones are matched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Row {
+    /// `None` for a register listed without a viewer link: not digitised.
+    pub(super) register: Option<Register>,
+    pub(super) places: Vec<Place>,
+    pub(super) parishes: Vec<String>,
+}
+
 /// The rows of a results page, and the count the page announces.
 pub(super) struct Found {
     pub(super) total: Option<usize>,
-    pub(super) rows: Vec<Candidate<Option<Register>>>,
+    pub(super) rows: Vec<Candidate<Row>>,
 }
 
 /// The results of a search. A page without the results container is not a
 /// Ligeo page: an anti-bot challenge when it bears a known signature, a
-/// changed shape otherwise.
+/// changed shape otherwise. The results are a table whose header names the
+/// columns (`tr.entete`), or notices whose items are labelled (`div.items >
+/// strong.arc_libelle_strong`), in a list (`tr.arc_pair`, `tr.arc_impair`)
+/// or in a finding aid (`li.arc_notice`).
 pub(super) fn results(answer: &str, columns: &Columns) -> Result<Found, ResolveError> {
-    if !answer.contains("id=\"arc_liste_update\"") {
-        return Err(if is_challenge(answer) {
-            ResolveError::Challenged
-        } else {
-            unexpected("the answer is not a results page")
-        });
-    }
-    let total = text_after(answer, "nb_reponses\"><span>")
-        .or_else(|| text_after(answer, "arc_nbr_reponses\">"))
-        .and_then(|text| first_number(&text));
-    // No table is no register: the portal shows its help text instead.
-    let Some((_, table)) = answer.split_once("id=\"resultats\"") else {
-        return Ok(Found {
-            total: total.or(Some(0)),
-            rows: Vec::new(),
-        });
+    // A search's results, or a finding aid's notices.
+    let container = answer
+        .find("id=\"arc_liste_update\"")
+        .or_else(|| answer.find("id=\"arc_fonds_notice\""));
+    let Some(start) = container else {
+        return Err(unreadable(
+            answer,
+            "ligeo: the answer is not a results page".to_owned(),
+        ));
     };
-    let table = table.split("</table>").next().unwrap_or(table);
-
-    let mut layout = None;
-    let mut rows = Vec::new();
-    for fragment in split_after(table, "<tr class=\"") {
-        if fragment.starts_with("entete") {
-            layout = Some(Layout::read(fragment, columns)?);
-        } else if fragment.starts_with("pair") || fragment.starts_with("impair") {
-            let layout = layout
-                .as_ref()
-                .ok_or_else(|| unexpected("rows come before the table header"))?;
-            rows.push(layout.row(fragment));
+    let list = &answer[start..];
+    let list = list.split("<!-- fin-res -->").next().unwrap_or(list);
+    let total = text_after(list, "nb_reponses\"><span>")
+        .or_else(|| text_after(list, "arc_nbr_reponses\">"))
+        .and_then(|text| first_number(&text));
+    let table = list
+        .split_once("id=\"resultats\"")
+        .map(|(_, table)| table.split("</table>").next().unwrap_or(table));
+    let rows = match table {
+        Some(table) if table.contains("<tr class=\"entete") => table_rows(table, columns)?,
+        Some(table) if table.contains("<tr class=\"arc_") => {
+            notice_rows(&split_after(table, "<tr class=\"arc_"), columns)
         }
-    }
+        _ if list.contains("<li class=\"arc_notice") => {
+            notice_rows(&split_after(list, "<li class=\"arc_notice"), columns)
+        }
+        // No result is no register: the portal shows its help text instead.
+        _ => {
+            return Ok(Found {
+                total: total.or(Some(0)),
+                rows: Vec::new(),
+            });
+        }
+    };
     Ok(Found { total, rows })
 }
 
-/// The position of each configured column.
-struct Layout {
-    locality: Option<usize>,
-    title: Option<usize>,
-    acts: Option<usize>,
-    parish: Option<usize>,
-    period: Option<usize>,
-    call_number: Option<usize>,
-    numbers: Option<usize>,
+/// The texts of a row, by folded header or label.
+struct Cells(Vec<(String, String)>);
+
+impl Cells {
+    /// The texts of the cells `names` names, each once, joined: the acts of a
+    /// document-type column and of an act column read together.
+    fn get(&self, names: Option<&Names>) -> Option<String> {
+        let mut texts: Vec<&str> = Vec::new();
+        for name in names?.list() {
+            let wanted = fold(name);
+            for (_, text) in self.0.iter().filter(|(name, _)| *name == wanted) {
+                if !text.is_empty() && !texts.contains(&text.as_str()) {
+                    texts.push(text);
+                }
+            }
+        }
+        (!texts.is_empty()).then(|| texts.join(" ; "))
+    }
 }
 
-impl Layout {
-    fn read(header: &str, columns: &Columns) -> Result<Self, ResolveError> {
-        let headers: Vec<String> = header
-            .split("<th")
-            .skip(1)
-            .map(|cell| {
-                fold(&strip_tags(
-                    cell.split_once('>').map_or("", |(_, rest)| rest),
-                ))
-            })
-            .collect();
-        let find = |name: &Option<String>| -> Result<Option<usize>, ResolveError> {
-            let Some(name) = name else {
-                return Ok(None);
-            };
-            let wanted = fold(name);
-            headers
-                .iter()
-                .position(|header| *header == wanted)
-                .map(Some)
-                .ok_or_else(|| unexpected("the results table lacks a configured column"))
-        };
-        Ok(Self {
-            locality: find(&columns.locality)?,
-            title: find(&columns.title)?,
-            acts: find(&columns.acts)?,
-            parish: find(&columns.parish)?,
-            period: find(&columns.period)?,
-            call_number: find(&columns.call_number)?,
-            numbers: find(&columns.numbers)?,
-        })
-    }
+/// A cell's text: tags stripped, and the dashes and bullets that portals
+/// put around a heading's parts trimmed (`2 E 1/1 - `, ` • 1843 1852`).
+fn cell_text(html: &str) -> String {
+    strip_tags(html)
+        .trim_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '\u{2022}' | ':'))
+        .to_owned()
+}
 
-    fn row(&self, html: &str) -> Candidate<Option<Register>> {
-        let cells: Vec<String> = html
-            .split("<td")
-            .skip(1)
-            .map(|cell| {
-                let body = cell.split_once('>').map_or("", |(_, rest)| rest);
-                strip_tags(body.split("</td>").next().unwrap_or(body))
-            })
-            .collect();
-        let cell = |index: Option<usize>| {
-            index
-                .and_then(|index| cells.get(index))
-                .filter(|text| !text.is_empty())
-                .cloned()
-        };
-        let link = viewer_link(html);
-        let label = link.as_ref().and_then(|link| link.label.as_deref());
-
-        let title = cell(self.title);
-        let (locality, parish) = match &title {
-            Some(title) => {
-                let locality = title_locality(title);
-                let parish = title_parish(title, &locality);
-                (Some(locality), parish)
+/// The rows of a table, each cell named by its column's header. A column the
+/// settings name that the table lacks is a changed shape.
+fn table_rows(table: &str, columns: &Columns) -> Result<Vec<Candidate<Row>>, ResolveError> {
+    let mut headers: Option<Vec<String>> = None;
+    let mut rows = Vec::new();
+    for fragment in split_after(table, "<tr class=\"") {
+        if fragment.starts_with("entete") {
+            let names: Vec<String> = fragment
+                .split("<th")
+                .skip(1)
+                .map(|cell| {
+                    fold(&cell_text(
+                        cell.split_once('>').map_or("", |(_, rest)| rest),
+                    ))
+                })
+                .collect();
+            if !columns
+                .all()
+                .all(|column| column.list().iter().any(|name| names.contains(&fold(name))))
+            {
+                return Err(unexpected("the results table lacks a configured column"));
             }
-            None => (
-                cell(self.locality).map(|text| clean_locality(&text)),
-                cell(self.parish),
-            ),
-        };
-        let act = match (&title, cell(self.acts)) {
-            (Some(title), _) => act_code(title, false),
-            (None, Some(acts)) => act_code(&acts, true),
-            // The link's own title names the register where there is no
-            // act column (`BMS` on parish registers).
-            (None, None) => label.and_then(|label| act_code(label, true)),
-        };
-        let call_number =
-            cell(self.call_number).or_else(|| title.as_deref().and_then(title_call_number));
-        // The numbers a register spans, from their own column, or after a
-        // range word in the title or the link's label (`n° 1 à 1586`).
-        let numbers = match cell(self.numbers) {
-            Some(numbers) => number_range(&numbers, false),
-            None => title
-                .as_deref()
-                .and_then(|title| number_range(title, true))
-                .or_else(|| label.and_then(|label| number_range(label, true))),
-        };
-
-        Candidate {
-            locality,
-            call_number,
-            act,
-            parish,
-            period: cell(self.period),
-            images: link.as_ref().and_then(|link| link.images),
-            numbers,
-            payload: link.map(|link| link.register),
+            headers = Some(names);
+        } else if ["pair", "impair", "arc_pair", "arc_impair"]
+            .iter()
+            .any(|class| fragment.starts_with(class))
+        {
+            let headers = headers
+                .as_ref()
+                .ok_or_else(|| unexpected("rows come before the table header"))?;
+            let cells = fragment.split("<td").skip(1).map(|cell| {
+                let body = cell.split_once('>').map_or("", |(_, rest)| rest);
+                cell_text(body.split("</td>").next().unwrap_or(body))
+            });
+            let cells = Cells(headers.iter().cloned().zip(cells).collect());
+            rows.push(candidate(&cells, columns, fragment));
         }
     }
+    Ok(rows)
+}
+
+/// The classes of a notice's heading parts, read as cells of those names:
+/// `span.cote`, `span.unittitle`, `span.date`.
+const HEADING_PARTS: [&str; 3] = ["cote", "unittitle", "date"];
+
+/// The rows of a list of notices. Each item names its own cell
+/// (`<strong class="arc_libelle_strong">Commune : </strong>…`); the heading's
+/// parts are cells named by their class, and the whole heading
+/// (`div.title`) the cell `title`. A notice shows only the items it has, so
+/// a missing one is no changed shape.
+fn notice_rows(notices: &[&str], columns: &Columns) -> Vec<Candidate<Row>> {
+    notices
+        .iter()
+        .map(|notice| {
+            let mut cells = Vec::new();
+            for item in split_after(notice, "class=\"arc_libelle_strong\">") {
+                let Some((label, rest)) = item.split_once("</strong>") else {
+                    continue;
+                };
+                let value = rest.split("</div>").next().unwrap_or(rest);
+                cells.push((fold(&strip_tags(label)), cell_text(value)));
+            }
+            for part in HEADING_PARTS {
+                for span in split_after(notice, &format!("<span class=\"{part}\">")) {
+                    cells.push((
+                        part.to_owned(),
+                        cell_text(span.split("</span>").next().unwrap_or(span)),
+                    ));
+                }
+            }
+            if let Some(heading) = split_after(notice, "<div class=\"title\">").first() {
+                cells.push((
+                    "title".to_owned(),
+                    cell_text(heading.split("</div>").next().unwrap_or(heading)),
+                ));
+            }
+            candidate(&Cells(cells), columns, notice)
+        })
+        .collect()
+}
+
+/// A row's candidate: what selection compares, read from the cells the
+/// settings name, the viewer link's title standing in for an act or a range
+/// of numbers the cells lack.
+fn candidate(cells: &Cells, columns: &Columns, html: &str) -> Candidate<Row> {
+    let link = viewer_link(html);
+    let label = link.as_ref().and_then(|link| link.label.as_deref());
+    let title = cells.get(columns.title.as_ref());
+
+    let (places, parishes) = match (cells.get(columns.locality.as_ref()), &title) {
+        (Some(locality), _) => {
+            let parishes = cells
+                .get(columns.parish.as_ref())
+                .map(|text| places(&text).into_iter().map(|place| place.name).collect())
+                .unwrap_or_default();
+            (places(&locality), parishes)
+        }
+        (None, Some(title)) => {
+            let head = title_head(title);
+            let locality = title_locality(head);
+            let parish = title_parish(head, &locality);
+            let mut place = Place::new(&locality);
+            place.parish.clone_from(&parish);
+            (vec![place], parish.into_iter().collect())
+        }
+        (None, None) => (Vec::new(), Vec::new()),
+    };
+
+    let act = cells
+        .get(columns.acts.as_ref())
+        .and_then(|acts| act_code(&acts, true))
+        .or_else(|| title.as_deref().and_then(|title| act_code(title, false)))
+        // The link's own title names the register where nothing else does
+        // (`BMS` on parish registers).
+        .or_else(|| label.and_then(|label| act_code(label, true)));
+    let call_number = cells
+        .get(columns.call_number.as_ref())
+        .map(|text| call_number_of(&text))
+        .filter(|text| !text.is_empty())
+        .or_else(|| title.as_deref().and_then(title_call_number))
+        // A link whose title names the register by its call number alone
+        // (`3 vues - 9 Mi 99`).
+        .or_else(|| {
+            label
+                .filter(|label| is_call_number(label))
+                .map(str::to_owned)
+        });
+    // The numbers a register spans, from their own column, or after a range
+    // word in the title or the link's label (`n° 1 à 1586`).
+    let numbers = match cells.get(columns.numbers.as_ref()) {
+        Some(numbers) => number_range(&numbers, false),
+        None => title
+            .as_deref()
+            .and_then(|title| number_range(title, true))
+            .or_else(|| label.and_then(|label| number_range(label, true))),
+    };
+
+    Candidate {
+        locality: places.first().map(|place| place.name.clone()),
+        call_number,
+        act,
+        parish: parishes
+            .first()
+            .cloned()
+            .or_else(|| places.first().and_then(|place| place.parish.clone())),
+        period: cells.get(columns.period.as_ref()),
+        images: link.as_ref().and_then(|link| link.images),
+        numbers,
+        payload: Row {
+            register: link.map(|link| link.register),
+            places,
+            parishes,
+        },
+    }
+}
+
+/// A call number cell up to the heading's next part: `9 E 99 /1` for
+/// `9 E 99 /1 - Décès`.
+fn call_number_of(text: &str) -> String {
+    text.split(" - ")
+        .next()
+        .unwrap_or(text)
+        .trim_end_matches([' ', '-'])
+        .to_owned()
 }
 
 /// A row's viewer link.
@@ -258,23 +369,35 @@ fn viewer_link(row: &str) -> Option<ViewerLink> {
     })
 }
 
-/// A locality cell without the thesaurus qualifier some portals add:
-/// `Exampleville (commune ; Exampledept, France)`.
-fn clean_locality(text: &str) -> String {
-    text.split(" (")
-        .next()
-        .and_then(|name| name.split(" -- ").next())
-        .unwrap_or(text)
-        .trim()
-        .to_owned()
+/// The call number a heading starts with, before its first ` - `: `9 M 99`
+/// in `9 M 99 - Exampleville - 1901`. It starts with a digit, unlike a
+/// locality and its period (`EXAMPLEVILLE 1746/1753 - Exampleville`).
+fn leading_call_number(title: &str) -> Option<(&str, &str)> {
+    let (first, rest) = title.split_once(" - ")?;
+    (first.starts_with(|c: char| c.is_ascii_digit()) && is_call_number(first))
+        .then(|| (first.trim(), rest))
 }
 
-/// The locality a title begins with: up to the first ` : `, `, ` or `. `
-/// (`Exampleville. 1 E 1 registre paroissial : …`).
+/// A title without the call number some headings start with: `Exampleville
+/// - 1901` for `9 M 99 - Exampleville - 1901`.
+fn title_head(title: &str) -> &str {
+    leading_call_number(title).map_or(title, |(_, rest)| rest)
+}
+
+/// The locality a title begins with: up to the first ` : `, `, `, `. `,
+/// `.- `, ` - ` or ` n°`, or the first word starting with a digit
+/// (`Exampleville. 1 E 1 registre paroissial : …`, `Exampleville.- Baptêmes`,
+/// `EXAMPLEVILLE 1746/1753 - Exampleville`, `Bureau de Exampleville n° 1 à
+/// 500`).
 fn title_locality(title: &str) -> String {
-    let end = [" : ", ", ", ". "]
+    let digit = title
+        .match_indices(' ')
+        .find(|(at, _)| title[at + 1..].starts_with(|c: char| c.is_ascii_digit()))
+        .map(|(at, _)| at);
+    let end = [" : ", ", ", ". ", ".- ", " - ", " n°", " N°"]
         .iter()
         .filter_map(|separator| title.find(separator))
+        .chain(digit)
         .min()
         .unwrap_or(title.len());
     title[..end].trim().to_owned()
@@ -296,10 +419,20 @@ fn title_parish(title: &str, locality: &str) -> Option<String> {
     (!parish.is_empty()).then(|| parish.to_owned())
 }
 
-/// The call number a title carries after its first sentence, up to the
-/// first comma or the first word that is not one:
-/// `Muret, paroisse de Saint-Jacques. 1 GG 8, registre paroissial : …`.
+/// Whether a text is shaped as a citation's call number is (Archive Portals
+/// §5.1): `9 E 99`, `1 Mi 912`, not `Exampleville` or `acte 26`.
+fn is_call_number(text: &str) -> bool {
+    CallNumber::is_shaped(text.trim())
+}
+
+/// The call number a title carries: before its first ` - ` (`9 M 99 -
+/// Exampleville`), or after its first sentence, up to the first comma or
+/// the first word that is not one (`Muret, paroisse de Saint-Jacques. 1 GG
+/// 8, registre paroissial : …`).
 fn title_call_number(title: &str) -> Option<String> {
+    if let Some((call_number, _)) = leading_call_number(title) {
+        return Some(call_number.to_owned());
+    }
     let after = title.split_once(". ")?.1;
     let mut words = Vec::new();
     for word in after.split(' ') {
