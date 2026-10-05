@@ -8,14 +8,25 @@
 //! ```
 //!
 //! such as `AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13`.
+//! A series of records other than acts — a census, a military register, a
+//! conscription list, succession tables — is named in words where the parish
+//! and the act would stand, and its fields vary more:
+//!
+//! ```text
+//! <code> - [<locality>] - [<period>] - <series in words> - [<period>] - <free…> - vue <n>[d|g]/<count>
+//! ```
+//!
+//! such as `AD99 - Exampleville - Recensement - 1872 - 6 M 999 - vue 12g/40`.
 //! The code selects a catalogue entry, whose `citation` settings may adjust
 //! the grammar ([`CitationGrammar`]); nothing here is specific to one archive
 //! or one portal.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use oxidgene_core::calendar;
-use oxidgene_core::enums::Calendar;
+use oxidgene_core::enums::{Calendar, DocumentCategory};
+use oxidgene_core::search::fold_words;
 use serde::{Deserialize, Serialize};
 
 /// What separates the fields of a normalized citation.
@@ -26,6 +37,14 @@ const MAX_VIEW_RANGE: u16 = 10;
 
 /// The last year of the French Republican calendar, an XIV (1805–1806).
 const LAST_REPUBLICAN_YEAR: i32 = 14;
+
+/// The first year whose marriages the civil status records rather than the
+/// parish registers.
+const FIRST_CIVIL_STATUS_YEAR: u16 = 1793;
+
+/// The words, folded, that introduce an act or matricule number:
+/// `acte 26`, `matricule 1268`, `n° 12`.
+const NUMBER_WORDS: [&str; 5] = ["acte", "matricule", "n", "no", "numero"];
 
 const ROMAN_NUMERALS: [&str; LAST_REPUBLICAN_YEAR as usize] = [
     "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV",
@@ -44,15 +63,18 @@ pub enum ActKind {
     Death,
     /// `S`, parish registers.
     Burial,
+    /// `P`, publications of banns, filed with the marriages.
+    Publication,
 }
 
 impl ActKind {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Birth,
         Self::Baptism,
         Self::Marriage,
         Self::Death,
         Self::Burial,
+        Self::Publication,
     ];
 
     /// The letter a normalized citation writes this act with.
@@ -63,19 +85,134 @@ impl ActKind {
             Self::Marriage => 'M',
             Self::Death => 'D',
             Self::Burial => 'S',
+            Self::Publication => 'P',
         }
     }
 
     pub fn from_letter(letter: char) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.letter() == letter)
     }
+
+    /// The kind whose registers hold this one: publications of banns are
+    /// kept with the marriages, so whatever holds marriages holds them.
+    pub const fn filed_as(self) -> Self {
+        match self {
+            Self::Publication => Self::Marriage,
+            other => other,
+        }
+    }
 }
 
-/// The act field of a citation, and an entry of a collection's `acts`.
+/// A series of records other than acts, which a citation names in words
+/// where it would write an act code, or by its code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum Series {
+    /// `RP`, population censuses: the nominative lists of a commune and a
+    /// year (French series M).
+    Census,
+    /// `RM`, military registers: the *registres matricules* of a class and a
+    /// recruitment bureau, by matricule number (series R).
+    MilitaryRegister,
+    /// `CM`, conscription lists: conscripts, the contingent, the drawing of
+    /// lots, the mobile national guard (series R).
+    ConscriptionList,
+    /// `TSA`, the tables of successions and absences of a registration
+    /// office and a period (series Q).
+    SuccessionTables,
+}
+
+impl Series {
+    /// Every series, in the order its vocabulary is tried: a field naming
+    /// two series is the first one's.
+    pub const ALL: [Self; 4] = [
+        Self::SuccessionTables,
+        Self::MilitaryRegister,
+        Self::ConscriptionList,
+        Self::Census,
+    ];
+
+    /// The code a collection's `acts` and a normalized citation write.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Census => "RP",
+            Self::MilitaryRegister => "RM",
+            Self::ConscriptionList => "CM",
+            Self::SuccessionTables => "TSA",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|series| series.code() == code)
+    }
+
+    /// The built-in French vocabulary: phrases of folded words, each of
+    /// which a field must contain, in any order, to name the series.
+    const fn phrases(self) -> &'static [&'static str] {
+        match self {
+            Self::Census => &["recensement", "liste nominative", "denombrement"],
+            Self::MilitaryRegister => &["registre matricule", "matricule militaire"],
+            Self::ConscriptionList => &[
+                "conscrit",
+                "conscription",
+                "contingent",
+                "tirage sort",
+                "garde nationale mobile",
+            ],
+            Self::SuccessionTables => &["table succession", "succession absence"],
+        }
+    }
+
+    /// The kind of record a document of this series is.
+    pub const fn category(self) -> DocumentCategory {
+        match self {
+            Self::Census => DocumentCategory::Census,
+            Self::MilitaryRegister | Self::ConscriptionList => DocumentCategory::MilitaryArchive,
+            // Registration records of estates: the closest kind is that of
+            // deeds, wills and inventories.
+            Self::SuccessionTables => DocumentCategory::NotarialArchive,
+        }
+    }
+}
+
+impl fmt::Display for Series {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.code())
+    }
+}
+
+impl TryFrom<String> for Series {
+    type Error = String;
+
+    fn try_from(code: String) -> Result<Self, Self::Error> {
+        Self::from_code(&code).ok_or_else(|| format!("`{code}` is not a series code"))
+    }
+}
+
+impl From<Series> for String {
+    fn from(series: Series) -> Self {
+        series.code().to_owned()
+    }
+}
+
+/// Whether the folded words of a field contain every word of a phrase, a
+/// word also matching its plural in `s` or `x`.
+fn names_phrase(field_words: &[&str], phrase: &str) -> bool {
+    let phrase = fold_words(phrase);
+    !phrase.is_empty()
+        && phrase.split(' ').all(|wanted| {
+            field_words
+                .iter()
+                .any(|word| *word == wanted || word.strip_suffix(['s', 'x']) == Some(wanted))
+        })
+}
+
+/// The kind of document a citation names, and an entry of a collection's
+/// `acts`.
 ///
 /// Written as a code: one act letter (`N`), several for a register mixing
-/// them (`BMS`, `NMD`), or a table code starting with `T` (`TB`, `TD`), kept
-/// as written.
+/// them (`BMS`, `NMD`, `NPMD`), a table code starting with `T` (`TB`, `TD`),
+/// kept as written, or a series code (`RP`, `RM`, `CM`, `TSA`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum Act {
@@ -83,11 +220,16 @@ pub enum Act {
     Register(Vec<ActKind>),
     /// A table, by its code.
     Table(String),
+    /// A series of records other than acts.
+    Series(Series),
 }
 
 impl Act {
-    /// Reads an act code, or `None` for any other text.
+    /// Reads a document kind's code, or `None` for any other text.
     pub fn from_code(code: &str) -> Option<Self> {
+        if let Some(series) = Series::from_code(code) {
+            return Some(Self::Series(series));
+        }
         if let Some(table) = code.strip_prefix('T') {
             let valid = (1..=4).contains(&table.len())
                 && table.bytes().all(|byte| byte.is_ascii_uppercase());
@@ -104,13 +246,63 @@ impl Act {
         (!kinds.is_empty()).then_some(Self::Register(kinds))
     }
 
-    /// The act kinds of a register; none for a table.
+    /// The act kinds of a register; none for a table or a series.
     pub fn kinds(&self) -> &[ActKind] {
         match self {
             Self::Register(kinds) => kinds,
-            Self::Table(_) => &[],
+            Self::Table(_) | Self::Series(_) => &[],
         }
     }
+
+    /// Whether a register of these kinds holds acts of `kind`, publications
+    /// of banns being filed with the marriages.
+    pub fn includes(&self, kind: ActKind) -> bool {
+        self.kinds()
+            .iter()
+            .any(|held| *held == kind || *held == kind.filed_as())
+    }
+
+    /// The kind a portal's act filter searches a register by: its first,
+    /// whose category holds a mixed register, publications of banns being
+    /// searched as marriages.
+    pub fn primary_kind(&self) -> Option<ActKind> {
+        self.kinds().first().map(|kind| kind.filed_as())
+    }
+
+    /// The kind of record a document of this act is, which attaching a
+    /// cited view proposes (Archive Portals §6.4): a parish record for
+    /// baptisms and burials, a civil record for births and deaths, and for
+    /// marriages and banns alone one or the other by `year`; a table is of
+    /// the acts its code names after the `T` (`TB`, `TD`), a civil record
+    /// otherwise; a series is of its own kind. `None` for a marriage without
+    /// a year.
+    pub fn category(&self, year: Option<u16>) -> Option<DocumentCategory> {
+        match self {
+            Self::Register(kinds) => register_category(kinds, year),
+            Self::Table(code) => match Self::from_code(&code[1..]) {
+                Some(Self::Register(kinds)) => register_category(&kinds, year),
+                _ => Some(DocumentCategory::CivilRecord),
+            },
+            Self::Series(series) => Some(series.category()),
+        }
+    }
+}
+
+fn register_category(kinds: &[ActKind], year: Option<u16>) -> Option<DocumentCategory> {
+    let any = |wanted: &[ActKind]| kinds.iter().any(|kind| wanted.contains(kind));
+    if any(&[ActKind::Baptism, ActKind::Burial]) {
+        return Some(DocumentCategory::ParishRecord);
+    }
+    if any(&[ActKind::Birth, ActKind::Death]) {
+        return Some(DocumentCategory::CivilRecord);
+    }
+    year.map(|year| {
+        if year < FIRST_CIVIL_STATUS_YEAR {
+            DocumentCategory::ParishRecord
+        } else {
+            DocumentCategory::CivilRecord
+        }
+    })
 }
 
 impl fmt::Display for Act {
@@ -120,6 +312,7 @@ impl fmt::Display for Act {
                 .iter()
                 .try_for_each(|kind| write!(f, "{}", kind.letter())),
             Self::Table(code) => f.write_str(code),
+            Self::Series(series) => f.write_str(series.code()),
         }
     }
 }
@@ -216,6 +409,9 @@ pub struct CitationGrammar {
     /// Words introducing the cited views, compared without case. Default
     /// `["vue"]`.
     pub view_words: Vec<String>,
+    /// Phrases naming a series, added to the built-in French vocabulary:
+    /// `{"RP": ["dénombrement de population"]}`. Default none.
+    pub series: BTreeMap<Series, Vec<String>>,
 }
 
 impl Default for CitationGrammar {
@@ -223,6 +419,7 @@ impl Default for CitationGrammar {
         Self {
             no_parish: vec!["(aucun)".to_owned()],
             view_words: vec!["vue".to_owned()],
+            series: BTreeMap::new(),
         }
     }
 }
@@ -237,11 +434,44 @@ impl CitationGrammar {
         if self.view_words.iter().any(|word| word.contains(' ')) {
             return Err("a view word is a single word".to_owned());
         }
+        if self
+            .series
+            .values()
+            .flatten()
+            .any(|phrase| fold_words(phrase).is_empty())
+        {
+            return Err("a series phrase needs a word".to_owned());
+        }
         Ok(())
     }
 
     fn is_no_parish(&self, field: &str) -> bool {
         self.no_parish.iter().any(|value| value == field)
+    }
+
+    /// The series a field names: by its code, or in words of the built-in
+    /// vocabulary or of this archive's additions, compared folded (case,
+    /// accents and punctuation ignored).
+    pub fn series_of(&self, field: &str) -> Option<Series> {
+        if let Some(series) = Series::from_code(field) {
+            return Some(series);
+        }
+        let folded = fold_words(field);
+        let words: Vec<&str> = folded.split(' ').collect();
+        Series::ALL.into_iter().find(|series| {
+            series
+                .phrases()
+                .iter()
+                .copied()
+                .chain(
+                    self.series
+                        .get(series)
+                        .into_iter()
+                        .flatten()
+                        .map(String::as_str),
+                )
+                .any(|phrase| names_phrase(&words, phrase))
+        })
     }
 
     /// The views part of a field starting with a view word, such as `5d/13`
@@ -257,20 +487,26 @@ impl CitationGrammar {
 }
 
 /// What a normalized citation identifies. Every part but the code, the
-/// locality and the act is optional.
+/// locality and the act is optional; the locality is empty only for a series
+/// cited without one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CitationParts {
     /// The archive code the title starts with, such as `AD44`.
     pub code: String,
-    /// The locality, which may itself contain ` - `.
+    /// The locality, which may itself contain ` - `; for a military series,
+    /// the recruitment bureau.
     pub locality: String,
     pub parish: Option<String>,
+    /// The kind of document: an act, a table or a series.
     pub act: Act,
-    /// The first year of the period, Gregorian.
+    /// The first year of the period, Gregorian; a military series' class.
     pub year: Option<u16>,
     /// The period as written: `1877`, `1702-1703`, `an XII`.
     pub period: Option<String>,
     pub call_number: Option<CallNumber>,
+    /// The act or matricule number: `acte 26`, `matricule 1268`, or a bare
+    /// `348`. Compared with the numbers a register spans, never sent.
+    pub number: Option<u32>,
     /// The cited views in order; empty when the title cites none, or cites
     /// one beyond its own view count.
     pub views: Vec<CitedView>,
@@ -278,12 +514,60 @@ pub struct CitationParts {
     pub view_count: Option<u16>,
 }
 
+/// What the free fields after the act or the series give.
+struct Tail {
+    call_number: Option<CallNumber>,
+    number: Option<u32>,
+    views: Vec<CitedView>,
+    view_count: Option<u16>,
+}
+
+impl Tail {
+    /// Reads the free fields, the last of which may cite the views: after a
+    /// view word (`vue 5d/13`), or bare (`579/833`) after a number.
+    fn read(mut rest: &[&str], grammar: &CitationGrammar) -> Self {
+        let mut views = Vec::new();
+        let mut view_count = None;
+        if let Some((free, spec)) = rest.split_last().and_then(|(last, free)| {
+            let spec = grammar.view_spec(last).or_else(|| {
+                let after_number = free.last().is_some_and(|field| number_of(field).is_some());
+                (after_number && parse_views(last).is_some()).then_some(*last)
+            })?;
+            Some((free, spec))
+        }) {
+            rest = free;
+            (views, view_count) = parse_views(spec).unwrap_or_default();
+        }
+        Self {
+            call_number: rest
+                .iter()
+                .find(|field| CallNumber::is_shaped(field))
+                .map(|field| CallNumber::new(*field)),
+            number: rest.iter().find_map(|field| number_of(field)),
+            views,
+            view_count,
+        }
+    }
+}
+
 impl CitationParts {
-    /// Reads a normalized source title, or `None` for any other title.
+    /// Reads a normalized source title, or `None` for any other title: an
+    /// act code wins, and a title without one may name a series in words.
     pub fn parse(title: &str, grammar: &CitationGrammar) -> Option<Self> {
         let fields: Vec<&str> = title.split(SEPARATOR).map(str::trim).collect();
         let code = code_of(title)?;
-        let act_at = find_act(&fields)?;
+        find_act(&fields)
+            .and_then(|act_at| Self::parse_act(code, &fields, act_at, grammar))
+            .or_else(|| Self::parse_series(code, &fields, grammar))
+    }
+
+    /// `<code> - <locality> - <parish> - <act> - <period> - <free…>`.
+    fn parse_act(
+        code: &str,
+        fields: &[&str],
+        act_at: usize,
+        grammar: &CitationGrammar,
+    ) -> Option<Self> {
         let locality = fields[1..act_at - 1].join(SEPARATOR);
         if locality.is_empty() || grammar.is_no_parish(&locality) {
             return None;
@@ -304,22 +588,7 @@ impl CitationParts {
             year = Some(first_year);
             rest = &rest[1..];
         }
-
-        let mut views = Vec::new();
-        let mut view_count = None;
-        if let Some((free, spec)) = rest
-            .split_last()
-            .and_then(|(last, free)| Some((free, grammar.view_spec(last)?)))
-        {
-            rest = free;
-            (views, view_count) = parse_views(spec).unwrap_or_default();
-        }
-
-        let call_number = rest
-            .iter()
-            .find(|field| CallNumber::is_shaped(field))
-            .map(|field| CallNumber::new(*field));
-
+        let tail = Tail::read(rest, grammar);
         Some(Self {
             code: code.to_owned(),
             locality,
@@ -327,11 +596,85 @@ impl CitationParts {
             act,
             year,
             period,
-            call_number,
-            views,
-            view_count,
+            call_number: tail.call_number,
+            number: tail.number,
+            views: tail.views,
+            view_count: tail.view_count,
         })
     }
+
+    /// `<code> - [<locality>] - [<period>] - <series> - [<period>] - <free…>`:
+    /// the first field naming a series, the fields before it the locality
+    /// (none, or a `no_parish` value, for a series without one). The period
+    /// is the field after the series, or else the one before it, or else a
+    /// year in parentheses in a free field (`Bureau de … n° 1 à 1586 (1870)`).
+    fn parse_series(code: &str, fields: &[&str], grammar: &CitationGrammar) -> Option<Self> {
+        let (at, series) = fields
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find_map(|(at, field)| Some((at, grammar.series_of(field)?)))?;
+        let mut before = &fields[1..at];
+        let mut rest = &fields[at + 1..];
+        let mut period = None;
+        if let Some((first, after)) = rest.split_first()
+            && let Some(year) = period_start(first)
+        {
+            period = Some((*first, year));
+            rest = after;
+        } else if let Some((last, head)) = before.split_last()
+            && let Some(year) = period_start(last)
+        {
+            period = Some((*last, year));
+            before = head;
+        }
+        if let Some((last, head)) = before.split_last()
+            && grammar.is_no_parish(last)
+        {
+            before = head;
+        }
+        let period = period.or_else(|| rest.iter().find_map(|field| parenthesized_period(field)));
+        let tail = Tail::read(rest, grammar);
+        Some(Self {
+            code: code.to_owned(),
+            locality: before.join(SEPARATOR),
+            parish: None,
+            act: Act::Series(series),
+            year: period.map(|(_, year)| year),
+            period: period.map(|(text, _)| text.to_owned()),
+            call_number: tail.call_number,
+            number: tail.number,
+            views: tail.views,
+            view_count: tail.view_count,
+        })
+    }
+
+    /// The kind of record the cited document is (Archive Portals §6.4).
+    pub fn category(&self) -> Option<DocumentCategory> {
+        self.act.category(self.year)
+    }
+}
+
+/// An act or matricule number: `acte 26`, `matricule 1268`, `n° 12`, or a
+/// bare `348`.
+fn number_of(field: &str) -> Option<u32> {
+    let folded = fold_words(field);
+    let digits = match folded.split_once(' ') {
+        Some((word, digits)) if NUMBER_WORDS.contains(&word) => digits,
+        Some(_) => return None,
+        None => folded.as_str(),
+    };
+    let valid = (1..=7).contains(&digits.len()) && digits.bytes().all(|byte| byte.is_ascii_digit());
+    valid.then(|| digits.parse().ok()).flatten()
+}
+
+/// A period written in parentheses within a free field, such as the class
+/// year of `Bureau de Exampleville n° 1 à 1586 (1870)`.
+fn parenthesized_period(field: &str) -> Option<(&str, u16)> {
+    field.split('(').skip(1).find_map(|after| {
+        let inner = after.split_once(')')?.0.trim();
+        Some((inner, period_start(inner)?))
+    })
 }
 
 /// The archive code a title starts with, when it is shaped like one:
@@ -653,6 +996,7 @@ mod tests {
         let grammar = CitationGrammar {
             no_parish: vec!["-".to_owned(), "(none)".to_owned()],
             view_words: vec!["image".to_owned()],
+            ..CitationGrammar::default()
         };
         let title = "AB12 - Exampleville - (none) - N - 1877 - image 5/13";
         let citation = CitationParts::parse(title, &grammar).expect("a normalized citation");
@@ -679,6 +1023,377 @@ mod tests {
         assert_eq!(grammar.no_parish, ["(aucun)"]);
         assert_eq!(grammar.view_words, ["image"]);
         assert!(serde_json::from_str::<CitationGrammar>(r#"{"other": 1}"#).is_err());
+    }
+
+    /// The act, locality, year, period, call number, number, views and view
+    /// count of a series citation.
+    type SeriesParts = (
+        Act,
+        String,
+        Option<u16>,
+        Option<String>,
+        Option<String>,
+        Option<u32>,
+        Vec<CitedView>,
+        Option<u16>,
+    );
+
+    /// A series citation's parts that tell registers apart.
+    fn series_parts(title: &str) -> SeriesParts {
+        let citation = parse(title).unwrap_or_else(|| panic!("a series citation: {title}"));
+        assert_eq!(citation.code, "AD99", "{title}");
+        assert_eq!(citation.parish, None, "{title}");
+        (
+            citation.act,
+            citation.locality,
+            citation.year,
+            citation.period,
+            citation.call_number.map(|call| call.as_str().to_owned()),
+            citation.number,
+            citation.views,
+            citation.view_count,
+        )
+    }
+
+    #[test]
+    fn reads_a_census_named_in_words() {
+        let census = Act::Series(Series::Census);
+        let s = |text: &str| Some(text.to_owned());
+        assert_eq!(
+            series_parts("AD99 - Exampleville - Recensement - 1872 - 6 M 999 - vue 12g/40"),
+            (
+                census.clone(),
+                "Exampleville".to_owned(),
+                Some(1872),
+                s("1872"),
+                s("6 M 999"),
+                None,
+                vec![view(12, Some(Side::Left))],
+                Some(40)
+            )
+        );
+        // A free field between the year and the call number.
+        assert_eq!(
+            series_parts(
+                "AD99 - Exampleville - Recensement - 1866 - Canton est - 7 M 999 - vue 204d/242"
+            ),
+            (
+                census.clone(),
+                "Exampleville".to_owned(),
+                Some(1866),
+                s("1866"),
+                s("7 M 999"),
+                None,
+                vec![view(204, Some(Side::Right))],
+                Some(242)
+            )
+        );
+        // Variant wording, the year after or before the series.
+        for title in [
+            "AD99 - Exampleville - Recensements de population des communes - 1936 - D2M8/999 - vue 189d/260",
+            "AD99 - Exampleville - 1936 - Recensements de population des communes - D2M8/999 - vue 189d/260",
+        ] {
+            assert_eq!(
+                series_parts(title),
+                (
+                    census.clone(),
+                    "Exampleville".to_owned(),
+                    Some(1936),
+                    s("1936"),
+                    s("D2M8/999"),
+                    None,
+                    vec![view(189, Some(Side::Right))],
+                    Some(260)
+                ),
+                "{title}"
+            );
+        }
+        // The normalized form with the series code reads the same.
+        let citation = parse("AD99 - Exampleville - (aucun) - RP - 1872 - 6 M 999 - vue 12/40")
+            .expect("a normalized citation");
+        assert_eq!(
+            (citation.act, citation.year, citation.parish),
+            (census, Some(1872), None)
+        );
+    }
+
+    #[test]
+    fn reads_succession_and_absence_tables() {
+        let tables = Act::Series(Series::SuccessionTables);
+        let s = |text: &str| Some(text.to_owned());
+        assert_eq!(
+            series_parts(
+                "AD99 - Exampleville - Tables des successions et absences - 1897-1898 - Q_NUM_EXA_50 - vue 13/159"
+            ),
+            (
+                tables.clone(),
+                "Exampleville".to_owned(),
+                Some(1897),
+                s("1897-1898"),
+                s("Q_NUM_EXA_50"),
+                None,
+                vec![view(13, None)],
+                Some(159)
+            )
+        );
+        for wording in [
+            "Table des successions et absences",
+            "Table alphabétique des successions et absences",
+        ] {
+            assert_eq!(
+                series_parts(&format!(
+                    "AD99 - Exampleville - {wording} - 1895-1913 - 3 Q 9999 - acte 31 - vue 102/181"
+                )),
+                (
+                    tables.clone(),
+                    "Exampleville".to_owned(),
+                    Some(1895),
+                    s("1895-1913"),
+                    s("3 Q 9999"),
+                    Some(31),
+                    vec![view(102, None)],
+                    Some(181)
+                ),
+                "{wording}"
+            );
+        }
+    }
+
+    #[test]
+    fn reads_military_registers_and_conscription_lists() {
+        let registers = Act::Series(Series::MilitaryRegister);
+        let lists = Act::Series(Series::ConscriptionList);
+        let s = |text: &str| Some(text.to_owned());
+        // The locality is the recruitment bureau and the year the class; a
+        // bare matricule, then a bare view.
+        assert_eq!(
+            series_parts(
+                "AD99 - Exampleville - Registres matricules - 1898 - 1 R 9999 - 348 - 579/833"
+            ),
+            (
+                registers.clone(),
+                "Exampleville".to_owned(),
+                Some(1898),
+                s("1898"),
+                s("1 R 9999"),
+                Some(348),
+                vec![view(579, None)],
+                Some(833)
+            )
+        );
+        // The call number before a free field holding the class.
+        assert_eq!(
+            series_parts(
+                "AD99 - Exampleville - Registre matricules - 1 R 999 - \
+                 Bureau de Exampleville n° 1 à 1586 (1870) - matricule 1268 - vue 319/436"
+            ),
+            (
+                registers.clone(),
+                "Exampleville".to_owned(),
+                Some(1870),
+                s("1870"),
+                s("1 R 999"),
+                Some(1268),
+                vec![view(319, None)],
+                Some(436)
+            )
+        );
+        // No locality; the years in the series' own name are not its period.
+        assert_eq!(
+            series_parts(
+                "AD99 - Registres matricules des classes 1859 à 1940 - 1871 - 1 R 9999 - vue 181/196"
+            ),
+            (
+                registers,
+                String::new(),
+                Some(1871),
+                s("1871"),
+                s("1 R 9999"),
+                None,
+                vec![view(181, None)],
+                Some(196)
+            )
+        );
+        assert_eq!(
+            series_parts("AD99 - Exampleville - Conscrits militaires - 1897"),
+            (
+                lists.clone(),
+                "Exampleville".to_owned(),
+                Some(1897),
+                s("1897"),
+                None,
+                None,
+                Vec::new(),
+                None
+            )
+        );
+        assert_eq!(
+            series_parts(
+                "AD99 - Exampleville - Liste départementale du contingent et de la garde nationale mobile \
+                 - 1 R 999 - matricule 2189 - vue 183g/476"
+            ),
+            (
+                lists,
+                "Exampleville".to_owned(),
+                None,
+                None,
+                s("1 R 999"),
+                Some(2189),
+                vec![view(183, Some(Side::Left))],
+                Some(476)
+            )
+        );
+    }
+
+    #[test]
+    fn a_bare_view_follows_a_number_only() {
+        let citation = parse("AD99 - Exampleville - Registres matricules - 1898 - 579/833")
+            .expect("a series citation");
+        assert!(citation.views.is_empty());
+        let citation = parse("AD44 - Exampleville - (aucun) - N - 1877 - acte 26 - 5/13")
+            .expect("a normalized citation");
+        assert_eq!(
+            (citation.number, citation.views, citation.view_count),
+            (Some(26), vec![view(5, None)], Some(13))
+        );
+    }
+
+    #[test]
+    fn an_act_code_wins_over_series_words() {
+        let citation = parse("AD44 - Exampleville - (aucun) - N - 1877 - Recensement")
+            .expect("a normalized citation");
+        assert_eq!(citation.act, Act::Register(vec![ActKind::Birth]));
+        // Neither an act nor a series: no citation.
+        assert_eq!(parse("AD99 - Exampleville - Cadastre - 1830"), None);
+    }
+
+    #[test]
+    fn reads_parish_tables_and_publications_of_banns() {
+        for code in ["TB", "TM", "TS", "TN", "TD"] {
+            let citation =
+                parse(&format!("AD99 - Exampleville - (aucun) - {code} - 1750")).expect("a table");
+            assert_eq!(citation.act, Act::Table(code.to_owned()));
+        }
+        use ActKind::{Birth, Death, Marriage, Publication};
+        for (code, kinds) in [
+            ("NPMD", vec![Birth, Publication, Marriage, Death]),
+            ("NMDP", vec![Birth, Marriage, Death, Publication]),
+            ("PM", vec![Publication, Marriage]),
+            ("P", vec![Publication]),
+        ] {
+            let act = Act::from_code(code).expect("an act code");
+            assert_eq!(act, Act::Register(kinds.clone()), "{code}");
+            assert_eq!(act.to_string(), code);
+            // Banns are searched, and held, as marriages.
+            assert_eq!(act.primary_kind(), Some(kinds[0].filed_as()), "{code}");
+            assert!(Act::from_code("NMD").unwrap().includes(Publication));
+        }
+        assert_eq!(Act::from_code("PP"), None);
+    }
+
+    #[test]
+    fn series_codes_serialize_like_acts() {
+        for series in Series::ALL {
+            let act = Act::Series(series);
+            let json = serde_json::to_string(&act).unwrap();
+            assert_eq!(json, format!("\"{}\"", series.code()));
+            assert_eq!(serde_json::from_str::<Act>(&json).unwrap(), act);
+        }
+        // `TSA` is the succession tables, not a table code.
+        assert_eq!(
+            Act::from_code("TSA"),
+            Some(Act::Series(Series::SuccessionTables))
+        );
+        assert!(serde_json::from_str::<Series>("\"XX\"").is_err());
+    }
+
+    #[test]
+    fn an_archive_adds_series_words() {
+        let grammar: CitationGrammar = serde_json::from_str(
+            r#"{"series": {"RP": ["Dénombrement des habitants"], "CM": ["levée"]}}"#,
+        )
+        .unwrap();
+        assert!(grammar.validate().is_ok());
+        assert_eq!(grammar.no_parish, ["(aucun)"]);
+        let title = "AD99 - Exampleville - Levées militaires - 1813";
+        let citation = CitationParts::parse(title, &grammar).expect("a series citation");
+        assert_eq!(citation.act, Act::Series(Series::ConscriptionList));
+        assert_eq!(parse(title), None);
+        // The built-in vocabulary stays.
+        assert_eq!(
+            grammar.series_of("Recensement de population"),
+            Some(Series::Census)
+        );
+        assert_eq!(
+            grammar.series_of("DENOMBREMENT des habitants"),
+            Some(Series::Census)
+        );
+
+        assert!(serde_json::from_str::<CitationGrammar>(r#"{"series": {"XX": ["a"]}}"#).is_err());
+        let blank: CitationGrammar =
+            serde_json::from_str(r#"{"series": {"RP": [" - "]}}"#).unwrap();
+        assert!(blank.validate().is_err());
+    }
+
+    #[test]
+    fn proposes_the_kind_of_record() {
+        use DocumentCategory::{
+            Census, CivilRecord, MilitaryArchive, NotarialArchive, ParishRecord,
+        };
+        for (title, category) in [
+            (
+                "AD44 - Exampleville - (aucun) - B - 1702",
+                Some(ParishRecord),
+            ),
+            (
+                "AD44 - Exampleville - (aucun) - BMS - 1702",
+                Some(ParishRecord),
+            ),
+            (
+                "AD44 - Exampleville - (aucun) - D - 1877",
+                Some(CivilRecord),
+            ),
+            (
+                "AD44 - Exampleville - (aucun) - NPMD - 1877",
+                Some(CivilRecord),
+            ),
+            (
+                "AD44 - Exampleville - (aucun) - M - 1702",
+                Some(ParishRecord),
+            ),
+            (
+                "AD44 - Exampleville - (aucun) - PM - 1877",
+                Some(CivilRecord),
+            ),
+            ("AD44 - Exampleville - (aucun) - M - acte 3", None),
+            (
+                "AD44 - Exampleville - (aucun) - TB - 1750",
+                Some(ParishRecord),
+            ),
+            (
+                "AD44 - Exampleville - (aucun) - TD - 1803",
+                Some(CivilRecord),
+            ),
+            (
+                "AD44 - Exampleville - (aucun) - TA - 1803",
+                Some(CivilRecord),
+            ),
+            ("AD99 - Exampleville - Recensement - 1872", Some(Census)),
+            (
+                "AD99 - Exampleville - Registres matricules - 1898",
+                Some(MilitaryArchive),
+            ),
+            (
+                "AD99 - Exampleville - Conscrits militaires - 1897",
+                Some(MilitaryArchive),
+            ),
+            (
+                "AD99 - Exampleville - Tables des successions et absences - 1897",
+                Some(NotarialArchive),
+            ),
+        ] {
+            assert_eq!(parse(title).unwrap().category(), category, "{title}");
+        }
     }
 
     #[test]

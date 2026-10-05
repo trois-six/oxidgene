@@ -495,6 +495,54 @@ fn validates_its_settings_against_the_collection() {
 }
 
 #[test]
+fn an_engine_without_an_act_filter_searches_a_series_only() {
+    let census = |change: fn(&mut serde_json::Value)| {
+        let mut collection = collection_with(|portal| {
+            portal["fields"].as_object_mut().unwrap().remove("act");
+            portal.as_object_mut().unwrap().remove("acts");
+            portal["cells"]["numbers"] = "matricules".into();
+            change(portal);
+        });
+        collection.acts = vec![Act::Series(crate::Series::Census)];
+        collection
+    };
+    let collection = census(|_| {});
+    assert_eq!(Arkotheque.validate(&collection), Ok(()));
+    // The search sends no act filter.
+    let citation = ArchiveRegistry::embedded()
+        .parse("AD44 - Exampleville - Recensement - 1872 - vue 3/40")
+        .unwrap();
+    let url = Arkotheque.results_url(&collection, &citation).unwrap();
+    assert!(url.contains("Exampleville"), "{url}");
+    assert!(!url.contains("select"), "{url}");
+
+    let error = Arkotheque
+        .validate(&census(|portal| {
+            portal["acts"] = serde_json::json!({"RP": "Recensements[[arko_fiche_1]]"});
+        }))
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("acts without fields.act"),
+        "{error}"
+    );
+    let mut registers = census(|_| {});
+    registers.acts = vec![Act::from_code("B").unwrap()];
+    let error = Arkotheque.validate(&registers).unwrap_err();
+    assert!(
+        error.to_string().contains("`B` needs the act filter"),
+        "{error}"
+    );
+    // With its act filter, a series needs its value like any act.
+    let mut mixed = collection_with(|_| {});
+    mixed.acts.push(Act::Series(crate::Series::Census));
+    let error = Arkotheque.validate(&mixed).unwrap_err();
+    assert!(
+        error.to_string().contains("no filter value for `RP`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn writes_the_locality_in_the_portal_style() {
     let settings = Settings::read(
         &ArchiveRegistry::embedded()

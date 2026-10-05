@@ -152,6 +152,7 @@ async fn registers(
         year: None,
         period: None,
         call_number: None,
+        number: None,
         views: Vec::new(),
         view_count: None,
     };
@@ -174,6 +175,7 @@ async fn registers(
             period: row.period,
             images: row.images,
             address: row.payload.map(|register| register.viewer()),
+            numbers: row.numbers,
         })
         .collect())
 }

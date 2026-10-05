@@ -265,6 +265,7 @@ fn register(call_number: &str, period: &str, images: u16) -> Register {
         period: Some(period.to_owned()),
         images: Some(images),
         address: Some("/viewer".to_owned()),
+        numbers: None,
     }
 }
 
@@ -330,6 +331,40 @@ fn shared_call_numbers_are_told_apart_by_period_and_images() {
     let citation = citation_of(ad44(), &Act::from_code("B").unwrap(), chosen);
     assert_eq!(citation.year, Some(1595));
     assert_eq!(citation.views[0].view, 60);
+}
+
+#[test]
+fn volumes_of_a_military_register_are_told_apart_by_their_matricules() {
+    // Two volumes of one class, with no call number and the same image
+    // count: only their matricules differ.
+    let volume = |first, last| Register {
+        call_number: None,
+        numbers: Some((first, last)),
+        ..register("", "1870", 400)
+    };
+    let registers = [volume(1, 500), volume(501, 1000)];
+    let collection = &ad44().collections[0];
+    let chosen = choose(&registers, "Exampleville", collection).unwrap();
+    assert_eq!(chosen, &registers[0]);
+    assert_eq!(
+        registers
+            .iter()
+            .filter(|other| registers[1].is_confusable_with(other))
+            .count(),
+        1
+    );
+
+    // The citation names the series by its code and the volume by its
+    // first matricule, and reads back as it was built.
+    let series = Act::Series(crate::Series::MilitaryRegister);
+    let citation = citation_of(ad44(), &series, &registers[1]);
+    assert_eq!(citation.number, Some(501));
+    let title = title_of(&citation);
+    assert_eq!(
+        title,
+        "AD44 - Exampleville - (aucun) - RM - 1870 - n° 501 - vue 200/400"
+    );
+    assert_eq!(ArchiveRegistry::embedded().parse(&title), Some(citation));
 }
 
 #[test]

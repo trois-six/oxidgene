@@ -127,7 +127,7 @@ impl Settings {
         let mut missing = Vec::new();
         let filters = [
             ("locality", Some(&self.fields.locality)),
-            ("act", Some(&self.fields.act)),
+            ("act", self.fields.act.as_ref()),
             ("period", self.fields.period.as_ref()),
         ];
         for (role, reference) in filters {
@@ -144,8 +144,13 @@ impl Settings {
         {
             missing.push("display mode".to_owned());
         }
-        let acts = engine
-            .field(&self.fields.act)
+        // An engine searching a series alone has no act filter, and no act
+        // values to look for.
+        let acts = self
+            .fields
+            .act
+            .as_deref()
+            .and_then(|act| engine.field(act))
             .map(|field| engine.values(field))
             .unwrap_or_default();
         for (code, value) in &self.acts {
@@ -238,6 +243,7 @@ async fn registers(
         year: None,
         period: None,
         call_number: None,
+        number: None,
         views: Vec::new(),
         view_count: None,
     };
@@ -261,6 +267,7 @@ async fn registers(
             period: row.period,
             images: row.images,
             address: row.payload.viewer,
+            numbers: row.numbers,
         })
         .collect())
 }

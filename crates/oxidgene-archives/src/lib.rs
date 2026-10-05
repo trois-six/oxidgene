@@ -27,7 +27,9 @@ use std::sync::{LazyLock, Mutex};
 use serde::{Deserialize, Serialize};
 
 pub use catalog::{Archive, CatalogError, Collection, Display, Level, Period};
-pub use citation::{Act, ActKind, CallNumber, CitationGrammar, CitationParts, CitedView, Side};
+pub use citation::{
+    Act, ActKind, CallNumber, CitationGrammar, CitationParts, CitedView, Series, Side,
+};
 pub use platform::{Access, Platform, PortalEndpoint};
 #[cfg(feature = "native")]
 pub use transport::NativeTransport;

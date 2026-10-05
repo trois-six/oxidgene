@@ -180,6 +180,7 @@ pub(super) fn page_rows(html: &str) -> Result<(Vec<Candidate<Register>>, usize),
             parish,
             period: detail("Dates extrêmes"),
             images: None,
+            numbers: None,
             payload: Register { id },
         });
     }

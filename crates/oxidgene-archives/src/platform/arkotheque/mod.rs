@@ -57,6 +57,8 @@ struct Settings {
     fields: Fields,
     /// The act filter value of each act code, with its record key:
     /// `Baptêmes[[arko_fiche_…]]`. The engines match nothing without the key.
+    /// Empty for an engine without an act filter.
+    #[serde(default)]
     acts: BTreeMap<String, String>,
     #[serde(default)]
     locality_style: LocalityStyle,
@@ -68,7 +70,10 @@ struct Settings {
 #[serde(deny_unknown_fields)]
 struct Fields {
     locality: String,
-    act: String,
+    /// Absent from an engine searching one series, such as a census, which
+    /// has no act filter.
+    #[serde(default)]
+    act: Option<String>,
     /// Absent from engines without a period filter.
     #[serde(default)]
     period: Option<String>,
@@ -85,6 +90,10 @@ struct Cells {
     act: Option<String>,
     #[serde(default)]
     period: Option<String>,
+    /// The cell showing the numbers a register spans, such as the
+    /// matricules of a military register (`1 à 1586`).
+    #[serde(default)]
+    numbers: Option<String>,
 }
 
 fn invalid(message: &str) -> CatalogError {
@@ -115,15 +124,11 @@ impl Settings {
         if !self.search_path.starts_with('/') || self.search_path.contains(['?', '#', ' ']) {
             return Err(invalid("search_path must be an absolute path"));
         }
-        let references = [
-            &self.engine,
-            &self.display_mode,
-            &self.fields.locality,
-            &self.fields.act,
-        ];
+        let references = [&self.engine, &self.display_mode, &self.fields.locality];
         if !references
             .into_iter()
             .all(|reference| is_reference(reference))
+            || !self.fields.act.as_deref().is_none_or(is_reference)
             || !self.fields.period.as_deref().is_none_or(is_reference)
         {
             return Err(invalid("engine, display mode and filter references"));
@@ -136,7 +141,12 @@ impl Settings {
         {
             return Err(invalid("content_ids must be numeric identifiers"));
         }
-        let cells = [&self.cells.parish, &self.cells.act, &self.cells.period];
+        let cells = [
+            &self.cells.parish,
+            &self.cells.act,
+            &self.cells.period,
+            &self.cells.numbers,
+        ];
         if !is_reference(&self.cells.locality)
             || !cells.into_iter().flatten().all(|cell| is_reference(cell))
         {
@@ -146,8 +156,24 @@ impl Settings {
     }
 
     /// Every act code is valid and has a filter value with its record key,
-    /// and every act the collection holds has one.
+    /// and every act the collection holds has one. An engine without an act
+    /// filter searches series only: its rows are told apart by their cells.
     fn check_acts(&self, collection: &Collection) -> Result<(), CatalogError> {
+        if self.fields.act.is_none() {
+            if !self.acts.is_empty() {
+                return Err(invalid("acts without fields.act"));
+            }
+            return match collection
+                .acts
+                .iter()
+                .find(|act| !matches!(act, Act::Series(_)))
+            {
+                Some(act) => Err(invalid(&format!(
+                    "`{act}` needs the act filter, fields.act"
+                ))),
+                None => Ok(()),
+            };
+        }
         for (code, value) in &self.acts {
             if Act::from_code(code).is_none() {
                 return Err(invalid(&format!("`{code}` is not an act code")));
@@ -174,7 +200,7 @@ impl Settings {
         self.acts
             .get(&act.to_string())
             .or_else(|| {
-                let first = act.kinds().first()?;
+                let first = act.primary_kind()?;
                 self.acts.get(&first.letter().to_string())
             })
             .map(String::as_str)
@@ -203,8 +229,8 @@ impl Settings {
                 .push(format!("{prefix}[extras][mode]"), mode);
         };
         filter(&self.fields.locality, self.locality(citation), "popup");
-        if let Some(act) = self.act_value(&citation.act) {
-            filter(&self.fields.act, act.to_owned(), "select");
+        if let (Some(field), Some(act)) = (&self.fields.act, self.act_value(&citation.act)) {
+            filter(field, act.to_owned(), "select");
         }
         if let (Some(field), Some(year)) = (&self.fields.period, citation.year) {
             filter(field, format!("{year}|{year}"), "slider");

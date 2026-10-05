@@ -11,10 +11,11 @@ use serde::Deserialize;
 
 use super::Columns;
 use crate::ResolveError;
+use crate::citation::CitationGrammar;
 use crate::platform::markup::{
     attribute, attributes, first_number, fold, is_challenge, split_after, strip_tags, text_after,
 };
-use crate::platform::select::Candidate;
+use crate::platform::select::{Candidate, number_range};
 
 fn unexpected(detail: &str) -> ResolveError {
     ResolveError::UnexpectedResponse(format!("ligeo: {detail}"))
@@ -125,6 +126,7 @@ struct Layout {
     parish: Option<usize>,
     period: Option<usize>,
     call_number: Option<usize>,
+    numbers: Option<usize>,
 }
 
 impl Layout {
@@ -156,6 +158,7 @@ impl Layout {
             parish: find(&columns.parish)?,
             period: find(&columns.period)?,
             call_number: find(&columns.call_number)?,
+            numbers: find(&columns.numbers)?,
         })
     }
 
@@ -198,6 +201,15 @@ impl Layout {
         };
         let call_number =
             cell(self.call_number).or_else(|| title.as_deref().and_then(title_call_number));
+        // The numbers a register spans, from their own column, or after a
+        // range word in the title or the link's label (`n° 1 à 1586`).
+        let numbers = match cell(self.numbers) {
+            Some(numbers) => number_range(&numbers, false),
+            None => title
+                .as_deref()
+                .and_then(|title| number_range(title, true))
+                .or_else(|| label.and_then(|label| number_range(label, true))),
+        };
 
         Candidate {
             locality,
@@ -206,6 +218,7 @@ impl Layout {
             parish,
             period: cell(self.period),
             images: link.as_ref().and_then(|link| link.images),
+            numbers,
             payload: link.map(|link| link.register),
         }
     }
@@ -314,11 +327,15 @@ fn title_call_number(title: &str) -> Option<String> {
         .then_some(call_number)
 }
 
-/// The act of a register as the codes `select` reads: the kinds its text
-/// names (`BMS`), or `TD` for decennial tables. With `codes`, a word made of
-/// act letters (`N`, `B, M, S`, `BMS`) names kinds too; a title would take
-/// an initial for one.
+/// The act of a register as the codes `select` reads: the series its text
+/// names in the citation vocabulary (`RP` for `Recensement de population`),
+/// the kinds its text names (`BMS`), or `TD` for decennial tables. With
+/// `codes`, a word made of act letters (`N`, `B, M, S`, `BMS`) names kinds
+/// too; a title would take an initial for one.
 pub(super) fn act_code(text: &str, codes: bool) -> Option<String> {
+    if let Some(series) = CitationGrammar::default().series_of(text) {
+        return Some(series.code().to_owned());
+    }
     let folded = fold(text);
     let words: Vec<&str> = folded.split(' ').collect();
     if words.iter().any(|word| word.starts_with("decennal")) {

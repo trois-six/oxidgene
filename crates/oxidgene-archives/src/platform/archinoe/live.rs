@@ -363,6 +363,7 @@ async fn registers(
             period: row.period,
             images: row.images,
             address: Some(row.payload.id),
+            numbers: row.numbers,
         })
         .collect())
 }

@@ -123,6 +123,18 @@ pub fn builtin() -> Vec<Box<dyn Platform>> {
     ]
 }
 
+/// Refuses, for an adapter that cannot search series yet, a collection that
+/// holds one, so that the catalogue says so rather than offering a link no
+/// search can follow.
+pub(crate) fn refuse_series(platform: &str, collection: &Collection) -> Result<(), CatalogError> {
+    match collection.series().next() {
+        Some(series) => Err(CatalogError::new(format!(
+            "{platform} settings: the adapter cannot search a series yet (`{series}`)"
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Whether `text` is an `https` origin: a scheme and a host, no path.
 pub(crate) fn is_https_origin(text: &str) -> bool {
     text.strip_prefix("https://").is_some_and(|host| {
@@ -146,6 +158,30 @@ mod tests {
             "archives.example.org",
         ] {
             assert!(!is_https_origin(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn adapters_that_cannot_search_a_series_say_so() {
+        let registry = crate::ArchiveRegistry::embedded();
+        for platform in ["mnesys", "archinoe", "prismia"] {
+            let mut collection = registry
+                .archives()
+                .iter()
+                .flat_map(|archive| &archive.collections)
+                .find(|collection| collection.platform == platform)
+                .expect("a catalogued collection")
+                .clone();
+            let adapter = registry.platform(platform).unwrap();
+            assert_eq!(adapter.validate(&collection), Ok(()), "{platform}");
+            collection
+                .acts
+                .push(crate::Act::Series(crate::Series::MilitaryRegister));
+            let error = adapter.validate(&collection).unwrap_err().to_string();
+            assert!(
+                error.contains("cannot search a series yet (`RM`)"),
+                "{platform}: {error}"
+            );
         }
     }
 

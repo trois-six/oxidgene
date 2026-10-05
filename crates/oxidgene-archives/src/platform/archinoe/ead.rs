@@ -155,6 +155,7 @@ pub(super) fn registers(notice: &str, locality: &str) -> Vec<Candidate<Register>
                 parish: None,
                 period: cell("dates").or_else(|| cell("titres")),
                 images,
+                numbers: None,
                 payload: Register { id },
             })
         })

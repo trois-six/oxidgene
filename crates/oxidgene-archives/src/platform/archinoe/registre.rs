@@ -194,6 +194,7 @@ pub(super) fn rows(
                 .or_else(|| cell(Column::Observations).and_then(|text| observed_parish(&text))),
             period: cell(Column::Period),
             images: None,
+            numbers: None,
             payload: Register { id },
         });
     }

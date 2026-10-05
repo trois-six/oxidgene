@@ -2,7 +2,8 @@
 `python3 generate.py`.
 
 They have the markup and JSON shapes of answers recorded from the Ain,
-Ardèche and Haute-Garonne portals, with fictitious localities, parishes,
+Ardèche and Haute-Garonne portals (and a military-register table built in
+the same markup, not yet recorded), with fictitious localities, parishes,
 call numbers, internal references, ARK names and image paths; no recorded
 value is copied. Only what the adapter reads is kept, plus the neighbouring
 markup it must skip (action cells, notice links, scripts). The manifest keeps
@@ -165,6 +166,29 @@ hg = [
 write("hg-several.html", page(
     '<span class="arc_nbr_reponses">6 réponses dans 1 inventaire</span>',
     '<VTISREP>' + table(HG_HEADERS, hg, thead=False)))
+
+# A military-register search: by recruitment bureau and class, one row per
+# volume of matricules. No such search has been recorded yet: the table has
+# the markup of the portals above and the columns such a search lists, and
+# the link's title names the volume, with its range of matricules, as these
+# portals' titles name a register.
+MATRICULE_HEADERS = ["Bureau de recrutement", "Classe", "Cote", "Matricules", "Vues", "Action(s)"]
+
+
+def matricule_row(n, bureau, year, cote, first, last, count):
+    label = f"Registre matricule, classe {year}, n° {first} à {last}"
+    return [esc(bureau), str(year), cote, f"{first} à {last}", viewer_link(n, count, label),
+            actions(n, 77)]
+
+
+write("matricules.html", page(
+    '<p class="nb_reponses"><span>4</span> réponses à votre recherche</p>',
+    table(MATRICULE_HEADERS, [
+        matricule_row(61, "Exampleville", 1870, "1 R 901", 1, 500, 412),
+        matricule_row(62, "Exampleville", 1870, "1 R 902", 501, 1000, 398),
+        matricule_row(63, "Exampleville", 1871, "1 R 903", 1, 520, 420),
+        matricule_row(64, "Exampleville-lès-Bois", 1870, "1 R 950", 1, 300, 250),
+    ])))
 
 
 # The register's IIIF Presentation 2 manifest: the canvases, image services

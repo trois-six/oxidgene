@@ -1,9 +1,9 @@
 ---
 type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
-description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
+description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing of acts, tables and other series (censuses, military registers, conscription lists, succession tables), the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -141,21 +141,38 @@ that runs an already supported platform is a data change with no code.
 | `display` | `iiif` when OxidGene may show the archive's images in its own viewer and attach them as remote pages (§6.3, §6.4); `portal` when they are shown only in the portal's viewer. Default `portal`. |
 | `attribution` | Credit the archive's reuse terms require, written in the archive's language with `{call_number}` and `{view}` placeholders, such as `Archives départementales d'Indre-et-Loire, {call_number}, vue {view}`. Required when `display` is `iiif`; never translated. |
 | `terms` | Address of the archive's reuse terms. Required when `display` is `iiif`. |
-| `citation` | Optional overrides of the citation grammar for this archive (§5.1): `no_parish`, the parish values meaning none (default `["(aucun)"]`), and `view_words`, the words introducing the views (default `["vue"]`). A field left out keeps its default. |
+| `citation` | Optional overrides of the citation grammar for this archive (§5.1): `no_parish`, the parish values meaning none (default `["(aucun)"]`); `view_words`, the words introducing the views (default `["vue"]`); and `series`, phrases naming a series added to the built-in vocabulary, by series code (`{"RP": ["dénombrement des habitants"]}`, default none). A field left out keeps its default. |
 | `live_check` | `false` to exclude the archive from the scheduled live checks (§9.2). Default `true`. |
 
 **Collections.** Many archives search their parish registers and their civil
 status through different engines — two search pages, sometimes two
-platforms, and the decennial tables often a third. One archive therefore has
+platforms, and the decennial tables often a third — and publish other series
+beside them: population censuses, military registers, conscription lists,
+the registration offices' tables of successions. One archive therefore has
 one or more collections, each resolved on its own:
 
 | Field | Rule |
 |---|---|
-| `id` | Slug unique within the archive: `parish-registers`, `civil-status`, `tables`. |
-| `acts` | Act codes the collection holds (§5.1): `B`, `M`, `S` for parish registers; `N`, `M`, `D` for civil status; table codes such as `TD` for tables. A collection holds a combined act (`BMS`) when it holds each of its kinds. |
+| `id` | Slug unique within the archive: `parish-registers`, `civil-status`, `tables`, `censuses`, `military-registers`. |
+| `acts` | The document kinds the collection holds, by code (§5.1): act codes `B`, `M`, `S` for parish registers and `N`, `M`, `D` for civil status; table codes such as `TD` for tables; series codes for the other series (below). A collection holds a combined act (`BMS`) when it holds each of its kinds, and publications of banns (`P`) where it holds marriages, with which registers file them. |
 | `period` | Optional `[first year, last year]` the collection covers; either bound may be `null`. |
 | `platform` | The adapter that searches it. |
 | `portal` | The adapter's settings for this collection (§4.3, §4.4, §4.5). |
+
+The series codes, each a kind of document a collection may hold:
+
+| Code | Series | French archive series | Searched by |
+|---|---|---|---|
+| `RP` | Population censuses, the nominative lists | M (`6 M`) | Commune and year |
+| `RM` | Military registers (*registres matricules*) | R (`1 R`) | Recruitment bureau, class year, matricule number |
+| `CM` | Conscription lists: conscripts, the contingent, the drawing of lots, the mobile national guard | R | Canton or bureau, class year |
+| `TSA` | Tables of successions and absences | Q, registration (`3 Q`) | Registration office, period |
+
+A series register has no parish. The decennial tables and the parish
+tables keep their table codes (`TD`, `TB`, `TM`, `TS`, `TN`). An adapter
+that cannot search a series yet refuses, when the catalogue loads, a
+collection holding one (§4.2), so a series is offered as a link only where a
+search can follow it.
 
 Resolution picks the collections whose `acts` contain the citation's act and
 whose `period` contains its year, and tries them in catalogue order until one
@@ -344,6 +361,12 @@ the endpoint's origins, and a refused header or body apart.
 An adapter issues only the requests it needs to find one register: no list
 download beyond the search it performs, no image request.
 
+`validate` also refuses a collection holding a series (§3.1) that the
+adapter cannot search, naming the series code: Arkothèque and Ligeo search
+series collections (§4.3, §4.5); Mnesys, Archinoë and Prismia Vision, whose
+observed searches serve acts and tables only, refuse them until a portal's
+series search has been observed.
+
 **Two transports.** Some portals answer any HTTP client; others sit behind a
 JavaScript anti-bot challenge that only a browser passes (the Sarthe portal
 does[^ad72-portal]). The adapter logic is therefore independent of how a
@@ -396,17 +419,17 @@ are:
 | `engine` | The engine's unique reference, such as `arko_default_…`. |
 | `content_ids` | The search component's numeric content identifiers. |
 | `display_mode` | The list display mode reference. |
-| `fields` | References of the `locality` and `act` filters, and of the `period` filter where the engine has one (the Sarthe engines have none). |
-| `acts` | Map from act code to the act filter value, with its record key, as the portal writes it: `Baptèmes[[arko_fiche_…]]` on the Sarthe portal. The engines match nothing without the key. Every act the collection holds needs one; a combined act (`BMS`) without its own entry is searched by its first kind. |
+| `fields` | References of the `locality` filter, of the `act` filter, and of the `period` filter where the engine has one (the Sarthe engines have none). An engine searching a series alone, such as a census engine, may have no act filter: its collection then holds series only, and `acts` is empty. |
+| `acts` | Map from document code to the act filter value, with its record key, as the portal writes it: `Baptèmes[[arko_fiche_…]]` on the Sarthe portal. The engines match nothing without the key. Where the engine has an act filter, every kind the collection holds needs one, a series included; a combined act (`BMS`) without its own entry is searched by its first kind, publications of banns as marriages. |
 | `locality_style` | How the portal writes a locality: `plain` (`Le Mans`, default), or `article_suffix` (`Mans (Le)`, Sarthe), which moves a leading `Le`, `La`, `Les` or `L'` behind the name. |
-| `cells` | The `data-champ` names of the result row cells selection reads: `locality`, and the optional `parish`, `act` and `period`. The Sarthe engine from 1903 writes the period in its act cell (`N 1903 - 1912`), which serves as both. |
+| `cells` | The `data-champ` names of the result row cells selection reads: `locality`, and the optional `parish`, `act`, `period` and `numbers`, the cell showing the numbers a register spans (the matricules of a military register, `1 à 1586`). The Sarthe engine from 1903 writes the period in its act cell (`N 1903 - 1912`), which serves as both. |
 
 Resolution:
 
 1. `GET /_recherche-api/moteur?refUnique=<engine>` with the filters: the
    locality in the portal's `locality_style`, by name (the engines accept it
-   without its record key), the act filter value, and, where the engine has
-   the filter, the period `<year>|<year>`. Each filter carries its `[op]=AND`
+   without its record key), and, where the engine has the filter, the act
+   filter value and the period `<year>|<year>`. Each filter carries its `[op]=AND`
    and its `[extras][mode]` (`popup` for the locality, `select` for the act,
    `slider` for the period), and the query ends with `from=0`,
    `resultSize=100` (the engines accept 25, 50 or 100), the content
@@ -424,16 +447,20 @@ Resolution:
 3. The locality filter is a text match — `Bourg (Le)` also returns
    `Saint-Exemple-lès-le-Bourg` — so rows are first kept by their locality cell,
    folded (case and accents ignored), equal to the cited locality as written
-   or in the portal's style. One register is then selected by the citation
-   parts it has, in order: call number, act kind, parish, period, and image
-   count equal to the cited view count. Selection stops at the first
+   or in the portal's style; a series cited without a locality keeps every
+   row. One register is then selected by the citation parts it has, in
+   order: call number, act kind, parish, period, the cited act or matricule
+   number within the numbers the row spans (`n° 1 à 1586`), and image count
+   equal to the cited view count. Selection stops at the first
    criterion that leaves exactly one row; a criterion the citation lacks is
    skipped, and so is one that would leave no row, since the portal may write
    a parish or a period differently. A cited call number that no row carries
    ends the selection with the results instead: the cited register is not
    among them. An act cell written as codes (`BMS`, `NMD`) must hold every
-   cited kind; one written in words (`Baptêmes, mariages et sépultures`) is
-   left to the engine's filter. A period cell may hold several segments with
+   cited kind, a publication of banns counting as a marriage, and one
+   written as a table or series code must be the cited one; one written in
+   words (`Baptêmes, mariages et sépultures`) is left to the engine's
+   filter. A period cell may hold several segments with
    codes and notes between them (`1598-1613 , 1656-1667`,
    `NMD 1857-1859, N 1853-1872`, `NM an II`), and covers the year when one
    segment does; the engine's own period filter is an overlap test, so a
@@ -591,15 +618,15 @@ collections: its parish registers (search `paroissiaux`) and its civil status
 | `search` | The search's name in the path, `etatcivil`, `paroissiaux`, `etatcivil2`; also sent as `type`. |
 | `node` | The menu node, `n:<node>` in the path. |
 | `fields` | Names of the form inputs: `locality`, and the optional `act`, `year_from` and `year_to` (both or neither), such as `RECH_commune`, `RECH_unitdate_debut`. |
-| `acts` | Map from act code to the act filter, omitted where the form has none (Haute-Garonne, Ardèche parish registers). A string is the value of the `act` input, which a name ending in `[]` makes a checkbox list: a combined act repeats it once per kind (`RECH_acte[]=B&RECH_acte[]=M`), and Ain's tables are `tables`. An object gives inputs of its own, with their values: `{"RECH_doc": "EC", "RECH_acte2": "*aissanc*"}` on the Ardèche civil status; a combined act without its own entry is then searched by its first kind. Every act the collection holds needs one. |
-| `columns` | Header texts of the result table's columns, read as written (case, accents and punctuation ignored): `locality`, and the optional `acts`, `parish`, `period` and `call_number`; or only `title`, with `period`, when the table has a single title column from which locality, parish, acts and call number are read (Haute-Garonne). |
+| `acts` | Map from document code to the act filter, omitted where the form has none (Haute-Garonne, Ardèche parish registers, and the search of a single series, such as military registers by bureau and class). A string is the value of the `act` input, which a name ending in `[]` makes a checkbox list: a combined act repeats it once per kind (`RECH_acte[]=B&RECH_acte[]=M`), publications of banns as marriages, and Ain's tables are `tables`. An object gives inputs of its own, with their values: `{"RECH_doc": "EC", "RECH_acte2": "*aissanc*"}` on the Ardèche civil status; a combined act without its own entry is then searched by its first kind. Every kind the collection holds needs one, a series included, unless the form has no act filter. |
+| `columns` | Header texts of the result table's columns, read as written (case, accents and punctuation ignored): `locality`, and the optional `acts`, `parish`, `period`, `call_number` and `numbers` (the numbers a register spans, `1 à 1586`); or only `title`, with `period`, when the table has a single title column from which locality, parish, acts and call number are read (Haute-Garonne). |
 
 Resolution:
 
 1. `GET <prefix>/resultats/<search>/n:<node>?<locality input>=<locality>&<act filter>&<year_from>=<year>&<year_to>=<year>&type=<search>`, the address a form submission reaches through a redirect from `<prefix>/recherche/…`. Values are the readable names and labels; no key is needed. `results_url` is this address. The locality is a **substring** match (`Exampleville` also returns `Exampleville-lès-Bois`), and the years are an interval test: the register's period contains the year when both inputs are the cited one (`exacte`, the register's own period, is not used). A citation without a year omits both.
 2. The answer is a Ligeo page when it holds `div#arc_liste_update`. Any other body is an anti-bot challenge when it bears the signature of Anubis or of the F5 pages (`ResolveError::Challenged`, §5.2: not drift), and a changed shape otherwise. The count is in `p.nb_reponses > span` or `span.arc_nbr_reponses`; the rows are the `tr.pair` and `tr.impair` of `table#resultats`, each cell mapped by its header text. No table is no match. A header the settings name that the table lacks is a changed shape; more answers than rows read (pages of 20 to 50 rows) gives `Results` with the count rather than a guess.
-3. Each row gives its locality (the cell before the thesaurus qualifier, `Exampleville (commune ; Exampledept, France)`, or the title's head), its acts, period and image count, which the viewer link carries in its `title`, `120 vues  dont 104 indexées - <label> (ouvre la visionneuse)`. Acts are read as the codes selection compares: the kinds the text names (`B, M, S`, `Naissances.`, `baptêmes, mariages`), `TD` for decennial tables; the link's label stands in where there is no act column (`BMS` on parish registers). Letter codes are read in an act cell or label, never in a title, where an initial is not an act. On a title-only table the locality is the title up to ` : `, `, ` or `. ` (`Exampleville. 1 E 1 registre paroissial : …`), the parish the name after it (`Exampleville : Saint-Exemple, paroisse de …`, or `paroisse de Saint-Exemple.`), and the call number the shaped words after the first sentence (`… Saint-Exemple. 1 GG 8, registre …`).
-4. One register is selected as for Arkothèque (§4.3, step 3): rows whose locality, folded, equals the cited one, then act kind, parish, period and image count. The **call number only breaks a tie**: the first selection ignores it, and it is applied only when that leaves several rows, choosing one only if exactly one carries it. The portals disagree on what it is: Ain shows an internal reference, not a call number; the Ardèche `Cote ou référence` is shared by the registers of every locality of the same kind and year; Haute-Garonne has one in the title of communal registers only; the Alpes-Maritimes one is shared by a commune's volumes. A cited call number no row carries therefore does not discard them.
+3. Each row gives its locality (the cell before the thesaurus qualifier, `Exampleville (commune ; Exampledept, France)`, or the title's head), its acts, period and image count, which the viewer link carries in its `title`, `120 vues  dont 104 indexées - <label> (ouvre la visionneuse)`. Acts are read as the codes selection compares: the series the text names in the citation vocabulary (§5.1; `RM` for `Registre matricule`), the kinds the text names (`B, M, S`, `Naissances.`, `baptêmes, mariages`), `TD` for decennial tables; the link's label stands in where there is no act column (`BMS` on parish registers). The numbers a register spans come from the `numbers` column, or else from the title or the link's label after `n°`, `nos`, `numéros` or `matricules` (`Registre matricule, classe 1870, n° 1 à 500`). Letter codes are read in an act cell or label, never in a title, where an initial is not an act. On a title-only table the locality is the title up to ` : `, `, ` or `. ` (`Exampleville. 1 E 1 registre paroissial : …`), the parish the name after it (`Exampleville : Saint-Exemple, paroisse de …`, or `paroisse de Saint-Exemple.`), and the call number the shaped words after the first sentence (`… Saint-Exemple. 1 GG 8, registre …`).
+4. One register is selected as for Arkothèque (§4.3, step 3): rows whose locality, folded, equals the cited one, then act kind, parish, period, number and image count. A military register is thus found by its bureau (the cited locality), its class (the cited year) and the volume whose matricules hold the cited one. The **call number only breaks a tie**: the first selection ignores it, and it is applied only when that leaves several rows, choosing one only if exactly one carries it. The portals disagree on what it is: Ain shows an internal reference, not a call number; the Ardèche `Cote ou référence` is shared by the registers of every locality of the same kind and year; Haute-Garonne has one in the title of communal registers only; the Alpes-Maritimes one is shared by a commune's volumes. A cited call number no row carries therefore does not discard them.
 5. The target is `<origin>/ark:/<naan>/<id>/<tag>/<group>/<view>`, the view one-based. `<tag>/<group>` is kept from the row's viewer link (`/ark:/<naan>/<id>/<tag>/<group>/layout:table/…`): `daogrp/0` normally, `daoloc/0` on the Ardèche parish registers, `dao/0` on finding-aid pages. The portal answers with a redirect to the same path and `?id=<canvas ark>`; its Monocle viewer opens on that view, and a reload keeps it. A view beyond the register's images gives `View` with no views, opened on the first image (§7).
 6. For a `display: "iiif"` archive, `GET /ark:/<naan>/<id>/manifest` (IIIF Presentation 2, `Access-Control-Allow-Origin: *`, not cacheable, 0.25 to 1 MB) gives the image count and, per canvas, the image service and the view's own persistent address (`…/img:<image name>`, returned as `ark`). The canvases' declared sizes are not their images': the live checks found canvases of 1392 × 1212 over images of 2704 × 1780 (Ain), and other proportions on every portal. Each cited view's size is therefore its service's `info.json` (`<service>/info.json`, Image API 3 context, served as `text/html`), one request per view; the manifest's other fields (renderings, thumbnails, file paths) name server paths and are not read. The services are Image API 2 level 1 under the portal's `/iiif/` path, rebuilt on the portal's origin whatever host the manifest declares. Level 1 sizes by width or height, never by a bounding box and never above the image's own size (`404`): the picture is `full/2048,/0/default.jpg` (`,2048` for a portrait image) when the long side exceeds 2048 pixels and `full` otherwise, the thumbnail `full/150,/0/default.jpg`. Images carry `Access-Control-Allow-Origin: *`. A `display: "portal"` archive reads the count from the row and fetches no manifest.
 
@@ -611,7 +638,7 @@ The viewer shows the current view in `.monocle-PageNav input[role="spinbutton"]`
 
 **Not covered.** The finding-aid pages (`/archive/fonds/<finding aid>` on Hautes-Alpes, `/archives/fonds/FRAD057_605804` on Moselle) have no search form. The Moselle page is an inventory tree of commune notices (1.2 MB; each notice, `/archives/archives/fonds/<finding aid>/view:<notice>`, is disallowed by `robots.txt`) whose entries list registers with a `span.cote`, a `span.date`, a title (`93 vues - Naissances, mariages, décès.`) and an ARK `/ark:/<naan>/<id>/dao/0`, which the same viewer path opens on a view. Its only text box posts `RECH_S` to the finding aid. They need a mode of their own, not implemented: until then these archives are catalogued without collections. The `etatcivil2` search (Alpes-Maritimes, Haute-Saône) is a facet form whose results address accepts the same plain inputs (`RECH_commune`, `RECH_acte=<label>`, `RECH_date_debut`, `RECH_date_fin`), and the portals under `/archives/` (Loir-et-Cher) differ by `prefix`; neither is catalogued yet.
 
-The adapter's tests replay anonymized answers shaped like the three portals' (`crates/oxidgene-archives/fixtures/ligeo/`, written by the `generate.py` beside them, which copies no recorded value and keeps no server path).
+The adapter's tests replay anonymized answers shaped like the three portals' (`crates/oxidgene-archives/fixtures/ligeo/`, written by the `generate.py` beside them, which copies no recorded value and keeps no server path), and a military-register table built in the same markup, since no portal's series search has been recorded yet.
 
 ### 4.6 Archinoë
 
@@ -775,21 +802,43 @@ The default grammar is the normalized form:
 <code> - <locality> - <parish> - <act> - <period> - <free…> - vue <n>[d|g]/<count>
 ```
 
+A series of records other than acts (§3.1) is named in words where the
+parish and the act would stand, and its fields vary more, as genealogists
+write them:
+
+```text
+<code> - [<locality>] - [<period>] - <series in words> - [<period>] - <free…> - [vue] <n>[d|g]/<count>
+```
+
+such as `AD99 - Exampleville - Recensement - 1866 - Canton est - 7 M 999 - vue 204d/242`,
+`AD99 - Exampleville - Registres matricules - 1898 - 1 R 9999 - 348 - 579/833` or
+`AD99 - Registres matricules des classes 1859 à 1940 - 1871 - 1 R 9999 - vue 181/196`.
+
 `CitationParts::parse` returns `CitationParts` with every field optional
-except the code, the locality and the act; a title without an act code is not
-a citation. `ArchiveRegistry::parse` reads a title with the grammar overrides
-of the archive its code names (§3.1).
+except the code, the locality and the act; the locality is empty only for a
+series cited without one. A title with neither an act code nor a series is
+not a citation, and a title with an act code is read as an act whatever its
+other fields say. `ArchiveRegistry::parse` reads a title with the grammar
+overrides of the archive its code names (§3.1).
 
 | Part | Read from |
 |---|---|
 | `code` | First field: capitals and digits, matched against `citation_codes`. |
-| `locality` | Fields up to the parish field; may itself contain ` - `. |
-| `parish` | The field before the act, unless it is a `no_parish` value (`(aucun)`). |
-| `act` | The act code: `N`, `B`, `M`, `D`, `S`, and their combinations such as `BMS` or `NMD`, each letter once; `T` followed by one to four capitals is a table code (`TB`, `TD`), kept as written. It is searched from the fourth field on, and an act code followed by a period wins over an earlier one that is not. |
-| `year` | The first year of the period field: `1877`, `1702-1703`, or a Republican year `an XII` (Roman or Arabic numerals, an I to an XIV, as in `an XI-an XII` or `an XI-XII`) converted to the Gregorian year of its 1 Vendémiaire. |
+| `locality` | Fields up to the parish field; may itself contain ` - `. For a series, the fields before the series, without a period field or a `no_parish` value that ends them; possibly none. A military series' locality is its recruitment bureau. |
+| `parish` | The field before the act, unless it is a `no_parish` value (`(aucun)`). A series has none. |
+| `act` | The document kind. An act code: `N`, `B`, `M`, `D`, `S`, `P` (publications of banns, filed and searched with the marriages), and their combinations such as `BMS`, `NMD` or `NPMD`, each letter once; `T` followed by one to four capitals is a table code (`TB`, `TM`, `TS`, `TN`, `TD`), kept as written; a series code `RP`, `RM`, `CM` or `TSA` (§3.1), which `TSA` is rather than a table code. It is searched from the fourth field on, and an act code followed by a period wins over an earlier one that is not. Without an act code, the first field after the code that names a series: by its code, or in words — folded (case, accents and punctuation ignored), the field contains every word of one of the series' phrases, in any order, a word also matching its plural in `s` or `x`. The built-in French phrases are `recensement`, `liste nominative`, `dénombrement` (`RP`); `registre matricule`, `matricule militaire` (`RM`); `conscrit`, `conscription`, `contingent`, `tirage sort`, `garde nationale mobile` (`CM`); `table succession`, `succession absence` (`TSA`); a field naming two series is the first one's in the order `TSA`, `RM`, `CM`, `RP`. An archive's `citation.series` adds phrases. |
+| `year` | The first year of the period field: `1877`, `1702-1703`, or a Republican year `an XII` (Roman or Arabic numerals, an I to an XIV, as in `an XI-an XII` or `an XI-XII`) converted to the Gregorian year of its 1 Vendémiaire. For a series, the period field is the one after the series, or else the one before it, or else a period in parentheses within a free field (`Bureau de Exampleville n° 1 à 1586 (1870)`); years within the series' own name (`des classes 1859 à 1940`) are not its period. A military series' year is its class. |
 | `period` | The period field as written, kept to match portals that list registers by period text. A field that reads as no period leaves both empty and stays a free field. |
 | `call_number` | The first free field shaped like a call number — letters, digits and ` /._-`, at least one digit and one capital, no lowercase word of three letters or more (`1 Mi 456` is one, `acte 26` is not) — compared without spaces or case: `3E73/14` matches `3 E 73 / 14`. |
-| `views`, `view_count` | The last field, introduced by a `view_words` word: `vue <n>[d|g]/<count>`, a range `vue <n>[d|g]-<m>[d|g]/<count>` of at most ten views for an act spanning several, such as `vue 5d-6g/13`, or a view without its count. Each view keeps its side (`d` right, `g` left); in a range the sides apply to its ends. A malformed range, or a view beyond the cited count, leaves both empty. |
+| `number` | The first free field that is an act or matricule number: `acte 31`, `matricule 1268`, `n° 12`, or a bare number of up to seven digits (`348`). Selection compares it with the numbers a register spans (§4.3, step 3); it is never sent to a portal. |
+| `views`, `view_count` | The last field, introduced by a `view_words` word: `vue <n>[d|g]/<count>`, a range `vue <n>[d|g]-<m>[d|g]/<count>` of at most ten views for an act spanning several, such as `vue 5d-6g/13`, or a view without its count; or written bare, `579/833`, right after a number field. Each view keeps its side (`d` right, `g` left); in a range the sides apply to its ends. A malformed range, or a view beyond the cited count, leaves both empty. |
+
+A series cited without a locality, such as a department's military
+registers, is searched with the locality filter empty, and selection keeps
+every row whatever its locality (§4.3, step 3).
+
+The document kind also gives the kind of record attaching a view proposes
+(§6.4), `CitationParts::category`.
 
 The call number is **one criterion among several**, not a requirement: many
 citations carry none, and resolution falls back to the act, the parish and
@@ -883,7 +932,7 @@ as any cited view does, to `View` with no views (§7).
 Both surfaces share one service, validation and error mapping, and are tested
 symmetrically ([API Contract](api.md#sources)). The request sends the portal
 only the locality, period, act and call number; never the person's name, the
-citation text or the act number.
+citation text, or the act or matricule number.
 
 **What is read.** A normalized citation is usually written whole in the
 source title, which is what the interface shows and what the
@@ -1036,10 +1085,17 @@ written before the reader saves it:
 - the title from the call number (the archive's name without one) and views,
   and the description from the attribution of the views; both follow the
   views the reader adds or removes until the reader writes them;
-- the kind of record from the act — `parish_record` for baptisms and
-  burials, `civil_record` for births, deaths and tables, and for a marriage
-  `parish_record` before 1793 and `civil_record` from then — and the medium
-  `manuscript`;
+- the kind of record from the document kind (`CitationParts::category`) and
+  the medium `manuscript`: `parish_record` for baptisms and burials,
+  `civil_record` for births and deaths, and for marriages and banns alone
+  `parish_record` before 1793 and `civil_record` from then (none without a
+  year); a table is of the acts its code names after the `T` (`TB` a parish
+  record, `TD` a civil record), and a civil record when they are no act
+  letters (`TA`); a census (`RP`) is `census`, a military register (`RM`)
+  or conscription list (`CM`) `military_archive`, and succession tables
+  (`TSA`) `notarial_archive` — the data model has no kind for registration
+  records, and estates are the nearest, beside deeds, wills and inventories
+  ([Data Model](data-model.md#media));
 - the event the citation documents, which the document is attached to, and
   the cited source as a link of the document, so the archive address can be
   resolved again from the citation if the portal moves its images.
@@ -1107,19 +1163,23 @@ Archive portals are public services whose terms OxidGene follows:
 
 ## 9. Testing
 
-- Unit tests parse anonymized citations of every catalogued grammar.
+- Unit tests parse anonymized citations of every catalogued grammar, and of
+  every series shape of §5.1: the series in words or by code, the period
+  before or after it or in parentheses, no locality, a matricule or a bare
+  number, a bare view.
 - Adapter tests replay recorded portal responses, anonymized and committed as
   fixtures, covering one match, several matches, no match, a changed
   response shape, and the platform's own cases: for Arkothèque, a locality
   matched as text, a period of several segments, a view beyond the
-  register's images, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, and the images sized by their services' `info.json` rather than the manifest's canvases.
+  register's images, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, and a military register chosen by bureau, class and matricule range.
 - Transport tests check the declared origins, the header allow-list and the
   native cookie jar; the desktop's, that a window's answers reach only their
   own request and only from the archive's origin.
 - Catalogue tests check unique ids and citation codes, that each archive
   sits in its country's directory, that an `iiif` archive has its
   attribution and terms, that every collection's `platform` has an adapter,
-  and that every adapter accepts its collections' `portal`.
+  that every adapter accepts its collections' `portal`, and that an adapter
+  that cannot search a series refuses a collection holding one.
 - Resolver tests run a scripted adapter over a counting transport: collection
   order, the fallbacks, the cache, and offline targets for `browser`
   portals.
@@ -1154,8 +1214,9 @@ renumbering its registers. For each collection of each archive, in order:
    collection's search page loads, and every reference of its `portal`
    settings is still declared by the portal.
 2. **Discovery.** The alphabetically first locality the portal's own
-   locality filter lists, with the first act of the collection's `acts` and
-   no year, returns at least one register whose row yields an image address
+   locality filter lists, with the first document kind of the collection's
+   `acts` — an act, a table or a series alike — and no year, returns at
+   least one register whose row yields an image address
    and a year within the collection's period. The engines list their most
    populated locality first, whose search is the slowest — the largest
    Sarthe parish's baptisms took longer than the 10-second bound of §8 — so
@@ -1165,11 +1226,16 @@ renumbering its registers. For each collection of each archive, in order:
    covering its year; failing that, the first one it can cite. A portal
    whose rows show no call number (Calvados, Ain) has its registers cited
    without one; one whose rows do not count the images (Archinoë) has the
-   chosen register's counted by its viewer page.
+   chosen register's counted by its viewer page. For a series the locality
+   is what its search filters by — the commune of a census, the recruitment
+   bureau of a military register — and registers that show the numbers they
+   span (the volumes of one class) are also told apart by them.
 3. **Resolution.** A citation assembled from that register — its locality
    as a citation writes it (`Le Bourg` for the portal's `Bourg (Le)`), the
-   act, the first year of its period, its call number when it has one, and
-   its middle view `⌈count / 2⌉ / count` — resolves through the `Resolver`
+   document kind by its code (`RM` for a military register), the first year
+   of its period, its call number when it has one, the first number it
+   spans when it shows them (`n° 501`), and its middle view
+   `⌈count / 2⌉ / count` — resolves through the `Resolver`
    to `View` with that call number, that view and, where the adapter counts
    the images, that count; for a `display: "iiif"` archive, with the view's
    image and an attribution without a placeholder left. The same citation
@@ -1459,10 +1525,14 @@ Cases the catalogue model must express:
    footer or credits page.
 3. Before cataloguing an archive, inventory every collection of registers
    its portal publishes — parish registers, civil status, decennial tables,
-   reconstituted or duplicate series — from the portal's own navigation, not
-   from the single entry point of §11.5, and give each searched through its
-   own engine or form a collection with its acts and period. Each collection
-   gets its live check (§9.1).
+   reconstituted or duplicate series, and the other series of §3.1:
+   military registers (*registres matricules*) and conscription lists,
+   population censuses, tables of successions and absences — from the
+   portal's own navigation, not from the single entry point of §11.5, and
+   give each searched through its own engine or form a collection with its
+   document kinds and period. A series whose platform's adapter cannot
+   search it yet (§4.2) is noted, not catalogued. Each collection gets its
+   live check (§9.1).
 4. Catalogue the Arkothèque and Mnesys Expo archives first, then Ligeo, then
    Archinoë / Prismia Vision; then investigate the departments with no
    identified platform: 2A/2B, 09, 11, 22, 30, 32, 35, 38, 52, 53, 61, 64,

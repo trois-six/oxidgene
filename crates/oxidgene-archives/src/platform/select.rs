@@ -10,7 +10,8 @@
 //!    forms (portal searches often match the locality as text: `Bourg (Le)`
 //!    also finds `Saint-Exemple-lès-le-Bourg`);
 //! 2. narrows them by the citation's parts, in order: call number, act kind,
-//!    parish, period, image count, stopping at the first that leaves exactly
+//!    parish, period, the act or matricule number within the numbers a
+//!    register spans, image count, stopping at the first that leaves exactly
 //!    one. A part the citation lacks is skipped, and so is one that would
 //!    leave none, since a portal may write a parish or a period differently.
 //!    The call number is the exception: a cited call number that no
@@ -36,6 +37,9 @@ pub(crate) struct Candidate<T> {
     /// The period as displayed, read by [`covers`].
     pub(crate) period: Option<String>,
     pub(crate) images: Option<u16>,
+    /// The act or matricule numbers the register spans, first and last, when
+    /// the portal shows them (`n° 1 à 1586`), read by [`number_range`].
+    pub(crate) numbers: Option<(u32, u32)>,
     /// What the adapter needs to open the register.
     pub(crate) payload: T,
 }
@@ -75,13 +79,17 @@ pub(crate) fn narrow<'c, T>(
     localities: &[&str],
 ) -> Vec<&'c Candidate<T>> {
     let wanted: Vec<String> = localities.iter().map(|locality| fold(locality)).collect();
+    // A series cited without a locality, such as a department's military
+    // registers, keeps every candidate.
+    let anywhere = wanted.iter().all(String::is_empty);
     let mut kept: Vec<&Candidate<T>> = candidates
         .iter()
         .filter(|candidate| {
-            candidate
-                .locality
-                .as_deref()
-                .is_some_and(|locality| wanted.contains(&fold(locality)))
+            anywhere
+                || candidate
+                    .locality
+                    .as_deref()
+                    .is_some_and(|locality| wanted.contains(&fold(locality)))
         })
         .collect();
     if kept.len() <= 1 {
@@ -123,7 +131,7 @@ pub(crate) fn narrow<'c, T>(
 
 /// The criteria after the call number, in order; `None` for a part the
 /// citation lacks.
-fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 4] {
+fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 5] {
     [
         Some(
             Box::new(|candidate: &Candidate<T>| holds_act(candidate.act.as_deref(), &citation.act))
@@ -146,6 +154,13 @@ fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 4]
                     .is_some_and(|period| covers(period, year))
             }) as Criterion<'c, T>
         }),
+        citation.number.map(|number| {
+            Box::new(move |candidate: &Candidate<T>| {
+                candidate
+                    .numbers
+                    .is_some_and(|(first, last)| (first..=last).contains(&number))
+            }) as Criterion<'c, T>
+        }),
         citation.view_count.map(|count| {
             Box::new(move |candidate: &Candidate<T>| candidate.images == Some(count))
                 as Criterion<'c, T>
@@ -154,17 +169,53 @@ fn criteria<'c, T>(citation: &'c CitationParts) -> [Option<Criterion<'c, T>>; 4]
 }
 
 /// Whether a displayed act admits the cited act. Acts written as codes
-/// (`BMS`, `NMD`, `TD`) must hold every cited kind, or be the cited table;
-/// acts in words (`Baptêmes, mariages et sépultures`), with a period
-/// (`N 1903 - 1912`), or not displayed are left to the portal's own filter.
+/// (`BMS`, `NMD`, `TD`, `RP`) must hold every cited kind (publications of
+/// banns with the marriages), or be the cited table or series; acts in words
+/// (`Baptêmes, mariages et sépultures`), with a period (`N 1903 - 1912`), or
+/// not displayed are left to the portal's own filter.
 pub(crate) fn holds_act(displayed: Option<&str>, act: &Act) -> bool {
     let Some(written) = displayed.and_then(|text| Act::from_code(text.trim())) else {
         return true;
     };
     match act {
-        Act::Register(kinds) => kinds.iter().all(|kind| written.kinds().contains(kind)),
-        Act::Table(_) => &written == act,
+        Act::Register(kinds) => kinds.iter().all(|kind| written.includes(*kind)),
+        Act::Table(_) | Act::Series(_) => &written == act,
     }
+}
+
+/// The words, folded, that introduce the numbers a register spans in a
+/// title: `n° 1 à 1586` (read as `no`), `nos 1 à 500`, `matricules 1 à 1586`.
+const RANGE_WORDS: [&str; 6] = ["no", "nos", "numero", "numeros", "matricule", "matricules"];
+
+/// The first and last numbers a register spans: `1 à 1586` or `1-1586`
+/// after one of the [`RANGE_WORDS`] in a title or label, or anywhere in a
+/// cell that holds the numbers alone (`marked` false). Years elsewhere in a
+/// title (`classes 1859 à 1940`, `N 1903-1912`) are not read, since no range
+/// word precedes them.
+pub(crate) fn number_range(text: &str, marked: bool) -> Option<(u32, u32)> {
+    // `n°` would fold to a bare `n`, which also stands for births.
+    let folded = fold(&text.replace(['°', 'º'], "o "));
+    let words: Vec<&str> = folded.split(' ').collect();
+    let number = |at: usize| -> Option<u32> {
+        let word = words.get(at)?;
+        (word.len() <= 7 && word.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| word.parse().ok())
+            .flatten()
+    };
+    (0..words.len()).find_map(|at| {
+        let start = if marked {
+            RANGE_WORDS.contains(&words[at]).then_some(at + 1)?
+        } else {
+            at
+        };
+        let first = number(start)?;
+        // `1 à 1586` folds to `1 a 1586`, and `1-1586` to `1 1586`.
+        let last = match words.get(start + 1) {
+            Some(&"a" | &"au") => number(start + 2)?,
+            _ => number(start + 1)?,
+        };
+        (first <= last).then_some((first, last))
+    })
 }
 
 /// Whether a displayed period covers `year`. The text may hold several
@@ -308,6 +359,69 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_numbers_a_register_spans() {
+        for (text, marked, expected) in [
+            (
+                "Bureau de Exampleville n° 1 à 1586 (1870)",
+                true,
+                Some((1, 1586)),
+            ),
+            (
+                "Registre matricule, classe 1870, N°501-1000",
+                true,
+                Some((501, 1000)),
+            ),
+            ("matricules 1 au 520", true, Some((1, 520))),
+            ("nos 1 à 500", true, Some((1, 500))),
+            // Years and act codes are no range of numbers.
+            ("Registres matricules des classes 1859 à 1940", true, None),
+            ("N 1903 - 1912", true, None),
+            ("n° 900 à 12", true, None),
+            ("1 à 500", true, None),
+            // A cell holding the numbers alone needs no range word.
+            ("1 à 500", false, Some((1, 500))),
+            ("1-500", false, Some((1, 500))),
+            ("classe 1870, 1 à 500", false, Some((1, 500))),
+        ] {
+            assert_eq!(number_range(text, marked), expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_series_without_a_locality_keeps_every_candidate() {
+        let mut candidates = [
+            candidate("Exampleville", "1 R 1", "RM", "1871", 196, 1),
+            candidate("Elsewhere", "1 R 2", "RM", "1871", 200, 2),
+            candidate("Elsewhere", "1 R 3", "RM", "1872", 210, 3),
+        ];
+        candidates[1].numbers = Some((1, 500));
+        candidates[2].numbers = Some((1, 500));
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Registres matricules des classes 1859 à 1940 - 1871 - vue 5/200"
+            ),
+            Selection::Many(102)
+        );
+        // The matricule leaves the one register spanning it.
+        candidates[0].numbers = Some((501, 900));
+        assert_eq!(
+            chosen(
+                &candidates,
+                "AB12 - Registres matricules des classes 1859 à 1940 - 1871 - matricule 640"
+            ),
+            Selection::Many(101)
+        );
+        assert_eq!(
+            chosen(&candidates, "AB12 - Exampleville - Recensement - 1871"),
+            Selection::Many(101)
+        );
+        // A register of another kind written as a code is not a census.
+        assert!(!holds_act(Some("RM"), &Act::from_code("RP").unwrap()));
+        assert!(holds_act(Some("NMD"), &Act::from_code("PM").unwrap()));
+    }
+
+    #[test]
     fn reads_acts_written_as_codes_only() {
         let birth = Act::from_code("N").unwrap();
         assert!(holds_act(Some("NMD"), &birth));
@@ -335,6 +449,7 @@ mod tests {
             parish: None,
             period: Some(period.to_owned()),
             images: Some(images),
+            numbers: None,
             payload,
         }
     }

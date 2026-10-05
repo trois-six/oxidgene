@@ -13,7 +13,7 @@ use serde::Deserialize;
 use super::Cells;
 use crate::ResolveError;
 use crate::platform::markup;
-use crate::platform::select::Candidate;
+use crate::platform::select::{Candidate, number_range};
 
 /// What the adapter keeps of a register to open it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +88,7 @@ pub(super) fn search_rows(
                 period: cell(cells.period.as_deref()),
                 images: markup::text_after(html, "class=\"nombre_images\">")
                     .and_then(|text| markup::first_number(&text)),
+                numbers: cell(cells.numbers.as_deref()).and_then(|text| number_range(&text, false)),
                 payload: Register {
                     record: entry.record,
                     viewer: markup::attribute(html, "data-visionneuse-url").filter(|address| {

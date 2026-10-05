@@ -5,17 +5,13 @@
 //! (`view` of the archive-target request), never ahead of it: the portal is
 //! asked once per click, and only for the view asked for.
 
-use oxidgene_archives::{ActKind, ArchiveImage, ArchiveTarget, CitedView, Side};
+use oxidgene_archives::{ArchiveImage, ArchiveTarget, CitedView, Side};
 use oxidgene_core::enums::DocumentCategory;
 use uuid::Uuid;
 
 use super::ArchiveLink;
 use crate::api::{ApiClient, ApiError};
 use crate::i18n::I18n;
-
-/// The first year of the French civil status: a marriage cited before it is
-/// in a parish register.
-const FIRST_CIVIL_STATUS_YEAR: u16 = 1793;
 
 /// One view of a register that OxidGene may show: its image and its page on
 /// the portal.
@@ -141,34 +137,10 @@ impl ArchiveRegister {
         )
     }
 
-    /// The kind of record the cited act is.
+    /// The kind of record the cited document is: an act, a table or a
+    /// series (docs/archives.md §6.4).
     pub fn category(&self) -> Option<DocumentCategory> {
-        let citation = &self.link.citation;
-        let kinds = citation.act.kinds();
-        if kinds.is_empty() {
-            // A table of the civil status.
-            return Some(DocumentCategory::CivilRecord);
-        }
-        if kinds
-            .iter()
-            .any(|kind| matches!(kind, ActKind::Baptism | ActKind::Burial))
-        {
-            return Some(DocumentCategory::ParishRecord);
-        }
-        if kinds
-            .iter()
-            .any(|kind| matches!(kind, ActKind::Birth | ActKind::Death))
-        {
-            return Some(DocumentCategory::CivilRecord);
-        }
-        // A marriage alone: before the civil status, a parish register.
-        citation.year.map(|year| {
-            if year < FIRST_CIVIL_STATUS_YEAR {
-                DocumentCategory::ParishRecord
-            } else {
-                DocumentCategory::CivilRecord
-            }
-        })
+        self.link.citation.category()
     }
 }
 
@@ -291,6 +263,42 @@ mod tests {
             category("AD37 - Exampleville - (aucun) - M - 1877 - vue 5/13"),
             Some(DocumentCategory::CivilRecord)
         );
+        assert_eq!(
+            category("AD37 - Exampleville - (aucun) - TD - 1803 - vue 5/13"),
+            Some(DocumentCategory::CivilRecord)
+        );
+
+        // The series, cited in words, are of their own kinds.
+        let series = |title: &str| {
+            let mut link = link("AD37 - Exampleville - (aucun) - N - 1877 - vue 5/13");
+            link.citation = oxidgene_archives::ArchiveRegistry::embedded()
+                .parse(title)
+                .expect("a series citation");
+            ArchiveRegister::of(Uuid::nil(), &link, &target(&[(5, true)]))
+                .unwrap()
+                .0
+                .category()
+        };
+        for (title, expected) in [
+            (
+                "AD37 - Exampleville - Recensement - 1872 - vue 5/13",
+                DocumentCategory::Census,
+            ),
+            (
+                "AD37 - Exampleville - Registres matricules - 1898 - 348 - 5/13",
+                DocumentCategory::MilitaryArchive,
+            ),
+            (
+                "AD37 - Exampleville - Conscrits militaires - 1897 - vue 5/13",
+                DocumentCategory::MilitaryArchive,
+            ),
+            (
+                "AD37 - Exampleville - Tables des successions et absences - 1897-1898 - vue 5/13",
+                DocumentCategory::NotarialArchive,
+            ),
+        ] {
+            assert_eq!(series(title), Some(expected), "{title}");
+        }
     }
 
     #[test]

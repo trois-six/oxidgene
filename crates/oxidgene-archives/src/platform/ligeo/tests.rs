@@ -766,3 +766,146 @@ fn validates_its_settings_against_the_collection() {
         assert!(error.contains(expected), "{expected}: {error}");
     }
 }
+
+const MATRICULES: &str = include_str!("../../../fixtures/ligeo/matricules.html");
+
+/// A fictitious archive whose military registers are searched by bureau and
+/// class, without an act filter; `columns` are the columns read.
+fn matricules_registry(columns: serde_json::Value) -> ArchiveRegistry {
+    let document = serde_json::json!({
+        "id": "fr-ad00",
+        "country": "FR",
+        "level": "departmental",
+        "name": "Archives départementales d'Exemple",
+        "citation_codes": ["AD00"],
+        "website": "https://archives.example.org",
+        "collections": [{
+            "id": "military-registers",
+            "acts": ["RM"],
+            "platform": "ligeo",
+            "portal": {
+                "origin": "https://archives.example.org",
+                "search": "matricules",
+                "node": 77,
+                "fields": {
+                    "locality": "RECH_bureau",
+                    "year_from": "RECH_classe_debut",
+                    "year_to": "RECH_classe_fin"
+                },
+                "columns": columns
+            }
+        }]
+    })
+    .to_string();
+    ArchiveRegistry::new(&[("fr", document.as_str())], platform::builtin()).unwrap()
+}
+
+#[test]
+fn a_military_register_is_chosen_by_bureau_class_and_matricule() {
+    let registry = matricules_registry(serde_json::json!({
+        "locality": "Bureau de recrutement",
+        "period": "Classe",
+        "call_number": "Cote",
+        "numbers": "Matricules"
+    }));
+    // The matricule falls in the second volume of the class; the cited call
+    // number, which no row carries, does not discard them.
+    let fetch = Fixtures::new(MATRICULES);
+    let target = resolve(
+        &registry,
+        "AD00 - Exampleville - Registres matricules - 1870 - 1 R 9999 - 612 - 300/398",
+        &fetch,
+    )
+    .unwrap();
+    assert_eq!(viewed(&target), "vtaexample0062");
+    let ArchiveTarget::View {
+        views,
+        view_count,
+        call_number,
+        ..
+    } = &target
+    else {
+        panic!("expected a view, got {target:?}");
+    };
+    assert_eq!(
+        (views[0].view, *view_count, call_number.as_deref()),
+        (300, Some(398), Some("1 R 902"))
+    );
+    // The portal learns the bureau and the class: no act filter, never the
+    // matricule or the call number.
+    assert_eq!(
+        fetch.requests(),
+        [
+            "/archive/resultats/matricules/n:77?RECH_bureau=Exampleville\
+          &RECH_classe_debut=1870&RECH_classe_fin=1870&type=matricules"
+        ]
+    );
+
+    // The class written inside a free field, and the matricule after its
+    // word.
+    let target = resolve(
+        &registry,
+        "AD00 - Exampleville - Registre matricules - 1 R 9999 - \
+         Bureau de Exampleville n° 1 à 500 (1870) - matricule 12 - vue 5/412",
+        &Fixtures::new(MATRICULES),
+    )
+    .unwrap();
+    assert_eq!(viewed(&target), "vtaexample0061");
+
+    // Without a matricule or a view count, the two volumes of the class.
+    let target = resolve(
+        &registry,
+        "AD00 - Exampleville - Registres matricules - 1870",
+        &Fixtures::new(MATRICULES),
+    );
+    assert_eq!(matches(&target), Some(2));
+}
+
+#[test]
+fn the_matricules_of_a_volume_are_read_from_its_title_without_their_column() {
+    let registry = matricules_registry(serde_json::json!({
+        "locality": "Bureau de recrutement",
+        "period": "Classe"
+    }));
+    let target = resolve(
+        &registry,
+        "AD00 - Exampleville - Registres matricules - 1870 - matricule 501",
+        &Fixtures::new(MATRICULES),
+    )
+    .unwrap();
+    assert_eq!(viewed(&target), "vtaexample0062");
+    // The rows read as military registers from their links' titles.
+    let columns = Columns {
+        locality: Some("Bureau de recrutement".to_owned()),
+        ..Columns::default()
+    };
+    let found = page::results(MATRICULES, &columns).unwrap();
+    assert!(
+        found
+            .rows
+            .iter()
+            .all(|row| row.act.as_deref() == Some("RM"))
+    );
+    assert_eq!(found.rows[0].numbers, Some((1, 500)));
+}
+
+#[test]
+fn a_series_collection_needs_a_filter_only_where_the_form_has_one() {
+    let with_acts = |acts: serde_json::Value, portal: serde_json::Value| {
+        let mut collection = collection_with(|p| *p = portal);
+        collection.acts = serde_json::from_value(acts).unwrap();
+        collection
+    };
+    let ain = collection_with(|_| {}).portal;
+    // Ain's register search has an act filter: a census needs its value.
+    let error = Ligeo
+        .validate(&with_acts(serde_json::json!(["N", "RP"]), ain.clone()))
+        .unwrap_err();
+    assert!(error.to_string().contains("no filter for `RP`"), "{error}");
+    let mut portal = ain;
+    portal["acts"]["RP"] = "recensements".into();
+    assert_eq!(
+        Ligeo.validate(&with_acts(serde_json::json!(["N", "RP"]), portal)),
+        Ok(())
+    );
+}

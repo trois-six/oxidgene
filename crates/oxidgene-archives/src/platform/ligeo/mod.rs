@@ -104,6 +104,10 @@ struct Columns {
     period: Option<String>,
     #[serde(default)]
     call_number: Option<String>,
+    /// The column showing the numbers a register spans, such as the
+    /// matricules of a military register (`1 à 1586`).
+    #[serde(default)]
+    numbers: Option<String>,
 }
 
 fn invalid(message: &str) -> CatalogError {
@@ -203,12 +207,18 @@ impl Settings {
     }
 
     /// The filters searching `act`: its own entry, or one per kind of a
-    /// combined act.
+    /// combined act, publications of banns searched as marriages.
     fn act_filters(&self, act: &Act) -> Vec<&ActFilter> {
         if let Some(filter) = self.acts.get(&act.to_string()) {
             return vec![filter];
         }
-        act.kinds()
+        let mut kinds = Vec::new();
+        for kind in act.kinds().iter().map(|kind| kind.filed_as()) {
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+        kinds
             .iter()
             .filter_map(|kind| self.acts.get(&kind.letter().to_string()))
             .collect()
@@ -292,6 +302,7 @@ impl Columns {
             &self.parish,
             &self.period,
             &self.call_number,
+            &self.numbers,
         ];
         if headers
             .into_iter()

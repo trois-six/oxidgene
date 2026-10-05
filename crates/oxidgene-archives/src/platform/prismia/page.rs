@@ -158,6 +158,7 @@ pub(super) fn registers(
                     .map(str::to_owned),
                 act: None,
                 images: stub.images.and_then(|count| u16::try_from(count).ok()),
+                numbers: None,
                 payload: Register { manifest: stub.id },
             })
         })

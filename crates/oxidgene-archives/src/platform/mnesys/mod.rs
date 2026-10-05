@@ -187,7 +187,7 @@ impl Settings {
         self.acts
             .get(&act.to_string())
             .or_else(|| {
-                let first = act.kinds().first()?;
+                let first = act.primary_kind()?;
                 self.acts.get(&first.letter().to_string())
             })
             .map_or(&[], Vec::as_slice)
@@ -308,6 +308,7 @@ impl Settings {
                 }),
                 period: row.period,
                 images: row.images,
+                numbers: None,
                 payload: Register { ark: row.ark },
             })
             .collect()
@@ -326,6 +327,9 @@ impl Platform for Mnesys {
     }
 
     fn validate(&self, collection: &Collection) -> Result<(), CatalogError> {
+        // The form's act filter and the rows' classification know acts and
+        // tables only.
+        super::refuse_series(self.id(), collection)?;
         Settings::read(collection).map(drop)
     }
 

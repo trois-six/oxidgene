@@ -12,7 +12,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::citation::{Act, CitationGrammar, CitationParts};
+use crate::citation::{Act, CitationGrammar, CitationParts, Series};
 use crate::platform::Platform;
 
 /// The administrative level of an archive service.
@@ -86,7 +86,8 @@ const fn enabled() -> bool {
 pub struct Collection {
     /// Slug unique within the archive: `parish-registers`, `civil-status`.
     pub id: String,
-    /// The act kinds and table codes the collection holds.
+    /// The document kinds the collection holds: act kinds, table codes and
+    /// series codes.
     pub acts: Vec<Act>,
     /// The years the collection covers, when bounded.
     #[serde(default)]
@@ -124,15 +125,25 @@ impl Period {
 }
 
 impl Collection {
-    /// Whether the collection holds the act: every kind of a combined act
-    /// (`BMS`), or the table code itself.
+    /// Whether the collection holds the document kind: every kind of a
+    /// combined act (`BMS`), publications of banns (`P`) where it holds
+    /// marriages, or the table or series code itself.
     pub fn holds(&self, act: &Act) -> bool {
         match act {
             Act::Register(kinds) => kinds
                 .iter()
-                .all(|kind| self.acts.iter().any(|held| held.kinds().contains(kind))),
-            Act::Table(_) => self.acts.contains(act),
+                .all(|kind| self.acts.iter().any(|held| held.includes(*kind))),
+            Act::Table(_) | Act::Series(_) => self.acts.contains(act),
         }
+    }
+
+    /// The series the collection holds, which an adapter that cannot search
+    /// one refuses.
+    pub fn series(&self) -> impl Iterator<Item = Series> + '_ {
+        self.acts.iter().filter_map(|act| match act {
+            Act::Series(series) => Some(*series),
+            _ => None,
+        })
     }
 
     /// Whether the collection may hold a register of `year`; a citation
@@ -517,6 +528,60 @@ mod tests {
         );
         assert!(ids("AD00 - Exampleville - (aucun) - TB - 1803").is_empty());
         assert!(ids("AD00 - Exampleville - (aucun) - N - 1750").is_empty());
+    }
+
+    #[test]
+    fn picks_series_collections_by_their_code_and_banns_with_the_marriages() {
+        let mut document = document();
+        document["collections"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "military-registers",
+                "acts": ["RM", "CM"],
+                "period": [1859, 1940],
+                "platform": "ligeo",
+                "portal": {
+                    "origin": "https://archives.example.org",
+                    "search": "matricules",
+                    "node": 7,
+                    "fields": { "locality": "RECH_bureau" },
+                    "columns": { "locality": "Bureau" }
+                }
+            }));
+        let archive = load_one("fr", &document).unwrap().remove(0);
+        let parts = |title: &str| CitationParts::parse(title, &archive.citation).unwrap();
+        let ids = |title: &str| {
+            archive
+                .collections_for(&parts(title))
+                .map(|collection| collection.id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids("AD00 - Exampleville - Registres matricules - 1898 - 1 R 9 - 348 - 5/80"),
+            ["military-registers"]
+        );
+        assert_eq!(
+            ids("AD00 - Exampleville - Conscrits militaires - 1897"),
+            ["military-registers"]
+        );
+        // A series no collection holds is no link.
+        assert!(!archive.holds(&parts("AD00 - Exampleville - Recensement - 1872").act));
+        assert_eq!(
+            archive.collections[2].series().collect::<Vec<_>>(),
+            [Series::MilitaryRegister, Series::ConscriptionList]
+        );
+        assert_eq!(archive.collections[0].series().count(), 0);
+
+        // Publications of banns are held where marriages are.
+        assert_eq!(
+            ids("AD00 - Exampleville - (aucun) - NPMD - 1850"),
+            ["civil-status"]
+        );
+        assert_eq!(
+            ids("AD00 - Exampleville - (aucun) - PM - 1792"),
+            ["parish-registers", "civil-status"]
+        );
     }
 
     #[test]

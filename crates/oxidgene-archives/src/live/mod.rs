@@ -9,10 +9,12 @@
 //!    also names the alphabetically first locality the portal's own
 //!    locality filter lists (the most populated, listed first, searches
 //!    slowest);
-//! 2. **Discovery**: that locality with the collection's first act lists
-//!    registers ([`Probe::registers`]), one of which is chosen;
-//! 3. **Resolution**: a citation of that register — its locality, act,
-//!    year, call number and a view in the middle of its images — resolves
+//! 2. **Discovery**: that locality with the collection's first document
+//!    kind — an act, a table or a series — lists registers
+//!    ([`Probe::registers`]), one of which is chosen;
+//! 3. **Resolution**: a citation of that register — its locality, document
+//!    kind, year, call number, first number where the register shows the
+//!    numbers it spans, and a view in the middle of its images — resolves
 //!    through the [`Resolver`] to that view of that register, and the same
 //!    citation without its call number to the same register or the results.
 //!
@@ -154,6 +156,9 @@ pub struct Register {
     /// The address that opens the register's images: a viewer endpoint, an
     /// ARK, a register identifier.
     pub address: Option<String>,
+    /// The act or matricule numbers the register spans, where the results
+    /// show them: a volume of a military register.
+    pub numbers: Option<(u32, u32)>,
 }
 
 impl Register {
@@ -185,7 +190,13 @@ impl Register {
             (Some(_), None) => false,
         };
         let year = self.year();
+        // The citation names the first number this register spans.
+        let same_numbers = match (self.numbers, other.numbers) {
+            (Some((first, _)), Some((from, to))) => (from..=to).contains(&first),
+            _ => true,
+        };
         same_call_number
+            && same_numbers
             && self.images == other.images
             && other
                 .period
@@ -407,6 +418,7 @@ async fn steps(
 
     let locality = probe.search_page(collection, fetch.as_ref()).await?;
     report.locality = Some(locality.clone());
+    // The first document kind: an act, a table or a series alike.
     let act = collection
         .acts
         .first()
@@ -498,6 +510,7 @@ fn citation_of(archive: &Archive, act: &Act, register: &Register) -> CitationPar
         year,
         period: year.map(|year| year.to_string()),
         call_number: register.call_number.as_deref().map(CallNumber::new),
+        number: register.numbers.map(|(first, _)| first),
         views: vec![CitedView {
             view: images.div_ceil(2),
             side: None,
@@ -521,6 +534,7 @@ fn title_of(citation: &CitationParts) -> String {
             .as_ref()
             .map(|call_number| call_number.as_str().to_owned()),
     );
+    fields.extend(citation.number.map(|number| format!("n° {number}")));
     if let (Some(view), Some(count)) = (citation.views.first(), citation.view_count) {
         fields.push(format!("vue {}/{count}", view.view));
     }

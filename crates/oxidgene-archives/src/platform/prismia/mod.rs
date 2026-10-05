@@ -154,7 +154,7 @@ impl Settings {
         self.acts
             .get(&act.to_string())
             .or_else(|| {
-                let first = act.kinds().first()?;
+                let first = act.primary_kind()?;
                 self.acts.get(&first.letter().to_string())
             })
             .map(String::as_str)
@@ -246,6 +246,9 @@ impl Platform for Prismia {
     }
 
     fn validate(&self, collection: &Collection) -> Result<(), CatalogError> {
+        // The observed instrument is the civil status; a series' filters
+        // are unknown.
+        super::refuse_series(self.id(), collection)?;
         Settings::read(collection).map(drop)
     }
 
