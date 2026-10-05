@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T20:25:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:20:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1326,7 +1326,19 @@ The window uses a persistent web profile of its own, separate from the
 application's, under the state directory (`archives-webview/`,
 [Architecture §8.3](architecture.md#83-local-files)). Archive portals hold no
 credential, and keeping their cookies spares the reader a reuse licence and an
-anti-bot challenge at every opening.
+anti-bot challenge at every opening. Every page the window loads itself — the
+start page, the landing — is asked of the server with `Cache-Control:
+no-cache`, never taken from WebKit's HTTP cache: a portal behind a bot
+mitigation (Sarthe) marks its pages cacheable for a day while the cookie
+letting a page's own requests through lasts for the session, which the profile
+does not keep across restarts, so a page taken from the cache got no cookie
+and its own requests met the mitigation's check, its loading indicators
+turning for good. A page still fresh is answered `304 Not Modified`.
+
+Each step of a window's lookup is logged at the debug level — the start page
+and every request, with its outcome and duration, never an address or the
+citation — and the resolution's end with its duration, so that a failure can
+be told from a terminal.
 
 ### 6.2 Web
 

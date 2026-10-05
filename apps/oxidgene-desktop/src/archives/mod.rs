@@ -246,14 +246,9 @@ async fn open_register(
         texts: texts(&messages),
     };
     let citation = refined(&link).await;
+    let started = std::time::Instant::now();
     let outcome = within(LOOKUP_DEADLINE, resolver.resolve(&citation, &transport)).await;
-    if let Err(error) = &outcome {
-        warn!(
-            error = error.code(),
-            archive = link.archive.id.as_str(),
-            "could not resolve the cited register"
-        );
-    }
+    log_outcome(&link, &outcome, started);
     let attach =
         attach.and_then(|sender| attachable(&link, outcome.as_ref().ok()?, sender, &messages));
     let Landing { url, banner } = Landing::of(&link, outcome.map_err(|error| error.code()));
@@ -269,6 +264,28 @@ async fn open_register(
         texts: transport.texts,
         attach,
     });
+}
+
+/// Logs how a resolution ended and how long it took, with the archive's
+/// identifier and never the citation.
+fn log_outcome(
+    link: &ArchiveLink,
+    outcome: &Result<ArchiveTarget, ResolveError>,
+    started: std::time::Instant,
+) {
+    let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let archive = link.archive.id.as_str();
+    match outcome {
+        Err(error) => log_failure(archive, error.code(), elapsed_ms),
+        Ok(_) => debug!(archive, elapsed_ms, "resolved the cited register"),
+    }
+}
+
+fn log_failure(archive: &str, error: &str, elapsed_ms: u64) {
+    warn!(
+        error,
+        archive, elapsed_ms, "could not resolve the cited register"
+    );
 }
 
 /// The longest a resolution may run before the window lands with the
@@ -450,12 +467,7 @@ impl ArchiveWindow {
         {
             self.untrusted = None;
         }
-        if self.webview.load_url(url).is_err() {
-            warn!(
-                error = "archive_navigation",
-                "could not load a page in the archive window"
-            );
-        }
+        navigate(&self.webview, url);
     }
 
     fn eval(&self, script: &str) -> bool {
@@ -699,6 +711,68 @@ struct Opening<'a> {
     attach: Option<Box<Attachable>>,
 }
 
+/// Loads `url` in the window, revalidated with the portal rather than taken
+/// from WebKit's HTTP cache.
+///
+/// Portals behind a bot mitigation (Sarthe) mark their pages cacheable for
+/// a day, while the cookie that lets a page's own requests through lasts
+/// for the session only. The archive windows' profile keeps the cache
+/// across application restarts but not session cookies: a page taken from
+/// the cache then reaches no server, gets no cookie, and every request of
+/// its own scripts is answered by the mitigation's check, which they cannot
+/// read — the page shows its loading indicators for good. Asked with
+/// `Cache-Control: no-cache`, the server sees the page's load, as on a
+/// first visit, and lets it through its check; a page still fresh is
+/// answered `304 Not Modified`, so this costs the portal no transfer.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn navigate(webview: &WebView, url: &str) {
+    use dioxus::desktop::wry::WebViewExtUnix;
+    use webkit2gtk::WebViewExt;
+
+    webview.webview().load_request(&revalidated(url));
+}
+
+/// The request loading `url` past the HTTP cache ([`navigate`]).
+#[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn revalidated(url: &str) -> webkit2gtk::URIRequest {
+    use webkit2gtk::URIRequestExt;
+
+    let request = webkit2gtk::URIRequest::new(url);
+    if let Some(headers) = request.http_headers() {
+        headers.append("Cache-Control", "no-cache");
+    }
+    request
+}
+
+/// Loads `url` in the window.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
+fn navigate(webview: &WebView, url: &str) {
+    if webview.load_url(url).is_err() {
+        warn!(
+            error = "archive_navigation",
+            "could not load a page in the archive window"
+        );
+    }
+}
+
 /// The `scheme://authority` of the page that posted an IPC message.
 fn page_origin(uri: &dioxus::desktop::wry::http::Uri) -> Option<String> {
     Some(format!("{}://{}", uri.scheme_str()?, uri.authority()?))
@@ -773,7 +847,6 @@ fn open<T>(
     let session = opening.session;
     let posted = inbox.clone();
     let builder = WebViewBuilder::new_with_web_context(context)
-        .with_url(opening.url)
         .with_initialization_script_for_main_only(script::page(), true)
         .with_ipc_handler(move |request| {
             receive(session, &accepted, &posted, request.uri(), request.body());
@@ -821,6 +894,7 @@ fn open<T>(
         target_os = "openbsd"
     ))]
     tls::watch(&webview, session, Arc::clone(&origins), inbox);
+    navigate(&webview, opening.url);
 
     Some(ArchiveWindow {
         window,
@@ -1114,6 +1188,22 @@ mod tests {
             status.page(PageState::Portal, Some(&attach), "Answer"),
             None
         );
+    }
+
+    /// A regression: a portal page taken from WebKit's cache after a
+    /// restart reached no server, so its own requests met the bot
+    /// mitigation's check and its loading indicators turned for good. Every
+    /// page a window loads goes through `navigate`, which asks the server
+    /// (the request it builds needs GTK, so it is checked in the window).
+    #[test]
+    fn every_page_of_a_window_is_loaded_through_navigate() {
+        let source = include_str!("mod.rs");
+        let with_url = concat!(".with", "_url(");
+        let load_url = concat!(".load", "_url(");
+        assert!(!source.contains(with_url));
+        // Only the `navigate` of the platforms without WebKitGTK.
+        assert_eq!(source.matches(load_url).count(), 1);
+        assert_eq!(source.matches(concat!("navigate", "(&")).count(), 2);
     }
 
     #[test]

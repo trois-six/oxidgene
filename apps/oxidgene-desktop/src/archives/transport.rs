@@ -28,6 +28,7 @@ use oxidgene_archives::{
 use oxidgene_ui::archive_viewer::AttachSender;
 use serde::Deserialize;
 use tokio::sync::mpsc;
+use tracing::debug;
 
 use super::script;
 
@@ -432,7 +433,8 @@ impl WindowTransport {
             texts: self.texts.clone(),
             attach: None,
         });
-        let mut gate = Gate::new(Instant::now());
+        let started = Instant::now();
+        let mut gate = Gate::new(started);
         let shown = loop {
             let until = tokio::time::Instant::from_std(gate.until());
             let step = match tokio::time::timeout_at(until, pages.recv()).await {
@@ -451,6 +453,15 @@ impl WindowTransport {
             }
         };
         self.shared.ignore(self.session);
+        // What the reader may tell, from a terminal, of a lookup that ended
+        // badly: which step, how, and after how long; never the citation
+        // nor an address, which carries it.
+        debug!(
+            step = "start_page",
+            outcome = shown.as_ref().err().map_or("shown", fetch_error_code),
+            elapsed_ms = elapsed_ms(started),
+            "archive window"
+        );
         shown
     }
 }
@@ -484,6 +495,26 @@ struct WindowFetch<'a> {
 
 impl WindowFetch<'_> {
     async fn send(&self, url: &str, request: &PortalRequest) -> Reply {
+        let started = Instant::now();
+        let reply = self.exchange(url, request).await;
+        let (outcome, status) = match &reply {
+            Reply::Answer(Ok(_)) => ("answered", None),
+            Reply::Answer(Err(FetchError::Status(status))) => ("status", Some(*status)),
+            Reply::Answer(Err(error)) => (fetch_error_code(error), None),
+            Reply::Challenge => ("anti_bot_check", None),
+        };
+        debug!(
+            step = "request",
+            method = request.method.as_str(),
+            outcome,
+            status,
+            elapsed_ms = elapsed_ms(started),
+            "archive window"
+        );
+        reply
+    }
+
+    async fn exchange(&self, url: &str, request: &PortalRequest) -> Reply {
         let shared = &self.transport.shared;
         let origins = self.endpoint.origins().map(str::to_owned).collect();
         let (ticket, answer) = shared.wait_for_answer(self.transport.session, origins);
@@ -507,6 +538,23 @@ impl WindowFetch<'_> {
             }
         }
     }
+}
+
+/// How a step of the window failed, for its log.
+fn fetch_error_code(error: &FetchError) -> &'static str {
+    match error {
+        FetchError::Timeout => "timeout",
+        FetchError::Network => "network",
+        FetchError::Status(_) => "status",
+        FetchError::Challenged => "challenged",
+        FetchError::TooLarge => "too_large",
+        FetchError::NotSameOrigin => "not_same_origin",
+        FetchError::NotAllowed => "not_allowed",
+    }
+}
+
+fn elapsed_ms(since: Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 impl PortalFetch for WindowFetch<'_> {
