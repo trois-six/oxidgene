@@ -104,7 +104,13 @@ fn use_resolution(tree_id: Uuid, link: &ArchiveLink, viewing: Viewing, on_close:
     use_hook(move || {
         spawn(async move {
             let outcome = api
-                .archive_target(tree_id, link.source_id, link.citation_id, None)
+                .archive_target(
+                    tree_id,
+                    link.source_id,
+                    link.citation_id,
+                    None,
+                    link.supplied.as_ref(),
+                )
                 .await;
             let landing = match outcome {
                 Ok(target) => match ArchiveRegister::of(tree_id, &link, &target) {

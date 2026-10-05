@@ -101,6 +101,7 @@ impl ArchiveRegister {
                 self.link.source_id,
                 self.link.citation_id,
                 Some(view),
+                self.link.supplied.as_ref(),
             )
             .await?;
         Ok(Self::of(self.tree_id, &self.link, &target)
@@ -178,7 +179,7 @@ mod tests {
     use super::*;
 
     fn link(title: &str) -> ArchiveLink {
-        ArchiveLink::from_citation(Uuid::nil(), title, None, None).expect("a catalogued citation")
+        super::super::tests::link(title, None).expect("a catalogued citation")
     }
 
     fn image(view: u16) -> ArchiveImage {

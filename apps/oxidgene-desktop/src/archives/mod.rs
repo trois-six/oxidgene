@@ -174,7 +174,8 @@ async fn open_register(
         searching: messages.searching.clone(),
         texts: texts(&messages),
     };
-    let outcome = resolver.resolve(&link.citation, &transport).await;
+    let citation = refined(&link).await;
+    let outcome = resolver.resolve(&citation, &transport).await;
     if let Err(error) = &outcome {
         warn!(
             error = error.code(),
@@ -194,6 +195,33 @@ async fn open_register(
         banner: banner.and_then(|banner| messages.banner(banner)),
         texts: transport.texts,
     });
+}
+
+/// The citation's parts read again with the place dictionary, which the
+/// interface does not embed: it tells the locality from a parish or a hamlet
+/// among the names the records give (docs/archives.md §5.1). Read on a
+/// thread of its own, since the dictionary may be decompressed for it; the
+/// link's own parts when the reading changes nothing or fails.
+async fn refined(link: &ArchiveLink) -> oxidgene_archives::CitationParts {
+    let (evidence, supplied) = (link.evidence.clone(), link.supplied.clone());
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let citation = ArchiveRegistry::embedded()
+            .recognize(
+                &evidence,
+                supplied.as_ref(),
+                Some(&oxidgene_api::service::archive::DictionaryPlaces),
+            )
+            .ok()
+            .and_then(|recognition| recognition.citation());
+        let _ = sender.send(citation);
+    });
+    receiver
+        .await
+        .ok()
+        .flatten()
+        .filter(|citation| citation.code == link.citation.code)
+        .unwrap_or_else(|| link.citation.clone())
 }
 
 /// An open archive window.

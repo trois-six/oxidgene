@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales du Calvados",
   "jurisdiction": ["14"],
+  "areas": ["Calvados"],
   "citation_codes": ["AD14"],
   "website": "https://archives.calvados.fr",
   "collections": [

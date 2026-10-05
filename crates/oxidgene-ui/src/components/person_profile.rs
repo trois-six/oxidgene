@@ -24,7 +24,9 @@ use crate::api::{
     ApiClient, ApiError, CroppedSource, GalleryBundle, GallerySources, MediaWithLink,
     PersonDetailBundle, ResolvedPictures,
 };
-use crate::archive_viewer::{ArchiveLink, ArchiveSourceLink};
+use oxidgene_archives::{CitationEvidence, HeldAt};
+
+use crate::archive_viewer::{ArchiveOffer, ArchiveSourceLink};
 use crate::components::cropped_image::CroppedImage;
 use crate::components::date_input::{DateKind, DatePhrase, event_date_phrase, format_event_date};
 use crate::components::document_form::DocumentForm;
@@ -149,7 +151,7 @@ pub(crate) struct Profile {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EventCitation {
     pub text: String,
-    pub archive: Option<ArchiveLink>,
+    pub archive: Option<ArchiveOffer>,
 }
 
 impl Profile {
@@ -760,8 +762,10 @@ fn add_parental_events(
     }
 }
 
-/// "Source title — page", one entry per citation, keyed by event, with the
-/// archive view a recognized source title opens.
+/// "Source title — page", one entry per citation, keyed by event, with what
+/// the citation offers in its archive: recognized from the source, the
+/// citation, the repositories holding the source, the source's linked media
+/// and the cited event with its place (docs/archives.md §5.1).
 fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<EventCitation>> {
     let mut citations_by_event: HashMap<Uuid, Vec<EventCitation>> = HashMap::new();
     let source_by_id: HashMap<Uuid, &oxidgene_core::types::Source> =
@@ -780,15 +784,51 @@ fn citations_by_event(detail: &PersonDetailBundle) -> HashMap<Uuid, Vec<EventCit
             .or_default()
             .push(EventCitation {
                 text,
-                archive: ArchiveLink::from_citation(
+                archive: ArchiveOffer::of(
                     source.id,
-                    &source.title,
                     Some(citation.id),
-                    citation.page.as_deref(),
+                    citation_evidence(detail, source, citation, eid),
                 ),
             });
     }
     citations_by_event
+}
+
+/// Everything the bundle records about a citation of `source` attached to
+/// event `event_id`.
+fn citation_evidence(
+    detail: &PersonDetailBundle,
+    source: &oxidgene_core::types::Source,
+    citation: &oxidgene_core::types::Citation,
+    event_id: Uuid,
+) -> CitationEvidence {
+    let repositories = detail
+        .source_holdings
+        .iter()
+        .filter(|holding| holding.source_id == source.id)
+        .map(|holding| HeldAt {
+            name: holding.name.clone(),
+            call_number: holding.call_number.clone(),
+            website: holding.website.clone(),
+        })
+        .collect();
+    let urls = detail
+        .source_links
+        .iter()
+        .filter(|link| link.source_id == source.id)
+        .map(|link| link.url.clone())
+        .collect();
+    let mut evidence = CitationEvidence::new(source, Some(citation))
+        .with_repositories(repositories)
+        .with_urls(urls);
+    if let Some(event) = detail.events.iter().find(|event| event.id == event_id) {
+        let place = event
+            .place_id
+            .and_then(|id| detail.places.iter().find(|place| place.id == id))
+            .map(|place| place.name.as_str());
+        evidence = evidence.with_event(event, place);
+    }
+    evidence
 }
 
 /// The documents proving each event, keyed by the event they document.
@@ -1773,10 +1813,10 @@ pub(crate) fn timeline_section(
                                                 for (index, source) in sources.iter().enumerate() {
                                                     span { key: "{index}",
                                                         if index > 0 { "; " }
-                                                        if let Some(link) = &source.archive {
+                                                        if let Some(offer) = &source.archive {
                                                             ArchiveSourceLink {
                                                                 tree_id,
-                                                                link: link.clone(),
+                                                                offer: offer.clone(),
                                                                 text: source.text.clone(),
                                                                 event_id: eid,
                                                                 event_label: event_type_label.clone(),

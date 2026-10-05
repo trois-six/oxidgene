@@ -378,7 +378,7 @@ impl CallNumber {
     /// Whether a free field is shaped like a call number: letters and digits
     /// with a few separators, at least one digit and one capital, and no
     /// lowercase word (`acte 26`, `Registre 1877`), while `1 Mi 456` is one.
-    fn is_shaped(field: &str) -> bool {
+    pub(crate) fn is_shaped(field: &str) -> bool {
         let allowed = |c: char| c.is_ascii_alphanumeric() || " /._-".contains(c);
         let mut lowercase_run = 0;
         let mut longest_lowercase_run = 0;
@@ -792,7 +792,7 @@ fn view_token(token: &str) -> Option<CitedView> {
 }
 
 /// Every view from `first` to `last`; the sides cited apply to the ends.
-fn view_range(first: CitedView, last: CitedView) -> Option<Vec<CitedView>> {
+pub(crate) fn view_range(first: CitedView, last: CitedView) -> Option<Vec<CitedView>> {
     if last.view < first.view || last.view - first.view >= MAX_VIEW_RANGE {
         return None;
     }

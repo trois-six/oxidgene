@@ -459,3 +459,232 @@ async fn a_neighbouring_view_resolves_on_both_surfaces() {
     }
     assert_eq!(portal.connections(), 2);
 }
+
+/// A citation of `source` attached to a new baptism in 1660 at `place`.
+async fn new_event_citation(
+    app: &Router,
+    tree: &str,
+    source: &str,
+    place: &str,
+    page: &str,
+) -> String {
+    let person = new_person(app, tree).await;
+    let place = ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/places"),
+        Some(json!({ "name": place })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let event = ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/events"),
+        Some(json!({
+            "event_type": "baptism",
+            "date_value": "1660",
+            "person_id": person,
+            "place_id": place,
+        })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/citations"),
+        Some(json!({ "source_id": source, "event_id": event, "page": page })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// Holds `source` at a new repository named `name`, under `call_number`.
+async fn hold_at(app: &Router, tree: &str, source: &str, name: &str, call_number: &str) {
+    let repository = ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/repositories"),
+        Some(json!({ "name": name })),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    ok(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/sources/{source}/repositories"),
+        Some(json!({ "repository_id": repository, "call_number": call_number })),
+    )
+    .await;
+}
+
+const SOURCE_PARTS: &str = r#"
+    query($tree: ID!, $id: ID!, $citation: ID, $parts: ArchivePartsInput) {
+        source(treeId: $tree, id: $id) {
+            archiveTarget(citationId: $citation, parts: $parts) {
+                kind url matches callNumber views { view url }
+            }
+        }
+    }"#;
+
+/// Both surfaces' answers for `source`, with the reader's `parts` when
+/// given; GraphQL's answer is its data or its error code.
+async fn both(
+    app: &Router,
+    tree: &str,
+    source: &str,
+    citation: Option<&str>,
+    parts: Option<Value>,
+) -> ((StatusCode, Value), Value) {
+    let rest = send(
+        app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/sources/{source}/archive-target"),
+        Some(json!({ "citation_id": citation, "parts": parts })),
+    )
+    .await;
+    let gql_parts = parts.map(|parts| {
+        json!({
+            "locality": parts.get("locality"),
+            "act": parts.get("act"),
+            "year": parts.get("year"),
+            "view": parts.get("view"),
+        })
+    });
+    let response = gql(
+        app,
+        SOURCE_PARTS,
+        json!({ "tree": tree, "id": source, "citation": citation, "parts": gql_parts }),
+    )
+    .await;
+    (rest, response)
+}
+
+#[tokio::test]
+async fn structured_records_and_the_cited_event_resolve_on_both_surfaces() {
+    let portal = Recorded::new(Answer::Search(AD44_ONE));
+    let app = app_with(&portal).await;
+    let tree = new_tree(&app, "Archives").await;
+    // The register as the source, the archive and its call number on the
+    // repository link, the act and the view in the page, the kind, year
+    // and place on the cited event.
+    let source = new_source(&app, &tree, "Registres paroissiaux et d'état civil").await;
+    hold_at(
+        &app,
+        &tree,
+        &source,
+        "Archives départementales de Loire-Atlantique",
+        "E dépôt 99",
+    )
+    .await;
+    let citation = new_event_citation(
+        &app,
+        &tree,
+        &source,
+        "Exampleville, Loire-Atlantique, France",
+        "acte 4, vue 2g/3",
+    )
+    .await;
+
+    let ((status, target), response) = both(&app, &tree, &source, Some(&citation), None).await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert_eq!(target["kind"], "view");
+    assert_eq!(target["call_number"], "E dépôt 99");
+    assert_eq!(target["views"][0]["view"], 2);
+    assert!(response.get("errors").is_none(), "{response}");
+    let gql_target = &response["data"]["source"]["archiveTarget"];
+    assert_eq!(gql_target["kind"], "VIEW");
+    assert_eq!(gql_target["url"], target["url"]);
+    assert_eq!(portal.connections(), 1);
+}
+
+#[tokio::test]
+async fn an_incomplete_citation_opens_the_search_page_until_the_reader_completes_it() {
+    let portal = Recorded::new(Answer::Search(AD44_ONE));
+    let app = app_with(&portal).await;
+    let tree = new_tree(&app, "Archives").await;
+    let source = new_source(&app, &tree, "AD44, E dépôt 99").await;
+    let citation = new_citation(&app, &tree, &source, "vue 2g/3").await;
+
+    // No act, no locality: the archive's website, without a request.
+    let ((status, target), response) = both(&app, &tree, &source, Some(&citation), None).await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert_eq!(target["kind"], "results");
+    assert_eq!(target["matches"], Value::Null);
+    assert!(
+        target["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://archives.loire-atlantique.fr/"),
+        "{target}"
+    );
+    let gql_target = &response["data"]["source"]["archiveTarget"];
+    assert_eq!(gql_target["kind"], "RESULTS", "{response}");
+    assert_eq!(gql_target["url"], target["url"]);
+    assert_eq!(portal.connections(), 0);
+
+    // The reader completes it: the register is looked up.
+    let parts = json!({ "locality": "Exampleville", "act": "B", "year": 1660 });
+    let ((status, target), response) =
+        both(&app, &tree, &source, Some(&citation), Some(parts)).await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert_eq!(target["kind"], "view");
+    assert_eq!(target["views"][0]["view"], 2);
+    let gql_target = &response["data"]["source"]["archiveTarget"];
+    assert_eq!(gql_target["kind"], "VIEW", "{response}");
+    assert_eq!(gql_target["url"], target["url"]);
+    assert_eq!(portal.connections(), 1);
+}
+
+#[tokio::test]
+async fn parts_the_archive_cannot_search_are_refused_on_both_surfaces() {
+    let portal = Recorded::new(Answer::Search(AD44_ONE));
+    let app = app_with(&portal).await;
+    let tree = new_tree(&app, "Archives").await;
+    let source = new_source(&app, &tree, "AD44, E dépôt 99").await;
+
+    for parts in [
+        // A document kind no collection of the archive holds, or none at all.
+        json!({ "locality": "Exampleville", "act": "TD" }),
+        json!({ "locality": "Exampleville", "act": "XX" }),
+        json!({ "locality": "  ", "act": "B" }),
+        json!({ "locality": "Exampleville", "act": "B", "year": 900 }),
+        json!({ "locality": "Exampleville", "act": "B", "view": 0 }),
+    ] {
+        let ((status, body), response) =
+            both(&app, &tree, &source, None, Some(parts.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{parts}: {body}");
+        assert_eq!(body["error"], "validation_error", "{parts}");
+        assert_eq!(gql_error_code(&response), "VALIDATION_ERROR", "{parts}");
+    }
+    assert_eq!(portal.connections(), 0);
+}
+
+#[tokio::test]
+async fn a_portal_address_in_the_citation_is_the_target_as_it_is() {
+    let portal = Recorded::new(Answer::Search(AD44_ONE));
+    let app = app_with(&portal).await;
+    let tree = new_tree(&app, "Archives").await;
+    let address = "https://archives-numerisees.loire-atlantique.fr/v2/ad44/visualiseur/registre.html?id=440000000";
+    let source = new_source(&app, &tree, "Acte de baptême").await;
+    let citation = new_citation(&app, &tree, &source, &format!("Voir {address}")).await;
+
+    let ((status, target), response) = both(&app, &tree, &source, Some(&citation), None).await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    assert_eq!(target["kind"], "view");
+    assert_eq!(target["url"], address);
+    assert_eq!(target["views"], json!([]));
+    let gql_target = &response["data"]["source"]["archiveTarget"];
+    assert_eq!(gql_target["kind"], "VIEW", "{response}");
+    assert_eq!(gql_target["url"], address);
+    assert_eq!(portal.connections(), 0);
+}

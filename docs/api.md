@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T18:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
 ---
 
 
@@ -198,7 +198,7 @@ card's recent persons in one request)
 | `GET` | `/trees/{tree_id}/persons/recently-modified?limit=` | The persons modified most recently, newest first, as `SearchEntry` rows (see below) |
 | `GET` | `/trees/{tree_id}/persons/sosa/{number}` | Resolve a SOSA number to a person (relative to `Tree.sosa_root_person_id`) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}` | Get a person (with names, events, families) |
-| `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile |
+| `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile. Beside the cited `sources`, `source_holdings` (`{source_id, name, call_number, website}`, one per repository link) and `source_links` (`{source_id, url}`, the addresses of the media linked to each source, a linked document's pages included) are what the profile recognizes archive citations from ([Archive Portals §5.1](archives.md#51-citation-recognition)). GraphQL: `personDetailBundle(treeId, personId)`, with `sourceHoldings` and `sourceLinks` |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}` | Update a person |
 | `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Soft-delete a person |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/homonyms` | List the other persons bearing the same name, as `SearchEntry` rows (see below) |
@@ -387,7 +387,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (events sidebar) · [Person Edit Moda
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
 | `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note, media link or repository link still points at it — `204` deleted, `200` kept |
-| `POST` | `/trees/{tree_id}/sources/{source_id}/archive-target` | Where a source written as an archive citation opens on its archive's portal: a JSON body, `{}` or `{"citation_id": …, "view": …}`, `citation_id` naming a citation of the source whose `page` completes the title and `view` one view of the cited register to resolve instead of the cited ones. Answers the `ArchiveTarget` ([Archive Portals §5.2](archives.md#52-result)). GraphQL: `Source.archiveTarget(citationId, view)` |
+| `POST` | `/trees/{tree_id}/sources/{source_id}/archive-target` | Where a cited source opens on its archive's portal: a JSON body, `{}` or `{"citation_id": …, "view": …, "parts": …}`, `citation_id` naming a citation of the source whose page, text and event complete what the source and its repositories say ([Archive Portals §5.1](archives.md#51-citation-recognition)), `view` one view of the cited register to resolve instead of the cited ones, and `parts`, `{"locality", "act", "year", "view"}` all optional, what the reader completed in the "Find in the archives" dialog, `act` a document kind's code. Answers the `ArchiveTarget` ([Archive Portals §5.2](archives.md#52-result)). GraphQL: `Source.archiveTarget(citationId, view, parts: ArchivePartsInput)` |
 
 `archive-target` reads nothing it writes, but may query the archive's portal,
 once per call: it is a `POST` so that nothing caches or prefetches it. The
@@ -404,6 +404,14 @@ previous or next view of the register, one request per click
 ([Archive Portals §6.3](archives.md#63-oxidgenes-viewer)): it resolves that
 view alone, with the side the citation gives it, and a view below 1 or
 beyond the cited view count is a `400 validation_error` (`VALIDATION_ERROR`).
+`parts` win over everything the records say; an unknown document kind, one
+none of the recognized archive's collections holds, a blank or overlong
+locality, a year outside 1000–2100 or a view below 1 is a
+`400 validation_error` too. A portal address of the archive found in the
+records answers a `view` with that `url` and no views, without querying the
+portal; a citation whose archive is recognized but whose act or locality is
+not, without `parts`, answers `results` with no `matches`: the archive's
+filtered search page, or its website without a document kind.
 A source or citation that is absent, deleted or
 of another tree, or a citation of another source, is `404 not_found`. The
 other failures carry their own codes on both surfaces, in upper case in
@@ -411,8 +419,8 @@ GraphQL, with no `request_id`:
 
 | Status | Code | Meaning |
 |---|---|---|
-| 422 | `not_an_archive_citation` | The title, completed by the citation's page, is not a normalized archive citation. |
-| 422 | `no_adapter` | The archive is not catalogued, or none of its collections holds the cited act. |
+| 422 | `not_an_archive_citation` | Nothing in the source, the citation, its repositories or its event names a register of an archive. |
+| 422 | `no_adapter` | The archive is not catalogued, or none of its collections holds the cited document kind. |
 | 502 | `unexpected_response` | The portal answered, but not as its adapter expects. |
 | 502 | `challenged` | The portal answered with an anti-bot challenge instead of its page. |
 | 502 | `unreachable` | The portal could not be reached, or answered with a server error. |

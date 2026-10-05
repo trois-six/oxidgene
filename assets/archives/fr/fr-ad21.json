@@ -4,6 +4,8 @@
   "level": "departmental",
   "name": "Archives départementales de la Côte-d'Or",
   "jurisdiction": ["21"],
+  "areas": ["Côte-d'Or"],
+  "aliases": ["ADCO"],
   "citation_codes": ["AD21"],
   "website": "https://archives.cotedor.fr",
   "collections": [

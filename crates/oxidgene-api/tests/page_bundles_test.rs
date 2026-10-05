@@ -547,3 +547,111 @@ async fn the_base_map_is_cacheable_and_revalidated_without_a_body() {
     let response = app.oneshot(request(Some(&etag))).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
 }
+
+/// A source cited for an event of `person_id`, held at a repository under a
+/// call number and with a remote page linked to it.
+async fn held_source(app: &axum::Router, tree: &str, person_id: &str) {
+    let post = |path: String, body: Value| async move {
+        ok(app, Method::POST, &path, Some(body)).await["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let source = post(
+        format!("/api/v1/trees/{tree}/sources"),
+        json!({ "title": "Registres paroissiaux" }),
+    )
+    .await;
+    let repository = post(
+        format!("/api/v1/trees/{tree}/repositories"),
+        json!({ "name": "Archives de l'Exampleshire", "website": "https://archives.example.invalid" }),
+    )
+    .await;
+    post(
+        format!("/api/v1/trees/{tree}/sources/{source}/repositories"),
+        json!({ "repository_id": repository, "call_number": "4 E 99" }),
+    )
+    .await;
+    let event = post(
+        format!("/api/v1/trees/{tree}/events"),
+        json!({ "event_type": "baptism", "date_value": "1750", "person_id": person_id }),
+    )
+    .await;
+    post(
+        format!("/api/v1/trees/{tree}/citations"),
+        json!({ "source_id": source, "event_id": event, "page": "vue 4" }),
+    )
+    .await;
+    let document = post(
+        format!("/api/v1/trees/{tree}/media/document"),
+        json!({ "title": "4 E 99, vue 4" }),
+    )
+    .await;
+    post(
+        format!("/api/v1/trees/{tree}/media"),
+        json!({
+            "document_id": document,
+            "file_name": "view.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": "https://archives.example.invalid/ark:/99999/a1/v4",
+            "file_size": 0
+        }),
+    )
+    .await;
+    post(
+        format!("/api/v1/trees/{tree}/media-links"),
+        json!({ "media_id": document, "source_id": source }),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_person_bundle_carries_what_recognizes_archive_citations() {
+    let f = fixture().await;
+    held_source(&f.app, &f.tree, &f.anchor).await;
+    let bundle = ok(
+        &f.app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{}/persons/{}/detail-bundle",
+            f.tree, f.anchor
+        ),
+        None,
+    )
+    .await;
+    let holding = &bundle["source_holdings"][0];
+    assert_eq!(holding["name"], "Archives de l'Exampleshire");
+    assert_eq!(holding["call_number"], "4 E 99");
+    assert_eq!(holding["website"], "https://archives.example.invalid");
+    assert_eq!(
+        bundle["source_links"][0]["url"],
+        "https://archives.example.invalid/ark:/99999/a1/v4"
+    );
+    let cited = bundle["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|source| source["title"] == "Registres paroissiaux")
+        .expect("the cited source");
+    assert_eq!(holding["source_id"], cited["id"]);
+    assert_eq!(bundle["source_links"][0]["source_id"], cited["id"]);
+
+    let data = gql_ok(
+        &f.app,
+        r#"query($t: ID!, $p: ID!) { personDetailBundle(treeId: $t, personId: $p) {
+            sourceHoldings { sourceId name callNumber website } sourceLinks { sourceId url } } }"#,
+        json!({ "t": f.tree, "p": f.anchor }),
+    )
+    .await;
+    let gql = &data["personDetailBundle"];
+    assert_eq!(gql["sourceHoldings"][0]["name"], holding["name"]);
+    assert_eq!(
+        gql["sourceHoldings"][0]["callNumber"],
+        holding["call_number"]
+    );
+    assert_eq!(gql["sourceHoldings"][0]["sourceId"], holding["source_id"]);
+    assert_eq!(
+        gql["sourceLinks"][0]["url"],
+        bundle["source_links"][0]["url"]
+    );
+}

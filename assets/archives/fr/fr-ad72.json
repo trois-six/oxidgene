@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Sarthe",
   "jurisdiction": ["72"],
+  "areas": ["Sarthe"],
   "citation_codes": ["AD72"],
   "website": "https://archives.sarthe.fr",
   "collections": [

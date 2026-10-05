@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Haute-Garonne",
   "jurisdiction": ["31"],
+  "areas": ["Haute-Garonne"],
   "citation_codes": ["AD31"],
   "website": "https://archives.haute-garonne.fr/",
   "display": "iiif",

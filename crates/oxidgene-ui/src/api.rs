@@ -1048,7 +1048,7 @@ pub struct CreateCitationBody {
     pub text: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct UpdateCitationBody {
     /// Repoints the citation at another source.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2057,6 +2057,12 @@ pub struct PersonDetailBundle {
     pub children: Vec<oxidgene_core::types::FamilyChild>,
     pub citations: Vec<oxidgene_core::types::Citation>,
     pub sources: Vec<oxidgene_core::types::Source>,
+    /// The repositories holding each source, under their call numbers.
+    #[serde(default)]
+    pub source_holdings: Vec<SourceHolding>,
+    /// The web addresses of the media linked to each source.
+    #[serde(default)]
+    pub source_links: Vec<SourceLink>,
     pub profile_media: Vec<ProfileMediaTile>,
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
@@ -2068,6 +2074,22 @@ pub struct PersonDetailBundle {
     /// ancestors.
     #[serde(default)]
     pub sosa_ancestor_ids: Vec<Uuid>,
+}
+
+/// That a source is held at a repository, under one call number.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SourceHolding {
+    pub source_id: Uuid,
+    pub name: String,
+    pub call_number: Option<String>,
+    pub website: Option<String>,
+}
+
+/// The web address of a medium linked to a source.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SourceLink {
+    pub source_id: Uuid,
+    pub url: String,
 }
 
 /// Everything one couple page renders: the family, each spouse's person
@@ -3746,17 +3768,19 @@ impl ApiClient {
     /// portal: call it once per reader's click, never ahead of one.
     ///
     /// `view` asks for that one view of the cited register instead of the
-    /// cited ones: the previous or next view a reader pages to.
+    /// cited ones: the previous or next view a reader pages to. `parts` are
+    /// what the reader completed in the "Find in the archives" dialog.
     pub async fn archive_target(
         &self,
         tree_id: Uuid,
         source_id: Uuid,
         citation_id: Option<Uuid>,
         view: Option<u16>,
+        parts: Option<&oxidgene_archives::SuppliedParts>,
     ) -> Result<oxidgene_archives::ArchiveTarget, ApiError> {
         self.post_read(
             &format!("/api/v1/trees/{tree_id}/sources/{source_id}/archive-target"),
-            &serde_json::json!({ "citation_id": citation_id, "view": view }),
+            &serde_json::json!({ "citation_id": citation_id, "view": view, "parts": parts }),
         )
         .await
     }

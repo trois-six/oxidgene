@@ -143,6 +143,32 @@ pub fn locate_places(lang: ReferenceLang, labels: &[(&str, i64)]) -> Vec<PlaceLo
     }
 }
 
+/// The subdivisions and regions of the places named each of `names`,
+/// written as the dictionary does: what recognizing an archive citation asks
+/// to tell a municipality of the archive's area from a parish or a hamlet
+/// (docs/archives.md §5.1). Empty for a name that is no place.
+///
+/// Like [`locate_places`], it reuses the index place searches build when it
+/// is in memory, and otherwise reads the dictionary once for the rows so
+/// named, keeping nothing afterwards.
+pub fn place_areas(names: &[String]) -> Vec<Vec<String>> {
+    let _span = tracing::info_span!(
+        "reference.places.areas",
+        name.count = names.len(),
+        place.index_loaded = DICTIONARY.get().is_some(),
+    )
+    .entered();
+    let folded: Vec<String> = names.iter().map(|name| fold_words(name)).collect();
+    match DICTIONARY.get() {
+        Some(dictionary) => dictionary.areas_of(&folded),
+        None => {
+            let wanted: HashSet<&str> = folded.iter().map(String::as_str).collect();
+            Dictionary::parse_keeping(&decompressed(), |name, _| wanted.contains(name))
+                .areas_of(&folded)
+        }
+    }
+}
+
 /// A label read against the dictionary.
 enum Located<'a> {
     At(&'a Entry),
@@ -545,6 +571,26 @@ impl Dictionary {
             .iter()
             .take_while(move |i| key(i) == code)
             .map(|i| &self.entries[*i as usize])
+    }
+
+    /// For each folded name, the subdivisions and regions of the places so
+    /// named, as the file writes them.
+    fn areas_of(&self, folded: &[String]) -> Vec<Vec<String>> {
+        folded
+            .iter()
+            .map(|name| {
+                let mut areas: Vec<String> = Vec::new();
+                for entry in self.named(name) {
+                    for part in [entry.subdivision, entry.region] {
+                        let text = self.parts[usize::from(part)].text[0].to_string();
+                        if !text.is_empty() && !areas.contains(&text) {
+                            areas.push(text);
+                        }
+                    }
+                }
+                areas
+            })
+            .collect()
     }
 
     /// The entries whose folded name is exactly `folded`.
@@ -1091,6 +1137,29 @@ mod tests {
         let found = dictionary.locate_all(&[("Ville-A", 1), ("Ville-B", 3)], ReferenceLang::En);
         assert_eq!(found[0].country.as_deref(), Some("France"));
         assert_eq!(found[0].subdivision.as_deref(), Some("Département A"));
+    }
+
+    #[test]
+    fn a_name_gives_the_areas_of_every_place_so_named() {
+        let csv = format!(
+            "{ROWS}{}",
+            r#""Ville-A","99001","Département A","Région A","France","commune","","","","48.0","-4.0","1"
+"Ville-A","01001","","Land A","Allemagne","commune","","","","53.0","9.0","1"
+"#
+        );
+        let dictionary = Dictionary::parse(&csv);
+        let names = ["ville a".to_owned(), "nowhere a".to_owned()];
+        assert_eq!(
+            dictionary.areas_of(&names),
+            [
+                vec![
+                    "Département A".to_owned(),
+                    "Région A".to_owned(),
+                    "Land A".to_owned()
+                ],
+                Vec::new()
+            ]
+        );
     }
 
     #[test]

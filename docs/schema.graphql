@@ -175,6 +175,20 @@ type AnomalyRule {
 }
 
 """
+The parts of a citation a reader supplies in the "Find in the archives"
+dialog. Mirrors REST's `parts` body.
+"""
+input ArchivePartsInput {
+	locality: String
+	"""
+	The document kind's code: `N`, `BMS`, `TD`, `RP`.
+	"""
+	act: String
+	year: Int
+	view: Int
+}
+
+"""
 A populated place, labelled on the map from a zoom on.
 """
 type BasemapCity {
@@ -1908,6 +1922,14 @@ type GqlPersonDetailBundle {
 	children: [GqlFamilyChild!]!
 	citations: [GqlCitation!]!
 	sources: [GqlSource!]!
+	"""
+	The repositories holding each source, under their call numbers.
+	"""
+	sourceHoldings: [GqlSourceHolding!]!
+	"""
+	The web addresses of the media linked to each source.
+	"""
+	sourceLinks: [GqlSourceLink!]!
 	profileMedia: [GqlProfileMediaTile!]!
 	profileVignettes: [GqlVignette!]!
 	eventMedia: [GqlEventMediaTile!]!
@@ -2431,13 +2453,15 @@ type GqlSource {
 	repositories: [GqlSourceRepository!]!
 	"""
 	Where this source opens on its archive's portal, as cited by
-	`citationId` when given — a citation of this source, whose page
-	completes the title. `view` resolves that one view of the cited
-	register instead of the cited ones: the previous or next view a reader
-	pages to. It may query the portal, so it is answered for a source read
-	on its own, never for the items of a list; `null` only with an error.
+	`citationId` when given — a citation of this source, whose page,
+	text and event complete what the source and its repositories say.
+	`view` resolves that one view of the cited register instead of the
+	cited ones: the previous or next view a reader pages to. `parts` holds what the reader completed in the "Find in the
+	archives" dialog. It may query the portal, so it is answered for a
+	source read on its own, never for the items of a list; `null` only
+	with an error.
 	"""
-	archiveTarget(citationId: ID, view: Int): GqlArchiveTarget
+	archiveTarget(citationId: ID, view: Int, parts: ArchivePartsInput): GqlArchiveTarget
 }
 
 type GqlSourceConnection {
@@ -2482,6 +2506,30 @@ type GqlSourceDictionaryGroup {
 type GqlSourceEdge {
 	cursor: String!
 	node: GqlSource!
+}
+
+"""
+That a source is held at a repository, under one call number.
+"""
+type GqlSourceHolding {
+	sourceId: ID!
+	"""
+	The repository's name.
+	"""
+	name: String!
+	callNumber: String
+	"""
+	The repository's website.
+	"""
+	website: String
+}
+
+"""
+The web address of a medium linked to a source.
+"""
+type GqlSourceLink {
+	sourceId: ID!
+	url: String!
 }
 
 """

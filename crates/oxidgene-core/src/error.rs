@@ -46,8 +46,8 @@ pub enum OxidGeneError {
 /// codes; the interface translates each as `archive_viewer.<code>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveFailure {
-    /// The source title, completed by the citation's page, is not a
-    /// normalized archive citation.
+    /// Nothing the source, the citation, its repositories or its event say
+    /// names a register of an archive: no archive citation.
     NotACitation,
     /// The archive is not catalogued, or no collection with an adapter holds
     /// the cited act.

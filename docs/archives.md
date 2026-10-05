@@ -1,9 +1,9 @@
 ---
 type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
-description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing of acts, tables and other series (censuses, military registers, conscription lists, succession tables), the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
+description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -86,7 +86,7 @@ in OxidGene's viewer. A reader who wants to keep the cited act attaches it as a
 document whose pages are the archive's image addresses (§6.4). OxidGene never
 copies, stores or redistributes the image bytes themselves.
 
-The catalogue and the citation parser live in this crate, which the interface
+The catalogue and the citation recognizer live in this crate, which the interface
 uses on both clients. The register is resolved through the portal's request
 interface in Rust; the desktop's archive window only carries those requests,
 since some portals demand a browser, and displays the result (§4.2, §6;
@@ -98,7 +98,10 @@ since some portals demand a browser, and displays the result (§4.2, §6;
 
 - A catalogue of archive services, organized by country and by level.
 - One adapter per portal platform, shared by every archive that runs it.
-- Parsing of normalized citations, configurable per archive.
+- Recognizing citations written in any convention, from the source, the
+  citation, its repositories and the cited event, with the words of each
+  language and the conventions of each country as data (§5.1); French is
+  the one shipped.
 - Resolution of a parsed citation to an [`ArchiveTarget`](#52-result): the
   portal page that shows the register, opened at the cited view when the
   platform allows it.
@@ -134,7 +137,9 @@ that runs an already supported platform is a data change with no code.
 | `country` | ISO 3166-1 alpha-2 code; matches the directory. |
 | `level` | `national`, `regional`, `departmental`, `cantonal`, `municipal`, or `other`. |
 | `name` | The archive's own name, shown verbatim; never translated. |
-| `jurisdiction` | Optional official codes of the area served, as a list: INSEE department or commune codes, Swiss canton abbreviations. A service serving several departments, such as Corsica's (2A and 2B), lists them all. |
+| `jurisdiction` | Optional official codes of the area served, as a list: INSEE department or commune codes, Swiss canton abbreviations. A service serving several departments, such as Corsica's (2A and 2B), lists them all. Citations name the archive by them (`AD 72`, `Exampleville (72)`), and an official code of a place starting with one names it too (§5.1). |
+| `areas` | Optional names of the area served, today's and former ones, as citations and place names write them: `["Loire-Atlantique", "Loire-Inférieure"]`. Citations name the archive by them (`Archives départementales de la Loire-Inférieure`), and a place among whose parts one stands is in the area (§5.1). |
+| `aliases` | Optional other names and abbreviations the archive goes by, beside `name`, such as `ADLA`. |
 | `citation_codes` | Uppercase codes a citation may start with, such as `["AD44"]`. Unique across the catalogue. |
 | `website` | The archive's home page. |
 | `collections` | The archive's searchable collections of registers, each with its own engine (below). Empty when no adapter exists yet. |
@@ -203,11 +208,16 @@ adapters are code, and an adapter serves archives of any level and country.
 
 ```text
 crates/oxidgene-archives/
-  build.rs          Embeds assets/archives/<country>/*.json
+  build.rs          Embeds assets/archives/<country>/*.json and
+                    assets/citations/<language>.json
   src/
     lib.rs          ArchiveRegistry, Resolver, public types
     catalog.rs      Loading and validating the embedded catalogue
-    citation.rs     Parsing citations into CitationParts
+    citation.rs     The normalized form, read into CitationParts
+    recognize/      Recognizing a citation in any convention (§5.1): lex.rs
+                    cuts texts into segments and tokens, scan.rs reads their
+                    words, mod.rs weighs the signals; tests.rs is the corpus
+    vocabulary.rs   Loading the citation vocabularies
     platform/
       mod.rs        The Platform trait and the adapter registry
       query.rs      Percent-encoded query strings
@@ -826,9 +836,154 @@ Resolution:
 
 ## 5. Contract
 
-### 5.1 Citation parsing
+### 5.1 Citation recognition
 
-The default grammar is the normalized form:
+Genealogists cite registers in many ways: the archive first and the act last,
+separated by commas (`AD72, état civil de Exampleville, naissances 1872, cote
+4E 1234, vue 45/200, acte n° 312`); a bare call number and view (`AD72, 4E
+1234, v. 45, n° 312`); the normalized form below; or, in a GEDCOM-shaped
+tree, the register as the source, the archive as its repository with the call
+number on the link, the act and view in the citation's page, and the act's
+kind, year and place on the cited event. `ArchiveRegistry::recognize` reads
+all of them with one engine that knows no language: the words it reads are
+data per language, and a country's conventions data per country (below).
+French is the one shipped.
+
+**What is read.** Per citation, `CitationEvidence` gathers:
+
+| Input | Read for |
+|---|---|
+| Source title, abbreviation, author, publisher, agency | Every part, in words |
+| Citation page | Every part in words, its views, number and folio first |
+| Citation text | Web addresses only: a transcription's names are the act's people |
+| Repositories holding the source | The archive, from the name or the website; the link's call number |
+| Media linked to the source held as addresses, the pages of a linked document included | Web addresses |
+| The cited event, when the citation is attached to one | Its kind, year, place and agency |
+
+**Order of reliability.** Each part is taken from the most reliable signal
+that gives it, and keeps that signal (`Recognition::signals`: `reader`,
+`address`, `normalized`, `record`, `words`, `event`), which tests and
+diagnostics read:
+
+1. what the reader supplied in the "Find in the archives" dialog (§6.5);
+2. a portal address of a catalogued archive: an address on an origin of the
+   archive's website or of one of its collections' endpoints, beyond the home
+   page, is the target as it is, opened without any lookup;
+3. the normalized form, a strict first pass (below);
+4. the records' dedicated fields: a repository's name or website naming the
+   archive, and the call number of the link of a repository naming it (or of
+   the only repository);
+5. the words of the source and the citation;
+6. the cited event, which only completes what the records leave out: its
+   kind gives the act, its year the year, its place the locality. The event
+   says what happened and the records which register holds it, so a birth
+   cited from `baptêmes` stays a baptism, a register's period wins over the
+   act's year, and a combined register (`NMD`) keeps its kinds — the event
+   only narrows it to the one it is among them (a death cited from an `NMD`
+   register is searched as a death, never as the register's first kind). The
+   event never designates the archive: it happened where the record was not
+   necessarily written — a death in one department may be cited from the
+   birth register of another.
+
+**The archive.** It must be designated: by a portal address, by the
+normalized form's code, by a repository holding the source (its name or its
+website), or in the words by a catalogue citation code written over one to
+three tokens (`AD44`, `AD 44`, `A.D. 44`), by its `name` or an alias, or by
+a kind of archive of the vocabulary followed by an area the catalogue gives
+it or one of its `jurisdiction` codes (`Archives départementales de la
+Sarthe`, `Arch. dép. 72`, `Archives de la Loire-Inférieure`, `AM
+Exampleville` for a municipal archive). A designation wins absolutely: a
+code or a kind of archive followed by an area or a code the catalogue does
+not list (`AD98`, `Archives départementales de l'Imaginaire`), in the text
+or a repository's name, leaves the citation without a link (`no_adapter`) —
+no other archive ever stands in for it. Nothing else designates an archive:
+neither an area written alone nor the event's place.
+
+**The words.** A text is cut into segments at commas, semicolons, vertical
+bars, line breaks, parentheses and spaced dashes, and each segment into
+tokens: an elision is split from its word (`d'Exampleville`), an abbreviation
+from the number glued to it (`n°312`, `v.45`). Tokens are compared folded —
+case, accents and punctuation set aside, a degree sign after a letter read as
+the `o` it abbreviates (`n°`, `f°`, `v°`), a word of three letters or more
+also matching its plural in `s` or `x` — against the phrases of every
+vocabulary, the longest first. A keyword decides what follows it, whatever
+the order of the segments:
+
+| Keyword | Reads |
+|---|---|
+| A kind of archive | The archive, by the area or code after it |
+| An act, a combined register's code in capitals (`BMS`, `NMD`, `N 1877`), a table or a series | The document kind; a year or period after it in the segment is the register's; a preposition after it introduces the locality (`état civil de Exampleville`) |
+| A register word (`registres paroissiaux`, `état civil`, `RP`) | That the text cites a register, parish or civil, which reading the event's kind uses |
+| A view word (`vue`, `v.`, `image`) | The views: `45`, `45/200`, `45 sur 200`, `5d-6g/13`, the sides as the vocabulary writes them |
+| A number word (`acte`, `n°`, `matricule`) | The act or matricule number, unless the word before names another number (`ménage n° 56`) |
+| A folio or page word (`f°`, `fol.`, `p.`) | The folio, with its recto or verso: kept for the reader, never a view |
+| A call-number word (`cote`) | The call number, up to the next keyword |
+| A parish word | The parish |
+| A bureau word | A military series' locality, its recruitment bureau |
+
+A segment shaped like a call number (as the normalized form below defines it) that starts
+with nothing else known is the call number (`4E 1234`, `GG 45`, `1 Mi 456`).
+Years read as periods: `1745-1760`, `1745 – 1760`, `1745 à 1760`, a
+Republican year `an XII`; a full date (`12/03/1752`, `1er mars 1752`) is the
+act's, used only when nothing else gives a year. A proper name — capitalized
+words with the particles between them, no keyword — is a locality: one a
+preposition introduces after a document word first, then one written as a
+segment of its own; only when the words state none of these, the event's
+place; then a name within another segment.
+The archive's own areas and name are never its locality, but a municipal
+archive serves its commune, which is its locality when nothing else names one.
+
+**Vocabularies.** One JSON document per language under `assets/citations/`,
+embedded at build time like the catalogue; adding a language is a data
+change, and a test reads a second, test-only language. Every field holds
+phrases, written naturally and folded when loaded:
+
+| Field | Content |
+|---|---|
+| `language`, `countries` | The language, and the countries whose archives follow these conventions |
+| `civil_registration_from` | The year civil registration began in those countries (1793 in France): a birth or death cited without a register word reads as a baptism or burial before it |
+| `archives` | Kinds of archive by level, and `any` |
+| `acts`, `registers`, `tables`, `series` | Act kinds by letter, register words (`any`, `parish`, `civil`), tables and series by code |
+| `views`, `view_counts`, `sides` | View words, the word before a view count, the side suffixes |
+| `numbers`, `other_numbers`, `folios`, `pages`, `recto`, `verso`, `call_numbers`, `parishes`, `bureaus` | The keywords above |
+| `places`, `particles` | Prepositions introducing a locality, and particles within place names |
+| `months`, `ranges`, `republican_years` | Month names, the words joining a period, the word before a Republican year (French conventions only) |
+| `ignored` | Words that are no locality (`s.d.`, `France`) |
+
+The first phrase of an act, table or series and the first view word are
+those OxidGene writes when the reader keeps completed parts (§6.5).
+
+**The place dictionary.** When several localities are offered — a parish and
+a commune in the words, a hamlet before its commune in the event's place when
+the words state none — the backend and the desktop consult the [place
+dictionary](place-dictionary.md): the first candidate the dictionary knows
+within one of the archive's areas is the locality, and a name the words gave
+before it is the parish (`AD72, Saint-Exemple, Exampleville, BMS 1745`). It
+never sets the event's place against a locality the words state. The dictionary
+is read once for the names asked, unless a place search already holds its
+index, and nothing is kept; it is never asked about a single candidate. The
+web interface, which does not embed it, offers the link from the other
+signals, so it is never what decides whether a citation is a link.
+
+**What becomes a link.** A citation is recognized once a catalogued archive
+with an adapter is designated; one designated by a repository alone must also
+read as a register citation: a document kind, a register word, a view, a
+number, a folio or a call number in the words, or an event of a kind the
+archive's registers record. A document kind
+the words or the normalized form name that no collection holds is
+`no_adapter`, as is an uncatalogued archive; one only the event gives is
+dropped instead. Nothing naming an archive is `not_an_archive_citation`.
+The result may still miss the act or the locality (`Recognition::missing`):
+the link is offered all the same, and opens the "Find in the archives"
+dialog (§6.5); asked without the reader's parts, the backend answers the
+archive's filtered search page, built without a request
+(`ArchiveTarget::Results` with no match count), or its website without a
+document kind. A series needs no locality.
+
+#### The normalized form
+
+The normalized form is read first, strictly, from the source title followed
+by the citation's page as further fields (`cited_text`):
 
 ```text
 <code> - <locality> - <parish> - <act> - <period> - <free…> - vue <n>[d|g]/<count>
@@ -953,6 +1108,15 @@ without any request:
 - GraphQL: `Source.archiveTarget(citationId: ID)`, the same target as one
   object whose `kind` is `VIEW` or `RESULTS`.
 
+The body may name the parts a reader completed in the "Find in the archives"
+dialog (§6.5), `parts`: `{"locality": …, "act": …, "year": …, "view": …}`,
+every field optional, `act` a document kind's code (`N`, `BMS`, `TD`, `RP`);
+in GraphQL `archiveTarget(citationId, parts: {locality, act, year, view})`.
+They win over every other signal (§5.1). An unknown code, a document kind
+none of the recognized archive's collections holds, a blank locality or one
+over 200 characters, a year outside 1000–2100 or a view below 1 is a
+`400 validation_error`.
+
 The body may also name a `view` (`archiveTarget(citationId, view)` in
 GraphQL): the one view of the cited register to resolve instead of the cited
 views, which OxidGene's viewer asks for when the reader pages to the
@@ -966,17 +1130,20 @@ symmetrically ([API Contract](api.md#sources)). The request sends the portal
 only the locality, period, act and call number; never the person's name, the
 citation text, or the act or matricule number.
 
-**What is read.** A normalized citation is usually written whole in the
-source title, which is what the interface shows and what the
-[data model](data-model.md#source) calls the source. A GEDCOM-shaped tree
-instead keeps the register as the source and the act within it as the
-citation's `page` ("where in the source",
-[Data Model](data-model.md#citation)), such as `acte 26 - vue 5d/13`. So
-the text read is the source title followed by the named citation's `page`
-as further fields, when it has one (`cited_text`); the page's views win over
-the title's, and a page holding no citation field only adds a free field.
-Without a `citation_id`, the title alone is read. Both clients read a
-citation the same way when deciding to offer the link.
+**What is read.** The backend recognizes the citation from the stored
+records (§5.1): the source, the named citation's page and text, the
+repositories holding the source with their call numbers and websites, the
+addresses of the media linked to the source, and, when the citation is
+attached to an event, the event with its place. Without a `citation_id`, the
+source and its repositories alone are read. It consults the place dictionary
+when several localities are offered, on the blocking pool. A portal address
+of the archive found in the records is answered as a `View` with that
+address and no views, without a request; a citation still missing its act or
+its locality, with no reader's parts, as the archive's filtered search page
+built without a request, or its website without a document kind. The
+interface reads a citation the same way from the person's page bundle, which
+carries each cited source's repositories and media addresses
+([API Contract](api.md#sources)), when deciding to offer the link.
 
 **Process-wide resolver.** The backend keeps one `Resolver` for the process,
 shared by both surfaces, so its session cache (§8) answers a citation
@@ -987,9 +1154,10 @@ recorded fixtures (§9) instead of a portal.
 
 **Errors.** A source or citation that is absent, deleted or of another tree,
 or a citation of another source, is `not_found`. A text that is no
-normalized citation is `422 not_an_archive_citation`; a citation of an
-archive the catalogue does not list, or of an act none of its collections
-holds, is `422 no_adapter`. A resolution failure keeps its `ResolveError`
+archive citation — nothing in the records names a register of an archive
+(§5.1) — is `422 not_an_archive_citation`; a citation of an archive the
+catalogue does not list, or of an act none of its collections holds, is
+`422 no_adapter`. A resolution failure keeps its `ResolveError`
 code: `502 unexpected_response`, `502 unreachable`, `504 timeout`, and the
 same codes in upper case in GraphQL's `extensions`. They are the portal's
 failures, not the server's: no correlation ID, and the backend logs the
@@ -1200,11 +1368,38 @@ Once the document is saved, the viewer offers **Keep only the act** on each
 attached view; when the citation names a side of that view, the region tool
 opens with that half selected, which the reader saves or redraws.
 
+### 6.5 Find in the archives
+
+A citation whose archive is recognized but whose act or locality is not
+(§5.1) is a link all the same. Its click opens a small dialog, the shared
+modal of [UI Common](ui-common.md), titled **Find in the archives**
+(`archive_viewer.find_title`) and prefilled with what was recognized: the
+archive, shown and fixed; the locality; the kind of register, chosen among
+the document kinds the archive's collections hold, named in the interface
+language (`archive_viewer.kind.<code>`); the year; and the view. **Search**
+completes the citation with the reader's parts, which win over every other
+signal, and opens the register exactly as a complete citation's click does —
+in the archive window, a new tab, or OxidGene's viewer — the reader's parts
+riding with every resolution of it, the neighbouring views included
+(`parts`, §5.3). A kind or locality still missing keeps the dialog open with
+`archive_viewer.find_missing`.
+
+Nothing is saved while the reader only searches. A checkbox, unticked by
+default and offered for a stored citation, **Add these details to the
+citation** (`archive_viewer.find_keep`), writes the parts the reader
+supplied at the end of the citation's page, in the archive's language with
+the first words of its vocabulary — `Exampleville, naissance 1872, vue 45` —
+through the ordinary citation update, which records its history; the
+citation then opens directly, read back by the words (§5.1), and the page
+reloads. The source, shared by other citations, is never changed.
+
 ## 7. Errors and fallbacks
 
 | Situation | Result |
 |---|---|
-| Unknown citation code, or no adapter | Plain text, no link; the endpoint answers `not_an_archive_citation` or `no_adapter` (§5.3). |
+| Records naming no archive, an uncatalogued archive, or a document kind no collection holds | Plain text, no link; the endpoint answers `not_an_archive_citation` or `no_adapter` (§5.3). |
+| Archive recognized, act or locality missing | A link opening the "Find in the archives" dialog (§6.5); the endpoint, without the reader's parts, answers the filtered search page built without a request, or the archive's website without a document kind. |
+| Portal address of a catalogued archive in the records | The address, opened as it is: in the archive window (desktop) or a new tab (web), without a lookup. |
 | No register, or several | `Results`: the filtered search page, with a banner (desktop) or a notice beside the source (web). |
 | View beyond the register's image count | `View` with no views: the register's first image. |
 | `iiif` image fails to load | The viewer shows the portal link in place of the picture. |
@@ -1264,6 +1459,14 @@ Archive portals are public services whose terms OxidGene follows:
   every series shape of §5.1: the series in words or by code, the period
   before or after it or in parentheses, no locality, a matricule or a bare
   number, a bare view.
+- A table-driven corpus of fictitious citations runs the recognizer (§5.1)
+  per convention, every part compared: the classic description, its short
+  form, series in words, the normalized form (read exactly as the strict
+  grammar reads it), structured records with the cited event, portal
+  addresses, refusals, the reader's parts and their writing back, the place
+  dictionary through a fake, the embedded catalogue's archives named as
+  genealogists write them, and a second language added as a test-only
+  vocabulary. Each part's signal is checked.
 - Adapter tests replay recorded portal responses, anonymized and committed as
   fixtures, covering one match, several matches, no match, a changed
   response shape, and the platform's own cases: for Arkothèque, a locality
@@ -1299,8 +1502,11 @@ Archive portals are public services whose terms OxidGene follows:
   portal; and the bridge transport's exchanges, including an answer to
   another request and a challenge.
 - API tests resolve recorded answers on both surfaces, a neighbouring view
-  included; interface tests read the viewer's register, its kinds of record
-  and its cited halves from fictitious targets.
+  included, a citation recognized from a repository record and its event,
+  an incomplete citation before and after the reader's parts, refused parts
+  and a portal address; interface tests read the viewer's register, its kinds
+  of record and its cited halves from fictitious targets, what a citation
+  offers, and the dialog's kinds and completion.
 
 `just check` never contacts a portal: the tests above run offline.
 

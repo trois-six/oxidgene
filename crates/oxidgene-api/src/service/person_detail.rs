@@ -10,7 +10,8 @@ use oxidgene_core::types::{
 };
 use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, EventRepo, FamilyChildRepo, FamilySpouseRepo, MediaLinkRepo,
-    MediaLinkTarget, PersonNameRepo, PersonRepo, PlaceRepo, SourceRepo, TreeRepo, VignetteRepo,
+    MediaLinkTarget, PersonNameRepo, PersonRepo, PlaceRepo, RepositoryRepo, SourceRepo,
+    SourceRepositoryRepo, TreeRepo, VignetteRepo,
 };
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
@@ -31,6 +32,11 @@ pub struct PersonDetailBundle {
     pub children: Vec<FamilyChild>,
     pub citations: Vec<Citation>,
     pub sources: Vec<Source>,
+    /// The repositories holding each of `sources`, under their call numbers,
+    /// and the addresses of the media linked to them: what recognizing an
+    /// archive citation reads beside the source (docs/archives.md §5.1).
+    pub source_holdings: Vec<SourceHolding>,
+    pub source_links: Vec<SourceLink>,
     pub profile_media: Vec<ProfileMediaTile>,
     pub profile_vignettes: Vec<Vignette>,
     pub event_media: Vec<EventMediaTile>,
@@ -42,6 +48,24 @@ pub struct PersonDetailBundle {
     /// Those of `persons` who are the tree's SOSA root or one of its
     /// ancestors, for the marks of the family narrative.
     pub sosa_ancestor_ids: Vec<Uuid>,
+}
+
+/// That a source is held at a repository, under one call number.
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceHolding {
+    pub source_id: Uuid,
+    /// The repository's name.
+    pub name: String,
+    pub call_number: Option<String>,
+    /// The repository's website.
+    pub website: Option<String>,
+}
+
+/// The web address of a medium linked to a source, held as a link.
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceLink {
+    pub source_id: Uuid,
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,7 +179,7 @@ pub async fn load_person_detail_bundle(
         VignetteRepo::list_for_person(db, person_id),
     )?;
     let source_ids = sorted_unique(citations.iter().map(|citation| citation.source_id));
-    let sources = SourceRepo::get_many(db, tree_id, &source_ids).await?;
+    let (sources, source_holdings, source_links) = cited_sources(db, tree_id, &source_ids).await?;
 
     let event_media = media_rows
         .into_iter()
@@ -206,11 +230,47 @@ pub async fn load_person_detail_bundle(
         children,
         citations,
         sources,
+        source_holdings,
+        source_links,
         profile_media,
         profile_vignettes,
         event_media,
         gallery,
     })
+}
+
+/// The cited sources, the repositories holding them under their call
+/// numbers, and the addresses of their linked media: what the profile
+/// recognizes archive citations from (docs/archives.md §5.1).
+async fn cited_sources(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    source_ids: &[Uuid],
+) -> Result<(Vec<Source>, Vec<SourceHolding>, Vec<SourceLink>), OxidGeneError> {
+    let (sources, links, addresses) = tokio::try_join!(
+        SourceRepo::get_many(db, tree_id, source_ids),
+        SourceRepositoryRepo::list_by_sources(db, source_ids),
+        crate::service::archive::source_addresses(db, source_ids),
+    )?;
+    let repository_ids = sorted_unique(links.iter().map(|link| link.repository_id));
+    let repositories = RepositoryRepo::get_many(db, &repository_ids).await?;
+    let holdings = links
+        .into_iter()
+        .filter_map(|link| {
+            let repository = repositories.iter().find(|r| r.id == link.repository_id)?;
+            Some(SourceHolding {
+                source_id: link.source_id,
+                name: repository.name.clone(),
+                call_number: link.call_number,
+                website: repository.website.clone(),
+            })
+        })
+        .collect();
+    let addresses = addresses
+        .into_iter()
+        .map(|(source_id, url)| SourceLink { source_id, url })
+        .collect();
+    Ok((sources, holdings, addresses))
 }
 
 /// Resolve one SOSA number while visiting only the ancestry of the configured

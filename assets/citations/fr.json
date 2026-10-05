@@ -1,0 +1,107 @@
+{
+  "language": "fr",
+  "countries": ["FR"],
+  "civil_registration_from": 1793,
+  "archives": {
+    "departmental": [
+      "archives départementales",
+      "archives du département",
+      "arch. dép.",
+      "arch. départ.",
+      "archives dép.",
+      "AD",
+      "A.D.",
+      "ADép."
+    ],
+    "municipal": [
+      "archives municipales",
+      "archives communales",
+      "arch. mun.",
+      "arch. comm.",
+      "AM",
+      "A.M.",
+      "AC"
+    ],
+    "national": ["archives nationales", "arch. nat.", "AN"],
+    "regional": ["archives régionales"],
+    "any": ["archives", "arch."]
+  },
+  "acts": {
+    "N": ["naissance", "naiss.", "nais.", "acte de naissance"],
+    "B": ["baptême", "bapt.", "ondoiement"],
+    "M": ["mariage", "mar.", "acte de mariage"],
+    "D": ["décès", "déc.", "acte de décès"],
+    "S": ["sépulture", "sép.", "inhumation", "inh."],
+    "P": ["publication de mariage", "publication", "bans", "promesse de mariage"]
+  },
+  "registers": {
+    "any": ["registre", "registre des actes"],
+    "parish": [
+      "registres paroissiaux",
+      "registre paroissial",
+      "registres de catholicité",
+      "registre de catholicité",
+      "RP"
+    ],
+    "civil": ["état civil", "registres d'état civil", "registre d'état civil", "EC"]
+  },
+  "tables": {
+    "TD": ["tables décennales", "table décennale"],
+    "TB": ["table des baptêmes"],
+    "TM": ["table des mariages"],
+    "TS": ["table des sépultures"],
+    "TN": ["table des naissances"]
+  },
+  "series": {
+    "RP": ["recensement", "recensement de population", "liste nominative", "dénombrement"],
+    "RM": [
+      "registre matricule",
+      "matricule militaire",
+      "recrutement militaire",
+      "classe"
+    ],
+    "CM": [
+      "conscrits",
+      "conscription",
+      "liste du contingent",
+      "tirage au sort",
+      "garde nationale mobile"
+    ],
+    "TSA": [
+      "table des successions",
+      "tables des successions et absences",
+      "successions et absences"
+    ]
+  },
+  "views": ["vue", "v.", "image", "img.", "cliché"],
+  "view_counts": ["sur"],
+  "sides": { "right": ["d", "droite", "dr."], "left": ["g", "gauche"] },
+  "numbers": ["acte", "numéro", "n°", "nº", "n.", "num.", "matricule", "mle"],
+  "other_numbers": ["ménage", "maison", "famille", "feuille"],
+  "folios": ["folio", "fol.", "f°", "f."],
+  "pages": ["page", "p.", "pp."],
+  "recto": ["recto", "r°", "r"],
+  "verso": ["verso", "v°", "v"],
+  "call_numbers": ["cote", "cotes"],
+  "parishes": ["paroisse", "par."],
+  "places": ["de", "d'", "du", "des", "à", "au", "aux", "commune de", "ville de"],
+  "particles": ["sur", "sous", "en", "le", "la", "les", "de", "du", "des", "d'", "l'", "lès", "lez", "aux", "au", "et"],
+  "bureaus": ["bureau", "bureau de recrutement"],
+  "months": [
+    ["janvier", "janv.", "jan."],
+    ["février", "févr.", "fév."],
+    ["mars"],
+    ["avril", "avr."],
+    ["mai"],
+    ["juin"],
+    ["juillet", "juil."],
+    ["août"],
+    ["septembre", "sept.", "sep."],
+    ["octobre", "oct."],
+    ["novembre", "nov."],
+    ["décembre", "déc."]
+  ],
+  "ranges": ["à", "au", "jusqu'à"],
+  "republican_years": ["an"],
+  "ignored": ["s.d.", "s.l.", "sans date", "sans lieu", "France"]
+}

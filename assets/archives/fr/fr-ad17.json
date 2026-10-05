@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Charente-Maritime",
   "jurisdiction": ["17"],
+  "areas": ["Charente-Maritime", "Charente-Inférieure"],
   "citation_codes": ["AD17"],
   "website": "https://archives.charente-maritime.fr",
   "collections": [

@@ -88,6 +88,12 @@ pub async fn archive_target(
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<ArchiveTargetBody>,
 ) -> Result<Json<ArchiveTarget>, ApiError> {
+    let supplied = body
+        .parts
+        .map(|parts| {
+            archive::supplied_parts(parts.locality, parts.act.as_deref(), parts.year, parts.view)
+        })
+        .transpose()?;
     Ok(Json(
         archive::archive_target(
             &state.reader,
@@ -96,6 +102,7 @@ pub async fn archive_target(
             source_id,
             body.citation_id,
             body.view,
+            supplied,
         )
         .await?,
     ))

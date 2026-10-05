@@ -1,5 +1,6 @@
 // OxidGene's viewer over an archive whose images it may show
-// (docs/archives.md §6.3, §6.4). No archive portal is contacted: the
+// (docs/archives.md §6.3, §6.4), and the "Find in the archives" dialog
+// completing a citation (§6.5). No archive portal is contacted: the
 // backend's archive-target answer is stubbed in the page, and the archive's
 // pictures are served by the test.
 
@@ -116,4 +117,57 @@ test("an iiif archive's cited view opens in OxidGene's viewer and attaches as a 
     expect(pages[0].thumbnail_url).toBe(`${ARCHIVE}/images/5_thumbnail.jpg`);
     expect([pages[0].width, pages[0].height]).toEqual([1200, 800]);
     expect(asked).toEqual([null, 6]);
+});
+
+test("a citation missing its locality opens the Find in the archives dialog, which may keep what the reader adds", async ({
+    page,
+    request,
+    tree,
+}) => {
+    // A baptism without a place, cited from the short form of a catalogued
+    // archive: the archive, the kind, the year and the view are known, the
+    // locality is not.
+    const post = async (path: string, data: object) => {
+        const created = await request.post(`${apiUrl}/api/v1/trees/${tree.treeId}${path}`, { data });
+        expect(created.ok()).toBeTruthy();
+        return (await created.json()).id as string;
+    };
+    const event = await post("/events", { event_type: "baptism", date_value: "1900", person_id: tree.anchorId });
+    const source = await post("/sources", { title: "AD37, 3E1/2" });
+    const citation = await post("/citations", { source_id: source, event_id: event, page: "vue 5" });
+
+    const asked: unknown[] = [];
+    await page.route(`${ARCHIVE}/**`, (route) => route.fulfill({ contentType: "image/png", body: PIXEL }));
+    await page.route("**/sources/*/archive-target", async (route) => {
+        asked.push(route.request().postDataJSON()?.parts ?? null);
+        await route.fulfill({ json: target(5) });
+    });
+
+    await page.goto(`/trees/${tree.treeId}/persons/${tree.anchorId}`);
+    await page.getByRole("button", { name: "AD37, 3E1/2 — vue 5" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Find in the archives" });
+    await expect(dialog.locator(".form-group", { hasText: "Kind of register" }).locator("select")).toHaveValue("B");
+    await expect(dialog.locator(".form-group", { hasText: "Year" }).locator("input")).toHaveValue("1900");
+    await expect(dialog.locator(".form-group", { hasText: "View" }).locator("input")).toHaveValue("5");
+    // Without a locality, the search waits for it.
+    await dialog.getByRole("button", { name: "Search" }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    expect(asked).toEqual([]);
+
+    await dialog.locator(".form-group", { hasText: "Locality" }).locator("input").fill("Exampleville");
+    await dialog.getByRole("checkbox", { name: "Add these details to the citation" }).check();
+    await dialog.getByRole("button", { name: "Search" }).click();
+    await expect(dialog).toBeHidden();
+
+    // The register opens with the reader's part, and only theirs.
+    await expect(page.locator(".media-viewer img.media-viewer-image")).toHaveAttribute("src", /\/a1\/5\/full\/max\//);
+    expect(asked).toEqual([{ locality: "Exampleville", act: null, year: null, view: null }]);
+    // Kept on the citation, at the end of its page.
+    const pageOf = async () => {
+        const listed = await request.get(`${apiUrl}/api/v1/trees/${tree.treeId}/citations?source_id=${source}`);
+        const edges = (await listed.json()).edges as Array<{ node: { id: string; page: string } }>;
+        return edges.find((edge) => edge.node.id === citation)?.node.page;
+    };
+    await expect.poll(pageOf).toBe("vue 5, Exampleville");
 });

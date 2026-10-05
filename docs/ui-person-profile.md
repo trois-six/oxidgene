@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
 ---
 
 
@@ -244,37 +244,45 @@ Each event shows:
 
 #### Opening a cited register
 
-A source title written as a normalized archive citation opens the cited
-register: in a dedicated archive window on desktop, in a new browser tab on
-the web, or, for an archive whose images OxidGene may show, in OxidGene's own
-viewer on both (below):
+A cited source that names a register of a catalogued archive opens it: in a
+dedicated archive window on desktop, in a new browser tab on the web, or, for
+an archive whose images OxidGene may show, in OxidGene's own viewer on both
+(below). OxidGene recognizes the citation however it is written
+([Archive Portals §5.1](archives.md#51-citation-recognition)) — a
+description from the archive down to the act, its short form, the
+normalized form, or the register as the source with the archive as its
+repository and the act on the cited event:
 
 ```text
 AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13
+AD44, état civil de Exampleville, naissances 1877, cote 3E1/2, acte 26, vue 5d/13
+Registres paroissiaux et d'état civil — vue 5, acte 26   (held at Archives départementales de Loire-Atlantique, cited for a birth at Exampleville in 1877)
 ```
 
-The fields are the archive code, the locality (which may itself contain
-` - `), the parish (`(aucun)` for none), the act code (`N` birth, `B`
-baptism, `M` marriage, `D` death, `S` burial, a combination such as `BMS`,
-or a table code such as `TD`), the period, then free fields among which a
-call number is recognized. A final `vue <n>[d|g]/<count>`, or a range such as
-`vue 5d-6g/13`, names the cited images; a view beyond the count is ignored and
-the register still opens. The grammar, and the per-archive adjustments the
-catalogue may make to it, are specified in
-[Archive Portals §5.1](archives.md#51-citation-parsing).
+It reads the source's title and fields, the citation's page, the
+repositories holding the source with their call numbers, the addresses of
+the media linked to the source, and the cited event's kind, year and place,
+from the person's page bundle ([API Contract](api.md#persons)); the words of
+each language are data, French shipped. A citation's page completes its
+source: the page's views and act number win over the title's. A portal
+address of the archive found among them opens as it is, without a lookup.
 
-A citation's page completes its source's title: a source titled after the
-register (`AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2`) cited at page
-`acte 26 - vue 5d/13` opens like the full citation above, and the page's
-views win over any the title names
-([Archive Portals §5.3](archives.md#53-api)).
+The catalogue and the recognizer belong to the `oxidgene-archives` crate,
+which the interface uses on both clients. The source becomes a button only
+when the citation names a catalogued archive with an adapter, says it cites
+a register — a document kind, a register word, a view, a number, a call
+number, or an event of a kind the archive's registers record — and does not
+name a document kind none of the archive's collections holds. Its tooltip,
+`person.source_open_archive`, names the archive. Every other citation stays
+plain text, as does one the desktop window cannot open.
 
-The catalogue and the parser belong to the `oxidgene-archives` crate, which
-the interface uses on both clients. The source becomes a button only when the
-archive code is in the catalogue and one of the archive's collections holds
-the cited act; every collection has an adapter for its portal platform. Its
-tooltip, `person.source_open_archive`, names the archive. Every other title
-stays plain text, as does a title the desktop window cannot open.
+When the archive is recognized but the act or the locality is not, the
+button opens the **Find in the archives** dialog prefilled with what was
+recognized — archive, locality, kind of register, year, view — which the
+reader completes and submits to open the register as above; nothing is
+saved unless the reader ticks **Add these details to the citation**, which
+appends them to the citation's page
+([Archive Portals §6.5](archives.md#65-find-in-the-archives)).
 
 The catalogue is one JSON document per archive in
 `assets/archives/<country>/`, discovered at build time, so an archive on an

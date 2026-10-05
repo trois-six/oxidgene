@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
 ---
 
 
@@ -316,9 +316,12 @@ linked into the application.
 
 The web build keeps its embedded locale JSON uncompressed and adds no Brotli
 decoder to WASM; HTTP bundle compression remains separate. Themes, portraits,
-the logo and the archive catalogue (`assets/archives/<country>/*.json`,
+the logo, the archive catalogue (`assets/archives/<country>/*.json`,
 discovered by the build script of `oxidgene-archives`; see
-[Archive Portals §3.1](archives.md#31-catalogue)) also stay uncompressed. Personal locale files remain ordinary
+[Archive Portals §3.1](archives.md#31-catalogue)) and the citation
+vocabularies (`assets/citations/<language>.json`,
+[Archive Portals §5.1](archives.md#51-citation-recognition)) also stay
+uncompressed. Personal locale files remain ordinary
 JSON, read by an injected desktop source rather than by `oxidgene-ui`.
 
 ---
@@ -540,6 +543,7 @@ oxidgene/
 │   ├── portraits/          # Default portrait silhouettes
 │   ├── reference/          # Occupation and given-name reference sheets
 │   ├── archives/           # Archive catalogue, one directory per country (JSON)
+│   ├── citations/          # Citation vocabularies, one per language (JSON)
 │   ├── places/             # Place dictionary (generated, Brotli)
 │   └── basemap/            # Statistics map country outlines (generated, Brotli)
 ├── docs/                   # Specifications (this directory)
@@ -549,7 +553,7 @@ oxidgene/
 │   ├── oxidgene-api/       # Axum handlers + GraphQL resolvers
 │   ├── oxidgene-gedcom/    # GEDCOM import/export + GeneWeb .gw import
 │   ├── oxidgene-geneanet/  # Geneanet person↔photo recovery (join, key, archives)
-│   ├── oxidgene-archives/  # Archive catalogue, citation parsing, portal adapters
+│   ├── oxidgene-archives/  # Archive catalogue, citation recognition, portal adapters
 │   ├── oxidgene-observability/  # Shared OpenTelemetry initialization
 │   ├── oxidgene-ui/        # Dioxus components (shared web/desktop)
 │   └── oxidgene-guards/    # Repository guards: tests reading the sources

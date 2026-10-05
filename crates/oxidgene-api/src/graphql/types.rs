@@ -7,7 +7,9 @@ use crate::media::MediaStore;
 use crate::profile::ProfileService;
 use crate::service::archive::ArchivePortals;
 use crate::service::purge::PurgeQueue;
-use async_graphql::{ComplexObject, Context, Enum, ID, QueryPathSegment, Result, SimpleObject};
+use async_graphql::{
+    ComplexObject, Context, Enum, ID, InputObject, QueryPathSegment, Result, SimpleObject,
+};
 use chrono::{DateTime, Utc};
 use oxidgene_archives::{ArchiveTarget, ArchiveView};
 use sea_orm::DatabaseConnection;
@@ -1461,16 +1463,19 @@ impl GqlSource {
     }
 
     /// Where this source opens on its archive's portal, as cited by
-    /// `citationId` when given — a citation of this source, whose page
-    /// completes the title. `view` resolves that one view of the cited
-    /// register instead of the cited ones: the previous or next view a reader
-    /// pages to. It may query the portal, so it is answered for a source read
-    /// on its own, never for the items of a list; `null` only with an error.
+    /// `citationId` when given — a citation of this source, whose page,
+    /// text and event complete what the source and its repositories say.
+    /// `view` resolves that one view of the cited register instead of the
+    /// cited ones: the previous or next view a reader pages to. `parts` holds what the reader completed in the "Find in the
+    /// archives" dialog. It may query the portal, so it is answered for a
+    /// source read on its own, never for the items of a list; `null` only
+    /// with an error.
     async fn archive_target(
         &self,
         ctx: &Context<'_>,
         citation_id: Option<ID>,
         view: Option<u16>,
+        parts: Option<GqlArchivePartsInput>,
     ) -> Result<Option<GqlArchiveTarget>> {
         if within_list(ctx) {
             return Err(oxidgene_core::OxidGeneError::Validation(
@@ -1479,6 +1484,16 @@ impl GqlSource {
             .into());
         }
         let citation_id = citation_id.map(uuid).transpose()?;
+        let supplied = parts
+            .map(|parts| {
+                crate::service::archive::supplied_parts(
+                    parts.locality,
+                    parts.act.as_deref(),
+                    parts.year,
+                    parts.view,
+                )
+            })
+            .transpose()?;
         let target = crate::service::archive::archive_target(
             reader_from_ctx(ctx),
             ctx.data_unchecked::<Arc<ArchivePortals>>(),
@@ -1486,6 +1501,7 @@ impl GqlSource {
             uuid(&self.id)?,
             citation_id,
             view,
+            supplied,
         )
         .await?;
         Ok(Some(target.into()))
@@ -1499,6 +1515,18 @@ fn within_list(ctx: &Context<'_>) -> bool {
 }
 
 // ── Archive target ───────────────────────────────────────────────────
+
+/// The parts of a citation a reader supplies in the "Find in the archives"
+/// dialog. Mirrors REST's `parts` body.
+#[derive(Debug, Clone, InputObject)]
+#[graphql(name = "ArchivePartsInput")]
+pub struct GqlArchivePartsInput {
+    pub locality: Option<String>,
+    /// The document kind's code: `N`, `BMS`, `TD`, `RP`.
+    pub act: Option<String>,
+    pub year: Option<u16>,
+    pub view: Option<u16>,
+}
 
 /// What an archive target opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Enum)]
@@ -3210,6 +3238,10 @@ pub struct GqlPersonDetailBundle {
     pub children: Vec<GqlFamilyChild>,
     pub citations: Vec<GqlCitation>,
     pub sources: Vec<GqlSource>,
+    /// The repositories holding each source, under their call numbers.
+    pub source_holdings: Vec<GqlSourceHolding>,
+    /// The web addresses of the media linked to each source.
+    pub source_links: Vec<GqlSourceLink>,
     pub profile_media: Vec<GqlProfileMediaTile>,
     pub profile_vignettes: Vec<GqlVignette>,
     pub event_media: Vec<GqlEventMediaTile>,
@@ -3274,6 +3306,24 @@ impl From<crate::service::relation_labels::RelationLabels> for GqlRelationLabels
     }
 }
 
+/// That a source is held at a repository, under one call number.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSourceHolding {
+    pub source_id: ID,
+    /// The repository's name.
+    pub name: String,
+    pub call_number: Option<String>,
+    /// The repository's website.
+    pub website: Option<String>,
+}
+
+/// The web address of a medium linked to a source.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlSourceLink {
+    pub source_id: ID,
+    pub url: String,
+}
+
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlEventMediaTile {
     pub event_id: ID,
@@ -3304,6 +3354,24 @@ impl From<crate::service::person_detail::PersonDetailBundle> for GqlPersonDetail
             children: bundle.children.into_iter().map(Into::into).collect(),
             citations: bundle.citations.into_iter().map(Into::into).collect(),
             sources: bundle.sources.into_iter().map(Into::into).collect(),
+            source_holdings: bundle
+                .source_holdings
+                .into_iter()
+                .map(|holding| GqlSourceHolding {
+                    source_id: ID(holding.source_id.to_string()),
+                    name: holding.name,
+                    call_number: holding.call_number,
+                    website: holding.website,
+                })
+                .collect(),
+            source_links: bundle
+                .source_links
+                .into_iter()
+                .map(|link| GqlSourceLink {
+                    source_id: ID(link.source_id.to_string()),
+                    url: link.url,
+                })
+                .collect(),
             profile_media: bundle.profile_media.into_iter().map(Into::into).collect(),
             profile_vignettes: bundle
                 .profile_vignettes

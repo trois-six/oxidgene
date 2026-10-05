@@ -1224,8 +1224,9 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     /* `content-visibility` contains the row's paint, which would make the row
        the box of a fixed overlay opened from it — the viewer of a cited
-       register or of a document proving the event — and clip it there. */
-    .pd-timeline li:has(.cropper-backdrop) { content-visibility: visible; }
+       register or of a document proving the event, the dialog completing a
+       cited register — and clip it there. */
+    .pd-timeline li:has(.cropper-backdrop, .modal-backdrop) { content-visibility: visible; }
     .pd-timeline li:first-child {
         border-top: none;
         padding-top: var(--space-1);

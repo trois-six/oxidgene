@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales d'Indre-et-Loire",
   "jurisdiction": ["37"],
+  "areas": ["Indre-et-Loire"],
   "citation_codes": ["AD37"],
   "website": "https://archives.touraine.fr",
   "display": "iiif",

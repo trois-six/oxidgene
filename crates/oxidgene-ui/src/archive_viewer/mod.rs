@@ -1,15 +1,20 @@
 //! Opening a cited archive register at the cited view.
 //!
-//! The interface recognizes normalized citations of the archives the
-//! catalogue lists, both provided by `oxidgene-archives`, and offers such a
-//! source as [`ArchiveSourceLink`]. On the desktop the binary injects an
-//! [`ArchiveViewerOpener`] that resolves the citation in an archive window;
-//! the web client, which has none, asks the backend for the target and opens
-//! it in a new browser tab. An archive whose images OxidGene may show
-//! (`display: "iiif"`) is resolved by the backend on both clients and shown
-//! in OxidGene's own viewer instead ([`viewer`]), from which the reader may
-//! attach the cited views as a document.
+//! The interface recognizes citations of the archives the catalogue lists,
+//! in whatever convention they are written, from the source, the citation,
+//! the repositories holding the source and the cited event — both provided
+//! by `oxidgene-archives` (docs/archives.md §5.1) — and offers such a source
+//! as [`ArchiveSourceLink`]: a register to look up, a portal address to
+//! open as it is, or, when the archive is known but the act or the locality
+//! is not, the "Find in the archives" dialog ([`find`]). On the desktop the
+//! binary injects an [`ArchiveViewerOpener`] that resolves the citation in
+//! an archive window; the web client, which has none, asks the backend for
+//! the target and opens it in a new browser tab. An archive whose images
+//! OxidGene may show (`display: "iiif"`) is resolved by the backend on both
+//! clients and shown in OxidGene's own viewer instead ([`viewer`]), from
+//! which the reader may attach the cited views as a document.
 
+mod find;
 mod register;
 mod source_link;
 mod viewer;
@@ -17,7 +22,10 @@ mod viewer;
 use std::sync::Arc;
 
 use dioxus::prelude::try_use_context;
-use oxidgene_archives::{Archive, ArchiveRegistry, ArchiveTarget, CitationParts, cited_text};
+use oxidgene_archives::{
+    Archive, ArchiveRegistry, ArchiveTarget, CitationEvidence, CitationParts, Found, Part,
+    SuppliedParts,
+};
 use uuid::Uuid;
 
 use crate::i18n::I18n;
@@ -35,26 +43,138 @@ pub struct ArchiveLink {
     /// The cited source, and the citation whose page completes its title.
     pub source_id: Uuid,
     pub citation_id: Option<Uuid>,
+    /// What the reader completed in the "Find in the archives" dialog, sent
+    /// with every resolution of this link.
+    pub supplied: Option<SuppliedParts>,
+    /// The records the citation was recognized from, which the desktop reads
+    /// again with the place dictionary before resolving.
+    pub evidence: CitationEvidence,
 }
 
-impl ArchiveLink {
-    /// The link a citation of a source stands for: its title completed by
-    /// the citation's page, when its archive is catalogued and has a
-    /// collection holding the cited act.
-    pub fn from_citation(
-        source_id: Uuid,
-        title: &str,
-        citation_id: Option<Uuid>,
-        page: Option<&str>,
-    ) -> Option<Self> {
-        let (archive, citation) = ArchiveRegistry::embedded().link(&cited_text(title, page))?;
-        Some(Self {
-            archive,
+/// A portal address of a catalogued archive found in a citation's records:
+/// opened as it is, without any lookup.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArchiveAddress {
+    pub archive: &'static Archive,
+    pub url: String,
+    /// The source title, naming the window.
+    pub title: String,
+}
+
+/// A citation of a catalogued archive that misses the act or the locality:
+/// what was recognized, for the reader to complete.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArchiveFind {
+    pub archive: &'static Archive,
+    pub found: Found,
+    pub missing: Vec<Part>,
+    pub title: String,
+    pub source_id: Uuid,
+    pub citation_id: Option<Uuid>,
+    pub evidence: CitationEvidence,
+}
+
+impl ArchiveFind {
+    /// The parts the reader changed or added in the dialog: a field left
+    /// as recognized stays the records', so that only what the reader
+    /// supplied rides with the resolution and is written back.
+    pub fn changes(&self, parts: SuppliedParts) -> SuppliedParts {
+        let found = &self.found;
+        SuppliedParts {
+            locality: parts
+                .locality
+                .filter(|locality| found.locality.as_deref() != Some(locality.as_str())),
+            act: parts.act.filter(|act| found.act.as_ref() != Some(act)),
+            year: parts.year.filter(|year| found.year != Some(*year)),
+            view: parts
+                .view
+                .filter(|view| found.views.first().map(|cited| cited.view) != Some(*view)),
+        }
+    }
+
+    /// The register link the reader's parts complete, with those parts
+    /// written in the archive's language for the citation's page; `None`
+    /// while the act or the locality is still missing.
+    pub fn complete(&self, supplied: SuppliedParts) -> Option<(ArchiveLink, Option<String>)> {
+        let registry = ArchiveRegistry::embedded();
+        supplied.validate(self.archive).ok()?;
+        let recognition = registry
+            .recognize(&self.evidence, Some(&supplied), None)
+            .ok()?;
+        let citation = recognition.citation()?;
+        let written = recognition.written(registry);
+        let link = ArchiveLink {
+            archive: self.archive,
             citation,
-            title: title.to_owned(),
-            source_id,
-            citation_id,
+            title: self.title.clone(),
+            source_id: self.source_id,
+            citation_id: self.citation_id,
+            supplied: Some(supplied),
+            evidence: self.evidence.clone(),
+        };
+        Some((link, written))
+    }
+}
+
+/// What a cited source offers the reader.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ArchiveOffer {
+    /// A register to look up.
+    Register(ArchiveLink),
+    /// A portal address to open as it is.
+    Address(ArchiveAddress),
+    /// The "Find in the archives" dialog.
+    Find(ArchiveFind),
+}
+
+impl ArchiveOffer {
+    /// What a citation of source `source_id`, by `citation_id`, offers from
+    /// its records; `None` when they name no register of a catalogued
+    /// archive with an adapter.
+    pub fn of(
+        source_id: Uuid,
+        citation_id: Option<Uuid>,
+        evidence: CitationEvidence,
+    ) -> Option<Self> {
+        let registry = ArchiveRegistry::embedded();
+        let recognition = registry.recognize(&evidence, None, None).ok()?;
+        let title = evidence.title.clone();
+        if let Some(url) = recognition.address.clone() {
+            return Some(Self::Address(ArchiveAddress {
+                archive: recognition.archive,
+                url,
+                title,
+            }));
+        }
+        Some(match recognition.citation() {
+            Some(citation) => Self::Register(ArchiveLink {
+                archive: recognition.archive,
+                citation,
+                title,
+                source_id,
+                citation_id,
+                supplied: None,
+                evidence,
+            }),
+            None => Self::Find(ArchiveFind {
+                archive: recognition.archive,
+                missing: recognition.missing(),
+                found: recognition.found,
+                title,
+                source_id,
+                citation_id,
+                evidence,
+            }),
         })
+    }
+
+    /// The archive the citation belongs to.
+    pub fn archive(&self) -> &'static Archive {
+        match self {
+            Self::Register(link) => link.archive,
+            Self::Address(address) => address.archive,
+            Self::Find(find) => find.archive,
+        }
     }
 }
 
@@ -287,8 +407,59 @@ pub fn use_archive_viewer_bridge() -> Option<ArchiveViewerBridge> {
 mod tests {
     use super::*;
 
-    fn link(title: &str, page: Option<&str>) -> Option<ArchiveLink> {
-        ArchiveLink::from_citation(Uuid::nil(), title, None, page)
+    /// The register link a citation of a source written `title`, with the
+    /// citation's `page`, stands for, when it names one.
+    pub(super) fn link(title: &str, page: Option<&str>) -> Option<ArchiveLink> {
+        let evidence = CitationEvidence {
+            title: title.to_owned(),
+            page: page.map(str::to_owned),
+            ..CitationEvidence::default()
+        };
+        match ArchiveOffer::of(Uuid::nil(), None, evidence)? {
+            ArchiveOffer::Register(link) => Some(link),
+            ArchiveOffer::Address(_) | ArchiveOffer::Find(_) => None,
+        }
+    }
+
+    fn offer(title: &str, page: Option<&str>) -> Option<ArchiveOffer> {
+        let evidence = CitationEvidence {
+            title: title.to_owned(),
+            page: page.map(str::to_owned),
+            ..CitationEvidence::default()
+        };
+        ArchiveOffer::of(Uuid::nil(), None, evidence)
+    }
+
+    #[test]
+    fn a_citation_offers_a_register_an_address_or_the_dialog() {
+        let Some(ArchiveOffer::Register(link)) = offer(
+            "Archives départementales de la Sarthe, état civil de Exampleville, naissances 1872",
+            Some("vue 45, acte 312"),
+        ) else {
+            panic!("a register");
+        };
+        assert_eq!(link.archive.id, "fr-ad72");
+        assert_eq!(link.citation.locality, "Exampleville");
+        assert_eq!(link.citation.views[0].view, 45);
+        assert_eq!(link.supplied, None);
+
+        let Some(ArchiveOffer::Address(address)) = offer(
+            "Acte de naissance",
+            Some("https://archives.sarthe.fr/archives-en-ligne/ark:/99999/a0000"),
+        ) else {
+            panic!("an address");
+        };
+        assert_eq!(address.archive.id, "fr-ad72");
+        assert!(address.url.ends_with("/a0000"));
+
+        let Some(ArchiveOffer::Find(find)) = offer("AD72, 4E 1234", Some("vue 45")) else {
+            panic!("a citation to complete");
+        };
+        assert_eq!(find.missing, [Part::Act, Part::Locality]);
+        assert_eq!(find.found.views[0].view, 45);
+
+        assert_eq!(offer("Fictitious register", None), None);
+        assert_eq!(offer("AD98, état civil de Exampleville", None), None);
     }
 
     #[test]

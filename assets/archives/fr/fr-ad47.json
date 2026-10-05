@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de Lot-et-Garonne",
   "jurisdiction": ["47"],
+  "areas": ["Lot-et-Garonne"],
   "citation_codes": ["AD47"],
   "website": "https://archivesdepartementales.lotetgaronne.fr",
   "collections": [

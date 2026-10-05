@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Marne",
   "jurisdiction": ["51"],
+  "areas": ["Marne"],
   "citation_codes": ["AD51"],
   "website": "https://archives.marne.fr",
   "collections": [

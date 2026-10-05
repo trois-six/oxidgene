@@ -3,6 +3,9 @@
 //!
 //! - [`catalog`]: the archive services, one embedded JSON document each.
 //! - [`citation`]: normalized citations read into [`CitationParts`].
+//! - [`recognize`]: citations written in any convention, read from the
+//!   source, the citation, the repositories and the cited event.
+//! - [`vocabulary`]: the words of citations, as data per language.
 //! - [`platform`]: one adapter per portal software.
 //! - [`transport`]: how an adapter's requests reach a portal.
 //! - `live` (feature `live`): the live checks of the portals, never part of
@@ -18,7 +21,9 @@ pub mod citation;
 #[cfg(any(test, feature = "live"))]
 pub mod live;
 pub mod platform;
+pub mod recognize;
 pub mod transport;
+pub mod vocabulary;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -31,9 +36,14 @@ pub use citation::{
     Act, ActKind, CallNumber, CitationGrammar, CitationParts, CitedView, Series, Side,
 };
 pub use platform::{Access, Platform, PortalEndpoint};
+pub use recognize::{
+    CitationEvidence, CitedEvent, Found, HeldAt, Part, PlaceLookup, Recognition, Signal,
+    SuppliedParts, Unrecognized,
+};
 #[cfg(feature = "native")]
 pub use transport::NativeTransport;
 pub use transport::{FetchError, Method, PortalFetch, PortalRequest, PortalTransport};
+pub use vocabulary::{Vocabulary, VocabularyError};
 
 /// Where a resolved citation opens.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +165,8 @@ pub fn cited_text(title: &str, page: Option<&str>) -> String {
 pub struct ArchiveRegistry {
     archives: Vec<Archive>,
     platforms: Vec<Box<dyn Platform>>,
+    /// The words citations are written with, every language's.
+    vocabularies: Vec<Vocabulary>,
 }
 
 static EMBEDDED: LazyLock<ArchiveRegistry> = LazyLock::new(|| {
@@ -170,7 +182,8 @@ impl ArchiveRegistry {
     }
 
     /// A registry over catalogue documents given as `(country directory,
-    /// JSON)`, validated against `platforms`.
+    /// JSON)`, validated against `platforms`, reading citations with the
+    /// embedded vocabularies.
     pub fn new(
         documents: &[(&str, &str)],
         platforms: Vec<Box<dyn Platform>>,
@@ -179,7 +192,22 @@ impl ArchiveRegistry {
         Ok(Self {
             archives,
             platforms,
+            vocabularies: vocabulary::embedded(),
         })
+    }
+
+    /// The registry reading citations with `vocabularies` instead of the
+    /// embedded ones.
+    #[must_use]
+    pub fn with_vocabularies(mut self, vocabularies: Vec<Vocabulary>) -> Self {
+        self.vocabularies = vocabularies;
+        self
+    }
+
+    /// The vocabularies serving an archive's country, which write found
+    /// parts back in its language.
+    pub fn vocabularies(&self) -> &[Vocabulary] {
+        &self.vocabularies
     }
 
     /// Every archive, in catalogue order: by country, then by file name.

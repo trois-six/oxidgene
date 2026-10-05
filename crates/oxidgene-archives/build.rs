@@ -1,6 +1,8 @@
 //! Embeds the archive catalogue: every `assets/archives/<country>/*.json`
 //! document, with the directory it was found in, so that adding an archive is
-//! a data change. The documents weigh a few kilobytes and stay plain text.
+//! a data change; and the citation vocabularies, every
+//! `assets/citations/<language>.json`, so that adding a language is one too.
+//! The documents weigh a few kilobytes and stay plain text.
 
 use std::{
     env, fs,
@@ -29,6 +31,23 @@ fn main() {
         format!("&[{}]", documents.join(",")),
     )
     .expect("embedded archive list");
+
+    let vocabularies = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join("../../assets/citations")
+        .canonicalize()
+        .expect("the assets/citations directory");
+    let documents: Vec<String> = sorted_entries(&vocabularies)
+        .filter(|file| {
+            file.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .map(|file| format!("include_str!({file:?})"))
+        .collect();
+    fs::write(
+        output.join("vocabularies.rs"),
+        format!("&[{}]", documents.join(",")),
+    )
+    .expect("embedded vocabulary list");
 }
 
 /// The entries of `directory`, sorted by name; Cargo rebuilds when one is

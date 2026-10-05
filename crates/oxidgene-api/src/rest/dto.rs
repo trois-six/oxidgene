@@ -246,6 +246,24 @@ pub struct ArchiveTargetBody {
     /// the previous or next view a reader pages to.
     #[serde(default)]
     pub view: Option<u16>,
+    /// What the reader completed in the "Find in the archives" dialog.
+    #[serde(default)]
+    pub parts: Option<ArchivePartsBody>,
+}
+
+/// The parts of a citation a reader supplies (docs/archives.md §5.3).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchivePartsBody {
+    #[serde(default)]
+    pub locality: Option<String>,
+    /// The document kind's code: `N`, `BMS`, `TD`, `RP`.
+    #[serde(default)]
+    pub act: Option<String>,
+    #[serde(default)]
+    pub year: Option<u16>,
+    #[serde(default)]
+    pub view: Option<u16>,
 }
 
 /// Query parameters for definitively deleting a media record.

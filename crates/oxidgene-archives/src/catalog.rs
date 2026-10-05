@@ -16,7 +16,7 @@ use crate::citation::{Act, CitationGrammar, CitationParts, Series};
 use crate::platform::Platform;
 
 /// The administrative level of an archive service.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Level {
     National,
@@ -52,6 +52,13 @@ pub struct Archive {
     /// Official codes of the area served: department, commune, canton.
     #[serde(default)]
     pub jurisdiction: Vec<String>,
+    /// The names of the area served, today's and former ones, as citations
+    /// and place names write them: `Loire-Atlantique`, `Loire-Inférieure`.
+    #[serde(default)]
+    pub areas: Vec<String>,
+    /// Other names and abbreviations the archive goes by, beside `name`.
+    #[serde(default)]
+    pub aliases: Vec<String>,
     /// The codes a citation of this archive may start with, such as `AD44`.
     pub citation_codes: Vec<String>,
     /// The archive's home page.
@@ -324,6 +331,14 @@ fn validate_identity(archive: &Archive, directory: &str) -> Result<(), CatalogEr
         .any(|code| code.trim().is_empty())
     {
         return Err(CatalogError::new("jurisdiction codes must not be blank"));
+    }
+    if archive
+        .areas
+        .iter()
+        .chain(&archive.aliases)
+        .any(|name| oxidgene_core::search::fold_words(name).is_empty())
+    {
+        return Err(CatalogError::new("area names and aliases need a word"));
     }
     let valid_code = |code: &String| {
         code.bytes().any(|byte| byte.is_ascii_uppercase())

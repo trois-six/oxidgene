@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:30:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -59,7 +59,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
 
 ## 3b. Active: archive viewer
 
-The desktop opens a normalized citation at the cited register view through an
+The desktop opens a cited register at the cited view through an
 archive catalogue and one driver per portal platform ([Person
 Profile](ui-person-profile.md#opening-a-cited-register)).
 
@@ -79,7 +79,14 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
 - [x] Cite and resolve series beyond acts — population censuses, military
   registers, conscription lists, tables of successions and absences — named
   in words or by code, through Arkothèque and Ligeo collections
-  ([Archive Portals §3.1, §5.1](archives.md#51-citation-parsing)).
+  ([Archive Portals §3.1, §5.1](archives.md#51-citation-recognition)).
+- [x] Recognize citations written in any convention — the classic
+  description, its short form, structured repository records with the cited
+  event, portal addresses — with the words of each language as data, French
+  shipped, and complete a partial one in a "Find in the archives" dialog
+  ([Archive Portals §5.1, §6.5](archives.md#51-citation-recognition)).
+- [ ] Ship citation vocabularies beyond French as the catalogue reaches other
+  countries.
 - [x] Wait out anti-bot checks in the desktop archive window, ask the reader
   to answer one that stays, land on the filtered search results after a
   check or a block, name the view to go to on a portal without an address

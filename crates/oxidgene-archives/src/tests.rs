@@ -22,7 +22,7 @@ pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 /// Answers as its collection's `portal.outcome` says, after one request.
-struct Scripted;
+pub(crate) struct Scripted;
 
 impl Scripted {
     fn outcome(collection: &Collection) -> &str {

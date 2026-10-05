@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de l'Ardèche",
   "jurisdiction": ["07"],
+  "areas": ["Ardèche"],
   "citation_codes": ["AD07"],
   "website": "https://archives.ardeche.fr/",
   "display": "iiif",

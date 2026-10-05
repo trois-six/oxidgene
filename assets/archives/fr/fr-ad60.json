@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de l'Oise",
   "jurisdiction": ["60"],
+  "areas": ["Oise"],
   "citation_codes": ["AD60"],
   "website": "https://archives.oise.fr",
   "collections": [

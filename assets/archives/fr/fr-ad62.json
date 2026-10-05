@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales du Pas-de-Calais",
   "jurisdiction": ["62"],
+  "areas": ["Pas-de-Calais"],
   "citation_codes": ["AD62"],
   "website": "https://www.archivespasdecalais.fr",
   "collections": [

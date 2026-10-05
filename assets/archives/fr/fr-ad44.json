@@ -4,6 +4,8 @@
   "level": "departmental",
   "name": "Archives départementales de Loire-Atlantique",
   "jurisdiction": ["44"],
+  "areas": ["Loire-Atlantique", "Loire-Inférieure"],
+  "aliases": ["ADLA"],
   "citation_codes": ["AD44"],
   "website": "https://archives.loire-atlantique.fr/44/accueil-archives/j_6",
   "collections": [
