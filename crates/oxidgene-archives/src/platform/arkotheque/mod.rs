@@ -10,7 +10,6 @@
 //! with `i` zero-based. Archive Portals §4.3 specifies the requests.
 
 mod page;
-mod select;
 #[cfg(test)]
 mod tests;
 
@@ -18,6 +17,9 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+use super::iiif::image_info;
+use super::select::{Selection, select};
+use super::view::{cited_views, view_target};
 use super::{Access, BoxFuture, Platform, PortalEndpoint, Query, is_https_origin};
 use crate::catalog::{Archive, CatalogError, Collection, Display};
 use crate::citation::{Act, CitationParts};
@@ -308,27 +310,20 @@ async fn resolve(
     };
 
     let answer = fetch.get(&settings.search_request(&filters)).await?;
-    let rows = page::search_rows(&answer)?;
-    let row = match select::register(&rows, citation, &settings) {
-        select::Selection::One(row) => row,
-        select::Selection::Many(matches) => return Ok(results(matches)),
+    let rows = page::search_rows(&answer, &settings.cells)?;
+    let styled = settings.locality(citation);
+    let row = match select(&rows, citation, &[&citation.locality, &styled]) {
+        Selection::One(row) => row,
+        Selection::Many(matches) => return Ok(results(matches)),
     };
+    let record = &row.payload.record;
     // A register listed without images cannot be opened on a view.
-    let Some(viewer) = row.viewer.as_deref() else {
+    let Some(viewer) = row.payload.viewer.as_deref() else {
         return Ok(results(1));
     };
     let sources = page::viewer_sources(&fetch.get(viewer).await?)?;
 
-    // A view beyond the register's images opens the register itself.
-    let cited = if citation
-        .views
-        .iter()
-        .all(|view| usize::from(view.view) <= sources.len())
-    {
-        citation.views.as_slice()
-    } else {
-        &[]
-    };
+    let cited = cited_views(citation, sources.len());
     let mut views = Vec::with_capacity(cited.len());
     for view in cited {
         let source = &sources[usize::from(view.view) - 1];
@@ -338,7 +333,7 @@ async fn resolve(
         };
         views.push(ArchiveView {
             view: view.view,
-            url: settings.view_url(&row.record, viewer, view.view - 1),
+            url: settings.view_url(record, viewer, view.view - 1),
             ark: source
                 .ark
                 .as_ref()
@@ -346,26 +341,14 @@ async fn resolve(
             image,
         });
     }
-
-    let call_number = Some(row.call_number.clone())
-        .filter(|call_number| !call_number.is_empty())
-        .or_else(|| {
-            citation
-                .call_number
-                .as_ref()
-                .map(|call_number| call_number.as_str().to_owned())
-        });
-    let numbers: Vec<u16> = views.iter().map(|view| view.view).collect();
-    Ok(ArchiveTarget::View {
-        url: views.first().map_or_else(
-            || settings.view_url(&row.record, viewer, 0),
-            |view| view.url.clone(),
-        ),
-        attribution: archive.attribution_for(call_number.as_deref(), &numbers),
+    Ok(view_target(
+        archive,
+        citation,
+        row.call_number.as_deref(),
+        sources.len(),
+        settings.view_url(record, viewer, 0),
         views,
-        view_count: u16::try_from(sources.len()).ok(),
-        call_number,
-    })
+    ))
 }
 
 /// The image of one view, for a `display: "iiif"` archive: its size from the
@@ -376,12 +359,6 @@ async fn image(
     source: &page::Source,
     fetch: &dyn PortalFetch,
 ) -> Result<ArchiveImage, ResolveError> {
-    let info = page::image_info(&fetch.get(&format!("{}/info.json", source.src)).await?)?;
-    let base = format!("{}{}", settings.origin, source.src);
-    Ok(ArchiveImage {
-        picture: format!("{base}/full/{}/0/default.jpg", info.picture_size()),
-        thumbnail: format!("{base}/full/{}/0/default.jpg", info.thumbnail_size()),
-        width: info.width,
-        height: info.height,
-    })
+    let info = image_info(&fetch.get(&format!("{}/info.json", source.src)).await?)?;
+    Ok(info.image(&format!("{}{}", settings.origin, source.src)))
 }

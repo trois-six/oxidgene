@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T09:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T09:45:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -188,6 +188,10 @@ crates/oxidgene-archives/
     platform/
       mod.rs        The Platform trait and the adapter registry
       query.rs      Percent-encoded query strings
+      markup.rs     Attribute and text scans of portal markup, folding
+      select.rs     Choosing the cited register among search results (§4.3)
+      iiif.rs       Reading an image service and building a view's image
+      view.rs       The View target of a chosen register (§5.2, §7)
       arkotheque/   Arkothèque (1 égal 2)
       mnesys/       Mnesys (Naoned), phase 2
     transport.rs    The request contract, the PortalFetch and PortalTransport

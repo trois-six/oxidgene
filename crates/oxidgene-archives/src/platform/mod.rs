@@ -5,9 +5,19 @@
 //! An adapter is code and an archive is data: the catalogue names the
 //! platform of each collection, and the registry ([`builtin`]) maps that name
 //! to the adapter.
+//!
+//! What does not depend on a platform is shared by every adapter:
+//! [`query`] percent-encodes query strings, [`markup`] scans portal markup,
+//! [`select`] chooses the cited register among a search's results,
+//! [`iiif`] reads an image service and builds a view's image, and [`view`]
+//! assembles the `View` target of the chosen register.
 
 mod arkotheque;
-mod query;
+pub(crate) mod iiif;
+pub(crate) mod markup;
+pub(crate) mod query;
+pub(crate) mod select;
+pub(crate) mod view;
 
 use std::future::Future;
 use std::pin::Pin;
