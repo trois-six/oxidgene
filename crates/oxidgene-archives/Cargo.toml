@@ -28,10 +28,6 @@ path = "src/bin/archives-live-bridge.rs"
 required-features = ["live"]
 
 # Steps 1 to 3 of the live checks over the native transport, `#[ignore]`d.
-[[test]]
-name = "live"
-path = "tests/live.rs"
-required-features = ["live", "native"]
 
 [dependencies]
 # The Republican calendar, to read a register's year written `an XII`.

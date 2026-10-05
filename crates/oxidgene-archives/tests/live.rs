@@ -8,6 +8,11 @@
 //! check; the reports land in `native.json` under `OXIDGENE_LIVE_REPORT_DIR`
 //! (default `target/archives-live`), where the Playwright check reads the
 //! openings. A drift fails the test; an unreachable portal is only reported.
+//!
+//! It compiles only with the `live` and `native` features, so the workspace's
+//! functional tests (`--test '*'`) build it empty rather than refusing the
+//! target.
+#![cfg(all(feature = "live", feature = "native"))]
 
 use std::path::PathBuf;
 
