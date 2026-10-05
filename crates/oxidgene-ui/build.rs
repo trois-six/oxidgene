@@ -51,20 +51,23 @@ fn embedded_locale(file: &Path, output: &Path) -> String {
     embedded_text(file)
 }
 
+/// Compresses `source` into `destination` unless `destination` already
+/// holds it. Compared by content, not by modification time: a target
+/// directory shared with another checkout may hold a newer compression of
+/// another version of the file, which would otherwise ship that version's
+/// translations.
 #[cfg(feature = "compressed-locales")]
 fn compress_if_changed(source: &Path, destination: &Path) {
     use std::io::Write;
-    let modified = |file: &Path| {
-        fs::metadata(file)
-            .and_then(|metadata| metadata.modified())
-            .ok()
-    };
-    if let (Some(source_time), Some(compressed_time)) = (modified(source), modified(destination))
-        && compressed_time >= source_time
-    {
+    let json = fs::read(source).expect("locale JSON source");
+    let current = fs::read(destination).ok().and_then(|compressed| {
+        let mut json = Vec::new();
+        brotli::BrotliDecompress(&mut compressed.as_slice(), &mut json).ok()?;
+        Some(json)
+    });
+    if current.as_deref() == Some(json.as_slice()) {
         return;
     }
-    let json = fs::read(source).expect("locale JSON source");
     let mut compressed = Vec::new();
     {
         let mut encoder = brotli::CompressorWriter::new(&mut compressed, 1 << 16, 11, 24);
