@@ -27,7 +27,7 @@ pub use citation::{Act, ActKind, CallNumber, CitationGrammar, CitationParts, Cit
 pub use platform::{Access, Platform, PortalEndpoint};
 #[cfg(feature = "native")]
 pub use transport::NativeTransport;
-pub use transport::{FetchError, PortalFetch, PortalTransport};
+pub use transport::{FetchError, Method, PortalFetch, PortalRequest, PortalTransport};
 
 /// Where a resolved citation opens.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

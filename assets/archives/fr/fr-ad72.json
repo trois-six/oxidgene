@@ -1,0 +1,74 @@
+{
+  "id": "fr-ad72",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Sarthe",
+  "jurisdiction": ["72"],
+  "citation_codes": ["AD72"],
+  "website": "https://archives.sarthe.fr",
+  "collections": [
+    {
+      "id": "registers-before-1902",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [null, 1902],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.sarthe.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/registres-paroissiaux-etat-civil",
+        "engine": "arko_default_6319dbb9a1c43",
+        "content_ids": ["662961"],
+        "display_mode": "arko_default_6319dc08a3d64",
+        "fields": {
+          "locality": "arko_default_6319dbfb4cff8",
+          "act": "arko_default_6319dbfb58ac1"
+        },
+        "acts": {
+          "B": "Baptèmes[[arko_fiche_6304c294beedf]]",
+          "M": "Mariages[[arko_fiche_6304c294c4e39]]",
+          "S": "Sépultures[[arko_fiche_6304c294c5e91]]",
+          "N": "Naissances[[arko_fiche_6304c294c56c4]]",
+          "D": "Décès[[arko_fiche_6304c294c39b0]]",
+          "TD": "Tables décennales[[arko_fiche_6304c294c6518]]"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "parish": "paroisse",
+          "act": "actes_affichage",
+          "period": "dates_extremes"
+        }
+      }
+    },
+    {
+      "id": "civil-status-after-1902",
+      "acts": ["N", "M", "D", "TD"],
+      "period": [1903, null],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.sarthe.fr",
+        "transport": "browser",
+        "search_path": "/archives-en-ligne/registres-detat-civil-posterieurs-a-1902",
+        "engine": "arko_default_678f538cb2d58",
+        "content_ids": ["613476"],
+        "display_mode": "arko_default_678f5402e1f06",
+        "fields": {
+          "locality": "arko_default_678f5464dc4c3",
+          "act": "arko_default_678f547f22355"
+        },
+        "acts": {
+          "N": "Naissances[[arko_fiche_6304c294c56c4]]",
+          "M": "Mariages[[arko_fiche_6304c294c4e39]]",
+          "D": "Décès[[arko_fiche_6304c294c39b0]]",
+          "TD": "Tables décennales[[arko_fiche_6304c294c6518]]"
+        },
+        "locality_style": "article_suffix",
+        "cells": {
+          "locality": "commune",
+          "act": "actes_affichage",
+          "period": "actes_affichage"
+        }
+      }
+    }
+  ]
+}

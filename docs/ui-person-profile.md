@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T08:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T09:40:00Z }
 ---
 
 
@@ -263,45 +263,36 @@ catalogue may make to it, are specified in
 
 The catalogue and the parser belong to the `oxidgene-archives` crate, which
 the interface uses on both clients. The source becomes a button only when the
-archive code is in the catalogue, one of the archive's collections holds the
-cited act, and the desktop has a driver able to search that citation. Its
+archive code is in the catalogue and one of the archive's collections holds
+the cited act; every collection has an adapter for its portal platform. Its
 tooltip, `person.source_open_archive`, names the archive. Every other title,
 and every title on the web client, stays plain text.
 
 The catalogue is one JSON document per archive in
 `assets/archives/<country>/`, discovered at build time, so an archive on an
 already supported platform is added without code; its fields are specified in
-[Archive Portals §3.1](archives.md#31-catalogue). Tests check that every
-collection's platform has both an adapter and a desktop driver. The only
-platform driven today is Arkothèque, used by the Loire-Atlantique archives:
-its driver searches a citation of a single act kind it has settings for
-(births and baptisms) and with a year.
+[Archive Portals §3.1](archives.md#31-catalogue). The archives catalogued
+today run Arkothèque: the Loire-Atlantique and Sarthe archives.
 
-The driver selects the locality, act category, and year in the portal's own
-search, opens the register viewer when exactly one row matches, and enters
-the cited view number in the viewer's page field. It waits for the page
-controls rather than for fixed delays. A banner over the portal page reports
-the lookup in the interface language (`archive_viewer.*`): searching, no
-matching register, several matching registers, view not selected, or a portal
-that did not behave as expected; it disappears once the cited view is shown.
-On no match or several matches, the portal stays on its filtered results
-instead of opening an arbitrary register.
+A click resolves the citation through the portal's own request interface,
+inside the archive window
+([Archive Portals §6.1](archives.md#61-desktop)): the window opens on the
+collection's search page, OxidGene searches the register from that page and
+selects it among the results, then the window loads the register opened on
+the cited view. A banner over the portal page reports the lookup in the
+interface language (`archive_viewer.*`): searching while it runs, then no
+matching register or several matching registers over the portal's filtered
+results, instead of an arbitrary register. When the portal does not answer
+as expected, the window opens the archive's website with a failure banner.
+Once the target has loaded, the reader browses the portal freely.
 
-The search and the register opening each run once per window: the reader can
-then change the filters, go back, or browse the portal freely without being
-redirected. The lookup is best effort; when the portal's page structure
-changes, the window stays on the portal's search page with the failure banner.
-
-The search URL carries the locality, act category, and year, plus the
-portal's own collection and display identifiers. It does not send the
-person's name, the citation text, or the act number. The view index is
-entered locally in the reader after it opens. Each register opens as a
-top-level page in an ephemeral WebView because archive portals disallow
-embedding their pages in an OxidGene frame.
-
-The planned replacement, which resolves the register through each portal's
-request interface instead of its search form, is specified in
-[Archive Portals](archives.md).
+The portal receives the locality, the act category, and the year, plus the
+portal's own collection and display identifiers. It does not receive the
+person's name, the citation text, the call number, or the act number. Each
+register opens as a top-level page, because archive portals disallow
+embedding their pages in an OxidGene frame, in a web profile of its own that
+keeps the portals' cookies, so a reuse licence or an anti-bot challenge is
+passed once.
 
 Events are ordered by `date_sort`. Events without dates are grouped at the bottom under a "Date unknown" label.
 

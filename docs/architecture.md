@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T08:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T09:40:00Z }
 ---
 
 
@@ -492,7 +492,7 @@ directory.
 |---|---|---|---|
 | Data | `~/.local/share/oxidgene/` | `oxidgene.db` (with its `-wal` and `-shm`), `media/` | No: the user's genealogy, irreplaceable |
 | Config | `~/.config/oxidgene/` | `themes/` and `languages/`, personal JSON theme and locale documents ([App Settings](ui-app-settings.md)) | No: written by the user |
-| State | `~/.local/state/oxidgene/` | `webview/`: the desktop window's cookies, local storage (the UI preferences: language, theme, pedigree defaults), media keys, storage | While the application is closed; the UI preferences reset |
+| State | `~/.local/state/oxidgene/` | `webview/`: the desktop window's cookies, local storage (the UI preferences: language, theme, pedigree defaults), media keys, storage; `archives-webview/`: the archive windows' own profile, the portals' cookies ([Archive Portals §6.1](archives.md#61-desktop)) | While the application is closed; the UI preferences reset, and a portal asks again for its reuse licence or challenge |
 | Cache | `~/.cache/oxidgene/` | `jobs/` (each running job's scratch: staged source, a Geneanet import's archives and pages, an export's media and archive), `staging/` (uploads, a decoded Geneanet session's media, the pages the Geneanet window fetched, a media archive being streamed), and WebKitGTK's `WebKitCache/` and `CacheStorage/` | Yes, while the application is closed |
 
 One file does not follow: WebKitGTK writes its HSTS store,

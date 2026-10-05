@@ -1,10 +1,13 @@
 //! How an adapter's requests reach a portal.
 //!
-//! An adapter never builds a client: it issues same-origin `GET`s through a
+//! An adapter never builds a client: it sends [`PortalRequest`]s through a
 //! [`PortalFetch`] bound to the collection's portal, which a
-//! [`PortalTransport`] opens. The `native` feature provides one over
-//! `reqwest`; the desktop provides another that runs the requests inside its
-//! archive window, the only one that passes a portal's anti-bot challenge.
+//! [`PortalTransport`] opens. A request goes to the portal's origin, or to
+//! another origin the adapter's settings declare (an API host), never
+//! elsewhere, and carries only a few allow-listed headers. The `native`
+//! feature provides a transport over `reqwest`; the desktop provides another
+//! that runs the requests inside its archive window, the only one that passes
+//! a portal's anti-bot challenge.
 
 use std::fmt;
 use std::time::Duration;
@@ -25,10 +28,77 @@ pub const TIMEOUT: Duration = Duration::from_secs(10);
 /// kilobytes at most.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
-/// One same-origin `GET` on a portal, returning the body.
+/// The headers an adapter may set, compared without case. Cookies belong to
+/// the transport, which keeps them for the connection.
+pub const ALLOWED_HEADERS: [&str; 3] = ["Accept", "Content-Type", "ApiKey"];
+
+/// The method of a portal request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Method {
+    Get,
+    Post,
+}
+
+impl Method {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Post => "POST",
+        }
+    }
+}
+
+/// One request an adapter sends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortalRequest {
+    pub method: Method,
+    /// A path and query on the portal's origin (`/search?q=…`), or an
+    /// absolute address on an origin the endpoint declares.
+    pub url: String,
+    /// Allow-listed headers ([`ALLOWED_HEADERS`]).
+    pub headers: Vec<(String, String)>,
+    /// The body of a `POST`: form-encoded or JSON, as `Content-Type` says.
+    pub body: Option<String>,
+}
+
+impl PortalRequest {
+    pub fn get(url: impl Into<String>) -> Self {
+        Self {
+            method: Method::Get,
+            url: url.into(),
+            headers: Vec::new(),
+            body: None,
+        }
+    }
+
+    pub fn post(url: impl Into<String>, content_type: &str, body: impl Into<String>) -> Self {
+        Self {
+            method: Method::Post,
+            url: url.into(),
+            headers: vec![("Content-Type".to_owned(), content_type.to_owned())],
+            body: Some(body.into()),
+        }
+    }
+
+    pub fn header(mut self, name: &str, value: impl Into<String>) -> Self {
+        self.headers.push((name.to_owned(), value.into()));
+        self
+    }
+}
+
+/// Requests on one portal, within one resolution: cookies a response sets are
+/// sent back by the following requests of the same fetcher.
 pub trait PortalFetch: Send + Sync {
-    /// `path_and_query` starts with `/`; the origin is the fetcher's.
-    fn get<'a>(&'a self, path_and_query: &'a str) -> BoxFuture<'a, Result<String, FetchError>>;
+    /// Sends one request and returns the response body.
+    fn request<'a>(
+        &'a self,
+        request: &'a PortalRequest,
+    ) -> BoxFuture<'a, Result<String, FetchError>>;
+
+    /// A `GET` of a path and query on the portal's origin.
+    fn get<'a>(&'a self, path_and_query: &'a str) -> BoxFuture<'a, Result<String, FetchError>> {
+        Box::pin(async move { self.request(&PortalRequest::get(path_and_query)).await })
+    }
 }
 
 /// Opens fetchers on portals.
@@ -37,7 +107,7 @@ pub trait PortalTransport: Send + Sync {
     /// challenge of a portal whose access is `browser`.
     fn is_browser(&self) -> bool;
 
-    /// A fetcher bound to the endpoint's origin. A browser transport first
+    /// A fetcher bound to the endpoint's origins. A browser transport first
     /// loads the endpoint's start page.
     fn connect<'a>(
         &'a self,
@@ -50,14 +120,17 @@ pub trait PortalTransport: Send + Sync {
 pub enum FetchError {
     /// No answer within [`TIMEOUT`].
     Timeout,
-    /// The connection failed.
+    /// The connection failed, or the window carrying it closed.
     Network,
     /// The portal answered with an error status.
     Status(u16),
     /// The body exceeds [`MAX_BODY_BYTES`].
     TooLarge,
-    /// The request, or a redirect, left the portal's origin.
+    /// The request, or a redirect, left the endpoint's origins.
     NotSameOrigin,
+    /// The request carries a header outside [`ALLOWED_HEADERS`], or a body
+    /// on a `GET`.
+    NotAllowed,
 }
 
 impl fmt::Display for FetchError {
@@ -67,7 +140,8 @@ impl fmt::Display for FetchError {
             Self::Network => f.write_str("the portal could not be reached"),
             Self::Status(status) => write!(f, "the portal answered with status {status}"),
             Self::TooLarge => f.write_str("the portal's answer is too large"),
-            Self::NotSameOrigin => f.write_str("the request left the portal's origin"),
+            Self::NotSameOrigin => f.write_str("the request left the portal's origins"),
+            Self::NotAllowed => f.write_str("the request carries what a portal request may not"),
         }
     }
 }
@@ -79,10 +153,7 @@ impl std::error::Error for FetchError {}
 pub fn portal_url(origin: &str, path_and_query: &str) -> Result<String, FetchError> {
     let on_origin = path_and_query.starts_with('/')
         && !path_and_query.starts_with("//")
-        && !path_and_query.contains(['\\', '#'])
-        && !path_and_query
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control());
+        && is_clean(path_and_query);
     if on_origin {
         Ok(format!("{origin}{path_and_query}"))
     } else {
@@ -90,45 +161,83 @@ pub fn portal_url(origin: &str, path_and_query: &str) -> Result<String, FetchErr
     }
 }
 
+/// No fragment, backslash, whitespace or control character.
+fn is_clean(text: &str) -> bool {
+    !text.contains(['\\', '#']) && !text.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// The absolute address a request goes to on `endpoint`, once checked: a path
+/// on the portal's origin or an address on a declared origin, allow-listed
+/// headers without line breaks, and a body only on a `POST`.
+pub fn request_url(
+    endpoint: &PortalEndpoint,
+    request: &PortalRequest,
+) -> Result<String, FetchError> {
+    let headers_allowed = request.headers.iter().all(|(name, value)| {
+        ALLOWED_HEADERS
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(name))
+            && !value.contains(['\r', '\n'])
+    });
+    if !headers_allowed || (request.method == Method::Get && request.body.is_some()) {
+        return Err(FetchError::NotAllowed);
+    }
+    if request.url.starts_with('/') {
+        return portal_url(&endpoint.origin, &request.url);
+    }
+    let declared = endpoint.origins().any(|origin| {
+        request.url.strip_prefix(origin).is_some_and(|rest| {
+            rest.is_empty() || (rest.starts_with('/') && !rest.starts_with("//"))
+        })
+    });
+    if declared && is_clean(&request.url) {
+        Ok(request.url.clone())
+    } else {
+        Err(FetchError::NotSameOrigin)
+    }
+}
+
+/// The `scheme://host[:port]` of an absolute address.
+pub fn origin_of(url: &str) -> Option<&str> {
+    let after_scheme = url.find("://")? + 3;
+    let end = url[after_scheme..]
+        .find(['/', '?', '#'])
+        .map_or(url.len(), |at| after_scheme + at);
+    (end > after_scheme).then(|| &url[..end])
+}
+
 #[cfg(feature = "native")]
 pub use native::NativeTransport;
 
 #[cfg(feature = "native")]
 mod native {
+    use std::sync::Mutex;
+
     use super::{
-        BoxFuture, FetchError, MAX_BODY_BYTES, PortalEndpoint, PortalFetch, PortalTransport,
-        TIMEOUT, USER_AGENT, portal_url,
+        BoxFuture, FetchError, MAX_BODY_BYTES, Method, PortalEndpoint, PortalFetch, PortalRequest,
+        PortalTransport, TIMEOUT, USER_AGENT, origin_of, request_url,
     };
 
-    /// The most redirects followed, all within the portal's origin.
+    /// The most redirects followed, all within the endpoint's origins.
     const MAX_REDIRECTS: usize = 5;
 
     /// Requests from this process over `reqwest`, for portals whose access is
     /// `any`.
+    ///
+    /// Redirects are followed here rather than by `reqwest`, so that each
+    /// hop's address is checked against the endpoint's origins and the
+    /// cookies a redirect sets reach the fetcher's jar.
     pub struct NativeTransport {
         client: reqwest::Client,
     }
 
     impl NativeTransport {
         pub fn new() -> Result<Self, FetchError> {
-            let redirects = reqwest::redirect::Policy::custom(|attempt| {
-                let same_origin = attempt
-                    .previous()
-                    .first()
-                    .is_some_and(|first| first.origin() == attempt.url().origin());
-                if !same_origin {
-                    attempt.error("a redirect left the portal's origin")
-                } else if attempt.previous().len() > MAX_REDIRECTS {
-                    attempt.error("too many redirects")
-                } else {
-                    attempt.follow()
-                }
-            });
             let client = reqwest::Client::builder()
                 .user_agent(USER_AGENT)
                 .timeout(TIMEOUT)
                 .retry(reqwest::retry::never())
-                .redirect(redirects)
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|_| FetchError::Network)?;
             Ok(Self { client })
@@ -146,7 +255,8 @@ mod native {
         ) -> BoxFuture<'a, Result<Box<dyn PortalFetch + 'a>, FetchError>> {
             let fetch = NativeFetch {
                 client: self.client.clone(),
-                origin: endpoint.origin.clone(),
+                endpoint: endpoint.clone(),
+                jar: CookieJar::default(),
             };
             Box::pin(async move { Ok(Box::new(fetch) as Box<dyn PortalFetch>) })
         }
@@ -154,37 +264,146 @@ mod native {
 
     struct NativeFetch {
         client: reqwest::Client,
-        origin: String,
+        endpoint: PortalEndpoint,
+        jar: CookieJar,
+    }
+
+    impl NativeFetch {
+        async fn send(&self, request: &PortalRequest) -> Result<String, FetchError> {
+            let mut hop = request.clone();
+            hop.url = request_url(&self.endpoint, request)?;
+            for _ in 0..=MAX_REDIRECTS {
+                let response = self.send_one(&hop).await?;
+                let status = response.status();
+                if !status.is_redirection() {
+                    if !status.is_success() {
+                        return Err(FetchError::Status(status.as_u16()));
+                    }
+                    return read_body(response).await;
+                }
+                let location = response
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .ok_or(FetchError::Status(status.as_u16()))?;
+                let next = match origin_of(&hop.url) {
+                    Some(origin) if location.starts_with('/') => format!("{origin}{location}"),
+                    _ => location.to_owned(),
+                };
+                hop.url = request_url(&self.endpoint, &PortalRequest::get(next))?;
+                // A 303, and in practice a 301 or 302 after a form, turn the
+                // request into a `GET`; 307 and 308 keep it.
+                if !matches!(status.as_u16(), 307 | 308) {
+                    hop.method = Method::Get;
+                    hop.body = None;
+                }
+            }
+            Err(FetchError::NotSameOrigin)
+        }
+
+        /// One hop, with the jar's cookies for its origin, keeping the
+        /// cookies its response sets.
+        async fn send_one(&self, hop: &PortalRequest) -> Result<reqwest::Response, FetchError> {
+            let origin = origin_of(&hop.url).ok_or(FetchError::NotSameOrigin)?;
+            let method = match hop.method {
+                Method::Get => reqwest::Method::GET,
+                Method::Post => reqwest::Method::POST,
+            };
+            let mut builder = self.client.request(method, &hop.url);
+            for (name, value) in &hop.headers {
+                builder = builder.header(name.as_str(), value.as_str());
+            }
+            if let Some(cookies) = self.jar.header(origin) {
+                builder = builder.header(reqwest::header::COOKIE, cookies);
+            }
+            if let Some(body) = &hop.body {
+                builder = builder.body(body.clone());
+            }
+            let response = builder.send().await.map_err(classify)?;
+            for value in response.headers().get_all(reqwest::header::SET_COOKIE) {
+                if let Ok(value) = value.to_str() {
+                    self.jar.store(origin, value);
+                }
+            }
+            Ok(response)
+        }
     }
 
     impl PortalFetch for NativeFetch {
-        fn get<'a>(&'a self, path_and_query: &'a str) -> BoxFuture<'a, Result<String, FetchError>> {
-            Box::pin(async move {
-                let url = portal_url(&self.origin, path_and_query)?;
-                let mut response = self.client.get(url).send().await.map_err(classify)?;
-                let status = response.status();
-                if !status.is_success() {
-                    return Err(FetchError::Status(status.as_u16()));
-                }
-                let mut body = Vec::new();
-                while let Some(chunk) = response.chunk().await.map_err(classify)? {
-                    if body.len() + chunk.len() > MAX_BODY_BYTES {
-                        return Err(FetchError::TooLarge);
-                    }
-                    body.extend_from_slice(&chunk);
-                }
-                Ok(String::from_utf8_lossy(&body).into_owned())
-            })
+        fn request<'a>(
+            &'a self,
+            request: &'a PortalRequest,
+        ) -> BoxFuture<'a, Result<String, FetchError>> {
+            Box::pin(self.send(request))
         }
+    }
+
+    async fn read_body(mut response: reqwest::Response) -> Result<String, FetchError> {
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(classify)? {
+            if body.len() + chunk.len() > MAX_BODY_BYTES {
+                return Err(FetchError::TooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(String::from_utf8_lossy(&body).into_owned())
     }
 
     fn classify(error: reqwest::Error) -> FetchError {
         if error.is_timeout() {
             FetchError::Timeout
-        } else if error.is_redirect() {
-            FetchError::NotSameOrigin
         } else {
             FetchError::Network
+        }
+    }
+
+    /// The cookies of one fetcher, by origin, for as long as the resolution
+    /// it serves.
+    ///
+    /// Kept by hand rather than with `reqwest`'s cookie store: a fetcher
+    /// lives for one resolution on the few origins of one portal, so the
+    /// attributes that scope a cookie in a browser (domain, path, expiry)
+    /// have nothing to separate, and the store would add two crates to the
+    /// server for what a name-value list does. A cookie set empty, or with
+    /// `Max-Age=0`, is removed.
+    #[derive(Default)]
+    pub(super) struct CookieJar(Mutex<Vec<(String, String, String)>>);
+
+    impl CookieJar {
+        pub(super) fn store(&self, origin: &str, set_cookie: &str) {
+            let mut attributes = set_cookie.split(';');
+            let Some((name, value)) = attributes.next().and_then(|pair| pair.split_once('='))
+            else {
+                return;
+            };
+            let (name, value) = (name.trim(), value.trim());
+            if name.is_empty() {
+                return;
+            }
+            let expired = value.is_empty()
+                || attributes.any(|attribute| {
+                    attribute.trim().split_once('=').is_some_and(|(key, age)| {
+                        key.eq_ignore_ascii_case("max-age") && age.trim().starts_with(['0', '-'])
+                    })
+                });
+            let Ok(mut cookies) = self.0.lock() else {
+                return;
+            };
+            cookies.retain(|(at, known, _)| !(at == origin && known == name));
+            if !expired {
+                cookies.push((origin.to_owned(), name.to_owned(), value.to_owned()));
+            }
+        }
+
+        pub(super) fn header(&self, origin: &str) -> Option<String> {
+            let cookies = self.0.lock().ok()?;
+            let header = cookies
+                .iter()
+                .filter(|(at, _, _)| at == origin)
+                .map(|(_, name, value)| format!("{name}={value}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            (!header.is_empty()).then_some(header)
         }
     }
 
@@ -197,12 +416,50 @@ mod native {
             let transport = NativeTransport::new().expect("a client");
             assert!(!transport.is_browser());
         }
+
+        #[test]
+        fn keeps_cookies_per_origin_until_removed() {
+            let jar = CookieJar::default();
+            let portal = "https://archives.example.org";
+            jar.store(portal, "session=abc; Path=/; HttpOnly");
+            jar.store(portal, "licence=1");
+            jar.store("https://api.example.org", "key=z");
+            assert_eq!(
+                jar.header(portal).as_deref(),
+                Some("session=abc; licence=1")
+            );
+
+            jar.store(portal, "session=def");
+            assert_eq!(
+                jar.header(portal).as_deref(),
+                Some("licence=1; session=def")
+            );
+            jar.store(portal, "licence=; Max-Age=0");
+            jar.store(portal, "session=gone; Max-Age=0");
+            assert_eq!(jar.header(portal), None);
+            assert_eq!(
+                jar.header("https://api.example.org").as_deref(),
+                Some("key=z")
+            );
+            jar.store(portal, "malformed");
+            assert_eq!(jar.header(portal), None);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::Access;
+
+    fn endpoint() -> PortalEndpoint {
+        PortalEndpoint {
+            origin: "https://archives.example.org".to_owned(),
+            other_origins: vec!["https://api.example.org".to_owned()],
+            start: "https://archives.example.org/search".to_owned(),
+            access: Access::Any,
+        }
+    }
 
     #[test]
     fn identifies_oxidgene() {
@@ -232,5 +489,70 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn reaches_only_the_declared_origins() {
+        let endpoint = endpoint();
+        assert_eq!(
+            request_url(&endpoint, &PortalRequest::get("/search?q=1")).as_deref(),
+            Ok("https://archives.example.org/search?q=1")
+        );
+        let api = PortalRequest::post("https://api.example.org/v1/Query", "application/json", "{}")
+            .header("ApiKey", "public");
+        assert_eq!(
+            request_url(&endpoint, &api).as_deref(),
+            Ok("https://api.example.org/v1/Query")
+        );
+        for url in [
+            "https://elsewhere.example.org/v1",
+            "https://api.example.org.elsewhere.example/v1",
+            "http://archives.example.org/search",
+            "https://api.example.org//elsewhere.example/",
+        ] {
+            assert_eq!(
+                request_url(&endpoint, &PortalRequest::get(url)),
+                Err(FetchError::NotSameOrigin),
+                "{url}"
+            );
+        }
+    }
+
+    #[test]
+    fn sends_only_allow_listed_headers_and_bodies_on_posts() {
+        let endpoint = endpoint();
+        let accepted = PortalRequest::get("/search").header("accept", "application/json");
+        assert!(request_url(&endpoint, &accepted).is_ok());
+        for request in [
+            PortalRequest::get("/search").header("Cookie", "session=stolen"),
+            PortalRequest::get("/search").header("Accept", "text/html\r\nX-Other: 1"),
+            PortalRequest {
+                body: Some("q=1".to_owned()),
+                ..PortalRequest::get("/search")
+            },
+        ] {
+            assert_eq!(
+                request_url(&endpoint, &request),
+                Err(FetchError::NotAllowed),
+                "{request:?}"
+            );
+        }
+        let form = PortalRequest::post("/search", "application/x-www-form-urlencoded", "q=1");
+        assert_eq!(form.method.as_str(), "POST");
+        assert!(request_url(&endpoint, &form).is_ok());
+    }
+
+    #[test]
+    fn reads_the_origin_of_an_address() {
+        assert_eq!(
+            origin_of("https://archives.example.org/a/b?c"),
+            Some("https://archives.example.org")
+        );
+        assert_eq!(
+            origin_of("https://archives.example.org:8443"),
+            Some("https://archives.example.org:8443")
+        );
+        assert_eq!(origin_of("/path"), None);
+        assert_eq!(origin_of("https:///path"), None);
     }
 }

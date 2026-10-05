@@ -359,7 +359,7 @@ fn validate_collection(
                 collection.platform
             ))
         })?;
-    platform.validate(&collection.portal)
+    platform.validate(collection)
 }
 
 #[cfg(test)]
@@ -367,6 +367,24 @@ mod tests {
     use super::*;
     use crate::citation::ActKind;
     use crate::platform::builtin;
+
+    /// Arkothèque settings, with every act code of the test documents.
+    fn portal(search_path: &str) -> serde_json::Value {
+        let act = |label: &str| format!("{label}[[arko_fiche_00000000000{}]]", label.len());
+        serde_json::json!({
+            "origin": "https://archives.example.org",
+            "search_path": search_path,
+            "engine": "arko_default_000000000001",
+            "content_ids": ["1"],
+            "display_mode": "arko_default_000000000002",
+            "fields": { "locality": "arko_default_000000000003", "act": "arko_default_000000000004" },
+            "acts": {
+                "B": act("Baptêmes"), "M": act("Mariages"), "S": act("Sépultures"),
+                "N": act("Naissances"), "D": act("Décès"), "TD": act("Tables décennales")
+            },
+            "cells": { "locality": "commune" }
+        })
+    }
 
     fn document() -> serde_json::Value {
         serde_json::json!({
@@ -382,19 +400,13 @@ mod tests {
                 "acts": ["B", "M", "S"],
                 "period": [null, 1792],
                 "platform": "arkotheque",
-                "portal": {
-                    "origin": "https://archives.example.org",
-                    "search_path": "/registres"
-                }
+                "portal": portal("/registres")
             }, {
                 "id": "civil-status",
                 "acts": ["N", "M", "D", "TD"],
                 "period": [1792, null],
                 "platform": "arkotheque",
-                "portal": {
-                    "origin": "https://archives.example.org",
-                    "search_path": "/etat-civil"
-                }
+                "portal": portal("/etat-civil")
             }]
         })
     }

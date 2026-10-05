@@ -1,0 +1,11 @@
+{
+ "refUnique": "arko_default_6a6b4ac0309a5",
+ "resultats": {
+  "total": 0,
+  "count": 0,
+  "results": [],
+  "html": "\n<table class=\"tableau_resultat_facettes\">\n    <caption>Tableau de résultats</caption>\n    <thead>\n        <tr><th>Commune</th><th>Ancienne commune</th><th>Paroisse (institution)</th><th>Type d&#039;actes</th><th>Période</th><th>Commentaire</th><th>Image</th></tr>\n    </thead>\n    <tbody>\n    \n    </tbody>\n</table>\n",
+  "aggregations": [],
+  "modeRestit": "tableau"
+ }
+}

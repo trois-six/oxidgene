@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T08:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T09:40:00Z }
 ---
 
 # Development Environment and Workflows
@@ -335,6 +335,17 @@ CI runs the unit, functional and browser JavaScript categories as jobs of
 their own on every change outside the documentation; the performance and
 end-to-end ones run every night (§2.8). The `CI` job, the one status check
 branch protection requires, gathers the jobs of tiers 1 and 2.
+
+**Archive portal fixtures.** The adapter tests of `oxidgene-archives` run
+offline, on portal answers committed under
+`crates/oxidgene-archives/fixtures/<platform>/`
+([Archive Portals §9](archives.md#9-testing)). A `generate.py` beside them
+writes them with the markup and JSON shapes of recorded answers and
+fictitious localities, parishes, call numbers, records and ARK names, keeping
+only the portals' public engine and filter references; `python3
+generate.py` rewrites them after a change. A recorded answer is research
+material and is never committed: it names real localities and registers, and
+internal hosts of the archive.
 
 **End-to-end suite.** `e2e/` holds a Node.js project whose only dependency is
 a pinned `@playwright/test`. `just e2e` builds the debug web bundle for the

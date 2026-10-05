@@ -7,6 +7,7 @@ use std::task::{Context, Poll, Waker};
 
 use super::*;
 use crate::platform::BoxFuture;
+use crate::transport::PortalRequest;
 
 /// Drives a future whose every step completes at once, as the scripted
 /// adapter and transport do.
@@ -34,8 +35,8 @@ impl Platform for Scripted {
         "scripted"
     }
 
-    fn validate(&self, portal: &serde_json::Value) -> Result<(), CatalogError> {
-        portal["outcome"]
+    fn validate(&self, collection: &Collection) -> Result<(), CatalogError> {
+        collection.portal["outcome"]
             .is_string()
             .then_some(())
             .ok_or_else(|| CatalogError::new("scripted settings: outcome"))
@@ -49,6 +50,7 @@ impl Platform for Scripted {
         };
         Some(PortalEndpoint {
             origin: "https://archives.example.org".to_owned(),
+            other_origins: Vec::new(),
             start: format!("https://archives.example.org/{}", collection.id),
             access,
         })
@@ -105,9 +107,12 @@ struct Counting {
 struct CountingFetch<'a>(&'a AtomicUsize);
 
 impl PortalFetch for CountingFetch<'_> {
-    fn get<'a>(&'a self, path_and_query: &'a str) -> BoxFuture<'a, Result<String, FetchError>> {
+    fn request<'a>(
+        &'a self,
+        request: &'a PortalRequest,
+    ) -> BoxFuture<'a, Result<String, FetchError>> {
         Box::pin(async move {
-            assert!(path_and_query.starts_with('/'));
+            assert!(request.url.starts_with('/'));
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(String::new())
         })

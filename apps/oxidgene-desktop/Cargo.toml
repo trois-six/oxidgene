@@ -47,7 +47,7 @@ base64 = { workspace = true }
 futures-channel = "0.3"
 dioxus = { workspace = true, features = ["desktop", "router"] }
 axum = { workspace = true }
-tokio = { workspace = true, features = ["net", "signal", "sync"] }
+tokio = { workspace = true, features = ["net", "signal", "sync", "time"] }
 tower-http = { workspace = true, optional = true }
 tracing = { workspace = true }
 serde_json = { workspace = true }

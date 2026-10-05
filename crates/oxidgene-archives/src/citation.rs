@@ -395,7 +395,7 @@ fn year_of(text: &str) -> Option<u16> {
 }
 
 /// A Republican year number, in Roman or Arabic numerals.
-fn republican_numeral(text: &str) -> Option<i32> {
+pub(crate) fn republican_numeral(text: &str) -> Option<i32> {
     let year = match text.parse::<i32>() {
         Ok(year) => year,
         Err(_) => {
@@ -408,7 +408,7 @@ fn republican_numeral(text: &str) -> Option<i32> {
 }
 
 /// The Gregorian year a Republican year began in, its 1 Vendémiaire.
-fn republican_start(year: i32) -> Option<u16> {
+pub(crate) fn republican_start(year: i32) -> Option<u16> {
     let new_year = calendar::to_jdn(Calendar::FrenchRepublican, year, 1, 1)?;
     let (gregorian, _, _) = calendar::from_jdn(Calendar::Gregorian, new_year)?;
     u16::try_from(gregorian).ok()

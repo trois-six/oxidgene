@@ -7,6 +7,7 @@
 //! to the adapter.
 
 mod arkotheque;
+mod query;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -14,6 +15,7 @@ use std::pin::Pin;
 use serde::{Deserialize, Serialize};
 
 pub use arkotheque::Arkotheque;
+pub(crate) use query::Query;
 
 use crate::catalog::{Archive, CatalogError, Collection};
 use crate::citation::CitationParts;
@@ -42,12 +44,24 @@ pub enum Access {
 /// Where a collection's portal answers, as a transport needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortalEndpoint {
-    /// The portal origin, `https://host`, every request stays on.
+    /// The portal origin, `https://host`: the window's page, and the origin
+    /// of every request written as a path.
     pub origin: String,
+    /// Further origins the portal's own pages call, such as an API host,
+    /// declared by the adapter's settings. A request may name one in an
+    /// absolute address; no other origin is ever reached.
+    pub other_origins: Vec<String>,
     /// The page a browser transport loads before issuing requests: the
     /// collection's search page.
     pub start: String,
     pub access: Access,
+}
+
+impl PortalEndpoint {
+    /// Every origin a request may reach, the portal's first.
+    pub fn origins(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.origin.as_str()).chain(self.other_origins.iter().map(String::as_str))
+    }
 }
 
 /// One portal platform.
@@ -55,8 +69,9 @@ pub trait Platform: Send + Sync {
     /// The catalogue value of `platform` this adapter answers to.
     fn id(&self) -> &'static str;
 
-    /// Rejects a collection's `portal` object it cannot use, at load time.
-    fn validate(&self, portal: &serde_json::Value) -> Result<(), CatalogError>;
+    /// Rejects a collection whose `portal` settings it cannot use, or whose
+    /// acts the settings do not search, at load time.
+    fn validate(&self, collection: &Collection) -> Result<(), CatalogError>;
 
     /// Where the collection's portal answers; `None` only for settings that
     /// [`Platform::validate`] would refuse.

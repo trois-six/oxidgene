@@ -1,0 +1,64 @@
+{
+ "@context": "http://iiif.io/api/image/2/context.json",
+ "@id": "http://internal-host.example.invalid:8182/iiif/2/internal%2Fregister%2F0002.jpg",
+ "protocol": "http://iiif.io/api/image",
+ "width": 3352,
+ "height": 2248,
+ "sizes": [
+  {
+   "width": 105,
+   "height": 70
+  },
+  {
+   "width": 210,
+   "height": 141
+  },
+  {
+   "width": 419,
+   "height": 281
+  },
+  {
+   "width": 838,
+   "height": 562
+  },
+  {
+   "width": 1676,
+   "height": 1124
+  },
+  {
+   "width": 3352,
+   "height": 2248
+  }
+ ],
+ "tiles": [
+  {
+   "width": 1024,
+   "height": 1024,
+   "scaleFactors": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32
+   ]
+  }
+ ],
+ "profile": [
+  "http://iiif.io/api/image/2/level2.json",
+  {
+   "formats": [
+    "jpg",
+    "png"
+   ],
+   "qualities": [
+    "default",
+    "gray"
+   ],
+   "supports": [
+    "sizeByW",
+    "cors"
+   ]
+  }
+ ]
+}

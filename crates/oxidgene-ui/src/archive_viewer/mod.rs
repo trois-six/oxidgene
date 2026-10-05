@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use dioxus::prelude::try_use_context;
 use oxidgene_archives::{Archive, ArchiveRegistry, CitationParts};
-use serde::Serialize;
 
 use crate::i18n::I18n;
 
@@ -40,12 +39,11 @@ impl ArchiveLink {
 ///
 /// The portal page is not ours to translate, so the window shows these in a
 /// small banner over it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArchiveViewerMessages {
     pub searching: String,
     pub not_found: String,
     pub ambiguous: String,
-    pub view_not_selected: String,
     pub failed: String,
     pub close: String,
 }
@@ -56,7 +54,6 @@ impl ArchiveViewerMessages {
             searching: i18n.t("archive_viewer.searching"),
             not_found: i18n.t("archive_viewer.not_found"),
             ambiguous: i18n.t("archive_viewer.ambiguous"),
-            view_not_selected: i18n.t("archive_viewer.view_not_selected"),
             failed: i18n.t("archive_viewer.failed"),
             close: i18n.t("common.close"),
         }

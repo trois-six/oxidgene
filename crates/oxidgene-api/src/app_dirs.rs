@@ -88,6 +88,14 @@ impl AppDirs {
         self.state.join("webview")
     }
 
+    /// The archive window's web profile, apart from the application's: the
+    /// portals' cookies, which spare the reader a reuse licence and an
+    /// anti-bot challenge at every opening.
+    #[must_use]
+    pub fn archives_webview(&self) -> PathBuf {
+        self.state.join("archives-webview")
+    }
+
     /// The root of the disposable working files (see [`crate::workdir`]).
     #[must_use]
     pub fn work(&self) -> &Path {
@@ -113,6 +121,10 @@ mod tests {
         assert_eq!(dirs.themes(), Path::new("/c/oxidgene/themes"));
         assert_eq!(dirs.languages(), Path::new("/c/oxidgene/languages"));
         assert_eq!(dirs.webview(), Path::new("/s/oxidgene/webview"));
+        assert_eq!(
+            dirs.archives_webview(),
+            Path::new("/s/oxidgene/archives-webview")
+        );
         assert_eq!(dirs.work(), Path::new("/k/oxidgene"));
     }
 

@@ -1,0 +1,17 @@
+{
+ "refUnique": "arko_default_6a6b4ac0309a5",
+ "resultats": {
+  "total": 1,
+  "count": 1,
+  "results": [
+   {
+    "id": 100000,
+    "intitule": "E dépôt 99",
+    "refUnique": "arko_fiche_0000000000a01"
+   }
+  ],
+  "html": "\n<table class=\"tableau_resultat_facettes\">\n    <caption>Tableau de résultats</caption>\n    <thead>\n        <tr><th>Commune</th><th>Ancienne commune</th><th>Paroisse (institution)</th><th>Type d&#039;actes</th><th>Période</th><th>Commentaire</th><th>Image</th></tr>\n    </thead>\n    <tbody>\n    <tr class=\"resultat_container  visibilite-visible-front\">\n        <td class=\"pas_de_rebond\">\n            <button data-rebond=\"arko_default_6a3b876245227\" data-term=\"Exampleville[[arko_fiche_0000000000ca01]]\">\n            <span style=\"pointer-events: none;\" data-champ=\"liaison_commune\" data-type-champ=\"relation_fiche\">Exampleville</span>\n        </button>\n        </td>\n        <td class=\"pas_de_rebond\">\n            <button data-rebond=\"arko_default_6a4ce6b2e8668\" data-term=\"Exampleville\">\n            <span style=\"pointer-events: none;\" data-champ=\"ancienne_commune\" data-type-champ=\"varchar\">Exampleville</span>\n        </button>\n        </td>\n        <td class=\"pas_de_rebond\">\n            <span style=\"pointer-events: none;\" data-champ=\"paroisse\" data-type-champ=\"varchar\">Saint-Exemple</span>\n        </td>\n        <td class=\"\">\n            <span style=\"pointer-events: none;\" data-champ=\"type_actes_affichage\" data-type-champ=\"varchar\">Baptêmes</span>\n        </td>\n        <td class=\"pas_de_rebond\">\n            <button data-rebond=\"arko_default_6a3b7db3a0215\" data-term=\"1658-1668[[0000000000000000000000000000000000000000]]\">\n            <span style=\"pointer-events: none;\" data-champ=\"date\" data-type-champ=\"date\">1658-1668</span>\n        </button>\n        </td>\n        <td class=\"\">\n            <!-- Valeur vide pour le champ: commentaire type: texte -->\n        </td>\n        <td class=\"\">\n            <div class=\"container_zone_images \">\n    <span class=\"oeil_et_nombre\">\n        <button class=\"bouton_rond visualiser icone-images rec-visionneuse-icone rec-visionneuse-media-image\" aria-label=\"Visualiser les images\" title=\"Visualiser les images\" data-nb=\"1\" data-visionneuse=\"{&quot;refUniqueFiche&quot;:&quot;arko_fiche_0000000000a01&quot;,&quot;refUniqueField&quot;:&quot;arko_default_6a6b4d70c2bc6&quot;,&quot;refUniqueMoteur&quot;:&quot;arko_default_6a6b4ac0309a5&quot;,&quot;position&quot;:null,&quot;idArkoFile&quot;:900001,&quot;mediaType&quot;:&quot;image&quot;}\" data-visionneuse-url=\"/_recherche-api/visionneuse-infos/arko_default_6a6b4ac0309a5/arko_fiche_0000000000a01/arko_default_6a6b4d70c2bc6/image/900001\">\n            <svg class=\"svg_oeil\"></svg>\n        </button>\n        <span class=\"coche\"><span></span></span>\n        <span class=\"nombre_images\">(46 images)</span>\n    </span>\n</div>\n        </td>\n    </tr>\n    </tbody>\n</table>\n",
+  "aggregations": [],
+  "modeRestit": "tableau"
+ }
+}

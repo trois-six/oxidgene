@@ -9,29 +9,34 @@
   "collections": [
     {
       "id": "registers",
-      "acts": ["N", "B", "M", "D", "S"],
+      "acts": ["B", "N", "M", "S", "D"],
+      "period": [null, 1925],
       "platform": "arkotheque",
       "portal": {
         "origin": "https://archives-numerisees.loire-atlantique.fr",
+        "transport": "any",
         "search_path": "/chercher/etat-civil-et-registres-paroissiaux",
-        "root": "arko_default_6a6b4ac0309a5",
-        "locality_field": "arko_default_6a6b4ba5532ce",
-        "act_field": "arko_default_6a6b4ba578da0",
-        "period_field": "arko_default_6a6b4ba58e64b",
+        "engine": "arko_default_6a6b4ac0309a5",
         "content_ids": ["1289790"],
         "display_mode": "arko_default_6a6b4d95b8dc8",
-        "locality_input": "#commune",
-        "locality_list_label": "Consulter la liste",
-        "open_images_label": "Visualiser les images",
+        "fields": {
+          "locality": "arko_default_6a6b4ba5532ce",
+          "act": "arko_default_6a6b4ba578da0",
+          "period": "arko_default_6a6b4ba58e64b"
+        },
         "acts": {
-          "birth": {
-            "category": "Baptêmes et naissances[[arko_fiche_6a6b3d70f0fdf]]",
-            "row_label": "Naissances"
-          },
-          "baptism": {
-            "category": "Baptêmes et naissances[[arko_fiche_6a6b3d70f0fdf]]",
-            "row_label": "Baptêmes"
-          }
+          "B": "Baptêmes[[arko_fiche_6a6b3d70f2db3]]",
+          "N": "Naissances[[arko_fiche_6a6b3d7100e74]]",
+          "M": "Mariages[[arko_fiche_6a6b3d7104771]]",
+          "S": "Sépultures[[arko_fiche_6a6b3d71061cb]]",
+          "D": "Décès[[arko_fiche_6a6b3d7107318]]"
+        },
+        "locality_style": "plain",
+        "cells": {
+          "locality": "liaison_commune",
+          "parish": "paroisse",
+          "act": "type_actes_affichage",
+          "period": "date"
         }
       }
     }
