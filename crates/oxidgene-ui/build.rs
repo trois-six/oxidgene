@@ -12,13 +12,6 @@ fn main() {
         .map(|file| embedded_locale(file, &output))
         .collect();
     write_list(&output.join("locales.rs"), &locales);
-
-    // The archive catalogue weighs a few kilobytes: always embedded as text.
-    let archives: Vec<_> = json_documents(&assets.join("archives"))
-        .iter()
-        .map(|file| embedded_text(file))
-        .collect();
-    write_list(&output.join("archives.rs"), &archives);
 }
 
 /// Every `*.json` file of `directory`, sorted by name.

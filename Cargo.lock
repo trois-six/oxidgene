@@ -5067,6 +5067,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxidgene-archives"
+version = "0.1.0"
+dependencies = [
+ "oxidgene-core",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oxidgene-core"
 version = "0.1.0"
 dependencies = [
@@ -5115,6 +5125,7 @@ dependencies = [
  "glib",
  "gtk",
  "oxidgene-api",
+ "oxidgene-archives",
  "oxidgene-db",
  "oxidgene-geneanet",
  "oxidgene-observability",
@@ -5225,6 +5236,7 @@ dependencies = [
  "gloo-timers",
  "opentelemetry",
  "opentelemetry_sdk",
+ "oxidgene-archives",
  "oxidgene-core",
  "reqwest 0.13.5",
  "rfd",

@@ -20,6 +20,9 @@ brotli = { workspace = true, optional = true }
 
 [dependencies]
 oxidgene-core = { workspace = true }
+# The archive catalogue and the citation parser; never the native transport,
+# which the web build cannot link.
+oxidgene-archives = { workspace = true }
 dioxus = { workspace = true, features = ["router"] }
 # The Geneanet login window runs on the platform event loop, not on Dioxus's,
 # so what it reports back crosses threads through a channel.

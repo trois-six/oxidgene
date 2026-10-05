@@ -16,7 +16,10 @@ use dioxus::desktop::tao::event::{Event, WindowEvent};
 use dioxus::desktop::tao::event_loop::EventLoopWindowTarget;
 use dioxus::desktop::tao::window::{Window, WindowBuilder};
 use dioxus::desktop::wry::{WebView, WebViewBuilder};
-use oxidgene_ui::archive_viewer::{ArchiveViewerBridge, ArchiveViewerOpener, ArchiveViewerRequest};
+use oxidgene_archives::ArchiveRegistry;
+use oxidgene_ui::archive_viewer::{
+    ArchiveLink, ArchiveViewerBridge, ArchiveViewerOpener, ArchiveViewerRequest,
+};
 use tracing::warn;
 
 type Pending = Arc<Mutex<Vec<ArchiveViewerRequest>>>;
@@ -27,28 +30,33 @@ struct Start {
     script: String,
 }
 
-/// The portal platforms a driver exists for.
-const PLATFORMS: &[&str] = &[arkotheque::PLATFORM];
+/// The driver settings of the first collection to try for `link` whose
+/// portal a driver can search for the citation.
+fn driven_portal(link: &ArchiveLink) -> Option<arkotheque::Portal> {
+    let (_, collections) = ArchiveRegistry::embedded().candidates(&link.citation)?;
+    collections.into_iter().find_map(|collection| {
+        if collection.platform != arkotheque::PLATFORM {
+            return None;
+        }
+        let portal = arkotheque::Portal::of(collection).ok()?;
+        portal.drives(&link.citation).then_some(portal)
+    })
+}
 
 fn start(request: &ArchiveViewerRequest) -> Result<Start, String> {
-    let source = &request.link.source;
-    match source.platform.as_str() {
-        arkotheque::PLATFORM => {
-            let portal = arkotheque::Portal::of(source)?;
-            Ok(Start {
-                url: portal.start_url(),
-                script: arkotheque::script(&portal, request)?,
-            })
-        }
-        other => Err(format!("no driver for the `{other}` platform")),
-    }
+    let portal = driven_portal(&request.link)
+        .ok_or_else(|| format!("no driver for `{}`", request.link.archive.id))?;
+    Ok(Start {
+        url: portal.start_url(),
+        script: arkotheque::script(&portal, request)?,
+    })
 }
 
 struct QueueingArchiveViewer(Pending);
 
 impl ArchiveViewerOpener for QueueingArchiveViewer {
-    fn supports(&self, platform: &str) -> bool {
-        PLATFORMS.contains(&platform)
+    fn supports(&self, link: &ArchiveLink) -> bool {
+        driven_portal(link).is_some()
     }
 
     fn open(&self, request: ArchiveViewerRequest) {
@@ -105,7 +113,7 @@ fn open<T>(
         .inspect_err(|_| {
             warn!(
                 error = "archive_driver",
-                archive = request.link.source.id.as_str(),
+                archive = request.link.archive.id.as_str(),
                 "could not prepare the archive lookup"
             );
         })
@@ -170,19 +178,35 @@ fn open<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxidgene_ui::archive_viewer::catalog;
 
     /// A catalogue entry for a platform without a driver would offer a link
     /// that opens nothing.
     #[test]
     fn every_catalogued_platform_has_a_driver() {
-        for source in catalog() {
-            assert!(
-                PLATFORMS.contains(&source.platform.as_str()),
-                "{}: no driver for `{}`",
-                source.id,
-                source.platform
-            );
+        for archive in ArchiveRegistry::embedded().archives() {
+            for collection in &archive.collections {
+                assert!(
+                    collection.platform == arkotheque::PLATFORM,
+                    "{}: no driver for `{}`",
+                    archive.id,
+                    collection.platform
+                );
+            }
         }
+    }
+
+    #[test]
+    fn supports_only_the_citations_a_driver_can_search() {
+        let link = |title: &str| ArchiveLink::from_source_title(title).expect("a catalogued act");
+        assert!(
+            driven_portal(&link(
+                "AD44 - Exampleville - (aucun) - B - 1791 - vue 3g/12"
+            ))
+            .is_some()
+        );
+        // Held by the collection, but without settings for the driver.
+        assert!(driven_portal(&link("AD44 - Exampleville - (aucun) - M - 1850")).is_none());
+        // The driver searches by year.
+        assert!(driven_portal(&link("AD44 - Exampleville - (aucun) - N - acte 3")).is_none());
     }
 }

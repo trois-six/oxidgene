@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/oxidgene-core",
+    "crates/oxidgene-archives",
     "crates/oxidgene-db",
     "crates/oxidgene-api",
     "crates/oxidgene-gedcom",
@@ -47,6 +48,7 @@ publish = false
 [workspace.dependencies]
 # Internal crates
 oxidgene-core = { path = "crates/oxidgene-core" }
+oxidgene-archives = { path = "crates/oxidgene-archives" }
 oxidgene-db = { path = "crates/oxidgene-db" }
 oxidgene-api = { path = "crates/oxidgene-api" }
 oxidgene-gedcom = { path = "crates/oxidgene-gedcom" }

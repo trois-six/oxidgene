@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T09:29:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T08:00:00Z }
 ---
 
 
@@ -252,34 +252,30 @@ AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13
 ```
 
 The fields are the archive code, the locality (which may itself contain
-` - `), one complement field, the act letter (`N` birth, `B` baptism, `M`
-marriage, `D` death, `S` burial), the year, then free fields. A final
-`vue <n>[d|g]/<count>` names the cited image; a view beyond the count is
-ignored and the register still opens.
+` - `), the parish (`(aucun)` for none), the act code (`N` birth, `B`
+baptism, `M` marriage, `D` death, `S` burial, a combination such as `BMS`,
+or a table code such as `TD`), the period, then free fields among which a
+call number is recognized. A final `vue <n>[d|g]/<count>`, or a range such as
+`vue 5d-6g/13`, names the cited images; a view beyond the count is ignored and
+the register still opens. The grammar, and the per-archive adjustments the
+catalogue may make to it, are specified in
+[Archive Portals §5.1](archives.md#51-citation-parsing).
 
-The source becomes a button only when the archive code is in the archive
-catalogue, the catalogue lists the act as searchable for that archive, and the
-desktop has a driver for the archive's portal platform. Its tooltip,
-`person.source_open_archive`, names the archive. Every other title, and every
-title on the web client, stays plain text.
+The catalogue and the parser belong to the `oxidgene-archives` crate, which
+the interface uses on both clients. The source becomes a button only when the
+archive code is in the catalogue, one of the archive's collections holds the
+cited act, and the desktop has a driver able to search that citation. Its
+tooltip, `person.source_open_archive`, names the archive. Every other title,
+and every title on the web client, stays plain text.
 
-The catalogue is one JSON document per archive in `assets/archives/`,
-discovered at build time, so an archive on an already supported platform is
-added without code:
-
-| Field | Rule |
-|---|---|
-| `id` | Lowercase slug starting with the lowercase country code, such as `fr-ad44`. |
-| `country` | ISO 3166-1 alpha-2 code. |
-| `name` | The archive's own name, shown verbatim in the tooltip. |
-| `citation_code` | Uppercase letters and digits a citation starts with; unique. |
-| `platform` | The portal software, which selects the desktop driver. |
-| `acts` | The searchable act kinds: `birth`, `baptism`, `marriage`, `death`, `burial`. |
-| `portal` | The driver's settings: field identifiers, labels and search categories. |
-
-Tests check that every catalogued platform has a driver and that every listed
-act has driver settings. The only platform driven today is Arkothèque, used by
-the Loire-Atlantique archives (births and baptisms).
+The catalogue is one JSON document per archive in
+`assets/archives/<country>/`, discovered at build time, so an archive on an
+already supported platform is added without code; its fields are specified in
+[Archive Portals §3.1](archives.md#31-catalogue). Tests check that every
+collection's platform has both an adapter and a desktop driver. The only
+platform driven today is Arkothèque, used by the Loire-Atlantique archives:
+its driver searches a citation of a single act kind it has settings for
+(births and baptisms) and with a year.
 
 The driver selects the locality, act category, and year in the portal's own
 search, opens the register viewer when exactly one row matches, and enters

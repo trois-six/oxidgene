@@ -131,6 +131,7 @@ crates/
   oxidgene-db/            SeaORM entities, migrations, and repositories
   oxidgene-gedcom/        GEDCOM and GeneWeb conversion into the domain
   oxidgene-geneanet/      Geneanet join, key folding, archive indexing, and hashing
+  oxidgene-archives/      Archive catalogue, citation parsing, and portal adapters
   oxidgene-observability/ Shared OpenTelemetry initialization
   oxidgene-api/           Axum REST, GraphQL, MCP, services, media, and profiles
   oxidgene-ui/            Dioxus components and pages
@@ -149,6 +150,7 @@ Dependency direction (`architecture.md` §9.2 has the full graph):
 core <- db <- api <- server <- worker
 core <- gedcom <- api
 core <- geneanet <- api/desktop
+core <- archives <- ui/desktop
 api <- desktop
 core <- ui <- web/desktop
 core <- place-dictionary
@@ -158,8 +160,9 @@ observability <- db/api (feature), server/worker/desktop
 ### Architecture invariants
 
 - `oxidgene-ui` is platform-independent and must continue to compile to WASM.
-  It must not depend on `dioxus-desktop` or `oxidgene-geneanet`. Desktop-only
-  capabilities are declared as UI traits and injected by the desktop binary.
+  It must not depend on `dioxus-desktop` or `oxidgene-geneanet`, nor enable the
+  `native` transport of `oxidgene-archives`. Desktop-only capabilities are
+  declared as UI traits and injected by the desktop binary.
 - `oxidgene-geneanet` performs no HTTP. Geneanet requests run inside the
   desktop login window because direct clients are rejected by Cloudflare.
 - There is no cache tier. Durable read models live in `person_denorm` and

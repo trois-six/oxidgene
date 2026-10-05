@@ -1,41 +1,35 @@
 //! Opening a cited archive register at the cited view.
 //!
-//! The interface recognizes normalized citations ([`citation`]) of the
-//! archives the catalogue lists ([`catalog`]). Opening one is a desktop
-//! capability: the desktop binary injects an [`ArchiveViewerOpener`] that
-//! drives each portal platform, and the web client, which has none, shows the
-//! citation as plain text.
-
-pub mod catalog;
-pub mod citation;
+//! The interface recognizes normalized citations of the archives the
+//! catalogue lists, both provided by `oxidgene-archives`. Opening one is a
+//! desktop capability: the desktop binary injects an [`ArchiveViewerOpener`]
+//! that opens the archive window, and the web client, which has none, shows
+//! the citation as plain text.
 
 use std::sync::Arc;
 
 use dioxus::prelude::try_use_context;
+use oxidgene_archives::{Archive, ArchiveRegistry, CitationParts};
 use serde::Serialize;
-
-pub use catalog::{ArchiveSource, catalog, source_for};
-pub use citation::{ActKind, ArchiveCitation, ViewLocation};
 
 use crate::i18n::I18n;
 
 /// A citation together with the archive that holds it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArchiveLink {
-    pub source: Arc<ArchiveSource>,
-    pub citation: ArchiveCitation,
+    pub archive: &'static Archive,
+    pub citation: CitationParts,
     /// The source title as written, used to name the window.
     pub title: String,
 }
 
 impl ArchiveLink {
     /// The link a source title stands for, when its archive is catalogued and
-    /// searchable for that act.
+    /// has a collection holding the cited act.
     pub fn from_source_title(title: &str) -> Option<Self> {
-        let citation = ArchiveCitation::parse(title)?;
-        let source = source_for(&citation.archive)?;
-        source.acts.contains(&citation.act).then(|| Self {
-            source: Arc::clone(source),
+        let (archive, citation) = ArchiveRegistry::embedded().link(title)?;
+        Some(Self {
+            archive,
             citation,
             title: title.to_owned(),
         })
@@ -44,7 +38,7 @@ impl ArchiveLink {
 
 /// What the archive window tells the reader, in the interface language.
 ///
-/// The portal page is not ours to translate, so the driver shows these in a
+/// The portal page is not ours to translate, so the window shows these in a
 /// small banner over it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ArchiveViewerMessages {
@@ -78,8 +72,8 @@ pub struct ArchiveViewerRequest {
 
 /// The platform side of the archive viewer.
 pub trait ArchiveViewerOpener: Send + Sync {
-    /// Whether a driver exists for this portal platform.
-    fn supports(&self, platform: &str) -> bool;
+    /// Whether this platform can open `link`.
+    fn supports(&self, link: &ArchiveLink) -> bool;
     fn open(&self, request: ArchiveViewerRequest);
 }
 
@@ -93,7 +87,7 @@ impl ArchiveViewerBridge {
 
     /// Whether `link` can be opened here.
     pub fn supports(&self, link: &ArchiveLink) -> bool {
-        self.0.supports(&link.source.platform)
+        self.0.supports(link)
     }
 
     pub fn open(&self, request: ArchiveViewerRequest) {
@@ -116,17 +110,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn links_only_catalogued_archives_and_searchable_acts() {
+    fn links_only_catalogued_archives_holding_the_act() {
         let link = ArchiveLink::from_source_title(
             "AD44 - Exampleville - (aucun) - N - 1877 - 3E1/2 - acte 26 - vue 5d/13",
         )
         .expect("a catalogued birth");
-        assert_eq!(link.source.id, "fr-ad44");
+        assert_eq!(link.archive.id, "fr-ad44");
         assert_eq!(link.citation.locality, "Exampleville");
 
-        // A catalogued archive, but an act its driver cannot search for.
+        // A catalogued archive, but a table no collection holds.
         assert_eq!(
-            ArchiveLink::from_source_title("AD44 - Exampleville - (aucun) - M - 1877"),
+            ArchiveLink::from_source_title("AD44 - Exampleville - (aucun) - TD - 1877"),
             None
         );
         // A well-formed citation of an archive the catalogue does not list.

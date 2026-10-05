@@ -1782,7 +1782,7 @@ pub(crate) fn timeline_section(
                                                                 let viewer = viewer.clone();
                                                                 let hint = i18n.t_args(
                                                                     "person.source_open_archive",
-                                                                    &[("archive", &link.source.name)],
+                                                                    &[("archive", &link.archive.name)],
                                                                 );
                                                                 rsx! {
                                                                     button {

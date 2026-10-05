@@ -39,6 +39,7 @@ oxidgene-db = { workspace = true }
 oxidgene-observability = { workspace = true, optional = true }
 oxidgene-ui = { workspace = true, features = ["compressed-locales"] }
 oxidgene-geneanet = { workspace = true }
+oxidgene-archives = { workspace = true }
 serde = { workspace = true }
 # The window hands media over base64-encoded; they are written as bytes.
 base64 = { workspace = true }

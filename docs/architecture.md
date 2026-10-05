@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T09:29:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T08:00:00Z }
 ---
 
 
@@ -316,10 +316,9 @@ linked into the application.
 
 The web build keeps its embedded locale JSON uncompressed and adds no Brotli
 decoder to WASM; HTTP bundle compression remains separate. Themes, portraits,
-the logo and the archive catalogue (`assets/archives/*.json`, discovered by
-the same build script; see
-[Person Profile](ui-person-profile.md#opening-a-cited-register)) also stay
-uncompressed. Personal locale files remain ordinary
+the logo and the archive catalogue (`assets/archives/<country>/*.json`,
+discovered by the build script of `oxidgene-archives`; see
+[Archive Portals §3.1](archives.md#31-catalogue)) also stay uncompressed. Personal locale files remain ordinary
 JSON, read by an injected desktop source rather than by `oxidgene-ui`.
 
 ---
@@ -540,6 +539,7 @@ oxidgene/
 │   ├── themes/             # Shipped UI themes (JSON)
 │   ├── portraits/          # Default portrait silhouettes
 │   ├── reference/          # Occupation and given-name reference sheets
+│   ├── archives/           # Archive catalogue, one directory per country (JSON)
 │   ├── places/             # Place dictionary (generated, Brotli)
 │   └── basemap/            # Statistics map country outlines (generated, Brotli)
 ├── docs/                   # Specifications (this directory)
@@ -549,6 +549,7 @@ oxidgene/
 │   ├── oxidgene-api/       # Axum handlers + GraphQL resolvers
 │   ├── oxidgene-gedcom/    # GEDCOM import/export + GeneWeb .gw import
 │   ├── oxidgene-geneanet/  # Geneanet person↔photo recovery (join, key, archives)
+│   ├── oxidgene-archives/  # Archive catalogue, citation parsing, portal adapters
 │   ├── oxidgene-observability/  # Shared OpenTelemetry initialization
 │   ├── oxidgene-ui/        # Dioxus components (shared web/desktop)
 │   └── oxidgene-guards/    # Repository guards: tests reading the sources
@@ -572,15 +573,17 @@ oxidgene-observability    (no internal deps)
 oxidgene-db               oxidgene-core, oxidgene-observability?
 oxidgene-gedcom           oxidgene-core
 oxidgene-geneanet         oxidgene-core
+oxidgene-archives         oxidgene-core
 oxidgene-api              oxidgene-core, oxidgene-db, oxidgene-gedcom,
                           oxidgene-geneanet, oxidgene-observability?
-oxidgene-ui               oxidgene-core
+oxidgene-ui               oxidgene-core, oxidgene-archives
 
 oxidgene-server           oxidgene-api, oxidgene-observability
 oxidgene-worker           oxidgene-server, oxidgene-api, oxidgene-observability
 oxidgene-web              oxidgene-ui
 oxidgene-desktop          oxidgene-api, oxidgene-db, oxidgene-ui,
-                          oxidgene-geneanet, oxidgene-observability?
+                          oxidgene-geneanet, oxidgene-archives,
+                          oxidgene-observability?
 oxidgene-place-dictionary oxidgene-core
 oxidgene-guards           (no deps: tests that read the repository's files)
 ```
@@ -596,7 +599,10 @@ Where it needs something only the desktop can do — the
 [Geneanet login window](ui-import.md) — it declares a trait
 (`oxidgene_ui::geneanet::GeneanetCollector`) that `oxidgene-desktop` implements
 and injects as context. The web build simply finds none and renders the
-explanation instead of the control.
+explanation instead of the control. It uses `oxidgene-archives` for its
+catalogue and citation parser only, without the crate's `native` transport,
+which links `reqwest`'s native client
+([Archive Portals §3.3](archives.md#33-dependencies)).
 
 The workspace keeps libraries under `crates/` and application entry points
 under `apps/`. `oxidgene-place-dictionary` is a development tool rather than a

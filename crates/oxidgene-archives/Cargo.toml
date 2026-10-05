@@ -1,0 +1,26 @@
+[package]
+name = "oxidgene-archives"
+description = "Archive catalogue, citation parsing and portal adapters resolving a cited source to its image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The `reqwest` transport, for the processes that reach portals directly. The
+# web build never enables it: it parses citations and builds offline targets.
+native = ["dep:reqwest"]
+
+[dependencies]
+# The Republican calendar, to read a register's year written `an XII`.
+oxidgene-core = { workspace = true }
+serde = { workspace = true }
+# The catalogue documents, and the adapters' `portal` settings and responses.
+serde_json = { workspace = true }
+reqwest = { workspace = true, optional = true }

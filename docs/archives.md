@@ -1,9 +1,9 @@
 ---
 type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
-description: "Planned oxidgene-archives crate that resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
+description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T15:03:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T08:00:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -83,14 +83,14 @@ in OxidGene's viewer. A reader who wants to keep the cited act attaches it as a
 document whose pages are the archive's image addresses (§6.4). OxidGene never
 copies, stores or redistributes the image bytes themselves.
 
-This specification supersedes the split delivered first, where the citation
-parser and the catalogue live in `oxidgene-ui::archive_viewer` and a driver
-script per platform lives in the desktop binary
-([Person Profile](ui-person-profile.md#opening-a-cited-register)). That split
-drives each portal's own search form inside the archive window; this one
-resolves the register through the portal's request interface in Rust, and
-uses the window only to carry those requests where a portal demands a browser
-and to display the result (§4.2, §6).
+The catalogue and the citation parser live in this crate, which the interface
+uses on both clients. The desktop still opens a register by driving the
+portal's own search form with a script per platform
+([Person Profile](ui-person-profile.md#opening-a-cited-register)); this
+specification replaces that driver by resolving the register through the
+portal's request interface in Rust, and uses the window only to carry those
+requests where a portal demands a browser and to display the result (§4.2,
+§6).
 
 ## 2. Scope
 
@@ -123,8 +123,8 @@ and to display the result (§4.2, §6).
 ### 3.1 Catalogue
 
 The catalogue is data, not code: one JSON document per archive service under
-`assets/archives/<country>/`, discovered at build time as the current
-`assets/archives/*.json` documents are
+`assets/archives/<country>/`, discovered at build time by the crate's build
+script and embedded as text
 ([Architecture §7.1](architecture.md#71-embedded-data)). Adding an archive
 that runs an already supported platform is a data change with no code.
 
@@ -141,7 +141,7 @@ that runs an already supported platform is a data change with no code.
 | `display` | `iiif` when OxidGene may show the archive's images in its own viewer and attach them as remote pages (§6.3, §6.4); `portal` when they are shown only in the portal's viewer. Default `portal`. |
 | `attribution` | Credit the archive's reuse terms require, written in the archive's language with `{call_number}` and `{view}` placeholders, such as `Archives départementales d'Indre-et-Loire, {call_number}, vue {view}`. Required when `display` is `iiif`; never translated. |
 | `terms` | Address of the archive's reuse terms. Required when `display` is `iiif`. |
-| `citation` | Optional overrides of the citation grammar for this archive (§5.1). |
+| `citation` | Optional overrides of the citation grammar for this archive (§5.1): `no_parish`, the parish values meaning none (default `["(aucun)"]`), and `view_words`, the words introducing the views (default `["vue"]`). A field left out keeps its default. |
 | `live_check` | `false` to exclude the archive from the scheduled live checks (§9.2). Default `true`. |
 
 **Collections.** Many archives search their parish registers and their civil
@@ -152,7 +152,7 @@ one or more collections, each resolved on its own:
 | Field | Rule |
 |---|---|
 | `id` | Slug unique within the archive: `parish-registers`, `civil-status`, `tables`. |
-| `acts` | Act kinds the collection holds (§5.1): `B`, `M`, `S` for parish registers; `N`, `M`, `D` for civil status; table codes for tables. |
+| `acts` | Act codes the collection holds (§5.1): `B`, `M`, `S` for parish registers; `N`, `M`, `D` for civil status; table codes such as `TD` for tables. A collection holds a combined act (`BMS`) when it holds each of its kinds. |
 | `period` | Optional `[first year, last year]` the collection covers; either bound may be `null`. |
 | `platform` | The adapter that searches it. |
 | `portal` | The adapter's settings for this collection (§4.3, §4.4). |
@@ -160,7 +160,9 @@ one or more collections, each resolved on its own:
 Resolution picks the collections whose `acts` contain the citation's act and
 whose `period` contains its year, and tries them in catalogue order until one
 finds a register; a citation without a year tries every collection holding
-its act. A Republican-calendar or 1792–1793 register, which may sit in either
+its act, and so does a citation whose year no collection's period contains,
+so that a wrong or approximate year still reaches a register. A
+Republican-calendar or 1792–1793 register, which may sit in either
 collection, is found by the order alone. Where one engine serves every
 register, as on the Loire-Atlantique portal, the archive has a single
 collection with every act kind and no period.
@@ -181,6 +183,7 @@ adapters are code, and an adapter serves archives of any level and country.
 
 ```text
 crates/oxidgene-archives/
+  build.rs          Embeds assets/archives/<country>/*.json
   src/
     lib.rs          ArchiveRegistry, Resolver, public types
     catalog.rs      Loading and validating the embedded catalogue
@@ -188,14 +191,16 @@ crates/oxidgene-archives/
     platform/
       mod.rs        The Platform trait and the adapter registry
       arkotheque.rs Arkothèque (1 égal 2)
-      mnesys.rs     Mnesys (Naoned)
-    transport.rs    The PortalFetch trait and its native implementation
+      mnesys.rs     Mnesys (Naoned), phase 2
+    transport.rs    The PortalFetch and PortalTransport traits, and the
+                    native implementation
 ```
 
 ### 3.3 Dependencies
 
-`oxidgene-archives` depends on `oxidgene-core` only, plus `serde`,
-`serde_json` and, behind a feature, `reqwest` from the workspace. It has no
+`oxidgene-archives` depends on `oxidgene-core` only, for the Republican
+calendar, plus `serde`, `serde_json` and, behind a feature, `reqwest` from the
+workspace. It has no
 Dioxus and no SeaORM dependency, and compiles to `wasm32-unknown-unknown`
 without the native transport, so `oxidgene-ui` may use its parser and
 catalogue on the web build (§6.2). Responses are read with `serde_json` and a
@@ -208,10 +213,16 @@ oxidgene-ui        oxidgene-core, oxidgene-archives (catalogue and parser only)
 oxidgene-desktop   … , oxidgene-archives
 ```
 
-The `native` feature, enabled by `oxidgene-api`, provides the `reqwest`
-transport. The desktop supplies a second transport through its archive window
-(§4.2). Without either, the crate parses, matches, and builds offline targets
-(§5.2) but cannot resolve a view.
+Today `oxidgene-ui` and `oxidgene-desktop` depend on it; `oxidgene-api`
+joins with the backend endpoint (§5.3). The `native` feature, which
+`oxidgene-api` will enable, provides the `reqwest` transport; until then the
+Clippy matrix checks it on its own
+([Development §2.8](development.md#28-guards)). The desktop supplies a second
+transport through its archive window (§4.2). Without either, the crate
+parses, matches, and builds offline targets (§5.2) but cannot resolve a view.
+
+Addresses are plain `String`s: the crate builds and compares them as text
+and adds no URL library.
 
 ## 4. Platforms
 
@@ -230,28 +241,51 @@ to about two thirds of the departments ([§11](#11-french-departmental-portals))
 ### 4.2 The adapter contract
 
 ```rust
+/// Boxed so that adapters and transports are object-safe.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
 pub trait Platform: Send + Sync {
     /// The catalogue value of `platform` this adapter answers to.
     fn id(&self) -> &'static str;
     /// Rejects a collection's `portal` object it cannot use, at load time.
     fn validate(&self, portal: &serde_json::Value) -> Result<(), CatalogError>;
+    /// The portal's origin, the page a browser transport loads first, and
+    /// whether the portal needs a browser (`transport`).
+    fn endpoint(&self, collection: &Collection) -> Option<PortalEndpoint>;
     /// The collection's filtered search page, built without any request.
-    fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<Url>;
+    fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<String>;
     /// Resolves parsed citation parts to a target in this collection.
-    async fn resolve(
-        &self,
-        archive: &Archive,
-        collection: &Collection,
-        citation: &CitationParts,
-        fetch: &dyn PortalFetch,
-    ) -> Result<ArchiveTarget, ResolveError>;
+    fn resolve<'a>(
+        &'a self,
+        archive: &'a Archive,
+        collection: &'a Collection,
+        citation: &'a CitationParts,
+        fetch: &'a dyn PortalFetch,
+    ) -> BoxFuture<'a, Result<ArchiveTarget, ResolveError>>;
 }
 
 /// One same-origin GET on the archive's portal, returning the body.
 pub trait PortalFetch: Send + Sync {
-    async fn get(&self, path_and_query: &str) -> Result<String, FetchError>;
+    fn get<'a>(&'a self, path_and_query: &'a str) -> BoxFuture<'a, Result<String, FetchError>>;
+}
+
+/// Opens fetchers bound to a portal's origin.
+pub trait PortalTransport: Send + Sync {
+    /// Whether requests run in a browser page, which passes a challenge.
+    fn is_browser(&self) -> bool;
+    fn connect<'a>(
+        &'a self,
+        endpoint: &'a PortalEndpoint,
+    ) -> BoxFuture<'a, Result<Box<dyn PortalFetch + 'a>, FetchError>>;
 }
 ```
+
+The futures are boxed because a trait's `async fn` cannot be called through
+`dyn`, and are `Send` on every target: the resolver runs in the server's
+handlers and on the desktop's runtime, while the web build never resolves
+and implements no transport. `FetchError` tells a timeout, a network failure,
+an error status, an oversized body, and a request or redirect leaving the
+origin apart.
 
 An adapter issues only the requests it needs to find one register: no list
 download beyond the search it performs, no image request.
@@ -275,7 +309,10 @@ no CORS. The resolution logic itself never runs in injected script.
 ### 4.3 Arkothèque
 
 Observed on the Loire-Atlantique[^ad44-portal] and Sarthe[^ad72-portal]
-portals. Each collection is served by a search engine (`moteur`) with a stable
+portals. The adapter reads `origin`, `transport` and `search_path` today,
+answers `results_url` with the collection's search page, and resolves to
+that offline `Results` target; the request interface below replaces it, and
+the remaining settings serve the desktop's form driver until then. Each collection is served by a search engine (`moteur`) with a stable
 unique reference per collection, per filter and per record; the two portals
 expose the same request interface and routes, with their own references and
 filters. The `portal` settings are:
@@ -372,25 +409,27 @@ in the window.
 
 ### 5.1 Citation parsing
 
-The default grammar is the normalized form already delivered:
+The default grammar is the normalized form:
 
 ```text
 <code> - <locality> - <parish> - <act> - <period> - <free…> - vue <n>[d|g]/<count>
 ```
 
-`parse` returns `CitationParts` with every field optional except the code and
-the locality:
+`CitationParts::parse` returns `CitationParts` with every field optional
+except the code, the locality and the act; a title without an act code is not
+a citation. `ArchiveRegistry::parse` reads a title with the grammar overrides
+of the archive its code names (§3.1).
 
 | Part | Read from |
 |---|---|
-| `code` | First field, matched against `citation_codes`. |
-| `locality` | Fields up to the act code; may itself contain ` - `. |
-| `parish` | The field before the act, unless it is `(aucun)`. |
-| `act` | The act code: `N`, `B`, `M`, `D`, `S`, and their combinations such as `BMS` or `NMD`; table codes such as `TB` are kept as tables. |
-| `year` | The first year of the period field: `1877`, `1702-1703`, or a Republican year converted to its Gregorian start. |
-| `period` | The period field as written, kept to match portals that list registers by period text. |
-| `call_number` | A field shaped like a call number, compared without spaces or case: `3E73/14` matches `3 E 73 / 14`. |
-| `views`, `side`, `view_count` | `vue <n>[d|g]/<count>`, or a range `vue <n>-<m>/<count>` for an act spanning several views, such as `vue 5d-6g/13`. |
+| `code` | First field: capitals and digits, matched against `citation_codes`. |
+| `locality` | Fields up to the parish field; may itself contain ` - `. |
+| `parish` | The field before the act, unless it is a `no_parish` value (`(aucun)`). |
+| `act` | The act code: `N`, `B`, `M`, `D`, `S`, and their combinations such as `BMS` or `NMD`, each letter once; `T` followed by one to four capitals is a table code (`TB`, `TD`), kept as written. It is searched from the fourth field on, and an act code followed by a period wins over an earlier one that is not. |
+| `year` | The first year of the period field: `1877`, `1702-1703`, or a Republican year `an XII` (Roman or Arabic numerals, an I to an XIV, as in `an XI-an XII` or `an XI-XII`) converted to the Gregorian year of its 1 Vendémiaire. |
+| `period` | The period field as written, kept to match portals that list registers by period text. A field that reads as no period leaves both empty and stays a free field. |
+| `call_number` | The first free field shaped like a call number — letters, digits and ` /._-`, at least one digit and one capital, no lowercase word of three letters or more (`1 Mi 456` is one, `acte 26` is not) — compared without spaces or case: `3E73/14` matches `3 E 73 / 14`. |
+| `views`, `view_count` | The last field, introduced by a `view_words` word: `vue <n>[d|g]/<count>`, a range `vue <n>[d|g]-<m>[d|g]/<count>` of at most ten views for an act spanning several, such as `vue 5d-6g/13`, or a view without its count. Each view keeps its side (`d` right, `g` left); in a range the sides apply to its ends. A malformed range, or a view beyond the cited count, leaves both empty. |
 
 The call number is **one criterion among several**, not a requirement: many
 citations carry none, and resolution falls back to the act, the parish and
@@ -433,8 +472,9 @@ pub struct ArchiveImage {
 }
 ```
 
-`views` holds every cited view, in order, so an act spanning views 5 and 6
-resolves to both. `picture` is the address the viewer loads — a size bounded to
+Addresses are `String`s, and the target serializes with a `kind` of `view` or
+`results`. `views` holds every cited view, in order, so an act spanning views
+5 and 6 resolves to both. `picture` is the address the viewer loads — a size bounded to
 the screen where the service allows it, the full image otherwise — and
 `thumbnail` the smallest address the archive serves. `attribution` is the
 catalogue template filled with the call number and views.
@@ -442,9 +482,18 @@ catalogue template filled with the call number and views.
 `Results` built by `results_url` without any request has no match count; it
 is what a client gets when no transport can reach the portal.
 
-`ResolveError` distinguishes an archive without an adapter, a portal that did
-not answer as expected, and a timeout; each has a stable code the interface
-translates (`archive_viewer.*`).
+`ResolveError` distinguishes an archive without an adapter (`no_adapter`: not
+catalogued, or no collection holds the act), a portal that did not answer as
+expected (`unexpected_response`, with a description of what differed and no
+response content), a timeout (`timeout`), and a portal that could not be
+reached or answered with a server error (`unreachable`). Each code is stable
+and the interface translates it as `archive_viewer.<code>`.
+
+The `Resolver` tries the candidate collections in order (§3.1) and returns
+the first `View`. When none finds one, it returns the first `Results` of a
+search that ran; failing that, the first error; failing that, the offline
+`Results` of a collection whose `transport` is `browser` and that the
+transport in use cannot reach.
 
 ### 5.3 API
 
@@ -555,9 +604,15 @@ Archive portals are public services whose terms OxidGene follows:
   with an anti-bot challenge; OxidGene acts only on a user's explicit request,
   as a browser does, and never works around a challenge outside the window
   the reader sees.
-- Requests identify OxidGene in their `User-Agent`, time out after a short
-  bound, and are never retried automatically.
-- Resolved targets are cached in memory for the session. The only portal data
+- Requests identify OxidGene in their `User-Agent`,
+  `OxidGene/<version> (+https://github.com/trois-six/oxidgene)`, time out
+  after 10 seconds, read at most 8 MiB, and are never retried
+  automatically. They stay on the portal's origin: a path is refused unless
+  it is absolute on that origin, and a redirect elsewhere fails the request.
+- Resolved targets are cached in memory for the session, by the resolver:
+  each `View`, and each `Results` of a search that ran, keyed by the citation
+  parts, up to 256 entries before the cache starts afresh. Errors and offline
+  targets are not kept, so the next click asks the portal again. The only portal data
   written to the database is what the reader attaches (§6.4): image addresses,
   sizes and the attribution, never image bytes.
 - Image bytes are cached only by the browser's or WebView's HTTP cache,
@@ -575,9 +630,13 @@ Archive portals are public services whose terms OxidGene follows:
 - Adapter tests replay recorded portal responses, anonymized and committed as
   fixtures, covering one match, several matches, no match, and a changed
   response shape.
-- Catalogue tests check unique ids and citation codes, that every
-  collection's `platform` has an adapter, and that every adapter accepts its
-  collections' `portal`.
+- Catalogue tests check unique ids and citation codes, that each archive
+  sits in its country's directory, that an `iiif` archive has its
+  attribution and terms, that every collection's `platform` has an adapter,
+  and that every adapter accepts its collections' `portal`.
+- Resolver tests run a scripted adapter over a counting transport: collection
+  order, the fallbacks, the cache, and offline targets for `browser`
+  portals.
 
 `just check` never contacts a portal: the tests above run offline.
 
