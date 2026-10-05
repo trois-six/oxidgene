@@ -1,0 +1,36 @@
+{
+  "id": "fr-ad14",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Calvados",
+  "jurisdiction": ["14"],
+  "citation_codes": ["AD14"],
+  "website": "https://archives.calvados.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.calvados.fr",
+        "form": "ecf01748-923d-463a-8d80-bd4142582bcd",
+        "fields": {
+          "locality": "controlledAccessGeographicName[]",
+          "act": "controlledAccessPhysicalCharacteristic[]",
+          "year": "date"
+        },
+        "locality_label": ["{locality} (Calvados, France)"],
+        "acts": {
+          "B": ["Baptêmes"],
+          "M": ["Mariages"],
+          "S": ["Sépultures"],
+          "N": ["Naissances"],
+          "D": ["Décès"],
+          "TD": ["Tables décennales"]
+        },
+        "call_number": "none",
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

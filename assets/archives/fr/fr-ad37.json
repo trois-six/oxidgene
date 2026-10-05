@@ -1,0 +1,39 @@
+{
+  "id": "fr-ad37",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales d'Indre-et-Loire",
+  "jurisdiction": ["37"],
+  "citation_codes": ["AD37"],
+  "website": "https://archives.touraine.fr",
+  "display": "iiif",
+  "attribution": "Archives départementales d'Indre-et-Loire, {call_number}, vue {view}",
+  "terms": "https://archives.touraine.fr/page/reutilisation",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [1500, 1972],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.touraine.fr",
+        "form": "e9414896-40cc-4ec3-936c-8acdfdb11770",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "2-controlledAccessPhysicalCharacteristic[]",
+          "year": "4-date"
+        },
+        "locality_label": ["{locality} (Indre-et-Loire, France)"],
+        "acts": {
+          "B": ["Baptêmes"],
+          "M": ["Mariages"],
+          "S": ["Sépultures"],
+          "N": ["Naissances"],
+          "D": ["Décès"],
+          "TD": ["Table décennale"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

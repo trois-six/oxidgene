@@ -1,0 +1,27 @@
+{
+ "@context": "http://iiif.io/api/image/3/context.json",
+ "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000249",
+ "type": "ImageService3",
+ "protocol": "http://iiif.io/api/image",
+ "profile": "level0",
+ "width": 3600,
+ "height": 2614,
+ "sizes": [
+  {
+   "width": 3600,
+   "height": 2614
+  }
+ ],
+ "tiles": [
+  {
+   "width": 3600,
+   "height": 2614,
+   "scaleFactors": [
+    1
+   ]
+  }
+ ],
+ "qualities": [
+  "default"
+ ]
+}

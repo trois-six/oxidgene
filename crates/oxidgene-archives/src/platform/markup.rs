@@ -79,6 +79,30 @@ pub(crate) fn text_after(html: &str, marker: &str) -> Option<String> {
     ))
 }
 
+/// The text of a fragment of markup: tags removed, character references
+/// decoded, whitespace runs collapsed to single spaces.
+pub(crate) fn strip_tags(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(open) = rest.find('<') {
+        text.push_str(&rest[..open]);
+        match rest[open..].find('>') {
+            Some(close) => rest = &rest[open + close + 1..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+        // A tag separates words: `<li>a</li><li>b</li>` reads `a b`.
+        text.push(' ');
+    }
+    text.push_str(rest);
+    decode_entities(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The fragments that follow each occurrence of `marker`, each up to the
 /// next one: the rows of a table opened by `<tr class="row`.
 pub(crate) fn split_after<'h>(html: &'h str, marker: &str) -> Vec<&'h str> {
@@ -194,6 +218,11 @@ mod tests {
             ),
             [" a\">1", " b\">2"]
         );
+        assert_eq!(
+            strip_tags("<li>\n  Saint-Exemple <b>(Le)</b> &amp; co\n</li><li>2</li>"),
+            "Saint-Exemple (Le) & co 2"
+        );
+        assert_eq!(strip_tags("a <unclosed"), "a");
         assert_eq!(fold("Bourg (Le)"), fold("bourg le"));
         assert_eq!(fold("Étival"), "etival");
     }

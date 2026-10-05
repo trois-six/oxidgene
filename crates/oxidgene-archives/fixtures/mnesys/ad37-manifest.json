@@ -1,0 +1,136 @@
+{
+ "@context": [
+  "http://www.w3.org/ns/anno.jsonld",
+  "http://iiif.io/api/presentation/3/context.json"
+ ],
+ "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/group/0/manifest.json",
+ "type": "Manifest",
+ "items": [
+  {
+   "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000100/canvas/0",
+   "type": "Canvas",
+   "label": {
+    "fr": [
+     "Image n°1"
+    ]
+   },
+   "height": 2614,
+   "width": 3600,
+   "thumbnail": [
+    {
+     "id": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000100_thumbnail.jpg",
+     "type": "Image"
+    }
+   ],
+   "items": [
+    {
+     "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000100/canvas/0/annotationPage/0",
+     "type": "AnnotationPage",
+     "items": [
+      {
+       "type": "Annotation",
+       "motivation": "painting",
+       "body": {
+        "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000100/full/max/0/default.jpg",
+        "type": "Image",
+        "height": 2614,
+        "width": 3600,
+        "service": [
+         {
+          "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000100",
+          "type": "ImageService1",
+          "profile": "https://iiif.io/api/image/3/level0.json"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000101/canvas/1",
+   "type": "Canvas",
+   "label": {
+    "fr": [
+     "Image n°2"
+    ]
+   },
+   "height": 2579,
+   "width": 3566,
+   "thumbnail": [
+    {
+     "id": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000101_thumbnail.jpg",
+     "type": "Image"
+    }
+   ],
+   "items": [
+    {
+     "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000101/canvas/1/annotationPage/0",
+     "type": "AnnotationPage",
+     "items": [
+      {
+       "type": "Annotation",
+       "motivation": "painting",
+       "body": {
+        "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000101/full/max/0/default.jpg",
+        "type": "Image",
+        "height": 2579,
+        "width": 3566,
+        "service": [
+         {
+          "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000101",
+          "type": "ImageService1",
+          "profile": "https://iiif.io/api/image/3/level0.json"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000102/canvas/2",
+   "type": "Canvas",
+   "label": {
+    "fr": [
+     "Image n°3"
+    ]
+   },
+   "height": 2189,
+   "width": 2900,
+   "thumbnail": [
+    {
+     "id": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000102_thumbnail.jpg",
+     "type": "Image"
+    }
+   ],
+   "items": [
+    {
+     "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000102/canvas/2/annotationPage/0",
+     "type": "AnnotationPage",
+     "items": [
+      {
+       "type": "Annotation",
+       "motivation": "painting",
+       "body": {
+        "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000102/full/max/0/default.jpg",
+        "type": "Image",
+        "height": 2189,
+        "width": 2900,
+        "service": [
+         {
+          "id": "https://archives.example-37.test/iiif/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000102",
+          "type": "ImageService1",
+          "profile": "https://iiif.io/api/image/3/level0.json"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

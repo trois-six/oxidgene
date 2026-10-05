@@ -1,0 +1,39 @@
+{
+  "id": "fr-ad51",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Marne",
+  "jurisdiction": ["51"],
+  "citation_codes": ["AD51"],
+  "website": "https://archives.marne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.marne.fr",
+        "form": "6977c5eb-072c-470c-8dfa-6d6488a2d71e",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "4-controlledAccessPhysicalCharacteristic[]",
+          "year": "3-date"
+        },
+        "locality_label": [
+          "{locality} (Marne, France)",
+          "{locality} (Marne ; ancienne commune)"
+        ],
+        "locality_style": "article_suffix",
+        "acts": {
+          "B": ["baptêmes - naissances"],
+          "N": ["baptêmes - naissances"],
+          "M": ["mariages"],
+          "S": ["sépultures - décès"],
+          "D": ["sépultures - décès"],
+          "TD": ["tables décennales"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

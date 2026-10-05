@@ -1,0 +1,77 @@
+{
+ "2": {
+  "url": "https://archives.example-37.test/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000202",
+  "record": {
+   "arkId": {
+    "arkName": "aaaaaaaaaaaa",
+    "naan": 99937
+   },
+   "title": [
+    "Register"
+   ],
+   "referenceCode": [],
+   "locationKeywords": [
+    "Exampleville (Exampleshire, France)"
+   ]
+  },
+  "uuid": "00000000-0000-4000-8000-000000000202",
+  "location": {
+   "original": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000202.jpg",
+   "thumb": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000202_thumbnail.jpg",
+   "iiif": null
+  },
+  "type": "image",
+  "format": "jpg",
+  "title": null
+ },
+ "149": {
+  "url": "https://archives.example-37.test/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000249",
+  "record": {
+   "arkId": {
+    "arkName": "aaaaaaaaaaaa",
+    "naan": 99937
+   },
+   "title": [
+    "Register"
+   ],
+   "referenceCode": [],
+   "locationKeywords": [
+    "Exampleville (Exampleshire, France)"
+   ]
+  },
+  "uuid": "00000000-0000-4000-8000-000000000249",
+  "location": {
+   "original": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000249.jpg",
+   "thumb": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000249_thumbnail.jpg",
+   "iiif": null
+  },
+  "type": "image",
+  "format": "jpg",
+  "title": null
+ },
+ "150": {
+  "url": "https://archives.example-37.test/ark:/99937/aaaaaaaaaaaa/00000000-0000-4000-8000-000000000250",
+  "record": {
+   "arkId": {
+    "arkName": "aaaaaaaaaaaa",
+    "naan": 99937
+   },
+   "title": [
+    "Register"
+   ],
+   "referenceCode": [],
+   "locationKeywords": [
+    "Exampleville (Exampleshire, France)"
+   ]
+  },
+  "uuid": "00000000-0000-4000-8000-000000000250",
+  "location": {
+   "original": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000250.jpg",
+   "thumb": "https://archives.example-37.test/images/00000000-0000-4000-8000-000000000250_thumbnail.jpg",
+   "iiif": null
+  },
+  "type": "image",
+  "format": "jpg",
+  "title": null
+ }
+}

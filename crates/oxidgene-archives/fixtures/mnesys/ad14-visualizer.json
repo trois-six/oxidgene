@@ -1,0 +1,52 @@
+{
+ "20": {
+  "url": "https://archives.example-14.test/ark:/99914/iiiiiiiiiiii/00000000-0000-4000-8000-000000000820",
+  "record": {
+   "arkId": {
+    "arkName": "iiiiiiiiiiii",
+    "naan": 99914
+   },
+   "title": [
+    "Register"
+   ],
+   "referenceCode": [],
+   "locationKeywords": [
+    "Exampleville (Exampleshire, France)"
+   ]
+  },
+  "uuid": "00000000-0000-4000-8000-000000000820",
+  "location": {
+   "original": "https://archives.example-14.test/images/00000000-0000-4000-8000-000000000820.jpg",
+   "thumb": "https://archives.example-14.test/images/00000000-0000-4000-8000-000000000820_thumbnail.jpg",
+   "iiif": null
+  },
+  "type": "image",
+  "format": "jpg",
+  "title": null
+ },
+ "21": {
+  "url": "https://archives.example-14.test/ark:/99914/iiiiiiiiiiii/00000000-0000-4000-8000-000000000821",
+  "record": {
+   "arkId": {
+    "arkName": "iiiiiiiiiiii",
+    "naan": 99914
+   },
+   "title": [
+    "Register"
+   ],
+   "referenceCode": [],
+   "locationKeywords": [
+    "Exampleville (Exampleshire, France)"
+   ]
+  },
+  "uuid": "00000000-0000-4000-8000-000000000821",
+  "location": {
+   "original": "https://archives.example-14.test/images/00000000-0000-4000-8000-000000000821.jpg",
+   "thumb": "https://archives.example-14.test/images/00000000-0000-4000-8000-000000000821_thumbnail.jpg",
+   "iiif": null
+  },
+  "type": "image",
+  "format": "jpg",
+  "title": null
+ }
+}
