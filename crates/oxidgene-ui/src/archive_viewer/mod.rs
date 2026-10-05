@@ -249,8 +249,9 @@ impl Landing {
     /// citation names one within it: the portal has no address per view,
     /// and the reader goes to the view. On a failure, given by its code,
     /// the failure's banner over the collection's filtered search page when
-    /// an anti-bot check answered — the reader may pass it there — and over
-    /// the archive's website otherwise.
+    /// an anti-bot check answered — the reader may pass it there — or the
+    /// portal was too slow or out of reach — the page may load for the
+    /// reader —, and over the archive's website otherwise.
     pub fn of(link: &ArchiveLink, outcome: Result<ArchiveTarget, &str>) -> Self {
         let (url, banner) = match outcome {
             Ok(ArchiveTarget::Results {
@@ -275,7 +276,7 @@ impl Landing {
                 (url, banner)
             }
             Ok(target) => (target.url().to_owned(), None),
-            Err(code @ "challenged") => {
+            Err(code @ ("challenged" | "timeout" | "unreachable")) => {
                 let url = ArchiveRegistry::embedded()
                     .offline_target(&link.citation)
                     .map_or_else(
@@ -565,9 +566,12 @@ mod tests {
             Some("archive_viewer.ambiguous")
         );
 
-        let failed = Landing::of(&cited, Err("timeout"));
+        let failed = Landing::of(&cited, Err("unexpected_response"));
         assert_eq!(failed.url, cited.archive.website);
-        assert_eq!(banner_key(&failed), Some("archive_viewer.timeout"));
+        assert_eq!(
+            banner_key(&failed),
+            Some("archive_viewer.unexpected_response")
+        );
         assert_eq!(
             banner_key(&Landing::of(&cited, Err("internal_error"))),
             Some("archive_viewer.failed")
@@ -587,15 +591,42 @@ mod tests {
     }
 
     #[test]
-    fn a_challenge_lands_on_the_filtered_search_page() {
+    fn a_challenge_or_a_slow_portal_lands_on_the_filtered_search_page() {
         let cited = link("AD44 - Exampleville - (aucun) - N - 1877", None).unwrap();
-        let landing = Landing::of(&cited, Err("challenged"));
         let results = ArchiveRegistry::embedded()
             .offline_target(&cited.citation)
             .unwrap();
-        assert_eq!(landing.url, results.url());
-        assert_ne!(landing.url, cited.archive.website);
-        assert_eq!(banner_key(&landing), Some("archive_viewer.challenged"));
+        for code in ["challenged", "timeout", "unreachable"] {
+            let landing = Landing::of(&cited, Err(code));
+            assert_eq!(landing.url, results.url(), "{code}");
+            assert_ne!(landing.url, cited.archive.website, "{code}");
+            assert_eq!(banner_key(&landing), Some(failure_key(code)), "{code}");
+        }
+    }
+
+    /// A regression: a lookup on the Sarthe portal that timed out landed on
+    /// the portal's home page, its banner saying to continue on the search
+    /// page. It lands on the collection's search page, filtered by the
+    /// locality as the portal writes it and the act.
+    #[test]
+    fn a_timed_out_lookup_lands_on_the_filtered_results_of_its_collection() {
+        let cited = link(
+            "AD72 - Le Bourg - N - 1882 - 5Mi 999_1 - acte 12 - vue 43d/225",
+            None,
+        )
+        .unwrap();
+        let landing = Landing::of(&cited, Err("timeout"));
+        let (path, query) = landing.url.split_once('?').unwrap();
+        assert_eq!(
+            path,
+            "https://archives.sarthe.fr/archives-en-ligne/registres-paroissiaux-etat-civil"
+        );
+        assert!(query.contains("%5Bq%5D%5B%5D=Bourg%20%28Le%29&"), "{query}");
+        assert!(
+            query.contains("%5Bq%5D%5B%5D=Naissances%5B%5Barko_fiche_6304c294c56c4%5D%5D&"),
+            "{query}"
+        );
+        assert_eq!(banner_key(&landing), Some("archive_viewer.timeout"));
     }
 
     #[test]

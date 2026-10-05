@@ -116,9 +116,7 @@ pub(super) fn open_in_browser(page: &str) {
 }
 
 fn untrusted(inbox: &Inbox, session: SessionId, page: String) {
-    if let Ok(mut inbox) = inbox.lock() {
-        inbox.push((session, Inbound::Untrusted(page)));
-    }
+    inbox.push(session, Inbound::Untrusted(page));
 }
 
 /// What completing a chain needs: the page's host, its certificate, and

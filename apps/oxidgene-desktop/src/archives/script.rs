@@ -70,7 +70,8 @@ pub(super) type Action<'a> = (&'a str, &'a str);
 
 /// Shows `text` in a banner over the page with a close button labelled
 /// `close`, replacing any earlier banner, and the button of `action` when
-/// given.
+/// given. Closing it posts `{"kind": "dismiss"}`: the window then stops
+/// showing it again over the pages that follow.
 pub(super) fn banner(text: &str, close: &str, action: Option<Action<'_>>) -> String {
     let text = serde_json::Value::from(text);
     let close = serde_json::Value::from(close);
@@ -112,7 +113,10 @@ pub(super) fn banner(text: &str, close: &str, action: Option<Action<'_>>) -> Str
     button.setAttribute("aria-label", {close});
     button.style.cssText = "border:0;background:none;color:inherit;font-size:18px;"
         + "cursor:pointer;line-height:1";
-    button.addEventListener("click", () => banner.remove());
+    button.addEventListener("click", () => {{
+        banner.remove();
+        window.ipc.postMessage(JSON.stringify({{ kind: "dismiss" }}));
+    }});
     banner.append(button);
     document.documentElement.append(banner);
 }})();"#
@@ -169,6 +173,8 @@ mod tests {
         assert!(script.contains(r#"setAttribute("aria-label", "Close")"#));
         assert!(script.contains("const action = null;"));
         assert!(!script.contains("innerHTML"));
+        // Closed, it is not shown again over the pages that follow.
+        assert!(script.contains(r#"window.ipc.postMessage(JSON.stringify({ kind: "dismiss" }));"#));
 
         let script = banner(
             "Unverified.",

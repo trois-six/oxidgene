@@ -1,5 +1,5 @@
-// Says what each main-frame document of the archive window is, once it has
-// loaded: the portal's own page, an anti-bot check, or a block. Posts
+// Says what each main-frame document of the archive window is, once it is
+// parsed: the portal's own page, an anti-bot check, or a block. Posts
 // `{"kind": "page", "state", "vendor", "interactive"}`, `state` being
 // `portal`, `challenge` or `blocked`.
 //
@@ -11,11 +11,14 @@
 // page is the portal once it renders something: text, or a frameset with a
 // frame, whose body has no text of its own.
 //
-// The page is checked again every half second while it is a check or shows
-// nothing yet, since a check's widget, or a portal's own content, may come
-// after `load`, and a message is posted only when the answer changes. A
-// check that passes navigates, and the next document posts anew. Nothing is
-// filled or clicked.
+// The page is first checked once its markup is parsed (`DOMContentLoaded`),
+// not once everything it loads has (`load`): a portal's own images and
+// scripts may keep it loading for long, and neither the banner the window
+// shows over the page nor the requests it sends from it wait for them. It
+// is checked again every half second while it is a check or shows nothing
+// yet, since a check's widget, or a portal's own content, may come later,
+// and a message is posted only when the answer changes. A check that passes
+// navigates, and the next document posts anew. Nothing is filled or clicked.
 //
 // `antiBot` is defined before this script runs.
 const classify = () => {
@@ -52,5 +55,5 @@ const check = () => {
     }
     setTimeout(check, 500);
 };
-if (document.readyState === "complete") check();
-else addEventListener("load", check, { once: true });
+if (document.readyState === "loading") addEventListener("DOMContentLoaded", check, { once: true });
+else check();

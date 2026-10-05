@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T20:25:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1243,23 +1243,36 @@ register or several registers match the citation, over the filtered results;
 or, over a register whose portal has no address per view — a `View` with no
 views although the cited views lie within the register, or its size is
 unknown —, which view to go to (`archive_viewer.go_to_view`, with the first
-cited view). When the resolution fails — an archive the window cannot reach,
-a portal that changed shape or did not answer in time — the window opens the
-archive's `website` with the banner of the failure's code
-(`archive_viewer.<code>`); an anti-bot check or block (`challenged`) lands
-instead on the collection's filtered search page (`results_url`, the
-offline `Results` of §5.2), where the reader may pass the check and
-continue. The failure is logged with its code and the archive's identifier
-only. A reader who closes the window during the resolution stops it.
+cited view). A load's banner shows over every page that follows it — a
+check's redirect, a portal page navigating on — until the reader closes it
+or the window loads another page. When the resolution fails, the window
+lands with the banner of the failure's code (`archive_viewer.<code>`): on
+the collection's filtered search page (`results_url`, the offline `Results`
+of §5.2) for an anti-bot check or block (`challenged`), where the reader may
+pass the check, and for a portal that did not answer in time (`timeout`) or
+could not be reached (`unreachable`), where the page may still load for the
+reader; on the archive's `website` for any other failure, or when the
+collection has no search page. A resolution still running after 8 minutes —
+every wait within it is bounded already, this bounds their sum, leaving room
+for a reader answering a check twice — lands as a `timeout`. The failure is
+logged with its code and the archive's identifier only. A reader who closes
+the window during the resolution stops it.
+
+What a window's page posts — what the page is, the answer of a request, the
+reader's click on a banner button — wakes the application's event loop at
+once, so that the banner and the resolution never wait for the reader to
+move the mouse over a window.
 
 **Anti-bot checks.** A script of the window classifies each main-frame page
-once it has loaded, with the signatures of §4.2: a **challenge** or a
+once its markup is parsed (`DOMContentLoaded`) — not once its images and
+scripts have loaded, which a portal's own heavy requests may delay —, with
+the signatures of §4.2: a **challenge** or a
 **block** when its markup bears one, **interactive** when a challenge also
 shows a widget, and otherwise the **portal** once it renders something —
 text, or a frameset with a frame, whose body has no text of its own (THOT).
 A page that shows nothing yet, or a challenge, is looked at again every half
-second, since a widget or a portal's content may come after the page's
-`load`. Waiting for the start page:
+second, since a widget or a portal's content may come later. Waiting for
+the start page:
 
 - the portal's page lets the requests run;
 - a challenge is given 5 seconds to clear itself, as Anubis's proof of work,
@@ -1338,9 +1351,10 @@ The tab cannot carry a banner over the portal's page, so what the window's
 banner says (§6.1) appears in the application, beside the source: no
 register, or several, over the filtered results; and on a failure, by its
 code (`archive_viewer.<code>`, `archive_viewer.failed` for any other), while
-the tab opens the archive's `website` — or, for `challenged`, the
-collection's filtered search page, where the reader passes the check in
-their own browser. The view to go to on a portal without an address per
+the tab opens the same landing as the window (§6.1): the collection's
+filtered search page for `challenged`, where the reader passes the check in
+their own browser, `timeout` and `unreachable`, and the archive's `website`
+otherwise. The view to go to on a portal without an address per
 view is said the same way.
 
 ### 6.3 IIIF behind the scenes
@@ -1442,7 +1456,8 @@ reloads. The source, shared by other citations, is never changed.
 | Anti-bot check answering a request (desktop) | The start page again for the reader, then the same request once more (§6.1, §8). |
 | Anti-bot block, a check left unanswered, or a challenge answering the backend | `challenged`: its message, as a banner (desktop) or a notice (web); the window or the tab opens the collection's filtered search page (`results_url`), the archive's `website` when there is none. |
 | Portal certificate served without its issuer (Linux desktop) | Completed from its `caIssuers` address and verified against the system's roots; otherwise `archive_viewer.certificate` with a button opening the page in the system browser (§6.1). |
-| Portal changed shape, timed out or could not be reached | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
+| Portal timed out or could not be reached; a desktop lookup running past 8 minutes | `timeout` or `unreachable`: its message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the collection's filtered search page (`results_url`), the archive's `website` when there is none. |
+| Portal changed shape | The failure's message, as a banner (desktop) or a notice beside the source (web); the window or the tab opens the archive's `website`. |
 
 ## 8. Access etiquette
 

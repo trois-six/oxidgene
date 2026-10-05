@@ -9,7 +9,10 @@
 //! adapter's requests then run in it. The window finally loads the target —
 //! the cited view, or the portal's filtered results — with a banner saying
 //! what OxidGene found, or, when the resolution failed, the landing of the
-//! failure.
+//! failure; a resolution running past [`LOOKUP_DEADLINE`] lands as a
+//! timeout. What a window's page posts wakes the event loop at once
+//! ([`Inbox`]), so that neither the banner nor the resolution waits for the
+//! reader to move the mouse.
 //!
 //! Windows are top-level, since portals refuse to be framed, and share one
 //! persistent web profile of their own, so that a portal's cookies spare the
@@ -29,7 +32,9 @@ mod transport;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use dioxus::desktop::tao::dpi::LogicalSize;
 use dioxus::desktop::tao::event::{Event, WindowEvent};
@@ -38,12 +43,13 @@ use dioxus::desktop::tao::window::{Window, WindowBuilder};
 use dioxus::desktop::wry::{WebContext, WebView, WebViewBuilder};
 use oxidgene_archives::ArchiveTarget;
 use oxidgene_archives::transport::origin_of;
-use oxidgene_archives::{ArchiveRegistry, Resolver};
+use oxidgene_archives::{ArchiveRegistry, ResolveError, Resolver};
 use oxidgene_ui::archive_viewer::{
     ArchiveLink, ArchivePageRequest, ArchiveRegister, ArchiveViewerBridge, ArchiveViewerMessages,
     ArchiveViewerOpener, ArchiveViewerRequest, AttachSender, Landing,
 };
 use serde::Deserialize;
+use tokio::sync::Notify;
 use tracing::{debug, warn};
 
 use transport::{
@@ -58,6 +64,8 @@ enum Message {
     Fetched(Fetched),
     /// The reader asks to attach the views on screen as a document.
     Attach,
+    /// The reader closed the banner.
+    Dismiss,
     /// The reader asks to open the page whose certificate could not be
     /// verified in the system browser.
     #[cfg(any(
@@ -87,11 +95,60 @@ enum Inbound {
 }
 
 /// Messages from the windows, waiting for the event loop.
-type Inbox = Arc<Mutex<Vec<(SessionId, Inbound)>>>;
+///
+/// A window's page posts on the GTK main loop, outside any event of the
+/// event loop, whose handler alone carries messages out: queued and nothing
+/// more, a message would wait for an unrelated event — the reader moving
+/// the mouse over a window —, and with it the banner it shows and the
+/// resolution waiting on it. Each message therefore also wakes the
+/// [`pump`], a Dioxus task whose wake-up makes the event loop run the
+/// handler at once.
+#[derive(Clone, Default)]
+struct Inbox {
+    messages: Arc<Mutex<Vec<(SessionId, Inbound)>>>,
+    posted: Arc<Notify>,
+}
+
+impl Inbox {
+    fn push(&self, session: SessionId, inbound: Inbound) {
+        if let Ok(mut messages) = self.messages.lock() {
+            messages.push((session, inbound));
+        }
+        self.posted.notify_one();
+    }
+
+    fn drain(&self) -> Vec<(SessionId, Inbound)> {
+        self.messages
+            .lock()
+            .map(|mut messages| messages.drain(..).collect())
+            .unwrap_or_default()
+    }
+}
+
+/// Wakes the Dioxus runtime whenever a window posts: Dioxus polls the task
+/// on an event of the event loop, whose handler runs on that event and
+/// carries the window's messages out.
+async fn pump(posted: Arc<Notify>) {
+    loop {
+        posted.notified().await;
+    }
+}
 
 struct WindowOpener {
     shared: Arc<Shared>,
     resolver: Arc<Resolver<'static>>,
+    /// What the windows' messages notify, and whether the [`pump`] runs:
+    /// started on the first opening, from the Dioxus runtime.
+    posted: Arc<Notify>,
+    pumping: AtomicBool,
+}
+
+impl WindowOpener {
+    fn start_pump(&self) {
+        if !self.pumping.swap(true, Ordering::Relaxed) {
+            dioxus::core::spawn_forever(pump(Arc::clone(&self.posted)));
+        }
+    }
 }
 
 impl ArchiveViewerOpener for WindowOpener {
@@ -102,6 +159,7 @@ impl ArchiveViewerOpener for WindowOpener {
     }
 
     fn open(&self, request: ArchiveViewerRequest) {
+        self.start_pump();
         let shared = Arc::clone(&self.shared);
         let resolver = Arc::clone(&self.resolver);
         // The task outlives the page that asked: the reader may navigate on
@@ -114,6 +172,7 @@ impl ArchiveViewerOpener for WindowOpener {
     }
 
     fn open_page(&self, request: ArchivePageRequest) {
+        self.start_pump();
         let shared = Arc::clone(&self.shared);
         // Queued from a task, as a resolution's landing is, so that the
         // event loop that carries it out is woken.
@@ -187,7 +246,7 @@ async fn open_register(
         texts: texts(&messages),
     };
     let citation = refined(&link).await;
-    let outcome = resolver.resolve(&citation, &transport).await;
+    let outcome = within(LOOKUP_DEADLINE, resolver.resolve(&citation, &transport)).await;
     if let Err(error) = &outcome {
         warn!(
             error = error.code(),
@@ -210,6 +269,24 @@ async fn open_register(
         texts: transport.texts,
         attach,
     });
+}
+
+/// The longest a resolution may run before the window lands with the
+/// `timeout` banner. Each wait of the resolution is bounded already — the
+/// start page, the reader's answer to a check, every request —; this bounds
+/// their sum, so that whatever an adapter does, the reader is never left
+/// before a lookup that ends nowhere. It leaves room for a reader answering
+/// a check twice (§6.1).
+const LOOKUP_DEADLINE: Duration = Duration::from_secs(8 * 60);
+
+/// The resolution, failing `timeout` past `deadline`.
+async fn within(
+    deadline: Duration,
+    resolution: impl Future<Output = Result<ArchiveTarget, ResolveError>>,
+) -> Result<ArchiveTarget, ResolveError> {
+    tokio::time::timeout(deadline, resolution)
+        .await
+        .unwrap_or(Err(ResolveError::Timeout))
 }
 
 /// What the window offers to attach: for an archive whose images OxidGene
@@ -257,6 +334,73 @@ async fn refined(link: &ArchiveLink) -> oxidgene_archives::CitationParts {
         .unwrap_or_else(|| link.citation.clone())
 }
 
+/// A banner to show: its text, and the label and IPC message kind of its
+/// button.
+type Shown = (String, Option<(String, &'static str)>);
+
+/// What a window says over its pages, apart from the window so that it can
+/// be tested.
+///
+/// The banner of a load — OxidGene searching, or what the resolution found —
+/// shows over every page of the portal, of a block, and of a check the
+/// reader was not asked to answer yet, from the load on, until the reader
+/// closes it or the window loads another page: a portal page that navigates
+/// on, a check's redirect, keeps it. A check the reader was asked to answer
+/// shows the request to answer it instead, until the portal's page shows.
+/// Over views the reader may attach, the banner offers to attach them.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Status {
+    banner: Option<String>,
+    /// Whether the reader was asked to answer an anti-bot check.
+    asking: bool,
+    /// Whether the reader closed the banner.
+    dismissed: bool,
+}
+
+impl Status {
+    fn new(banner: Option<String>) -> Self {
+        Self {
+            banner,
+            ..Self::default()
+        }
+    }
+
+    /// What to show over a page of `state`.
+    fn page(
+        &mut self,
+        state: PageState,
+        attach: Option<&Attachable>,
+        challenge: &str,
+    ) -> Option<Shown> {
+        if state == PageState::Challenge && self.asking {
+            return Some((challenge.to_owned(), None));
+        }
+        if state != PageState::Challenge {
+            self.asking = false;
+        }
+        if self.dismissed {
+            return None;
+        }
+        match (state, attach) {
+            (PageState::Portal, Some(attach)) => Some((
+                self.banner.clone().unwrap_or_else(|| attach.hint.clone()),
+                Some((attach.label.clone(), "attach")),
+            )),
+            _ => self.banner.clone().map(|banner| (banner, None)),
+        }
+    }
+
+    /// The reader was asked to answer the check on screen.
+    fn ask(&mut self) {
+        self.asking = true;
+    }
+
+    /// The reader closed the banner.
+    fn dismiss(&mut self) {
+        self.dismissed = true;
+    }
+}
+
 /// An open archive window.
 struct ArchiveWindow {
     window: Window,
@@ -264,10 +408,8 @@ struct ArchiveWindow {
     /// The origins its IPC messages are accepted from, shared with the
     /// WebView's IPC handler.
     origins: Arc<Mutex<Vec<String>>>,
-    /// The banner to show once the page being loaded is the portal's.
-    banner: Option<String>,
-    /// Whether the reader was asked to answer an anti-bot check.
-    asking: bool,
+    /// What it says over its pages.
+    status: Status,
     texts: Texts,
     /// The views on screen the reader may attach.
     attach: Option<Box<Attachable>>,
@@ -295,9 +437,8 @@ impl ArchiveWindow {
         if let Ok(mut allowed) = self.origins.lock() {
             *allowed = origins;
         }
-        self.banner = banner;
+        self.status = Status::new(banner);
         self.attach = attach;
-        self.asking = false;
         self.texts = texts;
         #[cfg(any(
             target_os = "linux",
@@ -325,27 +466,6 @@ impl ArchiveWindow {
         self.eval(&script::banner(text, &self.texts.close, None));
     }
 
-    /// The banner over the portal's page: what OxidGene found, and the
-    /// offer to attach the views on screen.
-    fn show_landing(&mut self) {
-        let banner = self.banner.take();
-        match &self.attach {
-            Some(attach) => {
-                let text = banner.unwrap_or_else(|| attach.hint.clone());
-                self.eval(&script::banner(
-                    &text,
-                    &self.texts.close,
-                    Some((&attach.label, "attach")),
-                ));
-            }
-            None => {
-                if let Some(banner) = banner {
-                    self.show(&banner);
-                }
-            }
-        }
-    }
-
     /// Sends the views on screen to the interface, which opens the document
     /// form prefilled with them.
     fn attach(&self) {
@@ -356,33 +476,23 @@ impl ArchiveWindow {
         }
     }
 
-    /// A page loaded. The portal's page, or a block, shows the pending
-    /// banner, once; a check shows the request to answer it once the
-    /// reader was asked, and the pending banner until then.
+    /// A page loaded: shows what [`Status::page`] says over it.
     fn on_page(&mut self, state: PageState) {
-        match state {
-            PageState::Portal => {
-                self.asking = false;
-                self.show_landing();
-            }
-            PageState::Blocked => {
-                self.asking = false;
-                if let Some(banner) = self.banner.take() {
-                    self.show(&banner);
-                }
-            }
-            PageState::Challenge if self.asking => self.show(&self.texts.challenge),
-            PageState::Challenge => {
-                if let Some(banner) = &self.banner {
-                    self.show(banner);
-                }
-            }
+        let shown = self
+            .status
+            .page(state, self.attach.as_deref(), &self.texts.challenge);
+        if let Some((text, action)) = shown {
+            self.eval(&script::banner(
+                &text,
+                &self.texts.close,
+                action.as_ref().map(|(label, kind)| (label.as_str(), *kind)),
+            ));
         }
     }
 
     /// Asks the reader to answer the check on screen.
     fn ask(&mut self) {
-        self.asking = true;
+        self.status.ask();
         self.show(&self.texts.challenge);
     }
 
@@ -426,22 +536,20 @@ pub fn install<T: 'static>(
     impl FnMut(&Event<'_, T>, &EventLoopWindowTarget<T>) + 'static,
 ) {
     let shared = Arc::new(Shared::default());
+    let inbox = Inbox::default();
     let bridge = ArchiveViewerBridge::new(Arc::new(WindowOpener {
         shared: Arc::clone(&shared),
         resolver: Arc::new(Resolver::new(ArchiveRegistry::embedded())),
+        posted: Arc::clone(&inbox.posted),
+        pumping: AtomicBool::new(false),
     }));
-    let inbox: Inbox = Arc::new(Mutex::new(Vec::new()));
     let mut windows = HashMap::<SessionId, ArchiveWindow>::new();
     let mut context: Option<WebContext> = None;
 
     let handler = move |event: &Event<'_, T>, target: &EventLoopWindowTarget<T>| {
         // What the pages posted first: a message posted before a load this
         // round carries out belongs to the page being left.
-        let messages: Vec<_> = inbox
-            .lock()
-            .map(|mut inbox| inbox.drain(..).collect())
-            .unwrap_or_default();
-        for (session, inbound) in messages {
+        for (session, inbound) in inbox.drain() {
             receive_inbound(&shared, &mut windows, session, inbound);
         }
 
@@ -474,7 +582,7 @@ pub fn install<T: 'static>(
                         texts,
                         attach,
                     };
-                    match open(target, context, opening, Arc::clone(&inbox)) {
+                    match open(target, context, opening, inbox.clone()) {
                         Some(window) => {
                             windows.insert(session, window);
                         }
@@ -547,6 +655,11 @@ fn receive_inbound(
                 window.attach();
             }
         }
+        Inbound::Posted(Message::Dismiss) => {
+            if let Some(window) = window {
+                window.status.dismiss();
+            }
+        }
         #[cfg(any(
             target_os = "linux",
             target_os = "dragonfly",
@@ -602,11 +715,7 @@ fn receive(
     body: &str,
 ) {
     match read_message(accepted, uri, body) {
-        Ok(message) => {
-            if let Ok(mut inbox) = inbox.lock() {
-                inbox.push((session, Inbound::Posted(message)));
-            }
-        }
+        Ok(message) => inbox.push(session, Inbound::Posted(message)),
         Err(reason) => debug!(reason, "ignoring an IPC message"),
     }
 }
@@ -662,7 +771,7 @@ fn open<T>(
     let origins = Arc::new(Mutex::new(opening.origins));
     let accepted = Arc::clone(&origins);
     let session = opening.session;
-    let posted = Arc::clone(&inbox);
+    let posted = inbox.clone();
     let builder = WebViewBuilder::new_with_web_context(context)
         .with_url(opening.url)
         .with_initialization_script_for_main_only(script::page(), true)
@@ -717,8 +826,7 @@ fn open<T>(
         window,
         webview,
         origins,
-        banner: opening.banner,
-        asking: false,
+        status: Status::new(opening.banner),
         texts: opening.texts,
         attach: opening.attach,
         #[cfg(any(
@@ -815,6 +923,11 @@ mod tests {
             serde_json::from_str::<Message>(r#"{"kind": "attach"}"#),
             Ok(Message::Attach)
         ));
+        // The banner's close button.
+        assert!(matches!(
+            serde_json::from_str::<Message>(r#"{"kind": "dismiss"}"#),
+            Ok(Message::Dismiss)
+        ));
         assert!(serde_json::from_str::<Message>(r#"{"kind": "ready"}"#).is_err());
         assert!(serde_json::from_str::<Message>(r#"{"kind": "portal-event"}"#).is_err());
         // A page cannot claim a certificate failure: only the window knows.
@@ -866,6 +979,141 @@ mod tests {
             read_message(&accepted, &uri, r#"{"kind": "open_in_browser"}"#),
             Ok(Message::OpenInBrowser)
         ));
+    }
+
+    /// A page's message, posted outside any event of the event loop, wakes
+    /// the pump, so that the handler carries it out at once: a regression
+    /// of a window that showed no banner and whose resolution stalled until
+    /// the reader moved the mouse.
+    #[tokio::test]
+    async fn a_posted_message_wakes_the_event_loop() {
+        let inbox = Inbox::default();
+        let posted = Arc::clone(&inbox.posted);
+        let woken = tokio::spawn(async move { posted.notified().await });
+        tokio::task::yield_now().await;
+        inbox.push(
+            3,
+            Inbound::Posted(Message::Page(Page {
+                state: PageState::Portal,
+                vendor: None,
+                interactive: false,
+            })),
+        );
+        tokio::time::timeout(Duration::from_secs(1), woken)
+            .await
+            .expect("the pump is woken")
+            .unwrap();
+        let drained = inbox.drain();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].0, 3);
+        assert!(inbox.drain().is_empty());
+        // Posted while the pump is busy, a message still wakes it next.
+        inbox.push(4, Inbound::Posted(Message::Dismiss));
+        tokio::time::timeout(Duration::from_secs(1), inbox.posted.notified())
+            .await
+            .expect("the wake-up is kept");
+    }
+
+    #[tokio::test]
+    async fn a_resolution_that_never_ends_lands_as_a_timeout() {
+        let deadline = Duration::from_millis(20);
+        let stalled = within(deadline, std::future::pending()).await;
+        assert_eq!(stalled, Err(ResolveError::Timeout));
+        let target = ArchiveTarget::Results {
+            url: "https://archives.example.org/search".to_owned(),
+            matches: Some(0),
+        };
+        let quick = within(deadline, std::future::ready(Ok(target.clone()))).await;
+        assert_eq!(quick, Ok(target));
+    }
+
+    fn attachable() -> Attachable {
+        let (sender, _) = futures_channel::mpsc::unbounded();
+        Attachable {
+            sender: AttachSender::new(sender),
+            target: ArchiveTarget::Results {
+                url: "https://archives.example.org/search".to_owned(),
+                matches: Some(1),
+            },
+            hint: "Keep the view.".to_owned(),
+            label: "Attach".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_banner_shows_over_every_page_of_a_load_until_closed() {
+        let banner = |text: &str| Some((text.to_owned(), None));
+        let mut status = Status::new(Some("Searching…".to_owned()));
+        // A check the reader was not asked to answer, its redirect, then
+        // the portal's page and a page it navigates on to.
+        assert_eq!(
+            status.page(PageState::Challenge, None, "Answer"),
+            banner("Searching…")
+        );
+        assert_eq!(
+            status.page(PageState::Portal, None, "Answer"),
+            banner("Searching…")
+        );
+        assert_eq!(
+            status.page(PageState::Portal, None, "Answer"),
+            banner("Searching…")
+        );
+        // A check the reader is asked to answer shows the request, on every
+        // page of the check, until the portal's page shows.
+        status.ask();
+        assert_eq!(
+            status.page(PageState::Challenge, None, "Answer"),
+            banner("Answer")
+        );
+        assert_eq!(
+            status.page(PageState::Challenge, None, "Answer"),
+            banner("Answer")
+        );
+        assert_eq!(
+            status.page(PageState::Portal, None, "Answer"),
+            banner("Searching…")
+        );
+        assert_eq!(
+            status.page(PageState::Challenge, None, "Answer"),
+            banner("Searching…")
+        );
+        // A block shows it too.
+        assert_eq!(
+            status.page(PageState::Blocked, None, "Answer"),
+            banner("Searching…")
+        );
+        // Closed, it is not shown again.
+        status.dismiss();
+        assert_eq!(status.page(PageState::Portal, None, "Answer"), None);
+        // A load without a banner shows none, but a request to answer a check.
+        let mut status = Status::new(None);
+        assert_eq!(status.page(PageState::Portal, None, "Answer"), None);
+        status.ask();
+        assert_eq!(
+            status.page(PageState::Challenge, None, "Answer"),
+            banner("Answer")
+        );
+    }
+
+    #[test]
+    fn views_to_attach_show_the_offer_over_the_portal() {
+        let attach = attachable();
+        let offer = Some(("Attach".to_owned(), "attach"));
+        let mut status = Status::new(None);
+        assert_eq!(
+            status.page(PageState::Portal, Some(&attach), "Answer"),
+            Some(("Keep the view.".to_owned(), offer.clone()))
+        );
+        let mut status = Status::new(Some("Go to view 3.".to_owned()));
+        assert_eq!(
+            status.page(PageState::Portal, Some(&attach), "Answer"),
+            Some(("Go to view 3.".to_owned(), offer))
+        );
+        status.dismiss();
+        assert_eq!(
+            status.page(PageState::Portal, Some(&attach), "Answer"),
+            None
+        );
     }
 
     #[test]

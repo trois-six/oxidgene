@@ -24,7 +24,7 @@ function classify(document) {
     const posted = [];
     let pending = null;
     const window = { ipc: { postMessage: message => posted.push(JSON.parse(message)) } };
-    run(antiBot, window, document, () => assert.fail("loaded already"), callback => { pending = callback; });
+    run(antiBot, window, document, () => assert.fail("parsed already"), callback => { pending = callback; });
     return {
         posted,
         next() {
@@ -82,4 +82,24 @@ test("a page that shows nothing yet waits for its content", () => {
     document.body.innerText = "Résultats";
     run.next();
     assert.deepEqual(run.posted, [{ kind: "page", state: "portal" }]);
+});
+
+test("a parsed page is classified at once, before it finishes loading", () => {
+    const document = page({ html: "<html><body><main>Registres</main></body></html>", text: "Registres" });
+    document.readyState = "interactive";
+    const run = classify(document);
+    assert.deepEqual(run.posted, [{ kind: "page", state: "portal" }]);
+});
+
+test("a page still being parsed is classified once its markup is", () => {
+    const document = page({ html: "<html><body><main>Registres</main></body></html>", text: "Registres" });
+    document.readyState = "loading";
+    const posted = [];
+    const listeners = [];
+    const window = { ipc: { postMessage: message => posted.push(JSON.parse(message)) } };
+    run(antiBot, window, document, (type, listener) => listeners.push([type, listener]), () => assert.fail("no re-check"));
+    assert.deepEqual(posted, []);
+    assert.deepEqual(listeners.map(([type]) => type), ["DOMContentLoaded"]);
+    listeners[0][1]();
+    assert.deepEqual(posted, [{ kind: "page", state: "portal" }]);
 });
