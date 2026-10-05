@@ -1,0 +1,85 @@
+{
+  "id": "fr-ad80",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Somme",
+  "jurisdiction": ["80"],
+  "citation_codes": ["AD80"],
+  "website": "https://archives.somme.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.somme.fr",
+        "form": "cebd4a00-25b1-4b1c-a31e-8ea66d58efa2",
+        "fields": {
+          "locality": "1-controlledAccessGeographicName[]",
+          "act": "2-controlledAccessPhysicalCharacteristic[]",
+          "year": "4-date"
+        },
+        "locality_label": ["{locality} (Somme, France)", "{locality} (ancienne commune*, Somme, France)"],
+        "locality_lookup": true,
+        "acts": {
+          "B": ["Baptêmes, naissances"],
+          "N": ["Baptêmes, naissances"],
+          "M": ["Mariages"],
+          "S": ["Sépultures, décès"],
+          "D": ["Sépultures, décès", "Décès"],
+          "TD": ["Tables décennales"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1936],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.somme.fr",
+        "form": "d788af02-a746-4294-adc8-8bb938915f88",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality} (Somme, France)", "{locality} (ancienne commune*, Somme, France)"],
+        "locality_lookup": true,
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-tables",
+      "acts": ["RM"],
+      "period": [1867, 1940],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.somme.fr",
+        "form": "41bd9a7a-0c7d-4ace-896b-0994849154df",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["Bureau de recrutement d'{locality}", "Bureau de recrutement de {locality}"],
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "conscription-lists",
+      "acts": ["CM"],
+      "period": [1799, 1879],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.somme.fr",
+        "form": "8582fe5b-5db1-49ff-9568-edca6b6d3edf",
+        "fields": {
+          "locality": "1-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["Arrondissement d'{locality}", "Arrondissement de {locality}", "Bureau de recrutement d'{locality}", "Bureau de recrutement de {locality}", "Canton d'{locality}", "Canton de {locality}"],
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

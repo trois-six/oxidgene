@@ -32,6 +32,23 @@
         "call_number": "none",
         "image_source": "visualizer"
       }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1936],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.calvados.fr",
+        "form": "2e070c6d-522f-405c-a983-a2d80dbdbb1a",
+        "fields": {
+          "locality": "controlledAccessGeographicName[]",
+          "year": "date"
+        },
+        "locality_label": ["{locality} (Calvados, France)"],
+        "call_number": "none",
+        "image_source": "visualizer"
+      }
     }
   ]
 }

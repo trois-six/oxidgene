@@ -1,0 +1,83 @@
+{
+  "id": "fr-ad27",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Eure",
+  "jurisdiction": ["27"],
+  "citation_codes": ["AD27"],
+  "website": "https://archives.eure.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [1529, 1921],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.eure.fr",
+        "form": "a3b9883f-0939-449a-bcbf-9de4c2d49b89",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date"
+        },
+        "locality_label": ["{locality} (Eure, France)"],
+        "acts": {
+          "TD": ["Tables"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1891, 1936],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.eure.fr",
+        "form": "6d94f35e-6f45-4f3b-8985-0f504d958266",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality} (Eure, France)"],
+        "locality_style": "article_suffix",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1921],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.eure.fr",
+        "form": "8acdc0de-687d-4f6b-b2b7-19ad1e7a8af8",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "3-controlledAccessPhysicalCharacteristic[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality} (Eure, France)"],
+        "acts": {
+          "RM": ["registre"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.eure.fr",
+        "form": "baa4d286-1e76-450a-a4c9-fe29a49c1a43",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality} (Eure, France)"],
+        "locality_lookup": true,
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

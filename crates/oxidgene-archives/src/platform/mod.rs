@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn adapters_that_cannot_search_a_series_say_so() {
         let registry = crate::ArchiveRegistry::embedded();
-        for platform in ["mnesys", "archinoe", "prismia"] {
+        for platform in ["archinoe", "prismia"] {
             let mut collection = registry
                 .archives()
                 .iter()

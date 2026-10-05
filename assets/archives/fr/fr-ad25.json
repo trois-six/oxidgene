@@ -1,0 +1,96 @@
+{
+  "id": "fr-ad25",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Doubs",
+  "jurisdiction": ["25"],
+  "citation_codes": ["AD25"],
+  "website": "https://portail-archives.doubs.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://portail-archives.doubs.fr",
+        "form": "4d44dde5-4523-4384-a2da-c1169870f1b2",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "call_number": "none",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "period": [1792, 1902],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://portail-archives.doubs.fr",
+        "form": "9d7e6f78-5c07-424f-ad1a-ef371e694670",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "period_begin": "1-date_begin",
+          "period_end": "1-date_end"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "call_number": "none",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1896],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://portail-archives.doubs.fr",
+        "form": "1b439ba9-86e3-4caa-844b-8053f527dca4",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "call_number": "none",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1859, 1921],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://portail-archives.doubs.fr",
+        "form": "a42e155a-ff98-482c-8d6d-a4bc0b1adc43",
+        "fields": {
+          "year": "0-title"
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "period": [1825, 1908],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://portail-archives.doubs.fr",
+        "form": "34159447-4567-4f9b-a44b-4dc5894ad2f4",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "period_begin": "1-date_begin",
+          "period_end": "1-date_end"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

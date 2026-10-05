@@ -1,0 +1,28 @@
+{
+ "counts": {
+  "media": 40,
+  "group": 2
+ },
+ "positions": {
+  "media": 0,
+  "group": 0
+ },
+ "group": {
+  "title": null
+ },
+ "media": [
+  {
+   "url": "https://archives.example-14.test/ark:/99914/kkkkkkkkkk14/00000000-0000-4000-8000-000000001400",
+   "uuid": "00000000-0000-4000-8000-000000001400",
+   "location": {
+    "original": "https://archives.example-14.test/images/00000000-0000-4000-8000-000000001400.jpg",
+    "thumb": "https://archives.example-14.test/images/00000000-0000-4000-8000-000000001400_thumbnail.jpg",
+    "iiif": null
+   },
+   "type": "image",
+   "format": "jpg"
+  }
+ ],
+ "tableOfContents": null,
+ "bookmarks": []
+}

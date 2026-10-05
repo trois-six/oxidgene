@@ -1,0 +1,51 @@
+{
+  "id": "fr-ad91",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l’Essonne",
+  "jurisdiction": ["91"],
+  "citation_codes": ["AD91"],
+  "website": "https://archives.essonne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.essonne.fr",
+        "form": "f282515f-9106-4c17-a633-95f49fe7da66",
+        "fields": {
+          "locality": "1-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality}", "{locality} Commune"],
+        "locality_lookup": true,
+        "acts": {
+          "B": ["Baptêmes"],
+          "M": ["Mariages"],
+          "S": ["Sépultures"],
+          "N": ["Naissances"],
+          "D": ["Décès"],
+          "TD": ["Tables décennales"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.essonne.fr",
+        "form": "3316d90f-bf0d-4609-a552-75d7a3587710",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date"
+        },
+        "locality_label": ["{locality}", "{locality} Commune"],
+        "locality_lookup": true,
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "id": "fr-ad90",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Territoire de Belfort",
+  "jurisdiction": ["90"],
+  "citation_codes": ["AD90"],
+  "website": "https://archives.territoiredebelfort.fr",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.territoiredebelfort.fr",
+        "form": "ce8c3b7f-77f9-493b-81dd-d09d11bdc431",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "4-date"
+        },
+        "locality_label": ["{locality} (Territoire de Belfort, France)"],
+        "locality_lookup": true,
+        "acts": {
+          "B": ["Registre de catholicité"],
+          "M": ["Registre de catholicité"],
+          "S": ["Registre de catholicité"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "P", "TD"],
+      "period": [1792, null],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.territoiredebelfort.fr",
+        "form": "ce8c3b7f-77f9-493b-81dd-d09d11bdc431",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "2-controlledAccessPhysicalCharacteristic[]",
+          "year": "4-date"
+        },
+        "locality_label": ["{locality} (Territoire de Belfort, France)"],
+        "acts": {
+          "N": ["Naissance"],
+          "M": ["Mariage"],
+          "D": ["Décès"],
+          "P": ["Publication de mariage"],
+          "TD": ["Table décennale", "Table cantonale"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1943],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.territoiredebelfort.fr",
+        "form": "cc4398e1-3e4e-49b0-a079-39e1603271b9",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date[]"
+        },
+        "locality_label": ["{locality} (Territoire de Belfort, France)"],
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1940],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.territoiredebelfort.fr",
+        "form": "39496876-4244-4910-b393-7fae645b7d51",
+        "fields": {
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "0-title"
+        },
+        "acts": {
+          "RM": ["Registre matricule"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "period": [1791, 1945],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.territoiredebelfort.fr",
+        "form": "4a39b8c2-efbf-4502-a0a4-8f10350fa0a8",
+        "fields": {
+          "locality": "0-title[]",
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "period_begin": "2-date_begin",
+          "period_end": "2-date_end"
+        },
+        "locality_label": ["Bureau de {locality}"],
+        "acts": {
+          "TSA": ["Table de successions"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

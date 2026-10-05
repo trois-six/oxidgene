@@ -20,10 +20,7 @@
           "act": "4-controlledAccessPhysicalCharacteristic[]",
           "year": "3-date"
         },
-        "locality_label": [
-          "{locality} (Marne, France)",
-          "{locality} (Marne ; ancienne commune)"
-        ],
+        "locality_label": ["{locality} (Marne, France)", "{locality} (Marne ; ancienne commune)"],
         "locality_style": "article_suffix",
         "acts": {
           "B": ["baptêmes - naissances"],
@@ -32,6 +29,44 @@
           "S": ["sépultures - décès"],
           "D": ["sépultures - décès"],
           "TD": ["tables décennales"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1946],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.marne.fr",
+        "form": "8a424970-6f86-42fb-9b5c-29f14e120f18",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date[]"
+        },
+        "locality_label": ["{locality} (Marne, France)", "{locality} (Marne ; ancienne commune)"],
+        "locality_style": "article_suffix",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1878, 1925],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.marne.fr",
+        "form": "02b1e593-a5ff-444b-8a20-ad91c541a220",
+        "fields": {
+          "locality": "1-controlledAccessGeographicName[]",
+          "act": "2-controlledAccessPhysicalCharacteristic[]",
+          "year": "0-title[]"
+        },
+        "locality_label": ["{locality} (Marne, France)", "{locality} (Marne ; ancienne commune)"],
+        "year_label": "Classe {year}",
+        "acts": {
+          "RM": ["Registre matricule"]
         },
         "image_source": "visualizer"
       }

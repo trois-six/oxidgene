@@ -1,0 +1,74 @@
+{
+  "id": "fr-ad68",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives d'Alsace",
+  "jurisdiction": ["68"],
+  "citation_codes": ["AD68"],
+  "website": "https://archives68.alsace.eu",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives68.alsace.eu",
+        "form": "f4ed0a71-fe36-42d4-81bd-780da14c2125",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "4-controlledAccessPhysicalCharacteristic[]",
+          "year": "3-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_lookup": true,
+        "acts": {
+          "B": ["Registre de baptêmes"],
+          "M": ["Registre de mariages"],
+          "S": ["Registre de sépultures"],
+          "N": ["Registre de naissances"],
+          "D": ["Registre de décès"],
+          "P": ["Registre de publications de mariages"],
+          "TD": ["Tables décennales"]
+        },
+        "call_number": "context",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1866],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives68.alsace.eu",
+        "form": "c3e9a08f-5cc2-481e-bba3-4a1e1d968e06",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date[]"
+        },
+        "locality_label": ["{locality}"],
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1893, 1940],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives68.alsace.eu",
+        "form": "9323a85c-8b67-4bcf-880d-c8d28aa08781",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "2-controlledAccessPhysicalCharacteristic[]",
+          "year": "1-date"
+        },
+        "locality_label": ["{locality}"],
+        "acts": {
+          "RM": ["REGISTRE MATRICULE"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

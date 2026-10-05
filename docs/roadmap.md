@@ -70,6 +70,9 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   have the archive window load the resolved view instead of driving the
   portal's form ([Archive Portals §10](archives.md#10-delivery-phases)).
 - [x] Add the Mnesys adapter.
+- [x] Search every form shape and series of Mnesys Expo portals and
+  catalogue the seventeen Mnesys Expo departmental archives
+  ([Archive Portals §4.4](archives.md#44-mnesys)).
 - [x] Resolve a cited source on the backend, through REST and GraphQL, and
   open its target from the web client in a new tab
   ([Archive Portals §5.3](archives.md#53-api), [§6.2](archives.md#62-web)).

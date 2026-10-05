@@ -1,0 +1,72 @@
+{
+  "id": "fr-ad55",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Meuse",
+  "jurisdiction": ["55"],
+  "citation_codes": ["AD55"],
+  "website": "https://archives.meuse.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.meuse.fr",
+        "form": "32239fba-c3ac-416c-b0f7-889cfa87214a",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "1-controlledAccessSubject[]",
+          "period_begin": "2-date_begin",
+          "period_end": "2-date_end"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "locality_lookup": true,
+        "acts": {
+          "B": ["Baptêmes"],
+          "M": ["Mariages"],
+          "S": ["Sépultures"],
+          "N": ["Naissances"],
+          "D": ["Décès"],
+          "TD": ["Tables décennales"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1946],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.meuse.fr",
+        "form": "126b4831-bb54-4bf5-af0e-ba0f672e0bf8",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1932],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.meuse.fr",
+        "form": "45ac35ac-87a1-4825-b96e-829338d77ae7",
+        "fields": {
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "0-date[]"
+        },
+        "acts": {
+          "RM": ["Registre"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

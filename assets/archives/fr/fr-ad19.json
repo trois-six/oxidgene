@@ -1,0 +1,73 @@
+{
+  "id": "fr-ad19",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Corrèze",
+  "jurisdiction": ["19"],
+  "citation_codes": ["AD19"],
+  "website": "https://www.archives.correze.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [1554, 1902],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://www.archives.correze.fr",
+        "form": "3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality} (Corrèze, France)"],
+        "acts": {
+          "B": ["Baptêmes"],
+          "M": ["Mariages"],
+          "S": ["Sépultures"],
+          "N": ["Naissances"],
+          "D": ["Décès"],
+          "TD": ["Tables décennales des naissances", "Tables décennales des mariages", "Tables décennales des décès", "Tables décennales des divorces"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1975],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://www.archives.correze.fr",
+        "form": "9cf7b6bb-c745-4ec6-b686-37bda523a292",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "3-date[]"
+        },
+        "locality_label": ["{locality} (Corrèze, France)"],
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1865, 1940],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://www.archives.correze.fr",
+        "form": "85c4d2cc-6374-489a-8be0-e79d0e0755b6",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "3-controlledAccessPhysicalCharacteristic[]",
+          "year": "1-date[]"
+        },
+        "locality_label": ["{locality} (Corrèze, France)"],
+        "locality_lookup": true,
+        "acts": {
+          "RM": ["registre matricule"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

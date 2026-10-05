@@ -1,12 +1,14 @@
-//! Reading the portal's answers: the results page's rows, the viewer
-//! endpoint's image window and the register's IIIF manifest.
+//! Reading the portal's answers: the search form's lists, the results
+//! page's rows, the viewer endpoint's image window and state, and the
+//! register's IIIF manifest.
 //!
 //! The results page is server-rendered. Each register is one
 //! `li.element-list` whose markup the shared scans read: the title, the
-//! displayed period, the call number where the portal shows one, the image
-//! count (`315 medias`), the context list and the ARK of the register's first
-//! image. Nothing else of a response is read, and a response that lacks what
-//! the adapter needs is reported as a changed shape without its content.
+//! displayed period, the call numbers where the portal shows them, the image
+//! count (`315 medias`, or `2 lots 892 medias` over several lots), the context
+//! list and the ARK of the register's first image. Nothing else of a response
+//! is read, and a response that lacks what the adapter needs is reported as a
+//! changed shape without its content.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -47,15 +49,24 @@ pub(super) struct Row {
     pub(super) title: String,
     /// The `Date` shown beside the title.
     pub(super) period: Option<String>,
-    pub(super) call_number: Option<String>,
+    /// The call numbers the row shows, the register's own first: one cell
+    /// may hold several (`3Q19 (Cote), 6NUM3/001/003 (Cote)`, `446, 1RP1031`).
+    pub(super) call_numbers: Vec<String>,
+    /// The count of the register's images, when the row shows it: `None`
+    /// when it shows no count, or one over several lots (`2 lots 892
+    /// medias`), one of which may be a document rather than images.
     pub(super) images: Option<u16>,
     /// The collection the portal files the register under, from the first
     /// context entry (`Contexte : Registres paroissiaux numérisés`).
     pub(super) collection: Option<String>,
     /// The other context entries, in order: the locality, the parish or
-    /// establishment, the act, the period, depending on the portal.
+    /// establishment, the act, the period, depending on the portal; the
+    /// last repeats the title.
     pub(super) context: Vec<String>,
-    pub(super) ark: Ark,
+    /// The ARK of the first image; `None` for a register listed without
+    /// images (`Manque`) or hosted elsewhere, whose row links its record
+    /// only.
+    pub(super) ark: Option<Ark>,
 }
 
 /// The page of results: the total the portal reports, and this page's rows.
@@ -94,9 +105,19 @@ fn span_after(html: &str, marker: &str) -> Option<String> {
 
 fn row(html: &str) -> Result<Row, ResolveError> {
     let title = span_after(html, "<h2>").ok_or_else(|| unexpected("a row lacks its title"))?;
-    let ark = markup::attribute(html, "href")
-        .and_then(|link| ark(&link))
-        .ok_or_else(|| unexpected("a row lacks its ARK"))?;
+    // The first link to an image: a row without images links its record
+    // only, `/ark:/<naan>/<name>`.
+    let ark = markup::attributes(html, "href")
+        .iter()
+        .find_map(|link| ark(link));
+    let pictures = markup::text_after(html, "class=\"info-list-picture\">");
+    let counts_media = pictures
+        .as_deref()
+        .and_then(markup::first_number::<u32>)
+        .is_some_and(|count| count > 0);
+    if ark.is_none() && counts_media {
+        return Err(unexpected("a row lacks its ARK"));
+    }
     let (collection, context) = context(html);
     if context.is_empty() {
         return Err(unexpected("a row lacks its context"));
@@ -104,18 +125,55 @@ fn row(html: &str) -> Result<Row, ResolveError> {
     Ok(Row {
         title,
         period: span_after(html, "<h3>Date</h3>"),
-        call_number: markup::text_after(html, "class=\"referenceCodes\">")
-            .map(|text| {
-                text.strip_suffix("(Cote)")
-                    .map_or(text.clone(), |code| code.trim().to_owned())
-            })
-            .filter(|text| !text.is_empty()),
-        images: markup::text_after(html, "class=\"info-list-picture\">")
-            .and_then(|text| markup::first_number(&text)),
+        call_numbers: markup::text_after(html, "class=\"referenceCodes\">")
+            .map(|cell| call_numbers(&cell))
+            .unwrap_or_default(),
+        images: pictures.as_deref().and_then(image_count),
         collection,
         context,
         ark,
     })
+}
+
+/// The image count of `315 medias`; none for `2 lots 892 medias`, whose
+/// count spans every lot.
+fn image_count(text: &str) -> Option<u16> {
+    if text.contains("lot") {
+        return None;
+    }
+    markup::first_number(text)
+}
+
+/// The call numbers of a `Cote` cell, the register's own first. A part's
+/// `(Cote)` label (`(Cote(s))`, `(Cote/Cotes extrêmes)`) is dropped, a part
+/// with another note (`(Ancienne cote …)`) is not the register's, and a bare
+/// number (`446`), an internal number, is listed last.
+pub(super) fn call_numbers(cell: &str) -> Vec<String> {
+    let mut numbers: Vec<String> = cell
+        .split(", ")
+        .filter_map(call_number)
+        .map(str::to_owned)
+        .collect();
+    numbers.sort_by_key(|number| number.bytes().all(|byte| byte.is_ascii_digit()));
+    numbers
+}
+
+fn call_number(part: &str) -> Option<&str> {
+    let mut number = part.trim();
+    while number.ends_with(')')
+        && let Some(at) = number.rfind(" (")
+    {
+        let note = &number[at + 2..];
+        if note.starts_with("Cote") {
+            number = number[..at].trim_end();
+        } else if note.starts_with(|c: char| c.is_ascii_digit()) {
+            // A volume number, `2 E 558 (96)`, belongs to the call number.
+            break;
+        } else {
+            return None;
+        }
+    }
+    (!number.is_empty()).then_some(number)
 }
 
 /// A row's context list: the collection entry, shown as
@@ -141,7 +199,7 @@ fn context(html: &str) -> (Option<String>, Vec<String>) {
 }
 
 /// Reads `/ark:/<naan>/<name>/<image>`, with an optional origin before it.
-fn ark(link: &str) -> Option<Ark> {
+pub(super) fn ark(link: &str) -> Option<Ark> {
     let path = &link[link.find("/ark:/")? + "/ark:/".len()..];
     let mut parts = path.split('/');
     let (naan, name, first_image) = (parts.next()?, parts.next()?, parts.next()?);
@@ -189,6 +247,50 @@ pub(super) fn window_image(answer: &str, start: u16, index: u16) -> Result<Strin
         .ok_or_else(|| unexpected("the viewer window lacks the image"))
 }
 
+/// The image count of a register, from the viewer's state for its first
+/// image (`/visualizer/api?arkName=<name>&uuid=<image>`): `counts.media`,
+/// the images of the lot that image opens.
+pub(super) fn viewer_count(answer: &str) -> Result<u16, ResolveError> {
+    let state: Value =
+        serde_json::from_str(answer).map_err(|_| unexpected("the viewer state is not JSON"))?;
+    state
+        .pointer("/counts/media")
+        .and_then(Value::as_u64)
+        .and_then(|count| u16::try_from(count).ok())
+        .ok_or_else(|| unexpected("the viewer state lacks the image count"))
+}
+
+/// The labels a select of the search form offers, by the input's name: the
+/// form renders each select as an `enhanced-select` element whose
+/// `data-name` is the input's name without its `[]` and whose
+/// `data-options` lists the labels as JSON.
+pub(super) fn options(form: &str, name: &str) -> Option<Vec<String>> {
+    let tag = select_tag(form, name)?;
+    markup::attribute(tag, "data-options").and_then(|options| serde_json::from_str(&options).ok())
+}
+
+/// The opening tag of a select of the form, by the input's name.
+fn select_tag<'f>(form: &'f str, name: &str) -> Option<&'f str> {
+    let marker = format!("data-name=\"{}\"", name.trim_end_matches("[]"));
+    let at = form.find(&marker)?;
+    // The element's own attributes, up to the end of its opening tag.
+    let start = form[..at].rfind('<').unwrap_or(at);
+    let tag = &form[start..];
+    Some(&tag[..tag.find('>').unwrap_or(tag.len())])
+}
+
+/// Whether the form declares the input `name` as it is written: a select
+/// (`enhanced-select`) under `name[]`, since the portal answers an error to
+/// a select's value sent without the brackets, or a plain input under its
+/// own name. The live checks test the settings with it.
+#[cfg(any(test, feature = "live"))]
+pub(super) fn declares(form: &str, name: &str) -> bool {
+    match name.strip_suffix("[]") {
+        Some(_) => select_tag(form, name).is_some(),
+        None => select_tag(form, name).is_none() && form.contains(&format!("name=\"{name}\"")),
+    }
+}
+
 /// One image of a register's manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Canvas {
@@ -234,4 +336,55 @@ pub(super) fn manifest_canvases(answer: &str) -> Result<Vec<Canvas>, ResolveErro
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_every_call_number_of_a_cell() {
+        for (cell, expected) in [
+            ("6NUM8/999/050 (Cote)", vec!["6NUM8/999/050"]),
+            ("9MI_X999 (Cote(s))", vec!["9MI_X999"]),
+            ("9 Mi 9999 (Cote/Cotes extrêmes)", vec!["9 Mi 9999"]),
+            ("9 E 999 (99)", vec!["9 E 999 (99)"]),
+            ("9 E 999 (99) (Cote)", vec!["9 E 999 (99)"]),
+            ("999, 9RP9999", vec!["9RP9999", "999"]),
+            (
+                "9Q99 (Cote), 9NUM9/999/999 (Cote)",
+                vec!["9Q99", "9NUM9/999/999"],
+            ),
+            ("9E999/9, 9E999/8 (Ancienne cote aux AD)", vec!["9E999/9"]),
+        ] {
+            assert_eq!(call_numbers(cell), expected, "{cell}");
+        }
+    }
+
+    #[test]
+    fn counts_the_images_of_one_lot_only() {
+        assert_eq!(image_count("315 medias"), Some(315));
+        assert_eq!(image_count("1 media"), Some(1));
+        assert_eq!(image_count("2 lots 892 medias"), None);
+        assert_eq!(
+            viewer_count(r#"{"counts": {"media": 891, "group": 2}}"#),
+            Ok(891)
+        );
+        assert!(viewer_count(r#"{"counts": {}}"#).is_err());
+    }
+
+    #[test]
+    fn tells_a_select_from_a_plain_input() {
+        let form = r#"<div class="enhanced-select multiselect" data-name="1-date" data-options="[&quot;1836&quot;,&quot;1866&quot;]"></div>
+            <input type="text" class="form-control" id="0-title" name="0-title" value=""/>"#;
+        assert_eq!(
+            options(form, "1-date[]"),
+            Some(vec!["1836".to_owned(), "1866".to_owned()])
+        );
+        assert!(declares(form, "1-date[]"));
+        assert!(!declares(form, "1-date"));
+        assert!(declares(form, "0-title"));
+        assert!(!declares(form, "0-title[]"));
+        assert!(!declares(form, "2-date"));
+    }
 }

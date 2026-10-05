@@ -1,0 +1,91 @@
+{
+  "id": "fr-ad69",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives du département du Rhône et de la métropole de Lyon",
+  "jurisdiction": ["69"],
+  "citation_codes": ["AD69"],
+  "website": "https://archives.rhone.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.rhone.fr",
+        "form": "dde23a8f-cc71-4300-9805-bda67eec1ac0",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "3-controlledAccessPhysicalCharacteristic[]",
+          "year": "1-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_lookup": true,
+        "acts": {
+          "B": ["Baptême"],
+          "N": ["Naissance"],
+          "M": ["Mariage"],
+          "S": ["Sépulture"],
+          "D": ["Décès"],
+          "P": ["Publication de mariage"],
+          "TD": ["Table décennale des naissances", "Table décennale des mariages", "Table décennale des décès"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.rhone.fr",
+        "form": "e47668b4-15f2-4292-9287-9741bdf15f04",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_lookup": true,
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.rhone.fr",
+        "form": "f125efe6-0734-4542-9ee0-176ee4b3b464",
+        "fields": {
+          "locality": "1-controlledAccessTitle[]",
+          "act": "2-controlledAccessPhysicalCharacteristic[]",
+          "year": "0-date"
+        },
+        "locality_label": ["{locality}"],
+        "acts": {
+          "RM": ["Registre matricule", "Répertoire alphabétique du registre matricule"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.rhone.fr",
+        "form": "13ebf113-b0f8-4522-b3cf-af00e0367822",
+        "fields": {
+          "locality": "0-controlledAccessCorporateName[]",
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "2-date"
+        },
+        "locality_label": ["Bureau d'{locality}", "Bureau de {locality}"],
+        "acts": {
+          "TSA": ["Table des successions et absences"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

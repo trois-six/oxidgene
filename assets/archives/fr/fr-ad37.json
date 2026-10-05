@@ -35,6 +35,46 @@
         },
         "image_source": "visualizer"
       }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1925],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.touraine.fr",
+        "form": "c1e3ff9e-0e88-4855-90f2-e744749ef1eb",
+        "fields": {
+          "locality": "0-title[]",
+          "act": "3-controlledAccessPhysicalCharacteristic[]",
+          "year": "1-date[]"
+        },
+        "locality_label": ["Subdivision de {locality} (*)"],
+        "locality_lookup": true,
+        "acts": {
+          "RM": ["registre matricule"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.touraine.fr",
+        "form": "d82b82a5-797b-472f-9084-bcc7370f8135",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality} (Indre-et-Loire, France ; canton)", "{locality} (Indre-et-Loire, France)"],
+        "acts": {
+          "TSA": ["table des successions et absences"]
+        },
+        "image_source": "visualizer"
+      }
     }
   ]
 }

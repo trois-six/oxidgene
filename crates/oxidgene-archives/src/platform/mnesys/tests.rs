@@ -45,10 +45,14 @@ fn block_on<F: Future>(future: F) -> F::Output {
 /// Answers each kind of request with its fixture, and records the requests.
 struct Fixtures {
     search: String,
+    /// The search form, for a lookup of its locality list.
+    form: &'static str,
     /// The viewer's answer for a window starting at the first image, and for
     /// any other.
     first: &'static str,
     window: &'static str,
+    /// The viewer's state for a register's first image.
+    state: &'static str,
     info: &'static str,
     manifest: &'static str,
     requests: Mutex<Vec<String>>,
@@ -58,8 +62,10 @@ impl Fixtures {
     fn new(search: &str, window: &'static str) -> Self {
         Self {
             search: search.to_owned(),
+            form: "",
             first: AD37_FIRST,
             window,
+            state: "",
             info: AD37_INFO,
             manifest: AD37_MANIFEST,
             requests: Mutex::new(Vec::new()),
@@ -81,6 +87,10 @@ impl PortalFetch for Fixtures {
             let url = request.url.as_str();
             let body = if url.starts_with("/search/results?") {
                 self.search.as_str()
+            } else if url.starts_with("/search/form/") {
+                self.form
+            } else if url.starts_with("/visualizer/api?") && url.contains("&uuid=") {
+                self.state
             } else if url.starts_with("/visualizer/api?") {
                 if url.contains("&start=0&") {
                     self.first
@@ -735,16 +745,509 @@ fn writes_the_locality_in_the_portal_style() {
 }
 
 #[test]
-fn every_catalogued_archive_has_one_collection_for_each_act() {
+fn the_registers_come_first_and_hold_every_act() {
     let registry = ArchiveRegistry::embedded();
     for code in ["AD37", "AD14", "AD51"] {
-        let archive = registry.archive(code).unwrap();
-        assert_eq!(archive.collections.len(), 1, "{code}");
+        let registers = &registry.archive(code).unwrap().collections[0];
         for act in ["B", "M", "S", "N", "D", "TD"] {
             assert!(
-                archive.holds(&Act::from_code(act).unwrap()),
+                registers.holds(&Act::from_code(act).unwrap()),
                 "{code} holds {act}"
             );
         }
     }
+}
+
+const AD19_FORM: &str = include_str!("../../../fixtures/mnesys/ad19-military-form.html");
+const AD19_MILITARY: &str = include_str!("../../../fixtures/mnesys/ad19-military.html");
+const AD19_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad19-visualizer.json");
+const AD25_REGISTERS: &str = include_str!("../../../fixtures/mnesys/ad25-registers.html");
+const AD25_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad25-visualizer.json");
+const AD58_MILITARY: &str = include_str!("../../../fixtures/mnesys/ad58-military.html");
+const AD58_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad58-visualizer.json");
+const AD59_FORM: &str = include_str!("../../../fixtures/mnesys/ad59-form.html");
+const AD59_REGISTERS: &str = include_str!("../../../fixtures/mnesys/ad59-registers.html");
+const AD59_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad59-visualizer.json");
+const AD68_REGISTERS: &str = include_str!("../../../fixtures/mnesys/ad68-registers.html");
+const AD69_MILITARY: &str = include_str!("../../../fixtures/mnesys/ad69-military.html");
+const AD69_STATE: &str = include_str!("../../../fixtures/mnesys/ad69-viewer-state.json");
+const AD69_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad69-visualizer.json");
+const AD90_SUCCESSION: &str = include_str!("../../../fixtures/mnesys/ad90-succession.html");
+const AD90_WINDOW: &str = include_str!("../../../fixtures/mnesys/ad90-visualizer.json");
+const AD14_CENSUS: &str = include_str!("../../../fixtures/mnesys/ad14-census.html");
+const AD14_STATE: &str = include_str!("../../../fixtures/mnesys/ad14-viewer-state.json");
+
+/// A citation of the embedded catalogue resolved over `fetch`, with its
+/// requests.
+fn resolved(title: &str, fetch: &Fixtures) -> (Result<ArchiveTarget, ResolveError>, Vec<String>) {
+    let target = resolve_in(ArchiveRegistry::embedded(), title, fetch);
+    (target, fetch.requests())
+}
+
+#[test]
+fn a_military_register_is_chosen_by_bureau_class_and_matricule() {
+    let mut fetch = Fixtures::new(AD19_MILITARY, AD19_WINDOW);
+    fetch.form = AD19_FORM;
+    let (target, requests) = resolved(
+        "AD19 - Exampleville - Registres matricules - 1890 - matricule 640 - vue 100/557",
+        &fetch,
+    );
+    let target = target.unwrap();
+    assert_eq!(register_of(&target), "aaaaaaaaaa19");
+    let ArchiveTarget::View { views, .. } = &target else {
+        panic!("expected a view");
+    };
+    assert_eq!(views[0].view, 100);
+    // The form's list, the search, the cited image.
+    assert_eq!(requests.len(), 3);
+    assert_eq!(
+        requests[0],
+        "/search/form/85c4d2cc-6374-489a-8be0-e79d0e0755b6"
+    );
+    for expected in [
+        "0-controlledAccessGeographicName%5B%5D=Exampleville%20%28Corr%C3%A8ze%2C%20France%29&",
+        "3-controlledAccessPhysicalCharacteristic%5B%5D=registre%20matricule&",
+        "1-date%5B%5D=1890&",
+    ] {
+        assert!(
+            requests[1].contains(expected),
+            "{expected} in {}",
+            requests[1]
+        );
+    }
+    assert!(!requests[1].contains("640"));
+    assert_eq!(
+        requests[2],
+        "/visualizer/api?arkName=aaaaaaaaaa19&start=99&end=99&group=0"
+    );
+
+    // Without the matricule or the image count, the four volumes.
+    let mut fetch = Fixtures::new(AD19_MILITARY, AD19_WINDOW);
+    fetch.form = AD19_FORM;
+    let (target, _) = resolved(
+        "AD19 - Exampleville - Registres matricules - 1890 - vue 100",
+        &fetch,
+    );
+    assert_eq!(results_matches(&target), 4);
+
+    // A bureau the form's list does not name has no register: no search.
+    let mut fetch = Fixtures::new(AD19_MILITARY, AD19_WINDOW);
+    fetch.form = AD19_FORM;
+    let (target, requests) = resolved("AD19 - Elsewhere - Registres matricules - 1890", &fetch);
+    assert_eq!(results_matches(&target), 0);
+    assert_eq!(requests.len(), 1);
+}
+
+#[test]
+fn acts_written_as_letters_in_the_title_select_the_register() {
+    let fetch = Fixtures::new(AD25_REGISTERS, AD25_WINDOW);
+    let (target, requests) = resolved(
+        "AD25 - Exampleville - (aucun) - M - 1800 - vue 5/80",
+        &fetch,
+    );
+    assert_eq!(register_of(&target.unwrap()), "bbbbbbbbbb25");
+    // The form has no act or year input: the locality alone is sent.
+    assert!(requests[0].contains("0-controlledAccessGeographicName%5B%5D=Exampleville&"));
+    assert!(!requests[0].contains("-date"));
+    assert!(!requests[0].contains("1800"));
+
+    // `BMS-NMD` holds marriages, and only it covers 1760.
+    let fetch = Fixtures::new(AD25_REGISTERS, AD25_WINDOW);
+    let (target, _) = resolved("AD25 - Exampleville - (aucun) - M - 1760", &fetch);
+    assert_eq!(register_of(&target.unwrap()), "dddddddddd25");
+    // A birth of 1745: no register of births covers it, so the act leaves
+    // the births of 1793 and the combined register, which no period tells
+    // apart from it: the results.
+    let fetch = Fixtures::new(AD25_REGISTERS, AD25_WINDOW);
+    let (target, _) = resolved("AD25 - Exampleville - (aucun) - N - 1745", &fetch);
+    assert_eq!(results_matches(&target), 2);
+}
+
+#[test]
+fn a_form_without_a_locality_keeps_the_rows_naming_the_bureau() {
+    let fetch = Fixtures::new(AD58_MILITARY, AD58_WINDOW);
+    let (target, requests) = resolved(
+        "AD58 - Exampleville - Registres matricules - 1890 - matricule 640 - vue 10/829",
+        &fetch,
+    );
+    assert_eq!(register_of(&target.unwrap()), "cccccccccc58");
+    assert!(requests[0].contains("&0-date%5B%5D=1890&"));
+    assert!(!requests[0].contains("Exampleville"));
+
+    // Both bureaux have a volume spanning matricule 400: without a bureau,
+    // or with one no row names, both stay.
+    for title in [
+        "AD58 - Registres matricules - 1890 - matricule 400",
+        "AD58 - Elsewhere - Registres matricules - 1890 - matricule 400",
+    ] {
+        let fetch = Fixtures::new(AD58_MILITARY, AD58_WINDOW);
+        let (target, _) = resolved(title, &fetch);
+        assert_eq!(results_matches(&target), 2, "{title}");
+    }
+}
+
+#[test]
+fn a_lookup_sends_the_labels_the_form_lists() {
+    let mut fetch = Fixtures::new(AD59_REGISTERS, AD59_WINDOW);
+    fetch.form = AD59_FORM;
+    let (target, requests) = resolved(
+        "AD59 - Exampleville - (aucun) - M - 1750 - vue 3/381",
+        &fetch,
+    );
+    assert_eq!(register_of(&target.unwrap()), "aaaaaaaaaa59");
+    assert_eq!(
+        requests[0],
+        "/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8"
+    );
+    for expected in [
+        "0-controlledAccessGeographicName%5B%5D=EXAMPLEVILLE&",
+        "1-controlledAccessPhysicalCharacteristic%5B%5D=Mariages&",
+        "2-date=1750&",
+    ] {
+        assert!(
+            requests[1].contains(expected),
+            "{expected} in {}",
+            requests[1]
+        );
+    }
+    assert_eq!(requests.len(), 3);
+
+    // Case, accents and punctuation aside, the label names the locality.
+    let registry = ArchiveRegistry::embedded();
+    let settings = Settings::read(&registry.archive("AD59").unwrap().collections[0]).unwrap();
+    let options = page::options(AD59_FORM, "0-controlledAccessGeographicName[]").unwrap();
+    for (locality, expected) in [
+        ("Saint-Éxemple", vec!["SAINT-EXEMPLE"]),
+        ("saint exemple les bois", vec!["SAINT-EXEMPLE-LES-BOIS"]),
+        ("Sampleton", vec![]),
+    ] {
+        let citation = registry
+            .parse(&format!("AD59 - {locality} - (aucun) - N - 1850"))
+            .unwrap();
+        assert_eq!(
+            settings.listed_labels(&options, &citation),
+            expected,
+            "{locality}"
+        );
+    }
+
+    // A form without the list, or an anti-bot page in its place.
+    for (form, challenged) in [
+        ("<html><form></form></html>", false),
+        (
+            "<html><title>Just a moment...</title><script>window._cf_chl_opt={}</script></html>",
+            true,
+        ),
+    ] {
+        let mut fetch = Fixtures::new(AD59_REGISTERS, AD59_WINDOW);
+        fetch.form = form;
+        let (target, _) = resolved("AD59 - Exampleville - (aucun) - M - 1750", &fetch);
+        assert_eq!(
+            matches!(target, Err(ResolveError::Challenged)),
+            challenged,
+            "{target:?}"
+        );
+        assert!(target.is_err());
+    }
+}
+
+#[test]
+fn a_challenge_in_place_of_the_results_is_not_drift() {
+    let challenge =
+        "<html><title>Just a moment...</title><script>window._cf_chl_opt={}</script></html>";
+    let (target, _) = embedded(
+        "AD37 - Exampleville - (aucun) - N - 1850",
+        challenge,
+        AD37_WINDOW,
+    );
+    assert_eq!(target, Err(ResolveError::Challenged));
+}
+
+#[test]
+fn the_call_number_may_be_a_context_entry() {
+    let registry = ArchiveRegistry::embedded();
+    let settings = Settings::read(&registry.archive("AD68").unwrap().collections[0]).unwrap();
+    let citation = registry
+        .parse("AD68 - Exampleville - (aucun) - N - 1850")
+        .unwrap();
+    let rows = page::results(AD68_REGISTERS, RESULTS_PER_PAGE)
+        .unwrap()
+        .rows;
+    let call_numbers: Vec<_> = rows
+        .iter()
+        .map(|row| settings.row_call_number(row, None))
+        .collect();
+    assert_eq!(
+        call_numbers,
+        [Some("9Mi9/9".to_owned()), Some("9E/9/1".to_owned())]
+    );
+    assert!(
+        settings
+            .candidates(rows, &citation)
+            .iter()
+            .all(|row| row.locality.as_deref() == Some("Exampleville"))
+    );
+}
+
+#[test]
+fn a_register_in_several_lots_is_counted_by_the_viewer() {
+    let mut fetch = Fixtures::new(AD69_MILITARY, AD69_WINDOW);
+    fetch.state = AD69_STATE;
+    let (target, requests) = resolved(
+        "AD69 - Exampleville Central - Registres matricules - 1900 - matricule 600 - vue 446",
+        &fetch,
+    );
+    let ArchiveTarget::View {
+        views,
+        view_count,
+        call_number,
+        ..
+    } = target.unwrap()
+    else {
+        panic!("expected a view");
+    };
+    assert_eq!(view_count, Some(891));
+    // The cell `444, 9RP9992`: the call number, not the internal number.
+    assert_eq!(call_number.as_deref(), Some("9RP9992"));
+    assert!(views[0].url.ends_with(&image_id(7445)));
+    assert_eq!(
+        requests[1],
+        format!(
+            "/visualizer/api?arkName=bbbbbbbbbb69&uuid={}",
+            image_id(7000)
+        )
+    );
+    assert_eq!(requests.len(), 3);
+
+    // Either call number of the cell selects the register.
+    let mut fetch = Fixtures::new(AD69_MILITARY, AD69_WINDOW);
+    fetch.state = AD69_STATE;
+    let (target, _) = resolved(
+        "AD69 - Exampleville Central - Registres matricules - 1900 - 9RP9993",
+        &fetch,
+    );
+    assert_eq!(register_of(&target.unwrap()), "cccccccccc69");
+
+    let mut fetch = Fixtures::new(AD69_MILITARY, AD69_WINDOW);
+    fetch.state = r#"{"counts": {}}"#;
+    let (target, _) = resolved(
+        "AD69 - Exampleville Central - Registres matricules - 1900 - matricule 600",
+        &fetch,
+    );
+    assert!(matches!(target, Err(ResolveError::UnexpectedResponse(_))));
+}
+
+#[test]
+fn a_table_listed_without_images_is_skipped_or_answers_the_results() {
+    let fetch = Fixtures::new(AD90_SUCCESSION, AD90_WINDOW);
+    let (target, requests) = resolved(
+        "AD90 - Exampleville - Tables des successions et absences - 1875 - vue 10/191",
+        &fetch,
+    );
+    assert_eq!(register_of(&target.unwrap()), "bbbbbbbbbb90");
+    for expected in [
+        "0-title%5B%5D=Bureau%20de%20Exampleville&",
+        "1-controlledAccessPhysicalCharacteristic%5B%5D=Table%20de%20successions&",
+        "2-date_begin=1875&2-date_end=1875",
+    ] {
+        assert!(
+            requests[0].contains(expected),
+            "{expected} in {}",
+            requests[0]
+        );
+    }
+    // The missing table, cited by its call number: listed, not openable.
+    let fetch = Fixtures::new(AD90_SUCCESSION, AD90_WINDOW);
+    let (target, requests) = resolved(
+        "AD90 - Exampleville - Tables des successions et absences - 1860 - 3 Q 99/3",
+        &fetch,
+    );
+    assert_eq!(results_matches(&target), 1);
+    assert_eq!(requests.len(), 1);
+}
+
+#[test]
+fn a_row_without_an_image_count_is_counted_by_the_viewer() {
+    let mut fetch = Fixtures::new(AD14_CENSUS, AD14_WINDOW);
+    fetch.state = AD14_STATE;
+    let (target, requests) = resolved("AD14 - Exampleville - Recensement - 1876", &fetch);
+    let ArchiveTarget::View {
+        view_count, url, ..
+    } = target.unwrap()
+    else {
+        panic!("expected a view");
+    };
+    assert_eq!(view_count, Some(40));
+    assert!(url.ends_with(&image_id(1400)));
+    assert_eq!(requests.len(), 2);
+}
+
+#[test]
+fn builds_the_search_of_each_form_shape() {
+    let registry = ArchiveRegistry::embedded();
+    let url = |title: &str| {
+        let citation = registry.parse(title).unwrap();
+        let (_, collections) = registry.candidates(&citation).unwrap();
+        Mnesys.results_url(collections[0], &citation).unwrap()
+    };
+    // A period sent as the cited year at both ends.
+    assert!(
+        url("AD26 - Exampleville - (aucun) - N - 1850")
+            .contains("&1-date_begin=1850&1-date_end=1850")
+    );
+    // A class sent as the form's label, in a select.
+    assert!(
+        url("AD51 - Exampleville - Registres matricules - 1890")
+            .ends_with("&2-controlledAccessPhysicalCharacteristic%5B%5D=Registre%20matricule&0-title%5B%5D=Classe%201890")
+    );
+    // No locality input: the cited bureau is never sent.
+    let military = url("AD55 - Exampleville - Registres matricules - 1890");
+    assert!(!military.contains("Exampleville"));
+    assert!(
+        military.ends_with(
+            "&1-controlledAccessPhysicalCharacteristic%5B%5D=Registre&0-date%5B%5D=1890"
+        )
+    );
+    // A lookup's patterns with a `*` are not spelled offline.
+    let census = url("AD80 - Exampleville - Recensement - 1901");
+    assert!(census.contains("Exampleville%20%28Somme%2C%20France%29"));
+    assert!(!census.contains("ancienne"));
+}
+
+#[test]
+fn a_pattern_names_the_locality_of_a_label() {
+    for (pattern, label, expected) in [
+        (
+            "{locality} (Somme, France)",
+            "Exampleville (Somme, France)",
+            vec!["Exampleville"],
+        ),
+        (
+            "{locality} (ancienne commune*, Somme, France)",
+            "Exampleville (ancienne commune av. 1790, Somme, France)",
+            vec!["Exampleville"],
+        ),
+        (
+            "Subdivision de {locality} (*)",
+            "Subdivision de Bourg (Le) (1867-1901)",
+            vec!["Bourg (Le)", "Bourg"],
+        ),
+        (
+            "{locality} Commune",
+            "EXAMPLEVILLE Commune",
+            vec!["EXAMPLEVILLE"],
+        ),
+        ("{locality} Commune", "EXAMPLEVILLE Canton", vec![]),
+        ("Bureau de {locality}", "Bureau d'Exampleville", vec![]),
+    ] {
+        assert_eq!(named_by(pattern, label), expected, "{pattern} / {label}");
+    }
+}
+
+#[test]
+fn validates_the_shapes_of_its_forms() {
+    type Change = fn(&mut serde_json::Value);
+    let cases: [(&str, Change); 5] = [
+        ("period_begin and period_end go together", |p| {
+            p["fields"]["period_begin"] = "1-date_begin".into()
+        }),
+        ("year_label needs a year input", |p| {
+            p["year_label"] = "Classe {year}".into();
+            p["fields"].as_object_mut().unwrap().remove("year");
+        }),
+        ("need a locality input", |p| {
+            p["fields"].as_object_mut().unwrap().remove("locality");
+        }),
+        ("needs locality_lookup", |p| {
+            p["locality_label"] = serde_json::json!(["{locality} (*)"])
+        }),
+        ("after {locality}", |p| {
+            p["locality_lookup"] = true.into();
+            p["locality_label"] = serde_json::json!(["* {locality}"])
+        }),
+    ];
+    for (expected, change) in cases {
+        let error = Mnesys
+            .validate(&collection_with(change))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    }
+    // Without an act input, labels are needed only to tell the tables of a
+    // collection that also holds registers.
+    assert_eq!(
+        Mnesys.validate(&collection_with(|p| {
+            p["fields"].as_object_mut().unwrap().remove("act");
+            p["acts"] = serde_json::json!({"TD": ["tables décennales"]});
+        })),
+        Ok(())
+    );
+    let error = Mnesys
+        .validate(&collection_with(|p| {
+            p["fields"].as_object_mut().unwrap().remove("act");
+            p["acts"] = serde_json::json!({});
+        }))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("no label for `TD`"), "{error}");
+}
+
+/// The live probe over the same fixtures (Archive Portals §9.1).
+#[test]
+fn the_live_probe_reads_each_form_shape() {
+    use crate::live::Probe;
+    let registry = ArchiveRegistry::embedded();
+    let collection =
+        |code: &str, index: usize| registry.archive(code).unwrap().collections[index].clone();
+
+    // A lookup form lists its labels in capitals: the first is cited as
+    // listed, and the probe searches it through the form's list again.
+    let ad59 = collection("AD59", 0);
+    let mut fetch = Fixtures::new(AD59_REGISTERS, AD59_WINDOW);
+    fetch.form = AD59_FORM;
+    assert_eq!(
+        block_on(Mnesys.search_page(&ad59, &fetch)),
+        Ok("EXAMPLEVILLE".to_owned())
+    );
+    let act = Act::from_code("B").unwrap();
+    let registers = block_on(Mnesys.registers(&ad59, "EXAMPLEVILLE", &act, &fetch)).unwrap();
+    assert_eq!(registers.len(), 3);
+    assert_eq!(registers[0].locality, "EXAMPLEVILLE");
+    assert_eq!(registers[0].call_number.as_deref(), Some("9 Mi 999 R 001"));
+
+    // A form without a locality input: its series are cited without one.
+    let ad58 = collection("AD58", 2);
+    let fetch = Fixtures::new(AD58_MILITARY, AD58_WINDOW);
+    let mut form = Fixtures::new(AD58_MILITARY, AD58_WINDOW);
+    form.form = r#"<div class="enhanced-select multiselect" data-name="0-date" data-options="[&quot;1890&quot;]"></div>"#;
+    assert_eq!(
+        block_on(Mnesys.search_page(&ad58, &form)),
+        Ok(String::new())
+    );
+    let registers =
+        block_on(Mnesys.registers(&ad58, "", &Act::from_code("RM").unwrap(), &fetch)).unwrap();
+    assert_eq!(
+        registers
+            .iter()
+            .map(|register| register.numbers)
+            .collect::<Vec<_>>(),
+        [None, Some((1, 500)), Some((501, 1000)), Some((1, 498))]
+    );
+
+    // Rows in several lots count no images: the viewer's state does.
+    let ad69 = collection("AD69", 2);
+    let mut fetch = Fixtures::new(AD69_MILITARY, AD69_WINDOW);
+    fetch.state = AD69_STATE;
+    let registers = block_on(Mnesys.registers(
+        &ad69,
+        "Exampleville Central",
+        &Act::from_code("RM").unwrap(),
+        &fetch,
+    ))
+    .unwrap();
+    assert_eq!(registers[1].images, None);
+    assert_eq!(
+        block_on(Mnesys.images(&ad69, &registers[1], &fetch)),
+        Ok(Some(891))
+    );
 }

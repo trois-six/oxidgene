@@ -1,0 +1,77 @@
+{
+  "id": "fr-ad58",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Nièvre",
+  "jurisdiction": ["58"],
+  "citation_codes": ["AD58"],
+  "website": "https://archives.nievre.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [1545, 1924],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.nievre.fr",
+        "form": "9430efb3-399f-4de3-a3e7-004e232d8601",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_lookup": true,
+        "acts": {
+          "TD": ["tables décennales"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1798, 1901],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.nievre.fr",
+        "form": "de037d8b-5b38-47a7-a565-d63aef296061",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality} (Nièvre, France)"],
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1859, 1940],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.nievre.fr",
+        "form": "f5f87d87-671c-4977-92bd-947b2a1c110b",
+        "fields": {
+          "year": "0-date[]"
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.nievre.fr",
+        "form": "e3e37b84-2953-47f1-a6af-d590b7c568e3",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "2-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_lookup": true,
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

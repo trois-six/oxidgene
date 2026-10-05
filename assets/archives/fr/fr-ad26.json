@@ -1,0 +1,78 @@
+{
+  "id": "fr-ad26",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Drôme",
+  "jurisdiction": ["26"],
+  "citation_codes": ["AD26"],
+  "website": "https://archives.ladrome.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [1528, 1924],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.ladrome.fr",
+        "transport": "browser",
+        "form": "f6e7c1a1-9bda-40bc-a68b-13ed003eb0e5",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "2-controlledAccessSubject[]",
+          "period_begin": "1-date_begin",
+          "period_end": "1-date_end"
+        },
+        "locality_label": ["{locality} (Drôme, France)"],
+        "acts": {
+          "B": ["BAPTEME"],
+          "M": ["MARIAGE"],
+          "S": ["SEPULTURE"],
+          "N": ["NAISSANCE"],
+          "D": ["DECES"],
+          "TD": ["TABLE DECENNALE"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1936],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.ladrome.fr",
+        "transport": "browser",
+        "form": "b6ee53a1-0327-40cc-bd8e-82314e01a07a",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1940],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives.ladrome.fr",
+        "transport": "browser",
+        "form": "49e77115-e54f-4746-ab2a-2c1bb8897af1",
+        "fields": {
+          "locality": "1-controlledAccessCorporateName[]",
+          "act": "3-controlledAccessSubject[]",
+          "year": "0-title[]"
+        },
+        "locality_label": ["Bureau de {locality}"],
+        "year_label": "Classe {year}.",
+        "acts": {
+          "RM": ["Registre matricule"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

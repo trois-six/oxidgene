@@ -1,0 +1,52 @@
+{
+  "id": "fr-ad972",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives Territoriales de Martinique",
+  "jurisdiction": ["972"],
+  "citation_codes": ["AD972"],
+  "website": "https://www.patrimoines-martinique.org",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D"],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://www.patrimoines-martinique.org",
+        "form": "8ea80f22-2f9c-456b-94a0-adbd50d31e1c",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "1-date"
+        },
+        "locality_label": ["{locality}"],
+        "locality_style": "article_suffix",
+        "acts": {
+          "B": ["Baptêmes"],
+          "M": ["Mariages"],
+          "S": ["Sépultures"],
+          "N": ["Naissances"],
+          "D": ["Décès"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1889, 1941],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://www.patrimoines-martinique.org",
+        "form": "f358b8e4-2d5b-4823-97a4-567939cc21f7",
+        "fields": {
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "0-date[]"
+        },
+        "acts": {
+          "RM": ["Etats signalétiques et des services"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

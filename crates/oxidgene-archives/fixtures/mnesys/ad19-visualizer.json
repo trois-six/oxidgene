@@ -1,0 +1,27 @@
+{
+ "99": {
+  "url": "https://archives.example-19.test/ark:/99919/aaaaaaaaaa19/00000000-0000-4000-8000-000000001999",
+  "record": {
+   "arkId": {
+    "arkName": "aaaaaaaaaa19",
+    "naan": 99919
+   },
+   "title": [
+    "Register"
+   ],
+   "referenceCode": [],
+   "locationKeywords": [
+    "Exampleville (Exampleshire, France)"
+   ]
+  },
+  "uuid": "00000000-0000-4000-8000-000000001999",
+  "location": {
+   "original": "https://archives.example-19.test/images/00000000-0000-4000-8000-000000001999.jpg",
+   "thumb": "https://archives.example-19.test/images/00000000-0000-4000-8000-000000001999_thumbnail.jpg",
+   "iiif": null
+  },
+  "type": "image",
+  "format": "jpg",
+  "title": null
+ }
+}

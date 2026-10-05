@@ -1,0 +1,96 @@
+{
+  "id": "fr-ad39",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Jura",
+  "jurisdiction": ["39"],
+  "citation_codes": ["AD39"],
+  "website": "https://archives39.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D"],
+      "period": [1507, 1922],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives39.fr",
+        "form": "1eb1f0a3-b7ba-4c8a-bdae-395b322800e4",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "2-controlledAccessSubject[]",
+          "period_begin": "4-date_begin",
+          "period_end": "4-date_end"
+        },
+        "locality_label": ["{locality}, commune"],
+        "locality_style": "article_suffix",
+        "acts": {
+          "B": ["BAPTEME"],
+          "M": ["MARIAGE"],
+          "S": ["SEPULTURE"],
+          "N": ["NAISSANCE"],
+          "D": ["DECES"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "period": [1792, 1902],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives39.fr",
+        "form": "1eb1f0a3-b7ba-4c8a-bdae-395b322800e4",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "period_begin": "4-date_begin",
+          "period_end": "4-date_end"
+        },
+        "locality_label": ["{locality}, commune"],
+        "locality_style": "article_suffix",
+        "acts": {
+          "TD": ["table décennale"]
+        },
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1800, 1936],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives39.fr",
+        "form": "0400d188-e8a7-4e0e-931f-9023104d59a0",
+        "fields": {
+          "locality": "0-controlledAccessGeographicName[]",
+          "year": "4-date"
+        },
+        "locality_label": ["{locality}, commune"],
+        "locality_style": "article_suffix",
+        "image_source": "visualizer"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1859, 1921],
+      "platform": "mnesys",
+      "portal": {
+        "origin": "https://archives39.fr",
+        "form": "e9d5f8fe-3bed-4634-b4ed-be1c714f0c98",
+        "fields": {
+          "locality": "0-controlledAccessCorporateProducer[]",
+          "act": "1-controlledAccessPhysicalCharacteristic[]",
+          "year": "3-date"
+        },
+        "locality_label": ["Bureau de recrutement de {locality}"],
+        "acts": {
+          "RM": ["registre matricule"]
+        },
+        "image_source": "visualizer"
+      }
+    }
+  ]
+}

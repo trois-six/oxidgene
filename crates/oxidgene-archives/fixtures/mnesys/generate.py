@@ -14,6 +14,13 @@ PORTALS = {
     'ad37': dict(host='archives.example-37.test', naan='99937'),
     'ad14': dict(host='archives.example-14.test', naan='99914'),
     'ad51': dict(host='archives.example-51.test', naan='99951'),
+    'ad19': dict(host='archives.example-19.test', naan='99919'),
+    'ad25': dict(host='archives.example-25.test', naan='99925'),
+    'ad58': dict(host='archives.example-58.test', naan='99958'),
+    'ad59': dict(host='archives.example-59.test', naan='99959'),
+    'ad68': dict(host='archives.example-68.test', naan='99968'),
+    'ad69': dict(host='archives.example-69.test', naan='99969'),
+    'ad90': dict(host='archives.example-90.test', naan='99990'),
 }
 
 
@@ -25,32 +32,49 @@ def image_id(serial):
     return f'00000000-0000-4000-8000-{serial:012d}'
 
 
+def picture(portal, name, serial, title, images):
+    """The row's link to its first image and its count: `images` is a
+    count, the count's own text (`2 lots 892 medias`), `False` for a link
+    without a count, or `None` for a register listed without images."""
+    if images is None:
+        return ''
+    first = image_id(serial)
+    count = images if isinstance(images, str) else f"{images} media{'s' if images != 1 else ''}"
+    info = '' if images is False else f'''
+                        <p class="info-list-picture">
+                        {count}
+
+        </p>
+'''
+    return f'''
+            <div class="img image-thumbnail">
+            <a href="/ark:/{portal['naan']}/{name}/{first}" class="bloc-list-picture d-block" title="Visualiser le media" rel="noopener noreferrer" target="_blank">
+                <img class="list-picture img-fluid" src="/images/{first}_search_result_thumbnail.jpg" alt="{esc(title)}">
+            </a>
+{info}
+        </div>
+'''
+
+
 def row(portal, number, name, serial, title, period, images, collection, context, call_number=None):
     """One `li.element-list`; `context` follows the collection entry."""
-    first = image_id(serial)
     cote = ''
     if call_number:
         cote = ('<div  class="content-sub-part">\n                <h3>Cote</h3>\n'
                 f'                <p class="referenceCodes">{esc(call_number)}</p>\n            </div>')
     entries = ''.join(f'<li>\n                    {esc(entry)}        </li>\n            '
                       for entry in context)
+    date = ''
+    if period:
+        date = f'''<div class="content-sub-part">
+                <h3>Date</h3>
+                <p><span>{esc(period)}</span></p>
+            </div>'''
     return f'''        <li class="element-list">
 
 <div class="img-element">
     <span><span class="sr-only">Résultat n°</span>{number}</span>
-
-            <div class="img image-thumbnail">
-            <a href="/ark:/{portal['naan']}/{name}/{first}" class="bloc-list-picture d-block" title="Visualiser le media" rel="noopener noreferrer" target="_blank">
-                <img class="list-picture img-fluid" src="/images/{first}_search_result_thumbnail.jpg" alt="{esc(title)}">
-            </a>
-
-                        <p class="info-list-picture">
-                        {images} media{'s' if images != 1 else ''}
-
-        </p>
-
-        </div>
-
+{picture(portal, name, serial, title, images)}
 </div>
 
 <section class="content">
@@ -66,10 +90,7 @@ def row(portal, number, name, serial, title, period, images, collection, context
         </a>
 
     <div class="date-cote content-part clearfix">
-                    <div class="content-sub-part">
-                <h3>Date</h3>
-                <p><span>{esc(period)}</span></p>
-            </div>
+                    {date}
                             {cote}
             </div>
 
@@ -266,6 +287,160 @@ def main():
         p51, 1, 'mmmmmmmmmmmm', 1300, 'Exampleville. Naissances 1850', '1850', 60, 'Etat civil',
         ['Exampleville', "Registres d'état civil", 'Exampleville. Naissances 1850'], '2 E 999/71')]))
     write('ad51-visualizer.json', window(p51, 'mmmmmmmmmmmm', [(1, 1301)], False))
+    series()
+
+
+def form(uuid, selects, inputs):
+    """A search form: one `enhanced-select` per select, by name and labels,
+    then plain inputs, by name."""
+    parts = [f'<input type="hidden" value="{uuid}" name="formUuid"/>',
+             '<input type="hidden" value="date_asc" name="sort"/>',
+             '<input type="hidden" value="list" name="mode"/>']
+    for name, labels in selects.items():
+        options = esc(json.dumps(labels))
+        parts.append(f'<div class="enhanced-select multiselect" data-input-id="{name}" data-name="{name}" '
+                     f'data-options="{options}" data-selected-options="null" '
+                     'data-placeholder="Sélectionnez un ou plusieurs éléments" data-submit-as-json="false" ></div>')
+    for name in inputs:
+        parts.append(f'<input type="text" class="form-control" id="{name}" name="{name}" value=""/>')
+    body = '\n            '.join(parts)
+    return f'''<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Recherche</title></head>
+<body>
+    <main>
+        <form method="get" action="/search/results">
+            {body}
+        </form>
+    </main>
+</body>
+</html>
+'''
+
+
+def viewer_state(portal, name, serial, images):
+    """The viewer's state for a register's first image: the images of its
+    lot, the lots, and the first image."""
+    uuid = image_id(serial)
+    return {'counts': {'media': images, 'group': 2}, 'positions': {'media': 0, 'group': 0},
+            'group': {'title': None},
+            'media': [{'url': f"https://{portal['host']}/ark:/{portal['naan']}/{name}/{uuid}", 'uuid': uuid,
+                       'location': {'original': f"https://{portal['host']}/images/{uuid}.jpg",
+                                    'thumb': f"https://{portal['host']}/images/{uuid}_thumbnail.jpg", 'iiif': None},
+                       'type': 'image', 'format': 'jpg'}],
+            'tableOfContents': None, 'bookmarks': []}
+
+
+def series():
+    """Forms of other shapes and series rows: military registers by bureau
+    and matricule range, rows coding their acts as letters, upper-case
+    labels, lots, rows without images, call numbers in the context."""
+    p19, p25, p58, p59 = PORTALS['ad19'], PORTALS['ad25'], PORTALS['ad58'], PORTALS['ad59']
+    p68, p69, p90 = PORTALS['ad68'], PORTALS['ad69'], PORTALS['ad90']
+    geo = 'controlledAccessGeographicName'
+    phys = 'controlledAccessPhysicalCharacteristic'
+
+    # AD19: military registers of one bureau and class, one volume per
+    # matricule range, the bureau named in the context.
+    write('ad19-military-form.html', form('85c4d2cc-6374-489a-8be0-e79d0e0755b6', {
+        f'0-{geo}': ['Exampleville (Corrèze, France)', 'Sampleton (Corrèze, France)'],
+        '1-date': ['1889', '1890'],
+        f'3-{phys}': ['registre matricule', 'table'],
+    }, []))
+    bureau = ["Recrutement militaire de la circonscription d'Exampleville", 'Registre matricule']
+    write('ad19-military.html', page(4, [
+        row(p19, index + 1, name, serial, f'Classe 1890 : matricules {first} à {last}.', '1890', images,
+            'Recrutement militaire', bureau, f'R/{cote}')
+        for index, (name, serial, first, last, images, cote) in enumerate([
+            ('aaaaaaaaaa19', 1900, 500, 1000, 557, 9992),
+            ('bbbbbbbbbb19', 2000, 1, 499, 567, 9991),
+            ('cccccccccc19', 2100, 1001, 1500, 580, 9993),
+            ('dddddddddd19', 2200, 1501, 1631, 154, 9994)])]))
+    write('ad19-visualizer.json', window(p19, 'aaaaaaaaaa19', [(99, 1999)], False))
+
+    # AD25: registers coding their acts as letters, no call number.
+    write('ad25-registers.html', page(4, [
+        row(p25, 1, 'aaaaaaaaaa25', 2500, 'BMS 1739-1750', '1739-1750', 120, 'Registres paroissiaux et état civil',
+            ['Communes E', 'Exampleville']),
+        row(p25, 2, 'bbbbbbbbbb25', 2600, 'M 1793-1815', '1793-1815', 80, 'Registres paroissiaux et état civil',
+            ['Communes E', 'Exampleville']),
+        row(p25, 3, 'cccccccccc25', 2700, 'N 1793-1815', '1793-1815', 140, 'Registres paroissiaux et état civil',
+            ['Communes E', 'Exampleville']),
+        row(p25, 4, 'dddddddddd25', 2800, 'BMS-NMD 1751-1792', '1751-1792', 300,
+            'Registres paroissiaux et état civil', ['Communes E', 'Exampleville'])]))
+    write('ad25-visualizer.json', window(p25, 'bbbbbbbbbb25', [(4, 2604)], False))
+
+    # AD58: military registers of every bureau, which only the title names.
+    write('ad58-military.html', page(4, [
+        row(p58, 1, 'aaaaaaaaaa58', 5800, "Bureau d'Exampleville, classe 1890 : répertoire", '1890', 25,
+            "Service historique de l'armée : registres militaires",
+            ['Répertoires'], 'R 992'),
+        row(p58, 2, 'bbbbbbbbbb58', 5900, "Bureau d'Exampleville, classe 1890 : fiches matricules n° 1 à 500",
+            '1890', 780, "Service historique de l'armée : registres militaires",
+            ['Fiches matricules'],'R 983'),
+        row(p58, 3, 'cccccccccc58', 6000, "Bureau d'Exampleville, classe 1890 : fiches matricules n° 501 à 1000",
+            '1890', 829, "Service historique de l'armée : registres militaires",
+            ['Fiches matricules'],'R 984'),
+        row(p58, 4, 'dddddddddd58', 6100, 'Bureau de Sampleton, classe 1890 : fiches matricules n° 1 à 498',
+            '1890', 666, "Service historique de l'armée : registres militaires",
+            ['Fiches matricules'], 'R 988')]))
+    write('ad58-visualizer.json', window(p58, 'cccccccccc58', [(9, 6009)], False))
+
+    # AD59: upper-case labels without accents, which a lookup finds; the
+    # acts are letters in the title, which the context repeats alone.
+    write('ad59-form.html', form('dc4e871d-0b62-41fb-9921-5ded573781b8', {
+        f'0-{geo}': ['EXAMPLEVILLE', 'SAINT-EXEMPLE', 'SAINT-EXEMPLE-LES-BOIS', 'SAMPLETON - Section A, B'],
+        f'1-{phys}': ['Baptêmes', 'Naissances', 'Mariages', 'Sépultures', 'Décès'],
+    }, ['2-date', '3-date_begin', '3-date_end']))
+    collection = "Registres numérisés des registres d'état civil du Nord"
+    write('ad59-registers.html', page(3, [
+        row(p59, 1, 'aaaaaaaaaa59', 5900, 'EXAMPLEVILLE / BMS [1737-1792]', '1737-1792', 381, collection,
+            [], '9 Mi 999 R 001'),
+        row(p59, 2, 'bbbbbbbbbb59', 6000, 'EXAMPLEVILLE / NMD, Td (sauf 1853-1862) [1823-1882]', '1823-1882', 909,
+            collection, [], '9 Mi 999 R 002'),
+        row(p59, 3, 'cccccccccc59', 6100, 'EXAMPLEVILLE / NMD [1838-1862]', '1838-1862', 347, collection,
+            [], '9 Mi 999 R 003')]))
+    write('ad59-visualizer.json', window(p59, 'aaaaaaaaaa59', [(2, 5902)], False))
+
+    # AD68: the call number of a civil-status row is a context entry.
+    write('ad68-registers.html', page(2, [
+        row(p68, 1, 'aaaaaaaaaa68', 6800, '1793-1862', '1793-1862', 530, 'Naissances',
+            ['Exampleville', '9Mi9/9']),
+        row(p68, 2, 'bbbbbbbbbb68', 6900, 'Exampleville - Paroisse catholique - Registres de baptêmes',
+            '1788-1792', 62, 'Registres paroissiaux',
+            [], '9E/9/1')]))
+
+    # AD69: volumes in two lots (images, then a document) and two call
+    # numbers per cell; the bureau is in the title only.
+    write('ad69-military.html', page(3, [
+        row(p69, index + 1, name, serial, f'Exampleville Central : n° matricules {first}-{last}', '1900',
+            f'2 lots\n                        {images} medias',
+            '1Rp - Recrutement militaire : répertoires et registres',
+            ['Armée active', 'Registres matricules'],
+            f'{internal}, 9RP{cote}')
+        for index, (name, serial, first, last, images, internal, cote) in enumerate([
+            ('aaaaaaaaaa69', 6900, 1, 489, 700, 443, 9991),
+            ('bbbbbbbbbb69', 7000, 490, 986, 892, 444, 9992),
+            ('cccccccccc69', 7100, 987, 1488, 820, 445, 9993)])]))
+    write('ad69-viewer-state.json', viewer_state(p69, 'bbbbbbbbbb69', 7000, 891))
+    write('ad69-visualizer.json', window(p69, 'bbbbbbbbbb69', [(445, 7445)], False))
+
+    # AD90: tables listed without images (`Manque`) beside digitised ones.
+    office = ['Bureau de Exampleville', 'Tables de successions et absences.']
+    context = "3 Q - Enregistrement (bureau de Exampleville)"
+    write('ad90-succession.html', page(3, [
+        row(p90, 1, 'aaaaaaaaaa90', 9000, 'Manque', None, None, context, office, '3 Q 99/3'),
+        row(p90, 2, 'bbbbbbbbbb90', 9100, '1873 - 1880', '1873-1880', 191, context, office,
+            '3 Q 99/20'),
+        row(p90, 3, 'cccccccccc90', 9200, '1880 - 1884', '1880-1884', 173, context, office,
+            '3 Q 99/21')]))
+    write('ad90-visualizer.json', window(p90, 'bbbbbbbbbb90', [(9, 9109)], False))
+
+    # AD14: a census row with an image but no count.
+    write('ad14-census.html', page(1, [
+        row(PORTALS['ad14'], 1, 'kkkkkkkkkk14', 1400, '1876', '1876', False, 'Recensements de population',
+            ['Exampleville'])]))
+    write('ad14-viewer-state.json', viewer_state(PORTALS['ad14'], 'kkkkkkkkkk14', 1400, 40))
 
 
 main()
