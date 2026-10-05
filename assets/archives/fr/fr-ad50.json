@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Manche",
   "jurisdiction": ["50"],
+  "areas": ["Manche"],
   "citation_codes": ["AD50"],
   "website": "https://www.archives-manche.fr",
   "collections": [

@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de l'Isère",
   "jurisdiction": ["38"],
+  "areas": ["Isère"],
   "citation_codes": ["AD38"],
   "website": "https://archives.isere.fr",
   "collections": [

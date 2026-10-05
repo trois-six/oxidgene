@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives de Paris",
   "jurisdiction": ["75"],
+  "areas": ["Paris"],
   "citation_codes": ["AD75"],
   "website": "https://archives.paris.fr",
   "collections": [

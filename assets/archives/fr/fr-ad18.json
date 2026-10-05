@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales et patrimoine du Cher",
   "jurisdiction": ["18"],
+  "areas": ["Cher"],
   "citation_codes": ["AD18"],
   "website": "https://www.archives18.fr",
   "collections": [

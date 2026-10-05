@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales du Loiret",
   "jurisdiction": ["45"],
+  "areas": ["Loiret"],
   "citation_codes": ["AD45"],
   "website": "https://www.archives-loiret.fr",
   "collections": [

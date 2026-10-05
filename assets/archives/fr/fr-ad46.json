@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales du Lot",
   "jurisdiction": ["46"],
+  "areas": ["Lot"],
   "citation_codes": ["AD46"],
   "website": "https://archives.lot.fr",
   "collections": [

@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales du Cantal",
   "jurisdiction": ["15"],
+  "areas": ["Cantal"],
   "citation_codes": ["AD15"],
   "website": "https://www.archives.cantal.fr",
   "collections": [

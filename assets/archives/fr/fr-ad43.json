@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Haute-Loire",
   "jurisdiction": ["43"],
+  "areas": ["Haute-Loire"],
   "citation_codes": ["AD43"],
   "website": "https://www.archives43.fr",
   "collections": [

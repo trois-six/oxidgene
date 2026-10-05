@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales d'Eure-et-Loir",
   "jurisdiction": ["28"],
+  "areas": ["Eure-et-Loir"],
   "citation_codes": ["AD28"],
   "website": "https://archives28.fr",
   "collections": [

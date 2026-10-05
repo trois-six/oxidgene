@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales des Ardennes",
   "jurisdiction": ["08"],
+  "areas": ["Ardennes"],
   "citation_codes": ["AD08"],
   "website": "https://archives.cd08.fr",
   "collections": [

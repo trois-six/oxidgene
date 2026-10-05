@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de l'Indre",
   "jurisdiction": ["36"],
+  "areas": ["Indre"],
   "citation_codes": ["AD36"],
   "website": "https://www.archives36.fr",
   "collections": [

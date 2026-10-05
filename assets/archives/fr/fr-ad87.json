@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Haute-Vienne",
   "jurisdiction": ["87"],
+  "areas": ["Haute-Vienne"],
   "citation_codes": ["AD87"],
   "website": "https://archives.haute-vienne.fr",
   "collections": [

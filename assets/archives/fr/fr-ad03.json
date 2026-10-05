@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de l'Allier",
   "jurisdiction": ["03"],
+  "areas": ["Allier"],
   "citation_codes": ["AD03"],
   "website": "https://archives.allier.fr",
   "collections": [

@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Creuse",
   "jurisdiction": ["23"],
+  "areas": ["Creuse"],
   "citation_codes": ["AD23"],
   "website": "https://archives.creuse.fr",
   "collections": [

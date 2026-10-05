@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales du Var",
   "jurisdiction": ["83"],
+  "areas": ["Var"],
   "citation_codes": ["AD83"],
   "website": "https://archives.var.fr",
   "collections": [

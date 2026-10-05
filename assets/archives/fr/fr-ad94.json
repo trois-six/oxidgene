@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales du Val-de-Marne",
   "jurisdiction": ["94"],
+  "areas": ["Val-de-Marne"],
   "citation_codes": ["AD94"],
   "website": "https://archives.valdemarne.fr",
   "collections": [

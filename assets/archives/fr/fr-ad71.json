@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de Saône-et-Loire",
   "jurisdiction": ["71"],
+  "areas": ["Saône-et-Loire"],
   "citation_codes": ["AD71"],
   "website": "https://www.archives71.fr",
   "collections": [

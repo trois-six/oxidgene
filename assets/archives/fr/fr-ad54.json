@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de Meurthe-et-Moselle",
   "jurisdiction": ["54"],
+  "areas": ["Meurthe-et-Moselle"],
   "citation_codes": ["AD54"],
   "website": "https://archives.meurthe-et-moselle.fr",
   "collections": [

@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales des Yvelines",
   "jurisdiction": ["78"],
+  "areas": ["Yvelines"],
   "citation_codes": ["AD78"],
   "website": "https://archives.yvelines.fr",
   "collections": [

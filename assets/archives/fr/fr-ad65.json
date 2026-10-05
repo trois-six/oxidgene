@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives et patrimoines des Hautes-Pyrénées",
   "jurisdiction": ["65"],
+  "areas": ["Hautes-Pyrénées"],
   "citation_codes": ["AD65"],
   "website": "https://archivesenligne65.fr",
   "collections": [

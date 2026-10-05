@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Dordogne",
   "jurisdiction": ["24"],
+  "areas": ["Dordogne"],
   "citation_codes": ["AD24"],
   "website": "https://archives.dordogne.fr",
   "collections": [

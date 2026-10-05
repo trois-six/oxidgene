@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de l'Aube",
   "jurisdiction": ["10"],
+  "areas": ["Aube"],
   "citation_codes": ["AD10"],
   "website": "https://www.archives-aube.fr",
   "collections": [

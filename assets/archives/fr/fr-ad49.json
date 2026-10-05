@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de Maine-et-Loire",
   "jurisdiction": ["49"],
+  "areas": ["Maine-et-Loire"],
   "citation_codes": ["AD49"],
   "website": "https://archives.maine-et-loire.fr",
   "collections": [

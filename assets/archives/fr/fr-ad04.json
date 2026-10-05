@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales des Alpes-de-Haute-Provence",
   "jurisdiction": ["04"],
+  "areas": ["Alpes-de-Haute-Provence", "Basses-Alpes"],
   "citation_codes": ["AD04"],
   "website": "https://www.archives04.fr",
   "collections": [

@@ -4,6 +4,7 @@
   "level": "departmental",
   "name": "Archives départementales de la Vendée",
   "jurisdiction": ["85"],
+  "areas": ["Vendée"],
   "citation_codes": ["AD85"],
   "website": "https://archives.vendee.fr",
   "collections": [
