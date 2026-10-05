@@ -28,6 +28,31 @@ impl LocalityStyle {
         }
         .unwrap_or_else(|| locality.to_owned())
     }
+
+    /// A locality as the portal wrote it, as a citation writes it: `Le Bourg`
+    /// for `Bourg (Le)` in the `article_suffix` style. The live checks cite
+    /// the localities a portal lists.
+    #[cfg(any(test, feature = "live"))]
+    pub(crate) fn cited(self, portal: &str) -> String {
+        if self == Self::ArticleSuffix
+            && let Some((name, article)) = portal
+                .strip_suffix(')')
+                .and_then(|rest| rest.rsplit_once(" ("))
+            && let Some(article) = ARTICLES
+                .iter()
+                .map(|article| article.trim_end())
+                .find(|known| *known == article)
+            && !name.is_empty()
+        {
+            let separator = if article.ends_with(['\'', '\u{2019}']) {
+                ""
+            } else {
+                " "
+            };
+            return format!("{article}{separator}{name}");
+        }
+        portal.to_owned()
+    }
 }
 
 /// The articles moved behind the name in a gazetteer's form.
@@ -83,6 +108,29 @@ mod tests {
         assert_eq!(LocalityStyle::Plain.write("Le Bourg"), "Le Bourg");
         assert_eq!(LocalityStyle::ArticleSuffix.write("Le Bourg"), "Bourg (Le)");
         assert_eq!(LocalityStyle::ArticleSuffix.write("Bourg"), "Bourg");
+    }
+
+    #[test]
+    fn reads_a_locality_of_the_portal_back_as_cited() {
+        let suffixed = LocalityStyle::ArticleSuffix;
+        for (portal, cited) in [
+            ("Bourg (Le)", "Le Bourg"),
+            ("Ville-Example (La)", "La Ville-Example"),
+            ("Examples (Les)", "Les Examples"),
+            ("Exemple (L')", "L'Exemple"),
+            ("Exampleville", "Exampleville"),
+            (
+                "Exampleville (Saint-Exemple)",
+                "Exampleville (Saint-Exemple)",
+            ),
+            (" (Le)", " (Le)"),
+        ] {
+            assert_eq!(suffixed.cited(portal), cited, "{portal}");
+        }
+        // Read back, then written again, a listed locality is searched as
+        // listed.
+        assert_eq!(suffixed.write(&suffixed.cited("Bourg (Le)")), "Bourg (Le)");
+        assert_eq!(LocalityStyle::Plain.cited("Bourg (Le)"), "Bourg (Le)");
     }
 
     #[test]

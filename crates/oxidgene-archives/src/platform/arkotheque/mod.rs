@@ -185,30 +185,6 @@ impl Settings {
         self.locality_style.write(&citation.locality)
     }
 
-    /// A locality the portal wrote, as a citation writes it: `Le Bourg` for
-    /// `Bourg (Le)` in the `article_suffix` style.
-    #[cfg(any(test, feature = "live"))]
-    fn cited_locality(&self, portal: &str) -> String {
-        if self.locality_style == LocalityStyle::ArticleSuffix
-            && let Some((name, article)) = portal
-                .strip_suffix(')')
-                .and_then(|rest| rest.rsplit_once(" ("))
-            && let Some(article) = ARTICLES
-                .iter()
-                .map(|article| article.trim_end())
-                .find(|known| *known == article)
-            && !name.is_empty()
-        {
-            let separator = if article.ends_with(['\'', '’']) {
-                ""
-            } else {
-                " "
-            };
-            return format!("{article}{separator}{name}");
-        }
-        portal.to_owned()
-    }
-
     /// The filters of a search, shared by the request and the search page:
     /// the locality, the act category and, where the engine has the filter,
     /// the year. Nothing else of the citation leaves the application.

@@ -86,17 +86,40 @@ impl Failure {
     }
 
     /// A failed request or resolution: unreachable for a timeout, a network
-    /// or a server error, drift for anything else the portal answered.
+    /// or a server error, challenged for an anti-bot page, drift for anything
+    /// else the portal answered.
     pub fn from_error(step: Step, expected: impl Into<String>, error: &ResolveError) -> Self {
-        let outcome = match error {
-            ResolveError::Timeout | ResolveError::Unreachable => Outcome::Unreachable,
-            ResolveError::NoAdapter | ResolveError::UnexpectedResponse(_) => Outcome::Drift,
+        let (outcome, received) = match error {
+            ResolveError::Timeout | ResolveError::Unreachable => {
+                (Outcome::Unreachable, error.to_string())
+            }
+            ResolveError::Challenged => (
+                Outcome::Challenged,
+                "an anti-bot challenge in place of the portal".to_owned(),
+            ),
+            ResolveError::NoAdapter | ResolveError::UnexpectedResponse(_) => {
+                (Outcome::Drift, error.to_string())
+            }
         };
         Self {
             step,
             outcome,
             expected: expected.into(),
-            received: error.to_string(),
+            received,
+        }
+    }
+
+    /// An answer a probe cannot read: challenged when it is an anti-bot page
+    /// rather than the portal's, drift described by `received` otherwise.
+    pub(crate) fn unreadable(
+        step: Step,
+        expected: impl Into<String>,
+        answer: &str,
+        received: impl Into<String>,
+    ) -> Self {
+        match crate::platform::markup::unreadable(answer, received.into()) {
+            ResolveError::UnexpectedResponse(received) => Self::drift(step, expected, received),
+            other => Self::from_error(step, expected, &other),
         }
     }
 

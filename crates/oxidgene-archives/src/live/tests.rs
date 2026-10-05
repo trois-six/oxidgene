@@ -202,6 +202,7 @@ fn reports_an_unanswered_portal_as_unreachable() {
         (FetchError::Network, Outcome::Unreachable),
         (FetchError::Status(502), Outcome::Unreachable),
         (FetchError::Status(404), Outcome::Drift),
+        (FetchError::Challenged, Outcome::Challenged),
     ] {
         let mut transport = Scripted::new();
         transport.failure = Some(error.clone());
@@ -210,6 +211,26 @@ fn reports_an_unanswered_portal_as_unreachable() {
         assert_eq!(report.failure.unwrap().step, Step::SearchPage);
         assert_eq!(report.requests, 1);
     }
+}
+
+#[test]
+fn a_challenge_page_is_not_a_drift() {
+    // An anti-bot page answered as a success, in place of the search page
+    // and in place of the engine's answer.
+    let challenge = "<html><script>window.location.href='/redirect_X/'</script></html>";
+    let mut transport = Scripted::new();
+    transport.page = challenge.to_owned();
+    let failure = check(&transport).failure.unwrap();
+    assert_eq!(
+        (failure.step, failure.outcome),
+        (Step::SearchPage, Outcome::Challenged)
+    );
+
+    let mut transport = Scripted::new();
+    transport.engine = challenge.to_owned();
+    let report = check(&transport);
+    assert_eq!(report.outcome, Outcome::Challenged);
+    assert_eq!(report.requests, 2);
 }
 
 fn register(call_number: &str, period: &str, images: u16) -> Register {

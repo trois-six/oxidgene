@@ -126,6 +126,10 @@ pub enum FetchError {
     Network,
     /// The portal answered with an error status.
     Status(u16),
+    /// An anti-bot challenge answered with an error status in place of the
+    /// portal. A challenge answered as a success is the adapter's to tell,
+    /// once it cannot read the answer (`markup::unreadable`).
+    Challenged,
     /// The body exceeds [`MAX_BODY_BYTES`].
     TooLarge,
     /// The request, or a redirect, left the endpoint's origins.
@@ -141,6 +145,7 @@ impl fmt::Display for FetchError {
             Self::Timeout => f.write_str("the portal did not answer in time"),
             Self::Network => f.write_str("the portal could not be reached"),
             Self::Status(status) => write!(f, "the portal answered with status {status}"),
+            Self::Challenged => f.write_str("an anti-bot challenge answered for the portal"),
             Self::TooLarge => f.write_str("the portal's answer is too large"),
             Self::NotSameOrigin => f.write_str("the request left the portal's origins"),
             Self::NotAllowed => f.write_str("the request carries what a portal request may not"),
@@ -199,6 +204,16 @@ pub fn request_url(
     }
 }
 
+/// The error of an answer with an error status: a challenge when its body is
+/// an anti-bot page (often a `403` or a `429`), the status otherwise.
+pub(crate) fn refusal(status: u16, body: &str) -> FetchError {
+    if crate::platform::markup::is_challenge(body) {
+        FetchError::Challenged
+    } else {
+        FetchError::Status(status)
+    }
+}
+
 /// The answer of a request a browser page ran with its own `fetch`, as a
 /// browser transport receives it: the status, final address and body, or
 /// the `error` (`timeout`, anything else a network failure) that stopped it.
@@ -217,6 +232,7 @@ pub struct PageAnswer {
 impl PageAnswer {
     /// The body, once the answer is checked: a success status, a final
     /// address still on one of `origins` after redirects, a bounded size.
+    /// An error status whose body is an anti-bot page is a challenge.
     pub fn result(self, origins: &[String]) -> Result<String, FetchError> {
         match self.error.as_deref() {
             Some("timeout") => return Err(FetchError::Timeout),
@@ -232,10 +248,10 @@ impl PageAnswer {
         if !on_origin {
             return Err(FetchError::NotSameOrigin);
         }
-        if !(200..300).contains(&status) {
-            return Err(FetchError::Status(status));
-        }
         let body = self.body.unwrap_or_default();
+        if !(200..300).contains(&status) {
+            return Err(refusal(status, &body));
+        }
         if body.len() > MAX_BODY_BYTES {
             return Err(FetchError::TooLarge);
         }
@@ -261,7 +277,7 @@ mod native {
 
     use super::{
         BoxFuture, FetchError, MAX_BODY_BYTES, Method, PortalEndpoint, PortalFetch, PortalRequest,
-        PortalTransport, TIMEOUT, USER_AGENT, origin_of, request_url,
+        PortalTransport, TIMEOUT, USER_AGENT, origin_of, refusal, request_url,
     };
 
     /// The most redirects followed, all within the endpoint's origins.
@@ -323,7 +339,9 @@ mod native {
                 let status = response.status();
                 if !status.is_redirection() {
                     if !status.is_success() {
-                        return Err(FetchError::Status(status.as_u16()));
+                        // Read, bounded, only to tell an anti-bot page apart.
+                        let body = read_body(response).await.unwrap_or_default();
+                        return Err(refusal(status.as_u16(), &body));
                     }
                     return read_body(response).await;
                 }
@@ -606,6 +624,16 @@ mod tests {
         assert_eq!(
             answer(200, "https://elsewhere.example.org/", "").result(&origins),
             Err(FetchError::NotSameOrigin)
+        );
+        // A challenge refusing the request, and one let through as a success,
+        // which the adapter tells apart when it cannot read it.
+        assert_eq!(
+            answer(403, url, "<html><title>Request Rejected</title></html>").result(&origins),
+            Err(FetchError::Challenged)
+        );
+        assert_eq!(
+            answer(403, url, "Forbidden").result(&origins),
+            Err(FetchError::Status(403))
         );
         let failed = |error: &str| PageAnswer {
             error: Some(error.to_owned()),

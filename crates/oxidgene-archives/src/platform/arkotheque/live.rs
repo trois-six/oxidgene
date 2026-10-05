@@ -171,9 +171,10 @@ async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result
         .map_err(|error| Failure::fetch(step, "the collection's search page", error))?;
     let missing = settings.missing_from_page(&page);
     if !missing.is_empty() {
-        return Err(Failure::drift(
+        return Err(Failure::unreadable(
             step,
             "the engine and content references in the search page",
+            &page,
             format!("missing: {}", missing.join(", ")),
         ));
     }
@@ -184,9 +185,10 @@ async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result
         .await
         .map_err(|error| Failure::fetch(step, expected, error))?;
     let engine: EngineAnswer = serde_json::from_str(&answer).map_err(|_| {
-        Failure::drift(
+        Failure::unreadable(
             step,
             expected,
+            &answer,
             "an answer without filtres, restits or resultats",
         )
     })?;
@@ -210,7 +212,7 @@ async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result
                 .filter(|locality| !locality.is_empty())
                 .min_by_key(|locality| fold(locality))
         })
-        .map(|locality| settings.cited_locality(locality))
+        .map(|locality| settings.locality_style.cited(locality))
         .ok_or_else(|| {
             Failure::drift(
                 step,
@@ -252,7 +254,9 @@ async fn registers(
     Ok(rows
         .into_iter()
         .map(|row| Register {
-            locality: settings.cited_locality(row.locality.as_deref().unwrap_or_default()),
+            locality: settings
+                .locality_style
+                .cited(row.locality.as_deref().unwrap_or_default()),
             call_number: row.call_number,
             period: row.period,
             images: row.images,

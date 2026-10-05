@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation parsing, the resolution contract, display in the portal or in OxidGene's own viewer over IIIF, attaching cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T15:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T15:40:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1157,8 +1157,16 @@ the indices of the collections the native test checks instead. The process
 boundary is two standard streams: no port, no new dependency — the binary
 drives its future on its own thread, since its requests block on the
 streams — and the same `Resolver`, adapters and verdicts run over both
-transports. A connection the page could not establish past a challenge
-makes the collection `challenged` rather than `unreachable`.
+transports.
+
+A challenge is told apart from a drift on every path. A page that never
+got past one fails the bridge's `connect` with `FetchError::Challenged`; an
+error status whose body is an anti-bot page (`markup::is_challenge`) is
+`FetchError::Challenged` too, for the native transport, the bridge and the
+desktop window alike (`PageAnswer`); and an answer a success status let
+through is the adapter's or the probe's to tell, once it cannot read it
+(`markup::unreadable`). Each becomes `ResolveError::Challenged`, and the
+collection `challenged` rather than `drift` or `unreachable`.
 
 **Reports.** `just archives-live` writes under `target/archives-live/`
 (`OXIDGENE_LIVE_REPORT_DIR`) `native.json`, the native test's, and
@@ -1174,7 +1182,7 @@ collections':
 | `ok` | Every step passed. | Pass |
 | `drift` | The portal answered, but not as the adapter or its settings expect; the failing step and the expected and received shapes are reported. | Fail |
 | `unreachable` | Timeout, network error or a `5xx` answer. | Warning; an issue after two consecutive scheduled runs |
-| `challenged` | An anti-bot challenge blocked the headless browser. | Warning, reported as unverified |
+| `challenged` | An anti-bot challenge answered in place of the portal, to the headless browser or to the native client. | Warning, reported as unverified |
 
 A check never solves or works around a challenge. Reports name the archive,
 step, URL path and response shape, never response bodies beyond the fields

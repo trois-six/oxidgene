@@ -131,6 +131,7 @@ impl From<FetchError> for ResolveError {
         match error {
             FetchError::Timeout => Self::Timeout,
             FetchError::Network => Self::Unreachable,
+            FetchError::Challenged => Self::Challenged,
             FetchError::Status(status) if status >= 500 => Self::Unreachable,
             other => Self::UnexpectedResponse(other.to_string()),
         }

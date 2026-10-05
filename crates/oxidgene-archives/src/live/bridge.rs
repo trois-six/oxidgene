@@ -16,16 +16,16 @@
 //!
 //! The answers are checked as the desktop window's are ([`PageAnswer`]): a
 //! final address on the endpoint's origins, a success status, a bounded
-//! body.
+//! body. A page that never got past an anti-bot challenge, or a request
+//! refused by one, fails with [`FetchError::Challenged`].
 
 use std::io::{BufRead, Write};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{CollectionReport, Outcome};
 use crate::platform::{BoxFuture, PortalEndpoint};
 use crate::transport::{
     FetchError, PageAnswer, PortalFetch, PortalRequest, PortalTransport, request_url,
@@ -35,7 +35,6 @@ use crate::transport::{
 pub struct BridgeTransport<R, W> {
     channel: Mutex<(R, W)>,
     tickets: AtomicU64,
-    challenged: AtomicBool,
 }
 
 impl<R: BufRead + Send, W: Write + Send> BridgeTransport<R, W> {
@@ -43,7 +42,6 @@ impl<R: BufRead + Send, W: Write + Send> BridgeTransport<R, W> {
         Self {
             channel: Mutex::new((input, output)),
             tickets: AtomicU64::new(0),
-            challenged: AtomicBool::new(false),
         }
     }
 
@@ -51,21 +49,6 @@ impl<R: BufRead + Send, W: Write + Send> BridgeTransport<R, W> {
     pub fn send(&self, message: &impl Serialize) -> Result<(), FetchError> {
         let mut channel = self.channel.lock().map_err(|_| FetchError::Network)?;
         write_line(&mut channel.1, message)
-    }
-
-    /// The report of a check, an unreachable portal counting as challenged
-    /// when the page stopped at an anti-bot challenge. Clears the mark for
-    /// the next check.
-    pub fn settle(&self, mut report: CollectionReport) -> CollectionReport {
-        if self.challenged.swap(false, Ordering::Relaxed) && report.outcome == Outcome::Unreachable
-        {
-            report.outcome = Outcome::Challenged;
-            if let Some(failure) = &mut report.failure {
-                failure.outcome = Outcome::Challenged;
-                failure.received = "an anti-bot challenge the page did not pass".to_owned();
-            }
-        }
-        report
     }
 
     /// Sends a message and reads the answer's line.
@@ -116,10 +99,7 @@ impl<R: BufRead + Send, W: Write + Send> PortalTransport for BridgeTransport<R, 
                     endpoint: endpoint.clone(),
                 }) as Box<dyn PortalFetch + 'a>),
                 (Some("connected"), Some("timeout")) => Err(FetchError::Timeout),
-                (Some("connected"), Some("challenged")) => {
-                    self.challenged.store(true, Ordering::Relaxed);
-                    Err(FetchError::Network)
-                }
+                (Some("connected"), Some("challenged")) => Err(FetchError::Challenged),
                 _ => Err(FetchError::Network),
             }
         })
@@ -168,7 +148,6 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
-    use crate::live::{Failure, Step, Transport};
     use crate::platform::Access;
     use crate::tests::block_on;
 
@@ -228,43 +207,28 @@ mod tests {
     }
 
     #[test]
-    fn a_challenge_settles_as_challenged() {
-        let transport = transport("{\"kind\":\"connected\",\"error\":\"challenged\"}\n");
-        assert!(matches!(
-            block_on(transport.connect(&endpoint())),
-            Err(FetchError::Network)
-        ));
-        let report = CollectionReport {
-            collection: "registers".to_owned(),
-            index: 0,
-            platform: "arkotheque".to_owned(),
-            transport: Transport::Browser,
-            outcome: Outcome::Unreachable,
-            failure: Some(Failure::fetch(
-                Step::SearchPage,
-                "the portal's search page",
-                FetchError::Network,
-            )),
-            requests: 0,
-            citation: None,
-            opening: None,
+    fn a_page_stopped_by_a_challenge_fails_as_challenged() {
+        let connect = |answer: &str| {
+            let transport = transport(answer);
+            block_on(transport.connect(&endpoint())).map(drop)
         };
-        let settled = transport.settle(report.clone());
-        assert_eq!(settled.outcome, Outcome::Challenged);
         assert_eq!(
-            settled.failure.map(|failure| failure.outcome),
-            Some(Outcome::Challenged)
+            connect("{\"kind\":\"connected\",\"error\":\"challenged\"}\n"),
+            Err(FetchError::Challenged)
         );
-        // The mark is cleared once read.
-        assert_eq!(transport.settle(report).outcome, Outcome::Unreachable);
-
-        let timeout = super::BridgeTransport::new(
-            Cursor::new(b"{\"kind\":\"connected\",\"error\":\"timeout\"}\n".to_vec()),
-            Vec::new(),
-        );
-        assert!(matches!(
-            block_on(timeout.connect(&endpoint())),
+        assert_eq!(
+            connect("{\"kind\":\"connected\",\"error\":\"timeout\"}\n"),
             Err(FetchError::Timeout)
+        );
+        assert_eq!(connect(""), Err(FetchError::Network));
+
+        // A request a challenge refuses once the page is in.
+        let transport = transport(concat!(
+            "{\"kind\":\"connected\"}\n",
+            "{\"kind\":\"fetched\",\"ticket\":0,\"status\":403,\"url\":\"https://archives.example.org/a\",\"body\":\"<title>Request Rejected</title>\"}\n",
         ));
+        let endpoint = endpoint();
+        let fetch = block_on(transport.connect(&endpoint)).expect("a connection");
+        assert_eq!(block_on(fetch.get("/a")), Err(FetchError::Challenged));
     }
 }

@@ -73,8 +73,9 @@ fn main() -> ExitCode {
     let mut native = Vec::new();
     for (index, collection) in archive.collections.iter().enumerate() {
         if live::needs_browser(registry, collection) {
-            let report = block_on(live::check_collection(registry, archive, index, &transport));
-            collections.push(transport.settle(report));
+            collections.push(block_on(live::check_collection(
+                registry, archive, index, &transport,
+            )));
         } else {
             native.push(index);
         }
