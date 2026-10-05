@@ -890,6 +890,16 @@ pub fn use_init_theme() -> Signal<ThemeState> {
     state
 }
 
+/// The theme in use, from the state [`use_init_theme`] provides; the
+/// default theme where there is none.
+#[must_use]
+pub fn active_theme(state: Option<Signal<ThemeState>>) -> Theme {
+    state.map_or_else(
+        || ThemeState::default().active().clone(),
+        |state| state.read().active().clone(),
+    )
+}
+
 /// Persist and apply a theme choice.
 pub fn set_theme(mut state: Signal<ThemeState>, id: &str) {
     state.write().selected = id.to_owned();

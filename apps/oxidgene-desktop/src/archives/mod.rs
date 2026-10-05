@@ -235,6 +235,7 @@ fn texts(messages: &ArchiveViewerMessages) -> Texts {
         opening_view: messages.step_opening_view.clone(),
         elapsed: messages.step_elapsed.clone(),
         cancel: messages.cancel.clone(),
+        palette: messages.palette.clone(),
         close: messages.close.clone(),
         challenge: messages.challenge.clone(),
         #[cfg(any(
@@ -1135,9 +1136,10 @@ mod tests {
     }
 
     fn messages() -> ArchiveViewerMessages {
-        ArchiveViewerMessages::new(&oxidgene_ui::i18n::I18n::new(
-            oxidgene_ui::i18n::Language::english(),
-        ))
+        ArchiveViewerMessages::new(
+            &oxidgene_ui::i18n::I18n::new(oxidgene_ui::i18n::Language::english()),
+            &oxidgene_ui::theme::BUILTIN_THEMES[0],
+        )
     }
 
     #[test]
@@ -1182,6 +1184,9 @@ mod tests {
         }
         assert!(texts.opening_view.contains("{view}"));
         assert!(texts.elapsed.contains("{seconds}"));
+        // The overlay is drawn in the application's theme.
+        assert!(texts.palette.contains("--bg-deep:"));
+        assert!(texts.palette.contains("--orange:"));
     }
 
     fn transport(link: &ArchiveLink, messages: &ArchiveViewerMessages) -> WindowTransport {

@@ -9,8 +9,10 @@ const script = new Function("overlay", "window", "document", "setInterval", "cle
 
 const ID = "oxidgene-archive-progress";
 
-// The overlay of a search step, as the window sends it.
+// The overlay of a search step, as the window sends it: the application's
+// theme on the host and its spinner, then the texts.
 const searching = {
+    style: ":host {\n    --bg-deep: #000001;\n}\n.spinner { --spinner-size: 48px; }",
     heading: "Looking for the cited register…",
     archive: "Archives of Example",
     citation: "AD00 - Exampleville - (aucun) - N - 1877",
@@ -21,14 +23,11 @@ const searching = {
 };
 
 // A portal page the window renders overlays on, as it would evaluate them.
-function portal({ dark = false } = {}) {
+function portal() {
     const document = parse("<main>Registres paroissiaux</main>");
     const timers = clock();
     const posted = [];
-    const window = {
-        ipc: { postMessage: message => posted.push(JSON.parse(message)) },
-        matchMedia: query => ({ matches: dark && query.includes("dark") }),
-    };
+    const window = { ipc: { postMessage: message => posted.push(JSON.parse(message)) } };
     const render = overlay =>
         script(overlay, window, document, timers.setInterval, timers.clearInterval, { now: timers.now });
     const host = () => document.getElementById(ID);
@@ -42,7 +41,11 @@ test("covers the page with the archive, the citation and the step", () => {
     const host = page.host();
     assert.ok(host);
     assert.match(host.style.cssText, /position:fixed;inset:0;z-index:2147483647/);
-    assert.match(host.style.cssText, /background:#f4f4f5/);
+    // Opaque: the page is hidden under it.
+    assert.match(host.style.cssText, /background:var\(--bg-deep\)/);
+    // OxidGene's one spinner, out of the status.
+    const spinner = host.shadowRoot.querySelector(".spinner");
+    assert.equal(spinner.getAttribute("aria-hidden"), "true");
     assert.equal(page.part("heading").textContent, searching.heading);
     assert.equal(page.part("archive").textContent, searching.archive);
     assert.equal(page.part("citation").textContent, searching.citation);
@@ -59,10 +62,16 @@ test("covers the page with the archive, the citation and the step", () => {
     assert.equal(page.document.querySelector("main").textContent, "Registres paroissiaux");
 });
 
-test("follows the reader's dark scheme", () => {
-    const page = portal({ dark: true });
+test("takes the application's theme and spinner, then its own rules", () => {
+    const page = portal();
     page.render(searching);
-    assert.match(page.host().style.cssText, /background:#1c1c1e/);
+    const style = page.part("style").textContent;
+    assert.ok(style.startsWith(searching.style), style);
+    assert.match(style, /\.cancel \{/);
+    // Another theme replaces the rules in place.
+    page.render({ ...searching, style: ":host {\n    --bg-deep: #000002;\n}" });
+    assert.equal(page.host().shadowRoot.querySelectorAll("style").length, 1);
+    assert.match(page.part("style").textContent, /#000002/);
 });
 
 test("a new step updates the same overlay in place", () => {

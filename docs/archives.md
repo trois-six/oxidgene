@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T05:22:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T05:23:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -1295,9 +1295,11 @@ while the challenge cookie the first load leaves keeps it.
 The window fills no field and clicks no control but a cookie banner's
 refusal (below); the page's own scripts open
 the viewer at the view. While it resolves, the window covers the portal's
-pages with OxidGene's progress overlay: a full-window cover, in neutral
-light or dark colours, out of reach of the portal's styles (a shadow root),
-showing the archive's name, the citation and the step, as a polite status:
+pages with OxidGene's progress overlay: an opaque full-window cover hiding
+the portal's page, in the application's theme with its one spinner
+([UI Common §4.17](ui-common.md#417-spinner)), out of reach of the portal's
+styles (a shadow root), showing the archive's name, the citation and the
+step, as a polite status:
 connecting to the portal while the start page loads
 (`archive_viewer.step_connecting`), searching for the register during each
 of the adapter's requests (`archive_viewer.step_searching`), and opening the
@@ -1309,7 +1311,8 @@ when each document starts, so that the overlay covers it at once. The
 overlay gives way whenever the reader has to act on the page — an anti-bot
 check they were asked to answer, until the portal's page shows; a cookie
 banner left to them, until it is gone — and is gone once the landing's page
-has shown. Its Cancel button (`common.cancel`) stops the resolution — its
+has shown: the register at the cited view, or, when the lookup failed, the
+portal's page the failure lands on, with its banner. Its Cancel button (`common.cancel`) stops the resolution — its
 pending requests are dropped — and the window loads the collection's
 filtered search page (`results_url`, the archive's `website` when there is
 none), without a banner. Once the target has loaded, a banner over the

@@ -67,6 +67,8 @@ pub(super) struct Texts {
     pub(super) elapsed: String,
     /// The label of the overlay's button stopping the lookup.
     pub(super) cancel: String,
+    /// The active theme's custom properties, which the overlay declares.
+    pub(super) palette: String,
     /// The label of a banner's close button.
     pub(super) close: String,
     /// Asks the reader to answer an anti-bot check in the window.
@@ -740,6 +742,7 @@ mod tests {
             opening_view: "Opening view {view}…".to_owned(),
             elapsed: "{seconds} s".to_owned(),
             cancel: "Cancel".to_owned(),
+            palette: "    --bg-deep: #000001;\n".to_owned(),
             close: "Close".to_owned(),
             challenge: "Answer the check.".to_owned(),
             #[cfg(any(

@@ -94,6 +94,7 @@ pub fn AppShell() -> Element {
         style { {print_palette} }
         style { {FONT_FACES.as_str()} }
         style { {LAYOUT_STYLES} }
+        style { {SPINNER_STYLES} }
         Router::<Route> {}
     }
 }
@@ -236,6 +237,36 @@ pub static FONT_FACES: LazyLock<String> = LazyLock::new(|| {
         })
         .collect()
 });
+
+/// The one spinner of OxidGene: a ring turning in the theme's accent, for
+/// work that blocks what is behind it — an import or a duplication under
+/// way, a cited register being looked up in an archive window.
+///
+/// Apart from [`LAYOUT_STYLES`] because the desktop archive window draws it
+/// over a portal's page too, with the theme's custom properties, so that
+/// both are this one definition. `--spinner-size` scales it, its ring
+/// included; `@keyframes spin` also turns the in-button spinner. It turns
+/// three times slower for a reader who asks for reduced motion.
+pub const SPINNER_STYLES: &str = r#"
+    .spinner {
+        --spinner-size: 48px;
+        box-sizing: border-box;
+        width: var(--spinner-size);
+        height: var(--spinner-size);
+        border: max(3px, calc(var(--spinner-size) / 12)) solid var(--border);
+        border-top-color: var(--orange);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .spinner { animation-duration: 2.4s; }
+    }
+"#;
 
 /// CSS for the layout shell.
 pub const LAYOUT_STYLES: &str = r#"
@@ -4521,18 +4552,7 @@ pub const LAYOUT_STYLES: &str = r#"
         gap: var(--space-12);
     }
 
-    .import-spinner {
-        width: 48px;
-        height: 48px;
-        border: 4px solid var(--border);
-        border-top-color: var(--orange);
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
+    /* The overlay's spinner is the canonical `.spinner` (`SPINNER_STYLES`). */
 
     /* ── In-button spinner (ConfirmDialog `busy`) ─────────────────── */
 

@@ -16,6 +16,7 @@ use super::{
 };
 use crate::api::{ApiClient, ApiError, UpdateCitationBody};
 use crate::i18n::{I18n, use_i18n};
+use crate::theme::{Theme, ThemeState, active_theme};
 
 /// The views a reader is attaching, and the register they belong to.
 type Attaching = (ArchiveRegister, Vec<ViewPage>);
@@ -44,6 +45,7 @@ pub fn ArchiveSourceLink(
     #[props(default)] on_attached: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
+    let theme = try_use_context::<Signal<ThemeState>>();
     let bridge = super::use_archive_viewer_bridge();
     let api = use_context::<ApiClient>();
     let mut notice = use_signal(|| None::<String>);
@@ -72,7 +74,7 @@ pub fn ArchiveSourceLink(
                     .then(|| AttachSender::new(received.tx()));
                 bridge.open(ArchiveViewerRequest {
                     link,
-                    messages: ArchiveViewerMessages::new(&i18n),
+                    messages: ArchiveViewerMessages::new(&i18n, &active_theme(theme)),
                     attach,
                 });
                 return;
@@ -85,7 +87,9 @@ pub fn ArchiveSourceLink(
         let (offer, bridge) = (offer.clone(), bridge.clone());
         move |_| match &offer {
             ArchiveOffer::Register(link) => open.call(link.clone()),
-            ArchiveOffer::Address(address) => open_address(bridge.as_ref(), address, &i18n),
+            ArchiveOffer::Address(address) => {
+                open_address(bridge.as_ref(), address, &i18n, &active_theme(theme));
+            }
             ArchiveOffer::Find(_) => finding.set(true),
         }
     };
@@ -268,13 +272,18 @@ async fn attachable_views(
 
 /// Opens a portal address as it is: in an archive window on the desktop, in
 /// a new tab on the web.
-fn open_address(bridge: Option<&ArchiveViewerBridge>, address: &ArchiveAddress, i18n: &I18n) {
+fn open_address(
+    bridge: Option<&ArchiveViewerBridge>,
+    address: &ArchiveAddress,
+    i18n: &I18n,
+    theme: &Theme,
+) {
     match bridge {
         Some(bridge) => bridge.open_page(ArchivePageRequest {
             title: address.title.clone(),
             url: address.url.clone(),
             banner: None,
-            messages: ArchiveViewerMessages::new(i18n),
+            messages: ArchiveViewerMessages::new(i18n, theme),
         }),
         None => ArchiveTab::open(&i18n.t("archive_viewer.searching")).load(&address.url),
     }

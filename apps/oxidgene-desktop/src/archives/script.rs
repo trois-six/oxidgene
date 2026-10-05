@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use oxidgene_archives::Method;
 use oxidgene_archives::transport::{ANTI_BOT_JSON, TIMEOUT};
+use oxidgene_ui::components::layout::SPINNER_STYLES;
 
 use super::transport::{Progress, Stage, Texts};
 
@@ -41,12 +42,14 @@ pub(super) fn consent() -> String {
 
 /// Covers the page with the progress overlay of `shown` — the resolution's
 /// overlay and how long its stage has lasted —, or removes the overlay
-/// (`overlay.js`). Its button cancelling the lookup posts
+/// (`overlay.js`), in the application's theme and with its one spinner
+/// ([`SPINNER_STYLES`]). Its button cancelling the lookup posts
 /// `{"kind": "cancel"}`; there is none once the resolution is landing.
 pub(super) fn overlay(shown: Option<(&Progress, Duration)>, texts: &Texts) -> String {
     let overlay = shown.map_or(serde_json::Value::Null, |(progress, lasted)| {
         let landing = matches!(progress.stage, Stage::Opening { .. });
         serde_json::json!({
+            "style": format!(":host {{\n{}}}\n{SPINNER_STYLES}", texts.palette),
             "heading": texts.searching,
             "archive": progress.archive,
             "citation": progress.citation,
@@ -226,6 +229,7 @@ mod tests {
             opening_view: "Opening view {view}…".to_owned(),
             elapsed: "{seconds} s".to_owned(),
             cancel: "Cancel".to_owned(),
+            palette: "    --bg-deep: #000001;\n".to_owned(),
             close: "Close".to_owned(),
             challenge: "Answer the check.".to_owned(),
             #[cfg(any(
@@ -265,6 +269,9 @@ mod tests {
         assert_eq!(
             model(&script),
             serde_json::json!({
+                // The application's theme, on the overlay's host, and its
+                // one spinner.
+                "style": format!(":host {{\n    --bg-deep: #000001;\n}}\n{SPINNER_STYLES}"),
                 "heading": "Looking for the register…",
                 "archive": "Archives of <Example>",
                 "citation": "AD00 - \"Exampleville\" - N - 1877",

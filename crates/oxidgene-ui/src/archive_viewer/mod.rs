@@ -31,6 +31,7 @@ use oxidgene_archives::{
 use uuid::Uuid;
 
 use crate::i18n::I18n;
+use crate::theme::Theme;
 
 pub use register::{ArchiveRegister, ViewPage};
 pub use source_link::ArchiveSourceLink;
@@ -336,13 +337,21 @@ pub struct ArchiveViewerMessages {
     /// label of the button doing so.
     pub attach_hint: String,
     pub attach: String,
+    /// The custom properties of the active theme (`Theme::declarations`),
+    /// which the progress overlay declares over the portal's page so that
+    /// it, and its [`SPINNER_STYLES`](crate::components::layout::SPINNER_STYLES),
+    /// look as they do in the application.
+    pub palette: String,
     /// The text of each banner of [`BANNER_KEYS`].
     banners: Vec<(&'static str, String)>,
 }
 
 impl ArchiveViewerMessages {
-    pub fn new(i18n: &I18n) -> Self {
+    /// The window's texts in the language of `i18n`, and the colours of
+    /// `theme`.
+    pub fn new(i18n: &I18n, theme: &Theme) -> Self {
         Self {
+            palette: theme.declarations(),
             searching: i18n.t("archive_viewer.searching"),
             step_connecting: i18n.t("archive_viewer.step_connecting"),
             step_searching: i18n.t("archive_viewer.step_searching"),
@@ -687,6 +696,9 @@ mod tests {
         };
         let text = banner.text(&i18n);
         assert!(text.contains('5') && !text.contains("{view}"), "{text}");
-        assert_eq!(ArchiveViewerMessages::new(&i18n).banner(banner), Some(text));
+        assert_eq!(
+            ArchiveViewerMessages::new(&i18n, &crate::theme::BUILTIN_THEMES[0]).banner(banner),
+            Some(text)
+        );
     }
 }

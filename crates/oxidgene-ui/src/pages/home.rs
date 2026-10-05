@@ -229,7 +229,7 @@ pub fn Home() -> Element {
         // ── Duplicate blocking overlay ──
         if duplicating_tree_id().is_some() {
             div { class: "import-overlay",
-                div { class: "import-spinner" }
+                div { class: "spinner" }
                 div { class: "import-overlay-text", {i18n.t("common.duplicating")} }
             }
         }
@@ -894,7 +894,7 @@ fn TreeCard(
                     class: "tree-card-import-overlay",
                     role: "status",
                     "aria-live": "polite",
-                    div { class: "tree-card-import-spinner" }
+                    div { class: "spinner" }
                     div { class: "tree-card-import-title", {i18n.t("home.import_in_progress")} }
                 }
             }
@@ -1236,23 +1236,14 @@ const HOME_STYLES: &str = r#"
         padding: var(--space-12);
     }
 
-    .tree-card-import-spinner {
-        width: 28px;
-        height: 28px;
-        border: 3px solid var(--border);
-        border-top-color: var(--orange);
-        border-radius: 50%;
-        animation: tree-import-spin 0.8s linear infinite;
+    .tree-card-import-overlay .spinner {
+        --spinner-size: 28px;
     }
 
     .tree-card-import-title {
         font-family: var(--font-heading);
         font-size: var(--text-95);
         font-weight: 600;
-    }
-
-    @keyframes tree-import-spin {
-        to { transform: rotate(360deg); }
     }
 
     .tree-card-body {

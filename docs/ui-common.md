@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:10:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -793,6 +793,19 @@ One list / grid switch serves the [homepage](ui-home.md)'s trees and the
 one shown pressed (`aria-pressed`, the orange fill of an active choice). Each
 page names its own grid, whose cards differ, in the buttons' accessible names
 and tooltips. Pressing the shown view does nothing.
+
+### 4.17 Spinner
+
+One spinner, `.spinner` (`SPINNER_STYLES` in `components/layout.rs`), marks
+work that blocks what is behind it: the homepage's duplication overlay, a tree
+card while its import runs, and the progress overlay of a desktop archive
+window ([Archive Portals §6.1](archives.md#61-desktop)), which draws it over
+the portal's page with the active theme's custom properties. It is a ring of
+the border colour turning its accent arc, `--spinner-size` scaling ring and
+all (48 pixels by default, 28 on a tree card). A busy button keeps its own
+inline ring in the button's text colour (`.btn-spinner`), which turns with
+the same animation. For a reader who asks for reduced motion it turns three
+times slower.
 
 ## 5. Accessibility
 
