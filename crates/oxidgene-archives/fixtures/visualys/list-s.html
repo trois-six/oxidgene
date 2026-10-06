@@ -1,0 +1,53 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+  <HEAD>
+	<TITLE id="headTitle">Registres paroissiaux et d'état civil</TITLE>
+	<LINK REL="stylesheet" TYPE="text/css" HREF="../slv.css?v=20210722">
+</HEAD>
+<BODY>
+<DIV CLASS="v2Bandeau" ID="haut">
+	<span id="ctlHaut_lblTitre">Salle virtuelle</span>
+</DIV>
+<SCRIPT LANGUAGE="javascript">
+function lettre(valeur)
+{window.location.href="commune.aspx?lettre="+valeur;}
+function lot(id)
+{window.location.href="plage.aspx?id="+id;}
+</SCRIPT>
+<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" CLASS="v2Contenu">
+<TR>
+<TD CLASS="v2Contenu">
+	<DIV CLASS="Title">Recherche alphabétique</DIV>
+	<DIV CLASS="Abecedaire">
+		<A CLASS="Letter  Small" HREF="javascript:lettre('A')">A</A><A CLASS="Letter  Small" HREF="javascript:lettre('B')">B</A><A CLASS="Letter  Small" HREF="javascript:lettre('E')">E</A><A CLASS="Letter  Small" HREF="javascript:lettre('M')">M</A><A CLASS="Letter  Small SelectedLetter" HREF="javascript:lettre('S')">S</A><A CLASS="Letter  Small" HREF="javascript:lettre('Z')">Z</A>
+	</DIV>
+	<DIV CLASS="TMessage">
+	<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" CLASS="v2Liste">
+	<THEAD>
+		<TR>
+			<TD WIDTH="32">&nbsp;</TD>
+			<TD>Paroisse</TD>
+			<TD WIDTH="260">&nbsp;</TD>
+			<TD WIDTH="120">Dates extrêmes</TD>
+		</TR>
+	</THEAD>
+
+		<TR>
+			<TD CLASS="Icon"><A HREF="javascript:voir('Sampleton')" TITLE="Informations générales"><IMG SRC="images/info.gif" BORDER="0" WIDTH="16" HEIGHT="16"></A></TD>
+			<TD><A HREF="javascript:lot('900000000000031')">Sampleton</A>&nbsp;<SPAN CLASS="VoirAussi">&nbsp;</SPAN></TD>
+			<TD><A HREF="javascript:lot('900000000000031')">Saint-Exemple</A>&nbsp;</TD>
+			<TD>1650 - 1792</TD>
+		</TR>
+
+		<TR>
+			<TD CLASS="Icon"><A HREF="javascript:voir('Sampleton')" TITLE="Informations générales"><IMG SRC="images/info.gif" BORDER="0" WIDTH="16" HEIGHT="16"></A></TD>
+			<TD><A HREF="javascript:lot('900000000000032')">Sampleton</A>&nbsp;<SPAN CLASS="VoirAussi">&nbsp;</SPAN></TD>
+			<TD><A HREF="javascript:lot('900000000000032')">Hospice</A>&nbsp;</TD>
+			<TD>1700 - 1792</TD>
+		</TR>
+	</TABLE>
+	</DIV>
+</TD>
+</TR></TABLE>
+</BODY>
+</HTML>

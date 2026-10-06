@@ -1,0 +1,38 @@
+{
+  "id": "fr-ad22",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Côtes-d'Armor",
+  "jurisdiction": ["22"],
+  "areas": ["Côtes-d'Armor", "Côtes-du-Nord"],
+  "citation_codes": ["AD22"],
+  "website": "https://archives.cotesdarmor.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": null,
+      "platform": "visualys",
+      "portal": {
+        "origin": "https://sallevirtuelle.cotesdarmor.fr",
+        "transport": "any",
+        "base": "/EC/ecx",
+        "mode": "localities",
+        "locality_style": "article_suffix"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1921],
+      "platform": "visualys",
+      "portal": {
+        "origin": "https://sallevirtuelle.cotesdarmor.fr",
+        "transport": "any",
+        "base": "/RM/rmx",
+        "mode": "search",
+        "acts": { "RM": "Registre matricule" }
+      }
+    }
+  ]
+}

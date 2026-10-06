@@ -1,0 +1,52 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+  <HEAD>
+	<TITLE id="headTitle">Registres paroissiaux et d'état civil</TITLE>
+	<LINK REL="stylesheet" TYPE="text/css" HREF="../slv.css?v=20210722">
+</HEAD>
+<BODY>
+<DIV CLASS="v2Bandeau" ID="haut">
+	<span id="ctlHaut_lblTitre">Salle virtuelle</span>
+</DIV>
+<SCRIPT LANGUAGE="javascript">
+function openBloc(p)
+{window.location.href="plage.aspx?id=900000000000011&r="+p;}
+</SCRIPT>
+<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" CLASS="v2Contenu">
+<TR>
+<TD CLASS="v2Contenu">
+	<DIV CLASS="Title">Lots d'images</DIV>
+	<DIV CLASS="TMessage">
+		Vous trouverez ci-dessous la liste des actes disponibles de <span id="LabelMessage"> la paroisse de <span class="Important">Bourg (Le)</span></span>, classés par période.
+	</DIV>
+	<DIV CLASS="TMessage">
+	<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" CLASS="v2Liste">
+	<tr id="TableRowRP">
+	<TD colspan="10" CLASS="OpenClose">
+			<DIV CLASS="OpenCloseIcon" ONCLICK="openBloc('0')">
+				<img src="images/tree_plus.gif" id="ImageRP" border="0" />
+			</DIV>
+			<DIV CLASS="OpenCloseMessage" ONCLICK="openBloc('0')">
+				Registres paroissiaux<span id="LabelDateRP"> de 1641 à 1792</span>
+			</DIV>
+		</TD>
+</tr>
+	<tr id="TableRowEC">
+	<TD colspan="10" CLASS="OpenClose">
+			<DIV CLASS="OpenCloseIcon" ONCLICK="openBloc('1')">
+				<img src="images/tree_plus.gif" id="ImageEC" border="0" />
+			</DIV>
+			<DIV CLASS="OpenCloseMessage" ONCLICK="openBloc('1')">
+				Registres d'état civil<span id="LabelDateEC"> de 1793 à 1812</span>
+			</DIV>
+		</TD>
+</tr>
+	</TABLE>
+	</DIV>
+	<DIV CLASS="TMessage">
+	B : baptême, M : mariage, S : sépulture, N : Naissance, D : Décès, TD : Table décennale.
+	</DIV>
+</TD>
+</TR></TABLE>
+</BODY>
+</HTML>

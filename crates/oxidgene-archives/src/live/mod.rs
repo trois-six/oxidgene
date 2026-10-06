@@ -257,20 +257,36 @@ pub trait Probe: Send + Sync {
     fn addresses_views(&self, _collection: &Collection) -> bool {
         true
     }
+
+    /// Whether the portal's pages count a register's images, in its results
+    /// or through [`Probe::images`]. A portal with an address per view whose
+    /// size only its viewer host knows (`false`) has its register cited at
+    /// view [`UNCOUNTED_VIEW`], uncounted, and step 4 checks that view.
+    fn counts_images(&self, _collection: &Collection) -> bool {
+        true
+    }
 }
+
+/// The view an uncounted register with an address per view is cited at:
+/// the second, so that step 4 sees the address open another view than the
+/// first.
+const UNCOUNTED_VIEW: u16 = 2;
 
 /// The probe of a platform.
 pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
     match platform {
         "archinoe" => Some(&crate::platform::Archinoe),
+        "archives32" => Some(&crate::platform::Archives32),
         "arkotheque" => Some(&crate::platform::Arkotheque),
         "bach" => Some(&crate::platform::Bach),
         "gaia" => Some(&crate::platform::Gaia),
         "ligeo" => Some(&crate::platform::Ligeo),
         "mnesys" => Some(&crate::platform::Mnesys),
+        "mnesys-inao" => Some(&crate::platform::MnesysInao),
         "pleade" => Some(&crate::platform::Pleade),
         "prismia" => Some(&crate::platform::Prismia),
         "thot" => Some(&crate::platform::Thot),
+        "visualys" => Some(&crate::platform::Visualys),
         _ => None,
     }
 }
@@ -449,15 +465,8 @@ async fn steps(
     }
     drop(fetch);
     let addresses_views = probe.addresses_views(collection);
-    if register.images.is_none() && addresses_views {
-        return Err(Failure::drift(
-            Step::Discovery,
-            "the chosen register's image count",
-            "none",
-        ));
-    }
-
-    let citation = citation_of(archive, act, &register);
+    let uncounted = uncounted_view(probe, collection, &register)?;
+    let citation = citation_of(archive, act, &register, uncounted);
     report.citation = Some(title_of(&citation));
     resolution(
         registry,
@@ -468,6 +477,30 @@ async fn steps(
         addresses_views,
     )
     .await
+}
+
+/// The view a register whose images were not counted is cited at: the
+/// first of a viewer without an address per view, [`UNCOUNTED_VIEW`] of
+/// one whose portal cannot count them, and a drift for a portal that
+/// should have.
+fn uncounted_view(
+    probe: &dyn Probe,
+    collection: &Collection,
+    register: &Register,
+) -> Result<u16, Failure> {
+    match (
+        probe.addresses_views(collection),
+        probe.counts_images(collection),
+    ) {
+        (false, _) => Ok(1),
+        (true, false) => Ok(UNCOUNTED_VIEW),
+        (true, true) if register.images.is_some() => Ok(1),
+        (true, true) => Err(Failure::drift(
+            Step::Discovery,
+            "the chosen register's image count",
+            "none",
+        )),
+    }
 }
 
 /// Step 2's verdict: the first register a citation can name without being
@@ -521,9 +554,9 @@ fn choose<'r>(
         })
 }
 
-/// The citation of a chosen register, cited at its middle view, or at its
-/// first one when its images are not counted.
-fn citation_of(archive: &Archive, act: &Act, register: &Register) -> CitationParts {
+/// The citation of a chosen register, cited at its middle view, or at
+/// `uncounted` when its images are not counted.
+fn citation_of(archive: &Archive, act: &Act, register: &Register, uncounted: u16) -> CitationParts {
     let year = register.year();
     CitationParts {
         code: archive.citation_codes[0].clone(),
@@ -535,7 +568,9 @@ fn citation_of(archive: &Archive, act: &Act, register: &Register) -> CitationPar
         call_number: register.call_number.as_deref().map(CallNumber::new),
         number: register.numbers.map(|(first, _)| first),
         views: vec![CitedView {
-            view: register.images.map_or(1, |images| images.div_ceil(2)),
+            view: register
+                .images
+                .map_or(uncounted, |images| images.div_ceil(2)),
             side: None,
         }],
         view_count: register.images,

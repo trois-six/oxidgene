@@ -1,0 +1,89 @@
+{
+  "id": "fr-ad32",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Gers",
+  "jurisdiction": ["32"],
+  "areas": ["Gers"],
+  "citation_codes": ["AD32"],
+  "website": "https://www.archives32.fr",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "archives32",
+      "portal": {
+        "origin": "https://www.archives32.fr",
+        "transport": "browser",
+        "path": "/archives_numerisees/portail/etats_civils/rp",
+        "fields": { "locality": "lieu", "former": "ancienne" },
+        "acts": {
+          "B": ["chk_naissance"],
+          "M": ["chk_mariage"],
+          "S": ["chk_deces"]
+        },
+        "views": "contiguous"
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D"],
+      "period": [1792, 1934],
+      "platform": "archives32",
+      "portal": {
+        "origin": "https://www.archives32.fr",
+        "transport": "browser",
+        "path": "/archives_numerisees/portail/etats_civils/ec",
+        "fields": { "locality": "lieu", "former": "ancienne" },
+        "acts": {
+          "N": ["chk_naissance"],
+          "P": ["chk_pub_mariage"],
+          "M": ["chk_mariage"],
+          "D": ["chk_deces"]
+        },
+        "views": "contiguous"
+      }
+    },
+    {
+      "id": "tables",
+      "acts": ["TD"],
+      "period": [1792, 1932],
+      "platform": "archives32",
+      "portal": {
+        "origin": "https://www.archives32.fr",
+        "transport": "browser",
+        "path": "/archives_numerisees/portail/etats_civils/td",
+        "fields": { "locality": "lieu", "former": "ancienne" },
+        "acts": { "TD": ["chk_naissance", "chk_mariage", "chk_deces"] },
+        "views": "contiguous"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1836, 1946],
+      "platform": "archives32",
+      "portal": {
+        "origin": "https://www.archives32.fr",
+        "transport": "browser",
+        "path": "/archives_numerisees/portail/recensement_population",
+        "fields": { "locality": "LIEU", "former": "ANCIENNE" },
+        "views": "listed"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "period": null,
+      "platform": "archives32",
+      "portal": {
+        "origin": "https://www.archives32.fr",
+        "transport": "browser",
+        "path": "/archives_numerisees/portail/successions_absences",
+        "fields": { "locality": "lieu" },
+        "views": "listed"
+      }
+    }
+  ]
+}

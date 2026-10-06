@@ -14,6 +14,7 @@
 //! assembles the `View` target of the chosen register.
 
 mod archinoe;
+mod archives32;
 mod arkotheque;
 mod bach;
 mod gaia;
@@ -22,12 +23,14 @@ mod ligeo;
 pub(crate) mod locality;
 pub(crate) mod markup;
 mod mnesys;
+mod mnesys_inao;
 mod pleade;
 mod prismia;
 pub(crate) mod query;
 pub(crate) mod select;
 mod thot;
 pub(crate) mod view;
+mod visualys;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -35,15 +38,18 @@ use std::pin::Pin;
 use serde::{Deserialize, Serialize};
 
 pub use archinoe::Archinoe;
+pub use archives32::Archives32;
 pub use arkotheque::Arkotheque;
 pub use bach::Bach;
 pub use gaia::Gaia;
 pub use ligeo::Ligeo;
 pub use mnesys::Mnesys;
+pub use mnesys_inao::MnesysInao;
 pub use pleade::Pleade;
 pub use prismia::Prismia;
 pub(crate) use query::Query;
 pub use thot::Thot;
+pub use visualys::Visualys;
 
 use crate::catalog::{Archive, CatalogError, Collection};
 use crate::citation::CitationParts;
@@ -126,13 +132,16 @@ pub fn builtin() -> Vec<Box<dyn Platform>> {
     vec![
         Box::new(Arkotheque),
         Box::new(Archinoe),
+        Box::new(Archives32),
         Box::new(Bach),
         Box::new(Gaia),
         Box::new(Ligeo),
         Box::new(Mnesys),
+        Box::new(MnesysInao),
         Box::new(Pleade),
         Box::new(Prismia),
         Box::new(Thot),
+        Box::new(Visualys),
     ]
 }
 

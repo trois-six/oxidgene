@@ -102,6 +102,9 @@ async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise
     } catch (error) {
         return unreachable("opening", "the target page", error);
     }
+    if (viewer.landing) return landing(page, viewer.landing, viewer.licence);
+    if (!viewer.view) return drift("opening", `the view or landing of ${opening.platform} in e2e/archives/viewers.ts`, "neither");
+    const view = viewer.view;
     let shown: number | null = null;
     const deadline = Date.now() + VIEWER_TIMEOUT_MS;
     while (Date.now() < deadline) {
@@ -109,7 +112,7 @@ async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise
             const licence = page.locator(viewer.licence).first();
             if (await licence.isVisible().catch(() => false)) await licence.click();
         }
-        shown = await numberShown(page, viewer.view, "first");
+        shown = await numberShown(page, view, "first");
         if (shown === opening.view) break;
         await page.waitForTimeout(500);
     }
@@ -126,6 +129,28 @@ async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise
         if (count !== opening.view_count) return drift("opening", `${opening.view_count} views`, `${count ?? "no"} views`);
     }
     return null;
+}
+
+// A target that is a portal's entry rather than its viewer: the reuse
+// licence shows and is accepted, as a reader accepts it, then the page
+// behind it, which the reader searches from.
+async function landing(page: Page, behind: string, licence?: string): Promise<Failure | null> {
+    let accepted = !licence;
+    const deadline = Date.now() + VIEWER_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (licence && !accepted) {
+            const button = page.locator(licence).first();
+            if (await button.isVisible().catch(() => false)) {
+                await button.click();
+                accepted = true;
+            }
+        }
+        if (accepted && (await page.locator(behind).first().isVisible().catch(() => false))) return null;
+        await page.waitForTimeout(500);
+    }
+    const guard = antiBotPage(await page.content().catch(() => ""));
+    if (guard) return { step: "opening", outcome: "challenged", expected: "the portal's entry", received: `an anti-bot page in place of the entry: ${antiBotName(guard)}` };
+    return drift("opening", accepted ? "the page behind the reuse licence" : "the reuse licence", "not shown");
 }
 
 interface Loaded {

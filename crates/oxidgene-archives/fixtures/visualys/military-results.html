@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+  <HEAD>
+	<TITLE id="headTitle">Registres paroissiaux et d'état civil</TITLE>
+	<LINK REL="stylesheet" TYPE="text/css" HREF="../slv.css?v=20210722">
+</HEAD>
+<BODY>
+<DIV CLASS="v2Bandeau" ID="haut">
+	<span id="ctlHaut_lblTitre">Salle virtuelle</span>
+</DIV>
+<SCRIPT LANGUAGE="javascript">
+function mini(plage)
+{
+	var vUrl="planche.aspx?id="+plage;
+	window.location.href=vUrl;
+}
+</SCRIPT>
+<form method="post" action="./commune.aspx?lettre=*" id="frmRecherche">
+<div class="aspNetHidden">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="STATE/1+2=" />
+</div>
+<div class="aspNetHidden">
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="0000AAAA" />
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="CHECK/3+4=" />
+</div>
+<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" CLASS="v2Contenu">
+<TR>
+<TD CLASS="v2Contenu">
+	<DIV CLASS="Title">Recherche</DIV>
+			<LABEL CLASS="M" FOR="lstAnnee1">Année :</LABEL><select name="lstAnnee1" id="lstAnnee1" class="Textbox S">
+	<option selected="selected" value=""></option>
+	<option value="1867">1867</option>
+	<option value="1868">1868</option>
+	<option value="1869">1869</option>
+	<option value="1870">1870</option>
+	<option value="1871">1871</option>
+	<option value="1872">1872</option>
+	<option value="1873">1873</option>
+	<option value="1874">1874</option>
+	<option value="1875">1875</option>
+	<option value="1876">1876</option>
+	<option value="1877">1877</option>
+	<option value="1878">1878</option>
+	<option value="1879">1879</option>
+	<option value="1880">1880</option>
+	<option value="1881">1881</option>
+	<option value="1882">1882</option>
+	<option value="1883">1883</option>
+	<option value="1884">1884</option>
+	<option value="1885">1885</option>
+	<option value="1886">1886</option>
+	<option value="1887">1887</option>
+	<option value="1888">1888</option>
+	<option value="1889">1889</option>
+	<option value="1890">1890</option>
+	<option value="1891">1891</option>
+	<option value="1892">1892</option>
+	<option value="1893">1893</option>
+	<option value="1894">1894</option>
+	<option value="1895">1895</option>
+	<option value="1896">1896</option>
+	<option value="1897">1897</option>
+	<option value="1898">1898</option>
+	<option value="1899">1899</option>
+	<option value="1900">1900</option>
+	<option value="1901">1901</option>
+	<option value="1902">1902</option>
+	<option value="1903">1903</option>
+	<option value="1904">1904</option>
+	<option value="1905">1905</option>
+	<option value="1906">1906</option>
+	<option value="1907">1907</option>
+	<option value="1908">1908</option>
+	<option value="1909">1909</option>
+	<option value="1910">1910</option>
+	<option value="1911">1911</option>
+	<option value="1912">1912</option>
+	<option value="1913">1913</option>
+	<option value="1914">1914</option>
+	<option value="1915">1915</option>
+	<option value="1916">1916</option>
+	<option value="1917">1917</option>
+	<option value="1918">1918</option>
+	<option value="1919">1919</option>
+	<option value="1920">1920</option>
+	<option value="1921">1921</option>
+</select>
+			<LABEL CLASS="M" FOR="lstAnnee2">Jusqu'à :</LABEL><select name="lstAnnee2" id="lstAnnee2" class="Textbox S">
+	<option selected="selected" value=""></option>
+	<option value="1867">1867</option>
+	<option value="1868">1868</option>
+	<option value="1869">1869</option>
+	<option value="1870">1870</option>
+	<option value="1871">1871</option>
+	<option value="1872">1872</option>
+	<option value="1873">1873</option>
+	<option value="1874">1874</option>
+	<option value="1875">1875</option>
+	<option value="1876">1876</option>
+	<option value="1877">1877</option>
+	<option value="1878">1878</option>
+	<option value="1879">1879</option>
+	<option value="1880">1880</option>
+	<option value="1881">1881</option>
+	<option value="1882">1882</option>
+	<option value="1883">1883</option>
+	<option value="1884">1884</option>
+	<option value="1885">1885</option>
+	<option value="1886">1886</option>
+	<option value="1887">1887</option>
+	<option value="1888">1888</option>
+	<option value="1889">1889</option>
+	<option value="1890">1890</option>
+	<option value="1891">1891</option>
+	<option value="1892">1892</option>
+	<option value="1893">1893</option>
+	<option value="1894">1894</option>
+	<option value="1895">1895</option>
+	<option value="1896">1896</option>
+	<option value="1897">1897</option>
+	<option value="1898">1898</option>
+	<option value="1899">1899</option>
+	<option value="1900">1900</option>
+	<option value="1901">1901</option>
+	<option value="1902">1902</option>
+	<option value="1903">1903</option>
+	<option value="1904">1904</option>
+	<option value="1905">1905</option>
+	<option value="1906">1906</option>
+	<option value="1907">1907</option>
+	<option value="1908">1908</option>
+	<option value="1909">1909</option>
+	<option value="1910">1910</option>
+	<option value="1911">1911</option>
+	<option value="1912">1912</option>
+	<option value="1913">1913</option>
+	<option value="1914">1914</option>
+	<option value="1915">1915</option>
+	<option value="1916">1916</option>
+	<option value="1917">1917</option>
+	<option value="1918">1918</option>
+	<option value="1919">1919</option>
+	<option value="1920">1920</option>
+	<option value="1921">1921</option>
+</select>
+			<LABEL CLASS="M" FOR="lstBureau">Bureau :</LABEL><select name="lstBureau" id="lstBureau" class="Textbox S">
+	<option selected="selected" value=""></option>
+	<option value="Exampleville">Exampleville</option>
+	<option value="Sampleton">Sampleton</option>
+	<option value="Sampleton Exemple">Sampleton Exemple</option>
+</select>
+			<LABEL CLASS="M" FOR="lstRegistre">Type :</LABEL><select name="lstRegistre" id="lstRegistre" class="Textbox S">
+	<option selected="selected" value=""></option>
+	<option value="Registre matricule">Registre matricule</option>
+	<option value="Table">Table</option>
+</select>
+			<input type="submit" name="btnFind" value="Rechercher" id="btnFind" />
+	<DIV CLASS="TMessage">Sélectionnez l'un des lots d'images ci-dessous.</DIV>
+	<DIV CLASS="TMessage">
+	<TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0" CLASS="v2Liste">
+	<THEAD>
+	<TR>
+		<TD WIDTH="20">&nbsp;</TD>
+		<TD>Bureau</TD>
+		<TD>Année</TD>
+		<TD>Cote</TD>
+		<TD>Registre</TD>
+	</TR>
+	</THEAD>
+		<TR>
+			<TD ALIGN="center"><IMG SRC="images/transp.gif" BORDER="0" WIDTH="16" HEIGHT="16"></TD>
+			<TD>Exampleville</TD>
+			<TD>1900</TD>
+			<TD>01R9001</TD>
+			<TD><A HREF="javascript:mini('900000000000301')">Registre matricule</A></TD>
+		</TR>
+		<TR>
+			<TD ALIGN="center"><IMG SRC="images/transp.gif" BORDER="0" WIDTH="16" HEIGHT="16"></TD>
+			<TD>Exampleville</TD>
+			<TD>1900</TD>
+			<TD>01R9002</TD>
+			<TD><A HREF="javascript:mini('900000000000302')">Registre matricule</A></TD>
+		</TR>
+		<TR>
+			<TD ALIGN="center"><IMG SRC="images/transp.gif" BORDER="0" WIDTH="16" HEIGHT="16"></TD>
+			<TD>Sampleton</TD>
+			<TD>1900</TD>
+			<TD>01R9010</TD>
+			<TD><A HREF="javascript:mini('900000000000303')">Registre matricule</A></TD>
+		</TR>
+	</TABLE>
+	</DIV>
+</TD>
+</TR></TABLE>
+</form>
+</BODY>
+</HTML>

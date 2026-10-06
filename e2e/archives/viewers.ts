@@ -7,7 +7,12 @@ export interface Viewer {
     licence?: string;
     // The element showing the one-based view number: an input's value or an
     // element's text, whose first number is read.
-    view: string;
+    view?: string;
+    // For a portal whose target is the page a reader starts from rather than
+    // its viewer — its entry, behind a reuse licence the reader accepts —
+    // the element the page behind the licence shows; `view` is then not
+    // read, and the licence must have shown.
+    landing?: string;
     // The element showing the register's view count, if the viewer shows it:
     // its last number is read (`/ 46`, `5/267`).
     viewCount?: string;
@@ -22,6 +27,13 @@ export const viewers: Record<string, Viewer> = {
     archinoe: {
         view: "#visu_pagination",
         viewCount: "#visu_pagination",
+    },
+    // The Gers portal: `k / total` in the viewer's list of views, whose
+    // chosen option is the view the address names.
+    archives32: {
+        view: "select#fichier option[selected]",
+        viewCount: "select#fichier option[selected]",
+        blockImages: true,
     },
     // Arkothèque 8: the viewer's own test hooks.
     arkotheque: {
@@ -55,6 +67,13 @@ export const viewers: Record<string, Viewer> = {
         viewCount: ".media-browse .page-count",
         blockImages: true,
     },
+    // The older Mnesys interface's viewer host ("Visualiseur v2"): the
+    // current view's input and the count beside it.
+    "mnesys-inao": {
+        view: "#inputvue_actuelle",
+        viewCount: "#total",
+        blockImages: true,
+    },
     // Pleade: Mirador 3 (`Vue <input> / 269` in the canvas navigation) or
     // Mirador 2 (the highlighted thumbnail's label, `82 objets`), both of
     // which number their views from the manifest, without the images.
@@ -73,6 +92,14 @@ export const viewers: Record<string, Viewer> = {
     thot: {
         view: "input#imageNum",
         viewCount: "h3#imageNumMax",
+        blockImages: true,
+    },
+    // Visualys (the Côtes-d'Armor "salle virtuelle"): the target is a site's
+    // entry, whose reuse licence the reader accepts before the search page —
+    // the alphabetical list of localities, or the search form.
+    visualys: {
+        licence: "#btnAccepter",
+        landing: "div.Abecedaire, form#frmRecherche",
         blockImages: true,
     },
 };

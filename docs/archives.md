@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T09:12:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -236,13 +236,16 @@ crates/oxidgene-archives/
       view.rs       The View target of a chosen register (§5.2, §7)
       arkotheque/   Arkothèque (1 égal 2) (§4.3); each adapter's live.rs is its live probe (§9.1)
       archinoe/     Archinoë (EidoPolis): `registre`, `seriel` and `ead` searches (§4.6)
+      archives32/   The Gers portal's modules (§4.13)
       bach/         Bach (Anaphore): classification scheme, finding-aid trees, viewer (§4.11)
       gaia/         GAIA 9, the `/mdr/` search wizard (§4.8)
       ligeo/        Ligeo Diffusion (Boscop): settings, results, locality cells (§4.5)
       mnesys/       Mnesys Expo (Naoned) (§4.4)
+      mnesys_inao/  The older Mnesys interface: guided searches, notices (§4.14)
       pleade/       Pleade (AJLSM): `form` and `tree` searches (§4.10)
       prismia/      Prismia Vision (EidoPolis) (§4.7)
       thot/         THOT, an ASP portal of search modules (§4.9)
+      visualys/     Visualys, the Côtes-d'Armor "salle virtuelle" (§4.12)
     transport.rs    The request contract, the PortalFetch and PortalTransport
                     traits, and the native implementation
     live/           The live checks (feature `live`, §9.1): steps 1 to 3,
@@ -305,7 +308,11 @@ archive in the catalogue, therefore covers many archives at once. Two more
 products, Ligeo and Archinoë / Prismia Vision, bring three to four adapters
 to about two thirds of the departments ([§11](#11-french-departmental-portals)),
 and two engines each serve two archives: THOT (Ille-et-Vilaine, Corsica) and
-Pleade (Mayenne, Pyrénées-Atlantiques).
+Pleade (Mayenne, Pyrénées-Atlantiques). Some archives run software no other
+departmental archive is known to run — the Côtes-d'Armor "salle virtuelle",
+the Gers portal, the Savoie archives' older Mnesys interface —: each has an
+adapter of its own, since a portal without one stays unreachable from a
+citation.
 
 ### 4.2 The adapter contract
 
@@ -392,10 +399,12 @@ download beyond the search it performs, no image request.
 
 `validate` also refuses a collection holding a series (§3.1) that the
 adapter cannot search, naming the series code: Arkothèque, Mnesys, Ligeo,
-GAIA, THOT, Pleade's `tree` mode and Bach search series collections (§4.3,
-§4.4, §4.5, §4.8, §4.9, §4.10, §4.11); Archinoë, Prismia Vision and Pleade's `form`
-mode, whose observed searches serve acts and tables only, refuse them until
-a portal's series search has been observed.
+GAIA, THOT, Pleade's `tree` mode, Bach, Visualys's `search` mode, the Gers
+portal and the older Mnesys interface search series collections (§4.3,
+§4.4, §4.5, §4.8, §4.9, §4.10, §4.11, §4.12, §4.13, §4.14); Archinoë,
+Prismia Vision, Pleade's `form` mode and Visualys's `localities` mode, whose
+observed searches serve acts and tables only, refuse them until a portal's
+series search has been observed.
 
 **Two transports.** Some portals answer any HTTP client; others sit behind a
 JavaScript anti-bot challenge that only a browser passes (the Sarthe portal
@@ -736,8 +745,8 @@ description. The other portals serve no IIIF service (`location.iiif` is
 null in the viewer's answers, the manifest answers 404), or one under terms
 that require a licence (Doubs), or show a viewer whose reuse conditions
 forbid public redistribution: they stay `portal`, whatever their site's
-reuse page says. Savoie runs an older Mnesys interface (§11.3) and is not
-covered.
+reuse page says. Savoie runs an older Mnesys interface, which has its own
+adapter (§4.14).
 
 **Not covered.** Name indexes whose rows are persons, not registers — the
 Calvados military-register search (one row per conscript) and the Somme
@@ -1418,6 +1427,269 @@ collection the classification scheme, a page the anti-bot check guards, so
 that the window passes it before the requests. Requests: 3 or 4 (2 or 3 for
 a `document` inventory); `robots.txt` asks `Crawl-delay: 10`, which the
 live checks follow.
+
+### 4.12 Visualys
+
+Observed on the Côtes-d'Armor archives' "salle virtuelle"
+(`sallevirtuelle.cotesdarmor.fr`, 2026-10-05 and 2026-10-06), an ASP.NET
+WebForms application whose windows are named `VisualysInfo` and
+`VisualysConsult`; no other portal is known to run it. One origin serves a
+site per family of documents, `/<family>/<site>`: `/EC/ecx` for the parish
+and civil registers, `/RM/rmx` for the military registers, others for maps,
+notaries' repertories and the registration offices' *contrôle des actes*.
+A visitor enters a site by its home page's "Entrer",
+`connexion.aspx?ref=demo&res=<width>x<height>`, which opens an ASP.NET
+session and shows the archive's reuse licence (`licence.aspx`); accepting
+it (`btnAccepter`) leads to the site's search page (`commune.aspx`). The
+portal does not enforce the licence — every page answers a session that
+never accepted it, and the viewer (`consult.aspx?image=<id>`) answers
+without a session — but the reader must pass it: OxidGene never accepts it
+on the reader's behalf and never opens a page beyond it. The adapter
+therefore searches as a visitor whose licence is pending, only to tell
+whether the cited register is there, and every target is the site's entry,
+where the reader passes the licence and goes on to the register. The images
+are plain JPEG files, with no IIIF service and no call number on the
+registers' lots: the archive is `display: "portal"`. The `portal` settings
+are:
+
+| Setting | Content |
+|---|---|
+| `origin`, `transport` | The portal and its access; `any`, the portal having no anti-bot measure. |
+| `base` | The site's path: `/EC/ecx`, `/RM/rmx`. |
+| `mode` | `localities` (the registers) or `search` (the military registers). |
+| `locality_style` | `localities` mode: how the alphabetical list writes a locality, `article_suffix` (`Bourg (Le)`). |
+| `acts` | `search` mode: the kind-of-register select's value of each series (`{"RM": "Registre matricule"}`). |
+
+A `localities` collection holds acts and tables only.
+
+Resolution, `localities`:
+
+1. `GET <base>/connexion.aspx?ref=demo&res=1920x1080`: the visitor's
+   session, the redirect to the licence page followed. Its acceptance is
+   never posted.
+2. `GET <base>/commune.aspx?lettre=<initial>`, the initial of the cited
+   locality as the list writes it (`B` for `Bourg (Le)`): rows of a
+   locality (`javascript:lot('<id>')`), with the parish or body a row is
+   for when a town's are listed apart (`Saint-Exemple`, `Hospice`, `Etat
+   civil protestant`) and the extreme dates. The rows naming the locality
+   are kept: the cited parish's when it has one, otherwise the locality's
+   own (listed without a parish), otherwise all of them. None, or more than
+   three, gives `Results` with that number.
+3. For each row, `GET <base>/plage.aspx?id=<id>`: the locality's lots in two
+   blocks, parish registers and civil status, each listed only while the
+   session holds it open (its icon `tree_moins`, closed `tree_plus`). A
+   block holding the cited act — baptisms and burials in the parish block,
+   births, deaths and tables in the civil one, a marriage cited alone by its
+   year (before 1793 in the first, from 1793 in the second, both without a
+   year) — that is closed is opened by its toggle, `GET
+   …&r=0` or `…&r=1`, which redirects to the page; one already open (the
+   window's session from an earlier lookup) is not toggled, which would
+   close it. Each lot gives its first and last years, its acts as codes
+   (`BMS`, `N`, `TD`) and its image count.
+4. One lot is selected as for Arkothèque (§4.3, step 3), the row's parish
+   as its parish. The target is `View` with no views, the lot's image count
+   and no call number, at the site's entry: the window names the view to go
+   to (§6.1), over the licence page and the pages the reader passes on to
+   the lot. Several lots or none give `Results` at the same entry.
+
+Resolution, `search`:
+
+1. The visitor's session, as above.
+2. `GET <base>/commune.aspx?lettre=*`: the search form (`frmRecherche`),
+   whose state fields (`__VIEWSTATE`, `__EVENTVALIDATION`) the search
+   posts back, with its selects: years (`lstAnnee1`), offices
+   (`lstBureau`) and kinds of register (`lstRegistre`), which must offer
+   the settings' value.
+3. `POST` the form's action with its state, `lstAnnee1=<class>` when the
+   cited year is listed, `lstBureau=<office>` when the cited locality is an
+   office, the settings' kind and `btnFind`. The portal requires a year or
+   an office: a citation with neither gives `Results` built without a
+   search. The answer lists the volumes, office, class, call number and
+   lot, without image counts.
+4. One volume is selected as in §4.3 step 3, the office as its locality —
+   any office's when the cited locality names none —, the call number
+   telling a class's volumes apart. The target is `View` with no views and
+   the volume's call number, at the site's entry.
+
+`results_url` and every target are the site's entry; the window's start
+page is the sites' shared stylesheet (`/<family>/slv.css`), which opens no
+session. Requests: the registers 3 to 6 (entry, list, lots, up to two
+toggles, each followed by its page), the military registers 3. A citation
+names no image on this portal, and the view to go to is the reader's: the
+target lands before the licence whatever the portal's own addresses.
+
+**Collections.** The registers (`/EC/ecx`: parish registers, civil status
+to 1922 and decennial tables, one alphabetical list) and the military
+registers (`/RM/rmx`, classes 1867–1921, by class, office and kind). Not
+covered: the census lists and the tables of successions, published on the
+archive's finding-aid portal (`recherche.archives.cotesdarmor.fr`), another
+engine, which did not answer during the survey; the *contrôle des actes*
+(`/SA/sax`, 1693–1791, by registration office), which no series code names;
+and the military registers' alphabetical tables (the kind `Table`), which
+are not registers.
+
+**Etiquette.** The portal publishes no `robots.txt` (an IIS `404`).
+
+### 4.13 Gers portal
+
+Observed on the Gers archives' portal of digitized archives
+(`www.archives32.fr/archives_numerisees/portail/`, 2026-10-05 and
+2026-10-06), a PHP application of its own (Bootstrap and DataTables). Each
+family of documents is a module with a search form,
+`<module>/recherche/`, and a viewer, `<module>/visu/`: the civil status
+(`etats_civils/ec`), the parish registers (`etats_civils/rp`), the decennial
+tables (`etats_civils/td`), the censuses (`recensement_population`) and the
+tables of successions and absences (`successions_absences`). Every page
+sits behind the bot-mitigation redirect of §4.2 (`/redirect_<token>/…`),
+which only a browser passes: every collection is `transport: "browser"`.
+The civil status was digitized with FamilySearch, whose written
+authorisation its massive reuse requires for ten years, and the viewer
+serves plain images: the archive is `display: "portal"`. The `portal`
+settings are:
+
+| Setting | Content |
+|---|---|
+| `origin`, `transport` | The portal and its access, `browser`. |
+| `path` | The module's path: `/archives_numerisees/portail/etats_civils/ec`. |
+| `fields` | The names of the form's locality lists: `locality` (`lieu`, `LIEU`; the communes, or the registration offices of the tables of successions) and, where the form has one, `former` (`ancienne`, the former communes). |
+| `acts` | The checkboxes searching each document kind (`{"N": ["chk_naissance"], "P": ["chk_pub_mariage"]}`, a table's every box); a combined act searches each kind's, banns the marriages' where the form has no box of their own. Left out for a module without kinds (censuses, tables of successions). |
+| `views` | `contiguous` where a register's views have consecutive identifiers (civil status, parish registers, tables), `listed` where only the viewer's list orders them (censuses, tables of successions). |
+
+Resolution:
+
+1. `POST <path>/recherche/`, form-encoded: the locality list's field set to
+   the cited locality as written, the former communes' to `all`, empty
+   years — the portal's year filter returns registers outside the years
+   asked, so the periods decide —, the act's checkboxes, `valider`. The
+   answer repeats the form with its lists, whose values are the labels
+   (some with a trailing space the search needs). When the list does not
+   hold the cited locality as written, the search is sent again with the
+   label naming it, case, accents and punctuation aside — a commune's, or
+   failing one a former commune's (`lieu=all&ancienne=<label>`) —; no
+   label gives `Results` with no match. An answer without the locality list
+   is a challenge when it bears one's signature, a changed shape otherwise.
+2. The answer's table (`table.tableau_td`) lists every register at once,
+   its columns named by their headings (`Commune` or `Bureau`, `Ancienne
+   commune`, `Paroisse`, `Annexe`, `Période` or `Année`, `Cote`, `Contenu`,
+   `Vues`; commented-out headings ignored): the locality (the former
+   commune's when one was searched), the parish or else the annex, the
+   period, the call number, the acts from the content's first line
+   (`Naissances / Mariages / Décès`, before notes that may name other acts),
+   the image count (`393 vues`) and the viewer's query
+   (`../visu/?id=<register>&fichier=<first view>&lieu=…&annee=…`, `td=`,
+   `rec=` or `sa=` by module).
+3. One register is selected as for Arkothèque (§4.3, step 3): the
+   decennial tables list two copies of each decade, the court clerk's and
+   the prefecture's, told apart only by the call number or the image count.
+4. The target is the viewer at each cited view: `fichier=<first + n − 1>`
+   for `contiguous` views, built without a request; for `listed` views, `GET
+   <path>/visu/?<query>`, whose `select#fichier` lists the views'
+   identifiers in order, gives view `n`'s and the count. A view beyond the
+   count opens the register on its first view (§7); a citation naming no
+   view sends no viewer request.
+
+`results_url` and the target of `Results` are the module's search form,
+since its search is a `POST`; the window's start page is the site's
+`/robots.txt`, behind the same redirect. Requests: 1 search, 2 when the
+list writes the locality otherwise, plus 1 viewer page for a `listed`
+module's cited view.
+
+**Collections.** Parish registers (to 1792), civil status (1792–1934),
+decennial tables (1792–1932), censuses (1836–1946) and tables of
+successions and absences (by registration office). Not covered: the
+military registers, which the portal searches by the soldier's name only
+(`matricules_militaires/rm/`), their alphabetical tables by class
+(`…/trm/`), which are not registers, and a third military search whose page
+answers "not found".
+
+**Etiquette.** The site's `robots.txt` disallows only `/wp-admin/`.
+
+### 4.14 Older Mnesys interface
+
+Observed on the Savoie archives' search (`recherche-archives.savoie.fr`,
+2026-10-05 and 2026-10-06), which runs the interface Naoned's Mnesys had
+before Mnesys Expo ("iNAO, powered by Naoned"): nothing of the Expo
+protocol (§4.4) applies. Each guided search (`/?id=recherche_guidee_…`)
+is a `GET` form whose fields are named after the finding aids' elements: a
+locality matched by word against the place index (`form_search_geogname`,
+so that `Exampleville` also finds `Exampleville-le-Vieux`), the dates
+(`form_search_unitdate`, the exact year in `form_search_unitdate3` as the
+page's script copies it), the digitized filter (`form_search_dao=oui`), and
+selects whose generated names (`form_search_v2_field_<id>`) are matched,
+through a companion field (`form_req_v2_field_<id>={:unittitle}__VAL_`),
+against the nodes' titles: the kind of act, the military class. Its hits
+are nodes of EAD finding aids — registers, and the headings over them —
+twenty to a page, the further pages kept in the session. A register's
+notice links its images on a viewer host of its own
+(`archives-numeriques.savoie.fr`), at the register's ARK, whose viewer
+opens view `n` with `?vue=<n>` and keeps it through its redirect. That host
+turns away clients other than browsers and, until it is fixed, serves its
+certificate without its issuer (§6.1): the adapter never requests it. Its
+footer requires an authorisation for any Internet diffusion, and it serves
+no IIIF: the archive is `display: "portal"`. The `portal` settings are:
+
+| Setting | Content |
+|---|---|
+| `origin`, `transport` | The search's host and its access, `any`. |
+| `form` | The guided search: `recherche_guidee_etat_civil_web`, `…_recensement_population_web`, `…_registres_matricules_web`. |
+| `locality` | The place field, `geogname`; left out where the search has none (the military registers, whose recruitment office is one). |
+| `act`, `acts` | The kind-of-document select (`v2_field_<id>`) and its value for each document kind (`Baptêmes OU naissances`, `Tables`); a combined act by its first kind's. Left out for a search without kinds (censuses). |
+| `year` | A title-matched select carrying the year, `field` and `value` with one `{year}` (`"Classe {year}"`, quotes included); the date fields otherwise. |
+| `viewer` | The viewer host's origin, where the registers' ARKs open. |
+
+Resolution:
+
+1. `GET /?<the form's fields>&display_thesaurus=autocomplete&action=search&id=<form>`:
+   the cited locality as written, the year (the date fields, or the
+   `year` select's value), digitized documents only, the kind's value. The
+   answer counts its hits (`span.nb_reponses`: `20 réponses`, `Aucune
+   réponse`) and lists them (`div.list li`): the period (`div.date`), the
+   call number (`div.cote strong`), the title and the notice's link
+   (`div.title a`), the breadcrumb of the node's ancestors (`div.ariane`),
+   older copies of the cells left in comments ignored. An answer without a
+   count is the form again, which shows no hit, or a challenge or a
+   changed shape.
+2. A node without a call number is a heading over registers that the search
+   lists themselves, and is left out. A node's place is the breadcrumb entry
+   or the title's end after a dash (`Registre paroissial : mariages. -
+   Exampleville.`) naming the cited locality, each read up to its first
+   full stop (`Exampleville. 1876-1936 (6M 1-12)`); failing one, an entry
+   holding the cited name in a longer one, which the word search matched
+   too (`Exampleville-le-Vieux.`, a list `- Sampleton, Exampleville,…`), is
+   another place; failing both — a title cut short, a collection's heading —
+   the node is the place index's answer for the cited locality. Its parish is the
+   breadcrumb's next entry when that names no kind; its act the kinds its
+   title and breadcrumb name, a table (`Table chrono-alphabétique des
+   baptêmes…`, `Tables décennales…`) being `TD`, the portal's own filter
+   for a series; the matricules a military register's title spans
+   (`volume 2, n° 503 à 1003`).
+3. One register is selected as for Arkothèque (§4.3, step 3); while none is
+   singled out, further pages, `GET /?id=<form>&doc=&page=<n>&page_ref=`
+   in the session, are read, five pages at most. A military register is
+   searched without a locality, and found by its class and matricules.
+4. `GET` the chosen node's notice (`/?id=<form>_detail&doc=…&page_ref=<node>`):
+   its link to the digitized document (`a.media_link`, `- Voir : <call
+   number>`) must be an ARK of the `viewer` host. The target of view `n` is
+   `<ARK>?vue=<n>`, built without any request to that host, `View` with
+   every cited view and no view count, since only the viewer host knows the
+   register's size.
+
+`results_url` and the target of `Results` are the search's own address,
+built without a request; the window's start page is the search host's
+`/robots.txt`. Requests: 2 (the search and the notice), one more per
+further page.
+
+**Collections.** The registers (parish registers, civil status and their
+tables, 1501–1932, in the communal, diocesan and court-clerk series), the
+censuses (1561–1946 online) and the military registers (classes 1867–1921).
+Not covered: the military registers' alphabetical repertories, which are not
+registers, and the land registers and notarial searches.
+
+**Etiquette.** `robots.txt` disallows `/?*action=search` and the other
+query actions: the search runs only on a reader's click, one per lookup
+(§8), as for Ligeo. The viewer host sends a client naming OxidGene to
+another site, the live check's browser included: its step 4 ends
+`challenged`, unverified (§9.1), while steps 1 to 3 run on the search host.
 
 ## 5. Contract
 
@@ -2204,7 +2476,10 @@ renumbering its registers. For each collection of each archive, in order:
    view number. A register without an address per view whose count would
    cost an opening of the viewer (THOT's `views: "register"`: each opening
    writes a file on the server) is not counted, and cited at its first
-   view. For a series the locality
+   view; one with an address per view whose size only a viewer host the
+   check does not request knows (the older Mnesys interface, whose probe
+   says so) is cited at its second view, uncounted, so that step 4 sees the
+   address open another view than the first. For a series the locality
    is what its search filters by — the commune of a census, the recruitment
    bureau of a military register — and registers that show the numbers they
    span (the volumes of one class) are also told apart by them.
@@ -2226,7 +2501,9 @@ renumbering its registers. For each collection of each archive, in order:
 4. **Opening.** The target loads in a browser and the portal's viewer shows
    the cited view: the view number it displays equals the cited one, once
    its reuse licence, if any, is accepted, and its view count, where it
-   shows one, equals the register's.
+   shows one, equals the register's. A target that is the portal's entry
+   rather than its viewer (Visualys, §4.12) must show its reuse licence,
+   which the check accepts, and then the page behind it.
 5. **Images**, for a `display: "iiif"` archive: the picture and the
    thumbnail load as images no larger than the resolved size, the picture
    with the resolved proportions; a thumbnail may be the portal's own,
@@ -2244,6 +2521,9 @@ What each platform's probe reads, and where its viewer shows the view:
 | THOT | The session and the module's form: the locality list, every `acts` value among the type criterion's options or checkboxes, the year inputs; the localities are the list's labels as citations name them, a hamlet or a placeholder passed over. The results count no images: an `ark` collection's chosen register is counted by its slide file; a `register` one's is not counted (above). | `input#imageNum`, count `h3#imageNumMax`, the tiles aborted. |
 | Bach | The classification scheme's entries of the collection, or the finding aid's nodes at its level, an office cited by its place (`Exampleville` for `Bureau de recrutement d'Exampleville`); a series of one office has none. The discovery reads the locality's aid; since aids list registers without images too, it opens the first registers a citation would name, call numbers first, at most three, until one links to its images, which the viewer's list or the link's range counts. | `#currentpage input[type="number"]`, count `#currentpage` (`/ 71`); the viewer's image requests are aborted. |
 | GAIA | The search's first list (`…/R/0/0`): its first locality written in full, read as step 1 of §4.8 reads a label; without `localities`, the list holds every first label of `types`. The discovery runs the wizard without a year, a list left answered by its first choice (a search through every choice fails on the server for the Aude censuses); the chosen register's viewer page counts the views (one `docs` object each). | `#pagination input[type=text]` (`Page 1 de total`), on view 1 since the viewer has no address per view; its image requests are aborted. |
+| Visualys | The visitor's entry, then `localities`: the list of the initial `A`, its first locality listed without a parish; `search`: the form, offering the settings' kind, its first office. The search lists lots, counted for the registers; the target, the site's entry, has no view. | The licence (`#btnAccepter`), accepted, then the search page behind it (`div.Abecedaire`, `form#frmRecherche`); its images aborted. |
+| Gers portal | The module's form: the locality list's and former communes' fields, the settings' checkboxes; its first locality. The results count the images. | `select#fichier option[selected]` (`k / total`), the image aborted. |
+| Older Mnesys | The guided search's form: the settings' fields, kinds and title-matching companions; the place index is behind a script `robots.txt` disallows, so the locality is the first place a hit names in a search of the collection's first kind at the last year of its period, without a locality (none for the military registers). Registers are not counted (above). | `#inputvue_actuelle`, count `#total`, on the viewer host; the images aborted. |
 | Pleade | `form`: the form's locality list (its current communes, as citations name them), kinds and year input. `tree`: the aid's table of contents down its first branch of the collection's first kind to the localities' depth; the first registers' components give their ARKs and dates. The chosen register's manifest counts its images. | Mirador 3, `.mirador-canvas-nav input[type="number"]`, count `.mirador-canvas-nav label` (`/ 269`); Mirador 2, `li.highlight .thumb-label`, count `.canvas-count`; the images aborted. |
 
 **How it runs.** The adapter logic stays in Rust, whichever transport
@@ -2350,12 +2630,16 @@ check, in three places; archives are then picked up from the catalogue:
    displayed period, the image address). A platform whose results do not
    count the images also implements `images`, which counts those of the
    chosen register from the portal's own pages; one whose collection has no
-   address per view answers `addresses_views` with `false` for it.
+   address per view answers `addresses_views` with `false` for it, and one
+   whose portal cannot count a register's images answers `counts_images`
+   with `false`.
 2. `live::probe` in `crates/oxidgene-archives/src/live/mod.rs` lists it by
    platform id; the `every_adapter_has_a_probe` test fails until it does.
 3. `viewers` in `e2e/archives/viewers.ts` describes the portal's viewer by
    platform id: the element showing the view number, and the licence button
-   and the view-count element where the viewer has them.
+   and the view-count element where the viewer has them; for a target that
+   is the portal's entry, the licence button and the element of the page
+   behind it (`landing`) instead of the view.
 
 The probe's own tests replay the platform's anonymized fixtures, as the
 Arkothèque probe's replay `ad44-search-page.html` and `ad44-engine.json`.
@@ -2422,7 +2706,7 @@ opened and its platform confirmed from the portal itself (§11.4).
 | Platform | Vendor | Departments | Evidence |
 |---|---|---|---|
 | Arkothèque | 1 égal 2 (Marseille); some finding aids by Anaphore | 28 named: 03, 04, 08, 10, 15, 18, 23, 24, 28, 36, 38, 40, 43, 44, 45, 46, 49, 50, 54, 65, 71, 72, 75, 78, 83, 85, 87, 94 | Strong: the vendor's departmental references page[^arkotheque-departmental], which claims 29 services; another of its pages says 28 |
-| Mnesys Expo | Naoned (Nantes) | 18 confirmed portals: 14, 19, 25, 26, 27, 37, 39, 51, 55, 58, 59, 68, 69, 73 (older interface), 80, 90, 91, 972. Mnesys customers whose portal runs another platform: 18, 34, 93 | Strong (`/search/form/<uuid>` entry points, Mnesys Expo logos, case studies)[^naoned-references] |
+| Mnesys Expo | Naoned (Nantes) | 18 confirmed portals: 14, 19, 25, 26, 27, 37, 39, 51, 55, 58, 59, 68, 69, 73 (older interface, §4.14), 80, 90, 91, 972. Mnesys customers whose portal runs another platform: 18, 34, 93 | Strong (`/search/form/<uuid>` entry points, Mnesys Expo logos, case studies)[^naoned-references] |
 | Ligeo Diffusion | Boscop (Angers) | 29 confirmed portals: 01, 02, 05, 06, 07, 12, 13, 16, 29, 31, 33, 34, 41, 42, 48, 56, 57, 63, 67, 70, 74, 76, 79, 86, 88, 89, 92, 93, 95 | Strong (URL pattern of the civil-status page, or announcement)[^ligeo-references] |
 | Archinoë / Prismia Vision | EidoPolis (Laval) | 17, 21, 47, 60, 62; a viewer for 49; former pages for 07 | URL pattern, legal notice (21)[^ad21-legal], announcement (47)[^ad47-portal] |
 | Archives nationales d'outre-mer | National service | 973, 974, 976 | `caomec2` civil-status search[^anom-civil-status] |
@@ -2430,7 +2714,8 @@ opened and its platform confirmed from the portal itself (§11.4).
 | THOT | Vendor not named (`sicem`, `Cindoc` in the markup) | 2A/2B, 35 | Observed (§4.9)[^thot-portals] |
 | Pleade | AJLSM | 53, 64 | Observed (§4.10)[^pleade-portals] |
 | Bach | Anaphore | 30, 52, 81, 82, 84, 971 | Observed (§4.11): every footer reads `Développé par Anaphore`; one hosting address[^bach-portals] |
-| Unidentified | — | 22, 32 | Portal (§11.2) |
+| Visualys ("salle virtuelle") | Vendor not named | 22 | Observed (§4.12) |
+| Gers portal | The archive's own | 32 | Observed (§4.13) |
 
 Vendor counts disagree with their own lists and are orders of magnitude.
 Naoned's "22 departmental archives" counts users of Mnesys Archives, the
@@ -2471,7 +2756,8 @@ portal in seconds and is the evidence required before cataloguing:
 | THOT | `/Internet_THOT/FrmSommaireFrame.asp`, `/thot_internet/FrmSommaireFrame.asp`; `Recherche/FrmRechFrame.asp?MOD=<n>` |
 | Pleade | `/archives-en-ligne/<form>-search-form.html`, `/archives-en-ligne/ead.html?id=<finding aid>`, `/pleade/theme/…` assets, `ark:/<naan>/<name>/f<n>` viewer addresses |
 | Bach | `/archives/classification-scheme`, `/document/<finding aid>`, `/archives/show/<finding aid>_<node>`; a viewer under `/viewer/series/…` or on a `v-earchives.` or `viewer-recherche.` host |
-| Unidentified | `/EC/ecx/commune.aspx` (Côtes-d'Armor); `/archives_numerisees/portail/etats_civils/…` (Gers) |
+| Visualys | `/<family>/<site>/commune.aspx`, `connexion.aspx?ref=demo`, `VisualysConsult` windows (Côtes-d'Armor) |
+| Gers portal | `/archives_numerisees/portail/<module>/recherche/` and `…/visu/?…&fichier=<id>` |
 
 ### 11.3 Recent migrations and special cases
 
@@ -2497,12 +2783,13 @@ Portals change often, which is why every catalogued archive has a live check
 Cases the catalogue model must express:
 
 - **Savoie.** The portal of the Archives de la Savoie runs the older Mnesys
-  interface, not Mnesys Expo: its guided civil-status search is a `GET` form
-  (`F_search`) with a thesaurus-autocompleted locality, coded act choices and
-  date fields, and its results link to finding-aid documents
-  (`?id=…&doc=accounts/mnesys_…`) whose images need a detail page. The Mnesys
-  Expo adapter (§4.4) does not apply: Savoie needs an adapter mode of its own,
-  and is not catalogued.
+  interface, not Mnesys Expo: its guided searches are `GET` forms (`F_search`)
+  whose hits are finding-aid nodes, a register's images reached through its
+  notice on a viewer host of its own. The Mnesys Expo adapter (§4.4) does not
+  apply: it has its own (§4.14).
+- **Côtes-d'Armor.** The portal shows a reuse licence it does not enforce
+  server-side. OxidGene does not skip it: every target is the site's entry,
+  where the reader passes the licence (§4.12).
 
 - **Corsica.** One service, the Archives de la Collectivité de Corse, serves
   both 2A and 2B: one catalogue entry carrying both citation codes, its
@@ -2548,7 +2835,10 @@ Cases the catalogue model must express:
   d'outre-mer[^anom-civil-status] rather than through the local service: one
   national-level entry whose search takes the territory as a parameter
   (`territoire=GUYANE`, `REUNION`, `MAYOTTE`), carrying the territories'
-  citation codes.
+  citation codes. Not catalogued: the portal answers over plain `http` only
+  — its `https` port offers TLS 1.0 alone, with a self-signed certificate
+  for another host that expired in 2019 (2026-10-06) —, which the catalogue
+  refuses (`origin` must be `https`).
 
 ### 11.4 Cataloguing order
 
@@ -2569,8 +2859,10 @@ Cases the catalogue model must express:
    search it yet (§4.2) is noted, not catalogued. Each collection gets its
    live check (§9.1).
 4. Catalogue the Arkothèque and Mnesys Expo archives first, then Ligeo, then
-   Archinoë / Prismia Vision, then GAIA and Bach; then investigate the
-   departments with no identified platform: 22, 32, and the Archives nationales d'outre-mer for 973, 974 and 976. Engines shared by several of them (§11.2) come first.
+   Archinoë / Prismia Vision, then GAIA and Bach, then the engines of a
+   single archive (Visualys, the Gers portal, the older Mnesys interface).
+   The Archives nationales d'outre-mer (973, 974, 976) wait for a portal
+   reachable over `https` (§11.3).
 
 ### 11.5 Survey by department
 
@@ -2607,7 +2899,7 @@ only, and *unconfirmed* means no evidence was found.
 | 19 | Corrèze | `www.archives.correze.fr` | [`www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f`](https://www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f) | Mnesys Expo | Mnesys Expo logo; URL pattern; catalogued (§4.4): registers, censuses, military registers; live-checked 2026-10-05 |
 | 2A / 2B | Corse (Archives de la Collectivité de Corse) | `archives.isula.corsica` | [`archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp`](https://archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp) | THOT | Single site since December 2020; observed (§4.9); catalogued 2026-10-06, behind Cloudflare (browser only), registers opened at their first view: registers of acts and tables, censuses; the military registers are a name index, not catalogued |
 | 21 | Côte-d'Or | `archives.cotedor.fr` | [`archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564`](https://archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564); formerly [`archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie`](https://archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie) | Archinoë / Prismia | Legal notice: hosted by EidoPolis Prismia; URL pattern; catalogued, browsed 2026-10-05 |
-| 22 | Côtes-d'Armor | `archives.cotesdarmor.fr` | [`sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx`](https://sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx) | Unidentified (ASP.NET "salle virtuelle") | Portal |
+| 22 | Côtes-d'Armor | `archives.cotesdarmor.fr` | [`sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx`](https://sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx) | Visualys (ASP.NET "salle virtuelle") | Observed (§4.12); catalogued, searched and live-checked 2026-10-06: registers, military registers; the target is the site's entry, before the reuse licence |
 | 23 | Creuse | `archives.creuse.fr` | [`archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil`](https://archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
 | 24 | Dordogne | `archives.dordogne.fr` | [`archives.dordogne.fr/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil`](https://archives.dordogne.fr/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers, TD, RP, RM |
 | 25 | Doubs | `portail-archives.doubs.fr` | [`portail-archives.doubs.fr/search/form/4d44dde5-4523-4384-a2da-c1169870f1b2`](https://portail-archives.doubs.fr/search/form/4d44dde5-4523-4384-a2da-c1169870f1b2) | Mnesys Expo | Logo, Naoned case study; URL pattern; catalogued (§4.4): registers, decennial tables, censuses, military registers, succession tables; live-checked 2026-10-05 |
@@ -2617,7 +2909,7 @@ only, and *unconfirmed* means no evidence was found.
 | 29 | Finistère | `archives.finistere.fr` | [`recherche.archives.finistere.fr/archive/resultats/etatcivil/n:138?type=etatcivil`](https://recherche.archives.finistere.fr/archive/resultats/etatcivil/n:138?type=etatcivil) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, military registers |
 | 30 | Gard | `archives.gard.fr` | [`earchives.gard.fr/archives/classification-scheme`](https://earchives.gard.fr/archives/classification-scheme) | Bach | Observed (§4.11): parish and civil registers, TD, one finding aid per commune; `browser` transport (Anubis on the show pages and the viewer host), image names from the viewer links' ranges; live-checked 2026-10-06 through the browser; the nominal search of military registers (`/matricules/search`, a person index) is not a register collection |
 | 31 | Haute-Garonne | `archives.haute-garonne.fr` | [`archives.haute-garonne.fr/archive/recherche/etatcivil/n:97`](https://archives.haute-garonne.fr/archive/recherche/etatcivil/n:97) | Ligeo | Ligeo references; URL pattern; observed (§4.5); catalogued, searched 2026-10-05: parish and civil registers, censuses, military registers |
-| 32 | Gers | `www.archives32.fr` | [`www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/`](https://www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/) | Unidentified | Portal |
+| 32 | Gers | `www.archives32.fr` | [`www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/`](https://www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/) | Gers portal | Observed (§4.13); catalogued, searched and live-checked 2026-10-06: parish registers, civil status, decennial tables, censuses, succession tables |
 | 33 | Gironde | `archives.gironde.fr` | [`archives.gironde.fr/archive/recherche/etatcivil/n:629`](https://archives.gironde.fr/archive/recherche/etatcivil/n:629) | Ligeo | Ligeo references; URL pattern; Bordeaux published by the Archives Bordeaux Métropole; catalogued, searched 2026-10-05: parish and civil registers, censuses, succession tables |
 | 34 | Hérault | `archives-pierresvives.herault.fr` | [`archives-pierresvives.herault.fr/archive/recherche/etatcivil/n:23`](https://archives-pierresvives.herault.fr/archive/recherche/etatcivil/n:23) | Ligeo (portal); Mnesys customer | URL pattern; both vendors' lists; catalogued, searched 2026-10-05: parish and civil registers, censuses, succession tables |
 | 35 | Ille-et-Vilaine | `archives.ille-et-vilaine.fr` | [`archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp`](https://archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp) | THOT | Observed (§4.9); catalogued 2026-10-06, each view by its ARK: registers of acts and tables, censuses, military registers, succession tables |
@@ -2658,7 +2950,7 @@ only, and *unconfirmed* means no evidence was found.
 | 70 | Haute-Saône | `archives.haute-saone.fr` | [`archives.haute-saone.fr/archive/recherche/etatcivil2/n:119`](https://archives.haute-saone.fr/archive/recherche/etatcivil2/n:119) | Ligeo Diffusion | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish registers, civil status, censuses, succession tables |
 | 71 | Saône-et-Loire | `www.archives71.fr` | [`www.archives71.fr/consulter/en-ligne/familles-et-individus/etat-civil`](https://www.archives71.fr/consulter/en-ligne/familles-et-individus/etat-civil) | Arkothèque | Observed and live-checked (§4.3): registers, TD, RP, TSA |
 | 72 | Sarthe | `archives.sarthe.fr` | [`archives.sarthe.fr/archives-en-ligne/registres-paroissiaux-etat-civil`](https://archives.sarthe.fr/archives-en-ligne/registres-paroissiaux-etat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD (two engines), RP, RM, CM, TSA |
-| 73 | Savoie | `recherche-archives.savoie.fr` | [`recherche-archives.savoie.fr/?id=recherche_guidee_etat_civil_web`](https://recherche-archives.savoie.fr/?id=recherche_guidee_etat_civil_web) | Mnesys (older interface) | Mnesys Expo logo; URL pattern; own adapter mode needed (§11.3) |
+| 73 | Savoie | `recherche-archives.savoie.fr` | [`recherche-archives.savoie.fr/?id=recherche_guidee_etat_civil_web`](https://recherche-archives.savoie.fr/?id=recherche_guidee_etat_civil_web) | Mnesys (older interface) | Mnesys Expo logo; URL pattern; observed (§4.14); catalogued, searched and live-checked 2026-10-06: registers, censuses, military registers (the viewer host refuses the check's identified browser: step 4 unverified) |
 | 74 | Haute-Savoie | `archives.hautesavoie.fr` | [`archives.hautesavoie.fr/archive/recherche/etatcivil/n:139`](https://archives.hautesavoie.fr/archive/recherche/etatcivil/n:139) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, military registers, succession tables |
 | 75 | Paris | `archives.paris.fr` | [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859) (reconstituted, 16th century–1859) and [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860) | Arkothèque | Observed and live-checked (§4.3): civil status from 1860 |
 | 76 | Seine-Maritime | `www.archivesdepartementales76.net` | [`www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil`](https://www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, military registers, succession tables |
@@ -2701,7 +2993,7 @@ collections (§3.1). The ones supplied so far:
 |---|---|---|---|---|
 | 04 | Alpes-de-Haute-Provence | [`www.archives04.fr/rechercher/archives-en-ligne/etat-civil/actes-paroissiaux`](https://www.archives04.fr/rechercher/archives-en-ligne/etat-civil/actes-paroissiaux) | Arkothèque | Same portal; `actes-paroissiaux` beside `actes-etat-civil` |
 | 07 | Ardèche | [`archives.ardeche.fr/archive/recherche/paroissiaux/n:164`](https://archives.ardeche.fr/archive/recherche/paroissiaux/n:164) | Ligeo | Same portal; search `paroissiaux` beside `etatcivil` |
-| 32 | Gers | [`www.archives32.fr/archives_numerisees/portail/etats_civils/rp/recherche/`](https://www.archives32.fr/archives_numerisees/portail/etats_civils/rp/recherche/) | Unidentified | Same portal; `/rp/` beside `/ec/` |
+| 32 | Gers | [`www.archives32.fr/archives_numerisees/portail/etats_civils/rp/recherche/`](https://www.archives32.fr/archives_numerisees/portail/etats_civils/rp/recherche/) | Gers portal | Same portal; `/rp/` beside `/ec/` (§4.13) |
 | 65 | Hautes-Pyrénées | [`archivesenligne65.fr/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-paroissiaux`](https://archivesenligne65.fr/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-paroissiaux) | Arkothèque | Same portal; `les-registres-paroissiaux` beside `les-registres-detat-civil` |
 | 92 | Hauts-de-Seine | [`archives.hauts-de-seine.fr/archive/resultats/registresparoissiaux/n:93?type=registresparoissiaux`](https://archives.hauts-de-seine.fr/archive/resultats/registresparoissiaux/n:93?type=registresparoissiaux) | Ligeo | Same portal; search `registresparoissiaux` |
 

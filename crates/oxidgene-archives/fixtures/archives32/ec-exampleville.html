@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="../../../css/styles.css">
+</head>
+<body>
+<div class="soustitre">Recherche</div>
+<form name="etape1" role="form" method="POST" action="./">
+<div class="row ligne_recherche"><div class="col-xs-4 col-md-3 entete_recherche">Commune :</div>
+<select name="lieu" class="selectpicker" data-live-search="true" style="width:200px;" onchange="submit()">
+                                <option value="all">Toutes les communes</option>
+                                <option value="Bourg-Exemple ">Bourg-Exemple</option>
+                                <option value="Exampleville" selected>Exampleville</option>
+                                <option value="L'Isle-Exemple">L'Isle-Exemple</option>
+                                <option value="Sampleton">Sampleton</option>
+                        </select>
+</div>
+<div class="row ligne_recherche"><div class="col-xs-4 col-md-3 entete_recherche">Ancienne commune :</div>
+<select name="ancienne" class="selectpicker" data-live-search="true" style="width:200px;" onchange="submit()">
+                                <option value="all">Toutes les anciennes communes</option>
+                                <option value="Vieux-Exemple">Vieux-Exemple</option>
+                        </select>
+</div>
+De&nbsp;<input type="number" name="annee_d" class="form-control form_date" value=""  placeholder="Min 1793" >&nbsp;à&nbsp;
+<input type="number" name="annee_f" value="" class="form-control form_date" placeholder="Max 1932">
+<input type="checkbox" class="custom-control-input chk_etat" id="chk_naissance" name="chk_naissance" checked>
+<input type="checkbox" class="custom-control-input chk_etat" id="chk_pub_mariage" name="chk_pub_mariage" checked>
+<input type="checkbox" class="custom-control-input chk_etat" id="chk_mariage" name="chk_mariage" checked>
+<input type="checkbox" class="custom-control-input chk_etat" id="chk_deces" name="chk_deces" checked>
+<button type="submit" name="valider"  value="valider" class="btn-rougecd btn ">Rechercher</button>
+</form>
+<div class="resultats">
+<div class="titre">Résultats de votre recherche :</div>
+<table id="myTable" style="width:100%" border="1" cellspacing="0" class="table tableau_td display">
+<thead>
+<tr class="entete">
+<!--<td>Type</td>-->
+<td>Commune</td>
+<td>Ancienne<br/>commune</td>
+<td>Période</td>
+<td>Cote</td>
+<td>Contenu</td>
+<td>Vues</td>
+</tr>
+</thead>
+<tr>
+<td>Exampleville</td>
+<td></td>
+<td>1792-1842</td>
+<td>5 E 9001</td>
+<td>Naissances / Mariages / Décès <br>Les actes sont lacunaires pour la période 1792-1800.</td>
+<td class="vision">
+<a target="_blank" href="../visu/?id=9001&fichier=500100&lieu=Exampleville&annee=1792"><img src="icone_matricule.png" border="0" width="30">
+</a>
+<br/><span style="font-size:0.8em;">393 vues</span>
+</td>
+</tr>
+<tr>
+<td>Exampleville</td>
+<td></td>
+<td>1798-1842</td>
+<td>5 E 9002</td>
+<td>Mariages <br>Ce registre contient les actes de naissance et de décès du canton pour les ans VII et VIII.</td>
+<td class="vision">
+<a target="_blank" href="../visu/?id=9002&fichier=600200&lieu=Exampleville&annee=1798"><img src="icone_matricule.png" border="0" width="30">
+</a>
+<br/><span style="font-size:0.8em;">349 vues</span>
+</td>
+</tr>
+<tr>
+<td>Exampleville</td>
+<td></td>
+<td>1843-1862</td>
+<td>5 E 9003</td>
+<td>Naissances / Publications de mariages / Mariages / Décès</td>
+<td class="vision">
+<a target="_blank" href="../visu/?id=9003&fichier=700300&lieu=Exampleville&annee=1843"><img src="icone_matricule.png" border="0" width="30">
+</a>
+<br/><span style="font-size:0.8em;">512 vues</span>
+</td>
+</tr>
+</table>
+</div>
+</body>
+</html>

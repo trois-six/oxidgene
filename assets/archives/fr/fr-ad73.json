@@ -1,0 +1,62 @@
+{
+  "id": "fr-ad73",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Savoie",
+  "jurisdiction": ["73"],
+  "areas": ["Savoie"],
+  "citation_codes": ["AD73"],
+  "website": "https://archives.savoie.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": [1501, 1932],
+      "platform": "mnesys-inao",
+      "portal": {
+        "origin": "https://recherche-archives.savoie.fr",
+        "transport": "any",
+        "form": "recherche_guidee_etat_civil_web",
+        "locality": "geogname",
+        "act": "v2_field_16994445147VTDcz",
+        "acts": {
+          "B": "Baptêmes OU naissances",
+          "N": "Baptêmes OU naissances",
+          "M": "Mariages",
+          "S": "Décès OU sépultures",
+          "D": "Décès OU sépultures",
+          "TD": "Tables"
+        },
+        "viewer": "https://archives-numeriques.savoie.fr"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": [1561, 1946],
+      "platform": "mnesys-inao",
+      "portal": {
+        "origin": "https://recherche-archives.savoie.fr",
+        "transport": "any",
+        "form": "recherche_guidee_recensement_population_web",
+        "locality": "geogname",
+        "viewer": "https://archives-numeriques.savoie.fr"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1921],
+      "platform": "mnesys-inao",
+      "portal": {
+        "origin": "https://recherche-archives.savoie.fr",
+        "transport": "any",
+        "form": "recherche_guidee_registres_matricules_web",
+        "act": "v2_field_14018083293lbOPp",
+        "acts": { "RM": "Registre matricules de la classe SAUF Répertoire" },
+        "year": { "field": "v2_field_1498829392winon2", "value": "\"Classe {year}\"" },
+        "viewer": "https://archives-numeriques.savoie.fr"
+      }
+    }
+  ]
+}

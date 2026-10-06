@@ -329,7 +329,7 @@ fn shared_call_numbers_are_told_apart_by_period_and_images() {
         .collections[0];
     let chosen = choose(&registers, "Exampleville", collection).unwrap();
     assert_eq!(chosen, &registers[0]);
-    let citation = citation_of(ad44(), &Act::from_code("B").unwrap(), chosen);
+    let citation = citation_of(ad44(), &Act::from_code("B").unwrap(), chosen, 1);
     assert_eq!(citation.year, Some(1595));
     assert_eq!(citation.views[0].view, 60);
 }
@@ -358,7 +358,7 @@ fn volumes_of_a_military_register_are_told_apart_by_their_matricules() {
     // The citation names the series by its code and the volume by its
     // first matricule, and reads back as it was built.
     let series = Act::Series(crate::Series::MilitaryRegister);
-    let citation = citation_of(ad44(), &series, &registers[1]);
+    let citation = citation_of(ad44(), &series, &registers[1], 1);
     assert_eq!(citation.number, Some(501));
     let title = title_of(&citation);
     assert_eq!(
@@ -436,7 +436,7 @@ fn an_uncounted_register_without_an_address_per_view_is_cited_at_its_first_view(
         address: Some("/Internet_THOT/FrmLotDocFrame.asp?idlot=1".to_owned()),
         numbers: None,
     };
-    let citation = citation_of(corsica, &collection.acts[0], &register);
+    let citation = citation_of(corsica, &collection.acts[0], &register, 1);
     assert_eq!(citation.views[0].view, 1);
     assert_eq!(citation.view_count, None);
     let url = "https://archives.isula.corsica/Internet_THOT/FrmLotDocFrame.asp?idlot=1";
@@ -452,6 +452,44 @@ fn an_uncounted_register_without_an_address_per_view_is_cited_at_its_first_view(
     assert_eq!(opening.view_count, None);
     // The same target from a portal with an address per view is drift.
     assert!(check_view(corsica, collection, &citation, &target, true).is_err());
+}
+
+#[test]
+fn an_uncounted_register_with_an_address_per_view_is_cited_at_its_second_view() {
+    let registry = ArchiveRegistry::embedded();
+    let savoie = registry.archive("AD73").unwrap();
+    let collection = &savoie.collections[0];
+    let probe = probe("mnesys-inao").unwrap();
+    assert!(probe.addresses_views(collection) && !probe.counts_images(collection));
+    let register = Register {
+        locality: "Exampleville".to_owned(),
+        call_number: Some("4E 9001".to_owned()),
+        period: Some("1850-1860".to_owned()),
+        images: None,
+        address: Some("/?id=detail&page_ref=1".to_owned()),
+        numbers: None,
+    };
+    let citation = citation_of(savoie, &collection.acts[0], &register, UNCOUNTED_VIEW);
+    assert_eq!(citation.views[0].view, 2);
+    assert_eq!(citation.view_count, None);
+    let url = "https://viewer.example.org/ark:/99999/a1?vue=2";
+    let target = ArchiveTarget::View {
+        url: url.to_owned(),
+        views: vec![crate::ArchiveView {
+            view: 2,
+            url: url.to_owned(),
+            ark: None,
+            image: None,
+        }],
+        view_count: None,
+        call_number: Some("4E 9001".to_owned()),
+        attribution: None,
+    };
+    let opening = check_view(savoie, collection, &citation, &target, true).unwrap();
+    assert_eq!(
+        (opening.url.as_str(), opening.view, opening.view_count),
+        (url, 2, None)
+    );
 }
 
 #[test]

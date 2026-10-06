@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="../../../css/styles.css">
+</head>
+<body>
+<div class="soustitre">Recherche</div>
+<form name="etape1" role="form" method="POST" action="./">
+<div class="row ligne_recherche"><div class="col-xs-4 col-md-3 entete_recherche">Commune :</div>
+<select name="lieu" class="selectpicker" data-live-search="true" style="width:200px;" onchange="submit()">
+                                <option value="all">Toutes les communes</option>
+                                <option value="Bourg-Exemple " selected>Bourg-Exemple</option>
+                                <option value="Exampleville">Exampleville</option>
+                                <option value="L'Isle-Exemple">L'Isle-Exemple</option>
+                                <option value="Sampleton">Sampleton</option>
+                        </select>
+</div>
+<div class="row ligne_recherche"><div class="col-xs-4 col-md-3 entete_recherche">Ancienne commune :</div>
+<select name="ancienne" class="selectpicker" data-live-search="true" style="width:200px;" onchange="submit()">
+                                <option value="all">Toutes les anciennes communes</option>
+                                <option value="Vieux-Exemple">Vieux-Exemple</option>
+                        </select>
+</div>
+De&nbsp;<input type="number" name="annee_d" class="form-control form_date" value=""  placeholder="Min 1793" >&nbsp;à&nbsp;
+<input type="number" name="annee_f" value="" class="form-control form_date" placeholder="Max 1932">
+<input type="checkbox" class="custom-control-input chk_etat" id="chk_naissance" name="chk_naissance" checked>
+<input type="checkbox" class="custom-control-input chk_etat" id="chk_mariage" name="chk_mariage" checked>
+<input type="checkbox" class="custom-control-input chk_etat" id="chk_deces" name="chk_deces" checked>
+<button type="submit" name="valider"  value="valider" class="btn-rougecd btn ">Rechercher</button>
+</form>
+<div class="resultats">
+<div class="titre">Résultats de votre recherche :</div>
+<table id="myTable" style="width:100%" border="1" cellspacing="0" class="table tableau_td display">
+<thead>
+<tr class="entete">
+<!--<td>Type</td>-->
+<td>Commune</td>
+<td>Paroisse</td>
+<td>Annexe</td>
+<td>Période</td>
+<td>Cote</td>
+<td>Contenu</td>
+<td>Vues</td>
+</tr>
+</thead>
+<tr>
+<td>Bourg-Exemple</td>
+<td></td>
+<td>Saint-Exemple (Bourg-Exemple - annexe de Sampleton)</td>
+<td>1740-1748</td>
+<td>5 E 9301 (1)</td>
+<td>Baptêmes / Mariages / Sépultures /</td>
+<td class="vision">
+<a target="_blank" href="../visu/?td=9301&fichier=80000&lieu=Bourg-Exemple&annee=1740"><img src="icone_matricule.png" border="0" width="30">
+</a>
+<br/><span style="font-size:0.8em;">20 vues</span>
+</td>
+</tr>
+<tr>
+<td>Bourg-Exemple</td>
+<td>Bourg-Exemple</td>
+<td></td>
+<td>1740-1748</td>
+<td>5 E 9302 (1)</td>
+<td>Baptêmes / Mariages / Sépultures /</td>
+<td class="vision">
+<a target="_blank" href="../visu/?td=9302&fichier=90000&lieu=Bourg-Exemple&annee=1740"><img src="icone_matricule.png" border="0" width="30">
+</a>
+<br/><span style="font-size:0.8em;">53 vues</span>
+</td>
+</tr>
+</table>
+</div>
+</body>
+</html>

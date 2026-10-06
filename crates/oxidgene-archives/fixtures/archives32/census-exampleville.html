@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="../../../css/styles.css">
+</head>
+<body>
+<div class="soustitre">Recherche</div>
+<form name="etape1" role="form" method="POST" action="./">
+<div class="row ligne_recherche"><div class="col-xs-4 col-md-3 entete_recherche">Commune :</div>
+<select name="LIEU" class="selectpicker" data-live-search="true" style="width:200px;" onchange="submit()">
+                                <option value="all">Toutes les communes</option>
+                                <option value="Bourg-Exemple ">Bourg-Exemple</option>
+                                <option value="Exampleville" selected>Exampleville</option>
+                                <option value="L'Isle-Exemple">L'Isle-Exemple</option>
+                                <option value="Sampleton">Sampleton</option>
+                        </select>
+</div>
+<div class="row ligne_recherche"><div class="col-xs-4 col-md-3 entete_recherche">Ancienne commune :</div>
+<select name="ANCIENNE" class="selectpicker" data-live-search="true" style="width:200px;" onchange="submit()">
+                                <option value="all">Toutes les anciennes communes</option>
+                                <option value="Vieux-Exemple">Vieux-Exemple</option>
+                        </select>
+</div>
+De&nbsp;<input type="number" name="annee_d" class="form-control form_date" value=""  placeholder="Min 1793" >&nbsp;à&nbsp;
+<input type="number" name="annee_f" value="" class="form-control form_date" placeholder="Max 1932">
+<button type="submit" name="valider"  value="valider" class="btn-rougecd btn ">Rechercher</button>
+</form>
+<div class="resultats">
+<div class="titre">Résultats de votre recherche :</div>
+<table id="myTable" style="width:100%" border="1" cellspacing="0" class="table tableau_td display">
+<thead>
+<tr class="entete">
+<!--<td>Type</td>-->
+<td>Commune</td>
+<td>Ancienne<br/>commune</td>
+<td>Année</td>
+<td>Cote</td>
+<td>Contenu</td>
+<td>Vues</td>
+</tr>
+</thead>
+<tr>
+<td>Exampleville</td>
+<td></td>
+<td>1836</td>
+<td>6 M 901</td>
+<td>Recensement de la population : liste nominative.</td>
+<td class="vision">
+<a target="_blank" href="../visu/?rec=9501&fichier=22994&lieu=Exampleville&annee=1836"><img src="icone_matricule.png" border="0" width="30">
+</a>
+<br/><span style="font-size:0.8em;">4 vues</span>
+</td>
+</tr>
+<tr>
+<td>Exampleville</td>
+<td></td>
+<td>1841</td>
+<td>6 M 902</td>
+<td>Recensement de la population : liste nominative.</td>
+<td class="vision">
+<a target="_blank" href="../visu/?rec=9502&fichier=22993&lieu=Exampleville&annee=1841"><img src="icone_matricule.png" border="0" width="30">
+</a>
+<br/><span style="font-size:0.8em;">4 vues</span>
+</td>
+</tr>
+</table>
+</div>
+</body>
+</html>
