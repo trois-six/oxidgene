@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:11:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -2821,8 +2821,9 @@ headful, nor hides what it is, to pass:
 | A certificate served without its issuer | Not seen: Chromium completes the chain, as the desktop window on Linux does (§6.1). |
 
 **Reports.** `just archives-live` writes under `target/archives-live/`
-(`OXIDGENE_LIVE_REPORT_DIR`) `native.json`, the native test's, and
-`report.json`, the run's: per archive its outcome, and per collection the
+(`OXIDGENE_LIVE_REPORT_DIR`), or in a directory per archive within it when
+it checks several, `native.json`, the native test's, and `report.json`, the
+run's: per archive its outcome, and per collection the
 transport, the outcome, the failing step with the expected and received
 shapes, the number of requests sent to the portal (five to thirteen per
 collection for steps 1 to 3, `robots.txt` included), the locality searched,
@@ -2878,11 +2879,19 @@ every Monday and on demand, with an optional archive id as input. It is not
 part of the nightly workflow, does not gate releases, and is not a required
 status check: a portal change is not a defect of a commit. A first job lists
 the archives from the catalogue — those with a collection, whose entry does
-not set `"live_check": false`, or the one named — and each becomes an
-independent matrix entry without fail-fast, so one archive's drift does not
-hide another's. Each entry runs `scripts/archives-live.sh <archive id>`,
-the script behind `just archives-live`, and keeps its reports for 15 days
-and its Playwright traces for 5.
+not set `"live_check": false`, or the one named — and groups them by the
+address their portal resolves to: several services hosted by one vendor
+answer on one address and are rate-limited together (the six Bach portals
+refused requests after 15 to 25 of them in a row), as are the Mnesys, Ligeo
+and Arkothèque hostings. Each group becomes an independent matrix entry
+without fail-fast, so one group's drift does not hide another's, and runs
+`scripts/archives-live.sh <archive id…>`, the script behind `just
+archives-live`, which checks its archives one after another with a pause
+of two minutes before each archive sharing the previous one's address
+(`OXIDGENE_LIVE_HOST_PAUSE`); `just archives-live` without an archive
+spaces them the same way. The entry keeps its reports for 15 days — one
+directory per archive when it checks several — and its Playwright traces
+for 5.
 
 A `drift`, or an `unreachable` whose previous scheduled run, read from that
 run's report artifact, was `unreachable` too, opens an issue labelled
@@ -2894,7 +2903,8 @@ updates the collection's `portal` settings, or the adapter and its recorded
 fixtures when the platform itself changed, so the offline tests learn the
 new shape.
 
-The checks follow §8: one archive at a time per job, sequential requests, a
+The checks follow §8: one archive at a time per job, archives of one
+address one after another and paused apart, sequential requests, a
 handful per collection and run, the identifying `User-Agent` with the
 repository address, and no retry within a run. A portal whose `robots.txt`
 disallows automated agents, Loire-Atlantique and the Ligeo portals included, is checked only at

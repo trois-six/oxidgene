@@ -169,14 +169,15 @@ sql-plans:
     cargo nextest run -p oxidgene-api --features graphql --test guards_test --run-ignored only -E 'test(no_statement_scans_a_large_table)'
 
 # The live end-to-end checks of the archive portals (docs/archives.md §9.1):
-# every catalogued archive with an adapter and live checks, or the one named
+# every catalogued archive with an adapter and live checks, or those named
 # (`just archives-live fr-ad44`). They contact the real portals, sequentially
-# and with the identifying User-Agent, so they run on demand and weekly in
+# and with the identifying User-Agent, archives sharing a portal address
+# paused apart, so they run on demand and weekly in
 # .github/workflows/archives.yml, never in `check`. Reports land in
-# target/archives-live/.
+# target/archives-live/, in a directory per archive for several.
 # Check the archive portals against their adapters
-archives-live archive="":
-    scripts/archives-live.sh {{ archive }}
+archives-live *archives:
+    scripts/archives-live.sh {{ archives }}
 
 # Every `#[ignore]`d test names the recipe below that runs it; the
 # `lint_discipline` guard fails on a reason naming no existing recipe.

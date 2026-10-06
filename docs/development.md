@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T14:20:00Z }
 ---
 
 # Development Environment and Workflows
@@ -80,7 +80,7 @@ the repository root.
 | `just test-s3` | Round-trip media through the Compose stack's RustFS service (§3). |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
-| `just archives-live [archive]` | Check every catalogued archive with an adapter, or the one named (`fr-ad44`), against its real portal: the live end-to-end checks (§2.7, [Archive Portals §9.1](archives.md#91-live-checks)). |
+| `just archives-live [archive…]` | Check every catalogued archive with an adapter, or those named (`fr-ad44`), against its real portal, archives sharing a portal address paused apart: the live end-to-end checks (§2.7, [Archive Portals §9.1](archives.md#91-live-checks)). |
 | `just theme-preview` | Write an HTML preview of every theme's pedigree card to `OXIDGENE_PREVIEW_DIR`. |
 | `just graphql-schema` | Rewrite `docs/schema.graphql`, the committed SDL of the GraphQL schema, after an intended schema change ([API Contract](api.md#schema)). |
 | `just openapi` | Build `oxidgene-api`, whose build script regenerates from the REST router the OpenAPI document served at `/api/v1/openapi.json` ([API Contract](api.md)). |
@@ -308,7 +308,7 @@ and the Wikidata query service.
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
 | End-to-end | The Playwright suite of `e2e/`, driving the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E | No |
-| Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive]` | Archive portals (weekly) | No |
+| Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive…]` | Archive portals (weekly) | No |
 
 `just test`, and through it `just check`, runs the unit and functional tests.
 The selection is by Cargo target (`--lib --bins`, `--doc`, `--test '*'`)
@@ -332,8 +332,9 @@ The opt-in tests and the golden checks read these variables:
 | `OXIDGENE_PREVIEW_DIR` | The `theme_preview` test of `oxidgene-ui`, which writes an HTML preview of every theme there (default: the current directory) |
 | `OXIDGENE_BLESS` | The pedigree layout golden tests of `oxidgene-ui`: set, they print fresh golden blocks instead of comparing |
 | `OXIDGENE_BLESS_E2E_FIXTURE` | `rest_test.rs`: set to `1`, it rewrites the end-to-end fixture (below) |
-| `OXIDGENE_LIVE_ARCHIVE` | The live checks of the archive portals: the one archive to check (default: every one); `just archives-live <archive>` sets it |
-| `OXIDGENE_LIVE_REPORT_DIR` | The live checks: where `native.json` and `report.json` land (default `target/archives-live`) |
+| `OXIDGENE_LIVE_ARCHIVE` | The live checks of the archive portals: the one archive to check (default: every one); `scripts/archives-live.sh` sets it for each archive in turn |
+| `OXIDGENE_LIVE_REPORT_DIR` | The live checks: where `native.json` and `report.json` land, in a directory per archive when several are checked (default `target/archives-live`) |
+| `OXIDGENE_LIVE_HOST_PAUSE` | The live checks: the seconds paused before an archive whose portal shares the previous one's address (default 120) |
 | `OXIDGENE_LIVE_BRIDGE` | The Playwright live check: the `archives-live-bridge` binary (default `target/debug/archives-live-bridge`) |
 
 CI runs the unit, functional and browser JavaScript categories as jobs of
@@ -353,8 +354,9 @@ generate.py` rewrites them after a change. A recorded answer is research
 material and is never committed: it names real localities and registers, and
 internal hosts of the archive.
 
-**Archive portal live checks.** `just archives-live [archive]` runs
-`scripts/archives-live.sh`, which checks the catalogued archives against
+**Archive portal live checks.** `just archives-live [archive…]` runs
+`scripts/archives-live.sh`, which checks the catalogued archives, one at a
+time, against
 their real portals ([Archive Portals §9.1](archives.md#91-live-checks)):
 it builds the `archives-live-bridge` binary, runs the `#[ignore]`d `live`
 test of `oxidgene-archives` (features `native` and `live`) for the
@@ -363,8 +365,12 @@ collections any client may reach, then the Playwright project of
 collections' steps through the bridge binary in a Chromium page and opens
 every resolved target in the portal's viewer. Nothing in the repository
 names a locality or a register: each check builds its citation from what the
-portal lists. The reports land in `target/archives-live/` (`report.json`
-for the run), the Playwright traces in `e2e/test-results/archives/`. The
+portal lists. Archives whose portals resolve to one address — a vendor's
+hosting, rate-limited as a whole — are checked one after another with a
+pause between them ([Archive Portals §9.2](archives.md#92-scheduled-run)).
+The reports land in `target/archives-live/` (`report.json` for the run, in
+a directory per archive when several are checked), the Playwright traces in
+`e2e/test-results/archives/` (`archives-<archive id>/` for several). The
 recipe fails on a drift only; an unreachable or challenged portal is
 reported. It contacts the portals, sequentially and with the identifying
 `User-Agent`, so it runs on demand and from the weekly
