@@ -15,6 +15,7 @@
 
 mod archinoe;
 mod arkotheque;
+mod bach;
 mod gaia;
 pub(crate) mod iiif;
 mod ligeo;
@@ -35,6 +36,7 @@ use serde::{Deserialize, Serialize};
 
 pub use archinoe::Archinoe;
 pub use arkotheque::Arkotheque;
+pub use bach::Bach;
 pub use gaia::Gaia;
 pub use ligeo::Ligeo;
 pub use mnesys::Mnesys;
@@ -124,6 +126,7 @@ pub fn builtin() -> Vec<Box<dyn Platform>> {
     vec![
         Box::new(Arkotheque),
         Box::new(Archinoe),
+        Box::new(Bach),
         Box::new(Gaia),
         Box::new(Ligeo),
         Box::new(Mnesys),

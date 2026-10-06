@@ -1,0 +1,41 @@
+{
+  "id": "fr-ad81",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Tarn",
+  "jurisdiction": ["81"],
+  "areas": ["Tarn"],
+  "citation_codes": ["AD81"],
+  "website": "https://archives.tarn.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["N", "M", "D", "B", "S", "TD"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche-archives.tarn.fr",
+        "viewer": "https://recherche-archives.tarn.fr/viewer",
+        "inventory": {
+          "kind": "classification",
+          "prefix": "FRAD081_Ec_",
+          "locality": "title",
+          "title_prefixes": ["Registres paroissiaux et d'état civil :", "Registres d'état civil :"]
+        }
+      }
+    },
+    {
+      "id": "reformed-churches",
+      "acts": ["B", "M", "S", "N", "D"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche-archives.tarn.fr",
+        "viewer": "https://recherche-archives.tarn.fr/viewer",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD081_Ec_Protestant",
+          "level": 2
+        }
+      }
+    }
+  ]
+}

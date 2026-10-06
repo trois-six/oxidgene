@@ -1,0 +1,69 @@
+{
+  "id": "fr-ad82",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Tarn-et-Garonne",
+  "jurisdiction": ["82"],
+  "areas": ["Tarn-et-Garonne"],
+  "citation_codes": ["AD82"],
+  "website": "http://www.archives82.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["N", "M", "D", "P", "B", "S", "TD"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche.archives82.fr",
+        "viewer": "https://viewer-recherche.archives82.fr",
+        "inventory": {
+          "kind": "classification",
+          "prefix": "FRAD082_IR_",
+          "locality": "link",
+          "title_prefixes": ["Registres paroissiaux et d'état civil :"]
+        }
+      }
+    },
+    {
+      "id": "reformed-churches",
+      "acts": ["B", "M", "S", "D"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche.archives82.fr",
+        "viewer": "https://viewer-recherche.archives82.fr",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD082_IR_00196",
+          "level": 2
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche.archives82.fr",
+        "viewer": "https://viewer-recherche.archives82.fr",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD082_IR_00199",
+          "level": 1
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche.archives82.fr",
+        "viewer": "https://viewer-recherche.archives82.fr",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD082_IR_00197",
+          "level": 3
+        }
+      }
+    }
+  ]
+}

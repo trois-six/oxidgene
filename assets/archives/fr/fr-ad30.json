@@ -1,0 +1,29 @@
+{
+  "id": "fr-ad30",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales du Gard",
+  "jurisdiction": ["30"],
+  "areas": ["Gard"],
+  "aliases": ["Archives du Gard"],
+  "citation_codes": ["AD30"],
+  "website": "https://archives.gard.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["N", "M", "D", "B", "S", "TD"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://earchives.gard.fr",
+        "transport": "browser",
+        "viewer": "https://v-earchives.gard.fr",
+        "views": "range",
+        "inventory": {
+          "kind": "classification",
+          "prefix": "FRAD030_RPEC_",
+          "locality": "title"
+        }
+      }
+    }
+  ]
+}

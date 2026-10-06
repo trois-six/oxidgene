@@ -264,6 +264,7 @@ pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
     match platform {
         "archinoe" => Some(&crate::platform::Archinoe),
         "arkotheque" => Some(&crate::platform::Arkotheque),
+        "bach" => Some(&crate::platform::Bach),
         "gaia" => Some(&crate::platform::Gaia),
         "ligeo" => Some(&crate::platform::Ligeo),
         "mnesys" => Some(&crate::platform::Mnesys),

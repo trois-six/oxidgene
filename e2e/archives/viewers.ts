@@ -29,6 +29,13 @@ export const viewers: Record<string, Viewer> = {
         view: 'input[data-cy="input-position-image"]',
         viewCount: '[data-cy="nb-total-images"]',
     },
+    // Bach (Anaphore): the viewer's page input and its `/ 71` beside it. It
+    // shows the view number without the images.
+    bach: {
+        view: '#currentpage input[type="number"]',
+        viewCount: "#currentpage",
+        blockImages: true,
+    },
     // GAIA: `Page n de total` in the canvas viewer's page box. The viewer
     // has no address per view: the check opens it on its first view.
     gaia: {

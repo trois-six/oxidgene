@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:30:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -77,6 +77,10 @@ Profile](ui-person-profile.md#opening-a-cited-register)).
   running it — Ariège, Aude, Orne, Pyrénées-Orientales, Seine-et-Marne —
   with their censuses, military registers and succession tables
   ([Archive Portals §4.8](archives.md#48-gaia)).
+- [x] Add the Bach adapter (Anaphore) and catalogue the six departmental
+  archives running it — Gard, Haute-Marne, Tarn, Tarn-et-Garonne, Vaucluse,
+  Guadeloupe — with their decennial tables, reformed churches' registers,
+  censuses and military registers ([Archive Portals §4.11](archives.md#411-bach)).
 - [x] Resolve a cited source on the backend, through REST and GraphQL, and
   open its target from the web client in a new tab
   ([Archive Portals §5.3](archives.md#53-api), [§6.2](archives.md#62-web)).

@@ -1,0 +1,111 @@
+{
+ "breadcrumb": {
+  "unitid": "9 E 1/1",
+  "cUnittitle": "Baptêmes",
+  "cLegalstatus": null,
+  "cAudience": null,
+  "link": "<a href=\"https://archives.example.org/document/FRAD099_00000001E\">Exemple</a>"
+ },
+ "count": 12,
+ "data": [
+  {
+   "name": "EX_0001_001_01_0001.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0001.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0001.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0002.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0002.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0002.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0003.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0003.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0003.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0004.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0004.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0004.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0005.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0005.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0005.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0006.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0006.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0006.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0007.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0007.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0007.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0008.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0008.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0008.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0009.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0009.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0009.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0010.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0010.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0010.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0011.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0011.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0011.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  },
+  {
+   "name": "EX_0001_001_01_0012.jpg",
+   "url": "/viewer/show/full/E/9E/EX_0001_001_01/EX_0001_001_01_0012.jpg?isMobOrTab=undefined",
+   "referenceStripThumbnailUrl": "/viewer/show/thumb/E/9E/EX_0001_001_01/EX_0001_001_01_0012.jpg",
+   "type": "image",
+   "crossOriginPolicy": "Anonymous",
+   "ajaxWithCredentials": true
+  }
+ ],
+ "pageCurrent": 0,
+ "showThumb": true,
+ "seriesHasImages": false
+}

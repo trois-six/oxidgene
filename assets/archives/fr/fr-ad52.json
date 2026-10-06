@@ -1,0 +1,54 @@
+{
+  "id": "fr-ad52",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Haute-Marne",
+  "jurisdiction": ["52"],
+  "areas": ["Haute-Marne"],
+  "citation_codes": ["AD52"],
+  "website": "https://haute-marne.fr/culture/archives-departementales/",
+  "collections": [
+    {
+      "id": "decennial-tables",
+      "acts": ["TD"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche.archives.haute-marne.fr",
+        "viewer": "https://recherche.archives.haute-marne.fr/viewer",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD052_00000164M",
+          "level": 2
+        }
+      }
+    },
+    {
+      "id": "registers",
+      "acts": ["N", "M", "D", "B", "S", "TD"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche.archives.haute-marne.fr",
+        "viewer": "https://recherche.archives.haute-marne.fr/viewer",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD052_00000001E",
+          "level": 2
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://recherche.archives.haute-marne.fr",
+        "viewer": "https://recherche.archives.haute-marne.fr/viewer",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD052_00000158M",
+          "level": 2
+        }
+      }
+    }
+  ]
+}

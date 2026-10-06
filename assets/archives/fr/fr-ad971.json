@@ -1,0 +1,40 @@
+{
+  "id": "fr-ad971",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Guadeloupe",
+  "jurisdiction": ["971"],
+  "areas": ["Guadeloupe"],
+  "aliases": ["Archives de la Guadeloupe"],
+  "citation_codes": ["AD971"],
+  "website": "https://www.archivesguadeloupe.fr",
+  "collections": [
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D", "P", "B", "S", "TD", "TA"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://earchives.archivesguadeloupe.fr",
+        "viewer": "https://earchives.archivesguadeloupe.fr/viewer",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD971_1E",
+          "level": 1
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://earchives.archivesguadeloupe.fr",
+        "viewer": "https://earchives.archivesguadeloupe.fr/viewer",
+        "inventory": {
+          "kind": "document",
+          "document": "FRAD971_1R_2020"
+        }
+      }
+    }
+  ]
+}

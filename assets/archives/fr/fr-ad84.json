@@ -1,0 +1,26 @@
+{
+  "id": "fr-ad84",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Vaucluse",
+  "jurisdiction": ["84"],
+  "areas": ["Vaucluse"],
+  "citation_codes": ["AD84"],
+  "website": "https://archives.vaucluse.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["N", "M", "D", "P", "B", "S", "TD"],
+      "platform": "bach",
+      "portal": {
+        "origin": "https://earchives.vaucluse.fr",
+        "viewer": "https://v-earchives.vaucluse.fr",
+        "inventory": {
+          "kind": "classification",
+          "prefix": "FRAD084_paroissiaux_",
+          "locality": "title"
+        }
+      }
+    }
+  ]
+}
