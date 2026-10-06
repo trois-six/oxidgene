@@ -1,0 +1,110 @@
+{
+ "@context": "http://iiif.io/api/presentation/2/context.json",
+ "@id": "https://archives.lamayenne.fr/archives-en-ligne/iiif/ark:/99999/rexample0002/manifest.json",
+ "@type": "sc:Manifest",
+ "label": "Exampleville",
+ "attribution": "Archives fictives",
+ "sequences": [
+  {
+   "@type": "sc:Sequence",
+   "canvases": [
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f1",
+     "@type": "sc:Canvas",
+     "label": "1",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f2",
+     "@type": "sc:Canvas",
+     "label": "2",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f3",
+     "@type": "sc:Canvas",
+     "label": "3",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f4",
+     "@type": "sc:Canvas",
+     "label": "4",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f5",
+     "@type": "sc:Canvas",
+     "label": "5",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f6",
+     "@type": "sc:Canvas",
+     "label": "6",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f7",
+     "@type": "sc:Canvas",
+     "label": "7",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f8",
+     "@type": "sc:Canvas",
+     "label": "8",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f9",
+     "@type": "sc:Canvas",
+     "label": "9",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f10",
+     "@type": "sc:Canvas",
+     "label": "10",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f11",
+     "@type": "sc:Canvas",
+     "label": "11",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://archives.lamayenne.fr/archives-en-ligne/ark:/99999/rexample0002/f12",
+     "@type": "sc:Canvas",
+     "label": "12",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    }
+   ]
+  }
+ ]
+}

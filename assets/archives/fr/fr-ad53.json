@@ -1,0 +1,43 @@
+{
+  "id": "fr-ad53",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de la Mayenne",
+  "jurisdiction": ["53"],
+  "areas": ["Mayenne"],
+  "citation_codes": ["AD53"],
+  "website": "https://archives.lamayenne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": null,
+      "platform": "pleade",
+      "portal": {
+        "origin": "https://archives.lamayenne.fr",
+        "transport": "any",
+        "path": "/archives-en-ligne",
+        "mode": "form",
+        "form": "etat-civil-search-form.html",
+        "results": "functions/ead/custom-results.ajax-html",
+        "criteria": { "locality": 1, "kind": 2, "year": 3 },
+        "kinds": { "registers": "Registres d'actes", "tables": "Tables" }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1865, 1940],
+      "platform": "pleade",
+      "portal": {
+        "origin": "https://archives.lamayenne.fr",
+        "transport": "any",
+        "path": "/archives-en-ligne",
+        "mode": "tree",
+        "aid": "FRAD053_2NUM109_RM",
+        "locality_depth": 5,
+        "locality_label": "Bureau de recrutement de {locality}"
+      }
+    }
+  ]
+}

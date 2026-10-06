@@ -1,0 +1,27 @@
+{
+  "id": "fr-ad64",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Pyrénées-Atlantiques",
+  "jurisdiction": ["64"],
+  "areas": ["Pyrénées-Atlantiques", "Basses-Pyrénées"],
+  "citation_codes": ["AD64"],
+  "website": "https://archives.le64.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": null,
+      "platform": "pleade",
+      "portal": {
+        "origin": "https://earchives.le64.fr",
+        "transport": "any",
+        "path": "/archives-en-ligne",
+        "mode": "tree",
+        "aid": "FRAD064003_IR0002",
+        "locality_depth": 2,
+        "locality_label": "{locality}"
+      }
+    }
+  ]
+}

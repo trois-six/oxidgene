@@ -267,6 +267,7 @@ pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
         "gaia" => Some(&crate::platform::Gaia),
         "ligeo" => Some(&crate::platform::Ligeo),
         "mnesys" => Some(&crate::platform::Mnesys),
+        "pleade" => Some(&crate::platform::Pleade),
         "prismia" => Some(&crate::platform::Prismia),
         "thot" => Some(&crate::platform::Thot),
         _ => None,

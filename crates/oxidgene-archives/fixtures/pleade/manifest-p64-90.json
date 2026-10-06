@@ -1,0 +1,734 @@
+{
+ "@context": "http://iiif.io/api/presentation/2/context.json",
+ "@id": "https://earchives.le64.fr/archives-en-ligne/iiif/ark:/99999/rnmdexample02/manifest.json",
+ "@type": "sc:Manifest",
+ "label": "Exampleville",
+ "attribution": "Archives fictives",
+ "sequences": [
+  {
+   "@type": "sc:Sequence",
+   "canvases": [
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f1",
+     "@type": "sc:Canvas",
+     "label": "1",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f2",
+     "@type": "sc:Canvas",
+     "label": "2",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f3",
+     "@type": "sc:Canvas",
+     "label": "3",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f4",
+     "@type": "sc:Canvas",
+     "label": "4",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f5",
+     "@type": "sc:Canvas",
+     "label": "5",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f6",
+     "@type": "sc:Canvas",
+     "label": "6",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f7",
+     "@type": "sc:Canvas",
+     "label": "7",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f8",
+     "@type": "sc:Canvas",
+     "label": "8",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f9",
+     "@type": "sc:Canvas",
+     "label": "9",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f10",
+     "@type": "sc:Canvas",
+     "label": "10",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f11",
+     "@type": "sc:Canvas",
+     "label": "11",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f12",
+     "@type": "sc:Canvas",
+     "label": "12",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f13",
+     "@type": "sc:Canvas",
+     "label": "13",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f14",
+     "@type": "sc:Canvas",
+     "label": "14",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f15",
+     "@type": "sc:Canvas",
+     "label": "15",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f16",
+     "@type": "sc:Canvas",
+     "label": "16",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f17",
+     "@type": "sc:Canvas",
+     "label": "17",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f18",
+     "@type": "sc:Canvas",
+     "label": "18",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f19",
+     "@type": "sc:Canvas",
+     "label": "19",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f20",
+     "@type": "sc:Canvas",
+     "label": "20",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f21",
+     "@type": "sc:Canvas",
+     "label": "21",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f22",
+     "@type": "sc:Canvas",
+     "label": "22",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f23",
+     "@type": "sc:Canvas",
+     "label": "23",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f24",
+     "@type": "sc:Canvas",
+     "label": "24",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f25",
+     "@type": "sc:Canvas",
+     "label": "25",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f26",
+     "@type": "sc:Canvas",
+     "label": "26",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f27",
+     "@type": "sc:Canvas",
+     "label": "27",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f28",
+     "@type": "sc:Canvas",
+     "label": "28",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f29",
+     "@type": "sc:Canvas",
+     "label": "29",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f30",
+     "@type": "sc:Canvas",
+     "label": "30",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f31",
+     "@type": "sc:Canvas",
+     "label": "31",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f32",
+     "@type": "sc:Canvas",
+     "label": "32",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f33",
+     "@type": "sc:Canvas",
+     "label": "33",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f34",
+     "@type": "sc:Canvas",
+     "label": "34",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f35",
+     "@type": "sc:Canvas",
+     "label": "35",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f36",
+     "@type": "sc:Canvas",
+     "label": "36",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f37",
+     "@type": "sc:Canvas",
+     "label": "37",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f38",
+     "@type": "sc:Canvas",
+     "label": "38",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f39",
+     "@type": "sc:Canvas",
+     "label": "39",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f40",
+     "@type": "sc:Canvas",
+     "label": "40",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f41",
+     "@type": "sc:Canvas",
+     "label": "41",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f42",
+     "@type": "sc:Canvas",
+     "label": "42",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f43",
+     "@type": "sc:Canvas",
+     "label": "43",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f44",
+     "@type": "sc:Canvas",
+     "label": "44",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f45",
+     "@type": "sc:Canvas",
+     "label": "45",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f46",
+     "@type": "sc:Canvas",
+     "label": "46",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f47",
+     "@type": "sc:Canvas",
+     "label": "47",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f48",
+     "@type": "sc:Canvas",
+     "label": "48",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f49",
+     "@type": "sc:Canvas",
+     "label": "49",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f50",
+     "@type": "sc:Canvas",
+     "label": "50",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f51",
+     "@type": "sc:Canvas",
+     "label": "51",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f52",
+     "@type": "sc:Canvas",
+     "label": "52",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f53",
+     "@type": "sc:Canvas",
+     "label": "53",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f54",
+     "@type": "sc:Canvas",
+     "label": "54",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f55",
+     "@type": "sc:Canvas",
+     "label": "55",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f56",
+     "@type": "sc:Canvas",
+     "label": "56",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f57",
+     "@type": "sc:Canvas",
+     "label": "57",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f58",
+     "@type": "sc:Canvas",
+     "label": "58",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f59",
+     "@type": "sc:Canvas",
+     "label": "59",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f60",
+     "@type": "sc:Canvas",
+     "label": "60",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f61",
+     "@type": "sc:Canvas",
+     "label": "61",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f62",
+     "@type": "sc:Canvas",
+     "label": "62",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f63",
+     "@type": "sc:Canvas",
+     "label": "63",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f64",
+     "@type": "sc:Canvas",
+     "label": "64",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f65",
+     "@type": "sc:Canvas",
+     "label": "65",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f66",
+     "@type": "sc:Canvas",
+     "label": "66",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f67",
+     "@type": "sc:Canvas",
+     "label": "67",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f68",
+     "@type": "sc:Canvas",
+     "label": "68",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f69",
+     "@type": "sc:Canvas",
+     "label": "69",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f70",
+     "@type": "sc:Canvas",
+     "label": "70",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f71",
+     "@type": "sc:Canvas",
+     "label": "71",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f72",
+     "@type": "sc:Canvas",
+     "label": "72",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f73",
+     "@type": "sc:Canvas",
+     "label": "73",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f74",
+     "@type": "sc:Canvas",
+     "label": "74",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f75",
+     "@type": "sc:Canvas",
+     "label": "75",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f76",
+     "@type": "sc:Canvas",
+     "label": "76",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f77",
+     "@type": "sc:Canvas",
+     "label": "77",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f78",
+     "@type": "sc:Canvas",
+     "label": "78",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f79",
+     "@type": "sc:Canvas",
+     "label": "79",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f80",
+     "@type": "sc:Canvas",
+     "label": "80",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f81",
+     "@type": "sc:Canvas",
+     "label": "81",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f82",
+     "@type": "sc:Canvas",
+     "label": "82",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f83",
+     "@type": "sc:Canvas",
+     "label": "83",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f84",
+     "@type": "sc:Canvas",
+     "label": "84",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f85",
+     "@type": "sc:Canvas",
+     "label": "85",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f86",
+     "@type": "sc:Canvas",
+     "label": "86",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f87",
+     "@type": "sc:Canvas",
+     "label": "87",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f88",
+     "@type": "sc:Canvas",
+     "label": "88",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f89",
+     "@type": "sc:Canvas",
+     "label": "89",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    },
+    {
+     "@id": "https://earchives.le64.fr/archives-en-ligne/ark:/99999/rnmdexample02/f90",
+     "@type": "sc:Canvas",
+     "label": "90",
+     "height": 3000,
+     "width": 2000,
+     "images": []
+    }
+   ]
+  }
+ ]
+}

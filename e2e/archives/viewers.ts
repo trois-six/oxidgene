@@ -48,6 +48,14 @@ export const viewers: Record<string, Viewer> = {
         viewCount: ".media-browse .page-count",
         blockImages: true,
     },
+    // Pleade: Mirador 3 (`Vue <input> / 269` in the canvas navigation) or
+    // Mirador 2 (the highlighted thumbnail's label, `82 objets`), both of
+    // which number their views from the manifest, without the images.
+    pleade: {
+        view: '.mirador-canvas-nav input[type="number"], li.highlight .thumb-label',
+        viewCount: ".mirador-canvas-nav label, .canvas-count",
+        blockImages: true,
+    },
     // Prismia Vision: `n` and `total` in the view-number button.
     prismia: {
         view: 'button[aria-label="Numéro de la vue"]',

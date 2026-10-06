@@ -21,6 +21,7 @@ mod ligeo;
 pub(crate) mod locality;
 pub(crate) mod markup;
 mod mnesys;
+mod pleade;
 mod prismia;
 pub(crate) mod query;
 pub(crate) mod select;
@@ -37,6 +38,7 @@ pub use arkotheque::Arkotheque;
 pub use gaia::Gaia;
 pub use ligeo::Ligeo;
 pub use mnesys::Mnesys;
+pub use pleade::Pleade;
 pub use prismia::Prismia;
 pub(crate) use query::Query;
 pub use thot::Thot;
@@ -125,6 +127,7 @@ pub fn builtin() -> Vec<Box<dyn Platform>> {
         Box::new(Gaia),
         Box::new(Ligeo),
         Box::new(Mnesys),
+        Box::new(Pleade),
         Box::new(Prismia),
         Box::new(Thot),
     ]
