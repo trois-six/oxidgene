@@ -547,7 +547,7 @@ fn reads_each_field_of_a_title_row() {
 
 #[test]
 fn reads_the_acts_a_text_names() {
-    use page::act_code;
+    use crate::platform::select::act_code;
     for (text, codes, expected) in [
         ("B, M, S", true, Some("BMS")),
         ("N", true, Some("N")),

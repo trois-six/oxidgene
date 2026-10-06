@@ -107,6 +107,47 @@ pub(crate) fn fold(text: &str) -> String {
     fold_words(text)
 }
 
+/// The ASCII letters and digits of `text` once folded: `L'Étang` is `letang`.
+pub(crate) fn letters(text: &str) -> Vec<char> {
+    fold(text)
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect()
+}
+
+/// Whether a portal's text names one of the `wanted` [`letters`].
+///
+/// Some portals serve ISO-8859-1 pages. A transport that decodes them as
+/// UTF-8 turns each accented letter into U+FFFD, which then stands for any
+/// one letter.
+pub(crate) fn is_named(portal: &str, wanted: &[Vec<char>]) -> bool {
+    if !portal.contains('\u{fffd}') {
+        let name = letters(portal);
+        return wanted.contains(&name);
+    }
+    let pattern = lossy_letters(portal);
+    wanted.iter().any(|form| {
+        form.len() == pattern.len()
+            && form
+                .iter()
+                .zip(&pattern)
+                .all(|(letter, known)| known.is_none_or(|known| known == *letter))
+    })
+}
+
+/// The letters and digits of a text decoded lossily, lower-cased: `None`
+/// for each U+FFFD, which stands for a letter the decoding lost.
+pub(crate) fn lossy_letters(portal: &str) -> Vec<Option<char>> {
+    portal
+        .split('\u{fffd}')
+        .enumerate()
+        .flat_map(|(index, part)| {
+            let lost = (index > 0).then_some(None);
+            lost.into_iter().chain(letters(part).into_iter().map(Some))
+        })
+        .collect()
+}
+
 /// The decoded value of the first `name="…"` attribute.
 pub(crate) fn attribute(html: &str, name: &str) -> Option<String> {
     attributes(html, name).into_iter().next()

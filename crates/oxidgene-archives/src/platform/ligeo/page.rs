@@ -14,11 +14,11 @@ use serde::Deserialize;
 use super::place::{Place, places};
 use super::settings::{Columns, Names};
 use crate::ResolveError;
-use crate::citation::{CallNumber, CitationGrammar};
+use crate::citation::CallNumber;
 use crate::platform::markup::{
     attribute, attributes, first_number, fold, split_after, strip_tags, text_after, unreadable,
 };
-use crate::platform::select::{Candidate, number_range};
+use crate::platform::select::{Candidate, act_code, number_range};
 
 fn unexpected(detail: &str) -> ResolveError {
     ResolveError::UnexpectedResponse(format!("ligeo: {detail}"))
@@ -458,55 +458,6 @@ fn title_call_number(title: &str) -> Option<String> {
         .bytes()
         .any(|byte| byte.is_ascii_digit())
         .then_some(call_number)
-}
-
-/// The act of a register as the codes `select` reads: the series its text
-/// names in the citation vocabulary (`RP` for `Recensement de population`),
-/// the kinds its text names (`BMS`), or `TD` for decennial tables. With
-/// `codes`, a word made of act letters (`N`, `B, M, S`, `BMS`) names kinds
-/// too; a title would take an initial for one.
-pub(super) fn act_code(text: &str, codes: bool) -> Option<String> {
-    if let Some(series) = CitationGrammar::default().series_of(text) {
-        return Some(series.code().to_owned());
-    }
-    let folded = fold(text);
-    let words: Vec<&str> = folded.split(' ').collect();
-    if words.iter().any(|word| word.starts_with("decennal")) {
-        return Some("TD".to_owned());
-    }
-    let mut kinds = String::new();
-    let mut add = |letter: char| {
-        if !kinds.contains(letter) {
-            kinds.push(letter);
-        }
-    };
-    for word in &words {
-        match *word {
-            word if word.starts_with("baptem") => add('B'),
-            word if word.starts_with("mariage") => add('M'),
-            word if word.starts_with("naissance") => add('N'),
-            "deces" => add('D'),
-            word if word.starts_with("sepultur") => add('S'),
-            _ => {}
-        }
-    }
-    if codes {
-        for token in text.split(|c: char| !c.is_alphanumeric()) {
-            if !token.is_empty() && token.chars().all(|c| "NBMDS".contains(c)) {
-                token.chars().for_each(&mut add);
-            }
-        }
-    }
-    if !kinds.is_empty() {
-        return Some(kinds);
-    }
-    words.iter().any(|word| word.starts_with("tabl")).then(|| {
-        if words.iter().any(|word| word.starts_with("annuel")) {
-            "TA".to_owned()
-        } else {
-            "TD".to_owned()
-        }
-    })
 }
 
 /// The path of an absolute address, without query or fragment.

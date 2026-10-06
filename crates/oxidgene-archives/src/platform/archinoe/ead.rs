@@ -10,7 +10,7 @@
 use super::{Found, Register, Search, Settings, choose, get, number_after, unexpected};
 use crate::ResolveError;
 use crate::citation::CitationParts;
-use crate::platform::markup::{self, first_number, fold};
+use crate::platform::markup::{self, first_number, fold, is_named, letters};
 use crate::platform::select::{Candidate, narrow};
 use crate::transport::PortalFetch;
 
@@ -89,40 +89,6 @@ pub(super) fn entries(html: &str) -> Vec<(String, String)> {
             (!name.is_empty()).then_some((id, name))
         })
         .collect()
-}
-
-/// The ASCII letters and digits of `text` once folded: `L'Étang` is `letang`.
-fn letters(text: &str) -> Vec<char> {
-    fold(text)
-        .chars()
-        .filter(char::is_ascii_alphanumeric)
-        .collect()
-}
-
-/// Whether the aid's name for a commune is one of the cited forms.
-///
-/// The aid's page is ISO-8859-1. A transport that decodes it as UTF-8 turns
-/// each accented letter into U+FFFD, which then stands for any one letter.
-fn is_named(portal: &str, wanted: &[Vec<char>]) -> bool {
-    if !portal.contains('\u{fffd}') {
-        let name = letters(portal);
-        return wanted.contains(&name);
-    }
-    let pattern: Vec<Option<char>> = portal
-        .chars()
-        .filter_map(|c| match c {
-            '\u{fffd}' => Some(None),
-            c if c.is_ascii_alphanumeric() => Some(Some(c.to_ascii_lowercase())),
-            _ => None,
-        })
-        .collect();
-    wanted.iter().any(|form| {
-        form.len() == pattern.len()
-            && form
-                .iter()
-                .zip(&pattern)
-                .all(|(letter, known)| known.is_none_or(|known| known == *letter))
-    })
 }
 
 /// The registers of a collection's notice: one `<div id="item_<id>">` block

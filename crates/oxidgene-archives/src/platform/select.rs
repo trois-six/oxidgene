@@ -23,7 +23,7 @@
 //! The period helpers read the period texts portals display, segments,
 //! act codes, notes and Republican years included.
 
-use crate::citation::{Act, CitationParts, republican_numeral, republican_start};
+use crate::citation::{Act, CitationGrammar, CitationParts, republican_numeral, republican_start};
 
 use super::markup::fold;
 
@@ -209,6 +209,55 @@ pub(crate) fn holds_act(displayed: Option<&str>, act: &Act) -> bool {
         Act::Register(kinds) => kinds.iter().all(|kind| written.includes(*kind)),
         Act::Table(_) | Act::Series(_) => &written == act,
     }
+}
+
+/// The act of a register as the codes `select` reads: the series its text
+/// names in the citation vocabulary (`RP` for `Recensement de population`),
+/// the kinds its text names (`BMS`), or `TD` for decennial tables. With
+/// `codes`, a word made of act letters (`N`, `B, M, S`, `BMS`) names kinds
+/// too; a title would take an initial for one.
+pub(crate) fn act_code(text: &str, codes: bool) -> Option<String> {
+    if let Some(series) = CitationGrammar::default().series_of(text) {
+        return Some(series.code().to_owned());
+    }
+    let folded = fold(text);
+    let words: Vec<&str> = folded.split(' ').collect();
+    if words.iter().any(|word| word.starts_with("decennal")) {
+        return Some("TD".to_owned());
+    }
+    let mut kinds = String::new();
+    let mut add = |letter: char| {
+        if !kinds.contains(letter) {
+            kinds.push(letter);
+        }
+    };
+    for word in &words {
+        match *word {
+            word if word.starts_with("baptem") => add('B'),
+            word if word.starts_with("mariage") => add('M'),
+            word if word.starts_with("naissance") => add('N'),
+            "deces" => add('D'),
+            word if word.starts_with("sepultur") => add('S'),
+            _ => {}
+        }
+    }
+    if codes {
+        for token in text.split(|c: char| !c.is_alphanumeric()) {
+            if !token.is_empty() && token.chars().all(|c| "NBMDS".contains(c)) {
+                token.chars().for_each(&mut add);
+            }
+        }
+    }
+    if !kinds.is_empty() {
+        return Some(kinds);
+    }
+    words.iter().any(|word| word.starts_with("tabl")).then(|| {
+        if words.iter().any(|word| word.starts_with("annuel")) {
+            "TA".to_owned()
+        } else {
+            "TD".to_owned()
+        }
+    })
 }
 
 /// The words, folded, that introduce the numbers a register spans in a
