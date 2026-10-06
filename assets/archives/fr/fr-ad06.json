@@ -1,0 +1,66 @@
+{
+  "id": "fr-ad06",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Alpes-Maritimes",
+  "jurisdiction": ["06"],
+  "areas": ["Alpes-Maritimes"],
+  "citation_codes": ["AD06"],
+  "website": "https://archives06.fr/",
+  "display": "portal",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives06.fr",
+        "transport": "browser",
+        "search": "etatcivil2",
+        "node": 101,
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "RECH_acte",
+          "year_from": "RECH_date_debut",
+          "year_to": "RECH_date_fin"
+        },
+        "acts": {
+          "B": "Baptêmes",
+          "N": "Naissances",
+          "M": "Mariages",
+          "P": "Publications",
+          "S": "Sépultures",
+          "D": "Décès",
+          "TD": "Tables"
+        },
+        "columns": {
+          "locality": "Commune / Paroisse, hameau, section",
+          "acts": "Type d'acte",
+          "period": "Date",
+          "call_number": "Cote"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives06.fr",
+        "transport": "browser",
+        "search": "recensement",
+        "node": 102,
+        "fields": {
+          "locality": "RECH_commune",
+          "year_from": "RECH_date_debut",
+          "year_to": "RECH_date_fin"
+        },
+        "columns": {
+          "locality": "Commune",
+          "period": "Années",
+          "call_number": "Cote"
+        }
+      }
+    }
+  ]
+}

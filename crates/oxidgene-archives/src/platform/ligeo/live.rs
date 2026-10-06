@@ -335,6 +335,18 @@ async fn search(
         .map_err(|error| Failure::from_error(step, expected, &error))
 }
 
+/// Whether a listed row, whose act reads as the code `read`, is one of the
+/// searched act's: not a table for a register of acts, and not another
+/// series for a series; a row whose act reads as nothing is.
+fn is_of_act(read: Option<&str>, act: &Act) -> bool {
+    let read = read.and_then(Act::from_code);
+    match act {
+        Act::Register(_) => !matches!(read, Some(Act::Table(_))),
+        Act::Series(_) => read.is_none_or(|read| read == *act),
+        Act::Table(_) => true,
+    }
+}
+
 async fn registers(
     collection: &Collection,
     locality: &str,
@@ -375,15 +387,12 @@ async fn registers(
     let wanted = fold(locality);
     // Oldest first, whatever order the portal sorts by (one lists first a
     // register its year index leaves undated, which no cited year finds).
-    // A search by act also lists the decennial tables of that act: only the
-    // registers of the act are cited by it.
+    // A search by act also lists the decennial tables of that act, and a
+    // series search other series the portal files with it (the lists of the
+    // contingent among military registers): only the registers of the act
+    // are cited by it.
     let mut rows = found.rows;
-    if let Act::Register(_) = act {
-        rows.retain(|row| {
-            let table = row.act.as_deref().and_then(Act::from_code);
-            !matches!(table, Some(Act::Table(_)))
-        });
-    }
+    rows.retain(|row| is_of_act(row.act.as_deref(), act));
     rows.sort_by_key(|row| {
         row.period
             .as_deref()
@@ -437,6 +446,20 @@ impl Probe for Ligeo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cites_only_the_rows_of_the_act_searched() {
+        let act = |code: &str| Act::from_code(code).unwrap();
+        // The lists of the contingent a portal files among its military
+        // registers are not cited as registers.
+        assert!(is_of_act(Some("RM"), &act("RM")));
+        assert!(!is_of_act(Some("CM"), &act("RM")));
+        assert!(is_of_act(None, &act("RM")));
+        // The decennial tables a search of births lists beside the acts.
+        assert!(!is_of_act(Some("TD"), &act("N")));
+        assert!(is_of_act(Some("NMD"), &act("N")));
+        assert!(is_of_act(Some("N"), &act("TD")));
+    }
 
     #[test]
     fn reads_the_locality_thesaurus_from_the_page_script() {

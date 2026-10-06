@@ -55,10 +55,12 @@ export const viewers: Record<string, Viewer> = {
         viewCount: "#pagination input[type=text]",
         blockImages: true,
     },
-    // Ligeo: the Monocle viewer's page navigation.
+    // Ligeo: the Monocle viewer's page navigation, or the Binocle viewer's
+    // gallery counter (`<input value="5"> sur 29`) on the portals that run
+    // it (Hautes-Alpes).
     ligeo: {
-        view: '.monocle-PageNav input[role="spinbutton"]',
-        viewCount: ".monocle-PageNav-total",
+        view: '.monocle-PageNav input[role="spinbutton"], .bn-gallery-counter input.bn-gallery-counter-current',
+        viewCount: ".monocle-PageNav-total, .bn-gallery-counter",
     },
     // Mnesys Expo: the media browser, behind the reuse conditions' dialog.
     mnesys: {

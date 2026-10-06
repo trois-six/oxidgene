@@ -19,10 +19,10 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { expect, test, type Page, type Request, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request, type Response, type Route } from "@playwright/test";
 
 import { runBridge } from "./bridge";
-import { type ArchiveReport, type CollectionReport, type Failure, type Opening, antiBotName, antiBotPage, drift, nativeReport, record, summary, worst } from "./report";
+import { type ArchiveReport, type CollectionReport, type Failure, type Opening, type Signature, antiBotName, antiBotPage, drift, nativeReport, record, summary, worst } from "./report";
 import { type Viewer, viewers } from "./viewers";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -85,7 +85,35 @@ async function open(page: Page, opening: Opening): Promise<Failure | null> {
     }
 }
 
+// The anti-bot page, if any, that answered one of the viewer's own requests
+// in place of its data (a manifest, a page list): an F5 script challenging
+// a request of a headless browser leaves the viewer with no view to show.
+function watchViewerRequests(page: Page): { guard: () => Signature | null; stop: () => void } {
+    let found: Signature | null = null;
+    const listener = (response: Response) => {
+        const type = response.request().resourceType();
+        if (found || (type !== "xhr" && type !== "fetch")) return;
+        response
+            .text()
+            .then((body) => {
+                found ??= antiBotPage(body);
+            })
+            .catch(() => undefined);
+    };
+    page.on("response", listener);
+    return { guard: () => found, stop: () => page.off("response", listener) };
+}
+
 async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise<Failure | null> {
+    const requests = watchViewerRequests(page);
+    try {
+        return await showView(page, opening, viewer, requests.guard);
+    } finally {
+        requests.stop();
+    }
+}
+
+async function showView(page: Page, opening: Opening, viewer: Viewer, answered: () => Signature | null): Promise<Failure | null> {
     // A portal behind a challenge keeps the fragment, which carries the view,
     // only once its cookie is set (docs/archives.md §6.1): the bridge has
     // loaded its start page in this page already.
@@ -123,7 +151,11 @@ async function openViewer(page: Page, opening: Opening, viewer: Viewer): Promise
         if (blank) return { step: "opening", outcome: "challenged", expected: "the portal's viewer", received: "a blank page in place of the viewer" };
         return drift("opening", `the viewer showing view ${opening.view}`, "no view number shown");
     }
-    if (shown !== opening.view) return drift("opening", `view ${opening.view}`, `view ${shown}`);
+    if (shown !== opening.view) {
+        const guard = answered();
+        if (guard) return { step: "opening", outcome: "challenged", expected: `view ${opening.view}`, received: `an anti-bot page answered the viewer's request: ${antiBotName(guard)}` };
+        return drift("opening", `view ${opening.view}`, `view ${shown}`);
+    }
     if (viewer.viewCount && opening.view_count !== null) {
         const count = await numberShown(page, viewer.viewCount, "last");
         if (count !== opening.view_count) return drift("opening", `${opening.view_count} views`, `${count ?? "no"} views`);

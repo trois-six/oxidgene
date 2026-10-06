@@ -46,7 +46,7 @@ export interface ArchiveReport {
 // The anti-bot pages portals show in place of their own: the very file the
 // adapters and the desktop's archive window classify pages with
 // (crates/oxidgene-archives/src/platform/challenges.json, `markup::anti_bot`).
-interface Signature {
+export interface Signature {
     vendor: string;
     guard: "challenge" | "block";
     markers: string[];

@@ -1,0 +1,82 @@
+{
+  "id": "fr-ad05",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Hautes-Alpes",
+  "jurisdiction": ["05"],
+  "areas": ["Hautes-Alpes"],
+  "citation_codes": ["AD05"],
+  "website": "https://archives.hautes-alpes.fr/",
+  "display": "portal",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "P", "TD"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hautes-alpes.fr",
+        "search": "etatcivil",
+        "node": 198,
+        "fields": {
+          "locality": "RECH_commune",
+          "act": "RECH_genre[]",
+          "year_from": "RECH_unitdate_debut",
+          "year_to": "RECH_unitdate_fin"
+        },
+        "acts": {
+          "B": "naissance",
+          "N": "naissance",
+          "M": "mariage",
+          "P": "Publication de mariage",
+          "S": "décès",
+          "D": "décès",
+          "TD": "Table décennale"
+        },
+        "columns": {
+          "locality": "Contexte",
+          "title": "title",
+          "acts": "unittitle",
+          "period": "Dates"
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hautes-alpes.fr",
+        "search": "listesnominatives",
+        "node": 201,
+        "fields": {
+          "locality": "RECH_commune",
+          "year": "RECH_date"
+        },
+        "columns": {
+          "title": "title",
+          "period": "Dates"
+        }
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "ligeo",
+      "portal": {
+        "origin": "https://archives.hautes-alpes.fr",
+        "search": "matricules",
+        "node": 202,
+        "fields": {
+          "year": "RECH_classe"
+        },
+        "acts": {
+          "RM": { "RECH_type_registre[]": "registre matricule" }
+        },
+        "columns": {
+          "title": "title",
+          "period": "Dates"
+        }
+      }
+    }
+  ]
+}
