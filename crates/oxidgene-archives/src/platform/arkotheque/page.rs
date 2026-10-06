@@ -1,5 +1,7 @@
 //! Reading the request interface's answers: the search's result rows, the
-//! engine's lists of filter values, and the viewer's image list.
+//! engine's lists of filter values, and the viewer's image list; and the
+//! same rows as a search page's scripts render them, for a portal read by
+//! its pages.
 //!
 //! The search answer lists its registers twice: `resultats.results` gives
 //! each one's record reference and title, and `resultats.html` renders the
@@ -20,7 +22,8 @@ use crate::platform::select::{Candidate, number_range};
 /// What the adapter keeps of a register to open it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Register {
-    /// The record reference, `arko_fiche_…`.
+    /// The record reference, `arko_fiche_…`; empty for a rendered row
+    /// without images, whose record the page does not name.
     pub(super) record: String,
     /// `/_recherche-api/visionneuse-infos/…`, when the register has images.
     pub(super) viewer: Option<String>,
@@ -162,53 +165,124 @@ pub(super) fn search_rows(
         .results
         .into_iter()
         .zip(rendered)
-        .map(|(entry, html)| {
-            let html = html.split("</tr>").next().unwrap_or(html);
-            let row = Row {
-                html,
-                title: entry.intitule,
-                champs: markup::labelled_texts(html, "data-champ"),
-            };
-            let period = row.first(cells.period.as_ref());
-            let localities = cells
-                .locality
-                .as_ref()
-                .map(|cell| row.texts(cell))
-                .unwrap_or_default();
-            let locality = localities.first().cloned();
-            let act = cells
-                .act
-                .as_ref()
-                .map(|cell| row.texts(cell).join(", "))
-                .filter(|text| !text.is_empty());
-            Candidate {
-                call_number: match &cells.call_number {
-                    Some(cell) => row.first(Some(cell)),
-                    None => row.first(Some(&Cell::Title)).and_then(|title| {
-                        call_number_in_title(&title, locality.as_deref(), period.as_deref())
-                    }),
-                },
-                locality,
-                act,
-                parish: row.first(cells.parish.as_ref()),
-                period,
-                images: markup::text_after(html, "class=\"nombre_images\">")
-                    .and_then(|text| markup::first_number(&text)),
-                numbers: cells
-                    .numbers
-                    .as_ref()
-                    .and_then(|cells| numbers(&row, cells)),
-                payload: Register {
-                    record: entry.record,
-                    localities,
-                    viewer: markup::attribute(html, "data-visionneuse-url").filter(|address| {
-                        address.starts_with("/_recherche-api/visionneuse-infos/")
-                    }),
-                },
-            }
-        })
+        .map(|(entry, html)| candidate(html, entry.intitule, Some(entry.record), cells))
         .collect();
     Ok((rows, total))
+}
+
+/// What a rendered search page shows once its scripts have rendered the
+/// results: the results table, or the notice that nothing matched
+/// (`<div class="alerte"><p>Aucun résultat</p></div>`).
+pub(super) const RENDERED_RESULTS: &str = "[data-component=\"resultats\"] table.tableau_resultat_facettes, \
+     [data-component=\"resultats\"] .alerte";
+
+/// The registers of a search page as its scripts rendered them, and the
+/// count of all it matched: the same rows as an answer's `resultats.html`,
+/// in the results table, with the count in the heading above it
+/// (`aria-label="1 234 résultats"`). The page has no record titles: each
+/// record reference is read from the row's viewer address.
+pub(super) fn rendered_rows(
+    page: &str,
+    cells: &Cells,
+) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
+    let Some((_, table)) = page.split_once("<table class=\"tableau_resultat_facettes") else {
+        // Nothing matched: the results component holds the notice instead.
+        let nothing =
+            page.split_once("data-component=\"resultats\"")
+                .is_some_and(|(_, results)| {
+                    let results = results.split("data-component=").next().unwrap_or(results);
+                    results.contains("class=\"alerte\"")
+                });
+        if nothing {
+            return Ok((Vec::new(), 0));
+        }
+        return Err(markup::unreadable(
+            page,
+            "arkotheque: the rendered page lacks the results table".to_owned(),
+        ));
+    };
+    let table = table.split("</table>").next().unwrap_or(table);
+    let rows: Vec<_> = markup::split_after(table, "<tr class=\"resultat_container")
+        .into_iter()
+        .map(|html| candidate(html, None, None, cells))
+        .collect();
+    let total = page
+        .split("class=\"nombre_resultat_facettes\"")
+        .nth(1)
+        .and_then(|heading| markup::attribute(heading, "aria-label"))
+        .and_then(|label| {
+            let digits: String = label
+                .split(|c: char| c.is_alphabetic())
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect();
+            digits.parse().ok()
+        })
+        .unwrap_or(rows.len());
+    Ok((rows, total))
+}
+
+/// One rendered row, read through the `cells` settings; its record is the
+/// answer's, or else the one its viewer address names
+/// (`/_recherche-api/visionneuse-infos/<engine>/<record>/…`), empty for a
+/// row without images.
+fn candidate(
+    html: &str,
+    title: Option<String>,
+    record: Option<String>,
+    cells: &Cells,
+) -> Candidate<Register> {
+    let html = html.split("</tr>").next().unwrap_or(html);
+    let row = Row {
+        html,
+        title,
+        champs: markup::labelled_texts(html, "data-champ"),
+    };
+    let period = row.first(cells.period.as_ref());
+    let localities = cells
+        .locality
+        .as_ref()
+        .map(|cell| row.texts(cell))
+        .unwrap_or_default();
+    let locality = localities.first().cloned();
+    let act = cells
+        .act
+        .as_ref()
+        .map(|cell| row.texts(cell).join(", "))
+        .filter(|text| !text.is_empty());
+    let viewer = markup::attribute(html, "data-visionneuse-url")
+        .filter(|address| address.starts_with("/_recherche-api/visionneuse-infos/"));
+    let record = record
+        .or_else(|| {
+            let record = viewer.as_deref()?.split('/').nth(4)?;
+            is_reference(record).then(|| record.to_owned())
+        })
+        .unwrap_or_default();
+    Candidate {
+        call_number: match &cells.call_number {
+            Some(cell) => row.first(Some(cell)),
+            None => row.first(Some(&Cell::Title)).and_then(|title| {
+                call_number_in_title(&title, locality.as_deref(), period.as_deref())
+            }),
+        },
+        locality,
+        act,
+        parish: row.first(cells.parish.as_ref()),
+        period,
+        images: markup::text_after(html, "class=\"nombre_images\">")
+            .and_then(|text| markup::first_number(&text)),
+        numbers: cells
+            .numbers
+            .as_ref()
+            .and_then(|cells| numbers(&row, cells)),
+        payload: Register {
+            record,
+            localities,
+            viewer,
+        },
+    }
 }
 
 /// The call number in a record's title, which some portals follow with the

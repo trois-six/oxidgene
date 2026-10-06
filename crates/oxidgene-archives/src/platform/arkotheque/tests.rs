@@ -890,3 +890,253 @@ fn reads_image_paths_written_on_the_portal_host() {
     let elsewhere = r#"{"medias": [{"sources": [{"src": "https://elsewhere.example.org/_recherche-images/show/1/image/2/0"}]}]}"#;
     assert!(page::viewer_sources(elsewhere, "https://archives.example.org").is_err());
 }
+
+const AD40_RENDERED: &str = include_str!("../../../fixtures/arkotheque/ad40-rendered.html");
+const AD40_RENDERED_NONE: &str =
+    include_str!("../../../fixtures/arkotheque/ad40-rendered-none.html");
+const AD40_SEARCH_PAGE: &str =
+    "https://archives.landes.fr/faire-une-recherche/archives-numerisees/etat-civil";
+
+/// A portal read by its pages: each page load is answered with `page` and
+/// recorded, and so is a script's request, which the portal would refuse.
+struct Pages {
+    page: String,
+    loads: Mutex<Vec<(String, String)>>,
+    requests: Mutex<Vec<String>>,
+}
+
+impl Pages {
+    fn new(page: &str) -> Self {
+        Self {
+            page: page.to_owned(),
+            loads: Mutex::new(Vec::new()),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn loads(&self) -> Vec<(String, String)> {
+        self.loads.lock().unwrap().clone()
+    }
+}
+
+impl PortalFetch for Pages {
+    fn request<'a>(
+        &'a self,
+        request: &'a PortalRequest,
+    ) -> BoxFuture<'a, Result<String, FetchError>> {
+        self.requests.lock().unwrap().push(request.url.clone());
+        Box::pin(async { Err(FetchError::NotAllowed) })
+    }
+
+    fn page<'a>(
+        &'a self,
+        path_and_query: &'a str,
+        ready: &'a str,
+    ) -> BoxFuture<'a, Result<String, FetchError>> {
+        self.loads
+            .lock()
+            .unwrap()
+            .push((path_and_query.to_owned(), ready.to_owned()));
+        Box::pin(async { Ok(self.page.clone()) })
+    }
+}
+
+/// Resolves `title` in the Landes registers, read by their pages.
+fn resolve_pages(title: &str, pages: &Pages) -> Result<ArchiveTarget, ResolveError> {
+    let registry = ArchiveRegistry::embedded();
+    let citation = registry.parse(title).expect("a normalized citation");
+    let (archive, collections) = registry.candidates(&citation).expect("a catalogued act");
+    block_on(Arkotheque.resolve(archive, collections[0], &citation, pages))
+}
+
+fn landes_view_url(record: &str, file: u32, index: u16) -> String {
+    format!(
+        "{AD40_SEARCH_PAGE}?detail={record}#/_recherche-api/visionneuse-infos/arko_default_62a88e82782fb/{record}/arko_default_0000000004001/image/{file}/{index}"
+    )
+}
+
+#[test]
+fn a_portal_read_by_its_pages_is_searched_by_loading_its_search_page() {
+    let registry = ArchiveRegistry::embedded();
+    let landes = &registry.archive("AD40").unwrap().collections[0];
+    let endpoint = Arkotheque.endpoint(landes).unwrap();
+    assert_eq!(endpoint.access, Access::Page);
+    assert_eq!(endpoint.start, "https://archives.landes.fr/robots.txt");
+
+    let pages = Pages::new(AD40_RENDERED);
+    let target = resolve_pages(
+        "AD40 - Exampleville - (aucun) - N - 1850 - vue 12/296",
+        &pages,
+    );
+    // The locality's text match also lists Exampleville-lès-Bois; the
+    // period then singles out the register, counted by its row, since the
+    // portal refuses the viewer's image list to a script.
+    let record = "arko_fiche_0000000004002";
+    let url = landes_view_url(record, 994002, 11);
+    assert_eq!(
+        target,
+        Ok(ArchiveTarget::View {
+            url: url.clone(),
+            views: vec![ArchiveView {
+                view: 12,
+                url,
+                ark: None,
+                image: None,
+            }],
+            view_count: Some(296),
+            call_number: Some("9 E 99/2".to_owned()),
+            attribution: None,
+        })
+    );
+    assert!(pages.requests.lock().unwrap().is_empty());
+    let loads = pages.loads();
+    assert_eq!(loads.len(), 1);
+    let (path, ready) = &loads[0];
+    assert!(
+        path.starts_with(
+            "/faire-une-recherche/archives-numerisees/etat-civil?arko_default_62a88e82782fb--ficheFocus="
+        ),
+        "{path}"
+    );
+    assert!(path.contains("=Exampleville&"), "{path}");
+    assert!(path.contains("=1850%7C1850&"), "{path}");
+    assert_eq!(ready, page::RENDERED_RESULTS);
+
+    // A view beyond the row's count opens the register on its first view.
+    let target = resolve_pages(
+        "AD40 - Exampleville - (aucun) - N - 1850 - vue 400/400",
+        &pages,
+    );
+    let Ok(ArchiveTarget::View { url, views, .. }) = target else {
+        panic!("a view target: {target:?}");
+    };
+    assert!(views.is_empty());
+    assert_eq!(url, landes_view_url(record, 994002, 0));
+}
+
+#[test]
+fn a_rendered_page_without_rows_or_kept_by_an_anti_bot_page() {
+    let target = resolve_pages(
+        "AD40 - Exampleville - (aucun) - N - 1650",
+        &Pages::new(AD40_RENDERED_NONE),
+    );
+    let Ok(ArchiveTarget::Results { url, matches }) = target else {
+        panic!("results: {target:?}");
+    };
+    assert_eq!(matches, Some(0));
+    assert!(url.starts_with(AD40_SEARCH_PAGE), "{url}");
+
+    let blocked = "<html><head><title>Attention Required! | Cloudflare</title></head>\
+        <body><div id=\"cf-error-details\">Sorry, you have been blocked</div></body></html>";
+    assert_eq!(
+        resolve_pages(
+            "AD40 - Exampleville - (aucun) - N - 1850",
+            &Pages::new(blocked)
+        ),
+        Err(ResolveError::Challenged)
+    );
+    assert!(matches!(
+        resolve_pages(
+            "AD40 - Exampleville - (aucun) - N - 1850",
+            &Pages::new("<html><body>Maintenance</body></html>")
+        ),
+        Err(ResolveError::UnexpectedResponse(_))
+    ));
+}
+
+#[test]
+fn a_portal_read_by_its_pages_reads_every_part_from_a_cell() {
+    let paged = |change: fn(&mut serde_json::Value)| {
+        collection_with(|portal| {
+            portal["transport"] = "page".into();
+            portal["cells"]["call_number"] = "cote".into();
+            change(portal);
+        })
+    };
+    assert_eq!(Arkotheque.validate(&paged(|_| {})), Ok(()));
+    type Change = fn(&mut serde_json::Value);
+    let cases: [(&str, Change); 3] = [
+        (
+            "no keyed filter",
+            |p| {
+                p["fields"]["locality"] =
+                    serde_json::json!({"ref": "arko_default_6a3b8762b0f5a", "keyed": true})
+            },
+        ),
+        ("call number in a cell", |p| {
+            p["cells"].as_object_mut().unwrap().remove("call_number");
+        }),
+        ("no #title", |p| p["cells"]["parish"] = "#title".into()),
+    ];
+    for (expected, change) in cases {
+        let error = Arkotheque.validate(&paged(change)).unwrap_err().to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    }
+}
+
+#[test]
+fn the_live_probe_reads_a_portal_by_its_rendered_pages() {
+    use crate::live::{Outcome, Probe, Step};
+
+    let registry = ArchiveRegistry::embedded();
+    let landes = &registry.archive("AD40").unwrap().collections[0];
+    let pages = Pages::new(AD40_RENDERED);
+    // The first locality the unfiltered page's rows name.
+    assert_eq!(
+        block_on(Arkotheque.search_page(landes, &pages)).as_deref(),
+        Ok("Exampleville")
+    );
+    let (path, _) = &pages.loads()[0];
+    assert!(path.contains("--resultSize=25&"), "{path}");
+    assert!(!path.contains("groupes%5D%5B0"), "{path}");
+
+    let act = Act::from_code("N").unwrap();
+    let registers = block_on(Arkotheque.registers(landes, "Exampleville", &act, &pages)).unwrap();
+    assert_eq!(registers.len(), 3);
+    // Counted by their rows: the viewer's list is not to be asked for.
+    assert_eq!(registers[1].images, Some(296));
+    assert_eq!(registers[1].call_number.as_deref(), Some("9 E 99/2"));
+    assert!(pages.requests.lock().unwrap().is_empty());
+
+    let without_act_filter = AD40_RENDERED.replace("aria-filtre-arko_default_62a88ef500cdf", "");
+    let failure =
+        block_on(Arkotheque.search_page(landes, &Pages::new(&without_act_filter))).unwrap_err();
+    assert_eq!(
+        (failure.step, failure.outcome),
+        (Step::SearchPage, Outcome::Drift)
+    );
+    assert!(failure.received.contains("act filter"), "{failure:?}");
+}
+
+#[test]
+fn only_an_adapter_that_reads_pages_takes_a_portal_read_by_its_pages() {
+    let document = |platform: &str, portal: serde_json::Value| {
+        serde_json::json!({
+            "id": "fr-ad00", "country": "FR", "level": "departmental",
+            "name": "Archives of Example", "citation_codes": ["AD00"],
+            "website": "https://archives.example.org",
+            "collections": [{"id": "registers", "acts": ["N"], "platform": platform, "portal": portal}]
+        })
+        .to_string()
+    };
+    let landes = &ArchiveRegistry::embedded()
+        .archive("AD40")
+        .unwrap()
+        .collections[0];
+    let arkotheque = document("arkotheque", landes.portal.clone());
+    assert!(ArchiveRegistry::new(&[("fr", arkotheque.as_str())], platform::builtin()).is_ok());
+    let ligeo = document(
+        "ligeo",
+        serde_json::json!({
+            "origin": "https://archives.example.org", "transport": "page",
+            "search": "etatcivil", "node": 1,
+            "fields": {"locality": "RECH_commune", "act": "RECH_acte"},
+            "acts": {"N": "naissance"}
+        }),
+    );
+    let Err(error) = ArchiveRegistry::new(&[("fr", ligeo.as_str())], platform::builtin()) else {
+        panic!("a refused collection");
+    };
+    let error = error.to_string();
+    assert!(error.contains("searches no portal by its pages"), "{error}");
+}

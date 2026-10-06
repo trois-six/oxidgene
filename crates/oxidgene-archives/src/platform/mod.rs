@@ -73,6 +73,18 @@ pub enum Access {
     Any,
     /// Only a browser: an anti-bot challenge blocks other clients.
     Browser,
+    /// Only a browser loading the portal's pages: its anti-bot measure
+    /// refuses even the requests a page's script sends itself, while the
+    /// portal's own scripts render what a loaded page shows. Every request
+    /// is then a page load ([`PortalFetch::page`]), never a `fetch`.
+    Page,
+}
+
+impl Access {
+    /// Whether only a browser reaches the portal.
+    pub fn needs_browser(self) -> bool {
+        self != Self::Any
+    }
 }
 
 /// Where a collection's portal answers, as a transport needs it.
@@ -115,6 +127,13 @@ pub trait Platform: Send + Sync {
     /// The collection's search page, filtered by the citation where the
     /// platform allows it, built without any request.
     fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<String>;
+
+    /// Whether the adapter searches a portal by its pages, one whose access
+    /// is [`Access::Page`]: the catalogue refuses such a collection for any
+    /// other adapter.
+    fn reads_pages(&self) -> bool {
+        false
+    }
 
     /// Resolves a citation to a target in this collection: `View` when one
     /// register matches, `Results` with the match count otherwise.

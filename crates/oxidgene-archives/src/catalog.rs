@@ -401,7 +401,17 @@ fn validate_collection(
                 collection.platform
             ))
         })?;
-    platform.validate(collection)
+    platform.validate(collection)?;
+    let reads_pages = platform
+        .endpoint(collection)
+        .is_some_and(|endpoint| endpoint.access == crate::platform::Access::Page);
+    if reads_pages && !platform.reads_pages() {
+        return Err(CatalogError::new(format!(
+            "the `{}` adapter searches no portal by its pages: transport `page`",
+            collection.platform
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

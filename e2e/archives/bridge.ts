@@ -1,7 +1,8 @@
 // The page end of `archives-live-bridge` (crates/oxidgene-archives/src/live/
 // bridge.rs): the Rust check of one archive sends JSON lines asking to load
-// a portal's start page or to run one request with the page's own `fetch`,
-// and this answers each in turn, as the desktop's archive window does
+// a portal's start page, to run one request with the page's own `fetch`, or
+// to load a page and read it back once rendered, and this answers each in
+// turn, as the desktop's archive window does
 // (docs/archives.md §4.2). No adapter logic lives here: the requests, their
 // order and every verdict come from Rust.
 
@@ -32,6 +33,14 @@ interface Fetch {
     body: string | null;
 }
 
+interface PageLoad {
+    kind: "page";
+    ticket: number;
+    url: string;
+    // The CSS selector of what the portal's scripts render once loaded.
+    ready: string;
+}
+
 interface Report {
     kind: "report";
     collections: CollectionReport[];
@@ -39,7 +48,7 @@ interface Report {
     native: number[];
 }
 
-type Message = Connect | Fetch | Report;
+type Message = Connect | Fetch | PageLoad | Report;
 
 function originOf(url: string): string | null {
     try {
@@ -83,9 +92,15 @@ async function connect(page: Page, start: string, origins: string[]): Promise<st
     if (current.origin === wanted.origin && current.pathname === wanted.pathname && (await pageState(page, origins)) === "portal") {
         return null;
     }
+    return visit(page, start, origins);
+}
+
+// Loads a page of the portal and waits until it shows the portal's own
+// page: an error of `challenged`, `timeout` or `network`, or null.
+async function visit(page: Page, url: string, origins: string[]): Promise<string | null> {
     let status = 0;
     try {
-        const response = await page.goto(start, { waitUntil: "load", timeout: LOAD_TIMEOUT_MS });
+        const response = await page.goto(url, { waitUntil: "load", timeout: LOAD_TIMEOUT_MS });
         status = response?.status() ?? 0;
     } catch (error) {
         return error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network";
@@ -108,6 +123,20 @@ async function connect(page: Page, start: string, origins: string[]): Promise<st
         await page.waitForTimeout(500);
     }
     return checked ? "challenged" : "timeout";
+}
+
+// Loads a page of a portal that admits page loads only, as the desktop's
+// archive window does: once it is the portal's own page, waits until its
+// scripts have rendered `ready`, and answers with the document as rendered.
+async function pageLoad(page: Page, message: PageLoad, origins: string[]): Promise<Record<string, unknown>> {
+    const error = await visit(page, message.url, origins);
+    if (error) return { error };
+    try {
+        await page.waitForSelector(message.ready, { state: "attached", timeout: REQUEST_TIMEOUT_MS });
+        return { status: 200, url: page.url(), body: await page.content() };
+    } catch (error) {
+        return { error: error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network" };
+    }
 }
 
 // Runs one request as the page's own `fetch`, with the portal's cookies, as
@@ -146,16 +175,22 @@ export async function runBridge(binary: string, archive: string, page: Page): Pr
     const exited = new Promise<number | null>((resolve) => child.on("close", resolve));
     const send = (answer: Record<string, unknown>) => child.stdin.write(`${JSON.stringify(answer)}\n`);
     let report = null as Report | null;
+    // The origins of the portal connected last, which its pages stay on.
+    let origins: string[] = [];
     for await (const line of createInterface({ input: child.stdout })) {
         const message = JSON.parse(line) as Message;
         switch (message.kind) {
             case "connect": {
+                origins = message.origins;
                 const error = await connect(page, message.start, message.origins);
                 send(error ? { kind: "connected", error } : { kind: "connected" });
                 break;
             }
             case "fetch":
                 send({ kind: "fetched", ticket: message.ticket, ...(await pageFetch(page, message)) });
+                break;
+            case "page":
+                send({ kind: "fetched", ticket: message.ticket, ...(await pageLoad(page, message, origins)) });
                 break;
             case "report":
                 report = message;

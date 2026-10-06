@@ -1,0 +1,45 @@
+{
+  "id": "fr-ad40",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Landes",
+  "jurisdiction": ["40"],
+  "areas": ["Landes"],
+  "citation_codes": ["AD40"],
+  "website": "https://archives.landes.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "S", "D", "TD"],
+      "platform": "arkotheque",
+      "portal": {
+        "origin": "https://archives.landes.fr",
+        "transport": "page",
+        "search_path": "/faire-une-recherche/archives-numerisees/etat-civil",
+        "engine": "arko_default_62a88e82782fb",
+        "content_ids": ["1736088"],
+        "display_mode": "arko_default_62a88f1228b91",
+        "fields": {
+          "locality": "arko_default_62a88ef4ebacf",
+          "act": "arko_default_62a88ef500cdf",
+          "period": "arko_default_63b88760a57af"
+        },
+        "acts": {
+          "B": "Baptêmes[[arko_fiche_628ca1cf0b9fc]]",
+          "N": "Naissances[[arko_fiche_628ca1cf0d8d7]]",
+          "M": "Mariages[[arko_fiche_628ca1cf0e55c]]",
+          "S": "Sépultures[[arko_fiche_628ca1cf0ead1]]",
+          "D": "Décès[[arko_fiche_628ca1cf0f02e]]",
+          "TD": "Tables[[arko_fiche_628ca1cf0f4ea]]"
+        },
+        "locality_style": "plain",
+        "cells": {
+          "locality": "commune",
+          "act": "type_acte",
+          "period": "periode",
+          "call_number": "cote"
+        }
+      }
+    }
+  ]
+}

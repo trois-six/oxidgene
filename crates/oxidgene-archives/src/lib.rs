@@ -396,7 +396,7 @@ impl<'r> Resolver<'r> {
         let endpoint = platform
             .endpoint(collection)
             .ok_or(ResolveError::NoAdapter)?;
-        if endpoint.access == Access::Browser && !transport.is_browser() {
+        if endpoint.access.needs_browser() && !transport.is_browser() {
             let url = platform
                 .results_url(collection, citation)
                 .unwrap_or_else(|| archive.website.clone());

@@ -51,7 +51,7 @@ impl Platform for Bach {
         // that the browser passes it before the requests; the lightest page
         // otherwise.
         let start = match settings.transport {
-            Access::Browser => CLASSIFICATION_PATH,
+            Access::Browser | Access::Page => CLASSIFICATION_PATH,
             Access::Any => "/robots.txt",
         };
         Some(PortalEndpoint {

@@ -15,7 +15,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 pub use crate::platform::markup::{ANTI_BOT_JSON, Guard, Signature, anti_bot, shows_check_widget};
-use crate::platform::{BoxFuture, PortalEndpoint};
+use crate::platform::{Access, BoxFuture, PortalEndpoint};
 
 /// How OxidGene names itself to a portal.
 pub const USER_AGENT: &str = concat!(
@@ -107,6 +107,22 @@ pub trait PortalFetch: Send + Sync {
     fn get<'a>(&'a self, path_and_query: &'a str) -> BoxFuture<'a, Result<String, FetchError>> {
         Box::pin(async move { self.request(&PortalRequest::get(path_and_query)).await })
     }
+
+    /// Loads a path and query on the portal's origin as the browser page
+    /// itself, waits, within [`TIMEOUT`], until its document holds an
+    /// element matching `ready` — a CSS selector naming what the portal's
+    /// own scripts render once they have loaded their data — and returns the
+    /// document's markup as rendered. For a portal whose access is
+    /// [`Access::Page`](crate::Access::Page), which refuses the requests a
+    /// script sends. Only a browser transport loads pages; any other refuses
+    /// with [`FetchError::NotAllowed`].
+    fn page<'a>(
+        &'a self,
+        _path_and_query: &'a str,
+        _ready: &'a str,
+    ) -> BoxFuture<'a, Result<String, FetchError>> {
+        Box::pin(async { Err(FetchError::NotAllowed) })
+    }
 }
 
 /// Opens fetchers on portals.
@@ -141,7 +157,8 @@ pub enum FetchError {
     /// The request, or a redirect, left the endpoint's origins.
     NotSameOrigin,
     /// The request carries a header outside [`ALLOWED_HEADERS`], or a body
-    /// on a `GET`.
+    /// on a `GET`; a script's request to a portal that admits page loads
+    /// only; or a page load through a transport that loads no page.
     NotAllowed,
 }
 
@@ -181,11 +198,16 @@ fn is_clean(text: &str) -> bool {
 
 /// The absolute address a request goes to on `endpoint`, once checked: a path
 /// on the portal's origin or an address on a declared origin, allow-listed
-/// headers without line breaks, and a body only on a `POST`.
+/// headers without line breaks, and a body only on a `POST`. A portal that
+/// admits page loads only is sent no request: its anti-bot measure would
+/// refuse it, and may then refuse the pages too.
 pub fn request_url(
     endpoint: &PortalEndpoint,
     request: &PortalRequest,
 ) -> Result<String, FetchError> {
+    if endpoint.access == Access::Page {
+        return Err(FetchError::NotAllowed);
+    }
     let headers_allowed = request.headers.iter().all(|(name, value)| {
         ALLOWED_HEADERS
             .iter()
@@ -210,6 +232,20 @@ pub fn request_url(
     }
 }
 
+/// The absolute address of a page a browser transport loads on `endpoint`
+/// ([`PortalFetch::page`]), once checked: a path on the portal's origin, and
+/// a `ready` selector to wait for.
+pub fn page_url(
+    endpoint: &PortalEndpoint,
+    path_and_query: &str,
+    ready: &str,
+) -> Result<String, FetchError> {
+    if ready.trim().is_empty() {
+        return Err(FetchError::NotAllowed);
+    }
+    portal_url(&endpoint.origin, path_and_query)
+}
+
 /// The error of an answer with an error status: a challenge when its body is
 /// an anti-bot page (often a `403` or a `429`), the status otherwise.
 pub(crate) fn refusal(status: u16, body: &str) -> FetchError {
@@ -220,9 +256,11 @@ pub(crate) fn refusal(status: u16, body: &str) -> FetchError {
     }
 }
 
-/// The answer of a request a browser page ran with its own `fetch`, as a
-/// browser transport receives it: the status, final address and body, or
-/// the `error` (`timeout`, anything else a network failure) that stopped it.
+/// The answer of a request a browser page ran with its own `fetch`, or of a
+/// page it loaded, as a browser transport receives it: the status, final
+/// address and body, or the `error` that stopped it — `timeout`,
+/// `challenged` for a page an anti-bot check or block kept in place of the
+/// portal's, anything else a network failure.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct PageAnswer {
     #[serde(default)]
@@ -242,6 +280,7 @@ impl PageAnswer {
     pub fn result(self, origins: &[String]) -> Result<String, FetchError> {
         match self.error.as_deref() {
             Some("timeout") => return Err(FetchError::Timeout),
+            Some("challenged") => return Err(FetchError::Challenged),
             Some(_) => return Err(FetchError::Network),
             None => {}
         }
@@ -636,6 +675,49 @@ mod tests {
     }
 
     #[test]
+    fn a_portal_admitting_pages_only_is_sent_no_request() {
+        let endpoint = PortalEndpoint {
+            access: Access::Page,
+            ..endpoint()
+        };
+        assert_eq!(
+            request_url(&endpoint, &PortalRequest::get("/search?q=1")),
+            Err(FetchError::NotAllowed)
+        );
+        assert_eq!(
+            page_url(&endpoint, "/search?q=1", "table.results").as_deref(),
+            Ok("https://archives.example.org/search?q=1")
+        );
+        assert_eq!(
+            page_url(&endpoint, "https://api.example.org/v1", "table"),
+            Err(FetchError::NotSameOrigin)
+        );
+        assert_eq!(
+            page_url(&endpoint, "/search", " "),
+            Err(FetchError::NotAllowed)
+        );
+        assert!(Access::Page.needs_browser() && Access::Browser.needs_browser());
+        assert!(!Access::Any.needs_browser());
+    }
+
+    #[test]
+    fn a_transport_that_loads_no_page_refuses_one() {
+        struct Plain;
+        impl PortalFetch for Plain {
+            fn request<'a>(
+                &'a self,
+                _request: &'a PortalRequest,
+            ) -> BoxFuture<'a, Result<String, FetchError>> {
+                Box::pin(async { Ok(String::new()) })
+            }
+        }
+        assert_eq!(
+            crate::tests::block_on(Plain.page("/search", "table")),
+            Err(FetchError::NotAllowed)
+        );
+    }
+
+    #[test]
     fn checks_the_answer_of_a_page() {
         let origins = vec!["https://archives.example.org".to_owned()];
         let url = "https://archives.example.org/_recherche-api/moteur";
@@ -669,6 +751,10 @@ mod tests {
             ..PageAnswer::default()
         };
         assert_eq!(failed("timeout").result(&origins), Err(FetchError::Timeout));
+        assert_eq!(
+            failed("challenged").result(&origins),
+            Err(FetchError::Challenged)
+        );
         assert_eq!(failed("network").result(&origins), Err(FetchError::Network));
         let parsed: PageAnswer = serde_json::from_str(
             r#"{"status": 200, "url": "https://archives.example.org/", "body": "x"}"#,

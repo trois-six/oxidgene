@@ -383,7 +383,7 @@ pub fn needs_browser(registry: &ArchiveRegistry, collection: &Collection) -> boo
     registry
         .platform(&collection.platform)
         .and_then(|platform| platform.endpoint(collection))
-        .is_some_and(|endpoint| endpoint.access == Access::Browser)
+        .is_some_and(|endpoint| endpoint.access.needs_browser())
 }
 
 /// Runs steps 1 to 3 on one collection over `transport`, sequentially.
@@ -445,7 +445,7 @@ async fn steps(
         .await
         .map_err(|error| Failure::fetch(Step::SearchPage, "the portal's search page", error))?;
     // The pace the portal asks of robots, for every request that follows.
-    if let Ok(robots) = fetch.get("/robots.txt").await {
+    if let Ok(robots) = robots(fetch.as_ref(), endpoint.access).await {
         transport.space(crawl_delay(&robots));
     }
 
@@ -742,6 +742,22 @@ fn check_view(
     })
 }
 
+/// The portal's `robots.txt`: requested, or loaded as a page where the portal
+/// admits page loads only, whose browser shows the text in a `<pre>`.
+async fn robots(fetch: &dyn PortalFetch, access: Access) -> Result<String, FetchError> {
+    if access != Access::Page {
+        return fetch.get("/robots.txt").await;
+    }
+    let page = fetch.page("/robots.txt", "pre").await?;
+    let text = page
+        .split_once("<pre")
+        .and_then(|(_, rest)| rest.split_once('>'))
+        .map_or("", |(_, rest)| {
+            rest.split("</pre>").next().unwrap_or_default()
+        });
+    Ok(crate::platform::markup::decode_entities(text))
+}
+
 /// The longest pause a portal's `Crawl-delay` imposes between two requests
 /// of a check.
 const MAX_CRAWL_DELAY: Duration = Duration::from_secs(30);
@@ -859,6 +875,15 @@ impl PortalFetch for CountingFetch<'_> {
     ) -> BoxFuture<'a, Result<String, FetchError>> {
         self.counting.start();
         self.inner.request(request)
+    }
+
+    fn page<'a>(
+        &'a self,
+        path_and_query: &'a str,
+        ready: &'a str,
+    ) -> BoxFuture<'a, Result<String, FetchError>> {
+        self.counting.start();
+        self.inner.page(path_and_query, ready)
     }
 }
 

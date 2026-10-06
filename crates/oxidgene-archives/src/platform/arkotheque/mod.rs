@@ -8,7 +8,10 @@
 //! rows are selected down to one register (`select`), whose viewer endpoint
 //! lists its images; the target is the portal's record page opened on the
 //! cited image, `<search_path>?detail=<record>#<viewer address>/<i>` with `i`
-//! zero-based. Archive Portals §4.3 specifies the settings and requests.
+//! zero-based. A portal that refuses those requests to a script (access
+//! `page`) is searched by loading its search page with the filters in its
+//! address, whose scripts render the same rows, and is never sent a request.
+//! Archive Portals §4.3 specifies the settings and requests.
 
 #[cfg(any(test, feature = "live"))]
 mod live;
@@ -21,10 +24,10 @@ use super::iiif::image_info;
 use super::markup::fold;
 use super::select::{Candidate, Selection, period_ranges, select};
 use super::view::{cited_views, view_target};
-use super::{BoxFuture, Platform, PortalEndpoint};
+use super::{BoxFuture, Platform, PortalEndpoint, Query};
 use crate::catalog::{Archive, CatalogError, Collection, Display};
 use crate::citation::CitationParts;
-use crate::transport::PortalFetch;
+use crate::transport::{FetchError, PortalFetch};
 use crate::{ArchiveImage, ArchiveTarget, ArchiveView, ResolveError};
 use page::Register;
 use settings::{Keys, Settings};
@@ -67,6 +70,10 @@ impl Platform for Arkotheque {
 
     /// The search page with the filters a request can write without
     /// reading the engine's lists: a keyed filter is left out.
+    fn reads_pages(&self) -> bool {
+        true
+    }
+
     fn results_url(&self, collection: &Collection, citation: &CitationParts) -> Option<String> {
         let settings = Settings::read(collection).ok()?;
         Some(settings.results_page(citation, &Keys::default()))
@@ -131,6 +138,22 @@ async fn keys(
     Ok(Some(keys))
 }
 
+/// The answer of a search with `filters`: the engine's, or for a portal
+/// read by its pages, the search page filtered the same way as its scripts
+/// render it.
+async fn search_answer(
+    settings: &Settings,
+    filters: &Query,
+    fetch: &dyn PortalFetch,
+) -> Result<String, FetchError> {
+    if settings.reads_pages() {
+        let path = settings.page_request(filters);
+        fetch.page(&path, page::RENDERED_RESULTS).await
+    } else {
+        fetch.get(&settings.search_request(filters)).await
+    }
+}
+
 /// The registers of a search answer, read for selection — each row's
 /// locality as a citation writes it, and its acts as codes where the
 /// search could not single out the cited act — and the count of all the
@@ -141,7 +164,11 @@ fn rows(
     citation: &CitationParts,
 ) -> Result<(Vec<Candidate<Register>>, usize), ResolveError> {
     let reads_acts = settings.reads_acts(&citation.act);
-    let (mut rows, total) = page::search_rows(answer, &settings.cells)?;
+    let (mut rows, total) = if settings.reads_pages() {
+        page::rendered_rows(answer, &settings.cells)?
+    } else {
+        page::search_rows(answer, &settings.cells)?
+    };
     let style = settings.locality_style;
     let wanted: Vec<String> = settings
         .localities(citation)
@@ -191,7 +218,7 @@ async fn search(
     let mut found = Vec::new();
     for _ in 0..MAX_PAGES {
         let filters = settings.page_filters(citation, keys, RESULT_SIZE, found.len());
-        let answer = fetch.get(&settings.search_request(&filters)).await?;
+        let answer = search_answer(settings, &filters, fetch).await?;
         let (rows, total) = rows(settings, &answer, citation)?;
         let last = rows.is_empty() || found.len() + rows.len() >= total;
         found.extend(rows);
@@ -240,22 +267,32 @@ async fn resolve(
     let Some(viewer) = row.payload.viewer.as_deref() else {
         return Ok(results(1));
     };
-    let sources = page::viewer_sources(&fetch.get(viewer).await?, &settings.origin)?;
+    // A portal read by its pages refuses the viewer's image list to a
+    // script, which would cost the next pages too: the row's count stands
+    // for it, a row without one leaving the viewer to bound the view, and
+    // the views go without their ARKs. Its archives are `portal`.
+    let (sources, image_count) = if settings.reads_pages() {
+        (Vec::new(), row.images.map_or(usize::MAX, usize::from))
+    } else {
+        let sources = page::viewer_sources(&fetch.get(viewer).await?, &settings.origin)?;
+        let count = sources.len();
+        (sources, count)
+    };
 
-    let cited = cited_views(citation, sources.len());
+    let cited = cited_views(citation, image_count);
     let mut views = Vec::with_capacity(cited.len());
     for view in cited {
-        let source = &sources[usize::from(view.view) - 1];
-        let image = match archive.display {
-            Display::Iiif => Some(image(&settings, source, fetch).await?),
-            Display::Portal => None,
+        let source = sources.get(usize::from(view.view) - 1);
+        let image = match (archive.display, source) {
+            (Display::Iiif, Some(source)) => Some(image(&settings, source, fetch).await?),
+            (Display::Iiif, None) => return Err(unexpected("no image list for an iiif archive")),
+            (Display::Portal, _) => None,
         };
         views.push(ArchiveView {
             view: view.view,
             url: settings.view_url(record, viewer, view.view - 1),
             ark: source
-                .ark
-                .as_ref()
+                .and_then(|source| source.ark.as_ref())
                 .map(|ark| format!("{}{ark}", settings.origin)),
             image,
         });
@@ -264,7 +301,7 @@ async fn resolve(
         archive,
         citation,
         row.call_number.as_deref(),
-        sources.len(),
+        image_count,
         settings.view_url(record, viewer, 0),
         views,
     ))

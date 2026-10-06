@@ -347,4 +347,45 @@ write('ad24-census.json', generic(AD24, [
         ('lieux', 'Exampleville (Exemple, France)'), ('precision', 'Hameau'), ('date', '1836'), ('cote', 'FRAD099_6MI11')]),
     dict(record=record(0x3002), file=999102, images=None, title='FRAD099_6MI12', cells=[
         ('lieux', 'Exampleville (Exemple, France)'), ('date', '1841'), ('cote', 'FRAD099_6MI12')])]))
+# fr-ad40 `registers`, a portal read by its pages: the search page as its
+# scripts render it, with the filters drawn by their references, the results
+# table under the results component and the count in its heading, or a
+# notice when nothing matched; no record titles, each record named by its
+# row's viewer address only.
+AD40 = dict(engine='arko_default_62a88e82782fb', image_field='arko_default_0000000004001')
+AD40_FILTERS = ['arko_default_62a88ef4ebacf', 'arko_default_62a88ef500cdf', 'arko_default_63b88760a57af']
+
+def rendered(portal, registers, total=None):
+    rows = [row(generic_row(portal, register)) for register in registers]
+    count = len(registers) if total is None else total
+    filters = ''.join(
+        f'<div class="filtre_de_recherche"><div aria-controls="aria-filtre-{ref}" role="button"></div>'
+        f'<div class="filtre_de_recherche_items sous_field_{ref}" id="aria-filtre-{ref}"></div></div>'
+        for ref in AD40_FILTERS)
+    shown = f'{count:,}'.replace(',', '\u202f')
+    heading = ('<div class="tetiere_resultat_facette"><div class="nombre_resultat_facettes" aria-live="polite" '
+               f'aria-label="{count} résultats"><span>{shown}</span>  résultats</div></div>')
+    engine = portal['engine']
+    headers = ["Commune", "Paroisse ou ancienne commune", "Période", "Type d'acte", "Observations", "Cote", "Images"]
+    # Nothing matched: the component shows a notice, no count and no table.
+    results = (f'{heading}<div class="recherche-resultats-container">{table(headers, rows)}</div>' if rows
+               else '<div class="alerte"><p>Aucun résultat</p></div>')
+    return ('<!DOCTYPE html><html lang="fr"><head><title>État civil</title></head><body>\n'
+            f'<div class="arko-recherche filtres_facettes" data-moteur="{engine}" data-contenu="1736088" '
+            f'data-component="filtres">{filters}</div>\n'
+            f'<div class="arko-recherche resultats_facettes" data-moteur="{engine}" data-contenu="1736087" '
+            f'data-component="resultats"><div>{results}</div></div>\n</body></html>\n')
+
+def landes(index, commune, period, act, cote, images, places=()):
+    return dict(record=record(0x4000 + index), file=994000 + index, images=images, cells=[
+        ('commune', commune), ('autres_lieux', list(places)), ('periode', period),
+        ('type_acte', [act]), (None, ''), ('cote', cote)])
+
+(OUT / 'ad40-rendered.html').write_text(rendered(AD40, [
+    landes(1, 'Exampleville', '1845-1848', 'Naissances', '9 E 99/1', 210),
+    landes(2, 'Exampleville', '1849-1852', 'Naissances', '9 E 99/2', 296, ['Saint-Exemple']),
+    landes(3, 'Exampleville-lès-Bois', '1849-1855', 'Naissances', '9 E 98/4', 120),
+], total=1234))
+(OUT / 'ad40-rendered-none.html').write_text(rendered(AD40, [], total=0))
+
 print(sorted(p.name for p in OUT.iterdir()))

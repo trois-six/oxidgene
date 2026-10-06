@@ -345,7 +345,7 @@ pub struct PortalEndpoint {
     pub origin: String,
     pub other_origins: Vec<String>,
     pub start: String,
-    pub access: Access, // `any` or `browser`: the settings' `transport`
+    pub access: Access, // `any`, `browser` or `page`: the settings' `transport`
 }
 
 pub struct PortalRequest {
@@ -366,6 +366,12 @@ pub trait PortalFetch: Send + Sync {
         -> BoxFuture<'a, Result<String, FetchError>>;
     /// A `GET` of a path and query on the portal's origin.
     fn get<'a>(&'a self, path_and_query: &'a str) -> BoxFuture<'a, Result<String, FetchError>>;
+    /// Loads a path and query on the portal's origin as the browser page
+    /// itself, and returns its document as rendered once an element matches
+    /// `ready`, a CSS selector. A browser transport's only; any other
+    /// refuses it.
+    fn page<'a>(&'a self, path_and_query: &'a str, ready: &'a str)
+        -> BoxFuture<'a, Result<String, FetchError>>;
 }
 
 /// Opens fetchers bound to an endpoint's origins.
@@ -382,7 +388,8 @@ pub trait PortalTransport: Send + Sync {
 The futures are boxed because a trait's `async fn` cannot be called through
 `dyn`, and are `Send` on every target: the resolver runs in the server's
 handlers and on the desktop's runtime, while the web build never resolves
-and implements no transport. `get` is provided over `request`.
+and implements no transport. `get` is provided over `request`, and `page`
+answers `NotAllowed` unless the transport loads pages.
 
 Some portals need more than a `GET`: a search form that reads only a
 form-encoded `POST` and a session cookie set by a first request, or a JSON
@@ -392,7 +399,7 @@ and `endpoint` lists it in `other_origins`; a request addressed anywhere
 else, carrying any other header, or with a body on a `GET` is refused before
 it is sent. `FetchError` tells a timeout, a network failure (a closed window
 included), an error status, an oversized body, a request or redirect leaving
-the endpoint's origins, and a refused header or body apart.
+the endpoint's origins, and a refused header, body or kind of request apart.
 
 An adapter issues only the requests it needs to find one register: no list
 download beyond the search it performs, no image request.
@@ -414,7 +421,7 @@ request travels:
 | Transport | Where | Used for |
 |---|---|---|
 | `native` | `oxidgene-api`, `reqwest` | Archives whose catalogue `transport` is `any`, on web and desktop. |
-| `window` | The desktop archive window | Every archive on desktop, and the only one for `transport: "browser"`. |
+| `window` | The desktop archive window | Every archive on desktop, and the only one for `transport: "browser"` and `"page"`. |
 
 The `native` transport sends the identifying `User-Agent` (§8), follows at
 most five redirects itself so that each hop's address is checked against
@@ -445,6 +452,27 @@ accepts messages from the archive's `origin` only and matches each answer
 to the request it was issued for; an answer whose final address left the
 endpoint's origins is refused. The window's own `User-Agent` is the
 WebView's. The resolution logic itself never runs in injected script.
+
+**Page loads.** A portal may refuse even the requests a page's script
+sends, its own `fetch` included, while it serves its pages and lets their
+own scripts render them. Such a collection is `transport: "page"`
+(`Access::Page`): only a browser reaches it, and only by loading its pages.
+The adapter asks for a page rather than a request, `PortalFetch::page(path,
+ready)` — for a search, the search page with the filters in its address,
+the page a reader lands on —, and parses the markup it gets back in Rust,
+as it parses an answer. The window loads that page as it loads the start
+page, waiting out or leaving to the reader any anti-bot check on the way
+(§6.1), then runs a script that waits, within the request bound, until an
+element matching the `ready` selector is in the document — what the
+portal's own scripts render once they have loaded their data — and posts
+the document as rendered back over IPC under the request's ticket, checked
+as a request's answer. The script reads the page only: it requests,
+fills and clicks nothing. Such a portal is never sent a request: the window
+refuses one before it is sent (`FetchError::NotAllowed`), since a refused
+request may cost the session the pages that follow. The `native` transport
+loads no page, so such a collection resolves in the desktop window, and
+elsewhere to its filtered search page without a request, as a `browser`
+one does. The live checks' bridge loads pages the same way (§9.1).
 
 **Anti-bot pages.** One list of signatures,
 `platform/challenges.json`, tells a portal's page from an anti-bot page, for
@@ -487,7 +515,7 @@ document kinds may sit in several engines, each then its own collection. The
 | Setting | Content |
 |---|---|
 | `origin` | Portal origin. |
-| `transport` | `any`, or `browser` when a challenge blocks other clients. Default `any`. |
+| `transport` | `any`; `browser` when a challenge blocks other clients; or `page` when the portal refuses even the requests a page's script sends, which is then searched by its pages (below). Default `any`. |
 | `search_path` | Path of the collection's search page, where records and views open. |
 | `engine` | The engine's unique reference, such as `arko_default_…`. |
 | `content_ids` | The search component's numeric content identifiers. |
@@ -578,6 +606,22 @@ Resolution:
    cited view gets its own address and ARK. A register listed without a
    viewer gives `Results` with one match; a view beyond the register's
    images gives `View` with no views, opened on the first image (§7).
+
+**A portal read by its pages** (`transport: "page"`, §4.2) is sent no
+request: each search of step 2 loads the search page with the same filters
+in its address — the address `results_url` also builds, with 100 rows —
+and waits until its scripts have rendered the results table
+(`[data-component="resultats"] table.tableau_resultat_facettes`), or the
+notice that nothing matched (`div.alerte`, `Aucun résultat`), which shows
+no table and no count. The rendered rows are the answer's `resultats.html` rows,
+read through the same `cells`; the count is in the heading's
+`aria-label` (`1 234 résultats`); the page shows no record titles, so each
+record is named by the address of its row's viewer button, and every part
+selection reads is a cell: such a collection names its `call_number` cell,
+uses no `#title`, and has no `keyed` filter, whose keys only the engine's
+answer lists. Step 7 is not sent: the row's image count stands for the
+viewer's image list, a row without one leaving the viewer to bound the
+view, and the views have no ARK; such an archive is `display: "portal"`.
 
 A browser transport's start page (§4.2) is the portal's `/robots.txt`: the
 lightest page of the origin, which passes the portals' bot-mitigation check
@@ -2392,13 +2436,17 @@ Archive portals are public services whose terms OxidGene follows:
   matricules in two cells, a call number before the locality or the period
   in a title, a census of several lists a year, a cited call number on the
   second page of a populated locality, a keyed value read from the engine's
-  lists, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell; for THOT, the session and cookie check, a label written with its article behind or its department, the two copies of a register told apart by call number, a table set aside for an act, a restricted register, a second page, a census searched by an interval of years, a military volume chosen by matricule, Corsica's checkboxes and register-level target opened without the viewer, a refused or expired session and a slide file without ARKs; for Pleade, a form search with its hidden inputs, a commune and its former namesake, a second page, tables, the registers told apart by their manifests' counts, a finding aid walked to the cited copy, a collection dated by its component, a military volume chosen by office, class and matricule, and a component without a viewer link; for Bach, entries named by their title or their link after a common title, a locality written in capitals or with its article behind it, an office naming its place, periods from dates, titles and ancestors (months, Republican years), tables told from the acts they index, an aid whose title says what its registers hold, publications of banns apart from marriages, a call number that only breaks a tie and one that rules a register out, a military register chosen by bureau, class and number before its index, a register without one viewer link, image names from the viewer's list or a link's range, an anti-bot page reported apart from drift, and a viewer link off the settings' viewer.
+  lists, the IIIF images of a `display: "iiif"` archive, and a portal read
+  by its pages (rendered rows, the no-match notice, an anti-bot page, the
+  settings it refuses); for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell; for THOT, the session and cookie check, a label written with its article behind or its department, the two copies of a register told apart by call number, a table set aside for an act, a restricted register, a second page, a census searched by an interval of years, a military volume chosen by matricule, Corsica's checkboxes and register-level target opened without the viewer, a refused or expired session and a slide file without ARKs; for Pleade, a form search with its hidden inputs, a commune and its former namesake, a second page, tables, the registers told apart by their manifests' counts, a finding aid walked to the cited copy, a collection dated by its component, a military volume chosen by office, class and matricule, and a component without a viewer link; for Bach, entries named by their title or their link after a common title, a locality written in capitals or with its article behind it, an office naming its place, periods from dates, titles and ancestors (months, Republican years), tables told from the acts they index, an aid whose title says what its registers hold, publications of banns apart from marriages, a call number that only breaks a tie and one that rules a register out, a military register chosen by bureau, class and number before its index, a register without one viewer link, image names from the viewer's list or a link's range, an anti-bot page reported apart from drift, and a viewer link off the settings' viewer.
 - Transport tests check the declared origins, the header allow-list and the
-  native cookie jar; the desktop's, that a window's answers reach only their
+  native cookie jar, a portal read by its pages sent no request and a
+  transport that loads no page refusing one; the desktop's, that a window's answers reach only their
   own request and only from the archive's origin, the waiting for the
   portal's page — a check that clears itself, one left to the reader with
-  its deadline, a widget, a block, a blank page —, and a request answered by
-  a check sent once more, once only.
+  its deadline, a widget, a block, a blank page —, a request answered by
+  a check sent once more, once only, and a page loaded then read back,
+  or refused by a block before it is read.
 - Anti-bot tests classify each vendor's challenge and block from the shared
   signatures, and a portal page carrying a vendor's scripts as the portal;
   the window's page script, run on Node.js (`just ui-js`), tells a
@@ -2524,9 +2572,9 @@ What each platform's probe reads, and where its viewer shows the view:
 
 | Platform | Step 1: references and localities | Step 4: viewer |
 |---|---|---|
-| Arkothèque | The search page's `data-moteur` and `data-contenu`; the engine's bare answer, the one the page requests on load (`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`): its `filtres` hold the locality, act and period filters, its `restits` the display mode, the act filter's values every `acts` value with its record key; the localities are its aggregation of the locality filter's field. | `input[data-cy="input-position-image"]`, count `[data-cy="nb-total-images"]`, after `button[data-cy="accept-license"]` (Sarthe). |
+| Arkothèque | The search page's `data-moteur` and `data-contenu`; the engine's bare answer, the one the page requests on load (`/_recherche-api/moteur?refUnique=<engine>&<engine>--contenuIds[]=…`): its `filtres` hold the locality, act and period filters, its `restits` the display mode, the act filter's values every `acts` value with its record key; the localities are its aggregation of the locality filter's field. A portal read by its pages: its unfiltered search page as rendered names the engine, the content and each filter (`aria-filtre-<filter>`), and its rows the localities; the search of the first act checks the act values, and the rows count the images. | `input[data-cy="input-position-image"]`, count `[data-cy="nb-total-images"]`, after `button[data-cy="accept-license"]` (Sarthe). |
 | Mnesys | The form `/search/form/<form>`: each select is an `enhanced-select` whose `data-options` lists its labels; every input of `fields` exists, a select named with its `[]` and a plain input without; the act select holds every `acts` label; the localities are the locality select's labels that a `locality_label` pattern names, or, for a plain locality input, the context entries of a search without it. A form without a locality input is searched without one. A row whose image count spans several lots is counted by the viewer's state. | `.media-browse .pagination-form input`, count `.media-browse .page-count`, after `input.btn.primary[value="Accepter"]`; the viewer's image requests are aborted, since it shows its view without them. |
-| Ligeo | The search form `arc_form_rech` (or the finding aid's page) holds every input of the settings, and every act value a choice list offers; the localities come from what backs the locality input: the thesaurus the page script names (`VT_Control`, `str`), whose autocomplete (`POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index`) is asked for `Sai`, a typed facet (`arcfacette.php?…&autoc=1`), the input's options or checkboxes, or a finding aid's branches; labels naming a parish, a place or a former commune are left out. A plain text input nothing backs is probed with the letters themselves; a search by year alone with no locality. | `.monocle-PageNav input[role="spinbutton"]`, count `.monocle-PageNav-total`. |
+| Ligeo | The search form `arc_form_rech` (or the finding aid's page) holds every input of the settings, and every act value a choice list offers; the localities come from what backs the locality input: the thesaurus the page script names (`VT_Control`, `str`), whose autocomplete (`POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index`) is asked for `Sai`, a typed facet (`arcfacette.php?…&autoc=1`), the input's options or checkboxes, or a finding aid's branches; labels naming a parish, a place or a former commune are left out. A plain text input nothing backs is probed with the letters themselves; a search by year alone with no locality. | Monocle: `.monocle-PageNav input[role="spinbutton"]`, count `.monocle-PageNav-total`; Binocle (Hautes-Alpes): `.bn-gallery-counter input.bn-gallery-counter-current`, count `.bn-gallery-counter` (` sur 29`). |
 | Archinoë | `registre`: the locality select's labels, the act select holds every act identifier, the year input exists. `seriel`: the form names its inputs (quoted with apostrophes); the localities are the autocomplete's suggestions for `Sai` (`ir_seriel_data.php`) that follow `locality_label`. `ead`: the finding aid's root lists the communes, a leading article written behind the name. The results count no images: the chosen register's viewer page does (one `div_image_<n>` per view). | `#visu_pagination` (`n/total`). |
 | Prismia Vision | The API key of `/runtimeConfig.js`; the facet endpoint lists the act filter's values, which hold every `acts` value, and the localities, written `Name (Article)`. | `button[aria-label="Numéro de la vue"]` (`n` and `total`). |
 | THOT | The session and the module's form: the locality list, every `acts` value among the type criterion's options or checkboxes, the year inputs; the localities are the list's labels as citations name them, a hamlet or a placeholder passed over. The results count no images: an `ark` collection's chosen register is counted by its slide file; a `register` one's is not counted (above). | `input#imageNum`, count `h3#imageNumMax`, the tiles aborted. |
@@ -2557,9 +2605,12 @@ ours, and its own test directory, so `just e2e` never runs it. Its
 `PortalTransport` whose requests are JSON lines on its standard output,
 each answered by one line on its standard input before the next is sent:
 `connect` asks the page to load the endpoint's start page and wait until it
-shows the portal rather than an anti-bot page (as below), and `fetch` asks
+shows the portal rather than an anti-bot page (as below), `fetch` asks
 it to run one request with the page's own `fetch` and
-`credentials: "same-origin"`, as the window's script does (§4.2). The answers are checked as the window's are
+`credentials: "same-origin"`, as the window's script does, and `page` asks it
+to load a page of a portal read by its pages, wait until it is the portal's
+own page and `ready` matches, and answer with the document as rendered
+(§4.2). The check reads such a portal's `robots.txt` as a page too. The answers are checked as the window's are
 (`PageAnswer`): a final address on the endpoint's origins, a success
 status, a bounded body. The binary ends with its collections' reports and
 the indices of the collections the native test checks instead. The process
@@ -2600,7 +2651,7 @@ headful, nor hides what it is, to pass:
 |---|---|
 | A check that clears itself in a headless browser (a bot-mitigation redirect, a proof of work let through) | `ok`: waited out like the window does. |
 | A check left for a reader (a widget, or one that stays) | `challenged`, unverified. |
-| A block of the headless browser or of the runner's address (a Cloudflare block, an Anubis deny rule), at any step, step 4 included | `challenged`, unverified; the steps before it keep their verdicts. |
+| A block of the headless browser or of the runner's address (a Cloudflare block, such as the Landes portal's after the browser's first page; an Anubis deny rule), at any step, step 4 included | `challenged`, unverified; the steps before it keep their verdicts. |
 | A challenge answering the native client | `challenged` for that collection; the desktop resolves it in the window. |
 | A certificate served without its issuer | Not seen: Chromium completes the chain, as the desktop window on Linux does (§6.1). |
 
@@ -2828,13 +2879,19 @@ Cases the catalogue model must express:
   archive is displayed by its portal: its reuse terms ask a credit with the
   download date, which the attribution template cannot hold, and exclude
   collections digitised with private partners without naming them.
-- **Landes.** Cloudflare refuses every request of the engine sent by a
-  script, the page's own `fetch` included, while the search page loaded
-  with its filters in its address renders the rows. Searching it needs a
-  transport capability the window and the live bridge lack — navigating the
-  window to the filtered search page and reading the rendered rows and
-  their viewer buttons, the view count from the row since the viewer
-  endpoint is refused too —: not catalogued.
+- **Landes.** Behind Cloudflare, which refused every request of the
+  engine that a script of an automated Chromium sent, the page's own
+  `fetch` included, while the search page loaded with its filters in its
+  address rendered the rows. Its registers are therefore searched by page
+  loads (`transport: "page"`, §4.2, §4.3): the window loads the filtered
+  search page as a reader would and reads the rows its scripts render, the
+  view count from the row. Observed 2026-10-06: the desktop's WebKitGTK
+  passes every page load, and even a scripted request, while an automated
+  Chromium is blocked after its first HTML page, whatever it loads next —
+  so the live check ends `challenged` at its discovery, unverified (§9.1).
+  The military registers are not catalogued: their class filter finds
+  nothing by a plain year, and without it a bureau lists some 300 registers
+  over pages that would each be a full page load.
 - **Arkothèque collections left out.** The Yvelines' censuses: the record
   page opens its viewer on the first image whatever view its address names.
   Name-indexed military registers (one record per soldier: 04, 24's indexed
@@ -2928,7 +2985,7 @@ only, and *unconfirmed* means no evidence was found.
 | 37 | Indre-et-Loire | `archives.touraine.fr` | [`archives.touraine.fr/search/form/e9414896-40cc-4ec3-936c-8acdfdb11770`](https://archives.touraine.fr/search/form/e9414896-40cc-4ec3-936c-8acdfdb11770) | Mnesys Expo | Credits page; Naoned case study; catalogued (§4.4): registers, military registers, succession tables; live-checked 2026-10-05 |
 | 38 | Isère | `archivesenligne.archives-isere.fr` | [`archivesenligne.archives-isere.fr/mdr/index.php/rechercheTheme/`](https://archivesenligne.archives-isere.fr/mdr/index.php/rechercheTheme/) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, RM |
 | 39 | Jura | `archives39.fr` | [`archives39.fr/search/form/1eb1f0a3-b7ba-4c8a-bdae-395b322800e4`](https://archives39.fr/search/form/1eb1f0a3-b7ba-4c8a-bdae-395b322800e4) | Mnesys Expo | Naoned customer list; URL pattern; catalogued (§4.4): registers, decennial tables, censuses, military registers; live-checked 2026-10-05 |
-| 40 | Landes | `archives.landes.fr` | [`archives.landes.fr/faire-une-recherche/archives-numerisees/etat-civil`](https://archives.landes.fr/faire-une-recherche/archives-numerisees/etat-civil) | Arkothèque (since 2012) | Observed: Cloudflare refuses the engine's requests from a script, even the page's own `fetch`; only the search page loaded with its filters in its address renders rows. Not catalogued (§11.3) |
+| 40 | Landes | `archives.landes.fr` | [`archives.landes.fr/faire-une-recherche/archives-numerisees/etat-civil`](https://archives.landes.fr/faire-une-recherche/archives-numerisees/etat-civil) | Arkothèque (since 2012) | Observed: Cloudflare refuses an automated browser's requests to the engine, even the page's own `fetch`; catalogued 2026-10-06 with its registers searched by page loads (§4.3, §11.3); the live check ends `challenged`; military registers not catalogued (§11.3) |
 | 41 | Loir-et-Cher | `www.archives41.fr` | [`www.archives41.fr/archives/recherche/etatcivil`](https://www.archives41.fr/archives/recherche/etatcivil) | Ligeo Diffusion within the Culture 41 portal | Ligeo references; URL pattern; new site in 2025; catalogued, searched 2026-10-05: parish and civil registers, censuses, military registers, succession tables |
 | 42 | Loire | `archives.loire.fr` | [`archives.loire.fr/archive/recherche/etatcivil/n:92`](https://archives.loire.fr/archive/recherche/etatcivil/n:92) | Ligeo (formerly Archinoë) | Press article; Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, succession tables |
 | 43 | Haute-Loire | `www.archives43.fr` | [`www.archives43.fr/archives-en-ligne/familles-et-individus-en-haute-loire/etat-civil-de-la-haute-loire`](https://www.archives43.fr/archives-en-ligne/familles-et-individus-en-haute-loire/etat-civil-de-la-haute-loire) | Arkothèque | Observed and live-checked (§4.3): registers, TD, RP, RM, TSA |

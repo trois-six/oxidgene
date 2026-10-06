@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use futures_channel::oneshot;
 use oxidgene_archives::platform::BoxFuture;
-use oxidgene_archives::transport::{Guard, PageAnswer, TIMEOUT, anti_bot, request_url};
+use oxidgene_archives::transport::{Guard, PageAnswer, TIMEOUT, anti_bot, page_url, request_url};
 use oxidgene_archives::{
     ArchiveTarget, FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport,
 };
@@ -528,6 +528,21 @@ impl WindowTransport {
     /// Loads the endpoint's start page and waits until the window shows the
     /// portal's own page, through any anti-bot check ([`Gate`]).
     async fn show_portal(&self, endpoint: &PortalEndpoint) -> Result<(), FetchError> {
+        self.show(&endpoint.start, endpoint, Stage::Connecting, "start_page")
+            .await
+    }
+
+    /// Loads `url`, a page of the endpoint's portal, under the overlay at
+    /// `stage`, and waits until the window shows the portal's own page,
+    /// through any anti-bot check ([`Gate`]). `step` names the load in the
+    /// log.
+    async fn show(
+        &self,
+        url: &str,
+        endpoint: &PortalEndpoint,
+        stage: Stage,
+        step: &'static str,
+    ) -> Result<(), FetchError> {
         if self.shared.is_closed(self.session) {
             return Err(FetchError::Network);
         }
@@ -535,10 +550,10 @@ impl WindowTransport {
         self.shared.push(Command::Load {
             session: self.session,
             title: self.title.clone(),
-            url: endpoint.start.clone(),
+            url: url.to_owned(),
             origins: vec![endpoint.origin.clone()],
             banner: None,
-            progress: Some(self.progress(Stage::Connecting)),
+            progress: Some(self.progress(stage)),
             texts: Box::new(self.texts.clone()),
             attach: None,
         });
@@ -566,7 +581,7 @@ impl WindowTransport {
         // badly: which step, how, and after how long; never the citation
         // nor an address, which carries it.
         debug!(
-            step = "start_page",
+            step,
             outcome = shown.as_ref().err().map_or("shown", fetch_error_code),
             elapsed_ms = elapsed_ms(started),
             "archive window"
@@ -605,25 +620,24 @@ struct WindowFetch<'a> {
 impl WindowFetch<'_> {
     async fn send(&self, url: &str, request: &PortalRequest) -> Reply {
         let started = Instant::now();
-        let reply = self.exchange(url, request).await;
-        let (outcome, status) = match &reply {
-            Reply::Answer(Ok(_)) => ("answered", None),
-            Reply::Answer(Err(FetchError::Status(status))) => ("status", Some(*status)),
-            Reply::Answer(Err(error)) => (fetch_error_code(error), None),
-            Reply::Challenge => ("anti_bot_check", None),
-        };
-        debug!(
-            step = "request",
-            method = request.method.as_str(),
-            outcome,
-            status,
-            elapsed_ms = elapsed_ms(started),
-            "archive window"
-        );
+        let reply = self
+            .exchange(|ticket| {
+                script::fetch(
+                    ticket,
+                    request.method,
+                    url,
+                    &request.headers,
+                    request.body.as_deref(),
+                )
+            })
+            .await;
+        log_reply("request", request.method.as_str(), &reply, started);
         reply
     }
 
-    async fn exchange(&self, url: &str, request: &PortalRequest) -> Reply {
+    /// Runs the script `script` builds for a ticket in the window's page,
+    /// and waits for the answer it posts under that ticket.
+    async fn exchange(&self, script: impl FnOnce(u64) -> String) -> Reply {
         let shared = &self.transport.shared;
         let origins = self.endpoint.origins().map(str::to_owned).collect();
         let (ticket, answer) = shared.wait_for_answer(self.transport.session, origins);
@@ -634,13 +648,7 @@ impl WindowFetch<'_> {
         shared.push(Command::Fetch {
             session: self.transport.session,
             ticket,
-            script: script::fetch(
-                ticket,
-                request.method,
-                url,
-                &request.headers,
-                request.body.as_deref(),
-            ),
+            script: script(ticket),
         });
         match tokio::time::timeout(TIMEOUT + ANSWER_MARGIN, answer).await {
             Ok(Ok(reply)) => reply,
@@ -651,6 +659,25 @@ impl WindowFetch<'_> {
             }
         }
     }
+}
+
+/// Logs how the window answered a request or a page load: which step, how,
+/// and after how long; never the citation nor an address, which carries it.
+fn log_reply(step: &'static str, method: &'static str, reply: &Reply, started: Instant) {
+    let (outcome, status) = match reply {
+        Reply::Answer(Ok(_)) => ("answered", None),
+        Reply::Answer(Err(FetchError::Status(status))) => ("status", Some(*status)),
+        Reply::Answer(Err(error)) => (fetch_error_code(error), None),
+        Reply::Challenge => ("anti_bot_check", None),
+    };
+    debug!(
+        step,
+        method,
+        outcome,
+        status,
+        elapsed_ms = elapsed_ms(started),
+        "archive window"
+    );
 }
 
 /// How a step of the window failed, for its log.
@@ -694,6 +721,31 @@ impl PortalFetch for WindowFetch<'_> {
                         Reply::Challenge => Err(FetchError::Challenged),
                     }
                 }
+            }
+        })
+    }
+
+    /// Loads the page in the window, through any anti-bot check the reader
+    /// may answer there ([`Gate`]), then waits for `ready` in its document
+    /// and reads the document back, as a request's answer.
+    fn page<'a>(
+        &'a self,
+        path_and_query: &'a str,
+        ready: &'a str,
+    ) -> BoxFuture<'a, Result<String, FetchError>> {
+        Box::pin(async move {
+            let url = page_url(&self.endpoint, path_and_query, ready)?;
+            let started = Instant::now();
+            self.transport
+                .show(&url, &self.endpoint, Stage::Searching, "page")
+                .await?;
+            let reply = self
+                .exchange(|ticket| script::rendered(ticket, ready))
+                .await;
+            log_reply("page", "GET", &reply, started);
+            match reply {
+                Reply::Answer(result) => result,
+                Reply::Challenge => Err(FetchError::Challenged),
             }
         })
     }
@@ -1141,6 +1193,62 @@ mod tests {
         let (result, loads, fetches) = search(&pages, &[CHECK, CHECK, PORTAL]).await;
         assert_eq!(result, Err(FetchError::Challenged));
         assert_eq!((loads, fetches), (2, 2));
+    }
+
+    /// Loads `path` as a page of a portal that admits page loads only, after
+    /// trying a script's request there, with the window's pages and bodies.
+    async fn load_page(
+        pages: &[Seen],
+        bodies: &[&str],
+    ) -> (
+        Result<String, FetchError>,
+        Result<String, FetchError>,
+        (usize, usize, Vec<Stage>),
+    ) {
+        let shared = Arc::new(Shared::default());
+        let transport = transport(&shared);
+        let endpoint = PortalEndpoint {
+            access: Access::Page,
+            ..endpoint()
+        };
+        let done = AtomicBool::new(false);
+        let resolution = async {
+            let results = match transport.connect(&endpoint).await {
+                Ok(fetch) => (
+                    fetch.get("/api").await,
+                    fetch.page("/search?q=1", "table").await,
+                ),
+                Err(error) => (Err(error.clone()), Err(error)),
+            };
+            done.store(true, Ordering::Relaxed);
+            results
+        };
+        let ((request, page), window) =
+            tokio::join!(resolution, window(&shared, 1, pages, bodies, &done));
+        (request, page, window)
+    }
+
+    #[tokio::test]
+    async fn a_page_loads_in_the_window_and_its_rendered_document_answers() {
+        let portal = page(PageState::Portal, false);
+        let (request, rendered, (loads, fetches, stages)) =
+            load_page(&[portal.clone(), portal], &[PORTAL]).await;
+        // No script's request reaches such a portal.
+        assert_eq!(request, Err(FetchError::NotAllowed));
+        assert_eq!(rendered, Ok(PORTAL.to_owned()));
+        // The start page, the page, then its document read back.
+        assert_eq!((loads, fetches), (2, 1));
+        assert_eq!(
+            stages,
+            [Stage::Connecting, Stage::Searching, Stage::Searching]
+        );
+
+        // A block in place of the page ends the search before reading it.
+        let blocked = page(PageState::Blocked, false);
+        let (_, rendered, (loads, fetches, _)) =
+            load_page(&[page(PageState::Portal, false), blocked], &[]).await;
+        assert_eq!(rendered, Err(FetchError::Challenged));
+        assert_eq!((loads, fetches), (2, 0));
     }
 
     #[tokio::test]

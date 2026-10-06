@@ -12,6 +12,7 @@
 //! |---|---|
 //! | `{"kind":"connect","start","origins"}`: load the portal's start page | `{"kind":"connected"}`, or with an `error` of `challenged`, `timeout` or `network` |
 //! | `{"kind":"fetch","ticket","method","url","headers","body"}`: the page's own `fetch` | `{"kind":"fetched","ticket","status","url","body"}`, or with an `error` |
+//! | `{"kind":"page","ticket","url","ready"}`: load a page, wait for `ready` to match | `{"kind":"fetched","ticket","status","url","body"}`, the rendered document, or with an `error` |
 //! | `{"kind":"report","collections"}`: the checks of steps 1 to 3 | — |
 //!
 //! The answers are checked as the desktop window's are ([`PageAnswer`]): a
@@ -28,7 +29,7 @@ use serde_json::{Value, json};
 
 use crate::platform::{BoxFuture, PortalEndpoint};
 use crate::transport::{
-    FetchError, PageAnswer, PortalFetch, PortalRequest, PortalTransport, request_url,
+    FetchError, PageAnswer, PortalFetch, PortalRequest, PortalTransport, page_url, request_url,
 };
 
 /// The page process at the other end of two byte streams.
@@ -111,6 +112,22 @@ struct BridgeFetch<'t, R, W> {
     endpoint: PortalEndpoint,
 }
 
+impl<R: BufRead + Send, W: Write + Send> BridgeFetch<'_, R, W> {
+    /// Sends `message` under a new ticket and checks the page's answer to it.
+    fn answer(&self, mut message: Value) -> Result<String, FetchError> {
+        let ticket = self.transport.tickets.fetch_add(1, Ordering::Relaxed);
+        message["ticket"] = ticket.into();
+        let answer = self.transport.exchange(&message)?;
+        if answer["kind"] != "fetched" || answer["ticket"] != ticket {
+            return Err(FetchError::Network);
+        }
+        let origins: Vec<String> = self.endpoint.origins().map(str::to_owned).collect();
+        serde_json::from_value::<PageAnswer>(answer)
+            .map_err(|_| FetchError::Network)?
+            .result(&origins)
+    }
+}
+
 impl<R: BufRead + Send, W: Write + Send> PortalFetch for BridgeFetch<'_, R, W> {
     fn request<'a>(
         &'a self,
@@ -118,27 +135,29 @@ impl<R: BufRead + Send, W: Write + Send> PortalFetch for BridgeFetch<'_, R, W> {
     ) -> BoxFuture<'a, Result<String, FetchError>> {
         Box::pin(async move {
             let url = request_url(&self.endpoint, request)?;
-            let ticket = self.transport.tickets.fetch_add(1, Ordering::Relaxed);
             let headers: serde_json::Map<String, Value> = request
                 .headers
                 .iter()
                 .map(|(name, value)| (name.clone(), value.as_str().into()))
                 .collect();
-            let answer = self.transport.exchange(&json!({
+            self.answer(json!({
                 "kind": "fetch",
-                "ticket": ticket,
                 "method": request.method.as_str(),
                 "url": url,
                 "headers": headers,
                 "body": request.body,
-            }))?;
-            if answer["kind"] != "fetched" || answer["ticket"] != ticket {
-                return Err(FetchError::Network);
-            }
-            let origins: Vec<String> = self.endpoint.origins().map(str::to_owned).collect();
-            serde_json::from_value::<PageAnswer>(answer)
-                .map_err(|_| FetchError::Network)?
-                .result(&origins)
+            }))
+        })
+    }
+
+    fn page<'a>(
+        &'a self,
+        path_and_query: &'a str,
+        ready: &'a str,
+    ) -> BoxFuture<'a, Result<String, FetchError>> {
+        Box::pin(async move {
+            let url = page_url(&self.endpoint, path_and_query, ready)?;
+            self.answer(json!({ "kind": "page", "url": url, "ready": ready }))
         })
     }
 }
@@ -204,6 +223,42 @@ mod tests {
         assert_eq!(sent[1]["method"], "GET");
         assert_eq!(sent[1]["body"], Value::Null);
         assert_eq!(sent.len(), 5);
+    }
+
+    #[test]
+    fn loads_a_page_of_a_portal_that_admits_pages_only() {
+        let transport = transport(concat!(
+            "{\"kind\":\"connected\"}\n",
+            "{\"kind\":\"fetched\",\"ticket\":0,\"status\":200,\"url\":\"https://archives.example.org/search?q=1\",\"body\":\"<table>rows</table>\"}\n",
+            "{\"kind\":\"fetched\",\"ticket\":1,\"error\":\"challenged\"}\n",
+        ));
+        let endpoint = PortalEndpoint {
+            access: Access::Page,
+            ..endpoint()
+        };
+        let fetch = block_on(transport.connect(&endpoint)).expect("a connection");
+        assert_eq!(
+            block_on(fetch.page("/search?q=1", "table.results")),
+            Ok("<table>rows</table>".to_owned())
+        );
+        assert_eq!(
+            block_on(fetch.page("/search?q=2", "table.results")),
+            Err(FetchError::Challenged)
+        );
+        // No script's request reaches such a portal, nor a page elsewhere.
+        assert_eq!(block_on(fetch.get("/search")), Err(FetchError::NotAllowed));
+        assert_eq!(
+            block_on(fetch.page("//elsewhere.example.org/", "table")),
+            Err(FetchError::NotSameOrigin)
+        );
+        drop(fetch);
+
+        let sent = sent(transport);
+        assert_eq!(sent.len(), 3);
+        assert_eq!(sent[1]["kind"], "page");
+        assert_eq!(sent[1]["ticket"], 0);
+        assert_eq!(sent[1]["url"], "https://archives.example.org/search?q=1");
+        assert_eq!(sent[1]["ready"], "table.results");
     }
 
     #[test]

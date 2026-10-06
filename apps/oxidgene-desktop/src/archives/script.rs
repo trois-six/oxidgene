@@ -3,6 +3,8 @@
 //! None of them searches or fills anything: [`page`] says what each loaded
 //! page is — the portal's own, an anti-bot check, or a block —, [`fetch`]
 //! sends one request of an adapter from that page and posts back the answer,
+//! [`rendered`] posts back the page itself once the portal's scripts have
+//! rendered it,
 //! [`overlay`] covers the page with the resolution's progress, and
 //! [`banner`] shows the reader what OxidGene found. The resolution itself
 //! runs in Rust. The one control clicked is a cookie banner's refusal
@@ -112,6 +114,37 @@ pub(super) fn fetch(
     )
 }
 
+/// Waits, within [`TIMEOUT`], until the page's document holds an element
+/// matching the CSS selector `ready` — what the portal's own scripts render
+/// once they have loaded their data —, then posts the document as rendered,
+/// as `{"kind": "fetched", "ticket", "status", "url", "body"}`, or with an
+/// `error` of `timeout` (or `network` for a selector the page refuses).
+///
+/// It reads the page the window loaded, which the portal served and the
+/// window classified as its own: nothing is requested, filled or clicked.
+pub(super) fn rendered(ticket: u64, ready: &str) -> String {
+    // JSON is a JavaScript expression, so the selector needs no other
+    // escaping.
+    let ready = serde_json::Value::from(ready);
+    let timeout = TIMEOUT.as_millis();
+    format!(
+        r#"(async () => {{
+    const send = message => window.ipc.postMessage(JSON.stringify(
+        Object.assign({{ kind: "fetched", ticket: {ticket} }}, message)));
+    const deadline = Date.now() + {timeout};
+    try {{
+        while (!document.querySelector({ready})) {{
+            if (Date.now() > deadline) return send({{ error: "timeout" }});
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }}
+        send({{ status: 200, url: location.href, body: document.documentElement.outerHTML }});
+    }} catch (error) {{
+        send({{ error: "network" }});
+    }}
+}})();"#
+    )
+}
+
 /// A banner's button: its label, and the `kind` of the IPC message its
 /// click posts — `open_in_browser` to open the page the window could not
 /// verify in the system browser, `attach` to attach the views on screen.
@@ -198,6 +231,16 @@ mod tests {
                 .as_array()
                 .is_some_and(|list| !list.is_empty())
         );
+    }
+
+    #[test]
+    fn the_rendered_page_script_waits_for_its_selector() {
+        let script = rendered(9, r#"table[data-x="</script>"]"#);
+        assert!(script.contains("ticket: 9"));
+        assert!(script.contains(r#"document.querySelector("table[data-x=\"</script>\"]")"#));
+        assert!(script.contains(&format!("Date.now() + {}", TIMEOUT.as_millis())));
+        assert!(script.contains("body: document.documentElement.outerHTML"));
+        assert!(!script.contains("await fetch"));
     }
 
     #[test]

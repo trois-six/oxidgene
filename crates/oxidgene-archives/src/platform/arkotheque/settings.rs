@@ -271,6 +271,44 @@ impl Settings {
         {
             return Err(invalid("content_ids must be numeric identifiers"));
         }
+        if self.reads_pages() {
+            self.check_pages()?;
+        }
+        Ok(())
+    }
+
+    /// Whether the portal admits page loads only: the search loads the
+    /// search page with its filters and reads the rows its scripts render.
+    pub(super) fn reads_pages(&self) -> bool {
+        self.transport == Access::Page
+    }
+
+    /// A rendered search page has neither the engine's lists, which keyed
+    /// values are read from, nor the records' titles: every part is read
+    /// from a cell of the row.
+    fn check_pages(&self) -> Result<(), CatalogError> {
+        let filters = [&self.fields.locality, &self.fields.act, &self.fields.period];
+        if filters.into_iter().flatten().any(|filter| filter.keyed) {
+            return Err(invalid("a portal read by its pages takes no keyed filter"));
+        }
+        let cells = &self.cells;
+        let named = [
+            &cells.locality,
+            &cells.parish,
+            &cells.act,
+            &cells.period,
+            &cells.call_number,
+        ];
+        let titled = named
+            .into_iter()
+            .flatten()
+            .chain(cells.numbers.iter().flat_map(|CellList(list)| list))
+            .any(|cell| *cell == Cell::Title);
+        if titled || cells.call_number.is_none() {
+            return Err(invalid(
+                "a portal read by its pages needs its call number in a cell, and no #title",
+            ));
+        }
         Ok(())
     }
 
@@ -373,11 +411,7 @@ impl Settings {
         from: usize,
     ) -> Query {
         let engine = &self.engine;
-        let mut query = Query::new();
-        query
-            .push(format!("{engine}--ficheFocus"), "")
-            .push(format!("{engine}--filtreGroupes[mode]"), "simple")
-            .push(format!("{engine}--filtreGroupes[op]"), "AND");
+        let mut query = self.query_head();
         let mut filter = |field: &str, values: &[String], mode: Mode| {
             let prefix = format!("{engine}--filtreGroupes[groupes][0][{field}]");
             let op = if values.len() > 1 { "OR" } else { "AND" };
@@ -414,6 +448,34 @@ impl Settings {
                 filter(end, &[year.to_string()], mode);
             }
         }
+        self.query_tail(&mut query, size, from);
+        query
+    }
+
+    /// The filters of the unfiltered search's first `size` rows: what the
+    /// search page shows before the reader filters it.
+    #[cfg(any(test, feature = "live"))]
+    pub(super) fn bare_filters(&self, size: &str) -> Query {
+        let mut query = self.query_head();
+        self.query_tail(&mut query, size, 0);
+        query
+    }
+
+    /// What every search's query starts with, before its filters.
+    fn query_head(&self) -> Query {
+        let engine = &self.engine;
+        let mut query = Query::new();
+        query
+            .push(format!("{engine}--ficheFocus"), "")
+            .push(format!("{engine}--filtreGroupes[mode]"), "simple")
+            .push(format!("{engine}--filtreGroupes[op]"), "AND");
+        query
+    }
+
+    /// What every search's query ends with: the page of `size` rows from
+    /// row `from`, the content identifiers and the display mode.
+    fn query_tail(&self, query: &mut Query, size: &str, from: usize) {
+        let engine = &self.engine;
         query
             .push(format!("{engine}--from"), from.to_string())
             .push(format!("{engine}--resultSize"), size);
@@ -421,13 +483,19 @@ impl Settings {
             query.push(format!("{engine}--contenuIds[]"), id.as_str());
         }
         query.push(format!("{engine}--modeRestit"), self.display_mode.as_str());
-        query
     }
 
     pub(super) fn search_request(&self, filters: &Query) -> String {
         let mut query = Query::new();
         query.push("refUnique", self.engine.as_str());
         format!("{SEARCH_PATH}?{query}&{filters}")
+    }
+
+    /// The search page filtered as `filters` say, a path on the portal's
+    /// origin: the page whose scripts render the rows, for a portal read by
+    /// its pages.
+    pub(super) fn page_request(&self, filters: &Query) -> String {
+        format!("{}?{filters}", self.search_path)
     }
 
     /// The engine's bare answer, as the search page requests it on load: its

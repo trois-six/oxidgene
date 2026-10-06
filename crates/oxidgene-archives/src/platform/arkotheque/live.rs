@@ -7,11 +7,13 @@
 //! its `filtres` (each filter's reference and indexed field), its `restits`
 //! (the display modes), and per field an aggregation of the values the
 //! filter offers, the most frequent first. List values carry their record
-//! keys, `Name[[arko_fiche_…]]`; a text filter's are plain.
+//! keys, `Name[[arko_fiche_…]]`; a text filter's are plain. A portal read by
+//! its pages refuses that answer to a script: its rendered search page
+//! stands for it.
 
 use super::page::{self, EngineAnswer, without_key};
 use super::settings::{Filter, Keys, Values};
-use super::{Arkotheque, Settings, keys, rows};
+use super::{Arkotheque, Settings, keys, rows, search_answer};
 use crate::catalog::Collection;
 use crate::citation::{Act, CitationParts};
 use crate::live::{Failure, Probe, Register, Step};
@@ -130,6 +132,9 @@ fn first_locality(
 async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result<String, Failure> {
     let step = Step::SearchPage;
     let settings = settings(collection, step)?;
+    if settings.reads_pages() {
+        return rendered_search_page(&settings, fetch).await;
+    }
     let page = fetch
         .get(&settings.search_path)
         .await
@@ -170,6 +175,70 @@ async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result
     })
 }
 
+impl Settings {
+    /// What a rendered search page lacks of the settings' filters, each
+    /// drawn with its reference (`aria-filtre-<filter>`). The display mode
+    /// is not drawn: the rows its cells are read from check it.
+    fn filters_missing_from_page(&self, page: &str) -> Vec<String> {
+        let filters = [
+            ("locality", self.fields.locality.as_ref()),
+            ("act", self.fields.act.as_ref()),
+            ("period", self.fields.period.as_ref()),
+        ];
+        filters
+            .into_iter()
+            .filter_map(|(role, filter)| Some((role, filter?)))
+            .filter(|(_, filter)| {
+                std::iter::once(&filter.reference)
+                    .chain(&filter.end)
+                    .any(|reference| !page.contains(&format!("aria-filtre-{reference}")))
+            })
+            .map(|(role, _)| format!("{role} filter"))
+            .collect()
+    }
+}
+
+/// Step 1 on a portal read by its pages, which refuses the engine's answer
+/// to a script: the unfiltered search page as its scripts render it names
+/// the engine, the content components and the filters, and its rows the
+/// localities, of which the alphabetically first is searched (empty for a
+/// collection whose rows show none). The act values are checked by the
+/// search of the first one.
+async fn rendered_search_page(
+    settings: &Settings,
+    fetch: &dyn PortalFetch,
+) -> Result<String, Failure> {
+    let step = Step::SearchPage;
+    let expected = "the search page rendered with its rows";
+    let path = settings.page_request(&settings.bare_filters(DISCOVERY_SIZE));
+    let page = fetch
+        .page(&path, page::RENDERED_RESULTS)
+        .await
+        .map_err(|error| Failure::fetch(step, expected, error))?;
+    let mut missing = settings.missing_from_page(&page);
+    missing.extend(settings.filters_missing_from_page(&page));
+    if !missing.is_empty() {
+        return Err(Failure::unreadable(
+            step,
+            "the engine, content and filter references in the search page",
+            &page,
+            format!("missing: {}", missing.join(", ")),
+        ));
+    }
+    let (rows, _) = page::rendered_rows(&page, &settings.cells)
+        .map_err(|error| Failure::from_error(step, expected, &error))?;
+    if settings.cells.locality.is_none() {
+        return Ok(String::new());
+    }
+    let style = settings.locality_style;
+    rows.iter()
+        .filter_map(|row| row.locality.as_deref())
+        .map(|locality| style.cited(locality))
+        .filter(|locality| !locality.is_empty())
+        .min_by_key(|locality| fold(locality))
+        .ok_or_else(|| Failure::drift(step, "the localities of the rendered rows", "none"))
+}
+
 /// The result rows the search a citation of `locality` and `act` would
 /// send lists, without a year.
 async fn discover(
@@ -197,8 +266,7 @@ async fn discover(
         .map_err(|error| Failure::from_error(step, expected, &error))?
         .unwrap_or_else(Keys::default);
     let filters = settings.page_filters(&search, &keys, DISCOVERY_SIZE, 0);
-    let answer = fetch
-        .get(&settings.search_request(&filters))
+    let answer = search_answer(settings, &filters, fetch)
         .await
         .map_err(|error| Failure::fetch(step, expected, error))?;
     rows(settings, &answer, &search)
@@ -233,6 +301,7 @@ async fn registers(
     let several = rows
         .iter()
         .any(|row| row.images.is_some_and(|images| images > 1));
+    let reads_pages = settings.reads_pages();
     Ok(rows
         .into_iter()
         .filter(|row| !several || row.images != Some(1))
@@ -242,8 +311,10 @@ async fn registers(
             call_number: row.call_number,
             period: row.period,
             // Counted by the viewer, whose images a citation cites: some
-            // rows count images only the reading room shows.
-            images: None,
+            // rows count images only the reading room shows. A portal read
+            // by its pages refuses the viewer's list to a script, and its
+            // resolution counts by the row too.
+            images: if reads_pages { row.images } else { None },
             address: row.payload.viewer,
             numbers: row.numbers,
         })
@@ -260,7 +331,11 @@ async fn images(
     let step = Step::Discovery;
     let settings = settings(collection, step)?;
     let expected = "the chosen register's viewer";
-    let Some(viewer) = register.address.as_deref() else {
+    let Some(viewer) = register
+        .address
+        .as_deref()
+        .filter(|_| !settings.reads_pages())
+    else {
         return Ok(None);
     };
     let answer = fetch
