@@ -1,0 +1,92 @@
+{
+  "id": "fr-ad66",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales des Pyrénées-Orientales",
+  "jurisdiction": ["66"],
+  "areas": ["Pyrénées-Orientales"],
+  "citation_codes": ["AD66"],
+  "website": "https://archives.cd66.fr",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives.cd66.fr",
+        "theme": 1,
+        "locality_style": "article_suffix",
+        "types": {
+          "B": ["Registres paroissiaux"],
+          "M": ["Registres paroissiaux"],
+          "S": ["Registres paroissiaux"]
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D"],
+      "period": [1793, null],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives.cd66.fr",
+        "theme": 1,
+        "locality_style": "article_suffix",
+        "types": {
+          "N": ["Registres d'état civil"],
+          "M": ["Registres d'état civil"],
+          "D": ["Registres d'état civil"]
+        }
+      }
+    },
+    {
+      "id": "tables",
+      "acts": ["TD"],
+      "period": [1793, null],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives.cd66.fr",
+        "theme": 1,
+        "locality_style": "article_suffix",
+        "types": {
+          "TD": ["Tables décennales"]
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives.cd66.fr",
+        "theme": 3,
+        "locality_style": "article_suffix"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives.cd66.fr",
+        "theme": 2,
+        "localities": false,
+        "letters": false,
+        "types": {
+          "RM": ["Registres du service de recrutement (par classe)"]
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives.cd66.fr",
+        "theme": 6,
+        "letters": false
+      }
+    }
+  ]
+}

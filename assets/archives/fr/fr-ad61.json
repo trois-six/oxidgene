@@ -1,0 +1,92 @@
+{
+  "id": "fr-ad61",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Orne",
+  "jurisdiction": ["61"],
+  "areas": ["Orne"],
+  "citation_codes": ["AD61"],
+  "website": "https://archives.orne.fr",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://gaia.orne.fr",
+        "theme": 1,
+        "locality_style": "article_suffix",
+        "types": {
+          "B": ["REGISTRE PAROISSIAL"],
+          "M": ["REGISTRE PAROISSIAL"],
+          "S": ["REGISTRE PAROISSIAL"]
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D"],
+      "period": [1793, null],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://gaia.orne.fr",
+        "theme": 1,
+        "locality_style": "article_suffix",
+        "types": {
+          "N": ["REGISTRE D'ETAT CIVIL"],
+          "M": ["REGISTRE D'ETAT CIVIL"],
+          "D": ["REGISTRE D'ETAT CIVIL"]
+        }
+      }
+    },
+    {
+      "id": "tables",
+      "acts": ["TD"],
+      "period": [1793, null],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://gaia.orne.fr",
+        "theme": 1,
+        "locality_style": "article_suffix",
+        "types": {
+          "TD": ["TABLE DECENNALE"]
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://gaia.orne.fr",
+        "theme": 2,
+        "locality_style": "article_suffix"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://gaia.orne.fr",
+        "theme": 3,
+        "localities": false,
+        "letters": false,
+        "types": {
+          "RM": ["Registres par année de recrutement (classe)"]
+        }
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://gaia.orne.fr",
+        "theme": 6,
+        "locality_style": "article_suffix"
+      }
+    }
+  ]
+}

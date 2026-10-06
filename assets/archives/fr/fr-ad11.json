@@ -1,0 +1,83 @@
+{
+  "id": "fr-ad11",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Aude",
+  "jurisdiction": ["11"],
+  "areas": ["Aude"],
+  "citation_codes": ["AD11"],
+  "website": "https://archivesdepartementales.aude.fr",
+  "collections": [
+    {
+      "id": "parish-registers",
+      "acts": ["B", "M", "S"],
+      "period": [null, 1792],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://mdr.aude.fr",
+        "base": "/mdr_aude",
+        "theme": 1,
+        "types": {
+          "B": ["Registres paroissiaux (avant 1793)", "Baptêmes"],
+          "M": ["Registres paroissiaux (avant 1793)", "Mariages"],
+          "S": ["Registres paroissiaux (avant 1793)", "Sépultures"]
+        }
+      }
+    },
+    {
+      "id": "civil-status",
+      "acts": ["N", "M", "D"],
+      "period": [1793, null],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://mdr.aude.fr",
+        "base": "/mdr_aude",
+        "theme": 1,
+        "types": {
+          "N": ["Registres d'état-civil", "Naissances"],
+          "M": ["Registres d'état-civil", "Mariages"],
+          "D": ["Registres d'état-civil", "Décès"]
+        }
+      }
+    },
+    {
+      "id": "tables",
+      "acts": ["TD"],
+      "period": [1793, null],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://mdr.aude.fr",
+        "base": "/mdr_aude",
+        "theme": 1,
+        "types": {
+          "TD": ["Tables décennales communales"]
+        }
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://mdr.aude.fr",
+        "base": "/mdr_aude",
+        "theme": 3
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://mdr.aude.fr",
+        "base": "/mdr_aude",
+        "theme": 8,
+        "letters": false,
+        "prefix": "Bureau de ",
+        "types": {
+          "RM": ["Registres matricules"]
+        }
+      }
+    }
+  ]
+}

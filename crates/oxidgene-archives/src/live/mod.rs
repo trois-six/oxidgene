@@ -247,6 +247,13 @@ pub trait Probe: Send + Sync {
     ) -> BoxFuture<'a, Result<Option<u16>, Failure>> {
         Box::pin(async { Ok(None) })
     }
+
+    /// Whether the portal's viewer has an address per view. Without one, a
+    /// register resolves to a `View` with no views, which opens on its
+    /// first view: step 4 checks that view.
+    fn addresses_views(&self) -> bool {
+        true
+    }
 }
 
 /// The probe of a platform.
@@ -254,6 +261,7 @@ pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
     match platform {
         "archinoe" => Some(&crate::platform::Archinoe),
         "arkotheque" => Some(&crate::platform::Arkotheque),
+        "gaia" => Some(&crate::platform::Gaia),
         "ligeo" => Some(&crate::platform::Ligeo),
         "mnesys" => Some(&crate::platform::Mnesys),
         "prismia" => Some(&crate::platform::Prismia),
@@ -444,7 +452,15 @@ async fn steps(
 
     let citation = citation_of(archive, act, &register);
     report.citation = Some(title_of(&citation));
-    resolution(registry, archive, collection, transport, &citation).await
+    resolution(
+        registry,
+        archive,
+        collection,
+        transport,
+        &citation,
+        probe.addresses_views(),
+    )
+    .await
 }
 
 /// Step 2's verdict: the first register a citation can name without being
@@ -549,6 +565,7 @@ async fn resolution(
     collection: &Collection,
     transport: &dyn PortalTransport,
     citation: &CitationParts,
+    addresses_views: bool,
 ) -> Result<Opening, Failure> {
     let expected = || {
         format!(
@@ -561,7 +578,7 @@ async fn resolution(
         .resolve(citation, transport)
         .await
         .map_err(|error| Failure::from_error(Step::Resolution, expected(), &error))?;
-    let opening = check_view(archive, collection, citation, &target)
+    let opening = check_view(archive, collection, citation, &target, addresses_views)
         .map_err(|received| Failure::drift(Step::Resolution, expected(), received))?;
     if citation.call_number.is_none() {
         return Ok(opening);
@@ -597,6 +614,7 @@ fn check_view(
     collection: &Collection,
     citation: &CitationParts,
     target: &ArchiveTarget,
+    addresses_views: bool,
 ) -> Result<Opening, String> {
     let (views, view_count, call_number, attribution) = match target {
         ArchiveTarget::View {
@@ -629,6 +647,19 @@ fn check_view(
             },
             cited.as_str()
         ));
+    }
+    if !addresses_views {
+        // The register, which its viewer opens on the first view.
+        if !views.is_empty() {
+            return Err("View with views of a viewer without an address per view".to_owned());
+        }
+        return Ok(Opening {
+            platform: collection.platform.clone(),
+            url: target.url().to_owned(),
+            view: 1,
+            view_count: view_count.or(citation.view_count),
+            image: None,
+        });
     }
     let view = citation.views[0].view;
     let Some(first) = views.first().filter(|first| first.view == view) else {

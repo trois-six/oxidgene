@@ -1,0 +1,31 @@
+{
+  "id": "fr-ad09",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de l'Ariège",
+  "jurisdiction": ["09"],
+  "areas": ["Ariège"],
+  "citation_codes": ["AD09"],
+  "website": "https://archives.ariege.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "P", "D", "S", "TD"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://mdr-archives.ariege.fr",
+        "theme": 1,
+        "locality_style": "article_suffix",
+        "types": {
+          "B": ["baptêmes"],
+          "N": ["naissances"],
+          "P": ["publications des mariages"],
+          "M": ["mariages"],
+          "S": ["sépultures"],
+          "D": ["décès"],
+          "TD": ["tables décennales"]
+        }
+      }
+    }
+  ]
+}

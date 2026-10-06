@@ -549,7 +549,7 @@ mod tests {
             None
         );
         // A well-formed citation of an archive the catalogue does not list.
-        assert_eq!(link("AD09 - Exampleville - (aucun) - N - 1877", None), None);
+        assert_eq!(link("AD99 - Exampleville - (aucun) - N - 1877", None), None);
     }
 
     #[test]

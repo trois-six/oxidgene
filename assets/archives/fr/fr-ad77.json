@@ -1,0 +1,70 @@
+{
+  "id": "fr-ad77",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales de Seine-et-Marne",
+  "jurisdiction": ["77"],
+  "areas": ["Seine-et-Marne"],
+  "citation_codes": ["AD77"],
+  "website": "https://archives.seine-et-marne.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "N", "M", "P", "D", "S", "TD"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives-en-ligne.seine-et-marne.fr",
+        "theme": 14
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives-en-ligne.seine-et-marne.fr",
+        "theme": 18
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": [1867, 1940],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives-en-ligne.seine-et-marne.fr",
+        "theme": 23,
+        "letters": false,
+        "types": {
+          "RM": ["Registres matricules"]
+        }
+      }
+    },
+    {
+      "id": "conscription-lists",
+      "acts": ["CM"],
+      "period": [1816, 1866],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives-en-ligne.seine-et-marne.fr",
+        "theme": 31,
+        "localities": false,
+        "letters": false
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "platform": "gaia",
+      "portal": {
+        "origin": "https://archives-en-ligne.seine-et-marne.fr",
+        "theme": 22,
+        "letters": false,
+        "prefix": "Bureau de ",
+        "types": {
+          "TSA": ["Tables de successions et absences"]
+        }
+      }
+    }
+  ]
+}

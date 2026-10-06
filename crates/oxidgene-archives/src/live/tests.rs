@@ -427,3 +427,40 @@ fn every_adapter_has_a_probe() {
         );
     }
 }
+
+#[test]
+fn a_viewer_without_an_address_per_view_is_checked_on_its_first_view() {
+    let registry = ArchiveRegistry::embedded();
+    let archive = registry.archive("AD09").unwrap();
+    let collection = &archive.collections[0];
+    let citation = registry
+        .parse("AD09 - Exampleville - (aucun) - N - 1850 - 9 NUM 4 E 1 - vue 20/40")
+        .unwrap();
+    let url = "https://archives.example.org/viewer/1/2/900/1400".to_owned();
+    let register = |views: Vec<crate::ArchiveView>| ArchiveTarget::View {
+        url: url.clone(),
+        views,
+        view_count: None,
+        call_number: Some("9NUM4E1".to_owned()),
+        attribution: None,
+    };
+    assert_eq!(
+        check_view(archive, collection, &citation, &register(Vec::new()), false),
+        Ok(Opening {
+            platform: "gaia".to_owned(),
+            url: url.clone(),
+            view: 1,
+            view_count: Some(40),
+            image: None,
+        })
+    );
+    // A platform with an address per view must address the cited one.
+    assert!(check_view(archive, collection, &citation, &register(Vec::new()), true).is_err());
+    let view = crate::ArchiveView {
+        view: 20,
+        url: url.clone(),
+        ark: None,
+        image: None,
+    };
+    assert!(check_view(archive, collection, &citation, &register(vec![view]), false).is_err());
+}

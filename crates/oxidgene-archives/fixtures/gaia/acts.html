@@ -1,0 +1,37 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML><HEAD>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+<title>GAIA 9 : moteur de recherche - 9.4.8</title>
+</HEAD><body>
+<div id="content" class="main_contener">
+<script type="text/javascript">
+    function rechercher() {
+        $("#resultat").load("/mdr_aude/index.php/rechercheTheme/requeteConstructor/1/3/T/0/0", {forcepost: 'essai'}, function(data){$.unblockUI();});
+    }
+</script>
+<div id="requete" class="centrage">
+Rappel de votre requ�te :<br/><br/>
+ETAT CIVIL<br/><br/><ul></ul>
+</div>
+<hr/>
+<br/><div class="centrage"><span class="titre_ecran">Choix de l'acte</span><br/><br/></div>
+</div>
+<center><table><tr><td height="5">&nbsp;</td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr_aude/index.php/rechercheTheme/requeteConstructor/1/3/A/901201/Naissances">Naissances&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr_aude/index.php/rechercheTheme/requeteConstructor/1/3/A/901202/Mariages">Mariages&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr_aude/index.php/rechercheTheme/requeteConstructor/1/3/A/901203/Décès">Décès&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+</table></center>
+<div class="centrage"><div class="formulaire">
+<form method="POST" action="/mdr_aude/index.php/rechercheTheme/requeteConstructor/1/4/F/0/0">
+<div class="centrage"><input type="submit" value="Rechercher" class="bouton_84px_type1"/></div>
+</form>
+</div>
+<div id="resultat"></div>
+</body>
+</HTML>

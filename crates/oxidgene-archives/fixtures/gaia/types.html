@@ -1,0 +1,44 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML><HEAD>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+<title>GAIA 9 : moteur de recherche - 9.4.8</title>
+</HEAD><body>
+<div id="content" class="main_contener">
+<script type="text/javascript">
+    function rechercher() {
+        $("#resultat").load("/mdr/index.php/rechercheTheme/requeteConstructor/1/2/T/0/0", {forcepost: 'essai'}, function(data){$.unblockUI();});
+    }
+</script>
+<div id="requete" class="centrage">
+Rappel de votre requête :<br/><br/>
+ETAT CIVIL<br/><br/><ul></ul>
+</div>
+<hr/>
+<br/><div class="centrage"><span class="titre_ecran">Types de registres</span><br/><br/></div>
+</div>
+<center><table><tr><td height="5">&nbsp;</td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr/index.php/rechercheTheme/requeteConstructor/1/2/A/900201/baptêmes">baptêmes&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr/index.php/rechercheTheme/requeteConstructor/1/2/A/900202/naissances">naissances&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr/index.php/rechercheTheme/requeteConstructor/1/2/A/900203/publications des mariages">publications des mariages&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr/index.php/rechercheTheme/requeteConstructor/1/2/A/900204/mariages">mariages&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr/index.php/rechercheTheme/requeteConstructor/1/2/A/900205/sépultures">sépultures&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr/index.php/rechercheTheme/requeteConstructor/1/2/A/900206/décès">décès&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+<tr><td><div align="left">
+<a class="color_liens" href="/mdr/index.php/rechercheTheme/requeteConstructor/1/2/A/900207/tables décennales">tables décennales&nbsp;&nbsp;&nbsp;&nbsp;<em></em></a><br/>
+</div></td></tr>
+</table></center>
+<div id="resultat"></div>
+</body>
+</HTML>

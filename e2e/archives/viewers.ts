@@ -29,6 +29,13 @@ export const viewers: Record<string, Viewer> = {
         view: 'input[data-cy="input-position-image"]',
         viewCount: '[data-cy="nb-total-images"]',
     },
+    // GAIA: `Page n de total` in the canvas viewer's page box. The viewer
+    // has no address per view: the check opens it on its first view.
+    gaia: {
+        view: "#pagination input[type=text]",
+        viewCount: "#pagination input[type=text]",
+        blockImages: true,
+    },
     // Ligeo: the Monocle viewer's page navigation.
     ligeo: {
         view: '.monocle-PageNav input[role="spinbutton"]',

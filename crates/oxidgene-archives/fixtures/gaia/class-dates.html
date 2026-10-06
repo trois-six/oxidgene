@@ -1,0 +1,33 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML><HEAD>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" />
+<title>GAIA 9 : moteur de recherche - 9.4.8</title>
+</HEAD><body>
+<div id="content" class="main_contener">
+<script type="text/javascript">
+    function rechercher() {
+        $("#resultat").load("/mdr/index.php/rechercheTheme/requeteConstructor/3/2/T/0/0", {forcepost: 'essai'}, function(data){$.unblockUI();});
+    }
+</script>
+<div id="requete" class="centrage">
+Rappel de votre requête :<br/><br/>
+ETAT CIVIL<br/><br/><ul></ul>
+</div>
+<hr/>
+<br/><div class="centrage"><span class="titre_ecran">Dates</span><br/><br/></div>
+</div>
+<div class="centrage"><div class="formulaire">
+<form method="POST" action="/mdr/index.php/rechercheTheme/requeteConstructor/3/2/A/0/0">
+Sélectionnez une ou plusieurs années :
+<select id="typeDate" name="typeDate">
+   <option value="inter">intervalle</option>
+   <option value="simple" select>simple</option>
+</select>
+De <input type="text" name="dateDeb" id="dateDeb"/>&nbsp;&agrave; <input type="text" name="dateFin" id="dateFin"/>
+Année exacte <input type="text" id="dateSimple" name="dateSimple"/>
+<input type="submit" value="Rechercher" class="bouton_84px_type1"/>
+</form>
+</div></div>
+<div id="resultat"></div>
+</body>
+</HTML>

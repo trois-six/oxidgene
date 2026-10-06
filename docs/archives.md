@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T05:23:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:20:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -227,6 +227,7 @@ crates/oxidgene-archives/
       view.rs       The View target of a chosen register (§5.2, §7)
       arkotheque/   Arkothèque (1 égal 2) (§4.3); each adapter's live.rs is its live probe (§9.1)
       archinoe/     Archinoë (EidoPolis): `registre`, `seriel` and `ead` searches (§4.6)
+      gaia/         GAIA 9, the `/mdr/` search wizard (§4.8)
       ligeo/        Ligeo Diffusion (Boscop): settings, results, locality cells (§4.5)
       mnesys/       Mnesys Expo (Naoned) (§4.4)
       prismia/      Prismia Vision (EidoPolis) (§4.7)
@@ -376,8 +377,8 @@ An adapter issues only the requests it needs to find one register: no list
 download beyond the search it performs, no image request.
 
 `validate` also refuses a collection holding a series (§3.1) that the
-adapter cannot search, naming the series code: Arkothèque, Mnesys and Ligeo
-search series collections (§4.3, §4.4, §4.5); Archinoë and Prismia Vision,
+adapter cannot search, naming the series code: Arkothèque, Mnesys, Ligeo and
+GAIA search series collections (§4.3, §4.4, §4.5, §4.8); Archinoë and Prismia Vision,
 whose observed searches serve acts and tables only, refuse them until a
 portal's series search has been observed.
 
@@ -942,6 +943,108 @@ Resolution:
    register shows `5` of `216`); without it the viewer opens on the first view.
    The register's own manifest, with its canvases and image services behind the
    key, is never requested.
+
+### 4.8 GAIA
+
+Observed on the Ariège, Aude, Orne, Pyrénées-Orientales and Seine-et-Marne
+portals (2026-10-05 and 2026-10-06), which run GAIA 9 (9.4.8 to 9.5.7), a PHP
+search engine under `/mdr/index.php/rechercheTheme/…` (`/mdr_aude/…` in
+Aude); Orne and Aude embed it from their own site in an `<iframe>` on another
+host, which the catalogue names. Each "thematic search" of the portal is a
+wizard whose choices the PHP session keeps: a locality from an alphabetical
+list, the kind of register, sometimes a further list, the years, then the
+search, whose answer lists the registers twenty at a time, sorted by date.
+The pages are ISO-8859-1 (Aude's database labels are UTF-8 inside them),
+answer a plain client with a cookie jar, and have no anti-bot check. The
+viewer draws a register's images on a canvas: it has no address per view
+and always opens on the first image, and serves no IIIF and no persistent
+identifier, so every archive is `display: "portal"`. The `portal` settings
+are:
+
+| Setting | Content |
+|---|---|
+| `origin`, `transport` | The engine's host and its access; `any` on every observed portal. |
+| `base` | The engine's path, `/mdr` by default. |
+| `theme` | The thematic search, `requeteConstructor/<theme>/…`: the civil status (`1`, `14` in Seine-et-Marne), the censuses, the military registers, the succession tables. |
+| `localities` | `false` when the search starts with the kinds of registers rather than a list of localities (military registers by class); default `true`. |
+| `letters` | `false` when the locality list is one page rather than one per initial; default `true`. |
+| `locality_style` | `plain` (`La Ville-Exemple`) or `article_suffix` (`Bourg (Le)`): which initial lists a locality with a leading article. |
+| `prefix` | Words the list writes before every locality: `Bureau de `. |
+| `types` | Map from document kind code to the labels to choose, in order, after the locality: `["naissances"]`, `["Registres d'état-civil", "Décès"]` for a two-level choice. A combined act (`BMS`) takes its first kind's, banns the marriages'. Left out when the search offers no kind: the acts are then read from the titles. Labels compare by letters, case and accents aside. |
+
+A portal whose parish registers, civil status and tables share one kind
+list (`Registres paroissiaux`, `Registres d'état civil`) has one collection
+each, with their periods, so that a marriage goes to the right list.
+
+Resolution:
+
+1. `GET <base>/index.php/rechercheTheme/requeteConstructor/<theme>/1/R/<letter>/0`
+   (`…/R/0/0` without `letters`): the locality list, as `a.color_liens`
+   links `…/<theme>/<step>/A/<id>/<label>`. A label is read as a name — the
+   `prefix` removed, cut at a comma, a full stop or a bracketed note, a
+   parenthesised qualifier other than an article dropped (`Exampleville
+   (après 1793)`, `Exampleville (Département)`) — and a detail, what follows
+   a comma (`, paroisse Saint-Exemple`, `, Eglise protestante`). The entries
+   whose name is the cited locality, as cited or with its article behind it,
+   are kept; among them those whose detail names the cited parish, or else
+   the locality's own entry. None gives `Results` with no match, several
+   `Results` with their count. Without `localities`, the list of the search's
+   first step is read instead.
+2. `GET …/<step>/A/<id>/x` for the chosen entry, then for each label of the
+   act's `types` the link of that label on the answer (the label segment of
+   the address is cosmetic; the adapter rebuilds every address from the
+   numbers it reads). A missing label gives `Results` with no match.
+3. While the answer is a further list (a census's years, a registration
+   office's areas, the acts of a two-level choice) rather than the year
+   form, the link whose label covers the cited year is followed, or the
+   step's "search all" form `…/F/0/0` is posted; a list with neither is
+   searched as it stands, which finds nothing (a conscription list's class
+   must be cited). At most three such steps. A choice of one year followed
+   (a class, a census year) dates the registers listed under it, since a
+   class's lists are drawn the year after it.
+4. With a year and a year form (`…/<step>/A/0/0`), `POST` it,
+   `typeDate=simple&dateDeb=&dateFin=&dateSimple=<year>`: the server keeps
+   the registers whose period overlaps the year, Republican years included.
+5. `POST` the search, the page's `…/<step>/T/0/0`, with `forcepost=essai`.
+   The answer counts the registers (`N réponses`, `Aucune réponse`) and
+   lists twenty, each a `div.reponsemot`: its title, its call number and
+   period cells (either may be empty: then the title gives the period, as in
+   `Exampleville 1836`), and, for a register with images, the viewer's
+   `docnumViewer/calculHierarchieDocNum/<unit>/<hierarchy>/` link. A register
+   without it is skipped. Further pages are `GET
+   <base>/index.php/rechercheTheme/paginer/<offset>`: with a year, the pages
+   are searched by halves for the last one starting by that year, at most
+   five more requests; without a year, only a cited call number has the
+   next five pages read. A search the year form does not filter (the Orne
+   and Seine-et-Marne censuses, the Seine-et-Marne military registers) is
+   the one that pages.
+6. One register is selected as in §4.3 step 3. When the locality's own
+   entry was chosen and none of its registers holds the cited act and covers
+   the cited year, its other entries are searched in turn from step 2, at
+   most two (more give `Results` with their count): Orne lists a commune's
+   parish registers under its parishes' entries, its own entry holding the
+   civil status; one register found among them is the target. The kind's
+   list does not always filter the search (Orne), which is why the acts are
+   read from the titles. The locality is the chosen
+   entry, or, without `localities`, a title's start (`Exampleville,
+   matricules n° 1-496.`), any when no title names the cited one; the acts
+   are read from the title, as codes (`BMS`, `NMD`, `N + T`) or words, a
+   title naming a table being `TD`; the matricule numbers from it too. A
+   transport that decodes the pages as UTF-8 leaves a U+FFFD for each
+   accented letter: labels compare with it standing for any letter, and the
+   act words and the `°` of `n°` are read through it. No image count is
+   known, so the cited view count does not select. More registers than the
+   pages read gives `Results` with the search's count.
+7. The target is the viewer, `<base>/index.php/docnumViewer/calculHierarchieDocNum/<unit>/<hierarchy>/900/1400`
+   (the last two segments are the window size the viewer lays itself out
+   for); it needs no cookie. It opens on the first image whatever the cited
+   view, so the target is `View` with no views, no view count and the
+   register's call number, and the window names the cited view to go to
+   (§6.1). Its page embeds one object per view in its `docs` array, which
+   only the live check reads.
+
+`results_url` is the list of step 1, which a reader can open. Requests: 4
+to 7 without pages or other entries; the viewer is never requested.
 
 ## 5. Contract
 
@@ -1737,7 +1840,10 @@ renumbering its registers. For each collection of each archive, in order:
    `⌈count / 2⌉ / count` — resolves through the `Resolver`
    to `View` with that call number, that view and, where the adapter counts
    the images, that count; for a `display: "iiif"` archive, with the view's
-   image and an attribution without a placeholder left. The same citation
+   image and an attribution without a placeholder left. A platform whose
+   viewer has no address per view (GAIA, whose probe says so) resolves to
+   `View` with that call number and no views, which opens on the first
+   view: step 4 checks view 1 and the register's count. The same citation
    without its call number resolves to the same register or to `Results`,
    never to another register.
 4. **Opening.** The target loads in a browser and the portal's viewer shows
@@ -1758,6 +1864,7 @@ What each platform's probe reads, and where its viewer shows the view:
 | Ligeo | The search form `arc_form_rech` (or the finding aid's page) holds every input of the settings, and every act value a choice list offers; the localities come from what backs the locality input: the thesaurus the page script names (`VT_Control`, `str`), whose autocomplete (`POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index`) is asked for `Sai`, a typed facet (`arcfacette.php?…&autoc=1`), the input's options or checkboxes, or a finding aid's branches; labels naming a parish, a place or a former commune are left out. A plain text input nothing backs is probed with the letters themselves; a search by year alone with no locality. | `.monocle-PageNav input[role="spinbutton"]`, count `.monocle-PageNav-total`. |
 | Archinoë | `registre`: the locality select's labels, the act select holds every act identifier, the year input exists. `seriel`: the form names its inputs (quoted with apostrophes); the localities are the autocomplete's suggestions for `Sai` (`ir_seriel_data.php`) that follow `locality_label`. `ead`: the finding aid's root lists the communes, a leading article written behind the name. The results count no images: the chosen register's viewer page does (one `div_image_<n>` per view). | `#visu_pagination` (`n/total`). |
 | Prismia Vision | The API key of `/runtimeConfig.js`; the facet endpoint lists the act filter's values, which hold every `acts` value, and the localities, written `Name (Article)`. | `button[aria-label="Numéro de la vue"]` (`n` and `total`). |
+| GAIA | The search's first list (`…/R/0/0`): its first locality written in full, read as step 1 of §4.8 reads a label; without `localities`, the list holds every first label of `types`. The discovery runs the wizard without a year, a list left answered by its first choice (a search through every choice fails on the server for the Aude censuses); the chosen register's viewer page counts the views (one `docs` object each). | `#pagination input[type=text]` (`Page 1 de total`), on view 1 since the viewer has no address per view; its image requests are aborted. |
 
 **How it runs.** The adapter logic stays in Rust, whichever transport
 carries the requests:
@@ -1938,7 +2045,8 @@ opened and its platform confirmed from the portal itself (§11.4).
 | Ligeo Diffusion | Boscop (Angers) | 29 confirmed portals: 01, 02, 05, 06, 07, 12, 13, 16, 29, 31, 33, 34, 41, 42, 48, 56, 57, 63, 67, 70, 74, 76, 79, 86, 88, 89, 92, 93, 95 | Strong (URL pattern of the civil-status page, or announcement)[^ligeo-references] |
 | Archinoë / Prismia Vision | EidoPolis (Laval) | 17, 21, 47, 60, 62; a viewer for 49; former pages for 07 | URL pattern, legal notice (21)[^ad21-legal], announcement (47)[^ad47-portal] |
 | Archives nationales d'outre-mer | National service | 973, 974, 976 | `caomec2` civil-status search[^anom-civil-status] |
-| Unidentified | — | 2A/2B, 09, 11, 22, 30, 32, 35, 52, 53, 61, 64, 66, 81, 82, 84, 971; 77 disputed | Several share an engine (§11.2) |
+| GAIA 9 | Unidentified vendor (the Ariège instance is hosted by Oxyd) | 09, 11, 61, 66, 77; a legacy site for 38 | Observed (§4.8): the pages are titled `GAIA 9 : moteur de recherche - <version>` |
+| Unidentified | — | 2A/2B, 22, 30, 32, 35, 52, 53, 64, 81, 82, 84, 971 | Several share an engine (§11.2) |
 
 Vendor counts disagree with their own lists and are orders of magnitude.
 Naoned's "22 departmental archives" counts users of Mnesys Archives, the
@@ -1958,9 +2066,10 @@ public portal:
   on `archinoe.net/site/AD07`.
 - Hérault (34) and Seine-Saint-Denis (93): Mnesys customers whose
   civil-status portals run Ligeo.
-- Seine-et-Marne (77): Ligeo or Archinoë, unresolved.
-- Isère (38): listed by Arkothèque, while its online civil status runs the
-  `/mdr/` engine also used in Ariège.
+- Seine-et-Marne (77): GAIA, although the department's site links other
+  departments' Ligeo, Archinoë and Mnesys portals.
+- Isère (38): its online civil status runs Arkothèque; a legacy GAIA site
+  (`/mdr/`) remains, whose certificate names another host.
 
 ### 11.2 Identifying a platform
 
@@ -1974,7 +2083,8 @@ portal in seconds and is the evidence required before cataloguing:
 | Ligeo Diffusion | `/archive/recherche/<search>/n:<id>`, `/archive/resultats/<search>/n:<id>`, `/archive/fonds/<finding aid>`, the same under `/archives/`, and `/n/<page>/n:<id>` |
 | Archinoë / Prismia Vision | `archinoe.net/v2/adXX/`, `archinoe.com/v2/adXX/`, `archinoe.fr`, `/v2/adXX/registre.html` on the archive's own domain, `/console/ir_ead_visu.php`, `/console/ir_seriel.php`, `<department>.archives.prismia.fr` |
 | Archives nationales d'outre-mer | `anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=<territory>` |
-| Unidentified | THOT, `/Internet_THOT/FrmSommaireFrame.asp` or `/thot_internet/FrmSommaireFrame.asp` (Corsica, Ille-et-Vilaine); `/mdr/index.php/rechercheTheme/…` (Ariège, Isère, Pyrénées-Orientales); `/archives/classification-scheme` on an `earchives.` or `recherche-archives.` host (Gard, Tarn, Vaucluse), and `/archives/search/default/…` on the Guadeloupe `earchives.` host, the same engine at least for Tarn, Vaucluse and Guadeloupe; `/document/<finding aid>` on a `recherche.` host (Haute-Marne, Tarn-et-Garonne); `/archives-en-ligne/etat-civil-search-form.html` (Mayenne) and `/archives-en-ligne/ead.html?id=…` (Pyrénées-Atlantiques), probably one engine; `/EC/ecx/commune.aspx` (Côtes-d'Armor); `/archives_numerisees/portail/etats_civils/…` (Gers) |
+| GAIA 9 | `/mdr/index.php/rechercheTheme/requeteConstructor/<theme>/1/R/0/0` (`/mdr_aude/…` in Aude), often in an `<iframe>` of the archive's site |
+| Unidentified | THOT, `/Internet_THOT/FrmSommaireFrame.asp` or `/thot_internet/FrmSommaireFrame.asp` (Corsica, Ille-et-Vilaine); `/archives/classification-scheme` on an `earchives.` or `recherche-archives.` host (Gard, Tarn, Vaucluse), and `/archives/search/default/…` on the Guadeloupe `earchives.` host, the same engine at least for Tarn, Vaucluse and Guadeloupe; `/document/<finding aid>` on a `recherche.` host (Haute-Marne, Tarn-et-Garonne); `/archives-en-ligne/etat-civil-search-form.html` (Mayenne) and `/archives-en-ligne/ead.html?id=…` (Pyrénées-Atlantiques), probably one engine; `/EC/ecx/commune.aspx` (Côtes-d'Armor); `/archives_numerisees/portail/etats_civils/…` (Gers) |
 
 ### 11.3 Recent migrations and special cases
 
@@ -2056,8 +2166,8 @@ Cases the catalogue model must express:
 ### 11.4 Cataloguing order
 
 1. Fetch each departmental site's home page and look for `arko`, `mnesys`,
-   `ligeo`, `archinoe` and `prismia` (§11.2). This settles most unconfirmed
-   rows and the disputed one (77).
+   `ligeo`, `archinoe`, `prismia` and `/mdr/` (§11.2). This settles most
+   unconfirmed rows.
 2. Never rely on a vendor's reference list alone: it is self-declared, mixes
    management and dissemination, and lags. Cross-check it with the portal's
    footer or credits page.
@@ -2072,10 +2182,9 @@ Cases the catalogue model must express:
    search it yet (§4.2) is noted, not catalogued. Each collection gets its
    live check (§9.1).
 4. Catalogue the Arkothèque and Mnesys Expo archives first, then Ligeo, then
-   Archinoë / Prismia Vision; then investigate the departments with no
-   identified platform: 2A/2B, 09, 11, 22, 30, 32, 35, 52, 53, 61, 64,
-   66, 81, 82, 84, 971, and the Archives nationales d'outre-mer for 973, 974
-   and 976. Engines shared by several of them (§11.2) come first.
+   Archinoë / Prismia Vision, then GAIA; then investigate the departments
+   with no identified platform: 2A/2B, 22, 30, 32, 35, 52, 53, 64, 81, 82,
+   84, 971, and the Archives nationales d'outre-mer for 973, 974 and 976. Engines shared by several of them (§11.2) come first.
 
 ### 11.5 Survey by department
 
@@ -2099,9 +2208,9 @@ only, and *unconfirmed* means no evidence was found.
 | 06 | Alpes-Maritimes | `archives06.fr` | [`archives06.fr/archive/resultats/etatcivil2/n:101?type=etatcivil2`](https://archives06.fr/archive/resultats/etatcivil2/n:101?type=etatcivil2) | Ligeo | URL pattern; F5 challenge, observed (§4.5); reachable by a browser only, whose headless checks the F5 challenge refuses: not catalogued (2026-10-05) |
 | 07 | Ardèche | `archives.ardeche.fr` | [`archives.ardeche.fr/archive/recherche/etatcivil/n:96`](https://archives.ardeche.fr/archive/recherche/etatcivil/n:96) | Ligeo (older pages on Archinoë) | Ligeo references; URL pattern; observed (§4.5); catalogued, searched 2026-10-05: parish registers, civil status, censuses, succession tables |
 | 08 | Ardennes | `archives.cd08.fr` | [`archives.cd08.fr/archives-numerisees/sources-genealogiques/registres-paroissiaux-et-detat-civil`](https://archives.cd08.fr/archives-numerisees/sources-genealogiques/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers, RP, RM, TSA |
-| 09 | Ariège | `mdr-archives.ariege.fr` | [`mdr-archives.ariege.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://mdr-archives.ariege.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | Unidentified (`/mdr/index.php/rechercheTheme/…` engine) | Portal |
+| 09 | Ariège | `archives.ariege.fr` | [`mdr-archives.ariege.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://mdr-archives.ariege.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): parish and civil registers, TD; the engine's only search |
 | 10 | Aube | `www.archives-aube.fr` | [`www.archives-aube.fr/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube`](https://www.archives-aube.fr/actualites-1/les-actualites-anterieures-a-2010/validation-pages-1/etat-civil-des-communes-de-laube) | Arkothèque | Observed and live-checked (§4.3): registers, TD, Troyes parishes, RP |
-| 11 | Aude | `archivesdepartementales.aude.fr` | [`archivesdepartementales.aude.fr/letat-civil`](https://archivesdepartementales.aude.fr/letat-civil) | Unidentified | New portal reported by the press; portal |
+| 11 | Aude | `archivesdepartementales.aude.fr` | [`archivesdepartementales.aude.fr/letat-civil`](https://archivesdepartementales.aude.fr/letat-civil), embedding [`mdr.aude.fr/mdr_aude/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://mdr.aude.fr/mdr_aude/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): parish registers, civil status, TD, RP, RM; the site sits behind an F5 check, the engine's host behind none; the cantonal decennial tables are not catalogued |
 | 12 | Aveyron | `archives.aveyron.fr` | [`archives.aveyron.fr/archive/recherche/etatcivil/n:122`](https://archives.aveyron.fr/archive/recherche/etatcivil/n:122) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, succession tables |
 | 13 | Bouches-du-Rhône | `www.archives13.fr` (new site, May 2026) | [`www.archives13.fr/archive/recherche/etatcivil/n:64`](https://www.archives13.fr/archive/recherche/etatcivil/n:64) | Ligeo | Ligeo references; URL pattern; reachable by a browser only (incomplete certificate chain, firewall), refused or in maintenance during the checks: not catalogued (2026-10-05) |
 | 14 | Calvados | `archives.calvados.fr` | [`archives.calvados.fr/search/form/ecf01748-923d-463a-8d80-bd4142582bcd`](https://archives.calvados.fr/search/form/ecf01748-923d-463a-8d80-bd4142582bcd) | Mnesys Expo | Mnesys Expo logo, Naoned case study; catalogued (§4.4): registers, censuses; live-checked 2026-10-05 |
@@ -2151,12 +2260,12 @@ only, and *unconfirmed* means no evidence was found.
 | 58 | Nièvre | `archives.nievre.fr` | [`archives.nievre.fr/search/form/9430efb3-399f-4de3-a3e7-004e232d8601`](https://archives.nievre.fr/search/form/9430efb3-399f-4de3-a3e7-004e232d8601) | Mnesys Expo | Naoned customer list; URL pattern; catalogued (§4.4): registers, censuses, military registers, succession tables; live-checked 2026-10-05 |
 | 59 | Nord | `archivesdepartementales.lenord.fr` | [`archivesdepartementales.lenord.fr/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8`](https://archivesdepartementales.lenord.fr/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8) | Mnesys Expo | Naoned case study; URL pattern; catalogued (§4.4): registers, decennial tables, censuses, military registers and their tables, succession tables; live-checked 2026-10-05 |
 | 60 | Oise | `archives.oise.fr` | [`ressources.archives.oise.fr/v2/ad60/registre.html`](https://ressources.archives.oise.fr/v2/ad60/registre.html) | Archinoë | URL pattern; catalogued, searched 2026-10-05 |
-| 61 | Orne | `archives.orne.fr` | [`archives.orne.fr/etat-civil`](https://archives.orne.fr/etat-civil) | Unidentified | Portal |
+| 61 | Orne | `archives.orne.fr` | [`archives.orne.fr/etat-civil`](https://archives.orne.fr/etat-civil), embedding [`gaia.orne.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://gaia.orne.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): parish registers, civil status, TD, RP, RM, TSA |
 | 62 | Pas-de-Calais | `www.archivespasdecalais.fr` | [`archivesenligne.pasdecalais.fr/console/ir_seriel.php?id=56&p=formulaire_etat_civil`](https://archivesenligne.pasdecalais.fr/console/ir_seriel.php?id=56&p=formulaire_etat_civil) | Archinoë | 2014 panorama; URL pattern; catalogued, searched 2026-10-05 |
 | 63 | Puy-de-Dôme | `www.archivesdepartementales.puy-de-dome.fr` | [`www.archivesdepartementales.puy-de-dome.fr/archive/recherche/etatcivil/n:13`](https://www.archivesdepartementales.puy-de-dome.fr/archive/recherche/etatcivil/n:13) | Ligeo Diffusion (since 2001) | Ligeo references; archive's own account; catalogued, searched 2026-10-05: parish and civil registers, military registers |
 | 64 | Pyrénées-Atlantiques | `earchives.le64.fr` | [`earchives.le64.fr/archives-en-ligne/ead.html?id=FRAD064003_IR0002&c=FRAD064003_IR0002_e0000030&qid=`](https://earchives.le64.fr/archives-en-ligne/ead.html?id=FRAD064003_IR0002&c=FRAD064003_IR0002_e0000030&qid=) | Unidentified (same engine as Mayenne) | Portal |
 | 65 | Hautes-Pyrénées | `archivesenligne65.fr` | [`archivesenligne65.fr/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-detat-civil`](https://archivesenligne65.fr/archives/acces-thematique/naitre-vivre-et-mourir/les-registres-detat-civil) | Arkothèque | Observed and live-checked (§4.3): civil status, parish registers, TD, RP, RM, TSA |
-| 66 | Pyrénées-Orientales | `archives.cd66.fr` | [`archives.cd66.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://archives.cd66.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | Unidentified (`/mdr/` engine, as in Ariège) | Portal |
+| 66 | Pyrénées-Orientales | `archives.cd66.fr` | [`archives.cd66.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://archives.cd66.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): parish registers, civil status, TD, RP, RM, TSA |
 | 67 | Bas-Rhin (Archives d'Alsace) | `archives.alsace.eu` | [`archives67.alsace.eu/archive/resultats/etatcivil/n:128?type=etatcivil`](https://archives67.alsace.eu/archive/resultats/etatcivil/n:128?type=etatcivil) | Ligeo Diffusion (November 2025) | Collectivité européenne d'Alsace announcement; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, succession tables |
 | 68 | Haut-Rhin (Archives d'Alsace) | `archives.alsace.eu` | [`archives68.alsace.eu/search/form/f4ed0a71-fe36-42d4-81bd-780da14c2125`](https://archives68.alsace.eu/search/form/f4ed0a71-fe36-42d4-81bd-780da14c2125) | Mnesys Expo (since 2023-09-18) | Naoned case study; credits page; URL pattern; catalogued (§4.4): registers, censuses, military registers; live-checked 2026-10-05 |
 | 69 | Rhône and Métropole de Lyon | `archives.rhone.fr` | [`archives.rhone.fr/search/form/dde23a8f-cc71-4300-9805-bda67eec1ac0`](https://archives.rhone.fr/search/form/dde23a8f-cc71-4300-9805-bda67eec1ac0) | Mnesys Expo | Naoned case study; URL pattern; catalogued (§4.4): registers, censuses, military registers, succession tables; live-checked 2026-10-05 |
@@ -2167,7 +2276,7 @@ only, and *unconfirmed* means no evidence was found.
 | 74 | Haute-Savoie | `archives.hautesavoie.fr` | [`archives.hautesavoie.fr/archive/recherche/etatcivil/n:139`](https://archives.hautesavoie.fr/archive/recherche/etatcivil/n:139) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, military registers, succession tables |
 | 75 | Paris | `archives.paris.fr` | [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-reconstitue-xvie-1859) (reconstituted, 16th century–1859) and [`archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860`](https://archives.paris.fr/archives-numerisees/etat-civil-de-paris/etat-civil-a-partir-de-1860) | Arkothèque | Observed and live-checked (§4.3): civil status from 1860 |
 | 76 | Seine-Maritime | `www.archivesdepartementales76.net` | [`www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil`](https://www.archivesdepartementales76.net/archive/resultats/etatcivil/n:113?type=etatcivil) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, military registers, succession tables |
-| 77 | Seine-et-Marne | `archives.seine-et-marne.fr` | [`archives.seine-et-marne.fr/fr/etat-civil`](https://archives.seine-et-marne.fr/fr/etat-civil) | Ligeo or Archinoë (disputed) | Portal |
+| 77 | Seine-et-Marne | `archives.seine-et-marne.fr` | [`archives.seine-et-marne.fr/fr/etat-civil`](https://archives.seine-et-marne.fr/fr/etat-civil), linking [`archives-en-ligne.seine-et-marne.fr/mdr/index.php/rechercheTheme/requeteConstructor/14/1/R/0/0`](https://archives-en-ligne.seine-et-marne.fr/mdr/index.php/rechercheTheme/requeteConstructor/14/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): registers and TD, RP, RM, CM, TSA |
 | 78 | Yvelines | `archives.yvelines.fr` | [`archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil`](https://archives.yvelines.fr/rechercher/archives-en-ligne/registres-paroissiaux-et-detat-civil/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, TSA |
 | 79 | Deux-Sèvres | `archives-deux-sevres-vienne.fr` (shared with Vienne) | [`archives-deux-sevres-vienne.fr/archive/resultats/etatcivil/n:100?type=etatcivil`](https://archives-deux-sevres-vienne.fr/archive/resultats/etatcivil/n:100?type=etatcivil) | Ligeo (Archinoë in 2014) | URL pattern; catalogued, searched 2026-10-05: parish registers, civil status, censuses, succession tables |
 | 80 | Somme | `archives.somme.fr` | [`archives.somme.fr/search/form/cebd4a00-25b1-4b1c-a31e-8ea66d58efa2`](https://archives.somme.fr/search/form/cebd4a00-25b1-4b1c-a31e-8ea66d58efa2) | Mnesys Expo | Naoned customer list; URL pattern; catalogued (§4.4): registers, censuses, military-register tables, conscription lists; live-checked 2026-10-05 |
