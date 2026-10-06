@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T09:12:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T10:06:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -899,7 +899,16 @@ Resolution, `ead` (Côte-d'Or), which has no register search form:
    `javascript:showEntry(<id>)`. The page is ISO-8859-1, which a transport
    decodes as UTF-8 and turns each accented letter into U+FFFD: a commune is
    matched by its letters, a U+FFFD standing for any one letter, and with the
-   article moved behind the name (`Étang-Exemple (L')`).
+   article moved behind the name (`Étang-Exemple (L')`). This page is the
+   only list of the communes' nodes — the aid's tree fragments start below
+   it, and its text search answers nodes of another numbering —, some
+   300 KB that the Côte-d'Or portal builds in about a second, or at busy
+   times in 74 to 150 seconds, past a request's bound. The adapter therefore
+   keeps each aid's commune index, a few tens of kilobytes of nodes and
+   names, for the session (§8), and the following resolutions start at
+   step 2. A commune node that answers no act node — the portal published
+   the aid anew, with other nodes — drops the index, which the same
+   resolution reads again.
 2. `GET <base>/ir_ead_visu_action.php?ir=<ir>&id=<commune>&toc=1` lists the
    commune's act nodes (`Actes (BMS puis NMD)`, `Tables décennales`); the one
    whose title is the act's value is read the same way, giving its collections
@@ -2343,7 +2352,9 @@ Archive portals are public services whose terms OxidGene follows:
 - Resolved targets are cached in memory for the session, by the resolver:
   each `View`, and each `Results` of a search that ran, keyed by the citation
   parts, up to 256 entries before the cache starts afresh. Errors and offline
-  targets are not kept, so the next click asks the portal again. The only portal data
+  targets are not kept, so the next click asks the portal again. The one
+  portal list kept is the commune index of an Archinoë finding aid, whose
+  page is slow to build and lists nothing else (§4.6), also for the session. The only portal data
   written to the database is what the reader attaches (§6.4): image addresses,
   sizes and the attribution, never image bytes.
 - Adding a view to a document being attached is a click too: one resolution of that one view, kept by the
@@ -2898,7 +2909,7 @@ only, and *unconfirmed* means no evidence was found.
 | 18 | Cher | `www.archives18.fr` | [`www.archives18.fr/archives-numerisees/registres-paroissiaux-et-etat-civil`](https://www.archives18.fr/archives-numerisees/registres-paroissiaux-et-etat-civil) | Arkothèque (portal); Naoned customer | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
 | 19 | Corrèze | `www.archives.correze.fr` | [`www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f`](https://www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f) | Mnesys Expo | Mnesys Expo logo; URL pattern; catalogued (§4.4): registers, censuses, military registers; live-checked 2026-10-05 |
 | 2A / 2B | Corse (Archives de la Collectivité de Corse) | `archives.isula.corsica` | [`archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp`](https://archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp) | THOT | Single site since December 2020; observed (§4.9); catalogued 2026-10-06, behind Cloudflare (browser only), registers opened at their first view: registers of acts and tables, censuses; the military registers are a name index, not catalogued |
-| 21 | Côte-d'Or | `archives.cotedor.fr` | [`archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564`](https://archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564); formerly [`archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie`](https://archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie) | Archinoë / Prismia | Legal notice: hosted by EidoPolis Prismia; URL pattern; catalogued, browsed 2026-10-05 |
+| 21 | Côte-d'Or | `archives.cotedor.fr` | [`archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564`](https://archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564); formerly [`archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie`](https://archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie) | Archinoë / Prismia | Legal notice: hosted by EidoPolis Prismia; URL pattern; catalogued, browsed 2026-10-05; its commune index kept for the session (§4.6) |
 | 22 | Côtes-d'Armor | `archives.cotesdarmor.fr` | [`sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx`](https://sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx) | Visualys (ASP.NET "salle virtuelle") | Observed (§4.12); catalogued, searched and live-checked 2026-10-06: registers, military registers; the target is the site's entry, before the reuse licence |
 | 23 | Creuse | `archives.creuse.fr` | [`archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil`](https://archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
 | 24 | Dordogne | `archives.dordogne.fr` | [`archives.dordogne.fr/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil`](https://archives.dordogne.fr/archives-numerisees/genealogie/registres-paroissiaux-et-detat-civil) | Arkothèque | Observed and live-checked (§4.3): registers, TD, RP, RM |

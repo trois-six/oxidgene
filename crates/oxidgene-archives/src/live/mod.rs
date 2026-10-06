@@ -272,10 +272,13 @@ pub trait Probe: Send + Sync {
 /// first.
 const UNCOUNTED_VIEW: u16 = 2;
 
+/// The Archinoë probe, whose adapter keeps the commune indexes it reads.
+static ARCHINOE: crate::platform::Archinoe = crate::platform::Archinoe::new();
+
 /// The probe of a platform.
 pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
     match platform {
-        "archinoe" => Some(&crate::platform::Archinoe),
+        "archinoe" => Some(&ARCHINOE),
         "archives32" => Some(&crate::platform::Archives32),
         "arkotheque" => Some(&crate::platform::Arkotheque),
         "bach" => Some(&crate::platform::Bach),

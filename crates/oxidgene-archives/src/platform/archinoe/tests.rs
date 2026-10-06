@@ -90,12 +90,27 @@ impl PortalFetch for Portal {
     }
 }
 
+/// Resolves `title` with a fresh adapter, which has kept no commune index.
 fn resolve(title: &str, portal: &Portal) -> Result<ArchiveTarget, ResolveError> {
+    resolve_with(&platform::Archinoe::new(), title, portal)
+}
+
+fn resolve_with(
+    adapter: &platform::Archinoe,
+    title: &str,
+    portal: &Portal,
+) -> Result<ArchiveTarget, ResolveError> {
     let registry = ArchiveRegistry::embedded();
     let citation = registry.parse(title).expect("a normalized citation");
     let (archive, collections) = registry.candidates(&citation).expect("a catalogued act");
-    let platform = registry.platform(&collections[0].platform).unwrap();
-    block_on(platform.resolve(archive, collections[0], &citation, portal))
+    assert_eq!(collections[0].platform, "archinoe");
+    block_on(platform::Platform::resolve(
+        adapter,
+        archive,
+        collections[0],
+        &citation,
+        portal,
+    ))
 }
 
 fn ok(title: &str, router: Router) -> (ArchiveTarget, Portal) {
@@ -612,6 +627,42 @@ fn a_view_beyond_the_block_s_image_count_opens_the_register() {
     assert_eq!(
         url,
         "https://archives.cotedor.fr/v2/ad21/visualiseur/ir_ead_visu_lien.html?ir=26564&id=400000201"
+    );
+}
+
+#[test]
+fn the_commune_index_is_kept_for_the_session_and_read_again_once_dated() {
+    const ROOT: &str = "/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564";
+    let adapter = platform::Archinoe::new();
+    let portal = Portal::new(ad21);
+    let title = "AD21 - Exampleville - (aucun) - B - 1650 - FRAD021EC 9/001 - vue 5/107";
+    let first = resolve_with(&adapter, title, &portal).unwrap();
+    // The aid's page is read once: the next lookups start at the commune.
+    let second = resolve_with(&adapter, title, &portal).unwrap();
+    assert_eq!(first, second);
+    let roots = |portal: &Portal| portal.urls().iter().filter(|url| *url == ROOT).count();
+    assert_eq!(roots(&portal), 1);
+    assert_eq!(portal.urls().len(), 7);
+
+    // The portal published the aid anew: the kept commune's node answers
+    // nothing, and the page is read again within the same lookup.
+    fn republished(request: &PortalRequest) -> Option<String> {
+        if request.url.ends_with("id=400000001&toc=1") {
+            return Some("Erreur #3002: Section non trouvée".to_owned());
+        }
+        let answer = ad21(request)?;
+        Some(answer.replace("showEntry(400000001)", "showEntry(400000009)"))
+    }
+    let portal = Portal::new(republished);
+    let target = resolve_with(&adapter, title, &portal).unwrap();
+    assert_eq!(target.url(), first.url());
+    assert_eq!(
+        portal.urls()[..3],
+        [
+            "/console/ir_ead_visu_action.php?ir=26564&id=400000001&toc=1",
+            ROOT,
+            "/console/ir_ead_visu_action.php?ir=26564&id=400000009&toc=1",
+        ]
     );
 }
 

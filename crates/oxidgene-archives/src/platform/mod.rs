@@ -131,7 +131,7 @@ pub trait Platform: Send + Sync {
 pub fn builtin() -> Vec<Box<dyn Platform>> {
     vec![
         Box::new(Arkotheque),
-        Box::new(Archinoe),
+        Box::new(Archinoe::new()),
         Box::new(Archives32),
         Box::new(Bach),
         Box::new(Gaia),

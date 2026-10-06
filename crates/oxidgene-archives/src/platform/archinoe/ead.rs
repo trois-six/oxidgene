@@ -5,7 +5,12 @@
 //! act nodes (`Actes (BMS puis NMD)`, `Tables décennales`), an act node has
 //! its collections, and a collection's notice gives one block per register:
 //! call number, period, `107 images numériques` and the link to the viewer.
-//! A node whose tree fragment is empty is itself the notice.
+//! A node whose tree fragment is empty is itself the notice. The communes'
+//! nodes are listed by the aid's page alone, slow to build: the adapter keeps
+//! their index for the session ([`Communes`]).
+
+use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 use super::{Found, Register, Search, Settings, choose, get, number_after, unexpected};
 use crate::ResolveError;
@@ -14,38 +19,101 @@ use crate::platform::markup::{self, first_number, fold, is_named, letters};
 use crate::platform::select::{Candidate, narrow};
 use crate::transport::PortalFetch;
 
+/// The commune index of each finding aid read so far — each commune's node
+/// and name, by the address of the aid's page —, kept by the adapter for the
+/// application's session, as the resolver keeps its targets (Archive Portals
+/// §8).
+///
+/// The aid's page is the only list of the communes' nodes: some 300 KB
+/// that the Côte-d'Or portal builds in one second or, at busy times, in
+/// over a minute, past a request's bound, while a commune's fragments
+/// answer at once. Its index is a few tens of kilobytes. A node the portal
+/// no longer knows, after it published the aid anew, drops the index, which
+/// the same resolution reads again.
+#[derive(Default)]
+pub(super) struct Communes(Mutex<BTreeMap<String, Vec<(String, String)>>>);
+
+impl Communes {
+    pub(super) const fn new() -> Self {
+        Self(Mutex::new(BTreeMap::new()))
+    }
+
+    /// The communes of the aid `settings` name, and whether they were kept
+    /// rather than read from its page now.
+    pub(super) async fn read(
+        &self,
+        settings: &Settings,
+        fetch: &dyn PortalFetch,
+    ) -> Result<(Vec<(String, String)>, bool), ResolveError> {
+        let page = settings.search_page();
+        if let Some(kept) = self.0.lock().ok().and_then(|kept| kept.get(&page).cloned()) {
+            return Ok((kept, true));
+        }
+        let path = page.strip_prefix(&settings.origin).unwrap_or_default();
+        let answer = get(fetch, path).await?;
+        Ok((self.keep(settings, &answer)?, false))
+    }
+
+    /// Keeps the communes the aid's page lists, and returns them: none is a
+    /// changed page.
+    pub(super) fn keep(
+        &self,
+        settings: &Settings,
+        page: &str,
+    ) -> Result<Vec<(String, String)>, ResolveError> {
+        let communes = entries(page);
+        if communes.is_empty() {
+            return Err(markup::unreadable(
+                page,
+                "archinoe: the finding aid lists no commune".to_owned(),
+            ));
+        }
+        if let Ok(mut kept) = self.0.lock() {
+            kept.insert(settings.search_page(), communes.clone());
+        }
+        Ok(communes)
+    }
+
+    fn forget(&self, settings: &Settings) {
+        if let Ok(mut kept) = self.0.lock() {
+            kept.remove(&settings.search_page());
+        }
+    }
+}
+
 pub(super) async fn find(
+    index: &Communes,
     settings: &Settings,
     citation: &CitationParts,
     localities: &[&str],
     fetch: &dyn PortalFetch,
 ) -> Result<Found, ResolveError> {
-    let Search::Ead { ir, eadid } = &settings.search else {
+    let Search::Ead { ir, .. } = &settings.search else {
         return Err(unexpected("settings of another search"));
     };
     let action = format!("{}/ir_ead_visu_action.php?ir={ir}", settings.base);
-
-    let root = get(
-        fetch,
-        &format!("{}/ir_ead_visu.php?eadid={eadid}&ir={ir}", settings.base),
-    )
-    .await?;
-    let communes = entries(&root);
-    if communes.is_empty() {
-        return Err(unexpected("the finding aid lists no commune"));
-    }
+    let Some(title) = settings.act_value(&citation.act) else {
+        return Ok(Found::Many(0));
+    };
     let wanted: Vec<Vec<char>> = localities
         .iter()
         .map(|locality| letters(locality))
         .collect();
-    let Some((commune, _)) = communes.iter().find(|(_, name)| is_named(name, &wanted)) else {
-        return Ok(Found::Many(0));
-    };
 
-    let Some(title) = settings.act_value(&citation.act) else {
-        return Ok(Found::Many(0));
+    let acts = loop {
+        let (communes, kept) = index.read(settings, fetch).await?;
+        let Some((commune, _)) = communes.iter().find(|(_, name)| is_named(name, &wanted)) else {
+            return Ok(Found::Many(0));
+        };
+        let acts = entries(&get(fetch, &format!("{action}&id={commune}&toc=1")).await?);
+        // A commune node is never empty: one the portal no longer knows
+        // dates the index, which is read again.
+        if acts.is_empty() && kept {
+            index.forget(settings);
+            continue;
+        }
+        break acts;
     };
-    let acts = entries(&get(fetch, &format!("{action}&id={commune}&toc=1")).await?);
     let Some((node, _)) = acts.iter().find(|(_, name)| fold(name) == fold(title)) else {
         return Ok(Found::Many(0));
     };

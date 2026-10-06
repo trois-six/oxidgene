@@ -115,7 +115,11 @@ fn localities(settings: &Settings, page: &str) -> Result<Vec<String>, Vec<String
     }
 }
 
-async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result<String, Failure> {
+async fn search_page(
+    adapter: &Archinoe,
+    collection: &Collection,
+    fetch: &dyn PortalFetch,
+) -> Result<String, Failure> {
     let step = Step::SearchPage;
     let settings = settings(collection, step)?;
     let page_path = settings
@@ -124,6 +128,11 @@ async fn search_page(collection: &Collection, fetch: &dyn PortalFetch) -> Result
         .unwrap_or_default()
         .to_owned();
     let page = get(fetch, &page_path, step, "the search page").await?;
+    // The finding aid's page is its commune index, which the discovery
+    // reads again.
+    if matches!(settings.search, Search::Ead { .. }) {
+        let _ = adapter.communes.keep(&settings, &page);
+    }
     let localities = localities(&settings, &page).map_err(|missing| {
         Failure::unreadable(
             step,
@@ -277,24 +286,23 @@ async fn seriel_rows(
 /// The registers of an `ead` finding aid: the commune's act node, its
 /// collections, and each collection's register blocks.
 async fn ead_rows(
+    adapter: &Archinoe,
     settings: &Settings,
     locality: &str,
     act: &Act,
     fetch: &dyn PortalFetch,
 ) -> Result<Vec<Candidate<Row>>, Failure> {
     let step = Step::Discovery;
-    let Search::Ead { ir, eadid } = &settings.search else {
+    let Search::Ead { ir, .. } = &settings.search else {
         return Ok(Vec::new());
     };
     let expected = "the registers of the first listed locality";
     let action = format!("{}/ir_ead_visu_action.php?ir={ir}", settings.base);
-    let root = get(
-        fetch,
-        &format!("{}/ir_ead_visu.php?eadid={eadid}&ir={ir}", settings.base),
-        step,
-        expected,
-    )
-    .await?;
+    let (communes, _) = adapter
+        .communes
+        .read(settings, fetch)
+        .await
+        .map_err(|error| Failure::from_error(step, expected, &error))?;
     let entry = |entries: Vec<(String, String)>, wanted: &str| {
         entries
             .into_iter()
@@ -302,8 +310,8 @@ async fn ead_rows(
             .map(|(id, _)| id)
     };
     let missing = |what: &str, page: &str| Failure::unreadable(step, expected, page, what);
-    let commune = entry(ead::entries(&root), locality)
-        .ok_or_else(|| missing("the locality's node", &root))?;
+    let commune = entry(communes, locality)
+        .ok_or_else(|| Failure::drift(step, expected, "missing: the locality's node"))?;
     let title = settings.act_value(act).unwrap_or_default();
     let acts = get(
         fetch,
@@ -333,6 +341,7 @@ async fn ead_rows(
 }
 
 async fn registers(
+    adapter: &Archinoe,
     collection: &Collection,
     locality: &str,
     act: &Act,
@@ -343,7 +352,7 @@ async fn registers(
     let rows = match settings.search {
         Search::Registre { .. } => registre_rows(&settings, locality, act, fetch).await?,
         Search::Seriel { .. } => seriel_rows(&settings, locality, act, fetch).await?,
-        Search::Ead { .. } => ead_rows(&settings, locality, act, fetch).await?,
+        Search::Ead { .. } => ead_rows(adapter, &settings, locality, act, fetch).await?,
     };
     if rows.is_empty() {
         return Err(Failure::drift(
@@ -395,7 +404,7 @@ impl Probe for Archinoe {
         collection: &'a Collection,
         fetch: &'a dyn PortalFetch,
     ) -> BoxFuture<'a, Result<String, Failure>> {
-        Box::pin(search_page(collection, fetch))
+        Box::pin(search_page(self, collection, fetch))
     }
 
     fn registers<'a>(
@@ -405,7 +414,7 @@ impl Probe for Archinoe {
         act: &'a Act,
         fetch: &'a dyn PortalFetch,
     ) -> BoxFuture<'a, Result<Vec<Register>, Failure>> {
-        Box::pin(registers(collection, locality, act, fetch))
+        Box::pin(registers(self, collection, locality, act, fetch))
     }
 
     fn images<'a>(

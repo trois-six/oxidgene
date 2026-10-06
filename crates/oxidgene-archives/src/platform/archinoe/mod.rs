@@ -40,8 +40,21 @@ use crate::citation::{Act, CitationParts};
 use crate::transport::PortalFetch;
 use crate::{ArchiveTarget, ArchiveView, ResolveError};
 
-/// The Archinoë adapter.
-pub struct Archinoe;
+/// The Archinoë adapter. It keeps, for as long as it serves — the
+/// application's session —, the commune index of each `ead` finding aid it
+/// has read ([`ead::Communes`]).
+#[derive(Default)]
+pub struct Archinoe {
+    communes: ead::Communes,
+}
+
+impl Archinoe {
+    pub const fn new() -> Self {
+        Self {
+            communes: ead::Communes::new(),
+        }
+    }
+}
 
 /// How many registers' viewer pages are read to tell registers apart by
 /// their image count, when the results lack it.
@@ -507,11 +520,12 @@ impl Platform for Archinoe {
         citation: &'a CitationParts,
         fetch: &'a dyn PortalFetch,
     ) -> BoxFuture<'a, Result<ArchiveTarget, ResolveError>> {
-        Box::pin(resolve(archive, collection, citation, fetch))
+        Box::pin(resolve(self, archive, collection, citation, fetch))
     }
 }
 
 async fn resolve(
+    adapter: &Archinoe,
     archive: &Archive,
     collection: &Collection,
     citation: &CitationParts,
@@ -523,7 +537,9 @@ async fn resolve(
     let found = match &settings.search {
         Search::Registre { .. } => registre::find(&settings, citation, &localities, fetch).await?,
         Search::Seriel { .. } => seriel::find(&settings, citation, &localities, fetch).await?,
-        Search::Ead { .. } => ead::find(&settings, citation, &localities, fetch).await?,
+        Search::Ead { .. } => {
+            ead::find(&adapter.communes, &settings, citation, &localities, fetch).await?
+        }
     };
     Ok(match found {
         Found::One(chosen) => view(&settings, archive, citation, &chosen),
