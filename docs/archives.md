@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:57:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:15:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -423,9 +423,11 @@ lightest page that passes the portal's checks — Arkothèque's `/robots.txt`
 (§4.3) —, since the requests only need a page of the origin to carry them,
 and a search page fetching its own lists on load delays them. It then runs each
 request as that page's `fetch`, with the portal's cookies
-(`credentials: "include"`), so it passes the challenge, needs no CORS on the
+(`credentials: "same-origin"`), so it passes the challenge, needs no CORS on the
 portal's origin, and reaches a declared API origin whose CORS admits the
-portal. The body returns to Rust through the window's IPC channel, which
+portal. A request to that other origin carries no cookie: a browser refuses
+a credentialed answer that admits any origin (`Access-Control-Allow-Origin:
+*`), as the image lists of some portals' viewers do. The body returns to Rust through the window's IPC channel, which
 accepts messages from the archive's `origin` only and matches each answer
 to the request it was issued for; an answer whose final address left the
 endpoint's origins is refused. The window's own `User-Agent` is the
@@ -2172,7 +2174,7 @@ each answered by one line on its standard input before the next is sent:
 `connect` asks the page to load the endpoint's start page and wait until it
 shows the portal rather than an anti-bot page (as below), and `fetch` asks
 it to run one request with the page's own `fetch` and
-`credentials: "include"`, as the window's script does (§4.2). The answers are checked as the window's are
+`credentials: "same-origin"`, as the window's script does (§4.2). The answers are checked as the window's are
 (`PageAnswer`): a final address on the endpoint's origins, a success
 status, a bounded body. The binary ends with its collections' reports and
 the indices of the collections the native test checks instead. The process

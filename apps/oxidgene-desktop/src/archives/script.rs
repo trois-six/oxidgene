@@ -71,6 +71,9 @@ pub(super) fn overlay(shown: Option<(&Progress, Duration)>, texts: &Texts) -> St
 ///
 /// It is the page's own `fetch`, so it carries the portal's cookies, passes
 /// its challenge, and reaches an API origin whose CORS admits the portal.
+/// Its credentials are the page origin's only (`same-origin`): a request to
+/// another origin goes without cookies, which an origin answering any
+/// origin (`Access-Control-Allow-Origin: *`) requires of the browser.
 pub(super) fn fetch(
     ticket: u64,
     method: Method,
@@ -86,7 +89,7 @@ pub(super) fn fetch(
         "method": method.as_str(),
         "headers": headers,
         "body": body,
-        "credentials": "include",
+        "credentials": "same-origin",
         "redirect": "follow",
         "cache": "no-store",
     });
@@ -208,7 +211,7 @@ mod tests {
         );
         assert!(script.contains(r#"ticket: 7"#));
         assert!(script.contains(r#""method":"POST""#));
-        assert!(script.contains(r#""credentials":"include""#));
+        assert!(script.contains(r#""credentials":"same-origin""#));
         assert!(script.contains(r#""headers":{"Content-Type":"application/json"}"#));
         assert!(
             script.contains(r#"fetch("https://archives.example.org/search?q=\"x\"", options)"#)

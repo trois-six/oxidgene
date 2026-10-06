@@ -110,13 +110,15 @@ async function connect(page: Page, start: string, origins: string[]): Promise<st
     return checked ? "challenged" : "timeout";
 }
 
-// Runs one request as the page's own `fetch`, with the portal's cookies.
+// Runs one request as the page's own `fetch`, with the portal's cookies, as
+// the desktop window does: none on another origin, whose CORS may then admit
+// any origin (`*`).
 async function pageFetch(page: Page, message: Fetch): Promise<Record<string, unknown>> {
     const options = {
         method: message.method,
         headers: message.headers,
         body: message.body,
-        credentials: "include" as const,
+        credentials: "same-origin" as const,
         redirect: "follow" as const,
         cache: "no-store" as const,
     };
