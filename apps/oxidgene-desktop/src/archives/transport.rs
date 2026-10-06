@@ -24,7 +24,9 @@ use std::time::{Duration, Instant};
 
 use futures_channel::oneshot;
 use oxidgene_archives::platform::BoxFuture;
-use oxidgene_archives::transport::{Guard, PageAnswer, TIMEOUT, anti_bot, page_url, request_url};
+use oxidgene_archives::transport::{
+    Guard, PageAnswer, TIMEOUT, anti_bot, check_scheme, page_url, request_url,
+};
 use oxidgene_archives::{
     ArchiveTarget, FetchError, PortalEndpoint, PortalFetch, PortalRequest, PortalTransport,
 };
@@ -600,6 +602,8 @@ impl PortalTransport for WindowTransport {
         endpoint: &'a PortalEndpoint,
     ) -> BoxFuture<'a, Result<Box<dyn PortalFetch + 'a>, FetchError>> {
         Box::pin(async move {
+            // Plain `http` only where the catalogue names the exception.
+            check_scheme(endpoint)?;
             self.show_portal(endpoint).await?;
             Ok(Box::new(WindowFetch {
                 transport: self,
@@ -1044,6 +1048,7 @@ mod tests {
             other_origins: Vec::new(),
             start: "https://archives.example.org/search".to_owned(),
             access: Access::Browser,
+            insecure_http: false,
         }
     }
 
@@ -1249,6 +1254,20 @@ mod tests {
             load_page(&[page(PageState::Portal, false), blocked], &[]).await;
         assert_eq!(rendered, Err(FetchError::Challenged));
         assert_eq!((loads, fetches), (2, 0));
+    }
+
+    #[tokio::test]
+    async fn a_plain_http_portal_opens_only_as_the_catalogue_s_exception() {
+        let shared = Arc::new(Shared::default());
+        let plain = PortalEndpoint {
+            origin: "http://archives.example.org".to_owned(),
+            start: "http://archives.example.org/search".to_owned(),
+            ..endpoint()
+        };
+        let refused = transport(&shared).connect(&plain).await.err();
+        assert_eq!(refused, Some(FetchError::NotAllowed));
+        // Refused before the window loads anything.
+        assert!(shared.drain().is_empty());
     }
 
     #[tokio::test]

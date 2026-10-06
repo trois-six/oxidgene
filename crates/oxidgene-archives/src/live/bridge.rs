@@ -29,7 +29,8 @@ use serde_json::{Value, json};
 
 use crate::platform::{BoxFuture, PortalEndpoint};
 use crate::transport::{
-    FetchError, PageAnswer, PortalFetch, PortalRequest, PortalTransport, page_url, request_url,
+    FetchError, PageAnswer, PortalFetch, PortalRequest, PortalTransport, check_scheme, page_url,
+    request_url,
 };
 
 /// The page process at the other end of two byte streams.
@@ -89,6 +90,7 @@ impl<R: BufRead + Send, W: Write + Send> PortalTransport for BridgeTransport<R, 
         endpoint: &'a PortalEndpoint,
     ) -> BoxFuture<'a, Result<Box<dyn PortalFetch + 'a>, FetchError>> {
         Box::pin(async move {
+            check_scheme(endpoint)?;
             let answer = self.exchange(&json!({
                 "kind": "connect",
                 "start": endpoint.start,
@@ -176,6 +178,7 @@ mod tests {
             other_origins: Vec::new(),
             start: "https://archives.example.org/search".to_owned(),
             access: Access::Browser,
+            insecure_http: false,
         }
     }
 
@@ -223,6 +226,33 @@ mod tests {
         assert_eq!(sent[1]["method"], "GET");
         assert_eq!(sent[1]["body"], Value::Null);
         assert_eq!(sent.len(), 5);
+    }
+
+    #[test]
+    fn opens_plain_http_only_for_a_marked_endpoint() {
+        let plain = PortalEndpoint {
+            origin: "http://archives.example.org".to_owned(),
+            start: "http://archives.example.org/search".to_owned(),
+            ..endpoint()
+        };
+        let refused = transport("{\"kind\":\"connected\"}\n");
+        assert_eq!(
+            block_on(refused.connect(&plain)).err(),
+            Some(FetchError::NotAllowed)
+        );
+        // Nothing reached the page.
+        assert!(sent(refused).is_empty());
+
+        let marked = PortalEndpoint {
+            insecure_http: true,
+            ..plain
+        };
+        let transport = transport("{\"kind\":\"connected\"}\n");
+        assert!(block_on(transport.connect(&marked)).is_ok());
+        assert_eq!(
+            sent(transport)[0]["start"],
+            "http://archives.example.org/search"
+        );
     }
 
     #[test]

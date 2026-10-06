@@ -282,6 +282,7 @@ pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
         "archives32" => Some(&crate::platform::Archives32),
         "arkotheque" => Some(&crate::platform::Arkotheque),
         "bach" => Some(&crate::platform::Bach),
+        "caomec2" => Some(&crate::platform::Caomec2),
         "gaia" => Some(&crate::platform::Gaia),
         "ligeo" => Some(&crate::platform::Ligeo),
         "mnesys" => Some(&crate::platform::Mnesys),

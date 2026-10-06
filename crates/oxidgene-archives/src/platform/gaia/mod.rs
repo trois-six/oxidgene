@@ -257,6 +257,7 @@ impl Platform for Gaia {
             other_origins: Vec::new(),
             origin: settings.origin,
             access: settings.transport,
+            insecure_http: false,
         })
     }
 

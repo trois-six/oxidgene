@@ -377,6 +377,7 @@ fn collection(portal: serde_json::Value, acts: &[&str]) -> Collection {
         period: None,
         platform: "archives32".to_owned(),
         portal,
+        insecure_http: false,
     }
 }
 

@@ -1,0 +1,48 @@
+{
+  "id": "fr-anom",
+  "country": "FR",
+  "level": "national",
+  "name": "Archives nationales d'outre-mer",
+  "jurisdiction": ["973", "974", "976"],
+  "areas": ["outre-mer"],
+  "aliases": ["CAOM", "Centre des archives d'outre-mer"],
+  "citation_codes": ["ANOM", "ANOM973", "ANOM974", "ANOM976"],
+  "website": "https://www.archivesnationales.culture.gouv.fr/anom/fr/",
+  "collections": [
+    {
+      "id": "guyane",
+      "acts": ["B", "M", "S", "N", "D"],
+      "period": [1717, null],
+      "platform": "caomec2",
+      "insecure_http": true,
+      "portal": {
+        "origin": "http://anom.archivesnationales.culture.gouv.fr",
+        "territory": "GUYANE",
+        "code": "ANOM973"
+      }
+    },
+    {
+      "id": "reunion",
+      "acts": ["B", "M", "S", "N", "D"],
+      "platform": "caomec2",
+      "insecure_http": true,
+      "portal": {
+        "origin": "http://anom.archivesnationales.culture.gouv.fr",
+        "territory": "REUNION",
+        "code": "ANOM974"
+      }
+    },
+    {
+      "id": "mayotte",
+      "acts": ["N", "M", "D"],
+      "period": [1844, 1906],
+      "platform": "caomec2",
+      "insecure_http": true,
+      "portal": {
+        "origin": "http://anom.archivesnationales.culture.gouv.fr",
+        "territory": "MAYOTTE",
+        "code": "ANOM976"
+      }
+    }
+  ]
+}

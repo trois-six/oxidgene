@@ -443,6 +443,7 @@ fn collection(portal: serde_json::Value, acts: &[&str]) -> Collection {
         period: None,
         platform: "visualys".to_owned(),
         portal,
+        insecure_http: false,
     }
 }
 

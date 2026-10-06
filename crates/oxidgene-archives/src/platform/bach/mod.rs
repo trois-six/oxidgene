@@ -63,6 +63,7 @@ impl Platform for Bach {
             },
             origin: settings.origin,
             access: settings.transport,
+            insecure_http: false,
         })
     }
 

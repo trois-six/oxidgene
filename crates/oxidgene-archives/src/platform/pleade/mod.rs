@@ -438,6 +438,7 @@ impl Platform for Pleade {
             origin: settings.origin,
             other_origins: Vec::new(),
             access: settings.transport,
+            insecure_http: false,
         })
     }
 

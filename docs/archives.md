@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T19:06:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:10:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -171,6 +171,7 @@ one or more collections, each resolved on its own:
 | `period` | Optional `[first year, last year]` the collection covers; either bound may be `null`. |
 | `platform` | The adapter that searches it. |
 | `portal` | The adapter's settings for this collection (§4.3, §4.4, §4.5). |
+| `insecure_http` | `true` for a portal that answers over plain `http` only: refused for an archive the exceptions below do not name, and on a portal whose origins are all `https`. Default `false`. |
 
 The series codes, each a kind of document a collection may hold:
 
@@ -196,6 +197,18 @@ Republican-calendar or 1792–1793 register, which may sit in either
 collection, is found by the order alone. Where one engine serves every
 register, as on the Loire-Atlantique portal, the archive has a single
 collection with every act kind and no period.
+
+**Plain `http`.** Every portal origin is `https`, which each adapter's
+settings require, but for the archives this list names, with why; the
+catalogue refuses `insecure_http` for any other (`PLAIN_HTTP_ARCHIVES` in
+`catalog.rs` holds the same list):
+
+| Archive | Why plain `http` |
+|---|---|
+| `fr-anom`, Archives nationales d'outre-mer | Its `https` port offers TLS 1.0 alone, with a self-signed certificate of another host that expired in 2019 (2026-10-06), which no client accepts. The portal is reached only for public registers' listings, and a request names nothing but a territory, a commune and a year (§4.15). |
+
+A collection marked `insecure_http` gives its endpoint the mark (§4.2), and
+the transports reach plain `http` for that endpoint alone.
 
 `display: "iiif"` is set only for an archive whose terms allow reuse with
 attribution and whose images load across origins; the decision is recorded
@@ -238,6 +251,7 @@ crates/oxidgene-archives/
       archinoe/     Archinoë (EidoPolis): `registre`, `seriel` and `ead` searches (§4.6)
       archives32/   The Gers portal's modules (§4.13)
       bach/         Bach (Anaphore): classification scheme, finding-aid trees, viewer (§4.11)
+      caomec2/      The Archives nationales d'outre-mer's civil-status search (§4.15)
       gaia/         GAIA 9, the `/mdr/` search wizard (§4.8)
       ligeo/        Ligeo Diffusion (Boscop): settings, results, locality cells (§4.5)
       mnesys/       Mnesys Expo (Naoned) (§4.4)
@@ -346,6 +360,8 @@ pub struct PortalEndpoint {
     pub other_origins: Vec<String>,
     pub start: String,
     pub access: Access, // `any`, `browser` or `page`: the settings' `transport`
+    /// The collection's `insecure_http` (§3.1): plain `http` origins allowed.
+    pub insecure_http: bool,
 }
 
 pub struct PortalRequest {
@@ -397,7 +413,11 @@ API on a second origin that admits the portal's origin only and wants a
 public key in a header. An adapter declares such an origin in its settings,
 and `endpoint` lists it in `other_origins`; a request addressed anywhere
 else, carrying any other header, or with a body on a `GET` is refused before
-it is sent. `FetchError` tells a timeout, a network failure (a closed window
+it is sent. Every transport — the native one, the desktop window and the
+live checks' bridge — refuses an endpoint whose origins or start page are
+not `https` before anything leaves (`transport::check_scheme`), unless the
+endpoint carries the catalogue's `insecure_http` mark (§3.1), which admits
+plain `http` for that endpoint only. `FetchError` tells a timeout, a network failure (a closed window
 included), an error status, an oversized body, a request or redirect leaving
 the endpoint's origins, and a refused header, body or kind of request apart.
 
@@ -409,9 +429,9 @@ adapter cannot search, naming the series code: Arkothèque, Mnesys, Ligeo,
 GAIA, THOT, Pleade's `tree` mode, Bach, Visualys's `search` mode, the Gers
 portal and the older Mnesys interface search series collections (§4.3,
 §4.4, §4.5, §4.8, §4.9, §4.10, §4.11, §4.12, §4.13, §4.14); Archinoë,
-Prismia Vision, Pleade's `form` mode and Visualys's `localities` mode, whose
-observed searches serve acts and tables only, refuse them until a portal's
-series search has been observed.
+Prismia Vision, Pleade's `form` mode, Visualys's `localities` mode and
+CAOMEC2 (§4.15), whose observed searches serve acts and tables only, refuse
+them until a portal's series search has been observed.
 
 **Two transports.** Some portals answer any HTTP client; others sit behind a
 JavaScript anti-bot challenge that only a browser passes (the Sarthe portal
@@ -1774,6 +1794,76 @@ query actions: the search runs only on a reader's click, one per lookup
 another site, the live check's browser included: its step 4 ends
 `challenged`, unverified (§9.1), while steps 1 to 3 run on the search host.
 
+### 4.15 Archives nationales d'outre-mer (CAOMEC2)
+
+Observed on the civil-status search of the Archives nationales d'outre-mer
+(`anom.archivesnationales.culture.gouv.fr/caomec2/`, 2026-10-05 and
+2026-10-06), an XHTML application in ISO-8859-1 beside an OpenSeadragon
+viewer (`/osdanom/`) of Deep Zoom images, which serves the registers the
+colonies sent to the *Dépôt des papiers publics des colonies* — for
+Guyane, La Réunion and Mayotte the civil status OxidGene reaches there
+rather than through a local service (§11.3). It answers over plain `http`
+only, the catalogue's one named exception (§3.1), with no cookie, no
+anti-bot measure and no `robots.txt` (a `404`). One search serves every
+territory, its value a parameter (`territoire=GUYANE`, `REUNION`,
+`MAYOTTE`): one collection per territory. A row is a register of one
+commune's year, of one kind of act or of all of them (`Tous actes`); it
+has no call number and no image count, and its viewer
+(`osd.php?territoire=&commune=&annee=&typeacte=`) has no address per view:
+it ignores every parameter naming one. The images are not IIIF: the
+archive is `display: "portal"`. The `portal` settings are:
+
+| Setting | Content |
+|---|---|
+| `origin`, `transport` | The portal and its access, `any`. Its `http` origin needs the collection's `insecure_http` (§3.1). |
+| `territory` | The search's value of the collection's territory, in capitals. |
+| `code` | The archive's citation code naming this territory alone (`ANOM973`), if any: a citation with another territory's code does not search this collection. |
+
+A collection holds acts only (`B`, `M`, `S`, `N`, `D`): the search's tables
+and its other kinds (manumissions, recognitions, judgements, stillbirths)
+are not cited as registers.
+
+Resolution:
+
+1. A citation whose code names another territory than the collection's is
+   not searched: the collection answers its offline `Results`, which a
+   search of another collection outranks (§5.2).
+2. `GET /caomec2/recherche.php?territoire=<T>`: the territory's form, whose
+   commune list (`select[name=commune]`) writes communes in capitals without
+   accents, a hospital or a penitentiary beside its commune
+   (`EXAMPLEVILLE (HOPITAL)`). The cited locality is the label equal to it,
+   case, accents and punctuation aside, its article in front or behind
+   (§4.3); none gives `Results` with no match on the form.
+3. `GET /caomec2/resultats.php?territoire=<T>&commune=<label>&annee=<year>`
+   with every other field of the form empty, every kind at once: the count
+   (`strong#results-nb`; `p.nores` for none) and the rows of the first page,
+   twenty at most, each with its commune, year and kind (`td.commune`,
+   `td.annee`, `td.acte`). A page without the count is drift.
+4. Each row holding a cited act is a candidate: `Tous actes` holds every
+   one, `Naissance` births and baptisms, `Mariage` marriages, `Décès`
+   deaths and burials — read letter by letter, since the transports decode
+   the page as UTF-8 and its accents are lost —, any other kind none. One is
+   selected as for Arkothèque (§4.3, step 3), the year its period, and a row
+   of another kind is never the cited register.
+5. The target is `View` with no views, no view count and no call number,
+   on the row's viewer (its address rebuilt from the row, the commune
+   percent-encoded): the register's first view, with the view to go to
+   (§6.1). None, or several, give `Results` on the search's page.
+
+`results_url` is the search's page for the commune as the portal writes
+it (`SAINT-ETIENNE-D'EXEMPLE`), whose search ignores case, or the
+territory's form without a locality; the window's start page is the
+territory's form. Requests: 2.
+
+**Collections.** Guyane (from 1717), La Réunion and Mayotte (1844–1906),
+births, marriages and deaths, the parish registers' baptisms and burials
+among them. Not covered: the decennial and annual tables, whose rows the
+survey did not date, and the territories outside the three departments,
+which the search serves too.
+
+**Etiquette.** The live check reads the chosen register's viewer once to
+count its views (§9.1); the resolution never requests it.
+
 ## 5. Contract
 
 ### 5.1 Citation recognition
@@ -2453,6 +2543,10 @@ Archive portals are public services whose terms OxidGene follows:
   block, an error status, a timeout or a network failure. They stay on the endpoint's origins (§4.2): a path is
   refused unless it is absolute on the portal's origin, an absolute address
   unless its origin is declared, and a redirect elsewhere fails the request.
+- Requests travel over `https`. The one portal reached over plain `http`,
+  the catalogue's named exception (§3.1), is sent nothing but a territory,
+  a commune and a year, and answers public registers' listings; nothing a
+  reader keeps passes through it.
 - Resolved targets are cached in memory for the session, by the resolver:
   each `View`, and each `Results` of a search that ran, keyed by the citation
   parts, up to 256 entries before the cache starts afresh. Errors and offline
@@ -2498,8 +2592,10 @@ Archive portals are public services whose terms OxidGene follows:
   second page of a populated locality, a keyed value read from the engine's
   lists, the IIIF images of a `display: "iiif"` archive, and a portal read
   by its pages (rendered rows, the no-match notice, an anti-bot page, the
-  settings it refuses); for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell; for THOT, the session and cookie check, a label written with its article behind or its department, the two copies of a register told apart by call number, a table set aside for an act, a restricted register, a second page, a census searched by an interval of years, a military volume chosen by matricule, Corsica's checkboxes and register-level target opened without the viewer, a refused or expired session and a slide file without ARKs; for Pleade, a form search with its hidden inputs, a commune and its former namesake, a second page, tables, the registers told apart by their manifests' counts, a finding aid walked to the cited copy, a collection dated by its component, a military volume chosen by office, class and matricule, and a component without a viewer link; for Bach, entries named by their title or their link after a common title, a locality written in capitals or with its article behind it, an office naming its place, periods from dates, titles and ancestors (months, Republican years), tables told from the acts they index, an aid whose title says what its registers hold, publications of banns apart from marriages, a call number that only breaks a tie and one that rules a register out, a military register chosen by bureau, class and number before its index, a register without one viewer link, image names from the viewer's list or a link's range, an anti-bot page reported apart from drift, and a viewer link off the settings' viewer.
-- Transport tests check the declared origins, the header allow-list and the
+  settings it refuses); for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell; for THOT, the session and cookie check, a label written with its article behind or its department, the two copies of a register told apart by call number, a table set aside for an act, a restricted register, a second page, a census searched by an interval of years, a military volume chosen by matricule, Corsica's checkboxes and register-level target opened without the viewer, a refused or expired session and a slide file without ARKs; for Pleade, a form search with its hidden inputs, a commune and its former namesake, a second page, tables, the registers told apart by their manifests' counts, a finding aid walked to the cited copy, a collection dated by its component, a military volume chosen by office, class and matricule, and a component without a viewer link; for Bach, entries named by their title or their link after a common title, a locality written in capitals or with its article behind it, an office naming its place, periods from dates, titles and ancestors (months, Republican years), tables told from the acts they index, an aid whose title says what its registers hold, publications of banns apart from marriages, a call number that only breaks a tie and one that rules a register out, a military register chosen by bureau, class and number before its index, a register without one viewer link, image names from the viewer's list or a link's range, an anti-bot page reported apart from drift, and a viewer link off the settings' viewer. For CAOMEC2, the commune as the form lists it (an apostrophe, an article), the kinds of a year told apart by their labels with their accents lost to the decoding, a baptism filed as a birth, a combined register none of a year's holds, a territory's code leaving the other territories unsearched, and the endpoint reached over plain `http` as the catalogue's exception.
+- Transport tests check the declared origins, the header allow-list, plain
+  `http` refused but for an endpoint marked `insecure_http` (native, bridge
+  and desktop window alike), the
   native cookie jar, a portal read by its pages sent no request and a
   transport that loads no page refusing one; the desktop's, that a window's answers reach only their
   own request and only from the archive's origin, the waiting for the
@@ -2641,6 +2737,7 @@ What each platform's probe reads, and where its viewer shows the view:
 | Bach | The classification scheme's entries of the collection, or the finding aid's nodes at its level, an office cited by its place (`Exampleville` for `Bureau de recrutement d'Exampleville`); a series of one office has none. The discovery reads the locality's aid; since aids list registers without images too, it opens the first registers a citation would name, call numbers first, at most three, until one links to its images, which the viewer's list or the link's range counts. | `#currentpage input[type="number"]`, count `#currentpage` (`/ 71`); the viewer's image requests are aborted. |
 | GAIA | The search's first list (`…/R/0/0`): its first locality written in full, read as step 1 of §4.8 reads a label; without `localities`, the list holds every first label of `types`. The discovery runs the wizard without a year, a list left answered by its first choice (a search through every choice fails on the server for the Aude censuses); the chosen register's viewer page counts the views (one `docs` object each). | `#pagination input[type=text]` (`Page 1 de total`), on view 1 since the viewer has no address per view; its image requests are aborted. |
 | Visualys | The visitor's entry, then `localities`: the list of the initial `A`, its first locality listed without a parish; `search`: the form, offering the settings' kind, its first office. The search lists lots, counted for the registers; the target, the site's entry, has no view. | The licence (`#btnAccepter`), accepted, then the search page behind it (`div.Abecedaire`, `form#frmRecherche`); its images aborted. |
+| CAOMEC2 | The territory's form: its commune list, act type and year fields; its first commune that is no hospital. The search counts no images: the chosen register's viewer does (one `div#thn<i>` each). | `input#iddoc`, count the last thumbnail's number (`#imgstrip .thn:last-child .thn_id`), on view 1 since the viewer has no address per view; the images aborted. |
 | Gers portal | The module's form: the locality list's and former communes' fields, the settings' checkboxes; its first locality. The results count the images. | `select#fichier option[selected]` (`k / total`), the image aborted. |
 | Older Mnesys | The guided search's form: the settings' fields, kinds and title-matching companions; the place index is behind a script `robots.txt` disallows, so the locality is the first place a hit names in a search of the collection's first kind at the last year of its period, without a locality (none for the military registers). Registers are not counted (above). | `#inputvue_actuelle`, count `#total`, on the viewer host; the images aborted. |
 | Pleade | `form`: the form's locality list (its current communes, as citations name them), kinds and year input. `tree`: the aid's table of contents down its first branch of the collection's first kind to the localities' depth; the first registers' components give their ARKs and dates. The chosen register's manifest counts its images. | Mirador 3, `.mirador-canvas-nav input[type="number"]`, count `.mirador-canvas-nav label` (`/ 269`); Mirador 2, `li.highlight .thumb-label`, count `.canvas-count`; the images aborted. |
@@ -2839,7 +2936,7 @@ opened and its platform confirmed from the portal itself (§11.4).
 | Mnesys Expo | Naoned (Nantes) | 18 confirmed portals: 14, 19, 25, 26, 27, 37, 39, 51, 55, 58, 59, 68, 69, 73 (older interface, §4.14), 80, 90, 91, 972. Mnesys customers whose portal runs another platform: 18, 34, 93 | Strong (`/search/form/<uuid>` entry points, Mnesys Expo logos, case studies)[^naoned-references] |
 | Ligeo Diffusion | Boscop (Angers) | 29 confirmed portals: 01, 02, 05, 06, 07, 12, 13, 16, 29, 31, 33, 34, 41, 42, 48, 56, 57, 63, 67, 70, 74, 76, 79, 86, 88, 89, 92, 93, 95 | Strong (URL pattern of the civil-status page, or announcement)[^ligeo-references] |
 | Archinoë / Prismia Vision | EidoPolis (Laval) | 17, 21, 47, 60, 62; a viewer for 49; former pages for 07 | URL pattern, legal notice (21)[^ad21-legal], announcement (47)[^ad47-portal] |
-| Archives nationales d'outre-mer | National service | 973, 974, 976 | `caomec2` civil-status search[^anom-civil-status] |
+| Archives nationales d'outre-mer (CAOMEC2) | National service | 973, 974, 976 | Observed (§4.15): the `caomec2` civil-status search[^anom-civil-status] |
 | GAIA 9 | Unidentified vendor (the Ariège instance is hosted by Oxyd) | 09, 11, 61, 66, 77; a legacy site for 38 | Observed (§4.8): the pages are titled `GAIA 9 : moteur de recherche - <version>` |
 | THOT | Vendor not named (`sicem`, `Cindoc` in the markup) | 2A/2B, 35 | Observed (§4.9)[^thot-portals] |
 | Pleade | AJLSM | 53, 64 | Observed (§4.10)[^pleade-portals] |
@@ -2969,10 +3066,14 @@ Cases the catalogue model must express:
   d'outre-mer[^anom-civil-status] rather than through the local service: one
   national-level entry whose search takes the territory as a parameter
   (`territoire=GUYANE`, `REUNION`, `MAYOTTE`), carrying the territories'
-  citation codes. Not catalogued: the portal answers over plain `http` only
-  — its `https` port offers TLS 1.0 alone, with a self-signed certificate
-  for another host that expired in 2019 (2026-10-06) —, which the catalogue
-  refuses (`origin` must be `https`).
+  citation codes: `ANOM`, and `ANOM973`, `ANOM974`, `ANOM976` naming one
+  territory. Genealogists also name it by its former name, the *Centre des
+  archives d'outre-mer* (`CAOM`), an alias. Its portal answers over plain
+  `http` only — its `https` port offers TLS 1.0 alone, with a self-signed
+  certificate for another host that expired in 2019 (2026-10-06) —: the
+  archive is the catalogue's one named exception to `https` (§3.1). The
+  territories' own services keep their codes (`AD974`): a citation of their
+  copies is not one of the national copy.
 
 ### 11.4 Cataloguing order
 
@@ -2995,8 +3096,8 @@ Cases the catalogue model must express:
 4. Catalogue the Arkothèque and Mnesys Expo archives first, then Ligeo, then
    Archinoë / Prismia Vision, then GAIA and Bach, then the engines of a
    single archive (Visualys, the Gers portal, the older Mnesys interface).
-   The Archives nationales d'outre-mer (973, 974, 976) wait for a portal
-   reachable over `https` (§11.3).
+   The Archives nationales d'outre-mer (973, 974, 976) are catalogued over
+   plain `http`, as a named exception (§3.1, §11.3).
 
 ### 11.5 Survey by department
 
@@ -3109,9 +3210,9 @@ only, and *unconfirmed* means no evidence was found.
 | 95 | Val-d'Oise | `archives.valdoise.fr` | [`archives.valdoise.fr/archive/recherche/EtatCivilNumerise/n:419`](https://archives.valdoise.fr/archive/recherche/EtatCivilNumerise/n:419) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish registers, civil status, censuses |
 | 971 | Guadeloupe | `www.archivesguadeloupe.fr` | [`earchives.archivesguadeloupe.fr/document/FRAD971_1E`](https://earchives.archivesguadeloupe.fr/document/FRAD971_1E) | Bach; listed by Ligeo | Observed (§4.11): civil status (`1 E`, the courts' copies) with tables and annual indexes, military registers (`1 R`); live-checked 2026-10-06; `4 F` and the registration series (`3 Q`) show no images |
 | 972 | Martinique (Archives territoriales) | `www.patrimoines-martinique.org` | [`www.patrimoines-martinique.org/search/form/8ea80f22-2f9c-456b-94a0-adbd50d31e1c`](https://www.patrimoines-martinique.org/search/form/8ea80f22-2f9c-456b-94a0-adbd50d31e1c) | Mnesys Expo | Naoned case study; URL pattern; catalogued (§4.4): registers, military registers; live-checked 2026-10-05 |
-| 973 | Guyane (Archives territoriales) | `ctguyane.fr` | [`anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=GUYANE`](http://anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=GUYANE) | Archives nationales d'outre-mer | Collectivité territoriale research guide; portal |
-| 974 | La Réunion | `departement974.fr` (directory) | [`anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=REUNION`](http://anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=REUNION) | Archives nationales d'outre-mer | Portal |
-| 976 | Mayotte | — | [`anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=MAYOTTE`](http://anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=MAYOTTE) (1844–1906) | Archives nationales d'outre-mer | Portal |
+| 973 | Guyane (Archives territoriales) | `ctguyane.fr` | [`anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=GUYANE`](http://anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=GUYANE) | Archives nationales d'outre-mer | Collectivité territoriale research guide; portal; observed (§4.15), catalogued and live-checked 2026-10-06: births, marriages and deaths of the national copy, over plain `http` (§3.1) |
+| 974 | La Réunion | `departement974.fr` (directory) | [`anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=REUNION`](http://anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=REUNION) | Archives nationales d'outre-mer | Portal; observed (§4.15), catalogued and live-checked 2026-10-06: births, marriages and deaths of the national copy, over plain `http` (§3.1) |
+| 976 | Mayotte | — | [`anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=MAYOTTE`](http://anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=MAYOTTE) (1844–1906) | Archives nationales d'outre-mer | Portal; observed (§4.15), catalogued and live-checked 2026-10-06: births, marriages and deaths of the national copy, over plain `http` (§3.1) |
 
 Corsica has two department codes and one service, so the table has 100 rows
 for 101 departments. *(directory)* marks a domain quoted by a third-party

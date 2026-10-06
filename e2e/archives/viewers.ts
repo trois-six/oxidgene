@@ -48,6 +48,15 @@ export const viewers: Record<string, Viewer> = {
         viewCount: "#currentpage",
         blockImages: true,
     },
+    // CAOMEC2 (the Archives nationales d'outre-mer): the OpenSeadragon
+    // viewer's page input, and its strip of thumbnails, the last numbered
+    // with the count. The viewer has no address per view: the check opens it
+    // on its first view.
+    caomec2: {
+        view: "input#iddoc",
+        viewCount: "#imgstrip .thn:last-child .thn_id",
+        blockImages: true,
+    },
     // GAIA: `Page n de total` in the canvas viewer's page box. The viewer
     // has no address per view: the check opens it on its first view.
     gaia: {

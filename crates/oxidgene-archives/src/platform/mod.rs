@@ -17,6 +17,7 @@ mod archinoe;
 mod archives32;
 mod arkotheque;
 mod bach;
+mod caomec2;
 mod gaia;
 pub(crate) mod iiif;
 mod ligeo;
@@ -41,6 +42,7 @@ pub use archinoe::Archinoe;
 pub use archives32::Archives32;
 pub use arkotheque::Arkotheque;
 pub use bach::Bach;
+pub use caomec2::Caomec2;
 pub use gaia::Gaia;
 pub use ligeo::Ligeo;
 pub use mnesys::Mnesys;
@@ -102,6 +104,11 @@ pub struct PortalEndpoint {
     /// by the adapter.
     pub start: String,
     pub access: Access,
+    /// Whether the portal's origins may be plain `http`: only for a
+    /// collection the catalogue marks `insecure_http`, an exception the
+    /// specification names (Archive Portals §3.1). Every transport refuses
+    /// an `http` origin otherwise.
+    pub insecure_http: bool,
 }
 
 impl PortalEndpoint {
@@ -153,6 +160,7 @@ pub fn builtin() -> Vec<Box<dyn Platform>> {
         Box::new(Archinoe::new()),
         Box::new(Archives32),
         Box::new(Bach),
+        Box::new(Caomec2),
         Box::new(Gaia),
         Box::new(Ligeo),
         Box::new(Mnesys),
@@ -178,9 +186,21 @@ pub(crate) fn refuse_series(platform: &str, collection: &Collection) -> Result<(
 
 /// Whether `text` is an `https` origin: a scheme and a host, no path.
 pub(crate) fn is_https_origin(text: &str) -> bool {
-    text.strip_prefix("https://").is_some_and(|host| {
+    is_origin(text, "https://")
+}
+
+/// Whether `text` is an origin of `scheme`: the scheme and a host, no path.
+fn is_origin(text: &str, scheme: &str) -> bool {
+    text.strip_prefix(scheme).is_some_and(|host| {
         !host.is_empty() && !host.contains(['/', '?', '#', ' ']) && !host.ends_with(':')
     })
+}
+
+/// Whether `text` may be a collection's portal origin: an `https` origin,
+/// or a plain `http` one for a collection the catalogue marks
+/// `insecure_http` (Archive Portals §3.1).
+pub(crate) fn is_portal_origin(collection: &Collection, text: &str) -> bool {
+    is_https_origin(text) || (collection.insecure_http && is_origin(text, "http://"))
 }
 
 #[cfg(test)]
@@ -200,6 +220,36 @@ mod tests {
         ] {
             assert!(!is_https_origin(text), "{text}");
         }
+    }
+
+    #[test]
+    fn admits_plain_http_only_for_a_marked_collection() {
+        let mut collection: Collection = serde_json::from_value(serde_json::json!({
+            "id": "registers",
+            "acts": ["N"],
+            "platform": "caomec2",
+            "portal": {}
+        }))
+        .unwrap();
+        assert!(is_portal_origin(
+            &collection,
+            "https://archives.example.org"
+        ));
+        assert!(!is_portal_origin(
+            &collection,
+            "http://archives.example.org"
+        ));
+        collection.insecure_http = true;
+        assert!(is_portal_origin(&collection, "http://archives.example.org"));
+        assert!(is_portal_origin(
+            &collection,
+            "https://archives.example.org"
+        ));
+        assert!(!is_portal_origin(
+            &collection,
+            "http://archives.example.org/path"
+        ));
+        assert!(!is_portal_origin(&collection, "ftp://archives.example.org"));
     }
 
     #[test]

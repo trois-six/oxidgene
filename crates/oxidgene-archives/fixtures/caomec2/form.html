@@ -1,0 +1,45 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr" lang="fr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1" />
+<title>ANOM - Etat civil</title>
+<link rel="stylesheet" href="sdx.css" type="text/css" />
+</head>
+<body id="accueil">
+<form action="resultats.php">
+<table class="rechercheBDI" id="formSimple">
+<tr><td>Territoire</td><td>
+<select name="territoire">
+  <option value="">&#160;</option>
+  <option value="EXEMPLE">Exemple</option>
+  <option value="AUTRE EXEMPLE">Autre exemple</option>
+</select>
+</td></tr>
+<tr><td>Commune</td><td>
+<select name="commune">
+  <option value="">&#160;</option>
+  <option value="EXAMPLEVILLE">EXAMPLEVILLE</option>
+  <option value="EXAMPLEVILLE (HOPITAL)">EXAMPLEVILLE (HOPITAL)</option>
+  <option value="L&#039;EXEMPLE-SUR-MER">L&#039;EXEMPLE-SUR-MER</option>
+  <option value="LE BOURG-EXEMPLE">LE BOURG-EXEMPLE</option>
+  <option value="SAINT-EXEMPLE">SAINT-EXEMPLE</option>
+</select>
+</td></tr>
+<tr><td>Type d'acte</td><td>
+<select tabindex="100" name="typeacte">
+  <option value="">&#160;</option>
+  <option value="AC_NA">Naissance</option>
+  <option value="AC_AF">Affranchissement</option>
+  <option value="AC_MA">Mariage</option>
+  <option value="AC_DE">D&eacute;c&egrave;s</option>
+  <option value="AC_SV">Sans vie</option>
+  <option value="TD_TS">Table d&eacute;cennale tous actes</option>
+</select>
+</td></tr>
+<tr><td>Ann&eacute;e</td><td>
+<input tabindex="100" name="annee" value="" size="5" class="annee" type="text" />
+</td></tr>
+</table>
+</form>
+</body>
+</html>

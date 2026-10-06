@@ -158,7 +158,8 @@ pub enum FetchError {
     NotSameOrigin,
     /// The request carries a header outside [`ALLOWED_HEADERS`], or a body
     /// on a `GET`; a script's request to a portal that admits page loads
-    /// only; or a page load through a transport that loads no page.
+    /// only; a page load through a transport that loads no page; or plain
+    /// `http` to a portal the catalogue does not mark `insecure_http`.
     NotAllowed,
 }
 
@@ -196,6 +197,23 @@ fn is_clean(text: &str) -> bool {
     !text.contains(['\\', '#']) && !text.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
+/// Whether a transport may reach the endpoint at all: every origin, and the
+/// start page, on `https`, or on plain `http` for an endpoint whose
+/// collection the catalogue marks `insecure_http` (Archive Portals §3.1).
+/// The native transport, the desktop window and the live checks' bridge
+/// refuse anything else before a request leaves.
+pub fn check_scheme(endpoint: &PortalEndpoint) -> Result<(), FetchError> {
+    let allowed = |address: &str| {
+        address.starts_with("https://")
+            || (endpoint.insecure_http && address.starts_with("http://"))
+    };
+    if endpoint.origins().all(allowed) && allowed(&endpoint.start) {
+        Ok(())
+    } else {
+        Err(FetchError::NotAllowed)
+    }
+}
+
 /// The absolute address a request goes to on `endpoint`, once checked: a path
 /// on the portal's origin or an address on a declared origin, allow-listed
 /// headers without line breaks, and a body only on a `POST`. A portal that
@@ -205,6 +223,7 @@ pub fn request_url(
     endpoint: &PortalEndpoint,
     request: &PortalRequest,
 ) -> Result<String, FetchError> {
+    check_scheme(endpoint)?;
     if endpoint.access == Access::Page {
         return Err(FetchError::NotAllowed);
     }
@@ -240,6 +259,7 @@ pub fn page_url(
     path_and_query: &str,
     ready: &str,
 ) -> Result<String, FetchError> {
+    check_scheme(endpoint)?;
     if ready.trim().is_empty() {
         return Err(FetchError::NotAllowed);
     }
@@ -343,7 +363,8 @@ mod native {
 
     use super::{
         BoxFuture, FetchError, MAX_BODY_BYTES, Method, PortalEndpoint, PortalFetch, PortalRequest,
-        PortalTransport, TIMEOUT, USER_AGENT, origin_of, redirect_url, refusal, request_url,
+        PortalTransport, TIMEOUT, USER_AGENT, check_scheme, origin_of, redirect_url, refusal,
+        request_url,
     };
 
     /// The most redirects followed, all within the endpoint's origins.
@@ -386,6 +407,9 @@ mod native {
             &'a self,
             endpoint: &'a PortalEndpoint,
         ) -> BoxFuture<'a, Result<Box<dyn PortalFetch + 'a>, FetchError>> {
+            if let Err(error) = check_scheme(endpoint) {
+                return Box::pin(async move { Err(error) });
+            }
             let fetch = NativeFetch {
                 client: self.client.clone(),
                 endpoint: endpoint.clone(),
@@ -590,6 +614,7 @@ mod tests {
             other_origins: vec!["https://api.example.org".to_owned()],
             start: "https://archives.example.org/search".to_owned(),
             access: Access::Any,
+            insecure_http: false,
         }
     }
 
@@ -648,6 +673,41 @@ mod tests {
                 "{url}"
             );
         }
+    }
+
+    #[test]
+    fn reaches_plain_http_only_for_a_marked_endpoint() {
+        let plain = PortalEndpoint {
+            origin: "http://archives.example.org".to_owned(),
+            other_origins: Vec::new(),
+            start: "http://archives.example.org/search".to_owned(),
+            ..endpoint()
+        };
+        assert_eq!(check_scheme(&plain), Err(FetchError::NotAllowed));
+        assert_eq!(
+            request_url(&plain, &PortalRequest::get("/search?q=1")),
+            Err(FetchError::NotAllowed)
+        );
+        assert_eq!(
+            page_url(&plain, "/search", "table"),
+            Err(FetchError::NotAllowed)
+        );
+        let marked = PortalEndpoint {
+            insecure_http: true,
+            ..plain
+        };
+        assert_eq!(check_scheme(&marked), Ok(()));
+        assert_eq!(
+            request_url(&marked, &PortalRequest::get("/search?q=1")).as_deref(),
+            Ok("http://archives.example.org/search?q=1")
+        );
+        // A start page on another scheme is refused all the same.
+        let mixed = PortalEndpoint {
+            start: "ftp://archives.example.org/".to_owned(),
+            ..marked
+        };
+        assert_eq!(check_scheme(&mixed), Err(FetchError::NotAllowed));
+        assert_eq!(check_scheme(&endpoint()), Ok(()));
     }
 
     #[test]

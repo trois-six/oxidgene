@@ -413,6 +413,7 @@ impl Platform for Visualys {
             origin: settings.origin,
             other_origins: Vec::new(),
             access: settings.transport,
+            insecure_http: false,
         })
     }
 

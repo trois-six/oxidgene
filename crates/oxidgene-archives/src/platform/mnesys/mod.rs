@@ -750,6 +750,7 @@ impl Platform for Mnesys {
             origin: settings.origin,
             other_origins: Vec::new(),
             access: settings.transport,
+            insecure_http: false,
         })
     }
 

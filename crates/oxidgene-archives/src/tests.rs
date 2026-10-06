@@ -53,6 +53,7 @@ impl Platform for Scripted {
             other_origins: Vec::new(),
             start: format!("https://archives.example.org/{}", collection.id),
             access,
+            insecure_http: false,
         })
     }
 

@@ -103,7 +103,18 @@ pub struct Collection {
     pub platform: String,
     /// The adapter's settings for this collection.
     pub portal: serde_json::Value,
+    /// Whether the portal may be reached over plain `http`: refused unless
+    /// the archive is one of [`PLAIN_HTTP_ARCHIVES`].
+    #[serde(default)]
+    pub insecure_http: bool,
 }
+
+/// The archives whose portals answer over plain `http` only, the exceptions
+/// to the `https` rule that Archive Portals §3.1 lists with their reasons:
+/// the Archives nationales d'outre-mer, whose `https` port offers TLS 1.0
+/// alone with another host's certificate, expired in 2019. A collection
+/// marked `insecure_http` of any other archive is refused.
+pub const PLAIN_HTTP_ARCHIVES: [&str; 1] = ["fr-anom"];
 
 /// `[first year, last year]`; either bound may be `null`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -284,6 +295,8 @@ fn validate(
             )));
         }
         validate_collection(collection, platforms).map_err(|error| error.within(&collection.id))?;
+        validate_scheme(archive, collection, platforms)
+            .map_err(|error| error.within(&collection.id))?;
         if archive.display == Display::Iiif && !admits_any_client(collection, platforms) {
             return Err(CatalogError::new(
                 "an iiif archive's portal must answer any client, since the backend resolves its views",
@@ -292,6 +305,39 @@ fn validate(
         }
     }
     Ok(())
+}
+
+/// Refuses `insecure_http` outside the named exceptions, and on a portal
+/// whose origins are all `https`, which needs no exception.
+fn validate_scheme(
+    archive: &Archive,
+    collection: &Collection,
+    platforms: &[Box<dyn Platform>],
+) -> Result<(), CatalogError> {
+    if !collection.insecure_http {
+        return Ok(());
+    }
+    if !PLAIN_HTTP_ARCHIVES.contains(&archive.id.as_str()) {
+        return Err(CatalogError::new(
+            "insecure_http is allowed only for the archives Archive Portals §3.1 names",
+        ));
+    }
+    let plain = platforms
+        .iter()
+        .find(|platform| platform.id() == collection.platform)
+        .and_then(|platform| platform.endpoint(collection))
+        .is_some_and(|endpoint| {
+            endpoint
+                .origins()
+                .any(|origin| origin.starts_with("http://"))
+        });
+    if plain {
+        Ok(())
+    } else {
+        Err(CatalogError::new(
+            "insecure_http on a portal whose origins are all https",
+        ))
+    }
 }
 
 /// Whether a collection's portal answers any HTTP client, rather than only a
@@ -669,6 +715,25 @@ mod tests {
                 .to_string()
                 .contains("unknown field")
         );
+    }
+
+    #[test]
+    fn admits_plain_http_only_as_a_named_exception() {
+        let error = rejected(|d| d["collections"][0]["insecure_http"] = true.into()).to_string();
+        assert!(error.contains("allowed only for the archives"), "{error}");
+        // A named archive whose portal is on https needs no exception.
+        let error = rejected(|d| {
+            d["id"] = "fr-anom".into();
+            d["collections"][0]["insecure_http"] = true.into();
+        })
+        .to_string();
+        assert!(error.contains("origins are all https"), "{error}");
+        // Without the mark, an adapter refuses an http origin.
+        let error = rejected(|d| {
+            d["collections"][0]["portal"]["origin"] = "http://archives.example.org".into();
+        })
+        .to_string();
+        assert!(error.contains("origin"), "{error}");
     }
 
     #[test]

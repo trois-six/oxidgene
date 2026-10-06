@@ -259,6 +259,7 @@ impl Platform for Prismia {
             other_origins: vec![settings.api_origin()?.to_owned()],
             origin: settings.origin,
             access: settings.transport,
+            insecure_http: false,
         })
     }
 
