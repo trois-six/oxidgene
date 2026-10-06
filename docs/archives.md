@@ -2622,9 +2622,12 @@ transports.
 A portal that sends the browser to another site instead of its own page
 refuses the identified agent as a challenge would: the Archinoë v2 hosts
 (Charente-Maritime, Oise) redirect a `User-Agent` naming OxidGene to a
-search engine, whether a plain client's or the browser's. Their checks end
-`challenged` at once and stay unverified: §8 asks the checks to identify
-themselves, and a check does not hide what it is to pass. A reader's own
+search engine, whether a plain client's or the browser's, and so they do a
+standard browser `User-Agent` followed by the project's address alone
+(checked 2026-10-06): what they refuse is any agent identifying itself.
+Their checks end `challenged` at once, as expected, and stay unverified: §8
+asks the checks to identify themselves, and a check does not hide what it
+is to pass. A reader's own
 browser and the desktop window send the browser's own `User-Agent` and are
 not refused.
 
@@ -2967,7 +2970,7 @@ only, and *unconfirmed* means no evidence was found.
 | 14 | Calvados | `archives.calvados.fr` | [`archives.calvados.fr/search/form/ecf01748-923d-463a-8d80-bd4142582bcd`](https://archives.calvados.fr/search/form/ecf01748-923d-463a-8d80-bd4142582bcd) | Mnesys Expo | Mnesys Expo logo, Naoned case study; catalogued (§4.4): registers, censuses; live-checked 2026-10-05 |
 | 15 | Cantal | `www.archives.cantal.fr` | [`www.archives.cantal.fr/vos-archives/etat-civil/recherche-dans-letat-civil`](https://www.archives.cantal.fr/vos-archives/etat-civil/recherche-dans-letat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
 | 16 | Charente | `lasource.archives.lacharente.fr` | [`lasource.archives.lacharente.fr/archive/resultats/etatcivil/n:115?type=etatcivil`](https://lasource.archives.lacharente.fr/archive/resultats/etatcivil/n:115?type=etatcivil) | Ligeo | Ligeo references; URL pattern; catalogued, searched 2026-10-05: parish and civil registers, censuses, military registers, succession tables |
-| 17 | Charente-Maritime | `archives.charente-maritime.fr` | [`archinoe.com/v2/ad17/registre.html`](https://archinoe.com/v2/ad17/registre.html) | Archinoë | URL pattern; catalogued, searched 2026-10-05 |
+| 17 | Charente-Maritime | `archives.charente-maritime.fr` | [`archinoe.com/v2/ad17/registre.html`](https://archinoe.com/v2/ad17/registre.html) | Archinoë | URL pattern; catalogued, searched 2026-10-05; redirects any agent identifying itself, so its live check ends `challenged` (§9.1) |
 | 18 | Cher | `www.archives18.fr` | [`www.archives18.fr/archives-numerisees/registres-paroissiaux-et-etat-civil`](https://www.archives18.fr/archives-numerisees/registres-paroissiaux-et-etat-civil) | Arkothèque (portal); Naoned customer | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
 | 19 | Corrèze | `www.archives.correze.fr` | [`www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f`](https://www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f) | Mnesys Expo | Mnesys Expo logo; URL pattern; catalogued (§4.4): registers, censuses, military registers; live-checked 2026-10-05 |
 | 2A / 2B | Corse (Archives de la Collectivité de Corse) | `archives.isula.corsica` | [`archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp`](https://archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp) | THOT | Single site since December 2020; observed (§4.9); catalogued 2026-10-06, behind Cloudflare (browser only), registers opened at their first view: registers of acts and tables, censuses; the military registers are a name index, not catalogued |
@@ -3010,7 +3013,7 @@ only, and *unconfirmed* means no evidence was found.
 | 57 | Moselle | `www.archives57.com` | [`www.archives57.com/archives/fonds/FRAD057_605804`](https://www.archives57.com/archives/fonds/FRAD057_605804) | Ligeo | Ligeo references; URL pattern; searched within its finding aid (§4.5); catalogued, searched 2026-10-05: parish and civil registers |
 | 58 | Nièvre | `archives.nievre.fr` | [`archives.nievre.fr/search/form/9430efb3-399f-4de3-a3e7-004e232d8601`](https://archives.nievre.fr/search/form/9430efb3-399f-4de3-a3e7-004e232d8601) | Mnesys Expo | Naoned customer list; URL pattern; catalogued (§4.4): registers, censuses, military registers, succession tables; live-checked 2026-10-05 |
 | 59 | Nord | `archivesdepartementales.lenord.fr` | [`archivesdepartementales.lenord.fr/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8`](https://archivesdepartementales.lenord.fr/search/form/dc4e871d-0b62-41fb-9921-5ded573781b8) | Mnesys Expo | Naoned case study; URL pattern; catalogued (§4.4): registers, decennial tables, censuses, military registers and their tables, succession tables; live-checked 2026-10-05 |
-| 60 | Oise | `archives.oise.fr` | [`ressources.archives.oise.fr/v2/ad60/registre.html`](https://ressources.archives.oise.fr/v2/ad60/registre.html) | Archinoë | URL pattern; catalogued, searched 2026-10-05 |
+| 60 | Oise | `archives.oise.fr` | [`ressources.archives.oise.fr/v2/ad60/registre.html`](https://ressources.archives.oise.fr/v2/ad60/registre.html) | Archinoë | URL pattern; catalogued, searched 2026-10-05; redirects any agent identifying itself, so its live check ends `challenged` (§9.1) |
 | 61 | Orne | `archives.orne.fr` | [`archives.orne.fr/etat-civil`](https://archives.orne.fr/etat-civil), embedding [`gaia.orne.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0`](https://gaia.orne.fr/mdr/index.php/rechercheTheme/requeteConstructor/1/1/R/0/0) | GAIA 9 | Observed and live-checked (§4.8): parish registers, civil status, TD, RP, RM, TSA |
 | 62 | Pas-de-Calais | `www.archivespasdecalais.fr` | [`archivesenligne.pasdecalais.fr/console/ir_seriel.php?id=56&p=formulaire_etat_civil`](https://archivesenligne.pasdecalais.fr/console/ir_seriel.php?id=56&p=formulaire_etat_civil) | Archinoë | 2014 panorama; URL pattern; catalogued, searched 2026-10-05 |
 | 63 | Puy-de-Dôme | `www.archivesdepartementales.puy-de-dome.fr` | [`www.archivesdepartementales.puy-de-dome.fr/archive/recherche/etatcivil/n:13`](https://www.archivesdepartementales.puy-de-dome.fr/archive/recherche/etatcivil/n:13) | Ligeo Diffusion (since 2001) | Ligeo references; archive's own account; catalogued, searched 2026-10-05: parish and civil registers, military registers |
