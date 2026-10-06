@@ -265,6 +265,27 @@ impl PageAnswer {
     }
 }
 
+/// The address a redirect's `Location` names from `current`: an absolute
+/// address as written, an absolute path on `current`'s origin, and a
+/// relative path in `current`'s directory, as a browser resolves it
+/// (`FrmRechListeHaut.asp?RechDoc=1` from `/base/Recherche/FrmRechDOCCritere.asp`).
+pub fn redirect_url(current: &str, location: &str) -> String {
+    let Some(origin) = origin_of(current) else {
+        return location.to_owned();
+    };
+    if location.contains("://") || location.starts_with("//") {
+        location.to_owned()
+    } else if location.starts_with('/') {
+        format!("{origin}{location}")
+    } else {
+        let path = &current[origin.len()..];
+        let path = &path[..path.find(['?', '#']).unwrap_or(path.len())];
+        let directory = &path[..path.rfind('/').map_or(0, |slash| slash + 1)];
+        let directory = if directory.is_empty() { "/" } else { directory };
+        format!("{origin}{directory}{location}")
+    }
+}
+
 /// The `scheme://host[:port]` of an absolute address.
 pub fn origin_of(url: &str) -> Option<&str> {
     let after_scheme = url.find("://")? + 3;
@@ -283,7 +304,7 @@ mod native {
 
     use super::{
         BoxFuture, FetchError, MAX_BODY_BYTES, Method, PortalEndpoint, PortalFetch, PortalRequest,
-        PortalTransport, TIMEOUT, USER_AGENT, origin_of, refusal, request_url,
+        PortalTransport, TIMEOUT, USER_AGENT, origin_of, redirect_url, refusal, request_url,
     };
 
     /// The most redirects followed, all within the endpoint's origins.
@@ -361,10 +382,7 @@ mod native {
                     .get(reqwest::header::LOCATION)
                     .and_then(|value| value.to_str().ok())
                     .ok_or(FetchError::Status(status.as_u16()))?;
-                let next = match origin_of(&hop.url) {
-                    Some(origin) if location.starts_with('/') => format!("{origin}{location}"),
-                    _ => location.to_owned(),
-                };
+                let next = redirect_url(&hop.url, location);
                 hop.url = request_url(&self.endpoint, &PortalRequest::get(next))?;
                 // A 303, and in practice a 301 or 302 after a form, turn the
                 // request into a `GET`; 307 and 308 keep it.
@@ -657,6 +675,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.result(&origins), Ok("x".to_owned()));
+    }
+
+    #[test]
+    fn resolves_a_redirect_as_a_browser_does() {
+        let current = "https://archives.example.org/base/Recherche/Form.asp?MOD=1";
+        for (location, expected) in [
+            (
+                "List.asp?RechDoc=1",
+                "https://archives.example.org/base/Recherche/List.asp?RechDoc=1",
+            ),
+            ("/other?a=1", "https://archives.example.org/other?a=1"),
+            (
+                "https://elsewhere.example.org/x",
+                "https://elsewhere.example.org/x",
+            ),
+            ("//elsewhere.example.org/x", "//elsewhere.example.org/x"),
+        ] {
+            assert_eq!(redirect_url(current, location), expected, "{location}");
+        }
+        assert_eq!(
+            redirect_url("https://archives.example.org", "list.asp"),
+            "https://archives.example.org/list.asp"
+        );
     }
 
     #[test]

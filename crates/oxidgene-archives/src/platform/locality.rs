@@ -6,6 +6,8 @@
 
 use serde::Deserialize;
 
+use super::markup::fold;
+
 /// How a portal writes a locality: the setting `locality_style` of the
 /// adapters that search by locality label.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
@@ -168,6 +170,65 @@ pub(crate) fn forms(locality: &str) -> Vec<String> {
     forms
 }
 
+/// The locality a label of a portal's list names, as a citation writes it.
+///
+/// Thesaurus lists qualify their labels: by a department and a country
+/// (`Exampleville (Exemple, France)`), with a note after a semicolon
+/// (`Exampleville (Exemple, France ; jusqu'à 1919)`), by an office or a part
+/// of a city (`EXAMPLEVILLE (BUREAU DE L'ENREGISTREMENT)`,
+/// `EXAMPLEVILLE (NORD-EST)`), and follow them with a bracketed note
+/// (`[aujourd'hui : …]`); they write a leading article behind the name
+/// (`BOURG (LE)`). The name is the label without its note and qualifier,
+/// its article in front. A hamlet, whose qualifier also names its commune
+/// (`Hameau (Exampleville, Exemple, France ; hameau)`), keeps its whole
+/// label: it is not its commune.
+pub(crate) fn label_name(label: &str) -> String {
+    let mut name = label.trim();
+    if name.ends_with(']')
+        && let Some((before, _)) = name.rsplit_once(" [")
+    {
+        name = before.trim_end();
+    }
+    if let Some(cited) = article_in_front(name, " (", ")") {
+        return cited;
+    }
+    let Some((before, qualifier)) = name
+        .strip_suffix(')')
+        .and_then(|rest| rest.rsplit_once(" ("))
+        .filter(|(before, _)| !before.trim().is_empty())
+    else {
+        return name.to_owned();
+    };
+    let place = qualifier.split(';').next().unwrap_or_default();
+    if place.matches(',').count() >= 2 {
+        return name.to_owned();
+    }
+    let before = before.trim_end();
+    article_in_front(before, " (", ")").unwrap_or_else(|| before.to_owned())
+}
+
+/// The labels of a portal's list that name the cited locality, given in
+/// its `forms`: those written exactly as cited, case, accents and
+/// punctuation aside, or failing any, those whose [`label_name`] is the
+/// cited one (`Exampleville (Exemple, France)` and
+/// `EXAMPLEVILLE (BUREAU DE L'ENREGISTREMENT)` for `Exampleville`).
+pub(crate) fn matching_labels<'l>(labels: &'l [String], forms: &[&str]) -> Vec<&'l str> {
+    let wanted: Vec<String> = forms.iter().map(|form| fold(form)).collect();
+    let exact: Vec<&str> = labels
+        .iter()
+        .filter(|label| wanted.contains(&fold(label)))
+        .map(String::as_str)
+        .collect();
+    if !exact.is_empty() {
+        return exact;
+    }
+    labels
+        .iter()
+        .filter(|label| wanted.contains(&fold(&label_name(label))))
+        .map(String::as_str)
+        .collect()
+}
+
 /// The start of the locality's name, without its article, up to the first
 /// space or apostrophe: what a portal's prefix lookup matches whichever way
 /// the rest is written (`Mas-d'Exemple` and `Mas-d’Exemple` both start with
@@ -305,6 +366,56 @@ mod tests {
             assert_eq!(district.write(cited), portal, "{cited}");
             assert_eq!(district.cited(cited), portal, "{cited}");
         }
+    }
+
+    #[test]
+    fn reads_the_locality_a_thesaurus_label_names() {
+        for (label, name) in [
+            ("Exampleville (Exemple, France)", "Exampleville"),
+            ("EXAMPLEVILLE (EXEMPLE, FRANCE)", "EXAMPLEVILLE"),
+            (
+                "Exampleville (Exemple, France ; jusqu'à 1919) [aujourd'hui : Sampleton (Exemple, France)]",
+                "Exampleville",
+            ),
+            ("EXAMPLEVILLE (BUREAU DE L'ENREGISTREMENT)", "EXAMPLEVILLE"),
+            ("EXAMPLEVILLE (NORD-EST)", "EXAMPLEVILLE"),
+            ("BOURG-EXEMPLE (LE)", "Le BOURG-EXEMPLE"),
+            ("Bourg (Le) (Exemple, France)", "Le Bourg"),
+            ("L-EXEMPLE", "L-EXEMPLE"),
+            ("Exampleville", "Exampleville"),
+            // A hamlet keeps the commune it belongs to.
+            (
+                "HAMEAU (EXAMPLEVILLE, EXEMPLE, FRANCE ; HAMEAU)",
+                "HAMEAU (EXAMPLEVILLE, EXEMPLE, FRANCE ; HAMEAU)",
+            ),
+            (" (Exemple, France)", "(Exemple, France)"),
+        ] {
+            assert_eq!(label_name(label), name, "{label}");
+        }
+    }
+
+    #[test]
+    fn matches_the_labels_naming_a_locality() {
+        let labels: Vec<String> = [
+            "EXAMPLEVILLE",
+            "EXAMPLEVILLE (NORD-EST)",
+            "BOURG-EXEMPLE (LE)",
+            "SAMPLETON (BUREAU DE L'ENREGISTREMENT)",
+            "SAMPLETON (SUBDIVISION MILITAIRE)",
+        ]
+        .map(str::to_owned)
+        .into();
+        // A label written as cited is preferred to a qualified one.
+        assert_eq!(
+            matching_labels(&labels, &["Exampleville"]),
+            ["EXAMPLEVILLE"]
+        );
+        assert_eq!(
+            matching_labels(&labels, &["Le Bourg-Exemple", "Bourg-Exemple (Le)"]),
+            ["BOURG-EXEMPLE (LE)"]
+        );
+        assert_eq!(matching_labels(&labels, &["Sampleton"]).len(), 2);
+        assert!(matching_labels(&labels, &["Elsewhere"]).is_empty());
     }
 
     #[test]

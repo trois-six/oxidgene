@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive, IIIF used behind the scenes to attach cited views as a remote multi-page document that can be cropped, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T07:56:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -26,6 +26,9 @@ sources:
   - id: ligeo-portals
     title: "Ligeo Diffusion departmental portals (search, results, viewer, manifest, terms)"
     url: "https://www.archives.ain.fr/archive/recherche/etatcivil/n:88"
+  - id: thot-portals
+    title: "THOT portals of the Ille-et-Vilaine and Corsica archives"
+    url: "https://archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp"
   - id: iiif-image
     title: "IIIF Image API 2.1"
     url: "https://iiif.io/api/image/2.1/"
@@ -231,6 +234,7 @@ crates/oxidgene-archives/
       ligeo/        Ligeo Diffusion (Boscop): settings, results, locality cells (§4.5)
       mnesys/       Mnesys Expo (Naoned) (§4.4)
       prismia/      Prismia Vision (EidoPolis) (§4.7)
+      thot/         THOT, an ASP portal of search modules (§4.9)
     transport.rs    The request contract, the PortalFetch and PortalTransport
                     traits, and the native implementation
     live/           The live checks (feature `live`, §9.1): steps 1 to 3,
@@ -291,7 +295,8 @@ but names 28[^arkotheque-departmental],
 and **Mnesys**, by Naoned[^naoned]. One adapter per product, configured per
 archive in the catalogue, therefore covers many archives at once. Two more
 products, Ligeo and Archinoë / Prismia Vision, bring three to four adapters
-to about two thirds of the departments ([§11](#11-french-departmental-portals)).
+to about two thirds of the departments ([§11](#11-french-departmental-portals)),
+and THOT serves two archives (Ille-et-Vilaine, Corsica).
 
 ### 4.2 The adapter contract
 
@@ -377,10 +382,10 @@ An adapter issues only the requests it needs to find one register: no list
 download beyond the search it performs, no image request.
 
 `validate` also refuses a collection holding a series (§3.1) that the
-adapter cannot search, naming the series code: Arkothèque, Mnesys, Ligeo and
-GAIA search series collections (§4.3, §4.4, §4.5, §4.8); Archinoë and Prismia Vision,
-whose observed searches serve acts and tables only, refuse them until a
-portal's series search has been observed.
+adapter cannot search, naming the series code: Arkothèque, Mnesys, Ligeo,
+GAIA and THOT search series collections (§4.3, §4.4, §4.5, §4.8, §4.9);
+Archinoë and Prismia Vision, whose observed searches serve acts and tables
+only, refuse them until a portal's series search has been observed.
 
 **Two transports.** Some portals answer any HTTP client; others sit behind a
 JavaScript anti-bot challenge that only a browser passes (the Sarthe portal
@@ -394,7 +399,9 @@ request travels:
 
 The `native` transport sends the identifying `User-Agent` (§8), follows at
 most five redirects itself so that each hop's address is checked against
-the endpoint's origins, and keeps the cookies responses set, by origin, in a
+the endpoint's origins — a relative `Location` resolved in the current
+address's directory, as a browser resolves it (THOT, §4.9) —, and keeps
+the cookies responses set, by origin, in a
 jar that lives as long as the fetcher: one resolution. The jar keeps names
 and values only — within one resolution on a few origins of one portal, the
 domain, path and expiry attributes have nothing to separate — and forgets a
@@ -1045,6 +1052,144 @@ Resolution:
 
 `results_url` is the list of step 1, which a reader can open. Requests: 4
 to 7 without pages or other entries; the viewer is never requested.
+
+### 4.9 THOT
+
+Observed on the Ille-et-Vilaine and Corsica portals (2026-10-05 and
+2026-10-06)[^thot-portals], which run THOT, an ASP portal of framesets
+("THOT Internet"; the vendor is not named). Each family of documents is a
+**module** (`MOD`) of the documentary search — the registers of acts, the
+censuses, the military registers, the tables of successions — whose form of
+numbered criteria (`txt_CIN_CH<k>`) posts back to itself: a locality chosen
+from the form's list, a type of document, years. The portal keeps the
+module and the search in its ASP session, which it opens only for a client
+that passes its cookie check. Each result row is a register with its call
+number and a link to a Zoomify viewer fed by a per-register slide file
+(`slides_<n>.xml`, one `<SLIDE>` per view); the Ille-et-Vilaine portal gives
+each view an ARK there, whose resolver opens the register at that view with
+no session, and the Corsica portal gives none. Neither publishes a IIIF
+service: every archive is `display: "portal"`. The `portal` settings are:
+
+| Setting | Content |
+|---|---|
+| `origin` | Portal origin. |
+| `transport` | `any`, or `browser` behind an anti-bot challenge (Corsica: Cloudflare refuses every client but a browser). |
+| `base` | The portal's path: `/thot_internet`, `/Internet_THOT`. |
+| `module` | The module's number, `MOD`: `10` for the registers of Ille-et-Vilaine, `4` for those of Corsica. |
+| `criteria` | The criteria's numbers: `locality`, the list of localities (or registration offices); `act`, the type of document, omitted where the module has none; `year`, `"dex"` where the form takes a first and a last year (`txt_CIN_DEX_D`, `txt_CIN_DEX_F`), or the number of an interval criterion (`txt_CIN_CH<k>` = `<first>\|<last>`, typed in `intervalleDate1_<k>` and `intervalleDate2_<k>`); omitted where the year criterion does not find a register by a year it holds — the tables of successions, whose interval criterion matches a volume's extreme dates only when both are the year asked —, the years then told apart by the rows' periods. |
+| `acts` | Map from document code to the type criterion's value, a list option (`baptemes`, `REGISTRES MATRICULES`) or a checkbox (`BAPTEMES`, Corsica), printable ASCII since the portal reads its forms as windows-1252. Every kind the collection holds needs one where the module has a type criterion; a combined act (`BMS`) without its own entry is searched by its first kind, publications of banns as marriages. |
+| `views` | `ark` where the slide file gives each view's ARK, `register` where the portal has no address per view. |
+
+The pages are windows-1252, which both transports read as UTF-8: every
+accented letter arrives as U+FFFD. The adapter reads only what is ASCII —
+the form's labels and values, call numbers, periods, the viewer's
+arguments — and reads the act words with U+FFFD as `e`, the accented letter
+of every French act word.
+
+Resolution:
+
+1. `GET <base>/FrmAccueilDroite.asp` opens the session (the `ASPSESSIONID…`
+   cookie); its script names the cookie check,
+   `<base>/FrmAccueilDroite.asp?checkCookie=<timestamp>`, which the adapter
+   requests next. A session already open — the window keeps it between
+   lookups — answers instead the page sending the browser on to the summary
+   (`FrmSommaireFrame.asp`), and the check is skipped. A check answering
+   that the browser refuses cookies, or a page later answering `Votre
+   session a expiré`, is a changed shape.
+2. `GET <base>/Recherche/FrmRechFrame.asp?MOD=<module>` selects the module
+   in the session; `GET <base>/Recherche/FrmRechHaut.asp?MOD=<module>`,
+   then `GET <base>/Recherche/FrmRechDOCCritere.asp?MOD=<module>`, the form
+   (17 to 78 kB). The form must still list the localities, offer the
+   document kind's value and have the year inputs; otherwise drift.
+3. The localities' labels are the form's list, matched as the cited locality
+   is written (case, accents and punctuation aside), or failing any by the
+   name they give it: `BOURG-EXEMPLE (LE)` and `LA-BAUSSAINE` (the article
+   written either way), `EXAMPLEVILLE (EXEMPLE, FRANCE)` (Corsica), a
+   registration office `EXAMPLEVILLE (BUREAU DE L'ENREGISTREMENT)`, a part of
+   a city `EXAMPLEVILLE (NORD-EST)` — beside a plain `EXAMPLEVILLE`, which
+   is preferred. A hamlet keeps the commune its label names, `HAMEAU
+   (EXAMPLEVILLE, EXEMPLE, FRANCE ; HAMEAU)`. No label gives `Results` with
+   no match; more than three, `Results` with their number.
+4. For each label, `POST <base>/Recherche/FrmRechDOCCritere.asp`,
+   form-encoded: the form's hidden inputs, `txt_CIN_IDX<locality>=1` and
+   `txt_CIN_CH<locality>=<label>`, the type (`txt_CIN_IDX<act>=1`,
+   `txt_CIN_CH<act>=<value>`, and `cbx_txt_CIN_CH<act>=<value>` where it is
+   a checkbox), the years where the settings name their criterion (both
+   bounds the cited year, empty without one),
+   `b_ExecForm=1`, `txt_IDX_OCC=0`. The portal answers `302` with a
+   **relative** `Location`, `FrmRechListeHaut.asp?RechDoc=1`, which the
+   transports resolve in the posted page's directory, as a browser does.
+5. The list says `Aucune fiche…`, `Une seule fiche…` or `N fiches
+   correspondent…` (`div.resultatrech`); a body without it is a challenge
+   when it bears one's signature, a changed shape otherwise. Its headings
+   name its columns, which differ between modules and portals: `Cote(s)`,
+   `Commune` or `Bureau`, `Intitulé`, `Type d'acte` or `Type de document`,
+   `Date` or `Dates`. Rows (`tr.l1`, `tr.l2`, 40 a page) give the call
+   number, the locality (or else the label searched), the period, the acts —
+   the act cell, or else the title (Corsica writes `Registre des actes de
+   naissances, mariages…`), any table as `TD` — and, from the title, the
+   matricules a military register's volume spans (`numéros matricules
+   1-500`). A row's viewer link, `openLot(<idfic>, <idlot>, <ref>,
+   <application>, '', <flag>)`, is skipped when restricted (flag `1`), not
+   digitized (`cfecFichier`) or without a lot; rows carry no image count.
+   Further pages, `GET …/FrmRechListeHaut.asp?RechDoc=1&page=<n>`, are read
+   until the citation decides, five at most.
+6. One register is selected as for Arkothèque (§4.3, step 3). The
+   Ille-et-Vilaine portal lists two copies of a commune's year, the
+   municipal one (`COMMUNE`) and the court clerk's (`GREFFE`): only the
+   call number tells them apart, and without it the answer is `Results`.
+7. `views: "ark"`: `GET <base>/FrmLotDocFrame.asp?idlot=…&idfic=…&ref=…&appliCindoc=<application>&resX=1400&resY=900&init=1&visionneuseHTML5=0`,
+   the viewer page, names the slide file (`zSlidePath=<base>/download/thot/<n>/slides_<k>.xml`);
+   its `GET` lists the views, whose number is the register's count, with
+   `URLARK` (`<origin><base>/ark:/<naan>`) and each view's `LIENARK`
+   (`<name>/<register>/<view>`). The target of view `n` is the resolver
+   `<origin><base>/gestionARK.asp?a=<naan>%2F<name>%2F<register>%2F<n>`,
+   which needs no session, the ARK `<URLARK>/<LIENARK>` returned as `ark`;
+   a view beyond the count opens the register on its first view (§7). A
+   slide file without the portal's ARKs is drift.
+8. `views: "register"`: the target is the viewer page of step 7 itself, a
+   `View` with no views and no count, which opens the register on its first
+   view in the session that searched it, the window's (§6.1), with the view
+   to go to as its banner says. The viewer page is not requested: **every
+   opening of it writes a slide file on the server**, as a reader's does, so
+   the window's own opening is the only one.
+
+`results_url` and the target of `Results` are the portal's home page,
+`<base>/FrmAccueilFrame.asp`, a frameset a reader searches from: the search
+lives in the session. The window's start page is the portal's stylesheet,
+`<base>/css/general.css`, a page of the origin that the portal's anti-bot
+measure guards like the others and that navigates nowhere; the home
+frameset's frames send the top page on to the summary about a second after
+it loads, which would lose the requests running in it.
+
+Requests: Ille-et-Vilaine 9 (steps 1 to 4, the redirect followed, and step
+7), Corsica 7, in the window. The live check's step 1 opens the session and
+reads the form (step 2), the localities being the labels' names with a
+hamlet or a placeholder (`AUTRES DEPARTEMENTS (…)`) passed over; step 2
+searches as above; the chosen register of an `ark` collection is counted
+from its slide file, one more opening, and a `register` collection's is not
+counted: it is cited at its first view and step 3 expects a `View` without
+views (§9.1). The viewer shows the current view in `input#imageNum` and the
+count in `h3#imageNumMax` (` / 13`), with its image tiles aborted.
+
+**Collections.** Ille-et-Vilaine (`MOD` 10, 16, 17, 15): the registers of
+acts (parish registers, civil status and their tables in one search), the
+censuses (by commune, an interval of years), the military registers (by
+place, where any commune finds its recruitment subdivision's volumes of a
+class, and the subdivisions themselves, `EXAMPLEVILLE (SUBDIVISION
+MILITAIRE)`), and the tables of successions and absences (by registration
+office). Corsica (`MOD` 4 and 11): the registers of acts and the censuses
+(by commune or hamlet, years). Not covered: Corsica's military registers
+(`MOD` 12), an index of soldiers searched by name whose search by class
+alone exceeds the portal's maximum (`Le nombre de résultats dépasse le
+maximum autorisé`); Ille-et-Vilaine's `bans` and `catholicite` types, which
+no act code names; and the modules that are not registers of persons
+(notaries, mortgages, maritime registration, prison registers, maps,
+press). The Rennes civil status is published by the city, not on this
+portal.
+
+**Etiquette.** Neither portal publishes a `robots.txt` (an IIS `404`); the
+analytics beacons the pages send are the browser's, never the adapter's.
 
 ## 5. Contract
 
@@ -1736,7 +1881,7 @@ Archive portals are public services whose terms OxidGene follows:
   matricules in two cells, a call number before the locality or the period
   in a title, a census of several lists a year, a cited call number on the
   second page of a populated locality, a keyed value read from the engine's
-  lists, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell.
+  lists, and the IIIF images of a `display: "iiif"` archive; for Ligeo, a combined act, a call number that only breaks a tie, a title-only table, an anti-bot challenge reported apart from drift, the images sized by their services' `info.json` rather than the manifest's canvases, a military register chosen by bureau, class and matricule range, a list of notices, qualified and composite locality cells, a register listed without a viewer link, an index of persons searched by matricule, a search within a finding aid, and the layout, page, single-year and margin settings; for Mnesys, acts written as letter codes, a lookup of the form's locality list, a form without a locality input, rows in several lots or without images, and several call numbers in one cell; for THOT, the session and cookie check, a label written with its article behind or its department, the two copies of a register told apart by call number, a table set aside for an act, a restricted register, a second page, a census searched by an interval of years, a military volume chosen by matricule, Corsica's checkboxes and register-level target opened without the viewer, a refused or expired session and a slide file without ARKs.
 - Transport tests check the declared origins, the header allow-list and the
   native cookie jar; the desktop's, that a window's answers reach only their
   own request and only from the archive's origin, the waiting for the
@@ -1828,7 +1973,10 @@ renumbering its registers. For each collection of each archive, in order:
    whose rows may count images that only the reading room shows: a
    citation cites the views the viewer shows. A register of one image is
    checked only where no other is listed, since the viewer then shows no
-   view number. For a series the locality
+   view number. A register without an address per view whose count would
+   cost an opening of the viewer (THOT's `views: "register"`: each opening
+   writes a file on the server) is not counted, and cited at its first
+   view. For a series the locality
    is what its search filters by — the commune of a census, the recruitment
    bureau of a military register — and registers that show the numbers they
    span (the volumes of one class) are also told apart by them.
@@ -1843,7 +1991,8 @@ renumbering its registers. For each collection of each archive, in order:
    image and an attribution without a placeholder left. A platform whose
    viewer has no address per view (GAIA, whose probe says so) resolves to
    `View` with that call number and no views, which opens on the first
-   view: step 4 checks view 1 and the register's count. The same citation
+   view: step 4 checks view 1 and the register's count, where it was
+   counted. The same citation
    without its call number resolves to the same register or to `Results`,
    never to another register.
 4. **Opening.** The target loads in a browser and the portal's viewer shows
@@ -1864,6 +2013,7 @@ What each platform's probe reads, and where its viewer shows the view:
 | Ligeo | The search form `arc_form_rech` (or the finding aid's page) holds every input of the settings, and every act value a choice list offers; the localities come from what backs the locality input: the thesaurus the page script names (`VT_Control`, `str`), whose autocomplete (`POST <prefix>/xhr/gettheslist/<thesaurus>/0/<search>/<input>_Index`) is asked for `Sai`, a typed facet (`arcfacette.php?…&autoc=1`), the input's options or checkboxes, or a finding aid's branches; labels naming a parish, a place or a former commune are left out. A plain text input nothing backs is probed with the letters themselves; a search by year alone with no locality. | `.monocle-PageNav input[role="spinbutton"]`, count `.monocle-PageNav-total`. |
 | Archinoë | `registre`: the locality select's labels, the act select holds every act identifier, the year input exists. `seriel`: the form names its inputs (quoted with apostrophes); the localities are the autocomplete's suggestions for `Sai` (`ir_seriel_data.php`) that follow `locality_label`. `ead`: the finding aid's root lists the communes, a leading article written behind the name. The results count no images: the chosen register's viewer page does (one `div_image_<n>` per view). | `#visu_pagination` (`n/total`). |
 | Prismia Vision | The API key of `/runtimeConfig.js`; the facet endpoint lists the act filter's values, which hold every `acts` value, and the localities, written `Name (Article)`. | `button[aria-label="Numéro de la vue"]` (`n` and `total`). |
+| THOT | The session and the module's form: the locality list, every `acts` value among the type criterion's options or checkboxes, the year inputs; the localities are the list's labels as citations name them, a hamlet or a placeholder passed over. The results count no images: an `ark` collection's chosen register is counted by its slide file; a `register` one's is not counted (above). | `input#imageNum`, count `h3#imageNumMax`, the tiles aborted. |
 | GAIA | The search's first list (`…/R/0/0`): its first locality written in full, read as step 1 of §4.8 reads a label; without `localities`, the list holds every first label of `types`. The discovery runs the wizard without a year, a list left answered by its first choice (a search through every choice fails on the server for the Aude censuses); the chosen register's viewer page counts the views (one `docs` object each). | `#pagination input[type=text]` (`Page 1 de total`), on view 1 since the viewer has no address per view; its image requests are aborted. |
 
 **How it runs.** The adapter logic stays in Rust, whichever transport
@@ -1969,7 +2119,8 @@ check, in three places; archives are then picked up from the catalogue:
    call number and the image count where the results show them, the
    displayed period, the image address). A platform whose results do not
    count the images also implements `images`, which counts those of the
-   chosen register from the portal's own pages.
+   chosen register from the portal's own pages; one whose collection has no
+   address per view answers `addresses_views` with `false` for it.
 2. `live::probe` in `crates/oxidgene-archives/src/live/mod.rs` lists it by
    platform id; the `every_adapter_has_a_probe` test fails until it does.
 3. `viewers` in `e2e/archives/viewers.ts` describes the portal's viewer by
@@ -2046,7 +2197,8 @@ opened and its platform confirmed from the portal itself (§11.4).
 | Archinoë / Prismia Vision | EidoPolis (Laval) | 17, 21, 47, 60, 62; a viewer for 49; former pages for 07 | URL pattern, legal notice (21)[^ad21-legal], announcement (47)[^ad47-portal] |
 | Archives nationales d'outre-mer | National service | 973, 974, 976 | `caomec2` civil-status search[^anom-civil-status] |
 | GAIA 9 | Unidentified vendor (the Ariège instance is hosted by Oxyd) | 09, 11, 61, 66, 77; a legacy site for 38 | Observed (§4.8): the pages are titled `GAIA 9 : moteur de recherche - <version>` |
-| Unidentified | — | 2A/2B, 22, 30, 32, 35, 52, 53, 64, 81, 82, 84, 971 | Several share an engine (§11.2) |
+| THOT | Vendor not named (`sicem`, `Cindoc` in the markup) | 2A/2B, 35 | Observed (§4.9)[^thot-portals] |
+| Unidentified | — | 22, 30, 32, 52, 53, 64, 81, 82, 84, 971 | Several share an engine (§11.2) |
 
 Vendor counts disagree with their own lists and are orders of magnitude.
 Naoned's "22 departmental archives" counts users of Mnesys Archives, the
@@ -2084,7 +2236,8 @@ portal in seconds and is the evidence required before cataloguing:
 | Archinoë / Prismia Vision | `archinoe.net/v2/adXX/`, `archinoe.com/v2/adXX/`, `archinoe.fr`, `/v2/adXX/registre.html` on the archive's own domain, `/console/ir_ead_visu.php`, `/console/ir_seriel.php`, `<department>.archives.prismia.fr` |
 | Archives nationales d'outre-mer | `anom.archivesnationales.culture.gouv.fr/caomec2/recherche.php?territoire=<territory>` |
 | GAIA 9 | `/mdr/index.php/rechercheTheme/requeteConstructor/<theme>/1/R/0/0` (`/mdr_aude/…` in Aude), often in an `<iframe>` of the archive's site |
-| Unidentified | THOT, `/Internet_THOT/FrmSommaireFrame.asp` or `/thot_internet/FrmSommaireFrame.asp` (Corsica, Ille-et-Vilaine); `/archives/classification-scheme` on an `earchives.` or `recherche-archives.` host (Gard, Tarn, Vaucluse), and `/archives/search/default/…` on the Guadeloupe `earchives.` host, the same engine at least for Tarn, Vaucluse and Guadeloupe; `/document/<finding aid>` on a `recherche.` host (Haute-Marne, Tarn-et-Garonne); `/archives-en-ligne/etat-civil-search-form.html` (Mayenne) and `/archives-en-ligne/ead.html?id=…` (Pyrénées-Atlantiques), probably one engine; `/EC/ecx/commune.aspx` (Côtes-d'Armor); `/archives_numerisees/portail/etats_civils/…` (Gers) |
+| THOT | `/Internet_THOT/FrmSommaireFrame.asp`, `/thot_internet/FrmSommaireFrame.asp`; `Recherche/FrmRechFrame.asp?MOD=<n>` |
+| Unidentified | `/archives/classification-scheme` on an `earchives.` or `recherche-archives.` host (Gard, Tarn, Vaucluse), and `/archives/search/default/…` on the Guadeloupe `earchives.` host, the same engine at least for Tarn, Vaucluse and Guadeloupe; `/document/<finding aid>` on a `recherche.` host (Haute-Marne, Tarn-et-Garonne); `/archives-en-ligne/etat-civil-search-form.html` (Mayenne) and `/archives-en-ligne/ead.html?id=…` (Pyrénées-Atlantiques), probably one engine; `/EC/ecx/commune.aspx` (Côtes-d'Armor); `/archives_numerisees/portail/etats_civils/…` (Gers) |
 
 ### 11.3 Recent migrations and special cases
 
@@ -2183,8 +2336,8 @@ Cases the catalogue model must express:
    live check (§9.1).
 4. Catalogue the Arkothèque and Mnesys Expo archives first, then Ligeo, then
    Archinoë / Prismia Vision, then GAIA; then investigate the departments
-   with no identified platform: 2A/2B, 22, 30, 32, 35, 52, 53, 64, 81, 82,
-   84, 971, and the Archives nationales d'outre-mer for 973, 974 and 976. Engines shared by several of them (§11.2) come first.
+   with no identified platform: 22, 30, 32, 52, 53, 64, 81, 82, 84, 971,
+   and the Archives nationales d'outre-mer for 973, 974 and 976. Engines shared by several of them (§11.2) come first.
 
 ### 11.5 Survey by department
 
@@ -2219,7 +2372,7 @@ only, and *unconfirmed* means no evidence was found.
 | 17 | Charente-Maritime | `archives.charente-maritime.fr` | [`archinoe.com/v2/ad17/registre.html`](https://archinoe.com/v2/ad17/registre.html) | Archinoë | URL pattern; catalogued, searched 2026-10-05 |
 | 18 | Cher | `www.archives18.fr` | [`www.archives18.fr/archives-numerisees/registres-paroissiaux-et-etat-civil`](https://www.archives18.fr/archives-numerisees/registres-paroissiaux-et-etat-civil) | Arkothèque (portal); Naoned customer | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
 | 19 | Corrèze | `www.archives.correze.fr` | [`www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f`](https://www.archives.correze.fr/search/form/3b1ba8cc-6c08-47cd-a90e-f9b231fdc30f) | Mnesys Expo | Mnesys Expo logo; URL pattern; catalogued (§4.4): registers, censuses, military registers; live-checked 2026-10-05 |
-| 2A / 2B | Corse (Archives de la Collectivité de Corse) | `archives.isula.corsica` | [`archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp`](https://archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp) | Unidentified (THOT engine) | Single site since December 2020; portal |
+| 2A / 2B | Corse (Archives de la Collectivité de Corse) | `archives.isula.corsica` | [`archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp`](https://archives.isula.corsica/Internet_THOT/FrmSommaireFrame.asp) | THOT | Single site since December 2020; observed (§4.9); catalogued 2026-10-06, behind Cloudflare (browser only), registers opened at their first view: registers of acts and tables, censuses; the military registers are a name index, not catalogued |
 | 21 | Côte-d'Or | `archives.cotedor.fr` | [`archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564`](https://archives.cotedor.fr/console/ir_ead_visu.php?eadid=FRAD021_000000912&ir=26564); formerly [`archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie`](https://archinoe.fr/v2/site/AD21/Rechercher/Recherche_thematique/Genealogie) | Archinoë / Prismia | Legal notice: hosted by EidoPolis Prismia; URL pattern; catalogued, browsed 2026-10-05 |
 | 22 | Côtes-d'Armor | `archives.cotesdarmor.fr` | [`sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx`](https://sallevirtuelle.cotesdarmor.fr/EC/ecx/commune.aspx) | Unidentified (ASP.NET "salle virtuelle") | Portal |
 | 23 | Creuse | `archives.creuse.fr` | [`archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil`](https://archives.creuse.fr/rechercher/archives-numerisees/registres-paroissiaux-et-de-letat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, RM, TSA |
@@ -2234,7 +2387,7 @@ only, and *unconfirmed* means no evidence was found.
 | 32 | Gers | `www.archives32.fr` | [`www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/`](https://www.archives32.fr/archives_numerisees/portail/etats_civils/ec/recherche/) | Unidentified | Portal |
 | 33 | Gironde | `archives.gironde.fr` | [`archives.gironde.fr/archive/recherche/etatcivil/n:629`](https://archives.gironde.fr/archive/recherche/etatcivil/n:629) | Ligeo | Ligeo references; URL pattern; Bordeaux published by the Archives Bordeaux Métropole; catalogued, searched 2026-10-05: parish and civil registers, censuses, succession tables |
 | 34 | Hérault | `archives-pierresvives.herault.fr` | [`archives-pierresvives.herault.fr/archive/recherche/etatcivil/n:23`](https://archives-pierresvives.herault.fr/archive/recherche/etatcivil/n:23) | Ligeo (portal); Mnesys customer | URL pattern; both vendors' lists; catalogued, searched 2026-10-05: parish and civil registers, censuses, succession tables |
-| 35 | Ille-et-Vilaine | `archives.ille-et-vilaine.fr` | [`archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp`](https://archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp) | Unidentified (THOT engine, as in Corsica) | Portal |
+| 35 | Ille-et-Vilaine | `archives.ille-et-vilaine.fr` | [`archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp`](https://archives-en-ligne.ille-et-vilaine.fr/thot_internet/FrmSommaireFrame.asp) | THOT | Observed (§4.9); catalogued 2026-10-06, each view by its ARK: registers of acts and tables, censuses, military registers, succession tables |
 | 36 | Indre | `www.archives36.fr` | [`www.archives36.fr/fonds-numerises/etat-civil`](https://www.archives36.fr/fonds-numerises/etat-civil) | Arkothèque | Observed and live-checked (§4.3): registers and tables, RP, RM, CM, TSA |
 | 37 | Indre-et-Loire | `archives.touraine.fr` | [`archives.touraine.fr/search/form/e9414896-40cc-4ec3-936c-8acdfdb11770`](https://archives.touraine.fr/search/form/e9414896-40cc-4ec3-936c-8acdfdb11770) | Mnesys Expo | Credits page; Naoned case study; catalogued (§4.4): registers, military registers, succession tables; live-checked 2026-10-05 |
 | 38 | Isère | `archivesenligne.archives-isere.fr` | [`archivesenligne.archives-isere.fr/mdr/index.php/rechercheTheme/`](https://archivesenligne.archives-isere.fr/mdr/index.php/rechercheTheme/) | Arkothèque | Observed and live-checked (§4.3): registers and TD, RP, RM |
@@ -2325,6 +2478,7 @@ collections (§3.1). The ones supplied so far:
 [^ad44-portal]: Loire-Atlantique archive portal, search and viewer requests observed 2026-10-03.
 [^ad72-portal]: Sarthe archive portal, search, viewer and anti-bot challenge observed 2026-10-03.
 [^ad37-portal]: Indre-et-Loire archive portal, search form, results, viewer and manifest observed 2026-10-03.
+[^thot-portals]: The THOT portals of Ille-et-Vilaine and Corsica: session, search forms of every module, results, viewer, slide files and ARK resolver observed 2026-10-05 and 2026-10-06.
 [^ligeo-portals]: The Ligeo departmental portals of §11.5: search pages, results, viewer, manifest, image service and reuse terms observed 2026-10-05, with live checks of every catalogued collection.
 [^iiif-image]: IIIF Image API, image sources listed by the viewer endpoint.
 [^iiif-presentation]: IIIF Presentation API 3.0, the register manifest.

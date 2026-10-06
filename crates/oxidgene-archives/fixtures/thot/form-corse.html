@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head><title>Recherche documentaire</title></head><body>
+<form name="FormRecherche" method="post" action="FrmRechDOCCritere.asp" target="FrmMilieu" onsubmit="javascript: return verifSaisie();" class="centrer">
+<input type="hidden" id="txt_CIN_IDX0" name="txt_CIN_IDX0" value="0" />
+<input type="hidden" name="txt_CIN_CH0" value="" />
+<select class="input width100" id="txt_CIN_LISTE0" onchange="javascript: doQuery( this.value, document.FormRecherche.txt_CIN_CH0, document.FormRecherche.txt_CIN_IDX0 );"><option value="">&nbsp;</option><option value="ABBAYE (EXAMPLEVILLE, EXEMPLE, FRANCE ; HAMEAU)">ABBAYE (EXAMPLEVILLE, EXEMPLE, FRANCE ; HAMEAU)</option><option value="EXAMPLEVILLE (EXEMPLE, FRANCE)">EXAMPLEVILLE (EXEMPLE, FRANCE)</option><option value="SAMPLETON (AUTRE-EXEMPLE, FRANCE)">SAMPLETON (AUTRE-EXEMPLE, FRANCE)</option></select>
+<label class="richText" for="txt_CIN_DEX_D">Ann�es</label>
+<input type="text" class="input" name="txt_CIN_DEX_D" id="txt_CIN_DEX_D" value="" size="4" maxlength="4" />
+<input type="text" class="input" name="txt_CIN_DEX_F" id="txt_CIN_DEX_F" value="" size="4" maxlength="4" />
+<input type="hidden" name="txt_CIN_IDX2" value="0" />
+<input type="hidden" name="txt_CIN_CH2" value="" />
+<input type="checkbox" onclick="javascript: doQuery( concatenerCheckbox( document.FormRecherche.cbx_txt_CIN_CH2 ), document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );" id="cbx_txt_CIN_CH2_0" name="cbx_txt_CIN_CH2" value="BAPTEMES" /><label class="texte" for="cbx_txt_CIN_CH2_0">BAPTEMES</label>
+<input type="checkbox" onclick="javascript: doQuery( concatenerCheckbox( document.FormRecherche.cbx_txt_CIN_CH2 ), document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );" id="cbx_txt_CIN_CH2_1" name="cbx_txt_CIN_CH2" value="DECES" /><label class="texte" for="cbx_txt_CIN_CH2_1">DECES</label>
+<input type="checkbox" onclick="javascript: doQuery( concatenerCheckbox( document.FormRecherche.cbx_txt_CIN_CH2 ), document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );" id="cbx_txt_CIN_CH2_2" name="cbx_txt_CIN_CH2" value="MARIAGES" /><label class="texte" for="cbx_txt_CIN_CH2_2">MARIAGES</label>
+<input type="checkbox" onclick="javascript: doQuery( concatenerCheckbox( document.FormRecherche.cbx_txt_CIN_CH2 ), document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );" id="cbx_txt_CIN_CH2_3" name="cbx_txt_CIN_CH2" value="NAISSANCES" /><label class="texte" for="cbx_txt_CIN_CH2_3">NAISSANCES</label>
+<input type="checkbox" onclick="javascript: doQuery( concatenerCheckbox( document.FormRecherche.cbx_txt_CIN_CH2 ), document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );" id="cbx_txt_CIN_CH2_4" name="cbx_txt_CIN_CH2" value="PUBLICATIONS DE MARIAGE" /><label class="texte" for="cbx_txt_CIN_CH2_4">PUBLICATIONS DE MARIAGE</label>
+<input type="checkbox" onclick="javascript: doQuery( concatenerCheckbox( document.FormRecherche.cbx_txt_CIN_CH2 ), document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );" id="cbx_txt_CIN_CH2_5" name="cbx_txt_CIN_CH2" value="SEPULTURES" /><label class="texte" for="cbx_txt_CIN_CH2_5">SEPULTURES</label>
+<input type="checkbox" onclick="javascript: doQuery( concatenerCheckbox( document.FormRecherche.cbx_txt_CIN_CH2 ), document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );" id="cbx_txt_CIN_CH2_6" name="cbx_txt_CIN_CH2" value="TABLE DECENNALE" /><label class="texte" for="cbx_txt_CIN_CH2_6">TABLE DECENNALE</label>
+<input type="hidden" name="b_ExecForm" value="1" />
+<input type="hidden" name="txt_IDX_OCC" value="" />
+<input type="submit" value="Rechercher" />
+</form>
+<div class="credits">Num�risation : un partenaire fictif</div>
+</body></html>

@@ -418,6 +418,43 @@ fn selects_the_checked_archives() {
 }
 
 #[test]
+fn an_uncounted_register_without_an_address_per_view_is_cited_at_its_first_view() {
+    let registry = ArchiveRegistry::embedded();
+    let corsica = registry.archive("AD2A").unwrap();
+    let collection = &corsica.collections[0];
+    let thot = probe("thot").unwrap();
+    assert!(!thot.addresses_views(collection));
+    assert!(thot.addresses_views(&registry.archive("AD35").unwrap().collections[0]));
+
+    // Counting the register would open its viewer: it is cited at its
+    // first view, uncounted.
+    let register = Register {
+        locality: "Exampleville".to_owned(),
+        call_number: Some("99 NUM 1".to_owned()),
+        period: Some("1865 - 1873".to_owned()),
+        images: None,
+        address: Some("/Internet_THOT/FrmLotDocFrame.asp?idlot=1".to_owned()),
+        numbers: None,
+    };
+    let citation = citation_of(corsica, &collection.acts[0], &register);
+    assert_eq!(citation.views[0].view, 1);
+    assert_eq!(citation.view_count, None);
+    let url = "https://archives.isula.corsica/Internet_THOT/FrmLotDocFrame.asp?idlot=1";
+    let target = ArchiveTarget::View {
+        url: url.to_owned(),
+        views: Vec::new(),
+        view_count: None,
+        call_number: Some("99 NUM 1".to_owned()),
+        attribution: None,
+    };
+    let opening = check_view(corsica, collection, &citation, &target, false).unwrap();
+    assert_eq!((opening.url.as_str(), opening.view), (url, 1));
+    assert_eq!(opening.view_count, None);
+    // The same target from a portal with an address per view is drift.
+    assert!(check_view(corsica, collection, &citation, &target, true).is_err());
+}
+
+#[test]
 fn every_adapter_has_a_probe() {
     for platform in crate::platform::builtin() {
         assert!(

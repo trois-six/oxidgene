@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html><head><title>Recherche documentaire</title></head><body>
+<form name="FormRecherche" method="post" action="FrmRechDOCCritere.asp" target="FrmMilieu" onsubmit="javascript: return verifSaisie();" class="centrer">
+<input type="hidden" id="txt_CIN_IDX0" name="txt_CIN_IDX0" value="0" />
+<input type="hidden" name="txt_CIN_CH0" value="" />
+<select class="input width100" id="txt_CIN_LISTE0" onchange="javascript: doQuery( this.value, document.FormRecherche.txt_CIN_CH0, document.FormRecherche.txt_CIN_IDX0 );"><option value="">&nbsp;</option><option value="BOURG-EXEMPLE (LE)">BOURG-EXEMPLE (LE)</option><option value="EXAMPLEVILLE">EXAMPLEVILLE</option><option value="LA-VILLE-EXEMPLE">LA-VILLE-EXEMPLE</option><option value="SAMPLETON">SAMPLETON</option></select>
+<label class="richText" for="txt_CIN_DEX_D">Ann�es</label>
+<input type="text" class="input" name="txt_CIN_DEX_D" id="txt_CIN_DEX_D" value="" size="4" maxlength="4" />
+<input type="text" class="input" name="txt_CIN_DEX_F" id="txt_CIN_DEX_F" value="" size="4" maxlength="4" />
+<input type="hidden" id="txt_CIN_IDX2" name="txt_CIN_IDX2" value="0" />
+<input type="hidden" name="txt_CIN_CH2" value="" />
+<select class="input width100" id="txt_CIN_LISTE2" onchange="javascript: doQuery( this.value, document.FormRecherche.txt_CIN_CH2, document.FormRecherche.txt_CIN_IDX2 );"><option value="">&nbsp;</option><option value="bans">bans</option><option value="baptemes">baptemes</option><option value="catholicite">catholicite</option><option value="deces">deces</option><option value="mariages">mariages</option><option value="naissances">naissances</option><option value="sepultures">sepultures</option><option value="tables">tables</option></select>
+<input type="hidden" name="b_ExecForm" value="1" />
+<input type="hidden" name="txt_IDX_OCC" value="" />
+<input type="submit" value="Rechercher" />
+</form>
+<div class="credits">Num�risation : un partenaire fictif</div>
+</body></html>

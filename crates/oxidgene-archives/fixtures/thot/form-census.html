@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html><head><title>Recherche documentaire</title></head><body>
+<form name="FormRecherche" method="post" action="FrmRechDOCCritere.asp" target="FrmMilieu" onsubmit="javascript: return verifSaisie();" class="centrer">
+<input type="hidden" id="txt_CIN_IDX0" name="txt_CIN_IDX0" value="0" />
+<input type="hidden" name="txt_CIN_CH0" value="" />
+<select class="input width100" id="txt_CIN_LISTE0" onchange="javascript: doQuery( this.value, document.FormRecherche.txt_CIN_CH0, document.FormRecherche.txt_CIN_IDX0 );"><option value="">&nbsp;</option><option value="EXAMPLEVILLE">EXAMPLEVILLE</option><option value="EXAMPLEVILLE (NORD-EST)">EXAMPLEVILLE (NORD-EST)</option><option value="SAMPLETON">SAMPLETON</option></select>
+<label class="richText" for="intervalleDate1_1">Dates extr�mes</label>
+<input type="hidden" id="txt_CIN_CH1" name="txt_CIN_CH1" value="" />
+<input type="text" class="input" name="intervalleDate1_1" id="intervalleDate1_1" value="" onblur="javascript: formateDex( this ); concatenerDates( document.FormRecherche.intervalleDate1_1, document.FormRecherche.intervalleDate2_1, document.FormRecherche.txt_CIN_CH1 );" />
+<input type="text" class="input" name="intervalleDate2_1" id="intervalleDate2_1" value="" />
+<input type="hidden" name="b_ExecForm" value="1" />
+<input type="hidden" name="txt_IDX_OCC" value="" />
+<input type="submit" value="Rechercher" />
+</form>
+<div class="credits">Num�risation : un partenaire fictif</div>
+</body></html>

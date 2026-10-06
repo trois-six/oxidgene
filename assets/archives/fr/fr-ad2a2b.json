@@ -1,0 +1,49 @@
+{
+  "id": "fr-ad2a2b",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives de la Collectivité de Corse",
+  "jurisdiction": ["2A", "2B"],
+  "areas": ["Corse", "Corse-du-Sud", "Haute-Corse"],
+  "aliases": ["Archives de Corse"],
+  "citation_codes": ["AD2A", "AD2B"],
+  "website": "https://archives.isula.corsica",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["N", "M", "D", "B", "S", "TD"],
+      "period": null,
+      "platform": "thot",
+      "portal": {
+        "origin": "https://archives.isula.corsica",
+        "transport": "browser",
+        "base": "/Internet_THOT",
+        "module": 4,
+        "criteria": { "locality": 0, "act": 2, "year": "dex" },
+        "acts": {
+          "B": "BAPTEMES",
+          "M": "MARIAGES",
+          "S": "SEPULTURES",
+          "N": "NAISSANCES",
+          "D": "DECES",
+          "TD": "TABLE DECENNALE"
+        },
+        "views": "register"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": null,
+      "platform": "thot",
+      "portal": {
+        "origin": "https://archives.isula.corsica",
+        "transport": "browser",
+        "base": "/Internet_THOT",
+        "module": 11,
+        "criteria": { "locality": 0, "year": "dex" },
+        "views": "register"
+      }
+    }
+  ]
+}

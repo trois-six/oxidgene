@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html><head><title>Recherche documentaire</title></head><body>
+<form name="FormRecherche" method="post" action="FrmRechDOCCritere.asp" target="FrmMilieu" onsubmit="javascript: return verifSaisie();" class="centrer">
+<input type="hidden" id="txt_CIN_IDX0" name="txt_CIN_IDX0" value="0" />
+<input type="hidden" name="txt_CIN_CH0" value="" />
+<select class="input width100" id="txt_CIN_LISTE0" onchange="javascript: doQuery( this.value, document.FormRecherche.txt_CIN_CH0, document.FormRecherche.txt_CIN_IDX0 );"><option value="">&nbsp;</option><option value="EXAMPLEVILLE (BUREAU DE L'ENREGISTREMENT)">EXAMPLEVILLE (BUREAU DE L'ENREGISTREMENT)</option><option value="SAMPLETON (BUREAU DE L'ENREGISTREMENT)">SAMPLETON (BUREAU DE L'ENREGISTREMENT)</option></select>
+<input type="hidden" id="txt_CIN_IDX1" name="txt_CIN_IDX1" value="0" />
+<input type="hidden" name="txt_CIN_CH1" value="" />
+<select class="input width100" id="txt_CIN_LISTE1" onchange="javascript: doQuery( this.value, document.FormRecherche.txt_CIN_CH1, document.FormRecherche.txt_CIN_IDX1 );"><option value="">&nbsp;</option><option value="ENREGISTREMENT SAUF TSA (MAUVAIS ETAT)">ENREGISTREMENT SAUF TSA (MAUVAIS ETAT)</option><option value="TABLES DE SUCCESSIONS ET ABSENCES">TABLES DE SUCCESSIONS ET ABSENCES</option></select>
+<label class="richText" for="intervalleDate1_2">Dates extr�mes</label>
+<input type="hidden" id="txt_CIN_CH2" name="txt_CIN_CH2" value="" />
+<input type="text" class="input" name="intervalleDate1_2" id="intervalleDate1_2" value="" onblur="javascript: formateDex( this ); concatenerDates( document.FormRecherche.intervalleDate1_2, document.FormRecherche.intervalleDate2_2, document.FormRecherche.txt_CIN_CH2 );" />
+<input type="text" class="input" name="intervalleDate2_2" id="intervalleDate2_2" value="" />
+<input type="hidden" name="b_ExecForm" value="1" />
+<input type="hidden" name="txt_IDX_OCC" value="" />
+<input type="submit" value="Rechercher" />
+</form>
+<div class="credits">Num�risation : un partenaire fictif</div>
+</body></html>

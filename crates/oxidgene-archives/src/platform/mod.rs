@@ -24,6 +24,7 @@ mod mnesys;
 mod prismia;
 pub(crate) mod query;
 pub(crate) mod select;
+mod thot;
 pub(crate) mod view;
 
 use std::future::Future;
@@ -38,6 +39,7 @@ pub use ligeo::Ligeo;
 pub use mnesys::Mnesys;
 pub use prismia::Prismia;
 pub(crate) use query::Query;
+pub use thot::Thot;
 
 use crate::catalog::{Archive, CatalogError, Collection};
 use crate::citation::CitationParts;
@@ -124,6 +126,7 @@ pub fn builtin() -> Vec<Box<dyn Platform>> {
         Box::new(Ligeo),
         Box::new(Mnesys),
         Box::new(Prismia),
+        Box::new(Thot),
     ]
 }
 

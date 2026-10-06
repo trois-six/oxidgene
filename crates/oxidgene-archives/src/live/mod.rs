@@ -248,10 +248,13 @@ pub trait Probe: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
-    /// Whether the portal's viewer has an address per view. Without one, a
-    /// register resolves to a `View` with no views, which opens on its
-    /// first view: step 4 checks that view.
-    fn addresses_views(&self) -> bool {
+    /// Whether the collection's portal has an address per view. Without
+    /// one, a register resolves to a `View` with no views, which opens on
+    /// its first view: step 4 checks that view. Such a register may also
+    /// go uncounted ([`Probe::images`] answering `None`) where counting it
+    /// would cost an opening of the viewer: it is then cited at its first
+    /// view.
+    fn addresses_views(&self, _collection: &Collection) -> bool {
         true
     }
 }
@@ -265,6 +268,7 @@ pub fn probe(platform: &str) -> Option<&'static dyn Probe> {
         "ligeo" => Some(&crate::platform::Ligeo),
         "mnesys" => Some(&crate::platform::Mnesys),
         "prismia" => Some(&crate::platform::Prismia),
+        "thot" => Some(&crate::platform::Thot),
         _ => None,
     }
 }
@@ -442,7 +446,8 @@ async fn steps(
             .filter(|images| *images > 0);
     }
     drop(fetch);
-    if register.images.is_none() {
+    let addresses_views = probe.addresses_views(collection);
+    if register.images.is_none() && addresses_views {
         return Err(Failure::drift(
             Step::Discovery,
             "the chosen register's image count",
@@ -458,7 +463,7 @@ async fn steps(
         collection,
         transport,
         &citation,
-        probe.addresses_views(),
+        addresses_views,
     )
     .await
 }
@@ -514,9 +519,9 @@ fn choose<'r>(
         })
 }
 
-/// The citation of a chosen register, cited at its middle view.
+/// The citation of a chosen register, cited at its middle view, or at its
+/// first one when its images are not counted.
 fn citation_of(archive: &Archive, act: &Act, register: &Register) -> CitationParts {
-    let images = register.images.unwrap_or(1);
     let year = register.year();
     CitationParts {
         code: archive.citation_codes[0].clone(),
@@ -528,10 +533,10 @@ fn citation_of(archive: &Archive, act: &Act, register: &Register) -> CitationPar
         call_number: register.call_number.as_deref().map(CallNumber::new),
         number: register.numbers.map(|(first, _)| first),
         views: vec![CitedView {
-            view: images.div_ceil(2),
+            view: register.images.map_or(1, |images| images.div_ceil(2)),
             side: None,
         }],
-        view_count: Some(images),
+        view_count: register.images,
     }
 }
 

@@ -1,0 +1,78 @@
+{
+  "id": "fr-ad35",
+  "country": "FR",
+  "level": "departmental",
+  "name": "Archives départementales d'Ille-et-Vilaine",
+  "jurisdiction": ["35"],
+  "areas": ["Ille-et-Vilaine"],
+  "citation_codes": ["AD35"],
+  "website": "https://archives.ille-et-vilaine.fr",
+  "collections": [
+    {
+      "id": "registers",
+      "acts": ["B", "M", "S", "N", "D", "TD"],
+      "period": null,
+      "platform": "thot",
+      "portal": {
+        "origin": "https://archives-en-ligne.ille-et-vilaine.fr",
+        "transport": "any",
+        "base": "/thot_internet",
+        "module": 10,
+        "criteria": { "locality": 0, "act": 2, "year": "dex" },
+        "acts": {
+          "B": "baptemes",
+          "M": "mariages",
+          "S": "sepultures",
+          "N": "naissances",
+          "D": "deces",
+          "TD": "tables"
+        },
+        "views": "ark"
+      }
+    },
+    {
+      "id": "censuses",
+      "acts": ["RP"],
+      "period": null,
+      "platform": "thot",
+      "portal": {
+        "origin": "https://archives-en-ligne.ille-et-vilaine.fr",
+        "transport": "any",
+        "base": "/thot_internet",
+        "module": 16,
+        "criteria": { "locality": 0, "year": 1 },
+        "views": "ark"
+      }
+    },
+    {
+      "id": "military-registers",
+      "acts": ["RM"],
+      "period": null,
+      "platform": "thot",
+      "portal": {
+        "origin": "https://archives-en-ligne.ille-et-vilaine.fr",
+        "transport": "any",
+        "base": "/thot_internet",
+        "module": 17,
+        "criteria": { "locality": 0, "act": 1, "year": 2 },
+        "acts": { "RM": "REGISTRES MATRICULES" },
+        "views": "ark"
+      }
+    },
+    {
+      "id": "succession-tables",
+      "acts": ["TSA"],
+      "period": null,
+      "platform": "thot",
+      "portal": {
+        "origin": "https://archives-en-ligne.ille-et-vilaine.fr",
+        "transport": "any",
+        "base": "/thot_internet",
+        "module": 15,
+        "criteria": { "locality": 0, "act": 1 },
+        "acts": { "TSA": "TABLES DE SUCCESSIONS ET ABSENCES" },
+        "views": "ark"
+      }
+    }
+  ]
+}

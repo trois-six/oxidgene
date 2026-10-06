@@ -284,7 +284,7 @@ impl Probe for Gaia {
         Box::pin(images(collection, register, fetch))
     }
 
-    fn addresses_views(&self) -> bool {
+    fn addresses_views(&self, _collection: &Collection) -> bool {
         false
     }
 }

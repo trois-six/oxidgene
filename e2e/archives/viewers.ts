@@ -53,4 +53,11 @@ export const viewers: Record<string, Viewer> = {
         view: 'button[aria-label="Numéro de la vue"]',
         viewCount: 'button[aria-label="Numéro de la vue"]',
     },
+    // THOT: the Zoomify viewer's view input and its ` / 13`, shown without
+    // the image tiles.
+    thot: {
+        view: "input#imageNum",
+        viewCount: "h3#imageNumMax",
+        blockImages: true,
+    },
 };
